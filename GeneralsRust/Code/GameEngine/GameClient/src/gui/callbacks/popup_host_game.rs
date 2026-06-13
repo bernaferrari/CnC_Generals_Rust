@@ -110,10 +110,7 @@ fn set_checkbox(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
     let Some(window) = window.as_ref() else {
         return;
     };
-    let mut guard = window.borrow_mut();
-    if let Some(check) = guard.check_box_mut() {
-        check.set_checked(checked);
-    }
+    let _ = window.borrow_mut().gadget_check_box_set_checked(checked);
 }
 
 fn checkbox_checked(window: &Option<Rc<RefCell<GameWindow>>>) -> bool {

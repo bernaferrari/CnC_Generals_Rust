@@ -365,9 +365,7 @@ fn set_combo_box_items(
 
 fn set_check_box(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
     if let Some(window) = window {
-        if let Some(widget) = window.borrow_mut().check_box_mut() {
-            widget.set_checked(checked);
-        }
+        let _ = window.borrow_mut().gadget_check_box_set_checked(checked);
     }
 }
 

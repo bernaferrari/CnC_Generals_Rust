@@ -522,11 +522,9 @@ fn populate_global_controls() {
         ))
     }) {
         let mut guard = window.borrow_mut();
-        if let Some(check) = guard.check_box_mut() {
-            let setup = get_skirmish_setup();
-            let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
-            check.set_checked(enabled);
-        }
+        let setup = get_skirmish_setup();
+        let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
+        let _ = guard.gadget_check_box_set_checked(enabled);
     }
 }
 
