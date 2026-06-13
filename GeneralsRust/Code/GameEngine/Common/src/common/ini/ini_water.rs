@@ -106,9 +106,19 @@ pub const TIME_OF_DAY_NAMES: &[&str] = &["Morning", "Noon", "Afternoon", "Evenin
 #[derive(Debug, Clone)]
 pub struct WaterSetting {
     pub time_of_day: TimeOfDay,
+    pub sky_texture_name: AsciiString,
     pub surface_color: (f32, f32, f32, f32),    // RGBA
     pub depth_color: (f32, f32, f32, f32),      // RGBA
     pub reflection_color: (f32, f32, f32, f32), // RGBA
+    pub vertex00_color: (f32, f32, f32, f32),
+    pub vertex10_color: (f32, f32, f32, f32),
+    pub vertex01_color: (f32, f32, f32, f32),
+    pub vertex11_color: (f32, f32, f32, f32),
+    pub transparent_diffuse_color: (f32, f32, f32, f32),
+    pub u_scroll_per_ms: f32,
+    pub v_scroll_per_ms: f32,
+    pub sky_texels_per_unit: f32,
+    pub water_repeat_count: i32,
     pub wave_amplitude: f32,
     pub wave_frequency: f32,
     pub wave_speed: f32,
@@ -128,9 +138,19 @@ impl WaterSetting {
     pub fn new(time_of_day: TimeOfDay) -> Self {
         Self {
             time_of_day,
+            sky_texture_name: AsciiString::from(""),
             surface_color: (0.2, 0.4, 0.8, 0.8),
             depth_color: (0.0, 0.2, 0.4, 1.0),
             reflection_color: (0.8, 0.8, 1.0, 0.5),
+            vertex00_color: (0.0, 0.0, 0.0, 0.0),
+            vertex10_color: (0.0, 0.0, 0.0, 0.0),
+            vertex01_color: (0.0, 0.0, 0.0, 0.0),
+            vertex11_color: (0.0, 0.0, 0.0, 0.0),
+            transparent_diffuse_color: (0.0, 0.0, 0.0, 0.0),
+            u_scroll_per_ms: 0.0,
+            v_scroll_per_ms: 0.0,
+            sky_texels_per_unit: 0.0,
+            water_repeat_count: 0,
             wave_amplitude: 0.5,
             wave_frequency: 2.0,
             wave_speed: 1.0,
@@ -239,9 +259,60 @@ impl WaterSetting {
     pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
         for (key, value) in properties {
             match key.as_str() {
-                "SurfaceColor" => {
+                "SkyTexture" => {
+                    self.sky_texture_name = AsciiString::from(value);
+                }
+                "WaterTexture" | "Texture" => {
+                    self.texture_name = AsciiString::from(value);
+                }
+                "Vertex00Color" => {
+                    if let Ok(color) = parse_color_rgba(value) {
+                        self.vertex00_color = color;
+                    }
+                }
+                "Vertex10Color" => {
+                    if let Ok(color) = parse_color_rgba(value) {
+                        self.vertex10_color = color;
+                    }
+                }
+                "Vertex01Color" => {
+                    if let Ok(color) = parse_color_rgba(value) {
+                        self.vertex01_color = color;
+                    }
+                }
+                "Vertex11Color" => {
+                    if let Ok(color) = parse_color_rgba(value) {
+                        self.vertex11_color = color;
+                    }
+                }
+                "DiffuseColor" | "SurfaceColor" => {
                     if let Ok(color) = parse_color_rgba(value) {
                         self.surface_color = color;
+                    }
+                }
+                "TransparentDiffuseColor" => {
+                    if let Ok(color) = parse_color_rgba(value) {
+                        self.transparent_diffuse_color = color;
+                    }
+                }
+                "UScrollPerMS" => {
+                    if let Ok(scroll) = value.parse::<f32>() {
+                        self.u_scroll_per_ms = scroll;
+                    }
+                }
+                "VScrollPerMS" => {
+                    if let Ok(scroll) = value.parse::<f32>() {
+                        self.v_scroll_per_ms = scroll;
+                    }
+                }
+                "SkyTexelsPerUnit" => {
+                    if let Ok(texels) = value.parse::<f32>() {
+                        self.sky_texels_per_unit = texels;
+                    }
+                }
+                "WaterRepeatCount" => {
+                    if let Ok(count) = value.parse::<i32>() {
+                        self.water_repeat_count = count;
                     }
                 }
                 "DepthColor" => {
@@ -299,9 +370,6 @@ impl WaterSetting {
                         self.normal_map_scale = scale;
                     }
                 }
-                "Texture" => {
-                    self.texture_name = AsciiString::from(value);
-                }
                 "NormalMap" => {
                     self.normal_map_name = AsciiString::from(value);
                 }
@@ -324,6 +392,12 @@ impl WaterSetting {
 /// Water transparency setting
 #[derive(Debug, Clone)]
 pub struct WaterTransparencySetting {
+    pub transparent_water_depth: f32,
+    pub min_water_opacity: f32,
+    pub standing_water_color: (f32, f32, f32),
+    pub radar_water_color: (f32, f32, f32),
+    pub additive_blending: bool,
+    pub standing_water_texture: AsciiString,
     pub skybox_texture_n: AsciiString, // North
     pub skybox_texture_e: AsciiString, // East
     pub skybox_texture_s: AsciiString, // South
@@ -338,11 +412,17 @@ pub struct WaterTransparencySetting {
 impl WaterTransparencySetting {
     pub fn new() -> Self {
         Self {
-            skybox_texture_n: AsciiString::from(""),
-            skybox_texture_e: AsciiString::from(""),
-            skybox_texture_s: AsciiString::from(""),
-            skybox_texture_w: AsciiString::from(""),
-            skybox_texture_t: AsciiString::from(""),
+            transparent_water_depth: 3.0,
+            min_water_opacity: 1.0,
+            standing_water_color: (1.0, 1.0, 1.0),
+            radar_water_color: (140.0, 140.0, 255.0),
+            additive_blending: false,
+            standing_water_texture: AsciiString::from("TWWater01.tga"),
+            skybox_texture_n: AsciiString::from("TSMorningN.tga"),
+            skybox_texture_e: AsciiString::from("TSMorningE.tga"),
+            skybox_texture_s: AsciiString::from("TSMorningS.tga"),
+            skybox_texture_w: AsciiString::from("TSMorningW.tga"),
+            skybox_texture_t: AsciiString::from("TSMorningT.tga"),
             water_transparency: 0.8,
             is_override: false,
             next_override: None,
@@ -507,6 +587,19 @@ pub fn parse_color_rgba(value: &str) -> Result<(f32, f32, f32, f32), String> {
     }
 }
 
+pub fn parse_color_rgb(value: &str) -> Result<(f32, f32, f32), String> {
+    let (r, g, b, _) = parse_color_rgba(value)?;
+    Ok((r, g, b))
+}
+
+fn parse_bool(value: &str) -> Result<bool, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "yes" | "true" | "1" => Ok(true),
+        "no" | "false" | "0" => Ok(false),
+        _ => Err(format!("Invalid boolean value: {}", value)),
+    }
+}
+
 /// Compare strings ignoring case
 pub fn stricmp(a: &str, b: &str) -> i32 {
     a.to_lowercase().cmp(&b.to_lowercase()) as i32
@@ -629,6 +722,34 @@ impl IniWater {
         // Update setting from properties
         for (key, value) in properties {
             match key.as_str() {
+                "TransparentWaterDepth" => {
+                    if let Ok(depth) = value.parse::<f32>() {
+                        transparency_setting.transparent_water_depth = depth;
+                    }
+                }
+                "TransparentWaterMinOpacity" => {
+                    if let Ok(opacity) = value.parse::<f32>() {
+                        transparency_setting.min_water_opacity = opacity;
+                    }
+                }
+                "StandingWaterColor" => {
+                    if let Ok(color) = parse_color_rgb(&value) {
+                        transparency_setting.standing_water_color = color;
+                    }
+                }
+                "StandingWaterTexture" => {
+                    transparency_setting.standing_water_texture = AsciiString::from(&value);
+                }
+                "AdditiveBlending" => {
+                    if let Ok(enabled) = parse_bool(&value) {
+                        transparency_setting.additive_blending = enabled;
+                    }
+                }
+                "RadarWaterColor" => {
+                    if let Ok(color) = parse_color_rgb(&value) {
+                        transparency_setting.radar_water_color = color;
+                    }
+                }
                 "SkyboxTextureN" => {
                     transparency_setting.skybox_texture_n = AsciiString::from(&value);
                 }
@@ -718,6 +839,16 @@ mod tests {
         assert_eq!(transparency.skybox_texture_n.as_str(), "skybox_n.tga");
         assert_eq!(transparency.water_transparency, 0.9);
         assert!(!transparency.is_override);
+        assert_eq!(transparency.transparent_water_depth, 3.0);
+        assert_eq!(transparency.min_water_opacity, 1.0);
+        assert_eq!(transparency.standing_water_color, (1.0, 1.0, 1.0));
+        assert_eq!(transparency.radar_water_color, (140.0, 140.0, 255.0));
+        assert_eq!(
+            transparency.standing_water_texture.as_str(),
+            "TWWater01.tga"
+        );
+        assert_eq!(transparency.skybox_texture_t.as_str(), "TSMorningT.tga");
+        assert!(!transparency.additive_blending);
     }
 
     #[test]
@@ -733,6 +864,77 @@ mod tests {
         assert_eq!(setting.wave_amplitude, 1.5);
         assert_eq!(setting.transparency, 0.9);
         assert_eq!(setting.surface_color, (0.1, 0.3, 0.7, 0.8));
+    }
+
+    #[test]
+    fn water_setting_accepts_cpp_field_table_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("SkyTexture".to_string(), "SkyMorning.tga".to_string());
+        properties.insert("WaterTexture".to_string(), "Water01.tga".to_string());
+        properties.insert("Vertex00Color".to_string(), "1 2 3 4".to_string());
+        properties.insert("Vertex10Color".to_string(), "5 6 7 8".to_string());
+        properties.insert("Vertex01Color".to_string(), "9 10 11 12".to_string());
+        properties.insert("Vertex11Color".to_string(), "13 14 15 16".to_string());
+        properties.insert("DiffuseColor".to_string(), "17 18 19 20".to_string());
+        properties.insert(
+            "TransparentDiffuseColor".to_string(),
+            "21 22 23 24".to_string(),
+        );
+        properties.insert("UScrollPerMS".to_string(), "0.001".to_string());
+        properties.insert("VScrollPerMS".to_string(), "0.002".to_string());
+        properties.insert("SkyTexelsPerUnit".to_string(), "0.5".to_string());
+        properties.insert("WaterRepeatCount".to_string(), "8".to_string());
+
+        let setting =
+            IniWater::parse_water_setting_block(AsciiString::from("Morning"), properties).unwrap();
+
+        assert_eq!(setting.sky_texture_name.as_str(), "SkyMorning.tga");
+        assert_eq!(setting.texture_name.as_str(), "Water01.tga");
+        assert_eq!(setting.vertex00_color, (1.0, 2.0, 3.0, 4.0));
+        assert_eq!(setting.vertex10_color, (5.0, 6.0, 7.0, 8.0));
+        assert_eq!(setting.vertex01_color, (9.0, 10.0, 11.0, 12.0));
+        assert_eq!(setting.vertex11_color, (13.0, 14.0, 15.0, 16.0));
+        assert_eq!(setting.surface_color, (17.0, 18.0, 19.0, 20.0));
+        assert_eq!(setting.transparent_diffuse_color, (21.0, 22.0, 23.0, 24.0));
+        assert_eq!(setting.u_scroll_per_ms, 0.001);
+        assert_eq!(setting.v_scroll_per_ms, 0.002);
+        assert_eq!(setting.sky_texels_per_unit, 0.5);
+        assert_eq!(setting.water_repeat_count, 8);
+        assert!(setting.properties.is_empty());
+    }
+
+    #[test]
+    fn water_transparency_accepts_cpp_field_table_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("TransparentWaterDepth".to_string(), "9.5".to_string());
+        properties.insert("TransparentWaterMinOpacity".to_string(), "0.35".to_string());
+        properties.insert("StandingWaterColor".to_string(), "0.2 0.3 0.4".to_string());
+        properties.insert(
+            "StandingWaterTexture".to_string(),
+            "Standing.tga".to_string(),
+        );
+        properties.insert("AdditiveBlending".to_string(), "Yes".to_string());
+        properties.insert("RadarWaterColor".to_string(), "10 20 30".to_string());
+        properties.insert("SkyboxTextureN".to_string(), "North.tga".to_string());
+        properties.insert("SkyboxTextureE".to_string(), "East.tga".to_string());
+        properties.insert("SkyboxTextureS".to_string(), "South.tga".to_string());
+        properties.insert("SkyboxTextureW".to_string(), "West.tga".to_string());
+        properties.insert("SkyboxTextureT".to_string(), "Top.tga".to_string());
+
+        let setting = IniWater::parse_water_transparency_block(properties).unwrap();
+
+        assert_eq!(setting.transparent_water_depth, 9.5);
+        assert_eq!(setting.min_water_opacity, 0.35);
+        assert_eq!(setting.standing_water_color, (0.2, 0.3, 0.4));
+        assert_eq!(setting.standing_water_texture.as_str(), "Standing.tga");
+        assert!(setting.additive_blending);
+        assert_eq!(setting.radar_water_color, (10.0, 20.0, 30.0));
+        assert_eq!(setting.skybox_texture_n.as_str(), "North.tga");
+        assert_eq!(setting.skybox_texture_e.as_str(), "East.tga");
+        assert_eq!(setting.skybox_texture_s.as_str(), "South.tga");
+        assert_eq!(setting.skybox_texture_w.as_str(), "West.tga");
+        assert_eq!(setting.skybox_texture_t.as_str(), "Top.tga");
+        assert!(setting.properties.is_empty());
     }
 
     #[test]
