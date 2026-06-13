@@ -3866,8 +3866,12 @@ impl TerrainVisualImpl {
     ) {
         let old_resolution = self.water_grid.resolution;
         let cell_size = cell_size.max(f32::EPSILON);
-        self.water_grid.resolution = (grid_cells_x, grid_cells_y, cell_size);
-        if old_resolution.0 != grid_cells_x || old_resolution.1 != grid_cells_y {
+        self.water_grid.resolution.2 = cell_size;
+        // C++ W3DWater.cpp compares `m_gridCellsY != m_gridCellsY`, so y-only
+        // resolution changes do not reallocate or update the stored y count.
+        if old_resolution.0 != grid_cells_x {
+            self.water_grid.resolution.0 = grid_cells_x;
+            self.water_grid.resolution.1 = grid_cells_y;
             self.water_grid.height_deltas.clear();
             self.water_grid.point_motions.clear();
             self.water_grid.velocity_events.clear();
