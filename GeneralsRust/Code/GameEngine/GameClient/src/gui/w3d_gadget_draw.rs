@@ -767,14 +767,18 @@ mod tests {
         push_button_color_entry_index, push_button_one_image_source, w3d_gadget_push_button_draw,
         PushButtonDrawBank,
     };
-    use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
+    use super::{
+        static_text_draw_data, static_text_text_colors, static_text_text_position,
+        WIN_COLOR_UNDEFINED,
+    };
     use super::{
         text_entry_clip_region, text_entry_cursor_window_x, text_entry_focus_matches,
         text_entry_image_tile_rects, text_entry_start_y, text_entry_text_color_defined,
         text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
     };
     use crate::gui::gadgets::{
-        Color, ListBox, ListBoxItemData, PushButton, TabControl, TabControlData,
+        Color, ListBox, ListBoxItemData, PushButton, TabControl, TabControlData, TextAlignment,
+        VerticalAlignment,
     };
     use crate::gui::game_window::{
         GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
@@ -1002,16 +1006,8 @@ mod tests {
         let mut listbox = ListBox::new(7, 0, 0, 160, 60);
         listbox.set_columns(2);
         let row = listbox.add_item_with_data_and_color(1, "Fallback", None, None);
-        assert!(listbox.set_item_column_data(
-            row,
-            0,
-            ListBoxItemData::Text("Alpha".to_string())
-        ));
-        assert!(listbox.set_item_column_data(
-            row,
-            1,
-            ListBoxItemData::Text("Bravo".to_string())
-        ));
+        assert!(listbox.set_item_column_data(row, 0, ListBoxItemData::Text("Alpha".to_string())));
+        assert!(listbox.set_item_column_data(row, 1, ListBoxItemData::Text("Bravo".to_string())));
         window.set_widget(WindowWidget::ListBox(listbox));
 
         let title = window
@@ -1035,11 +1031,7 @@ mod tests {
         let mut listbox = ListBox::new(7, 0, 0, 160, 60);
         listbox.set_columns(1);
         let row = listbox.add_item_with_data_and_color(1, "Alpha", None, None);
-        assert!(listbox.set_item_column_data(
-            row,
-            0,
-            ListBoxItemData::Text("Alpha".to_string())
-        ));
+        assert!(listbox.set_item_column_data(row, 0, ListBoxItemData::Text("Alpha".to_string())));
         window.set_widget(WindowWidget::ListBox(listbox));
 
         assert!(window.instance_data().display_text.is_none());
@@ -1180,6 +1172,44 @@ mod tests {
         inst_data.enabled_text.border_color = 0xFF102030;
 
         assert_eq!(static_text_text_colors(&window, &inst_data), None);
+    }
+
+    #[test]
+    fn static_text_position_ignores_right_and_bottom_like_cpp() {
+        assert_eq!(
+            static_text_text_position(
+                10,
+                20,
+                100,
+                40,
+                30,
+                12,
+                7,
+                5,
+                TextAlignment::Right,
+                VerticalAlignment::Bottom,
+            ),
+            (17, 25)
+        );
+    }
+
+    #[test]
+    fn static_text_position_centers_only_cpp_center_flags() {
+        assert_eq!(
+            static_text_text_position(
+                10,
+                20,
+                100,
+                40,
+                30,
+                12,
+                7,
+                5,
+                TextAlignment::Center,
+                VerticalAlignment::Center,
+            ),
+            (45, 34)
+        );
     }
 
     #[test]
@@ -2824,19 +2854,46 @@ fn draw_static_text(
             display.set_font(font);
         }
         let (text_w, text_h) = display.get_size();
-        if align == TextAlignment::Center {
-            text_x = origin_x + (width / 2) - (text_w / 2);
-        } else if align == TextAlignment::Right {
-            text_x = origin_x + width - text_w - left_margin;
-        }
-        if valign == VerticalAlignment::Center {
-            text_y = origin_y + (height / 2) - (text_h / 2);
-        } else if valign == VerticalAlignment::Bottom {
-            text_y = origin_y + height - text_h - top_margin;
-        }
+        (text_x, text_y) = static_text_text_position(
+            origin_x,
+            origin_y,
+            width,
+            height,
+            text_w,
+            text_h,
+            left_margin,
+            top_margin,
+            align,
+            valign,
+        );
         display.draw(text_x, text_y, text_color, drop);
         display.set_clip_region(None);
     }
+}
+
+fn static_text_text_position(
+    origin_x: i32,
+    origin_y: i32,
+    width: i32,
+    height: i32,
+    text_w: i32,
+    text_h: i32,
+    left_margin: i32,
+    top_margin: i32,
+    align: TextAlignment,
+    valign: VerticalAlignment,
+) -> (i32, i32) {
+    let text_x = if align == TextAlignment::Center {
+        origin_x + (width / 2) - (text_w / 2)
+    } else {
+        origin_x + left_margin
+    };
+    let text_y = if valign == VerticalAlignment::Center {
+        origin_y + (height / 2) - (text_h / 2)
+    } else {
+        origin_y + top_margin
+    };
+    (text_x, text_y)
 }
 
 fn static_text_draw_data<'a>(

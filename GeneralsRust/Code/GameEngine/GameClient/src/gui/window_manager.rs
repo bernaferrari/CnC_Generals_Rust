@@ -5145,12 +5145,18 @@ fn apply_window_widget_data(window: &mut GameWindow, window_def: &WindowDefiniti
             }
             WindowWidget::StaticText(label) => {
                 if let Some(data) = window_def.static_text_data.as_ref() {
-                    if data.centered {
-                        label.set_alignment(
-                            super::gadgets::TextAlignment::Center,
-                            super::gadgets::VerticalAlignment::Center,
-                        );
-                    }
+                    let horizontal = if data.centered {
+                        super::gadgets::TextAlignment::Center
+                    } else {
+                        super::gadgets::TextAlignment::Left
+                    };
+                    let vertical = if data.centered_vertically {
+                        super::gadgets::VerticalAlignment::Center
+                    } else {
+                        super::gadgets::VerticalAlignment::Top
+                    };
+                    label.set_alignment(horizontal, vertical);
+                    label.set_margins(data.left_margin, data.top_margin);
                 }
             }
             WindowWidget::HorizontalSlider(slider) => {
@@ -5205,7 +5211,8 @@ impl Default for WindowManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gui::window_script::ComboBoxData;
+    use crate::gui::gadgets::{TextAlignment, VerticalAlignment};
+    use crate::gui::window_script::{ComboBoxData, StaticTextData};
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -5247,6 +5254,32 @@ mod tests {
         assert_eq!(edit_data.input_callback_string, "GameWinDefaultInput");
         assert_eq!(edit_data.tooltip_callback_string, "GameWinDefaultTooltip");
         assert_eq!(edit_data.draw_callback_string, "W3DNoDraw");
+    }
+
+    #[test]
+    fn static_text_script_data_applies_cpp_alignment_defaults() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
+        let window_def = WindowDefinition {
+            static_text_data: Some(StaticTextData {
+                centered: false,
+                centered_vertically: true,
+                left_margin: 7,
+                top_margin: 7,
+            }),
+            ..WindowDefinition::default()
+        };
+
+        apply_window_widget_data(&mut window, &window_def);
+
+        let Some(WindowWidget::StaticText(label)) = window.widget() else {
+            panic!("static text widget missing");
+        };
+        let cfg = label.config();
+        assert_eq!(cfg.alignment, TextAlignment::Left);
+        assert_eq!(cfg.vertical_alignment, VerticalAlignment::Center);
+        assert_eq!(cfg.left_margin, 7);
+        assert_eq!(cfg.top_margin, 7);
     }
 
     #[test]
