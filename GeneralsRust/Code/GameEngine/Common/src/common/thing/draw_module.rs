@@ -9,7 +9,11 @@
 use crate::common::{
     ini::{Coord3D, Matrix3D},
     rts::Real,
-    system::Xfer,
+    system::{Snapshotable, Xfer},
+    thing::module::{
+        BaseDrawableModule, BaseModuleData, Drawable, DrawableModule as BaseDrawableModuleTrait,
+        Module, ModuleData, NameKeyType,
+    },
 };
 use std::sync::Arc;
 
@@ -297,13 +301,71 @@ pub trait DrawableModuleTrait {
 
 /// Concrete draw module implementation
 pub struct DrawModule {
-    // Base module data would go here
-    // For now, just placeholder
+    base: BaseDrawableModule,
 }
 
 impl DrawModule {
     pub fn new() -> Self {
-        Self {}
+        Self::new_with_base(Arc::new(BaseModuleData::new()), 0, None)
+    }
+
+    pub fn new_with_base(
+        module_data: Arc<dyn ModuleData>,
+        module_name_key: NameKeyType,
+        drawable: Option<Arc<dyn Drawable>>,
+    ) -> Self {
+        Self {
+            base: BaseDrawableModule::new(module_data, module_name_key, drawable),
+        }
+    }
+
+    pub fn get_drawable(&self) -> Option<&dyn Drawable> {
+        self.base.get_drawable()
+    }
+}
+
+impl Default for DrawModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Snapshotable for DrawModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ DrawModule::xfer writes its own version before DrawableModule::xfer.
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("DrawModule::xfer version failed: {}", e))?;
+        self.base.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.base.load_post_process()
+    }
+}
+
+impl Module for DrawModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.base.get_module_name_key()
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.base.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.base.get_module_data()
+    }
+}
+
+impl BaseDrawableModuleTrait for DrawModule {
+    fn get_drawable(&self) -> Option<&dyn Drawable> {
+        self.base.get_drawable()
     }
 }
 
@@ -342,20 +404,34 @@ impl DrawableModuleTrait for DrawModule {
     }
 
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ DrawModule::crc() is intentionally empty
-        Ok(())
+        <Self as Snapshotable>::crc(self, _xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ uses UnsignedByte (u8) for version - matches C++ parity
-        let current_version = 1u8;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        <Self as Snapshotable>::xfer(self, xfer)
     }
 
     fn load_post_process(&mut self) {
-        // Post-load processing
+        let _ = <Self as Snapshotable>::load_post_process(self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    #[test]
+    fn draw_module_xfer_extends_drawable_and_module_versions() {
+        let mut module = DrawModule::new();
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut xfer = XferSave::new(cursor, 0);
+            DrawableModuleTrait::xfer(&mut module, &mut xfer).unwrap();
+        }
+
+        assert_eq!(bytes, vec![1, 1, 1]);
     }
 }
