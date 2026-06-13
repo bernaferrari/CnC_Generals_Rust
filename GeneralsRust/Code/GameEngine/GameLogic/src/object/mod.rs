@@ -13399,7 +13399,9 @@ mod tests {
         let mut faction_template = DefaultThingTemplate::new("FactionStructure".to_string());
         let mut properties = std::collections::HashMap::new();
         properties.insert("KindOf".to_string(), "STRUCTURE | FS_BARRACKS".to_string());
-        faction_template.parse_object_fields_from_ini(&properties);
+        faction_template
+            .parse_object_fields_from_ini(&properties)
+            .expect("parse object fields");
         let faction_obj = Object::new_raw(
             Arc::new(faction_template),
             10,
@@ -13412,7 +13414,9 @@ mod tests {
 
         let mut civilian_template = DefaultThingTemplate::new("CivilianStructure".to_string());
         properties.insert("KindOf".to_string(), "STRUCTURE | CIVILIAN".to_string());
-        civilian_template.parse_object_fields_from_ini(&properties);
+        civilian_template
+            .parse_object_fields_from_ini(&properties)
+            .expect("parse object fields");
         let civilian_obj = Object::new_raw(
             Arc::new(civilian_template),
             11,

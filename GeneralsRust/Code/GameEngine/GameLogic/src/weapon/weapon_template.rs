@@ -2720,7 +2720,9 @@ mod tests {
         let mut template = crate::common::DefaultThingTemplate::new(name.to_string());
         let properties =
             std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
-        template.parse_object_fields_from_ini(&properties);
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("parse object fields");
 
         let object = crate::object::Object::new_with_id(
             Arc::new(template),
