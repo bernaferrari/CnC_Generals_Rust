@@ -493,7 +493,7 @@ impl W3DTreeBuffer {
 
     pub fn add_tree_type(&mut self, data: TreeModuleData, bounds: TreeSphere) -> Option<usize> {
         if self.tree_types.len() >= MAX_TYPES {
-            return None;
+            return Some(0);
         }
         self.need_to_update_texture = true;
         self.tree_types

@@ -119,6 +119,44 @@ fn add_tree_dedupes_type_and_partitions_pushable_or_topple_trees() {
 }
 
 #[test]
+fn tree_type_table_full_falls_back_to_type_zero() {
+    let mut buffer = W3DTreeBuffer::new();
+
+    for i in 0..MAX_TYPES {
+        let model = format!("Tree{i}");
+        let texture = format!("TreeTexture{i}");
+        let index = buffer
+            .add_tree(
+                i as u32,
+                Vec3::new(i as f32, 0.0, 0.0),
+                1.0,
+                0.0,
+                0.0,
+                module(&model, &texture),
+                bounds(),
+            )
+            .unwrap();
+        assert_eq!(index, i);
+    }
+
+    let overflow = buffer
+        .add_tree(
+            999,
+            Vec3::new(99.0, 0.0, 0.0),
+            1.0,
+            0.0,
+            0.0,
+            module("OverflowTree", "OverflowTexture"),
+            bounds(),
+        )
+        .unwrap();
+
+    assert_eq!(overflow, MAX_TYPES);
+    assert_eq!(buffer.trees()[overflow].tree_type, 0);
+    assert_eq!(buffer.tree_types().len(), MAX_TYPES);
+}
+
+#[test]
 fn remove_and_update_tree_match_cpp_side_effects() {
     let mut buffer = W3DTreeBuffer::new();
     let id = buffer
