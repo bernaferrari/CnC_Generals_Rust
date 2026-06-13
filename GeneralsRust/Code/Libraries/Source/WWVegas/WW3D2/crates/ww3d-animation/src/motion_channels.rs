@@ -788,7 +788,7 @@ mod tests {
     fn test_adaptive_delta_simple() {
         // This is a minimal test - real data would be complex
         // Just verify structure is correct
-        let mut channel = AdaptiveDeltaMotionChannelClass::new(
+        let channel = AdaptiveDeltaMotionChannelClass::new(
             0, // pivot
             ANIM_CHANNEL_X,
             1,                      // vector_len

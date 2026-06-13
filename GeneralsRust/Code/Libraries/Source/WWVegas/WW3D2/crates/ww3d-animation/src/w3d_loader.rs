@@ -61,6 +61,7 @@ pub struct W3DAnimationData {
     pub compression_flavor: Option<u32>, // None = uncompressed, Some(0) = timecoded, Some(1) = adaptive delta
     pub channels: Vec<W3DAnimationChannel>,
     pub compressed_anim: Option<HCompressedAnimClass>, // NEW: Holds compressed animation if present
+    pub morph_anim: Option<W3DMorphAnimationData>,
 }
 
 /// Animation channel with keyframe data
@@ -81,14 +82,21 @@ pub struct W3DMorphAnimationData {
     pub num_frames: u32,
     pub frame_rate: f32,
     pub channels: Vec<W3DMorphChannel>,
+    pub pivot_channels: Vec<u32>,
 }
 
 /// Morph animation channel
 #[derive(Debug, Clone)]
 pub struct W3DMorphChannel {
-    pub pivot_index: u16,
     pub pose_name: String,
-    pub keyframes: Vec<f32>,
+    pub keyframes: Vec<W3DMorphKey>,
+}
+
+/// Time-coded morph key mapping a morph frame to a pose-animation frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W3DMorphKey {
+    pub morph_frame: u32,
+    pub pose_frame: u32,
 }
 
 /// HModel data (Hierarchical Model blueprint)
@@ -204,6 +212,7 @@ fn parse_animation_chunk<R: Read + Seek>(
         compression_flavor: None, // Uncompressed animation
         channels,
         compressed_anim: None,
+        morph_anim: None,
     })
 }
 
@@ -437,6 +446,7 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
         compression_flavor: Some(header.flavor),
         channels: Vec::new(), // Compressed animations use HCompressedAnimClass instead
         compressed_anim: Some(compressed_anim),
+        morph_anim: None,
     })
 }
 
@@ -561,48 +571,8 @@ fn parse_morph_animation_chunk<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
 ) -> Result<W3DAnimationData, W3DAnimationError> {
-    let chunk_end = reader.stream_position()? + chunk_size as u64;
+    let morph_data = parse_morph_animation_data(reader, chunk_size)?;
 
-    let mut header: Option<ww3d_core::W3dMorphAnimStruct> = None;
-    let mut channels: Vec<W3DMorphChannel> = Vec::new();
-
-    while reader.stream_position()? < chunk_end {
-        let sub_header: W3dChunkHeader = reader.read_le()?;
-        let sub_start = reader.stream_position()?;
-        let sub_end = sub_start + sub_header.actual_size() as u64;
-
-        match sub_header.chunk_type() {
-            Some(W3DChunkType::MorphanimHeader) => {
-                header = Some(reader.read_le()?);
-            }
-            Some(W3DChunkType::MorphanimChannel) => {
-                if let Ok(channel) = parse_morph_channel_chunk(reader, sub_header.actual_size()) {
-                    channels.push(channel);
-                }
-            }
-            _ => {
-                // Skip unknown sub-chunks
-                reader.seek(SeekFrom::Start(sub_end))?;
-            }
-        }
-
-        reader.seek(SeekFrom::Start(sub_end))?;
-    }
-
-    let header = header
-        .ok_or_else(|| W3DAnimationError::MissingChunk("Morph animation header".to_string()))?;
-
-    // Create morph animation data structure
-    let morph_data = W3DMorphAnimationData {
-        name: ww3d_core::w3d_string_from_bytes(&header.name),
-        hierarchy_name: ww3d_core::w3d_string_from_bytes(&header.hiera_name),
-        num_frames: header.frame_count,
-        frame_rate: 30.0, // Default frame rate for morph animations
-        channels,
-    };
-
-    // For now, return a placeholder W3DAnimationData
-    // In a full implementation, you'd want to convert morph data to the animation system
     Ok(W3DAnimationData {
         name: morph_data.name.clone(),
         hierarchy_name: morph_data.hierarchy_name.clone(),
@@ -611,6 +581,7 @@ fn parse_morph_animation_chunk<R: Read + Seek>(
         compression_flavor: None,
         channels: Vec::new(), // Morph animations don't use standard channels
         compressed_anim: None,
+        morph_anim: Some(morph_data),
     })
 }
 
@@ -622,9 +593,8 @@ fn parse_morph_channel_chunk<R: Read + Seek>(
 ) -> Result<W3DMorphChannel, W3DAnimationError> {
     let chunk_end = reader.stream_position()? + chunk_size as u64;
 
-    let mut pivot_index: u16 = 0;
     let mut pose_name = String::new();
-    let mut keyframes: Vec<f32> = Vec::new();
+    let mut keyframes: Vec<W3DMorphKey> = Vec::new();
 
     while reader.stream_position()? < chunk_end {
         let sub_header: W3dChunkHeader = reader.read_le()?;
@@ -632,10 +602,6 @@ fn parse_morph_channel_chunk<R: Read + Seek>(
         let sub_end = sub_start + sub_header.actual_size() as u64;
 
         match sub_header.chunk_type() {
-            Some(W3DChunkType::MorphanimPivotchanneldata) => {
-                // Read pivot index
-                pivot_index = reader.read_le()?;
-            }
             Some(W3DChunkType::MorphanimPosename) => {
                 // Read pose name
                 let mut name_bytes = vec![0u8; sub_header.actual_size() as usize];
@@ -643,11 +609,14 @@ fn parse_morph_channel_chunk<R: Read + Seek>(
                 pose_name = ww3d_core::w3d_string_from_bytes(&name_bytes);
             }
             Some(W3DChunkType::MorphanimKeydata) => {
-                // Read keyframe data
-                let num_keyframes = sub_header.actual_size() as usize / std::mem::size_of::<f32>();
+                let num_keyframes = sub_header.actual_size() as usize
+                    / std::mem::size_of::<ww3d_core::W3dMorphAnimKeyStruct>();
                 for _ in 0..num_keyframes {
-                    let value: f32 = reader.read_le()?;
-                    keyframes.push(value);
+                    let key: ww3d_core::W3dMorphAnimKeyStruct = reader.read_le()?;
+                    keyframes.push(W3DMorphKey {
+                        morph_frame: key.morph_frame,
+                        pose_frame: key.pose_frame,
+                    });
                 }
             }
             _ => {
@@ -659,7 +628,6 @@ fn parse_morph_channel_chunk<R: Read + Seek>(
     }
 
     Ok(W3DMorphChannel {
-        pivot_index,
         pose_name,
         keyframes,
     })
@@ -902,15 +870,10 @@ pub fn load_w3c_from_reader<R: Read + Seek>(
                 }
             }
             Some(W3DChunkType::MorphAnimation) => {
-                // Parse as morph animation but store separately
-                if let Ok(_anim) = parse_morph_animation_chunk(reader, header.actual_size()) {
-                    // Extract morph data by re-parsing
-                    let pos = reader.stream_position()?;
-                    reader.seek(SeekFrom::Start(chunk_start))?;
-                    if let Ok(morph) = parse_morph_animation_data(reader, header.actual_size()) {
+                if let Ok(anim) = parse_morph_animation_chunk(reader, header.actual_size()) {
+                    if let Some(morph) = anim.morph_anim.clone() {
                         morph_animations.push(morph);
                     }
-                    reader.seek(SeekFrom::Start(pos))?;
                 }
             }
             Some(W3DChunkType::Hierarchy) => {
@@ -946,8 +909,9 @@ fn parse_morph_animation_data<R: Read + Seek>(
 ) -> Result<W3DMorphAnimationData, W3DAnimationError> {
     let chunk_end = reader.stream_position()? + chunk_size as u64;
 
-    let mut header: Option<ww3d_core::W3dMorphAnimStruct> = None;
+    let mut header: Option<ww3d_core::W3dMorphAnimHeaderStruct> = None;
     let mut channels: Vec<W3DMorphChannel> = Vec::new();
+    let mut pivot_channels: Vec<u32> = Vec::new();
 
     while reader.stream_position()? < chunk_end {
         let sub_header: W3dChunkHeader = reader.read_le()?;
@@ -963,6 +927,12 @@ fn parse_morph_animation_data<R: Read + Seek>(
                     channels.push(channel);
                 }
             }
+            Some(W3DChunkType::MorphanimPivotchanneldata) => {
+                let count = sub_header.actual_size() as usize / std::mem::size_of::<u32>();
+                for _ in 0..count {
+                    pivot_channels.push(reader.read_le()?);
+                }
+            }
             _ => {
                 reader.seek(SeekFrom::Start(sub_end))?;
             }
@@ -976,10 +946,11 @@ fn parse_morph_animation_data<R: Read + Seek>(
 
     Ok(W3DMorphAnimationData {
         name: ww3d_core::w3d_string_from_bytes(&header.name),
-        hierarchy_name: ww3d_core::w3d_string_from_bytes(&header.hiera_name),
+        hierarchy_name: ww3d_core::w3d_string_from_bytes(&header.hierarchy_name),
         num_frames: header.frame_count,
-        frame_rate: 30.0, // Default frame rate for morph animations
+        frame_rate: header.frame_rate,
         channels,
+        pivot_channels,
     })
 }
 
@@ -993,6 +964,90 @@ pub fn load_w3x_from_file(path: &str) -> Result<HTreeClass, W3DAnimationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    fn fixed_name(name: &str) -> [u8; 16] {
+        let mut bytes = [0u8; 16];
+        let input = name.as_bytes();
+        let len = input.len().min(bytes.len().saturating_sub(1));
+        bytes[..len].copy_from_slice(&input[..len]);
+        bytes
+    }
+
+    fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_f32(bytes: &mut Vec<u8>, value: f32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_chunk(bytes: &mut Vec<u8>, chunk_type: W3DChunkType, payload: &[u8]) {
+        push_u32(bytes, chunk_type as u32);
+        push_u32(bytes, payload.len() as u32);
+        bytes.extend_from_slice(payload);
+    }
+
+    fn morph_animation_fixture() -> Vec<u8> {
+        let mut header = Vec::new();
+        push_u32(&mut header, 0x0001);
+        header.extend_from_slice(&fixed_name("Talk"));
+        header.extend_from_slice(&fixed_name("Face"));
+        push_u32(&mut header, 42);
+        push_f32(&mut header, 24.0);
+        push_u32(&mut header, 2);
+
+        let mut channel_a = Vec::new();
+        push_chunk(
+            &mut channel_a,
+            W3DChunkType::MorphanimPosename,
+            b"Face.Phoneme\0",
+        );
+        let mut keys_a = Vec::new();
+        push_u32(&mut keys_a, 0);
+        push_u32(&mut keys_a, 3);
+        push_u32(&mut keys_a, 10);
+        push_u32(&mut keys_a, 8);
+        push_chunk(&mut channel_a, W3DChunkType::MorphanimKeydata, &keys_a);
+
+        let mut channel_b = Vec::new();
+        push_chunk(
+            &mut channel_b,
+            W3DChunkType::MorphanimPosename,
+            b"Face.Expression\0",
+        );
+        let mut keys_b = Vec::new();
+        push_u32(&mut keys_b, 4);
+        push_u32(&mut keys_b, 1);
+        push_chunk(&mut channel_b, W3DChunkType::MorphanimKeydata, &keys_b);
+
+        let mut pivot_channels = Vec::new();
+        push_u32(&mut pivot_channels, 0);
+        push_u32(&mut pivot_channels, 1);
+        push_u32(&mut pivot_channels, 1);
+
+        let mut morph_payload = Vec::new();
+        push_chunk(&mut morph_payload, W3DChunkType::MorphanimHeader, &header);
+        push_chunk(
+            &mut morph_payload,
+            W3DChunkType::MorphanimChannel,
+            &channel_a,
+        );
+        push_chunk(
+            &mut morph_payload,
+            W3DChunkType::MorphanimChannel,
+            &channel_b,
+        );
+        push_chunk(
+            &mut morph_payload,
+            W3DChunkType::MorphanimPivotchanneldata,
+            &pivot_channels,
+        );
+
+        let mut file = Vec::new();
+        push_chunk(&mut file, W3DChunkType::MorphAnimation, &morph_payload);
+        file
+    }
 
     #[test]
     fn test_channel_type_detection() {
@@ -1005,11 +1060,9 @@ mod tests {
         let ct_rotation = MotionChannelType::from_flags(flags_rotation);
         let ct_visibility = MotionChannelType::from_flags(flags_visibility);
 
-        // Just ensure they don't panic and produce some result
-        match ct_translation {
-            MotionChannelType::Translation(_) => {}
-            _ => {}
-        }
+        assert!(matches!(ct_translation, MotionChannelType::Translation(_)));
+        assert!(matches!(ct_rotation, MotionChannelType::Quaternion));
+        assert!(matches!(ct_visibility, MotionChannelType::Visibility));
     }
 
     #[test]
@@ -1023,6 +1076,7 @@ mod tests {
             compression_flavor: None,
             channels: vec![],
             compressed_anim: None,
+            morph_anim: None,
         };
 
         assert_eq!(uncompressed.name, "TestAnim");
@@ -1047,6 +1101,7 @@ mod tests {
             compression_flavor: Some(ANIM_FLAVOR_TIMECODED),
             channels: vec![],
             compressed_anim: Some(compressed_anim),
+            morph_anim: None,
         };
 
         assert_eq!(compressed.name, "CompressedAnim");
@@ -1100,14 +1155,78 @@ mod tests {
             num_frames: 30,
             frame_rate: 30.0,
             channels: vec![W3DMorphChannel {
-                pivot_index: 0,
                 pose_name: "Smile".to_string(),
-                keyframes: vec![0.0, 0.5, 1.0],
+                keyframes: vec![
+                    W3DMorphKey {
+                        morph_frame: 0,
+                        pose_frame: 0,
+                    },
+                    W3DMorphKey {
+                        morph_frame: 15,
+                        pose_frame: 4,
+                    },
+                ],
             }],
+            pivot_channels: vec![0, 0, 1],
         };
 
         assert_eq!(morph_anim.name, "FacialAnim");
         assert_eq!(morph_anim.channels.len(), 1);
         assert_eq!(morph_anim.channels[0].pose_name, "Smile");
+        assert_eq!(morph_anim.channels[0].keyframes[1].pose_frame, 4);
+        assert_eq!(morph_anim.pivot_channels, vec![0, 0, 1]);
+    }
+
+    #[test]
+    fn load_w3d_animation_preserves_morph_channels_keys_and_pivot_map() {
+        let fixture = morph_animation_fixture();
+        let mut cursor = Cursor::new(fixture);
+        let anim = load_w3d_animation(&mut cursor).expect("morph animation should parse");
+        let morph = anim.morph_anim.expect("morph payload should be retained");
+
+        assert_eq!(anim.name, "Talk");
+        assert_eq!(anim.hierarchy_name, "Face");
+        assert_eq!(anim.num_frames, 42);
+        assert_eq!(anim.frame_rate, 24.0);
+        assert_eq!(morph.name, "Talk");
+        assert_eq!(morph.hierarchy_name, "Face");
+        assert_eq!(morph.frame_rate, 24.0);
+        assert_eq!(morph.channels.len(), 2);
+        assert_eq!(morph.channels[0].pose_name, "Face.Phoneme");
+        assert_eq!(
+            morph.channels[0].keyframes,
+            vec![
+                W3DMorphKey {
+                    morph_frame: 0,
+                    pose_frame: 3,
+                },
+                W3DMorphKey {
+                    morph_frame: 10,
+                    pose_frame: 8,
+                },
+            ]
+        );
+        assert_eq!(morph.channels[1].pose_name, "Face.Expression");
+        assert_eq!(
+            morph.channels[1].keyframes,
+            vec![W3DMorphKey {
+                morph_frame: 4,
+                pose_frame: 1,
+            }]
+        );
+        assert_eq!(morph.pivot_channels, vec![0, 1, 1]);
+    }
+
+    #[test]
+    fn load_w3c_stores_morph_animations_without_reparse_loss() {
+        let fixture = morph_animation_fixture();
+        let mut cursor = Cursor::new(fixture);
+        let container = load_w3c_from_reader(&mut cursor).expect("container should parse");
+
+        assert_eq!(container.animations.len(), 0);
+        assert_eq!(container.morph_animations.len(), 1);
+        assert_eq!(container.morph_animations[0].name, "Talk");
+        assert_eq!(container.morph_animations[0].channels.len(), 2);
+        assert_eq!(container.morph_animations[0].pivot_channels, vec![0, 1, 1]);
     }
 }
