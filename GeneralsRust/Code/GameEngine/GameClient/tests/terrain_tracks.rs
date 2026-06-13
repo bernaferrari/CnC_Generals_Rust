@@ -102,6 +102,24 @@ fn update_fades_and_releases_unbound_tracks() {
 }
 
 #[test]
+fn update_removes_consecutive_expired_edges_without_skipping() {
+    let terrain = FlatTerrain;
+    let mut system = TerrainTracksRenderObjClassSystem::new(config());
+    let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
+
+    system.add_edge_to_track(handle, &terrain, 0.0, 0.0, 0);
+    system.add_edge_to_track(handle, &terrain, 20.0, 0.0, 1);
+    system.add_edge_to_track(handle, &terrain, 40.0, 0.0, 2);
+    system.add_edge_to_track(handle, &terrain, 60.0, 0.0, 3);
+
+    system.update(102);
+
+    let edges = system.track(handle).unwrap().active_edges(4);
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].time_added, 3);
+}
+
+#[test]
 fn flush_builds_vertices_indices_and_resets_counter() {
     let terrain = FlatTerrain;
     let mut system = TerrainTracksRenderObjClassSystem::new(config());

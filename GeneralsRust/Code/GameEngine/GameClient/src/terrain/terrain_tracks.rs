@@ -492,12 +492,12 @@ impl TerrainTracksRenderObjClassSystem {
                 track.have_anchor = false;
             }
 
-            let original_count = track.active_edge_count;
-            for offset in 0..original_count {
-                if offset >= track.active_edge_count {
-                    break;
+            let mut i = 0;
+            let mut index = track.bottom_index;
+            while i < track.active_edge_count {
+                if index >= max_edges {
+                    index = 0;
                 }
-                let index = (track.bottom_index + offset) % max_edges;
                 let mut diff = 1.0
                     - (sync_time - track.edges[index].time_added) as f32
                         / self.config.max_tank_track_fade_delay as f32;
@@ -507,10 +507,12 @@ impl TerrainTracksRenderObjClassSystem {
                 if track.edges[index].alpha > 0.0 {
                     track.edges[index].alpha = diff;
                 }
-                if diff == 0.0 && index == track.bottom_index {
+                if diff == 0.0 {
                     track.bottom_index = (track.bottom_index + 1) % max_edges;
                     track.active_edge_count -= 1;
                 }
+                i += 1;
+                index += 1;
             }
             if track.active_edge_count == 0 && !track.bound {
                 release.push(handle);
