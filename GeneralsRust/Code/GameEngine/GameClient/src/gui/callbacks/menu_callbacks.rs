@@ -480,9 +480,7 @@ impl OptionsMenu {
 
     fn set_checkbox(id: i32, value: bool) {
         if let Some(window) = Self::find_window(id) {
-            if let Some(check_box) = window.borrow_mut().check_box_mut() {
-                check_box.set_checked(value);
-            }
+            let _ = window.borrow_mut().gadget_check_box_set_checked(value);
         }
     }
 

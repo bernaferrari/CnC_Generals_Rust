@@ -114,16 +114,20 @@ fn set_general_button_checked(control_id: i32, checked: bool) {
     with_window_manager(|manager| {
         if let Some(button) = manager.get_window_by_id(control_id) {
             let mut button = button.borrow_mut();
-            if let Some(widget) = button.widget_mut() {
-                match widget {
-                    crate::gui::WindowWidget::CheckBox(check) => check.set_checked(checked),
-                    crate::gui::WindowWidget::RadioButton(radio) => {
-                        if checked {
+            match button.widget() {
+                Some(crate::gui::WindowWidget::CheckBox(_)) => {
+                    let _ = button.gadget_check_box_set_checked(checked);
+                }
+                Some(crate::gui::WindowWidget::RadioButton(_)) => {
+                    if checked {
+                        if let Some(crate::gui::WindowWidget::RadioButton(radio)) =
+                            button.widget_mut()
+                        {
                             radio.select();
                         }
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     });
@@ -832,9 +836,7 @@ mod tests {
                 0,
                 32,
             )));
-            if let Some(WindowWidget::CheckBox(check)) = button.widget_mut() {
-                check.set_checked(false);
-            }
+            let _ = button.gadget_check_box_set_checked(false);
         });
 
         let window = GameWindow::new();

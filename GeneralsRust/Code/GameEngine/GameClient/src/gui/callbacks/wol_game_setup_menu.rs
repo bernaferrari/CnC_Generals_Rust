@@ -827,10 +827,15 @@ fn display_game_options(state: &mut WolGameSetupState) {
     if let Some(window) = state.checkbox_use_stats.as_ref() {
         let is_using_stats = game.get_use_stats() != 0;
         let mut guard = window.borrow_mut();
-        if let Some(check) = guard.check_box_mut() {
-            if check.is_checked() != is_using_stats {
-                check.set_checked(is_using_stats);
-            }
+        let was_checked = guard
+            .widget()
+            .and_then(|widget| match widget {
+                crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if was_checked != is_using_stats {
+            let _ = guard.gadget_check_box_set_checked(is_using_stats);
         }
         let tooltip = if is_using_stats {
             "TOOLTIP:UseStatsOn"
@@ -843,13 +848,18 @@ fn display_game_options(state: &mut WolGameSetupState) {
     if let Some(window) = state.checkbox_limit_armies.as_ref() {
         let old_factions_only = game.old_factions_only();
         let mut guard = window.borrow_mut();
-        if let Some(check) = guard.check_box_mut() {
-            if check.is_checked() != old_factions_only {
-                check.set_checked(old_factions_only);
-                for i in 0..MAX_SLOTS {
-                    populate_template_combo(i, state, true);
-                    handle_template_selection(state, i);
-                }
+        let was_checked = guard
+            .widget()
+            .and_then(|widget| match widget {
+                crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if was_checked != old_factions_only {
+            let _ = guard.gadget_check_box_set_checked(old_factions_only);
+            for i in 0..MAX_SLOTS {
+                populate_template_combo(i, state, true);
+                handle_template_selection(state, i);
             }
         }
     }
@@ -857,10 +867,15 @@ fn display_game_options(state: &mut WolGameSetupState) {
     if let Some(window) = state.checkbox_limit_superweapons.as_ref() {
         let limit = game.get_superweapon_restriction() != 0;
         let mut guard = window.borrow_mut();
-        if let Some(check) = guard.check_box_mut() {
-            if check.is_checked() != limit {
-                check.set_checked(limit);
-            }
+        let was_checked = guard
+            .widget()
+            .and_then(|widget| match widget {
+                crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if was_checked != limit {
+            let _ = guard.gadget_check_box_set_checked(limit);
         }
     }
 
