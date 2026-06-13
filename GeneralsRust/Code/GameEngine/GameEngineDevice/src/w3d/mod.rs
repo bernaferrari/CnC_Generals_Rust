@@ -8,6 +8,7 @@ pub mod material_system;
 pub mod model_loader;
 pub mod performance_optimizer;
 pub mod renderer;
+pub mod scene;
 pub mod shadow_system;
 pub mod texture_manager;
 pub mod volumetric_shadow;
@@ -17,6 +18,7 @@ pub mod w3d_device;
 // Re-exports
 pub use graphics_context::{ContextState, GraphicsContext};
 pub use renderer::{RenderBatch, RenderState, W3DRenderer};
+pub use scene::{W3D2DScene, W3DInterfaceScene, W3DScene};
 pub use w3d_device::{W3DConfig, W3DDevice};
 
 // Texture manager re-exports for parity with C++ W3DAssetManager
