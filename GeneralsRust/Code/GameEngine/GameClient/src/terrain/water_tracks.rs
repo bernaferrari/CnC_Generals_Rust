@@ -361,17 +361,20 @@ impl WaterTracksObj {
         self.time_to_retreat = (2.0 * self.wave_final_height / self.front_slow_down_acc)
             .abs()
             .sqrt();
-        self.total_ms = self.time_to_reach_beach + self.time_to_stop + self.time_to_retreat;
+        self.total_ms =
+            cpp_int_ms(self.time_to_reach_beach + self.time_to_stop + self.time_to_retreat);
         self.back_slow_down_acc =
             2.0 * self.wave_initial_height / (self.time_to_stop * self.time_to_stop);
         self.time_to_compress = info.time_to_compress as f32;
 
         if self.wave_type == WaterTrackType::Stationary {
             self.time_to_retreat = 1000.0;
-            self.total_ms = self.time_to_reach_beach
-                + self.time_to_stop
-                + self.fade_ms as f32
-                + self.time_to_retreat;
+            self.total_ms = cpp_int_ms(
+                self.time_to_reach_beach
+                    + self.time_to_stop
+                    + self.fade_ms as f32
+                    + self.time_to_retreat,
+            );
             self.start_pos = start;
             self.fade_ms = 1000;
         }
@@ -399,7 +402,7 @@ impl WaterTracksObj {
         self.start_pos -= self.wave_dir;
         self.elapsed_ms = 0.0;
         self.initial_velocity = 0.001 * map_xy_factor;
-        self.total_ms = self.wave_dir.length() / self.initial_velocity;
+        self.total_ms = cpp_int_ms(self.wave_dir.length() / self.initial_velocity);
         self.fade_ms = 3000;
         self.wave_final_width = length;
         self.wave_final_height = width;
@@ -916,4 +919,8 @@ fn rotate(v: Vec2, angle: f32) -> Vec2 {
 
 fn real_to_int(value: f32) -> i32 {
     value as i32
+}
+
+fn cpp_int_ms(value: f32) -> f32 {
+    value as i32 as f32
 }
