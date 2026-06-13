@@ -75,7 +75,10 @@ pub use collision::TerrainCollision;
 pub use height_map::HeightMap;
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
-pub use terrain_background::{IRegion2D, TerrainBackgroundHeightMap, W3DTerrainBackground};
+pub use terrain_background::{
+    IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,
+    TEX_1X, TEX_2X, TEX_4X,
+};
 pub use terrain_tracks::{
     TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
     TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
