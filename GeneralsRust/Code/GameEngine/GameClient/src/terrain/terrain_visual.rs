@@ -865,6 +865,15 @@ impl TerrainVisualImpl {
         let y = grid_y + height_map.border_size;
         if height_map.get_raw_height(x, y) as i32 > height {
             height_map.set_raw_height(x, y, height.clamp(0, u8::MAX as i32) as u8);
+            self.chunk_manager.mark_region_dirty(
+                0.0,
+                0.0,
+                self.config.world_size.0,
+                self.config.world_size.1,
+            );
+            self.chunk_manager.refresh_dirty_chunks(height_map);
+            self.chunk_meshes.clear();
+            self.road_system.invalidate_terrain_lighting();
         }
     }
 
@@ -886,6 +895,22 @@ impl TerrainVisualImpl {
 
     pub fn debug_chunk_summary(&self) -> String {
         self.chunk_manager.render_diagnostic_summary()
+    }
+
+    pub fn debug_total_chunk_geometry_revision(&self) -> u64 {
+        self.chunk_manager.total_geometry_revision()
+    }
+
+    pub fn debug_dirty_chunk_count(&self) -> usize {
+        self.chunk_manager.dirty_chunk_count()
+    }
+
+    pub fn debug_clear_dirty_chunks(&mut self) {
+        self.chunk_manager.clear_dirty_flags_for_diagnostics();
+    }
+
+    pub fn debug_roads_need_terrain_normal_reprojection(&self) -> bool {
+        self.road_system.needs_terrain_normal_reprojection()
     }
 
     /// Export minimap-ready road samples for static map overlays.
