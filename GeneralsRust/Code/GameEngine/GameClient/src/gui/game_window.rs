@@ -3748,6 +3748,18 @@ impl GameWindow {
             }
         }
 
+        if matches!(self.widget, Some(WindowWidget::StaticText(_))) {
+            match msg {
+                WindowMessage::Create | WindowMessage::Destroy => {
+                    return WindowMsgHandled::Handled;
+                }
+                WindowMessage::InputFocus => {
+                    return WindowMsgHandled::Ignored;
+                }
+                _ => {}
+            }
+        }
+
         if matches!(self.widget, Some(WindowWidget::ProgressBar(_))) {
             if let WindowMessage::User(code) = msg {
                 if code == GPM_SET_PROGRESS {
@@ -5042,6 +5054,54 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(out, "Mission Objective");
+    }
+
+    #[test]
+    fn static_text_create_destroy_are_consumed_like_cpp_system_callback() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::StaticText(StaticText::new(8, 0, 0, 120, 24)));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn static_text_input_focus_is_ignored_like_cpp_system_callback() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut accepts_focus = true;
+        let mut window = GameWindow::new();
+        window.set_id(9);
+        window.set_owner(Some(&owner));
+        window.set_widget(WindowWidget::StaticText(StaticText::new(9, 0, 0, 120, 24)));
+
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::InputFocus,
+                1,
+                &mut accepts_focus as *mut bool as WindowMsgData,
+            ),
+            WindowMsgHandled::Ignored
+        );
+        assert!(accepts_focus);
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
+        assert!(owner_seen.borrow().is_empty());
     }
 
     #[test]
