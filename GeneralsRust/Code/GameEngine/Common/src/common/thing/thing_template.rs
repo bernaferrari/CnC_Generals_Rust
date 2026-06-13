@@ -24,6 +24,7 @@ use crate::common::thing::sparse_match_finder::{
 use crate::common::{
     audio::AudioEventRts,
     global_data,
+    name_key_generator::NameKeyGenerator,
     rts::{
         get_science_store, AsciiString, Color, NameKeyType, ProductionPrerequisite, Real,
         UnicodeString, UnsignedByte, UnsignedShort, SCIENCE_INVALID,
@@ -233,6 +234,47 @@ pub enum ThingTemplateAudioType {
     VoiceAttackAir,
     VoiceGuard,
     Count,
+}
+
+fn object_audio_field_type(field: &str) -> Option<ThingTemplateAudioType> {
+    match field {
+        "VoiceSelect" => Some(ThingTemplateAudioType::VoiceSelect),
+        "VoiceGroupSelect" => Some(ThingTemplateAudioType::VoiceGroupSelect),
+        "VoiceMove" => Some(ThingTemplateAudioType::VoiceMove),
+        "VoiceAttack" => Some(ThingTemplateAudioType::VoiceAttack),
+        "VoiceEnter" => Some(ThingTemplateAudioType::VoiceEnter),
+        "VoiceFear" => Some(ThingTemplateAudioType::VoiceFear),
+        "VoiceSelectElite" => Some(ThingTemplateAudioType::VoiceSelectElite),
+        "VoiceCreated" => Some(ThingTemplateAudioType::VoiceCreated),
+        "VoiceTaskUnable" => Some(ThingTemplateAudioType::VoiceTaskUnable),
+        "VoiceTaskComplete" => Some(ThingTemplateAudioType::VoiceTaskComplete),
+        "VoiceMeetEnemy" => Some(ThingTemplateAudioType::VoiceNearEnemy),
+        "VoiceGarrison" => Some(ThingTemplateAudioType::VoiceGarrison),
+        "VoiceDefect" => Some(ThingTemplateAudioType::VoiceDefect),
+        "VoiceAttackSpecial" => Some(ThingTemplateAudioType::VoiceAttackSpecial),
+        "VoiceAttackAir" => Some(ThingTemplateAudioType::VoiceAttackAir),
+        "VoiceGuard" => Some(ThingTemplateAudioType::VoiceGuard),
+        "SoundMoveStart" => Some(ThingTemplateAudioType::SoundMoveStart),
+        "SoundMoveStartDamaged" => Some(ThingTemplateAudioType::SoundMoveStartDamaged),
+        "SoundMoveLoop" => Some(ThingTemplateAudioType::SoundMoveLoop),
+        "SoundMoveLoopDamaged" => Some(ThingTemplateAudioType::SoundMoveLoopDamaged),
+        "SoundAmbient" => Some(ThingTemplateAudioType::SoundAmbient),
+        "SoundAmbientDamaged" => Some(ThingTemplateAudioType::SoundAmbientDamaged),
+        "SoundAmbientReallyDamaged" => Some(ThingTemplateAudioType::SoundAmbientReallyDamaged),
+        "SoundAmbientRubble" => Some(ThingTemplateAudioType::SoundAmbientRubble),
+        "SoundStealthOn" => Some(ThingTemplateAudioType::SoundStealthOn),
+        "SoundStealthOff" => Some(ThingTemplateAudioType::SoundStealthOff),
+        "SoundCreated" => Some(ThingTemplateAudioType::SoundCreated),
+        "SoundOnDamaged" => Some(ThingTemplateAudioType::SoundOnDamaged),
+        "SoundOnReallyDamaged" => Some(ThingTemplateAudioType::SoundOnReallyDamaged),
+        "SoundEnter" => Some(ThingTemplateAudioType::SoundEnter),
+        "SoundExit" => Some(ThingTemplateAudioType::SoundExit),
+        "SoundPromotedVeteran" => Some(ThingTemplateAudioType::SoundPromotedVeteran),
+        "SoundPromotedElite" => Some(ThingTemplateAudioType::SoundPromotedElite),
+        "SoundPromotedHero" => Some(ThingTemplateAudioType::SoundPromotedHero),
+        "SoundFallingFromPlane" => Some(ThingTemplateAudioType::SoundFalling),
+        _ => None,
+    }
 }
 
 /// Audio array for template sounds
@@ -2265,6 +2307,12 @@ impl ThingTemplate {
 
         for (key, value) in properties {
             let trimmed = value.trim();
+            if let Some(audio_type) = object_audio_field_type(key) {
+                self.audioarray
+                    .set(audio_type, AudioEventRts::with_event_name(trimmed));
+                continue;
+            }
+
             match key.as_str() {
                 // --- Display ---
                 "DisplayName" => {
@@ -2521,7 +2569,15 @@ impl ThingTemplate {
                         self.max_simultaneous_of_type = 0;
                     } else if let Ok(v) = trimmed.parse::<UnsignedShort>() {
                         self.max_simultaneous_of_type = v;
+                        self.max_simultaneous_determined_by_superweapon_restriction = false;
                     }
+                }
+                "MaxSimultaneousLinkKey" => {
+                    self.max_simultaneous_link_key = if trimmed.is_empty() {
+                        0
+                    } else {
+                        NameKeyGenerator::name_to_key(trimmed)
+                    };
                 }
                 "CrusherLevel" => {
                     if let Ok(v) = trimmed.parse::<UnsignedByte>() {
@@ -2757,13 +2813,55 @@ mod tests {
         let mut template = ThingTemplate::new();
         let properties = HashMap::from([
             ("Behavior".to_string(), "AIUpdate ModuleTag_AI".to_string()),
-            ("VoiceSelect".to_string(), "RangerVoiceSelect".to_string()),
-            ("MaxSimultaneousLinkKey".to_string(), "SomeLink".to_string()),
+            (
+                "UnitSpecificSounds".to_string(),
+                "VoiceEnter RangerVoiceEnter".to_string(),
+            ),
+            (
+                "UnitSpecificFX".to_string(),
+                "DeathFX FX_RangerDie".to_string(),
+            ),
         ]);
 
         template
             .parse_object_fields_from_ini(&properties)
             .expect("valid C++ object fields should be accepted");
+    }
+
+    #[test]
+    fn object_field_parse_populates_audio_events_and_max_link_key() {
+        NameKeyGenerator::reset();
+
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("VoiceSelect".to_string(), "RangerVoiceSelect".to_string()),
+            ("SoundMoveStart".to_string(), "RangerMoveStart".to_string()),
+            (
+                "MaxSimultaneousLinkKey".to_string(),
+                "SharedLimitKey".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("audio and max simultaneous link fields should parse");
+
+        assert_eq!(
+            template
+                .get_voice_select()
+                .map(AudioEventRts::get_event_name),
+            Some("RangerVoiceSelect")
+        );
+        assert_eq!(
+            template
+                .get_sound_move_start()
+                .map(AudioEventRts::get_event_name),
+            Some("RangerMoveStart")
+        );
+        assert_eq!(
+            template.get_max_simultaneous_link_key(),
+            NameKeyGenerator::name_to_key("SharedLimitKey")
+        );
     }
 
     #[test]
