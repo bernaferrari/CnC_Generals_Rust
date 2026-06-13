@@ -12,7 +12,10 @@ use crate::common::{
     ini::{INILoadType as IniLoadType, INI},
     random_value::get_game_logic_random_value,
     rts::{AsciiString, UnsignedShort},
-    system::{kind_of::KindOfMask, subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState}},
+    system::{
+        kind_of::KindOfMask,
+        subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState},
+    },
     thing::{
         module::{Drawable, Object},
         thing_template::ThingTemplate,
@@ -445,7 +448,7 @@ impl ThingFactory {
             let properties = consume_ini_properties(ini);
             // Use Arc::make_mut to get mutable access for parsing
             let tmpl = Arc::make_mut(&mut thing_template);
-            tmpl.parse_object_fields_from_ini(&properties);
+            tmpl.parse_object_fields_from_ini(&properties)?;
 
             // Re-insert the modified template back into the hash map since
             // Arc::make_mut may have cloned it.
@@ -699,7 +702,11 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
                     let mut tmpl = factory.new_template(name);
                     {
                         let tmpl_ref = Arc::make_mut(&mut tmpl);
-                        tmpl_ref.parse_object_fields_from_ini(&properties);
+                        if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                            warn!("Skipping object '{}': {}", name, err);
+                            index = end_idx;
+                            continue;
+                        }
                     }
                     factory
                         .template_hash_map
@@ -727,7 +734,11 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
                     }
                     {
                         let tmpl_ref = Arc::make_mut(&mut tmpl);
-                        tmpl_ref.parse_object_fields_from_ini(&properties);
+                        if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                            warn!("Skipping object reskin '{}': {}", name, err);
+                            index = end_idx;
+                            continue;
+                        }
                     }
                     factory
                         .template_hash_map

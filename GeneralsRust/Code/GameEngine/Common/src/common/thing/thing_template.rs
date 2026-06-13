@@ -39,6 +39,127 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+const CPP_OBJECT_FIELDS: &[&str] = &[
+    "DisplayName",
+    "RadarPriority",
+    "TransportSlotCount",
+    "FenceWidth",
+    "FenceXOffset",
+    "IsBridge",
+    "ArmorSet",
+    "WeaponSet",
+    "VisionRange",
+    "ShroudClearingRange",
+    "ShroudRevealToAllRange",
+    "PlacementViewAngle",
+    "FactoryExitWidth",
+    "FactoryExtraBibWidth",
+    "SkillPointValue",
+    "ExperienceValue",
+    "ExperienceRequired",
+    "IsTrainable",
+    "EnterGuard",
+    "HijackGuard",
+    "Side",
+    "Prerequisites",
+    "Buildable",
+    "BuildCost",
+    "BuildTime",
+    "RefundValue",
+    "BuildCompletion",
+    "EnergyProduction",
+    "EnergyBonus",
+    "IsForbidden",
+    "IsPrerequisite",
+    "DisplayColor",
+    "EditorSorting",
+    "KindOf",
+    "CommandSet",
+    "BuildVariations",
+    "Behavior",
+    "Body",
+    "Draw",
+    "ClientUpdate",
+    "SelectPortrait",
+    "ButtonImage",
+    "UpgradeCameo1",
+    "UpgradeCameo2",
+    "UpgradeCameo3",
+    "UpgradeCameo4",
+    "UpgradeCameo5",
+    "VoiceSelect",
+    "VoiceGroupSelect",
+    "VoiceMove",
+    "VoiceAttack",
+    "VoiceEnter",
+    "VoiceFear",
+    "VoiceSelectElite",
+    "VoiceCreated",
+    "VoiceTaskUnable",
+    "VoiceTaskComplete",
+    "VoiceMeetEnemy",
+    "VoiceGarrison",
+    "VoiceDefect",
+    "VoiceAttackSpecial",
+    "VoiceAttackAir",
+    "VoiceGuard",
+    "SoundMoveStart",
+    "SoundMoveStartDamaged",
+    "SoundMoveLoop",
+    "SoundMoveLoopDamaged",
+    "SoundAmbient",
+    "SoundAmbientDamaged",
+    "SoundAmbientReallyDamaged",
+    "SoundAmbientRubble",
+    "SoundStealthOn",
+    "SoundStealthOff",
+    "SoundCreated",
+    "SoundOnDamaged",
+    "SoundOnReallyDamaged",
+    "SoundEnter",
+    "SoundExit",
+    "SoundPromotedVeteran",
+    "SoundPromotedElite",
+    "SoundPromotedHero",
+    "SoundFallingFromPlane",
+    "UnitSpecificSounds",
+    "UnitSpecificFX",
+    "Scale",
+    "Geometry",
+    "GeometryMajorRadius",
+    "GeometryMinorRadius",
+    "GeometryHeight",
+    "GeometryIsSmall",
+    "Shadow",
+    "ShadowSizeX",
+    "ShadowSizeY",
+    "ShadowOffsetX",
+    "ShadowOffsetY",
+    "ShadowTexture",
+    "OcclusionDelay",
+    "AddModule",
+    "RemoveModule",
+    "ReplaceModule",
+    "InheritableModule",
+    "OverrideableByLikeKind",
+    "Locomotor",
+    "InstanceScaleFuzziness",
+    "StructureRubbleHeight",
+    "ThreatValue",
+    "MaxSimultaneousOfType",
+    "MaxSimultaneousLinkKey",
+    "CrusherLevel",
+    "CrushableLevel",
+];
+
+fn is_cpp_object_field(key: &str) -> bool {
+    CPP_OBJECT_FIELDS
+        .iter()
+        .any(|field| field.eq_ignore_ascii_case(key))
+        || key.starts_with("WeaponSet")
+        || key.starts_with("ArmorSet")
+}
+
 impl SparseBitSet for BitFlags {
     fn bit_len(&self) -> usize {
         self.size()
@@ -1900,8 +2021,9 @@ impl ThingTemplate {
     ///
     /// This is the Rust equivalent of `initFromINI(self, getFieldParse())` in C++.
     /// It reads each known INI field name and writes the value into the
-    /// corresponding struct member.  Unknown fields are silently ignored so
-    /// that forward-compatibility is maintained when new INI keys are added.
+    /// corresponding struct member.  Unknown fields return an error, matching
+    /// C++ `INI::initFromINI`, which throws `INI_UNKNOWN_TOKEN` for unmatched
+    /// fields.
     ///
     /// WeaponSet and ArmorSet sub-blocks are handled by their own dedicated
     /// parsers (see `load_weapon_sets_from_definitions` and
@@ -1909,7 +2031,7 @@ impl ThingTemplate {
     pub fn parse_object_fields_from_ini(
         &mut self,
         properties: &std::collections::HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
         for (key, value) in properties {
             let trimmed = value.trim();
             match key.as_str() {
@@ -2218,10 +2340,16 @@ impl ThingTemplate {
                     // Sub-block fields parsed by dedicated methods
                 }
 
-                // Everything else: silently skip (module blocks, etc.)
-                _ => {}
+                // Valid C++ fields not yet wired to Rust state are accepted
+                // here so they are not mistaken for unknown tokens.
+                _ if is_cpp_object_field(key) => {}
+                _ => {
+                    return Err(format!("Unknown object field '{}'", key));
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Set the KindOf mask from a resolved bitmask.
@@ -2381,6 +2509,30 @@ mod tests {
             parse_editor_sorting("Civilian"),
             EditorSortingType::MiscNatural
         );
+    }
+
+    #[test]
+    fn object_field_parse_rejects_unknown_fields_like_cpp() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([("NotARealObjectField".to_string(), "1".to_string())]);
+
+        let result = template.parse_object_fields_from_ini(&properties);
+
+        assert!(matches!(result, Err(message) if message.contains("NotARealObjectField")));
+    }
+
+    #[test]
+    fn object_field_parse_accepts_cpp_fields_not_yet_wired() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("Behavior".to_string(), "AIUpdate ModuleTag_AI".to_string()),
+            ("VoiceSelect".to_string(), "RangerVoiceSelect".to_string()),
+            ("MaxSimultaneousLinkKey".to_string(), "SomeLink".to_string()),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("valid C++ object fields should be accepted");
     }
 
     #[test]
