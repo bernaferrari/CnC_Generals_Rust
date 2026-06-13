@@ -401,6 +401,7 @@ struct LegacyDrawableIcon {
 enum DrawModuleKindMut<'a> {
     Model(&'a mut crate::object::draw::W3DModelDraw),
     Tank(&'a mut crate::object::draw::W3DTankDraw),
+    TankTruck(&'a mut crate::object::draw::W3DTankTruckDraw),
     OverlordAircraft(&'a mut crate::object::draw::W3DOverlordAircraftDraw),
     OverlordTank(&'a mut crate::object::draw::W3DOverlordTankDraw),
     OverlordTruck(&'a mut crate::object::draw::W3DOverlordTruckDraw),
@@ -420,6 +421,7 @@ impl<'a> DrawModuleKindMut<'a> {
         match self {
             Self::Model(draw) => draw,
             Self::Tank(draw) => draw,
+            Self::TankTruck(draw) => draw,
             Self::OverlordAircraft(draw) => draw,
             Self::OverlordTank(draw) => draw,
             Self::OverlordTruck(draw) => draw,
@@ -446,6 +448,7 @@ impl<'a> DrawModuleKindMut<'a> {
         match self {
             Self::Model(draw) => draw.set_terrain_decal(decal_type),
             Self::Tank(draw) => draw.set_terrain_decal(decal_type),
+            Self::TankTruck(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordAircraft(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTank(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTruck(draw) => draw.set_terrain_decal(decal_type),
@@ -469,6 +472,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Truck(draw) => draw.bind_owner_id(object_id),
             Self::Model(draw) => draw.bind_owner_id(object_id),
             Self::Tank(draw) => draw.bind_owner_id(object_id),
+            Self::TankTruck(draw) => draw.bind_owner_id(object_id),
             Self::Laser(draw) => draw.bind_owner_id(object_id),
             Self::ProjectileStream(draw) => draw.bind_owner_id(object_id),
             Self::Debris(draw) => draw.bind_owner_id(object_id),
@@ -491,6 +495,11 @@ fn with_draw_module_kind(
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTankDraw>()
     {
         func(DrawModuleKindMut::Tank(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTankTruckDraw>()
+    {
+        func(DrawModuleKindMut::TankTruck(module));
         true
     } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DOverlordAircraftDraw>()
@@ -2944,6 +2953,9 @@ impl Drawable {
                     DrawModuleKindMut::Tank(w3d_draw) => {
                         w3d_draw.set_animation_loop_duration(num_frames)
                     }
+                    DrawModuleKindMut::TankTruck(w3d_draw) => {
+                        w3d_draw.set_animation_loop_duration(num_frames)
+                    }
                     _ => {}
                 });
             });
@@ -2967,6 +2979,9 @@ impl Drawable {
                     DrawModuleKindMut::Tank(w3d_draw) => {
                         w3d_draw.set_animation_completion_time(num_frames)
                     }
+                    DrawModuleKindMut::TankTruck(w3d_draw) => {
+                        w3d_draw.set_animation_completion_time(num_frames)
+                    }
                     _ => {}
                 });
             });
@@ -2984,6 +2999,7 @@ impl Drawable {
                 let _ = with_draw_module_kind(module, |draw| match draw {
                     DrawModuleKindMut::Model(w3d_draw) => w3d_draw.set_animation_frame(frame),
                     DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.set_animation_frame(frame),
+                    DrawModuleKindMut::TankTruck(w3d_draw) => w3d_draw.set_animation_frame(frame),
                     _ => {}
                 });
             });
@@ -2998,6 +3014,7 @@ impl Drawable {
                 let _ = with_draw_module_kind(module, |draw| match draw {
                     DrawModuleKindMut::Model(w3d_draw) => w3d_draw.show_sub_object(name, show),
                     DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.show_sub_object(name, show),
+                    DrawModuleKindMut::TankTruck(w3d_draw) => w3d_draw.show_sub_object(name, show),
                     _ => {}
                 });
             });
@@ -3064,6 +3081,7 @@ impl Drawable {
                 let _ = with_draw_module_kind(module, |draw| match draw {
                     DrawModuleKindMut::Model(w3d_draw) => w3d_draw.update_sub_objects(),
                     DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.update_sub_objects(),
+                    DrawModuleKindMut::TankTruck(w3d_draw) => w3d_draw.update_sub_objects(),
                     _ => {}
                 });
             });

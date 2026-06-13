@@ -285,6 +285,35 @@ impl W3DTruckDraw {
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.base.owner_id()
     }
+
+    pub fn fully_obscured_by_shroud(&self) -> bool {
+        self.base.fully_obscured_by_shroud()
+    }
+
+    pub fn set_animation_loop_duration(&mut self, num_frames: u32) {
+        self.base.set_animation_loop_duration(num_frames);
+    }
+
+    pub fn set_animation_completion_time(&mut self, num_frames: u32) {
+        self.base.set_animation_completion_time(num_frames);
+    }
+
+    pub fn set_animation_frame(&mut self, frame: i32) {
+        self.base.set_animation_frame(frame);
+    }
+
+    pub fn show_sub_object(&mut self, name: &str, show: bool) {
+        self.base.show_sub_object(name, show);
+    }
+
+    pub fn update_sub_objects(&mut self) {
+        self.base.update_sub_objects();
+    }
+
+    pub fn xfer_model_draw(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.xfer(xfer)
+    }
+
     fn bone_index(&self, state: &ModelConditionInfo, name: &AsciiString) -> i32 {
         if name.is_empty() {
             return 0;
