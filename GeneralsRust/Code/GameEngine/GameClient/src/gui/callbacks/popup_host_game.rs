@@ -5,12 +5,13 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::gamespy_overlay::{
-    close_overlay, queue_host_request, set_lobby_attempt_host_join, GameSpyHostRequest,
-    GameSpyOverlayType,
+    close_overlay, open_overlay, queue_host_request, set_lobby_attempt_host_join,
+    GameSpyHostRequest, GameSpyOverlayType,
 };
+use crate::gui::callbacks::popup_ladder_select::populate_custom_ladder_combo_box;
 use crate::gui::{
     with_window_manager, write_input_focus_response, CustomMatchPreferencesStore, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GCM_SELECTED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::gamespy::peer_defs::get_gamespy_info;
@@ -24,6 +25,7 @@ struct PopupHostState {
     text_entry_game_name_id: i32,
     text_entry_game_description_id: i32,
     text_entry_game_password_id: i32,
+    combo_box_ladder_name_id: i32,
     button_create_game_id: i32,
     button_cancel_id: i32,
     check_box_allow_observers_id: i32,
@@ -87,6 +89,23 @@ fn get_text_entry(window: &Option<Rc<RefCell<GameWindow>>>) -> String {
     String::new()
 }
 
+fn trim_game_name_leading_whitespace(state: &PopupHostState) {
+    let text = get_text_entry(&state.text_entry_game_name);
+    let trimmed = text.trim_start().to_string();
+    if trimmed != text {
+        set_text_entry(&state.text_entry_game_name, &trimmed);
+    }
+}
+
+fn selected_combo_data(window: &GameWindow) -> Option<i32> {
+    let combo = match window.widget()? {
+        crate::gui::WindowWidget::ComboBox(combo) => combo,
+        _ => return None,
+    };
+    let selected = combo.selected_index()?;
+    combo.items().get(selected)?.data
+}
+
 fn set_checkbox(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
     let Some(window) = window.as_ref() else {
         return;
@@ -147,6 +166,7 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
     state.text_entry_game_name_id = name_to_id("PopupHostGame.wnd:TextEntryGameName");
     state.text_entry_game_description_id = name_to_id("PopupHostGame.wnd:TextEntryGameDescription");
     state.text_entry_game_password_id = name_to_id("PopupHostGame.wnd:TextEntryGamePassword");
+    state.combo_box_ladder_name_id = name_to_id("PopupHostGame.wnd:ComboBoxLadderName");
     state.button_create_game_id = name_to_id("PopupHostGame.wnd:ButtonCreateGame");
     state.button_cancel_id = name_to_id("PopupHostGame.wnd:ButtonCancel");
     state.check_box_allow_observers_id = name_to_id("PopupHostGame.wnd:CheckBoxAllowObservers");
@@ -198,7 +218,11 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
     );
 
     sync_limit_armies_state(&state);
+    drop(state);
 
+    let _ = populate_custom_ladder_combo_box();
+
+    let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
@@ -241,23 +265,31 @@ pub fn popup_host_game_input(
 }
 
 pub fn popup_host_game_system(
-    _window: &GameWindow,
+    window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
-        // TODO: C++ handles GWM_COMBOLIST_SELECTED (ComboBoxSelected) in this callback.
-        // When a ladder is selected with ladderID < 0 (the "choose ladder" sentinel),
-        // it restores the combo box selection and opens the ladder select overlay.
-        // The Rust WindowMessage enum does not yet have a ComboBoxSelected variant.
-        // Add handling when ComboBoxSelected is added to the enum.
-        //
-        // TODO: C++ handles GEM_UPDATE_TEXT (EditUpdateText) to strip leading whitespace
-        // from the game name text entry in real-time. The Rust WindowMessage enum does not
-        // yet have an EditUpdateText variant. When added, strip leading whitespace from
-        // text_entry_game_name on each edit update.
+        WindowMessage::GadgetValueChanged => {
+            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            if data1 as i32 == state.text_entry_game_name_id {
+                trim_game_name_leading_whitespace(&state);
+            }
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::User(code) if code == GCM_SELECTED => {
+            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            if data1 as i32 == state.combo_box_ladder_name_id
+                && selected_combo_data(window).is_some_and(|ladder_id| ladder_id < 0)
+            {
+                drop(state);
+                let _ = populate_custom_ladder_combo_box();
+                open_overlay(GameSpyOverlayType::LadderSelect);
+            }
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
@@ -324,11 +356,9 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => {
-            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.text_entry_game_name_id {
-                let text = get_text_entry(&state.text_entry_game_name);
-                let trimmed = text.trim().to_string();
-                set_text_entry(&state.text_entry_game_name, &trimmed);
+                trim_game_name_leading_whitespace(&state);
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
