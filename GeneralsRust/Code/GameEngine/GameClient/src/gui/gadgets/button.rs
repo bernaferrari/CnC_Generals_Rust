@@ -31,6 +31,7 @@
 //! ```
 
 use super::*;
+use std::cell::Cell;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
@@ -164,6 +165,7 @@ pub struct PushButton {
 
     // Visual styling
     style: ButtonStyle,
+    clock_consumed: Cell<bool>,
 
     // Event handling
     callback: Option<ButtonCallback>,
@@ -199,6 +201,7 @@ impl PushButton {
             triggers_on_mouse_down: false,
 
             style: ButtonStyle::default(),
+            clock_consumed: Cell::new(true),
 
             callback: None,
             right_click_callback: None,
@@ -216,6 +219,31 @@ impl PushButton {
 
     pub fn style(&self) -> &ButtonStyle {
         &self.style
+    }
+
+    /// Return the current one-frame clock request if it has not been consumed.
+    pub fn clock_request(&self) -> Option<(ClockMode, u8, Color)> {
+        if self.clock_consumed.get() || self.style.clock_mode == ClockMode::None {
+            return None;
+        }
+        Some((
+            self.style.clock_mode,
+            self.style.clock_progress,
+            self.style.clock_color,
+        ))
+    }
+
+    /// Consume the current one-frame clock request.
+    ///
+    /// C++ `W3DPushButton` clears `drawClock` after drawing. The Rust draw
+    /// callback receives an immutable window, so the consumed bit is interior
+    /// mutable while the style data remains ordinary button state.
+    pub fn consume_clock_request(&self) -> Option<(ClockMode, u8, Color)> {
+        let request = self.clock_request();
+        if request.is_some() {
+            self.clock_consumed.set(true);
+        }
+        request
     }
 
     /// Set the button text
@@ -325,6 +353,7 @@ impl PushButton {
         self.style.clock_mode = ClockMode::Normal;
         self.style.clock_progress = progress.min(100);
         self.style.clock_color = color;
+        self.clock_consumed.set(false);
         self
     }
 
@@ -333,6 +362,7 @@ impl PushButton {
         self.style.clock_mode = ClockMode::Normal;
         self.style.clock_progress = progress.min(100);
         self.style.clock_color = color;
+        self.clock_consumed.set(false);
     }
 
     /// Configure inverse clock (shows remaining progress)
@@ -340,6 +370,7 @@ impl PushButton {
         self.style.clock_mode = ClockMode::Inverse;
         self.style.clock_progress = progress.min(100);
         self.style.clock_color = color;
+        self.clock_consumed.set(false);
         self
     }
 
@@ -348,12 +379,14 @@ impl PushButton {
         self.style.clock_mode = ClockMode::Inverse;
         self.style.clock_progress = progress.min(100);
         self.style.clock_color = color;
+        self.clock_consumed.set(false);
     }
 
     /// Clear clock display
     pub fn clear_clock(&mut self) {
         self.style.clock_mode = ClockMode::None;
         self.style.clock_progress = 0;
+        self.clock_consumed.set(true);
     }
 
     /// Set overlay image
@@ -440,12 +473,12 @@ impl PushButton {
             });
         }
 
-        if self.style.clock_mode != ClockMode::None {
+        if let Some((mode, progress, color)) = self.clock_request() {
             commands.push(PushButtonRenderCommand::Clock {
                 rect: self.bounds,
-                mode: self.style.clock_mode,
-                progress: self.style.clock_progress,
-                color: self.style.clock_color,
+                mode,
+                progress,
+                color,
             });
         }
 
@@ -967,6 +1000,9 @@ impl PushButtonBuilder {
         button.right_click_callback = self.right_click_callback;
         button.accepts_right_click = self.accepts_right_click;
         button.style = self.style;
+        button
+            .clock_consumed
+            .set(button.style.clock_mode == ClockMode::None);
         button.user_data = self.user_data;
         button.triggers_on_mouse_down = self.triggers_on_mouse_down;
 
@@ -1368,5 +1404,33 @@ mod tests {
             .unwrap_or_else(|err| err.into_inner())
             .is_empty());
         clear_button_audio_hook();
+    }
+
+    #[test]
+    fn clock_request_is_one_shot_and_can_be_rearmed() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        assert_eq!(button.clock_request(), None);
+
+        button.set_clock_progress(50, Color::GREEN);
+        assert_eq!(
+            button.clock_request(),
+            Some((ClockMode::Normal, 50, Color::GREEN))
+        );
+        assert_eq!(
+            button.consume_clock_request(),
+            Some((ClockMode::Normal, 50, Color::GREEN))
+        );
+        assert_eq!(button.clock_request(), None);
+        assert!(button
+            .render_commands(&GadgetTheme::default())
+            .iter()
+            .all(|command| !matches!(command, PushButtonRenderCommand::Clock { .. })));
+
+        button.set_inverse_clock(25, Color::RED);
+        assert_eq!(
+            button.consume_clock_request(),
+            Some((ClockMode::Inverse, 25, Color::RED))
+        );
+        assert_eq!(button.clock_request(), None);
     }
 }
