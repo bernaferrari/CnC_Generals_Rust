@@ -2949,12 +2949,14 @@ impl GameWindow {
 
         let mut handled = slider_thumb_hilite_handled;
         let is_checkbox_message = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
-        let target_owner =
-            if !self.owner_is_self && (self.get_parent().is_some() || is_checkbox_message) {
-                self.get_owner()
-            } else {
-                None
-            };
+        let is_radio_message = matches!(self.widget, Some(WindowWidget::RadioButton(_)));
+        let target_owner = if !self.owner_is_self
+            && (self.get_parent().is_some() || is_checkbox_message || is_radio_message)
+        {
+            self.get_owner()
+        } else {
+            None
+        };
         let is_listbox_message = matches!(self.widget, Some(WindowWidget::ListBox(_)));
         let original_data1 = data1;
         for message in messages {
@@ -2962,7 +2964,7 @@ impl GameWindow {
                 GadgetMessage::Clicked { .. } if is_listbox_message => {
                     continue;
                 }
-                GadgetMessage::Clicked { .. } if is_checkbox_message => (
+                GadgetMessage::Clicked { .. } if is_checkbox_message || is_radio_message => (
                     WindowMessage::GadgetSelected,
                     self.id as WindowMsgData,
                     original_data1,
@@ -2998,7 +3000,7 @@ impl GameWindow {
                         },
                     )
                 }
-                GadgetMessage::LeftDrag { .. } if is_checkbox_message => (
+                GadgetMessage::LeftDrag { .. } if is_checkbox_message || is_radio_message => (
                     WindowMessage::User(GGM_LEFT_DRAG),
                     self.id as WindowMsgData,
                     original_data1,
@@ -3030,7 +3032,7 @@ impl GameWindow {
                 GadgetMessage::EditingComplete { .. } => {
                     (WindowMessage::GadgetEditDone, self.id as WindowMsgData, 0)
                 }
-                GadgetMessage::MouseEnter { .. } if is_checkbox_message => (
+                GadgetMessage::MouseEnter { .. } if is_checkbox_message || is_radio_message => (
                     WindowMessage::GadgetMouseEntering,
                     self.id as WindowMsgData,
                     original_data1,
@@ -3040,7 +3042,7 @@ impl GameWindow {
                     self.id as WindowMsgData,
                     0,
                 ),
-                GadgetMessage::MouseLeave { .. } if is_checkbox_message => (
+                GadgetMessage::MouseLeave { .. } if is_checkbox_message || is_radio_message => (
                     WindowMessage::GadgetMouseLeaving,
                     self.id as WindowMsgData,
                     original_data1,
@@ -3102,6 +3104,43 @@ impl GameWindow {
             WindowMsgHandled::Handled
         } else {
             WindowMsgHandled::Ignored
+        }
+    }
+
+    fn unselect_radio_peers_by_group(&mut self, group_id: u32) {
+        let Some(parent) = self.get_parent() else {
+            return;
+        };
+        let root = Self::root_of(&parent);
+        Self::unselect_radio_peers_in_subtree(&root, group_id, self.id);
+    }
+
+    fn unselect_radio_peers_in_subtree(
+        window: &Rc<RefCell<GameWindow>>,
+        group_id: u32,
+        except_id: WindowId,
+    ) {
+        let children = {
+            let Ok(mut window) = window.try_borrow_mut() else {
+                return;
+            };
+            if window.id != except_id {
+                let should_clear = match window.widget.as_mut() {
+                    Some(WindowWidget::RadioButton(radio)) if radio.group_id() == group_id => {
+                        radio.deselect_for_group_update();
+                        true
+                    }
+                    _ => false,
+                };
+                if should_clear {
+                    window.inst_data.state.remove(WindowState::SELECTED);
+                }
+            }
+            window.children.clone()
+        };
+
+        for child in children {
+            Self::unselect_radio_peers_in_subtree(&child, group_id, except_id);
         }
     }
 
@@ -3712,27 +3751,58 @@ impl GameWindow {
         }
 
         if matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
-            if let WindowMessage::User(code) = msg {
-                if code == GBM_SET_SELECTION {
+            match msg {
+                WindowMessage::Create | WindowMessage::Destroy => {
+                    return WindowMsgHandled::Handled;
+                }
+                WindowMessage::InputFocus => {
+                    if data1 == 0 {
+                        self.set_hilite_state(false);
+                    }
+                    if !self.owner_is_self {
+                        if let Some(owner) = self.get_owner() {
+                            let _ = owner.borrow_mut().send_system_message(
+                                WindowMessage::User(GGM_FOCUS_CHANGE),
+                                data1,
+                                self.id as WindowMsgData,
+                            );
+                        }
+                    }
+                    if data2 != 0 {
+                        unsafe {
+                            *(data2 as *mut bool) = true;
+                        }
+                    }
+                    return WindowMsgHandled::Handled;
+                }
+                WindowMessage::User(code) if code == GBM_SET_SELECTION => {
                     let mut newly_selected = false;
+                    let mut group_id = 0;
                     if let Some(WindowWidget::RadioButton(radio)) = self.widget.as_mut() {
+                        group_id = radio.group_id();
                         if !radio.is_selected() {
                             radio.select();
                             self.inst_data.state.insert(WindowState::SELECTED);
                             newly_selected = true;
                         }
                     }
-                    if newly_selected && data1 != 0 && !self.owner_is_self {
-                        if let Some(owner) = self.get_owner() {
-                            let _ = owner.borrow_mut().send_system_message(
-                                WindowMessage::GadgetSelected,
-                                self.id as WindowMsgData,
-                                0,
-                            );
+                    if newly_selected {
+                        if group_id != 0 {
+                            self.unselect_radio_peers_by_group(group_id);
+                        }
+                        if data1 != 0 && !self.owner_is_self {
+                            if let Some(owner) = self.get_owner() {
+                                let _ = owner.borrow_mut().send_system_message(
+                                    WindowMessage::GadgetSelected,
+                                    self.id as WindowMsgData,
+                                    0,
+                                );
+                            }
                         }
                     }
                     return WindowMsgHandled::Handled;
                 }
+                _ => {}
             }
         }
 
@@ -5950,6 +6020,155 @@ mod tests {
     }
 
     #[test]
+    fn radio_set_selection_clears_group_peers_like_cpp() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let first = Rc::new(RefCell::new(GameWindow::new()));
+        let second = Rc::new(RefCell::new(GameWindow::new()));
+        let group = RadioButtonGroup::new(44);
+
+        {
+            let mut first = first.borrow_mut();
+            first.set_id(41);
+            first.set_parent(Some(&parent));
+            first.set_widget(WindowWidget::RadioButton(RadioButton::new(
+                41,
+                0,
+                0,
+                16,
+                group.clone(),
+            )));
+            if let Some(WindowWidget::RadioButton(radio)) = first.widget.as_mut() {
+                radio.select();
+            }
+            first.sync_state_from_widget();
+        }
+        {
+            let mut second = second.borrow_mut();
+            second.set_id(42);
+            second.set_parent(Some(&parent));
+            second.set_widget(WindowWidget::RadioButton(RadioButton::new(
+                42,
+                0,
+                0,
+                16,
+                group.clone(),
+            )));
+        }
+        parent.borrow_mut().add_child(first.clone());
+        parent.borrow_mut().add_child(second.clone());
+
+        assert!(first
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED));
+
+        assert_eq!(
+            second
+                .borrow_mut()
+                .send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert!(!first
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED));
+        assert!(matches!(
+            first.borrow().widget(),
+            Some(WindowWidget::RadioButton(radio)) if !radio.is_selected()
+        ));
+        assert!(second
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED));
+    }
+
+    #[test]
+    fn radio_create_destroy_are_consumed_like_cpp_system_callback() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
+            43,
+            0,
+            0,
+            16,
+            RadioButtonGroup::new(5),
+        )));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn radio_mouse_track_gate_and_payloads_match_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(44);
+        window.set_owner(Some(&owner));
+        window.enable(true).unwrap();
+        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
+            44,
+            0,
+            0,
+            16,
+            RadioButtonGroup::new(6),
+        )));
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert!(owner_seen.borrow().is_empty());
+
+        window.instance_data_mut().style |= GWS_MOUSE_TRACK;
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftUp, 88, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDrag, 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseLeaving, 111, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::GadgetMouseEntering, 44, 77),
+                (WindowMessage::GadgetSelected, 44, 88),
+                (WindowMessage::User(GGM_LEFT_DRAG), 44, 99),
+                (WindowMessage::GadgetMouseLeaving, 44, 111),
+            ]
+        );
+    }
+
+    #[test]
     fn checkbox_widget_sync_sets_selected_state_like_cpp_instance_data() {
         let mut window = GameWindow::new();
         window.set_id(19);
@@ -6165,17 +6384,29 @@ mod tests {
             RadioButtonGroup::new(4),
         )));
 
+        let mut accepts_focus = false;
         assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            window.send_system_message(
+                WindowMessage::InputFocus,
+                1,
+                &mut accepts_focus as *mut bool as WindowMsgData,
+            ),
             WindowMsgHandled::Handled
         );
+        assert!(accepts_focus);
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         window.set_hilite_state(true);
+        accepts_focus = false;
         assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 0, 0),
+            window.send_system_message(
+                WindowMessage::InputFocus,
+                0,
+                &mut accepts_focus as *mut bool as WindowMsgData,
+            ),
             WindowMsgHandled::Handled
         );
+        assert!(accepts_focus);
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
