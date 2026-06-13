@@ -317,7 +317,10 @@ impl UpgradeTemplate {
     }
 
     /// Update template from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> UpgradeResult<()> {
         for (key, value) in properties {
             match key.as_str() {
                 "DisplayName" => {
@@ -330,9 +333,8 @@ impl UpgradeTemplate {
                     self.category = UpgradeCategory::from_string(value);
                 }
                 "Type" => {
-                    if let Ok(upgrade_type) = UpgradeType::from_string(value) {
-                        self.upgrade_type = upgrade_type;
-                    }
+                    self.upgrade_type =
+                        UpgradeType::from_string(value).map_err(UpgradeError::ParseError)?;
                 }
                 "PrerequisiteScience" => {
                     self.requirements.prerequisite_science = value
@@ -347,14 +349,14 @@ impl UpgradeTemplate {
                         .collect();
                 }
                 "Cost" | "BuildCost" => {
-                    if let Ok(cost) = value.parse::<u32>() {
-                        self.requirements.cost = cost;
-                    }
+                    self.requirements.cost = value.parse::<u32>().map_err(|e| {
+                        UpgradeError::ParseError(format!("Invalid build cost '{}': {}", value, e))
+                    })?;
                 }
                 "ResearchTime" | "BuildTime" => {
-                    if let Ok(time) = value.parse::<f32>() {
-                        self.requirements.research_time = time;
-                    }
+                    self.requirements.research_time = value.parse::<f32>().map_err(|e| {
+                        UpgradeError::ParseError(format!("Invalid build time '{}': {}", value, e))
+                    })?;
                 }
                 "IconName" => {
                     self.icon_name = AsciiString::from(value);
@@ -372,34 +374,30 @@ impl UpgradeTemplate {
                     self.unit_specific_sound = AsciiString::from(value);
                 }
                 "AcademyClassify" => {
-                    if let Ok(classification) = parse_academy_classification(value) {
-                        self.academy_classification_type = classification;
-                    }
+                    self.academy_classification_type =
+                        parse_academy_classification(value).map_err(UpgradeError::ParseError)?;
                 }
                 "IsPurchasable" => {
-                    if let Ok(purchasable) = parse_bool(value) {
-                        self.is_purchasable = purchasable;
-                    }
+                    self.is_purchasable = parse_bool(value).map_err(UpgradeError::ParseError)?;
                 }
                 "IsStackable" => {
-                    if let Ok(stackable) = parse_bool(value) {
-                        self.is_stackable = stackable;
-                    }
+                    self.is_stackable = parse_bool(value).map_err(UpgradeError::ParseError)?;
                 }
                 "MaxStackCount" => {
-                    if let Ok(count) = value.parse::<u32>() {
-                        self.max_stack_count = count;
-                    }
+                    self.max_stack_count = value.parse::<u32>().map_err(|e| {
+                        UpgradeError::ParseError(format!(
+                            "Invalid max stack count '{}': {}",
+                            value, e
+                        ))
+                    })?;
                 }
                 "AffectsAllOfType" => {
-                    if let Ok(affects_all) = parse_bool(value) {
-                        self.affects_all_of_type = affects_all;
-                    }
+                    self.affects_all_of_type =
+                        parse_bool(value).map_err(UpgradeError::ParseError)?;
                 }
                 "AffectsExistingObjects" => {
-                    if let Ok(affects_existing) = parse_bool(value) {
-                        self.affects_existing_objects = affects_existing;
-                    }
+                    self.affects_existing_objects =
+                        parse_bool(value).map_err(UpgradeError::ParseError)?;
                 }
                 _ => {
                     // Store unknown properties
@@ -407,6 +405,8 @@ impl UpgradeTemplate {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -677,7 +677,7 @@ impl IniUpgrade {
         let mut template = UpgradeTemplate::new(name);
 
         // Update template from properties
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties)?;
 
         // Validate template
         if !template.is_valid() {
@@ -903,7 +903,7 @@ mod tests {
         properties.insert("IsStackable".to_string(), "true".to_string());
         properties.insert("MaxStackCount".to_string(), "3".to_string());
 
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties).unwrap();
 
         assert!(matches!(template.category, UpgradeCategory::Speed));
         assert_eq!(template.upgrade_type, UpgradeType::Object);
@@ -930,6 +930,25 @@ mod tests {
             Ok(AcademyClassificationType::Superpower)
         );
         assert!(parse_academy_classification("SUPERWEAPON").is_err());
+    }
+
+    #[test]
+    fn upgrade_block_rejects_invalid_cpp_field_values() {
+        let mut props = HashMap::new();
+        props.insert("Type".to_string(), "GLOBAL".to_string());
+        assert!(IniUpgrade::parse_upgrade_block(AsciiString::from("BadType"), props).is_err());
+
+        let mut props = HashMap::new();
+        props.insert("BuildCost".to_string(), "expensive".to_string());
+        assert!(IniUpgrade::parse_upgrade_block(AsciiString::from("BadCost"), props).is_err());
+
+        let mut props = HashMap::new();
+        props.insert("BuildTime".to_string(), "soon".to_string());
+        assert!(IniUpgrade::parse_upgrade_block(AsciiString::from("BadTime"), props).is_err());
+
+        let mut props = HashMap::new();
+        props.insert("AcademyClassify".to_string(), "SUPERWEAPON".to_string());
+        assert!(IniUpgrade::parse_upgrade_block(AsciiString::from("BadAcademy"), props).is_err());
     }
 
     #[test]
