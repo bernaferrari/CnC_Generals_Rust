@@ -1,6 +1,10 @@
 use game_client_rust::terrain::{
-    water_tracks::water_track_strip_indices, WaterTrackHeightProvider, WaterTrackSaveRecord,
-    WaterTrackType, WaterTracksRenderSystem, WATER_TRACK_WAVE_INFO,
+    water_tracks::{
+        decode_wak_records, encode_wak_records, water_track_strip_indices, water_track_wak_path,
+        WaterTrackWakError,
+    },
+    WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType, WaterTracksRenderSystem,
+    WATER_TRACK_WAVE_INFO,
 };
 use glam::Vec2;
 
@@ -153,6 +157,58 @@ fn load_records_adds_second_wave_and_save_skips_offsets() {
     assert!(system.track(handles[0]).unwrap().flip_u());
     assert!(!system.track(handles[1]).unwrap().flip_u());
     assert_eq!(system.save_records(), records);
+}
+
+#[test]
+fn wak_records_round_trip_cpp_trailing_count_format() {
+    let records = [
+        WaterTrackSaveRecord {
+            start: Vec2::new(1.0, 2.0),
+            end: Vec2::new(3.0, 4.0),
+            wave_type: WaterTrackType::Pond,
+        },
+        WaterTrackSaveRecord {
+            start: Vec2::new(-5.5, 6.25),
+            end: Vec2::new(7.75, -8.125),
+            wave_type: WaterTrackType::Radial,
+        },
+    ];
+
+    let bytes = encode_wak_records(&records);
+
+    assert_eq!(bytes.len(), 44);
+    assert_eq!(&bytes[40..44], &2i32.to_le_bytes());
+    assert_eq!(decode_wak_records(&bytes).unwrap(), records);
+}
+
+#[test]
+fn wak_decoder_uses_eof_count_and_rejects_unknown_types() {
+    let records = [WaterTrackSaveRecord {
+        start: Vec2::new(1.0, 2.0),
+        end: Vec2::new(3.0, 4.0),
+        wave_type: WaterTrackType::Ocean,
+    }];
+    let mut bytes = encode_wak_records(&records);
+    bytes.extend_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd]);
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+
+    assert_eq!(decode_wak_records(&bytes).unwrap(), records);
+
+    let mut bad = encode_wak_records(&records);
+    bad[16..20].copy_from_slice(&99i32.to_le_bytes());
+    assert_eq!(
+        decode_wak_records(&bad),
+        Err(WaterTrackWakError::UnknownWaveType(99))
+    );
+}
+
+#[test]
+fn wak_path_replaces_map_extension_like_cpp() {
+    assert_eq!(
+        water_track_wak_path("Data/Maps/Foo/Foo.map"),
+        "Data/Maps/Foo/Foo.wak"
+    );
+    assert_eq!(water_track_wak_path("map"), ".wak");
 }
 
 #[test]

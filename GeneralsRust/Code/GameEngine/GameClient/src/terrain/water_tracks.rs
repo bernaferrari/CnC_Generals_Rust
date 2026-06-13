@@ -1,6 +1,7 @@
 //! CPU-side parity port for C++ `W3DDevice/GameClient/Water/W3DWaterTracks.cpp`.
 
 use glam::Vec2;
+use thiserror::Error;
 
 /// C++ `WATER_VB_PAGES`.
 pub const WATER_VB_PAGES: usize = 1000;
@@ -202,6 +203,19 @@ pub struct WaterTrackSaveRecord {
     pub start: Vec2,
     pub end: Vec2,
     pub wave_type: WaterTrackType,
+}
+
+/// Errors while decoding the C++ `.wak` water-track sidecar format.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum WaterTrackWakError {
+    #[error(".wak data is too short for trailing count")]
+    MissingCount,
+    #[error(".wak trailing count is negative: {0}")]
+    NegativeCount(i32),
+    #[error(".wak data is too short for {count} records")]
+    TruncatedRecords { count: usize },
+    #[error(".wak contains unknown wave type {0}")]
+    UnknownWaveType(i32),
 }
 
 /// C++ `WaterTracksObj`.
@@ -827,6 +841,72 @@ pub fn water_track_strip_indices(strip_size_x: usize, strip_size_y: usize) -> Ve
         j += 1;
     }
     ib
+}
+
+/// Serialize records exactly like C++ `WaterTracksRenderSystem::saveTracks`:
+/// raw start/end `Vector2`, raw `waveType`, then a trailing record count.
+pub fn encode_wak_records(records: &[WaterTrackSaveRecord]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(records.len() * 20 + 4);
+    for record in records {
+        bytes.extend_from_slice(&record.start.x.to_le_bytes());
+        bytes.extend_from_slice(&record.start.y.to_le_bytes());
+        bytes.extend_from_slice(&record.end.x.to_le_bytes());
+        bytes.extend_from_slice(&record.end.y.to_le_bytes());
+        bytes.extend_from_slice(&(record.wave_type as i32).to_le_bytes());
+    }
+    bytes.extend_from_slice(&(records.len() as i32).to_le_bytes());
+    bytes
+}
+
+/// Decode records from the C++ `.wak` sidecar format. The record count is read
+/// from the final four bytes, then records are consumed from the start.
+pub fn decode_wak_records(bytes: &[u8]) -> Result<Vec<WaterTrackSaveRecord>, WaterTrackWakError> {
+    const RECORD_SIZE: usize = 20;
+
+    if bytes.len() < 4 {
+        return Err(WaterTrackWakError::MissingCount);
+    }
+
+    let count_offset = bytes.len() - 4;
+    let count = i32::from_le_bytes(bytes[count_offset..].try_into().unwrap());
+    if count < 0 {
+        return Err(WaterTrackWakError::NegativeCount(count));
+    }
+
+    let count = count as usize;
+    if bytes.len() < count * RECORD_SIZE + 4 {
+        return Err(WaterTrackWakError::TruncatedRecords { count });
+    }
+
+    let mut records = Vec::with_capacity(count);
+    for index in 0..count {
+        let offset = index * RECORD_SIZE;
+        let start_x = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        let start_y = f32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+        let end_x = f32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap());
+        let end_y = f32::from_le_bytes(bytes[offset + 12..offset + 16].try_into().unwrap());
+        let wave_type = i32::from_le_bytes(bytes[offset + 16..offset + 20].try_into().unwrap());
+        let wave_type = WaterTrackType::from_i32(wave_type)
+            .ok_or(WaterTrackWakError::UnknownWaveType(wave_type))?;
+
+        records.push(WaterTrackSaveRecord {
+            start: Vec2::new(start_x, start_y),
+            end: Vec2::new(end_x, end_y),
+            wave_type,
+        });
+    }
+
+    Ok(records)
+}
+
+/// C++ replaces the final four characters of the map source filename with
+/// `.wak`; this helper keeps that exact convention for callers doing I/O.
+pub fn water_track_wak_path(source_filename: &str) -> String {
+    if source_filename.len() >= 4 {
+        format!("{}.wak", &source_filename[..source_filename.len() - 4])
+    } else {
+        ".wak".to_string()
+    }
 }
 
 fn rotate(v: Vec2, angle: f32) -> Vec2 {
