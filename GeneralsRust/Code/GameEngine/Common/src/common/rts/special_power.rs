@@ -526,16 +526,12 @@ impl SpecialPowerStore {
 
         // { "ViewObjectRange",         INI::parseReal,                 NULL, offsetof(SpecialPowerTemplate, m_viewObjectRange) },
         if let Some(value) = properties.get("ViewObjectRange") {
-            if let Ok(range) = value.parse::<f32>() {
-                template.view_object_range = range;
-            }
+            template.view_object_range = Self::parse_real(value)?;
         }
 
         // { "RadiusCursorRadius",      INI::parseReal,                 NULL, offsetof(SpecialPowerTemplate, m_radiusCursorRadius) },
         if let Some(value) = properties.get("RadiusCursorRadius") {
-            if let Ok(radius) = value.parse::<f32>() {
-                template.radius_cursor_radius = radius;
-            }
+            template.radius_cursor_radius = Self::parse_real(value)?;
         }
 
         // { "ShortcutPower",           INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_shortcutPower) },
@@ -563,6 +559,15 @@ impl SpecialPowerStore {
             .map_err(|err| format!("Invalid duration '{}': {}", value, err))?;
 
         Ok(((millis as f32) * 30.0 / 1000.0).ceil() as u32)
+    }
+
+    /// Parse real (matches C++ INI::parseReal failure semantics)
+    fn parse_real(value: &str) -> Result<f32, String> {
+        value
+            .trim()
+            .trim_end_matches(['f', 'F'])
+            .parse::<f32>()
+            .map_err(|err| format!("Invalid real '{}': {}", value, err))
     }
 
     /// Parse boolean (matches C++ INI::parseBool)
@@ -996,6 +1001,8 @@ mod tests {
         props.insert("PublicTimer".to_string(), "Yes".to_string());
         props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
         props.insert("AcademyClassify".to_string(), "ACT_SUPERPOWER".to_string());
+        props.insert("ViewObjectRange".to_string(), "225.5".to_string());
+        props.insert("RadiusCursorRadius".to_string(), "80.0".to_string());
 
         let result = store.parse_special_power_definition("TestPower", &props);
         assert!(result.is_ok());
@@ -1010,6 +1017,8 @@ mod tests {
             template.academy_classification_type,
             AcademyClassificationType::Superpower
         );
+        assert_eq!(template.view_object_range, 225.5);
+        assert_eq!(template.radius_cursor_radius, 80.0);
     }
 
     #[test]
@@ -1287,6 +1296,26 @@ mod tests {
 
         assert!(result.is_err());
         assert!(store.find_template("BadDurationPower").is_none());
+    }
+
+    #[test]
+    fn special_power_invalid_real_fields_reject_template() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("ViewObjectRange".to_string(), "nearby".to_string());
+
+        let result = store.parse_special_power_definition("BadRangePower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadRangePower").is_none());
+
+        let mut radius_props = HashMap::new();
+        radius_props.insert("RadiusCursorRadius".to_string(), "wide".to_string());
+
+        let result = store.parse_special_power_definition("BadRadiusPower", &radius_props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadRadiusPower").is_none());
     }
 
     #[test]
