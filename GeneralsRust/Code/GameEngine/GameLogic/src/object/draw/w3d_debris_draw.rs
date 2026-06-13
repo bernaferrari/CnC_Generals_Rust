@@ -118,6 +118,7 @@ pub struct W3DDebrisDraw {
     _data: W3DDebrisDrawModuleData,
     model_name: AsciiString,
     model_color: Color,
+    model_created: bool,
     shadow_type: ShadowType,
     anim_initial: AsciiString,
     anim_flying: AsciiString,
@@ -127,9 +128,6 @@ pub struct W3DDebrisDraw {
     state_frame_count: u32,
     final_stopped: bool,
     owner_id: Option<ObjectID>,
-    hidden: bool,
-    fully_obscured_by_shroud: bool,
-    shadows_enabled: bool,
 }
 
 impl W3DDebrisDraw {
@@ -138,6 +136,7 @@ impl W3DDebrisDraw {
             _data: data,
             model_name: AsciiString::new(),
             model_color: Color::white(),
+            model_created: false,
             shadow_type: ShadowType::None,
             anim_initial: AsciiString::new(),
             anim_flying: AsciiString::new(),
@@ -147,9 +146,6 @@ impl W3DDebrisDraw {
             state_frame_count: 0,
             final_stopped: false,
             owner_id: None,
-            hidden: false,
-            fully_obscured_by_shroud: false,
-            shadows_enabled: false,
         }
     }
 
@@ -160,14 +156,12 @@ impl W3DDebrisDraw {
     fn transition_to_flying(&mut self) {
         if self.current_state == DebrisAnimState::Initial {
             self.current_state = DebrisAnimState::Flying;
-            self.state_frame_count = 0;
         }
     }
 
     fn transition_to_final(&mut self, position: &Coord3D, _transform: &Matrix3D) {
         if self.current_state == DebrisAnimState::Flying {
             self.current_state = DebrisAnimState::Final;
-            self.state_frame_count = 0;
 
             // Matches C++ W3DDebrisDraw.cpp:228 - Play final FX on transition to FINAL state
             if let Some(fx_list) = &self.final_fx {
@@ -198,12 +192,10 @@ impl W3DDebrisDraw {
 
     fn should_transition_to_final(
         state: DebrisAnimState,
-        state_frame_count: u32,
+        frames: u32,
         is_above_terrain: bool,
     ) -> bool {
-        state == DebrisAnimState::Flying
-            && state_frame_count >= MIN_FINAL_FRAMES
-            && !is_above_terrain
+        state != DebrisAnimState::Final && frames > MIN_FINAL_FRAMES && !is_above_terrain
     }
 }
 
@@ -211,7 +203,7 @@ impl Module for W3DDebrisDraw {
     fn on_drawable_bound_to_object(&mut self) {}
     fn on_delete(&mut self) {}
     fn get_module_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DDebrisDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self._data.module_tag_name_key
@@ -223,7 +215,7 @@ impl Module for W3DDebrisDraw {
 
 impl DrawModule for W3DDebrisDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        if self.model_name.is_empty() || self.hidden || self.fully_obscured_by_shroud {
+        if !self.model_created {
             return;
         }
 
@@ -280,16 +272,16 @@ impl DrawModule for W3DDebrisDraw {
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
 
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
+        let _ = hidden;
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
+        let _ = fully_obscured;
     }
     fn react_to_transform_change(
         &mut self,
@@ -298,9 +290,7 @@ impl DrawModule for W3DDebrisDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {
-        self.state_frame_count = 0;
-    }
+    fn react_to_geometry_change(&mut self) {}
 
     fn get_debris_draw_interface(&self) -> Option<&dyn DebrisDrawInterface> {
         Some(self)
@@ -313,8 +303,12 @@ impl DrawModule for W3DDebrisDraw {
 
 impl DebrisDrawInterface for W3DDebrisDraw {
     fn set_model_name(&mut self, name: AsciiString, color: Color, shadow_type: ShadowType) {
+        if self.model_created || name.is_empty() {
+            return;
+        }
         self.model_name = name;
         self.model_color = color;
+        self.model_created = true;
         self.shadow_type = shadow_type;
     }
 
@@ -424,6 +418,7 @@ impl Snapshotable for W3DDebrisDraw {
             .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             self.model_name = AsciiString::from(model_name.as_str());
+            self.model_created = !self.model_name.is_empty();
         }
 
         let mut packed_color = color_to_packed_i32(self.model_color);
@@ -433,6 +428,7 @@ impl Snapshotable for W3DDebrisDraw {
             self.model_color = color_from_packed_i32(packed_color);
         }
         if xfer.is_reading() {
+            self.model_created = false;
             self.set_model_name(self.model_name.clone(), self.model_color, ShadowType::None);
         }
 
@@ -488,13 +484,26 @@ impl Snapshotable for W3DDebrisDraw {
 
 #[cfg(test)]
 mod tests {
-    use super::{DebrisAnimState, W3DDebrisDraw};
+    use super::{DebrisAnimState, W3DDebrisDraw, W3DDebrisDrawModuleData};
+    use crate::common::{AsciiString, Color};
+    use crate::object::draw::{DebrisDrawInterface, DrawModule, ShadowType};
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+    use game_engine::common::thing::module::Module;
 
     #[test]
     fn should_transition_to_final_when_landed_after_min_frames() {
         assert!(W3DDebrisDraw::should_transition_to_final(
             DebrisAnimState::Flying,
-            3,
+            4,
+            false
+        ));
+    }
+
+    #[test]
+    fn should_transition_to_final_from_initial_like_cpp() {
+        assert!(W3DDebrisDraw::should_transition_to_final(
+            DebrisAnimState::Initial,
+            4,
             false
         ));
     }
@@ -506,5 +515,46 @@ mod tests {
             10,
             true
         ));
+    }
+
+    #[test]
+    fn model_name_is_only_set_once() {
+        let mut draw = W3DDebrisDraw::new(W3DDebrisDrawModuleData::new());
+
+        draw.set_model_name(
+            AsciiString::from("FIRST"),
+            Color::new(1, 2, 3, 4),
+            ShadowType::Blob,
+        );
+        draw.set_model_name(
+            AsciiString::from("SECOND"),
+            Color::new(5, 6, 7, 8),
+            ShadowType::None,
+        );
+
+        assert_eq!(draw.model_name.as_str(), "FIRST");
+        assert_eq!(draw.shadow_type, ShadowType::Blob);
+    }
+
+    #[test]
+    fn geometry_and_visibility_hooks_do_not_reset_runtime_state() {
+        let mut draw = W3DDebrisDraw::new(W3DDebrisDrawModuleData::new());
+        draw.state_frame_count = 9;
+
+        draw.set_hidden(true);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.set_shadows_enabled(false);
+        draw.react_to_geometry_change();
+
+        assert_eq!(draw.state_frame_count, 9);
+    }
+
+    #[test]
+    fn module_name_key_matches_debris_draw() {
+        let draw = W3DDebrisDraw::new(W3DDebrisDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DDebrisDraw")
+        );
     }
 }
