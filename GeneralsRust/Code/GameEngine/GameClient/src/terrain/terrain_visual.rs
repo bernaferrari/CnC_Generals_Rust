@@ -376,6 +376,8 @@ pub struct TerrainVisualImpl {
     blend_texture: Option<Texture>,
     detail_textures: Vec<Texture>,
     skybox_textures: [Option<Texture>; 5],
+    initial_skybox_texture_names: [Option<String>; 5],
+    current_skybox_texture_names: [Option<String>; 5],
     skybox_background_view: Option<TextureView>,
     skybox_background_bind_group: Option<BindGroup>,
     skybox_background_pipeline: Option<wgpu::RenderPipeline>,
@@ -543,6 +545,8 @@ impl TerrainVisualImpl {
             blend_texture: None,
             detail_textures: Vec::new(),
             skybox_textures: [None, None, None, None, None],
+            initial_skybox_texture_names: [None, None, None, None, None],
+            current_skybox_texture_names: [None, None, None, None, None],
             skybox_background_view: None,
             skybox_background_bind_group: None,
             skybox_background_pipeline: None,
@@ -3904,18 +3908,103 @@ impl TerrainVisualImpl {
     /// Replace skybox textures
     pub fn replace_skybox_textures(
         &mut self,
-        _old_names: &[&str; 5],
+        old_names: &[&str; 5],
         new_names: &[&str; 5],
     ) -> TerrainResult<()> {
-        if let Some(device) = self.device.as_ref().cloned() {
-            for (i, texture_path) in new_names.iter().enumerate() {
-                // Load new skybox texture
-                let texture = self.load_texture_from_path(device.as_ref(), texture_path)?;
-                self.skybox_textures[i] = Some(texture);
+        for (i, old_name) in old_names.iter().enumerate() {
+            if self.initial_skybox_texture_names[i].is_none() {
+                let old_name = (*old_name).to_string();
+                self.initial_skybox_texture_names[i] = Some(old_name.clone());
+                self.current_skybox_texture_names[i] = Some(old_name);
             }
+        }
+
+        let mut replacements = Vec::new();
+        for (i, new_name) in new_names.iter().enumerate() {
+            let should_replace = self.current_skybox_texture_names[i]
+                .as_deref()
+                .map_or(true, |current| current != *new_name);
+            if should_replace {
+                replacements.push((i, (*new_name).to_string()));
+            }
+        }
+
+        if replacements.is_empty() {
+            return Ok(());
+        }
+
+        let loaded_textures = self.load_skybox_replacement_textures(&replacements)?;
+
+        for (i, new_name) in replacements {
+            self.current_skybox_texture_names[i] = Some(new_name);
+        }
+        for (i, texture) in loaded_textures {
+            self.skybox_textures[i] = Some(texture);
+        }
+
+        self.refresh_skybox_background_binding_if_ready()?;
+        Ok(())
+    }
+
+    /// Initial/default skybox names captured by C++ `replaceSkyboxTextures`.
+    pub fn initial_skybox_texture_names(&self) -> &[Option<String>; 5] {
+        &self.initial_skybox_texture_names
+    }
+
+    /// Current skybox names tracked by C++ `replaceSkyboxTextures`.
+    pub fn current_skybox_texture_names(&self) -> &[Option<String>; 5] {
+        &self.current_skybox_texture_names
+    }
+
+    fn load_skybox_replacement_textures(
+        &self,
+        replacements: &[(usize, String)],
+    ) -> TerrainResult<Vec<(usize, Texture)>> {
+        let Some(device) = self.device.as_ref().cloned() else {
+            return Ok(Vec::new());
+        };
+
+        replacements
+            .iter()
+            .map(|(i, texture_path)| {
+                self.load_texture_from_path(device.as_ref(), texture_path)
+                    .map(|texture| (*i, texture))
+            })
+            .collect()
+    }
+
+    fn refresh_skybox_background_binding_if_ready(&mut self) -> TerrainResult<()> {
+        if let Some(device) = self.device.as_ref().cloned() {
             self.refresh_skybox_background_binding(device.as_ref())?;
         }
         Ok(())
+    }
+
+    fn restore_initial_skybox_textures(&mut self) -> TerrainResult<()> {
+        let mut replacements = Vec::new();
+        for i in 0..5 {
+            let Some(initial_name) = self.initial_skybox_texture_names[i].clone() else {
+                continue;
+            };
+            if self.current_skybox_texture_names[i].as_deref() != Some(initial_name.as_str()) {
+                replacements.push((i, initial_name));
+            }
+        }
+
+        if replacements.is_empty() {
+            return Ok(());
+        }
+
+        let loaded_textures = self.load_skybox_replacement_textures(&replacements)?;
+
+        for (i, initial_name) in replacements {
+            self.current_skybox_texture_names[i] = Some(initial_name);
+        }
+        for (i, texture) in loaded_textures {
+            self.skybox_textures[i] = Some(texture);
+        }
+
+        self.refresh_skybox_background_binding_if_ready()
     }
 
     fn refresh_skybox_background_binding(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
@@ -4186,6 +4275,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.road_meshes.clear();
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;
+        self.restore_initial_skybox_textures()?;
         self.ensure_default_textures();
 
         self.stats = TerrainStats::default();
