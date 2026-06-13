@@ -464,6 +464,17 @@ pub fn get_locomotor_store_mut() -> RwLockWriteGuard<'static, LocomotorStore> {
         .unwrap()
 }
 
+fn parse_cpp_bool(field_name: &str, value: &str) -> LocomotorResult<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        _ => Err(LocomotorError::ParseError(format!(
+            "{}: invalid boolean token '{}' (expected Yes or No)",
+            field_name, value
+        ))),
+    }
+}
+
 /// Parse a locomotor template definition from INI
 /// Matches C++ LocomotorStore::parseLocomotorTemplateDefinition from Locomotor.cpp lines 529-569
 pub fn parse_locomotor_template_definition(
@@ -665,25 +676,29 @@ pub fn parse_locomotor_template_definition(
                     .map_err(|e| LocomotorError::ParseError(format!("TurnPivotOffset: {}", e)))?
             }
             "Apply2DFrictionWhenAirborne" => {
-                template.apply_2d_friction_when_airborne = value.parse::<bool>().unwrap_or(false)
+                template.apply_2d_friction_when_airborne = parse_cpp_bool(key, value)?
             }
-            "DownhillOnly" => template.downhill_only = value.parse::<bool>().unwrap_or(false),
+            "DownhillOnly" => {
+                template.downhill_only = parse_cpp_bool(key, value)?;
+            }
             "AllowAirborneMotiveForce" => {
-                template.allow_motive_force_while_airborne = value.parse::<bool>().unwrap_or(false)
+                template.allow_motive_force_while_airborne = parse_cpp_bool(key, value)?
             }
             "LocomotorWorksWhenDead" => {
-                template.locomotor_works_when_dead = value.parse::<bool>().unwrap_or(false)
+                template.locomotor_works_when_dead = parse_cpp_bool(key, value)?
             }
             "AirborneTargetingHeight" => {
                 template.airborne_targeting_height = value.parse().map_err(|e| {
                     LocomotorError::ParseError(format!("AirborneTargetingHeight: {}", e))
                 })?
             }
-            "StickToGround" => template.stick_to_ground = value.parse::<bool>().unwrap_or(false),
-            "CanMoveBackwards" => {
-                template.can_move_backward = value.parse::<bool>().unwrap_or(false)
+            "StickToGround" => {
+                template.stick_to_ground = parse_cpp_bool(key, value)?;
             }
-            "HasSuspension" => template.has_suspension = value.parse::<bool>().unwrap_or(false),
+            "CanMoveBackwards" => template.can_move_backward = parse_cpp_bool(key, value)?,
+            "HasSuspension" => {
+                template.has_suspension = parse_cpp_bool(key, value)?;
+            }
             "FrontWheelTurnAngle" => {
                 template.wheel_turn_angle = value.parse().map_err(|e| {
                     LocomotorError::ParseError(format!("FrontWheelTurnAngle: {}", e))
@@ -704,9 +719,7 @@ pub fn parse_locomotor_template_definition(
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("CloseEnoughDist: {}", e)))?
             }
-            "CloseEnoughDist3D" => {
-                template.is_close_enough_dist_3d = value.parse::<bool>().unwrap_or(false)
-            }
+            "CloseEnoughDist3D" => template.is_close_enough_dist_3d = parse_cpp_bool(key, value)?,
             "SlideIntoPlaceTime" => {
                 template.ultra_accurate_slide_into_place_factor = value
                     .parse()
@@ -851,7 +864,10 @@ pub fn load_locomotors_from_str(content: &str) -> Result<usize, LocomotorLoadErr
             if current_name.is_some() {
                 return Err(LocomotorLoadError::Parse {
                     line: line_no,
-                    message: format!("Nested Locomotor block encountered (still inside '{}')", current_name.as_deref().unwrap_or("?")),
+                    message: format!(
+                        "Nested Locomotor block encountered (still inside '{}')",
+                        current_name.as_deref().unwrap_or("?")
+                    ),
                 });
             }
             current_name = Some(name.to_string());
@@ -1038,5 +1054,51 @@ mod tests {
             "Acceleration should be 1.0, got {}",
             template.acceleration
         );
+    }
+
+    #[test]
+    fn locomotor_cpp_bool_fields_accept_yes_no() {
+        let mut props = HashMap::new();
+        props.insert("Apply2DFrictionWhenAirborne".to_string(), "Yes".to_string());
+        props.insert("DownhillOnly".to_string(), "No".to_string());
+        props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
+        props.insert("LocomotorWorksWhenDead".to_string(), "No".to_string());
+        props.insert("StickToGround".to_string(), "Yes".to_string());
+        props.insert("CanMoveBackwards".to_string(), "No".to_string());
+        props.insert("HasSuspension".to_string(), "Yes".to_string());
+        props.insert("CloseEnoughDist3D".to_string(), "No".to_string());
+
+        let template = parse_locomotor_template_definition("BoolLoco", &props).unwrap();
+
+        assert!(template.apply_2d_friction_when_airborne);
+        assert!(!template.downhill_only);
+        assert!(template.allow_motive_force_while_airborne);
+        assert!(!template.locomotor_works_when_dead);
+        assert!(template.stick_to_ground);
+        assert!(!template.can_move_backward);
+        assert!(template.has_suspension);
+        assert!(!template.is_close_enough_dist_3d);
+    }
+
+    #[test]
+    fn locomotor_cpp_bool_fields_reject_invalid_tokens() {
+        for field in [
+            "Apply2DFrictionWhenAirborne",
+            "DownhillOnly",
+            "AllowAirborneMotiveForce",
+            "LocomotorWorksWhenDead",
+            "StickToGround",
+            "CanMoveBackwards",
+            "HasSuspension",
+            "CloseEnoughDist3D",
+        ] {
+            let mut props = HashMap::new();
+            props.insert(field.to_string(), "maybe".to_string());
+
+            assert!(
+                parse_locomotor_template_definition("BadBoolLoco", &props).is_err(),
+                "{field} should reject invalid C++ bool token"
+            );
+        }
     }
 }
