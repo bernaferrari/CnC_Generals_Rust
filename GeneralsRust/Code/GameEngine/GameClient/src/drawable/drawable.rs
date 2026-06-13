@@ -1582,6 +1582,9 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
         Ok(())
     }
 
+    /// Populate icon UI overlay state after the drawable's 3D pass.
+    fn draw_icon_ui(&mut self) {}
+
     /// Update drawable based on current time-of-day (default noop)
     fn set_time_of_day(&self, _time_of_day: TimeOfDay) -> Result<(), Box<dyn Error>> {
         Ok(())
@@ -3388,6 +3391,10 @@ impl Drawable for BasicDrawable {
 
     fn set_stealth_look(&mut self, stealth_look: StealthLook) {
         self.apply_stealth_look(stealth_look);
+    }
+
+    fn draw_icon_ui(&mut self) {
+        BasicDrawable::draw_icon_ui(self);
     }
 
     fn get_tint_color(&self) -> Vector3 {
