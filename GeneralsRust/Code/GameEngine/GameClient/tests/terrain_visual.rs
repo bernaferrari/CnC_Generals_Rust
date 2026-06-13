@@ -3,6 +3,7 @@ use game_client_rust::{
     terrain::{
         height_map::HeightMap,
         terrain_visual::{TerrainBibOwnerKind, TerrainVisualImpl},
+        textures::TileData,
         TerrainTrackHeightProvider, TerrainTracksConfig,
     },
 };
@@ -82,6 +83,31 @@ fn terrain_tile_query_uses_logic_heightmap_packed_tile_indices() {
         .expect("runtime heightmap should load");
 
     assert_eq!(visual.get_terrain_tile(1.25, 2.75).unwrap(), 13);
+}
+
+#[test]
+fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
+    let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
+    heightmap.border_size = 1;
+    heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
+
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .load_heightmap_from_data(heightmap, None, None)
+        .expect("runtime heightmap should load");
+
+    let mut tile = TileData::new();
+    for pixel in tile.data.chunks_exact_mut(4) {
+        pixel[0] = 64;
+        pixel[1] = 128;
+        pixel[2] = 192;
+        pixel[3] = 255;
+    }
+    tile.update_mips();
+    visual.debug_set_source_tile(13, tile);
+
+    let color = visual.get_terrain_color_at(1.25, 2.75).unwrap();
+    assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
 }
 
 fn option_names(names: &[Option<String>; 5]) -> [Option<&str>; 5] {
