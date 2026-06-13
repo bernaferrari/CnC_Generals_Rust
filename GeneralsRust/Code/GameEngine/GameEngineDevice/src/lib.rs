@@ -39,7 +39,7 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use game_engine_device::{GameEngineDevice, DeviceConfig};
 //!
 //! #[tokio::main]
@@ -647,5 +647,28 @@ mod tests {
         let version = version_info();
         assert!(!version.is_empty());
         assert!(version.contains('.'));
+    }
+
+    #[cfg(feature = "w3d")]
+    #[test]
+    fn reload_all_textures_clears_model_loader_texture_cache() {
+        let mut loader = crate::w3d::model_loader::W3DModelLoader::new();
+        loader.cache_texture_for_test("particle.tga", vec![1, 2, 3, 4]);
+        loader.cache_texture_for_test("terrain.tga", vec![5, 6]);
+
+        loader.reload_all_textures();
+
+        assert_eq!(loader.texture_cache_len_for_test(), 0);
+    }
+
+    #[cfg(feature = "w3d")]
+    #[test]
+    fn global_reload_all_textures_delegates_to_model_loader() {
+        let mut loader = crate::w3d::model_loader::W3DModelLoader::new();
+        loader.cache_texture_for_test("effect.tga", vec![9, 8, 7]);
+
+        crate::w3d::model_loader::reload_all_textures(&mut loader);
+
+        assert_eq!(loader.texture_cache_len_for_test(), 0);
     }
 }

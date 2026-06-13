@@ -523,6 +523,7 @@ async fn set_render_state_internal(
     match state {
         W3D_RENDER_STATE::W3DRS_FOGENABLE
         | W3D_RENDER_STATE::W3DRS_FOGCOLOR
+        | W3D_RENDER_STATE::W3DRS_FOGTABLEMODE
         | W3D_RENDER_STATE::W3DRS_FOGSTART
         | W3D_RENDER_STATE::W3DRS_FOGEND
         | W3D_RENDER_STATE::W3DRS_FOGDENSITY
@@ -553,6 +554,9 @@ async fn set_render_state_internal(
                     if fog_density.is_finite() {
                         scene.fog_params[2] = fog_density;
                     }
+                }
+                W3D_RENDER_STATE::W3DRS_FOGTABLEMODE => {
+                    tracing::debug!("Set fog table mode: {}", value);
                 }
                 W3D_RENDER_STATE::W3DRS_AMBIENT => {
                     let ambient = decode_argb_color(value);

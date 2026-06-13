@@ -500,6 +500,26 @@ impl W3DModelLoader {
         self.texture_paths.push(path.as_ref().to_path_buf());
     }
 
+    /// Matches C++ `W3DAssetManager::Release_All_Textures`.
+    pub fn release_all_textures(&mut self) {
+        self.texture_cache.clear();
+    }
+
+    /// Matches C++ `ReloadAllTextures`.
+    pub fn reload_all_textures(&mut self) {
+        self.release_all_textures();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cache_texture_for_test(&mut self, name: &str, data: Vec<u8>) {
+        self.texture_cache.insert(name.to_string(), data);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn texture_cache_len_for_test(&self) -> usize {
+        self.texture_cache.len()
+    }
+
     /// Load W3D model from file
     pub async fn load_model<P: AsRef<Path>>(&mut self, path: P) -> Result<W3DModel> {
         let path = path.as_ref();
@@ -2130,6 +2150,11 @@ impl Default for W3DModelLoader {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Matches C++ global `ReloadAllTextures`.
+pub fn reload_all_textures(loader: &mut W3DModelLoader) {
+    loader.reload_all_textures();
 }
 
 /// GPU-optimized mesh representation
