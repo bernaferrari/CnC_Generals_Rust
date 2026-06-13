@@ -757,7 +757,8 @@ mod tests {
         horizontal_slider_box_counts, horizontal_slider_box_image_sources,
         horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
         progress_bar_image_draw_a_bank, progress_bar_image_draw_a_sources,
-        progress_bar_image_sources, progress_bar_solid_sources, push_button_three_piece_tail_clip,
+        progress_bar_image_sources, progress_bar_image_width, progress_bar_solid_sources,
+        progress_bar_solid_width, progress_percent, push_button_three_piece_tail_clip,
         radio_button_image_set_complete, radio_button_image_sources, radio_button_solid_box_source,
         solid_check_box_mark_color,
     };
@@ -781,8 +782,8 @@ mod tests {
         truncate_to_i32, TextEntryImageTileKind,
     };
     use crate::gui::gadgets::{
-        Color, ListBox, ListBoxItemData, PushButton, TabControl, TabControlData, TextAlignment,
-        TextEntry, VerticalAlignment,
+        Color, ListBox, ListBoxItemData, ProgressBar, PushButton, TabControl, TabControlData,
+        TextAlignment, TextEntry, VerticalAlignment,
     };
     use crate::gui::game_window::{
         GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
@@ -1153,6 +1154,25 @@ mod tests {
     #[test]
     fn progress_bar_solid_sources_match_cpp_color_slots() {
         assert_eq!(progress_bar_solid_sources(), (0, 4));
+    }
+
+    #[test]
+    fn progress_bar_w3d_draw_uses_raw_user_data_without_clamping() {
+        assert_eq!(progress_bar_solid_width(100, 125), 125);
+        assert_eq!(progress_bar_image_width(120, 125), 125);
+        assert_eq!(progress_bar_solid_width(100, -25), -25);
+        assert_eq!(progress_bar_image_width(120, -25), -25);
+    }
+
+    #[test]
+    fn progress_bar_w3d_progress_prefers_raw_user_data_like_cpp() {
+        let mut window = GameWindow::new();
+        let mut bar = ProgressBar::new(7, 0, 0, 100, 16);
+        bar.set_percentage(50.0);
+        window.set_widget(WindowWidget::ProgressBar(bar));
+        window.set_user_data(125i32);
+
+        assert_eq!(progress_percent(&window), 125);
     }
 
     #[test]
@@ -3019,15 +3039,23 @@ pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &Window
 }
 
 fn progress_percent(window: &GameWindow) -> i32 {
+    if let Some(value) = window.get_user_data::<i32>() {
+        return *value;
+    }
     if let Some(widget) = window.widget() {
         if let super::game_window::WindowWidget::ProgressBar(bar) = widget {
             return bar.percentage().round() as i32;
         }
     }
-    if let Some(value) = window.get_user_data::<i32>() {
-        return *value;
-    }
     0
+}
+
+fn progress_bar_solid_width(size_x: i32, progress: i32) -> i32 {
+    (size_x * progress) / 100
+}
+
+fn progress_bar_image_width(size_x: i32, progress: i32) -> i32 {
+    ((size_x - 20) * progress) / 100
 }
 
 fn draw_progress_bar_solid(
@@ -3038,7 +3066,7 @@ fn draw_progress_bar_solid(
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
-    let progress = progress_percent(window).clamp(0, 100);
+    let progress = progress_percent(window);
 
     if back.border_color != WIN_COLOR_UNDEFINED {
         with_window_manager_ref(|manager| {
@@ -3065,8 +3093,8 @@ fn draw_progress_bar_solid(
         });
     }
 
-    if progress > 0 {
-        let bar_width = (size_x * progress) / 100;
+    if progress != 0 {
+        let bar_width = progress_bar_solid_width(size_x, progress);
         if bar.border_color != WIN_COLOR_UNDEFINED && bar_width > 1 {
             with_window_manager_ref(|manager| {
                 manager.win_open_rect(
@@ -3121,7 +3149,7 @@ fn draw_progress_bar_image(
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
-    let progress = progress_percent(window).clamp(0, 100);
+    let progress = progress_percent(window);
     let x_offset = inst_data.image_offset.x;
     let y_offset = inst_data.image_offset.y;
 
@@ -3188,7 +3216,7 @@ fn draw_progress_bar_image(
         );
     });
 
-    let bar_width = ((size_x - 20) * progress) / 100;
+    let bar_width = progress_bar_image_width(size_x, progress);
     let filled_pieces = bar_width / bar_center_width;
     let mut start_x = origin_x + 10;
     let start_y = origin_y + y_offset + 5;
@@ -3301,7 +3329,7 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
 }
 
 pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let progress = progress_percent(window).clamp(0, 100);
+    let progress = progress_percent(window);
     let (draw_data, _) = push_button_bank_data(inst_data, progress_bar_image_draw_a_bank());
 
     let (bar_center_index, bar_right_index, left_index, right_index, center_index) =
@@ -3332,7 +3360,7 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
     let (size_x, size_y) = window.get_size();
 
     let width = bar_center.width.max(1);
-    let draw_width = (size_x * progress) / 100;
+    let draw_width = progress_bar_solid_width(size_x, progress);
     let pieces = draw_width / width;
     let mut x = origin_x;
     for _ in 0..pieces {
