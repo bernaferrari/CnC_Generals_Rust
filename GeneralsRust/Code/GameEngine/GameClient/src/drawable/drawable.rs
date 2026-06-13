@@ -15,6 +15,7 @@ use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{get_font_library, FontDesc};
+use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
@@ -2646,12 +2647,18 @@ impl BasicDrawable {
         }
     }
 
+    fn selected_or_moused_over_for_icon_pips(&self) -> bool {
+        self.selected
+            || (self.id != DrawableId::INVALID
+                && TheInGameUI::get_moused_over_drawable_id() == self.id.0)
+    }
+
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
         // C++ parity: Drawable.cpp drawAmmo (lines 2861-2912)
         // Ammo pips only show for selected/moused-over local player objects.
         // C++ gates on: TheGlobalData->m_showObjectHealth && (isSelected() || mousedOver)
         //              && obj->getControllingPlayer() == ThePlayerList->getLocalPlayer()
-        if !self.selected {
+        if !self.selected_or_moused_over_for_icon_pips() {
             self.overlay_data.show_ammo = false;
             return;
         }
@@ -2681,7 +2688,7 @@ impl BasicDrawable {
 
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
         // C++ parity: Drawable.cpp drawContained (lines 2915-2986)
-        if !self.selected {
+        if !self.selected_or_moused_over_for_icon_pips() {
             self.overlay_data.show_contained = false;
             return;
         }
@@ -4819,6 +4826,23 @@ mod tests {
 
         drawable.set_selected(false);
         assert!(!drawable.is_selected());
+    }
+
+    #[test]
+    fn icon_pip_gate_matches_cpp_selected_or_moused_over_drawable() {
+        TheInGameUI::set_moused_over_drawable_id(0);
+        let mut drawable = BasicDrawable::new(DrawableId(424_242));
+
+        assert!(!drawable.selected_or_moused_over_for_icon_pips());
+
+        TheInGameUI::set_moused_over_drawable_id(424_242);
+        assert!(drawable.selected_or_moused_over_for_icon_pips());
+
+        TheInGameUI::set_moused_over_drawable_id(0);
+        drawable.set_selected(true);
+        assert!(drawable.selected_or_moused_over_for_icon_pips());
+
+        TheInGameUI::set_moused_over_drawable_id(0);
     }
 
     #[test]
