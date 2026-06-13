@@ -1625,6 +1625,10 @@ impl RoadManager {
         self.terrain_normals_dirty
     }
 
+    pub fn invalidate_terrain_lighting(&mut self) {
+        self.terrain_normals_dirty = true;
+    }
+
     /// Validate road geometry for render submission.
     ///
     /// Checks all segment geometries (surface, edge, marking) for valid triangle counts.

@@ -968,6 +968,26 @@ impl ChunkManager {
             .map(|chunk| chunk.geometry_revision)
     }
 
+    /// Sum of all chunk geometry revisions, used by renderer diagnostics/tests.
+    pub fn total_geometry_revision(&self) -> u64 {
+        self.chunks
+            .values()
+            .map(|chunk| chunk.geometry_revision)
+            .sum()
+    }
+
+    /// Number of chunks waiting for terrain geometry regeneration.
+    pub fn dirty_chunk_count(&self) -> usize {
+        self.chunks.values().filter(|chunk| chunk.dirty).count()
+    }
+
+    /// Clear chunk dirty flags for diagnostics that need to observe a later invalidation.
+    pub fn clear_dirty_flags_for_diagnostics(&mut self) {
+        for chunk in self.chunks.values_mut() {
+            chunk.dirty = false;
+        }
+    }
+
     /// Total number of chunks currently tracked.
     pub fn total_chunk_count(&self) -> usize {
         self.chunks.len()
