@@ -143,7 +143,7 @@ impl std::str::FromStr for SpecialPowerType {
             "SPECIALDAISYCUTTER" => Ok(Self::DaisyCutter),
             "SPECIALPARADROPAMERICA" => Ok(Self::ParadropAmerica),
             "SPECIALCARPETBOMB" => Ok(Self::CarpetBomb),
-            "SPECIALCLUSTORMINES" => Ok(Self::ClusterMines),
+            "SPECIALCLUSTERMINES" => Ok(Self::ClusterMines),
             "SPECIALEMPPULSE" => Ok(Self::EmpPulse),
             "SPECIALNAPALMSTRIKE" => Ok(Self::NapalmStrike),
             "SPECIALCASHHACK" => Ok(Self::CashHack),
@@ -167,7 +167,7 @@ impl std::str::FromStr for SpecialPowerType {
             "SPECIALTIMEDCHARGES" => Ok(Self::TimedCharges),
             "SPECIALHELIXNAPALMBOMB" => Ok(Self::HelixNapalmBomb),
             "SPECIALHACKERDISABLEBUILDING" => Ok(Self::HackerDisableBuilding),
-            "SPECIALTANKHOLDERTNTATTACK" => Ok(Self::TankHunterTntAttack),
+            "SPECIALTANKHUNTERTNTATTACK" => Ok(Self::TankHunterTntAttack),
             "SPECIALBLACKLOTUSCAPTUREBUILDING" => Ok(Self::BlackLotusCaptureBuilding),
             "SPECIALBLACKLOTUSDISABLEVEHICLEHACK" => Ok(Self::BlackLotusDisableVehicleHack),
             "SPECIALBLACKLOTUSSTEALCASHHACK" => Ok(Self::BlackLotusStealCashHack),
@@ -197,7 +197,7 @@ impl std::str::FromStr for SpecialPowerType {
             "SPECIALTANKPARADROP" => Ok(Self::TankParadrop),
             "SUPWSPECIALPARTICLEUPLINKCANNON" => Ok(Self::SupwParticleUplinkCannon),
             "AIRFSPECIALDAISYCUTTER" => Ok(Self::AirfDaisyCutter),
-            "NUKESPECIALCLUSTORMINES" => Ok(Self::NukeClusterMines),
+            "NUKESPECIALCLUSTERMINES" => Ok(Self::NukeClusterMines),
             "NUKESPECIALNEUTRONMISSILE" => Ok(Self::NukeNeutronMissile),
             "AIRFSPECIALA10THUNDERBOLTSTRIKE" => Ok(Self::AirfA10ThunderboltStrike),
             "AIRFSPECIALSPECTREGUNSHIP" => Ok(Self::AirfSpectreGunship),
@@ -1153,12 +1153,24 @@ mod tests {
             SpecialPowerType::DaisyCutter
         );
         assert_eq!(
+            SpecialPowerType::from_str("SPECIAL_CLUSTER_MINES").unwrap(),
+            SpecialPowerType::ClusterMines
+        );
+        assert_eq!(
             SpecialPowerType::from_str("SPECIAL_NEUTRON_MISSILE").unwrap(),
             SpecialPowerType::NeutronMissile
         );
         assert_eq!(
             SpecialPowerType::from_str("SPECIAL_SCUD_STORM").unwrap(),
             SpecialPowerType::ScudStorm
+        );
+        assert_eq!(
+            SpecialPowerType::from_str("SPECIAL_TANKHUNTER_TNT_ATTACK").unwrap(),
+            SpecialPowerType::TankHunterTntAttack
+        );
+        assert_eq!(
+            SpecialPowerType::from_str("NUKE_SPECIAL_CLUSTER_MINES").unwrap(),
+            SpecialPowerType::NukeClusterMines
         );
         assert!(SpecialPowerType::from_str("INVALID_TYPE").is_err());
     }
