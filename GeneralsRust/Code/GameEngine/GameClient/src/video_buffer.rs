@@ -223,11 +223,17 @@ impl VideoBuffer for SoftwareVideoBuffer {
     fn allocate(&mut self, width: UnsignedInt, height: UnsignedInt) -> Bool {
         self.free();
 
+        let (texture_width, texture_height) = Self::validate_texture_size(width, height);
+        self.base.width = width;
+        self.base.height = height;
+        self.base.texture_width = texture_width;
+        self.base.texture_height = texture_height;
+
         let bpp = Self::bytes_per_pixel(self.base.format);
         if bpp == 0 {
             return false;
         }
-        let (texture_width, texture_height) = Self::validate_texture_size(width, height);
+
         let Some(size) = texture_width
             .checked_mul(texture_height)
             .and_then(|pixels| pixels.checked_mul(bpp))
@@ -236,10 +242,6 @@ impl VideoBuffer for SoftwareVideoBuffer {
             return false;
         };
         self.data = vec![0; size];
-        self.base.width = width;
-        self.base.height = height;
-        self.base.texture_width = texture_width;
-        self.base.texture_height = texture_height;
         self.base.pitch = texture_width * bpp;
         true
     }
@@ -362,9 +364,9 @@ mod tests {
         assert!(!buffer.allocate(64, 64));
 
         assert!(!buffer.valid());
-        assert_eq!(buffer.width(), 0);
-        assert_eq!(buffer.height(), 0);
-        assert_eq!(buffer.texture_width(), 0);
-        assert_eq!(buffer.texture_height(), 0);
+        assert_eq!(buffer.width(), 64);
+        assert_eq!(buffer.height(), 64);
+        assert_eq!(buffer.texture_width(), 64);
+        assert_eq!(buffer.texture_height(), 64);
     }
 }
