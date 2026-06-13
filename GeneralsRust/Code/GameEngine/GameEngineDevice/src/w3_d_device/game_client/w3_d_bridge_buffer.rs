@@ -134,14 +134,6 @@ impl Matrix3D {
             self.m[2][0] * v.x + self.m[2][1] * v.y + self.m[2][2] * v.z + self.m[2][3],
         )
     }
-
-    fn rotate_vector(self, v: Vec3) -> Vec3 {
-        Vec3::new(
-            self.m[0][0] * v.x + self.m[0][1] * v.y + self.m[0][2] * v.z,
-            self.m[1][0] * v.x + self.m[1][1] * v.y + self.m[1][2] * v.z,
-            self.m[2][0] * v.x + self.m[2][1] * v.y + self.m[2][2] * v.z,
-        )
-    }
 }
 
 impl Default for Matrix3D {
@@ -596,16 +588,14 @@ impl W3DBridge {
             let vertex = mesh.transform.transform_vector(source.position);
             let v_loc =
                 self.start + vec * (vertex.x + x_offset) + vec_normal * vertex.y + vec_z * vertex.z;
-            let normal = mesh.transform.rotate_vector(source.normal);
-            let normal = (vec * normal.x + vec_normal * normal.y + vec_z * normal.z).normalize();
             buffers.vertices.push(BridgeVertex {
                 x: v_loc.x,
                 y: v_loc.y,
                 z: v_loc.z,
                 diffuse: diffuse | 0xff00_0000,
-                nx: normal.x,
-                ny: normal.y,
-                nz: normal.z,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
                 u1: source.u,
                 v1: source.v,
             });
@@ -944,6 +934,9 @@ mod tests {
         assert_eq!(rendered.vertices[0].y, -5.0);
         assert_eq!(rendered.vertices[0].z, 0.25);
         assert_eq!(rendered.vertices[0].diffuse, 0xff12_3456);
+        assert_eq!(rendered.vertices[0].nx, 0.0);
+        assert_eq!(rendered.vertices[0].ny, 0.0);
+        assert_eq!(rendered.vertices[0].nz, 1.0);
     }
 
     #[test]
