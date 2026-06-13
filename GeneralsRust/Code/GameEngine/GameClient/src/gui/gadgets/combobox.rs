@@ -11,7 +11,7 @@ pub struct ComboBoxItem {
     pub text: String,
     pub enabled: bool,
     pub icon: Option<String>,
-    pub data: Option<i32>,
+    pub data: Option<usize>,
 }
 
 impl ComboBoxItem {
@@ -26,7 +26,7 @@ impl ComboBoxItem {
     }
 
     pub fn with_data(mut self, data: i32) -> Self {
-        self.data = Some(data);
+        self.data = Some(data as usize);
         self
     }
 }
@@ -91,6 +91,10 @@ impl ComboBox {
     }
 
     pub fn set_item_data(&mut self, index: usize, data: i32) -> bool {
+        self.set_item_data_raw(index, data as usize)
+    }
+
+    pub fn set_item_data_raw(&mut self, index: usize, data: usize) -> bool {
         if let Some(item) = self.items.get_mut(index) {
             item.data = Some(data);
             return true;
@@ -99,9 +103,17 @@ impl ComboBox {
     }
 
     pub fn selected_item_data(&self) -> Option<i32> {
+        self.selected_item_data_raw().map(|data| data as i32)
+    }
+
+    pub fn selected_item_data_raw(&self) -> Option<usize> {
         self.selected_index
             .and_then(|index| self.items.get(index))
             .and_then(|item| item.data)
+    }
+
+    pub fn item_data_raw(&self, index: usize) -> Option<usize> {
+        self.items.get(index).and_then(|item| item.data)
     }
 
     pub fn clear(&mut self) {
@@ -182,11 +194,12 @@ impl ComboBox {
         self.selected_index
     }
 
+    pub fn clear_selection(&mut self) {
+        self.selected_index = None;
+    }
+
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
-        if let Some(index) = self.items.iter().position(|item| item.text == self.text) {
-            self.selected_index = Some(index);
-        }
     }
 
     pub fn text(&self) -> &str {
@@ -203,16 +216,32 @@ impl ComboBox {
         self.is_editable = editable;
     }
 
+    pub fn is_editable(&self) -> bool {
+        self.is_editable
+    }
+
     pub fn set_max_chars(&mut self, max_chars: usize) {
         self.max_chars = max_chars;
+    }
+
+    pub fn max_chars(&self) -> usize {
+        self.max_chars
     }
 
     pub fn set_ascii_only(&mut self, ascii_only: bool) {
         self.ascii_only = ascii_only;
     }
 
+    pub fn ascii_only(&self) -> bool {
+        self.ascii_only
+    }
+
     pub fn set_letters_and_numbers(&mut self, letters_only: bool) {
         self.letters_and_numbers = letters_only;
+    }
+
+    pub fn letters_and_numbers(&self) -> bool {
+        self.letters_and_numbers
     }
 
     /// Open dropdown
