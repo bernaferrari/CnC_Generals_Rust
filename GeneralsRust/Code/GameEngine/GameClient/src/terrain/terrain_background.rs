@@ -4,6 +4,27 @@ use game_engine::map_object::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ default flat texture resolution per terrain grid.
 pub const PIXELS_PER_GRID: i32 = 8;
+/// C++ `TEX1X` terrain-background texture multiplier.
+pub const TEX_1X: i32 = 1;
+/// C++ `TEX2X` terrain-background texture multiplier.
+pub const TEX_2X: i32 = 2;
+/// C++ `TEX4X` terrain-background texture multiplier.
+pub const TEX_4X: i32 = 4;
+
+const MIP_DISTANCE: f32 = 310.0;
+const MIP_SLOP: f32 = 40.0;
+
+/// CPU mirror of C++ `m_cullStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum TerrainBackgroundCullStatus {
+    /// `CULL_STATUS_UNKNOWN`.
+    Unknown = 0,
+    /// `CULL_STATUS_VISIBLE`.
+    Visible = 1,
+    /// `CULL_STATUS_INVISIBLE`.
+    Invisible = 2,
+}
 
 /// Integer 2D point.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -83,6 +104,10 @@ impl TerrainBackgroundBounds {
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.min[0] == f32::MAX
+    }
+
     fn add_point(&mut self, x: f32, y: f32, z: f32) {
         self.min[0] = self.min[0].min(x);
         self.min[1] = self.min[1].min(y);
@@ -90,6 +115,24 @@ impl TerrainBackgroundBounds {
         self.max[0] = self.max[0].max(x);
         self.max[1] = self.max[1].max(y);
         self.max[2] = self.max[2].max(z);
+    }
+
+    fn center_and_extent(&self) -> Option<([f32; 3], [f32; 3])> {
+        if self.is_empty() {
+            return None;
+        }
+        Some((
+            [
+                (self.min[0] + self.max[0]) * 0.5,
+                (self.min[1] + self.max[1]) * 0.5,
+                (self.min[2] + self.max[2]) * 0.5,
+            ],
+            [
+                (self.max[0] - self.min[0]) * 0.5,
+                (self.max[1] - self.min[1]) * 0.5,
+                (self.max[2] - self.min[2]) * 0.5,
+            ],
+        ))
     }
 }
 
@@ -120,6 +163,10 @@ pub struct W3DTerrainBackground {
     flip_state: Vec<bool>,
     cached_buffers: TerrainBackgroundBuffers,
     terrain_texture_requested: bool,
+    terrain_texture_2x_requested: bool,
+    terrain_texture_4x_requested: bool,
+    terrain_texture_lod: i32,
+    cull_status: TerrainBackgroundCullStatus,
     tex_multiplier: i32,
 }
 
@@ -134,7 +181,11 @@ impl W3DTerrainBackground {
             flip_state: Vec::new(),
             cached_buffers: TerrainBackgroundBuffers::default(),
             terrain_texture_requested: false,
-            tex_multiplier: 1,
+            terrain_texture_2x_requested: false,
+            terrain_texture_4x_requested: false,
+            terrain_texture_lod: 0,
+            cull_status: TerrainBackgroundCullStatus::Unknown,
+            tex_multiplier: TEX_1X,
         }
     }
 
@@ -160,7 +211,11 @@ impl W3DTerrainBackground {
         self.flip_state.clear();
         self.initialized = false;
         self.terrain_texture_requested = false;
-        self.tex_multiplier = 1;
+        self.terrain_texture_2x_requested = false;
+        self.terrain_texture_4x_requested = false;
+        self.terrain_texture_lod = 0;
+        self.cull_status = TerrainBackgroundCullStatus::Unknown;
+        self.tex_multiplier = TEX_1X;
     }
 
     /// C++ `setFlip`.
@@ -170,6 +225,16 @@ impl W3DTerrainBackground {
         }
         self.flip_state.fill(false);
         self.set_flip_recursive(map, 0, 0, self.width);
+    }
+
+    /// C++ `doPartialUpdate`, which immediately delegates to `doTesselatedUpdate`.
+    pub fn do_partial_update<M: TerrainBackgroundHeightMap>(
+        &mut self,
+        partial_range: IRegion2D,
+        map: &M,
+        do_textures: bool,
+    ) -> &TerrainBackgroundBuffers {
+        self.do_tessellated_update(partial_range, map, do_textures)
     }
 
     /// C++ `doTesselatedUpdate`.
@@ -236,8 +301,94 @@ impl W3DTerrainBackground {
         };
         if do_textures || !self.terrain_texture_requested {
             self.terrain_texture_requested = true;
+            self.terrain_texture_2x_requested = false;
+            self.terrain_texture_4x_requested = false;
+            self.terrain_texture_lod = 0;
         }
         &self.cached_buffers
+    }
+
+    /// C++ `updateCenter`, using a caller-provided cull result in place of `CameraClass::Cull_Box`.
+    pub fn update_center(&mut self, camera_pos: [f32; 3], culled: bool) {
+        self.cull_status = if culled {
+            TerrainBackgroundCullStatus::Invisible
+        } else {
+            TerrainBackgroundCullStatus::Visible
+        };
+
+        if self.cull_status == TerrainBackgroundCullStatus::Invisible {
+            self.terrain_texture_2x_requested = false;
+            self.terrain_texture_4x_requested = false;
+            self.tex_multiplier = TEX_1X;
+            return;
+        }
+
+        let Some((center, extent)) = self.cached_buffers.bounds.center_and_extent() else {
+            self.tex_multiplier = TEX_1X;
+            return;
+        };
+
+        let mip_4x_distance_sqr = square(MIP_DISTANCE + MIP_SLOP);
+        let mip_2x_distance_sqr = square(2.0 * MIP_DISTANCE + MIP_SLOP);
+        let mip_lod_distance_sqr = square(4.0 * MIP_DISTANCE + MIP_SLOP);
+        let mut min_dist_sqr = 2.0 * mip_2x_distance_sqr;
+
+        for i in -1..=1 {
+            for j in -1..=1 {
+                for k in -1..=1 {
+                    let corner = [
+                        center[0] + extent[0] * i as f32,
+                        center[1] + extent[1] * j as f32,
+                        center[2] + extent[2] * k as f32,
+                    ];
+                    let dist_sqr = square(camera_pos[0] - corner[0])
+                        + square(camera_pos[1] - corner[1])
+                        + square(camera_pos[2] - corner[2]);
+                    if dist_sqr < min_dist_sqr {
+                        min_dist_sqr = dist_sqr;
+                    }
+                }
+            }
+        }
+
+        self.tex_multiplier = TEX_1X;
+        if min_dist_sqr < mip_4x_distance_sqr {
+            self.tex_multiplier = TEX_4X;
+        } else if min_dist_sqr < mip_2x_distance_sqr {
+            self.tex_multiplier = TEX_2X;
+        } else {
+            self.terrain_texture_4x_requested = false;
+            self.terrain_texture_2x_requested = false;
+            self.terrain_texture_lod = if min_dist_sqr > mip_lod_distance_sqr {
+                1
+            } else {
+                0
+            };
+        }
+    }
+
+    /// C++ `updateTexture`, mirrored as CPU texture-request state.
+    pub fn update_texture(&mut self) {
+        if self.cull_status == TerrainBackgroundCullStatus::Invisible {
+            self.terrain_texture_2x_requested = false;
+            self.terrain_texture_4x_requested = false;
+            return;
+        }
+
+        match self.tex_multiplier {
+            TEX_4X => {
+                self.terrain_texture_2x_requested = false;
+                self.terrain_texture_4x_requested = true;
+            }
+            TEX_2X => {
+                self.terrain_texture_4x_requested = false;
+                self.terrain_texture_2x_requested = true;
+            }
+            _ => {
+                self.terrain_texture_4x_requested = false;
+                self.terrain_texture_2x_requested = false;
+            }
+        }
     }
 
     /// Access cached buffers.
@@ -260,6 +411,36 @@ impl W3DTerrainBackground {
     /// Texture multiplier requested by camera update logic.
     pub fn tex_multiplier(&self) -> i32 {
         self.tex_multiplier
+    }
+
+    /// C++ `isCulled`.
+    pub fn is_culled(&self) -> bool {
+        self.cull_status == TerrainBackgroundCullStatus::Invisible
+    }
+
+    /// Current CPU cull state.
+    pub fn cull_status(&self) -> TerrainBackgroundCullStatus {
+        self.cull_status
+    }
+
+    /// Whether the base flat texture has been requested.
+    pub fn terrain_texture_requested(&self) -> bool {
+        self.terrain_texture_requested
+    }
+
+    /// Whether C++ would currently hold/request the 2x flat texture.
+    pub fn terrain_texture_2x_requested(&self) -> bool {
+        self.terrain_texture_2x_requested
+    }
+
+    /// Whether C++ would currently hold/request the 4x flat texture.
+    pub fn terrain_texture_4x_requested(&self) -> bool {
+        self.terrain_texture_4x_requested
+    }
+
+    /// Last LOD assigned to the base terrain texture.
+    pub fn terrain_texture_lod(&self) -> i32 {
+        self.terrain_texture_lod
     }
 
     fn vertex_for<M: TerrainBackgroundHeightMap>(
@@ -495,6 +676,10 @@ impl W3DTerrainBackground {
         }
         self.flip_state[self.local_index(x, y)]
     }
+}
+
+fn square(value: f32) -> f32 {
+    value * value
 }
 
 impl Default for W3DTerrainBackground {

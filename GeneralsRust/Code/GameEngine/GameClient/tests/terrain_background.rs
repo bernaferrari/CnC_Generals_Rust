@@ -1,4 +1,7 @@
-use game_client_rust::terrain::{IRegion2D, TerrainBackgroundHeightMap, W3DTerrainBackground};
+use game_client_rust::terrain::{
+    IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,
+    TEX_1X, TEX_2X, TEX_4X,
+};
 use game_engine::map_object::MAP_HEIGHT_SCALE;
 
 struct TestMap {
@@ -114,4 +117,86 @@ fn disjoint_partial_update_keeps_existing_buffers() {
         .clone();
 
     assert_eq!(after, previous);
+}
+
+#[test]
+fn do_partial_update_delegates_to_tessellated_update() {
+    let mut map = TestMap::flat(5, 5, 7);
+    map.set(2, 2, 9);
+
+    let mut via_partial = W3DTerrainBackground::new();
+    via_partial.allocate_terrain_buffers(&map, 0, 0, 4);
+    let partial = via_partial
+        .do_partial_update(IRegion2D::new(0, 0, 4, 4), &map, true)
+        .clone();
+
+    let mut via_tessellated = W3DTerrainBackground::new();
+    via_tessellated.allocate_terrain_buffers(&map, 0, 0, 4);
+    let tessellated = via_tessellated
+        .do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, true)
+        .clone();
+
+    assert_eq!(partial, tessellated);
+    assert!(via_partial.terrain_texture_requested());
+}
+
+#[test]
+fn update_center_selects_cpp_texture_multipliers() {
+    let map = TestMap::flat(5, 5, 3);
+    let mut background = W3DTerrainBackground::new();
+    background.allocate_terrain_buffers(&map, 0, 0, 4);
+    background.do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, true);
+
+    background.update_center([0.0, 0.0, 0.0], false);
+    assert_eq!(
+        background.cull_status(),
+        TerrainBackgroundCullStatus::Visible
+    );
+    assert_eq!(background.tex_multiplier(), TEX_4X);
+    background.update_texture();
+    assert!(background.terrain_texture_4x_requested());
+    assert!(!background.terrain_texture_2x_requested());
+
+    background.update_center([500.0, 0.0, 0.0], false);
+    assert_eq!(background.tex_multiplier(), TEX_2X);
+    background.update_texture();
+    assert!(background.terrain_texture_2x_requested());
+    assert!(!background.terrain_texture_4x_requested());
+
+    background.update_center([900.0, 0.0, 0.0], false);
+    assert_eq!(background.tex_multiplier(), TEX_1X);
+    assert_eq!(background.terrain_texture_lod(), 0);
+    background.update_texture();
+    assert!(!background.terrain_texture_2x_requested());
+    assert!(!background.terrain_texture_4x_requested());
+}
+
+#[test]
+fn culled_center_releases_lod_textures_and_resets_multiplier() {
+    let map = TestMap::flat(5, 5, 3);
+    let mut background = W3DTerrainBackground::new();
+    background.allocate_terrain_buffers(&map, 0, 0, 4);
+    background.do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, true);
+    background.update_center([0.0, 0.0, 0.0], false);
+    background.update_texture();
+    assert!(background.terrain_texture_4x_requested());
+
+    background.update_center([0.0, 0.0, 0.0], true);
+    assert!(background.is_culled());
+    assert_eq!(background.tex_multiplier(), TEX_1X);
+    assert!(!background.terrain_texture_2x_requested());
+    assert!(!background.terrain_texture_4x_requested());
+}
+
+#[test]
+fn far_center_preserves_cpp_min_distance_cap() {
+    let map = TestMap::flat(5, 5, 3);
+    let mut background = W3DTerrainBackground::new();
+    background.allocate_terrain_buffers(&map, 0, 0, 4);
+    background.do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, true);
+
+    background.update_center([10_000.0, 10_000.0, 0.0], false);
+
+    assert_eq!(background.tex_multiplier(), TEX_1X);
+    assert_eq!(background.terrain_texture_lod(), 0);
 }
