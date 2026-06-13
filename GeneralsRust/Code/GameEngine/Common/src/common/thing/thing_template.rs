@@ -1062,6 +1062,39 @@ fn collect_indexed_subblocks(
     blocks
 }
 
+fn collect_named_subblock_fields(
+    properties: &HashMap<String, String>,
+    prefix: &str,
+) -> Vec<IndexedSubblockField> {
+    let dotted_prefix = format!("{}.", prefix);
+    let mut fields = Vec::new();
+
+    for (key, value) in properties {
+        let Some(field_text) = key.strip_prefix(&dotted_prefix) else {
+            continue;
+        };
+        let (field, repeat_index) = if let Some((field, repeat)) = field_text.rsplit_once('#') {
+            (field, repeat.parse::<usize>().unwrap_or(0))
+        } else {
+            (field_text, 0)
+        };
+        fields.push(IndexedSubblockField {
+            repeat_index,
+            field: field.to_string(),
+            value: value.clone(),
+        });
+    }
+
+    fields.sort_by_key(|field| {
+        (
+            field.repeat_index,
+            indexed_subblock_field_order(&field.field),
+            field.field.clone(),
+        )
+    });
+    fields
+}
+
 fn parse_weapon_slot(token: &str) -> Result<usize, String> {
     match token.to_ascii_uppercase().as_str() {
         "PRIMARY" => Ok(0),
@@ -1929,6 +1962,48 @@ impl ThingTemplate {
         Ok(())
     }
 
+    fn load_per_unit_sounds_from_properties(&mut self, properties: &HashMap<String, String>) {
+        let fields = collect_named_subblock_fields(properties, "UnitSpecificSounds");
+        if fields.is_empty() {
+            return;
+        }
+
+        self.per_unit_sounds.clear();
+        for field in fields {
+            let name = AsciiString::from(field.field.as_str());
+            if self.per_unit_sounds.contains_key(&name) {
+                continue;
+            }
+            self.per_unit_sounds
+                .insert(name, AudioEventRts::with_event_name(field.value.trim()));
+        }
+    }
+
+    fn load_per_unit_fx_from_properties(&mut self, properties: &HashMap<String, String>) {
+        let fields = collect_named_subblock_fields(properties, "UnitSpecificFX");
+        if fields.is_empty() {
+            return;
+        }
+
+        self.per_unit_fx.clear();
+        for field in fields {
+            let name = AsciiString::from(field.field.as_str());
+            if self.per_unit_fx.contains_key(&name) {
+                continue;
+            }
+            let fx_name = field.value.trim();
+            let fx_list = if fx_name.eq_ignore_ascii_case("None") || fx_name.is_empty() {
+                None
+            } else {
+                crate::common::ini::ini_fx_list::get_fx_list_store()
+                    .find_fx_list(fx_name)
+                    .cloned()
+                    .map(Arc::new)
+            };
+            self.per_unit_fx.insert(name, fx_list);
+        }
+    }
+
     /// Find the best matching armor template set for the supplied flags.
     pub fn find_armor_template_set(&self, flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
         self.armor_template_set_finder
@@ -2304,12 +2379,17 @@ impl ThingTemplate {
     ) -> Result<(), String> {
         self.load_weapon_sets_from_properties(properties)?;
         self.load_armor_sets_from_properties(properties)?;
+        self.load_per_unit_sounds_from_properties(properties);
+        self.load_per_unit_fx_from_properties(properties);
 
         for (key, value) in properties {
             let trimmed = value.trim();
             if let Some(audio_type) = object_audio_field_type(key) {
                 self.audioarray
                     .set(audio_type, AudioEventRts::with_event_name(trimmed));
+                continue;
+            }
+            if key.starts_with("UnitSpecificSounds.") || key.starts_with("UnitSpecificFX.") {
                 continue;
             }
 
@@ -2862,6 +2942,56 @@ mod tests {
             template.get_max_simultaneous_link_key(),
             NameKeyGenerator::name_to_key("SharedLimitKey")
         );
+    }
+
+    #[test]
+    fn object_field_parse_populates_unit_specific_sound_and_fx_maps() {
+        use crate::common::ini::ini_fx_list::{get_fx_list_store_mut, FXList};
+
+        get_fx_list_store_mut().add_fx_list(FXList::new(
+            crate::common::ascii_string::AsciiString::from("FX_RangerDie"),
+        ));
+
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            (
+                "UnitSpecificSounds.TurretMoveStart".to_string(),
+                "RangerTurretMoveStart".to_string(),
+            ),
+            (
+                "UnitSpecificSounds.TurretMoveLoop".to_string(),
+                "RangerTurretMoveLoop".to_string(),
+            ),
+            (
+                "UnitSpecificFX.DeathFX".to_string(),
+                "FX_RangerDie".to_string(),
+            ),
+            ("UnitSpecificFX.VeteranFX".to_string(), "None".to_string()),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("per-unit sound and FX maps should parse");
+
+        assert_eq!(
+            template
+                .get_per_unit_sound(&AsciiString::from("TurretMoveStart"))
+                .map(AudioEventRts::get_event_name),
+            Some("RangerTurretMoveStart")
+        );
+        assert_eq!(
+            template
+                .get_per_unit_sound(&AsciiString::from("TurretMoveLoop"))
+                .map(AudioEventRts::get_event_name),
+            Some("RangerTurretMoveLoop")
+        );
+        assert!(template
+            .get_per_unit_fx(&AsciiString::from("DeathFX"))
+            .is_some());
+        assert!(template
+            .per_unit_fx
+            .get(&AsciiString::from("VeteranFX"))
+            .is_some_and(Option::is_none));
     }
 
     #[test]
