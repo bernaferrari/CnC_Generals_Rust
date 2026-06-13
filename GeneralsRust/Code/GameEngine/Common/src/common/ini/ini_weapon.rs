@@ -382,7 +382,10 @@ impl WeaponTemplate {
     }
 
     /// Update template from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> WeaponResult<()> {
         for (key, value) in properties {
             match key.as_str() {
                 "DisplayName" => {
@@ -395,99 +398,62 @@ impl WeaponTemplate {
                     self.attack_type = AttackType::from_string(value);
                 }
                 "PrimaryDamage" => {
-                    if let Ok(damage) = value.parse::<f32>() {
-                        self.primary_damage = damage;
-                    }
+                    self.primary_damage = parse_f32_field(key, value)?;
                 }
                 "SecondaryDamage" => {
-                    if let Ok(damage) = value.parse::<f32>() {
-                        self.secondary_damage = damage;
-                    }
+                    self.secondary_damage = parse_f32_field(key, value)?;
                 }
                 "DamageRadius" => {
-                    if let Ok(radius) = value.parse::<f32>() {
-                        self.damage_radius = radius;
-                    }
+                    self.damage_radius = parse_f32_field(key, value)?;
                 }
                 "Range" => {
-                    if let Ok(range) = value.parse::<f32>() {
-                        self.range = range;
-                    }
+                    self.range = parse_f32_field(key, value)?;
                 }
                 "MinRange" => {
-                    if let Ok(range) = value.parse::<f32>() {
-                        self.min_range = range;
-                    }
+                    self.min_range = parse_f32_field(key, value)?;
                 }
                 "RateOfFire" => {
-                    if let Ok(rate) = value.parse::<f32>() {
-                        self.rate_of_fire = rate;
-                    }
+                    self.rate_of_fire = parse_f32_field(key, value)?;
                 }
                 "ReloadTime" => {
-                    if let Ok(time) = value.parse::<f32>() {
-                        self.reload_time = time;
-                    }
+                    self.reload_time = parse_f32_field(key, value)?;
                 }
                 "Accuracy" => {
-                    if let Ok(accuracy) = value.parse::<f32>() {
-                        self.accuracy = accuracy.clamp(0.0, 1.0);
-                    }
+                    self.accuracy = parse_f32_field(key, value)?.clamp(0.0, 1.0);
                 }
                 "ProjectileSpeed" => {
-                    if let Ok(speed) = value.parse::<f32>() {
-                        self.projectile_speed = speed;
-                    }
+                    self.projectile_speed = parse_f32_field(key, value)?;
                 }
                 "ProjectileCount" => {
-                    if let Ok(count) = value.parse::<u32>() {
-                        self.projectile_count = count;
-                    }
+                    self.projectile_count = parse_u32_field(key, value)?;
                 }
                 "AmmoCapacity" => {
-                    if let Ok(capacity) = value.parse::<u32>() {
-                        self.ammo_capacity = capacity;
-                    }
+                    self.ammo_capacity = parse_u32_field(key, value)?;
                 }
                 "Penetration" => {
-                    if let Ok(penetration) = value.parse::<f32>() {
-                        self.penetration = penetration;
-                    }
+                    self.penetration = parse_f32_field(key, value)?;
                 }
                 "ArmorPiercing" => {
-                    if let Ok(piercing) = value.parse::<f32>() {
-                        self.armor_piercing = piercing;
-                    }
+                    self.armor_piercing = parse_f32_field(key, value)?;
                 }
                 "CanTargetAir" => {
-                    if let Ok(can_target) = parse_bool(value) {
-                        self.can_target_air = can_target;
-                    }
+                    self.can_target_air = parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "CanTargetGround" => {
-                    if let Ok(can_target) = parse_bool(value) {
-                        self.can_target_ground = can_target;
-                    }
+                    self.can_target_ground = parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "CanTargetWater" => {
-                    if let Ok(can_target) = parse_bool(value) {
-                        self.can_target_water = can_target;
-                    }
+                    self.can_target_water = parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "CanTargetStealth" => {
-                    if let Ok(can_target) = parse_bool(value) {
-                        self.can_target_stealth = can_target;
-                    }
+                    self.can_target_stealth = parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "CanFireWhileMoving" => {
-                    if let Ok(can_fire) = parse_bool(value) {
-                        self.can_fire_while_moving = can_fire;
-                    }
+                    self.can_fire_while_moving =
+                        parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "RequiresLOS" => {
-                    if let Ok(requires) = parse_bool(value) {
-                        self.requires_los = requires;
-                    }
+                    self.requires_los = parse_bool(value).map_err(WeaponError::ParseError)?;
                 }
                 "MuzzleFlash" => {
                     self.effects.muzzle_flash = AsciiString::from(value);
@@ -525,6 +491,8 @@ impl WeaponTemplate {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -643,7 +611,7 @@ impl WeaponStore {
             WeaponTemplate::new(name)
         };
 
-        template.update_from_properties(properties);
+        template.update_from_properties(properties)?;
         if !template.is_valid() {
             return Err(WeaponError::ParseError(
                 "Invalid weapon template configuration".to_string(),
@@ -745,6 +713,18 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
     }
 }
 
+fn parse_f32_field(field_name: &str, value: &str) -> WeaponResult<f32> {
+    value.parse::<f32>().map_err(|e| {
+        WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_u32_field(field_name: &str, value: &str) -> WeaponResult<u32> {
+    value.parse::<u32>().map_err(|e| {
+        WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
 /// INI parsing functions for weapons
 pub struct IniWeapon;
 
@@ -777,7 +757,7 @@ impl IniWeapon {
         let mut template = WeaponTemplate::new(name);
 
         // Update template from properties
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties)?;
 
         // Validate template
         if !template.is_valid() {
@@ -1044,13 +1024,39 @@ mod tests {
         properties.insert("CanTargetAir".to_string(), "false".to_string());
         properties.insert("ProjectileCount".to_string(), "3".to_string());
 
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties).unwrap();
 
         assert!(matches!(template.damage_type, DamageType::Fire));
         assert_eq!(template.primary_damage, 75.0);
         assert_eq!(template.range, 200.0);
         assert!(!template.can_target_air);
         assert_eq!(template.projectile_count, 3);
+    }
+
+    #[test]
+    fn weapon_block_rejects_invalid_parsed_field_values() {
+        let mut properties = HashMap::new();
+        properties.insert("PrimaryDamage".to_string(), "heavy".to_string());
+        assert!(
+            IniWeapon::parse_weapon_template_block(AsciiString::from("BadDamage"), properties)
+                .is_err()
+        );
+
+        let mut properties = HashMap::new();
+        properties.insert("ProjectileCount".to_string(), "many".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("BadProjectileCount"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("CanTargetAir".to_string(), "sometimes".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("BadCanTargetAir"),
+            properties
+        )
+        .is_err());
     }
 
     #[test]
