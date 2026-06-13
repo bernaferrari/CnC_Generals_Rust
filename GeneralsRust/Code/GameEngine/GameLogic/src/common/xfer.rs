@@ -184,50 +184,77 @@ pub trait XferExt: Xfer {
         let _ = game_engine::system::Xfer::xfer_unsigned_int(self, value);
     }
 
-    fn xfer_radius_decal(&mut self, decal: &crate::common::types::RadiusDecal) {
-        // Save-only helper when a mutable decal is not available.
-        let mut position = decal.position;
-        let mut radius = decal.radius;
-        let mut opacity = decal.opacity;
-        let mut color = decal.color;
-        let mut min_opacity = decal.min_opacity;
-        let mut max_opacity = decal.max_opacity;
-        let mut opacity_throb_time = decal.opacity_throb_time;
-        let mut has_template = decal.template.is_some();
-        let mut template_id = decal.template.unwrap_or(0);
-
-        self.xfer_coord3d(&mut position);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut radius);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut opacity);
-        let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut color);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut min_opacity);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut max_opacity);
-        let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut opacity_throb_time);
-        let _ = game_engine::system::Xfer::xfer_bool(self, &mut has_template);
-        if has_template {
-            let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut template_id);
-        }
+    fn xfer_radius_decal(&mut self, _decal: &crate::common::types::RadiusDecal) {
+        // C++ RadiusDecal::xferRadiusDecal is a save/CRC no-op.
     }
 
     fn xfer_radius_decal_mut(&mut self, decal: &mut crate::common::types::RadiusDecal) {
-        self.xfer_coord3d(&mut decal.position);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut decal.radius);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut decal.opacity);
-        let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut decal.color);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut decal.min_opacity);
-        let _ = game_engine::system::Xfer::xfer_real(self, &mut decal.max_opacity);
-        let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut decal.opacity_throb_time);
-
-        let mut has_template = decal.template.is_some();
-        let _ = game_engine::system::Xfer::xfer_bool(self, &mut has_template);
-        if has_template {
-            let mut template_id = decal.template.unwrap_or(0);
-            let _ = game_engine::system::Xfer::xfer_unsigned_int(self, &mut template_id);
-            decal.template = Some(template_id);
-        } else {
-            decal.template = None;
+        if self.get_xfer_mode() == XferMode::Load {
+            decal.clear();
         }
     }
 }
 
 impl<T: Xfer + ?Sized> XferExt for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::types::RadiusDecal;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    #[test]
+    fn xfer_radius_decal_save_writes_no_bytes_like_cpp() {
+        let decal = RadiusDecal {
+            position: Coord3D {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            radius: 50.0,
+            opacity: 0.5,
+            color: 0x1122_3344,
+            min_opacity: 0.25,
+            max_opacity: 0.75,
+            opacity_throb_time: 30,
+            template: Some(7),
+        };
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut xfer = XferSave::new(cursor, 1);
+            xfer.xfer_radius_decal(&decal);
+        }
+
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn xfer_radius_decal_load_clears_without_reading_like_cpp() {
+        let mut decal = RadiusDecal {
+            position: Coord3D {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            radius: 50.0,
+            opacity: 0.5,
+            color: 0x1122_3344,
+            min_opacity: 0.25,
+            max_opacity: 0.75,
+            opacity_throb_time: 30,
+            template: Some(7),
+        };
+        let cursor = Cursor::new(Vec::<u8>::new());
+        let mut xfer = XferLoad::new(cursor, 1);
+
+        xfer.xfer_radius_decal_mut(&mut decal);
+
+        assert!(decal.is_empty());
+        assert_eq!(decal.opacity, 1.0);
+        assert_eq!(decal.color, 0xFFFF_FFFF);
+        assert_eq!(decal.template, None);
+    }
+}
