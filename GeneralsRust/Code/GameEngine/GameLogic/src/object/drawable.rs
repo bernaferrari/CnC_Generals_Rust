@@ -401,7 +401,9 @@ struct LegacyDrawableIcon {
 enum DrawModuleKindMut<'a> {
     Model(&'a mut crate::object::draw::W3DModelDraw),
     Tank(&'a mut crate::object::draw::W3DTankDraw),
+    OverlordAircraft(&'a mut crate::object::draw::W3DOverlordAircraftDraw),
     OverlordTank(&'a mut crate::object::draw::W3DOverlordTankDraw),
+    OverlordTruck(&'a mut crate::object::draw::W3DOverlordTruckDraw),
     Tracer(&'a mut crate::object::draw::W3DTracerDraw),
     Laser(&'a mut crate::object::draw::W3DLaserDraw),
     Rope(&'a mut crate::object::draw::W3DRopeDraw),
@@ -417,7 +419,9 @@ impl<'a> DrawModuleKindMut<'a> {
         match self {
             Self::Model(draw) => draw,
             Self::Tank(draw) => draw,
+            Self::OverlordAircraft(draw) => draw,
             Self::OverlordTank(draw) => draw,
+            Self::OverlordTruck(draw) => draw,
             Self::Tracer(draw) => draw,
             Self::Laser(draw) => draw,
             Self::Rope(draw) => draw,
@@ -440,7 +444,9 @@ impl<'a> DrawModuleKindMut<'a> {
         match self {
             Self::Model(draw) => draw.set_terrain_decal(decal_type),
             Self::Tank(draw) => draw.set_terrain_decal(decal_type),
+            Self::OverlordAircraft(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTank(draw) => draw.set_terrain_decal(decal_type),
+            Self::OverlordTruck(draw) => draw.set_terrain_decal(decal_type),
             Self::Tracer(draw) => draw.set_terrain_decal(decal_type),
             Self::Laser(draw) => draw.set_terrain_decal(decal_type),
             Self::Rope(draw) => draw.set_terrain_decal(decal_type),
@@ -454,7 +460,9 @@ impl<'a> DrawModuleKindMut<'a> {
 
     fn bind_owner_id(self, object_id: ObjectID) {
         match self {
+            Self::OverlordAircraft(draw) => draw.bind_owner_id(object_id),
             Self::OverlordTank(draw) => draw.bind_owner_id(object_id),
+            Self::OverlordTruck(draw) => draw.bind_owner_id(object_id),
             Self::Model(draw) => draw.bind_owner_id(object_id),
             Self::Tank(draw) => draw.bind_owner_id(object_id),
             Self::Laser(draw) => draw.bind_owner_id(object_id),
@@ -481,9 +489,19 @@ fn with_draw_module_kind(
         func(DrawModuleKindMut::Tank(module));
         true
     } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DOverlordAircraftDraw>()
+    {
+        func(DrawModuleKindMut::OverlordAircraft(module));
+        true
+    } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DOverlordTankDraw>()
     {
         func(DrawModuleKindMut::OverlordTank(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DOverlordTruckDraw>()
+    {
+        func(DrawModuleKindMut::OverlordTruck(module));
         true
     } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTracerDraw>()
