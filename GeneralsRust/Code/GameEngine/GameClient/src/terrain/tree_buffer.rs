@@ -262,14 +262,27 @@ pub struct TreeConstructionGeometry {
     pub major_radius: f32,
     pub minor_radius: f32,
     pub geometry_type: TreeGeometryType,
+    pub angle: f32,
 }
 
 impl TreeConstructionGeometry {
-    fn collision_radius(self) -> f32 {
-        if self.geometry_type == TreeGeometryType::Box && self.major_radius > self.minor_radius {
-            self.minor_radius
+    fn collides_with_tree_cylinder(&self, tree_position: Vec3) -> bool {
+        let dx = tree_position.x - self.position.x;
+        let dy = tree_position.y - self.position.y;
+        if self.geometry_type == TreeGeometryType::Box {
+            let (sin, cos) = self.angle.sin_cos();
+            let local_x = dx * cos + dy * sin;
+            let local_y = -dx * sin + dy * cos;
+            let half_y = self.minor_radius;
+            let closest_x = local_x.clamp(-self.major_radius, self.major_radius);
+            let closest_y = local_y.clamp(-half_y, half_y);
+            let delta_x = local_x - closest_x;
+            let delta_y = local_y - closest_y;
+            delta_x * delta_x + delta_y * delta_y
+                <= CONSTRUCTION_TREE_COLLISION_RADIUS * CONSTRUCTION_TREE_COLLISION_RADIUS
         } else {
-            self.major_radius
+            let radius = self.major_radius + CONSTRUCTION_TREE_COLLISION_RADIUS;
+            dx * dx + dy * dy <= radius * radius
         }
     }
 }
@@ -570,14 +583,11 @@ impl W3DTreeBuffer {
     }
 
     pub fn remove_trees_for_construction(&mut self, geom: TreeConstructionGeometry) {
-        let radius = geom.collision_radius() + CONSTRUCTION_TREE_COLLISION_RADIUS;
-        let radius_sqr = radius * radius;
         for tree in &mut self.trees {
             if tree.tree_type < 0 {
                 continue;
             }
-            let delta = tree.location - geom.position;
-            if delta.x * delta.x + delta.y * delta.y <= radius_sqr {
+            if geom.collides_with_tree_cylinder(tree.location) {
                 tree.tree_type = DELETED_TREE_TYPE;
                 self.anything_changed = true;
             }
