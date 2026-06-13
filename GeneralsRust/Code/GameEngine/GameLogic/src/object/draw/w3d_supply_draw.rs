@@ -123,6 +123,10 @@ impl W3DSupplyDraw {
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
     }
+
+    pub fn total_bones(&self) -> i32 {
+        self.total_bones
+    }
 }
 impl Module for W3DSupplyDraw {
     fn on_object_created(&mut self) {
@@ -138,7 +142,7 @@ impl Module for W3DSupplyDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DSupplyDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -178,15 +182,12 @@ impl DrawModule for W3DSupplyDraw {
         self.base
             .react_to_transform_change(old_mtx, old_pos, old_angle);
     }
-    fn react_to_geometry_change(&mut self) {
-        self.base.react_to_geometry_change();
-        self.total_bones = -1;
-    }
+    fn react_to_geometry_change(&mut self) {}
     fn get_object_draw_interface(&self) -> Option<&dyn ObjectDrawInterface> {
-        Some(&self.base)
+        Some(self)
     }
     fn get_object_draw_interface_mut(&mut self) -> Option<&mut dyn ObjectDrawInterface> {
-        Some(&mut self.base)
+        Some(self)
     }
 }
 impl ObjectDrawInterface for W3DSupplyDraw {
@@ -278,15 +279,15 @@ impl ObjectDrawInterface for W3DSupplyDraw {
             return;
         }
         if self.total_bones == -1 {
-            let mut positions = vec![Coord3D::origin(); 128];
-            let mut transforms = vec![Matrix3D::IDENTITY; 128];
+            let mut positions = vec![Coord3D::origin(); 1024];
+            let mut transforms = vec![Matrix3D::IDENTITY; 1024];
             self.total_bones = self.base.get_pristine_bone_positions(
                 &ModelConditionFlags::empty(),
                 self.data.supply_bone_prefix.as_str(),
                 1,
                 &mut positions,
                 &mut transforms,
-                128,
+                1024,
             ) as i32;
             self.last_number_shown = self.total_bones;
         }
@@ -340,5 +341,37 @@ impl Snapshotable for W3DSupplyDraw {
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn constructor_matches_cpp_runtime_defaults() {
+        let draw = W3DSupplyDraw::new(W3DSupplyDrawModuleData::new());
+        assert_eq!(draw.total_bones(), -1);
+        assert_eq!(draw.last_number_shown, 0);
+    }
+
+    #[test]
+    fn geometry_change_hook_is_noop() {
+        let mut draw = W3DSupplyDraw::new(W3DSupplyDrawModuleData::new());
+        draw.total_bones = 7;
+
+        draw.react_to_geometry_change();
+
+        assert_eq!(draw.total_bones(), 7);
+    }
+
+    #[test]
+    fn module_name_key_is_supply_draw_not_base_model_draw() {
+        let draw = W3DSupplyDraw::new(W3DSupplyDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DSupplyDraw")
+        );
     }
 }
