@@ -249,6 +249,9 @@ pub struct ModelConditionInfo {
 
     /// Weapon barrel information per slot
     pub weapon_barrels: Vec<Vec<WeaponBarrelInfo>>,
+
+    /// Runtime validation flags mirroring C++ `m_validStuff`.
+    valid_stuff: u8,
 }
 
 impl ModelConditionInfo {
@@ -297,6 +300,7 @@ impl ModelConditionInfo {
             pristine_bones: HashMap::new(),
             turrets: Vec::new(),
             weapon_barrels: vec![Vec::new(); WEAPONSLOT_COUNT],
+            valid_stuff: 0,
         }
     }
 
@@ -326,6 +330,9 @@ impl ModelConditionInfo {
     }
 
     fn validate_turret_info(&mut self) {
+        if (self.valid_stuff & MODEL_CONDITION_TURRETS_VALID) != 0 {
+            return;
+        }
         if self.pristine_bones.is_empty() {
             return;
         }
@@ -362,9 +369,13 @@ impl ModelConditionInfo {
             turret.turret_angle_bone = angle_bones.get(index).copied().unwrap_or(0);
             turret.turret_pitch_bone = pitch_bones.get(index).copied().unwrap_or(0);
         }
+        self.valid_stuff |= MODEL_CONDITION_TURRETS_VALID;
     }
 
     fn validate_weapon_barrel_info(&mut self) {
+        if (self.valid_stuff & MODEL_CONDITION_BARRELS_VALID) != 0 {
+            return;
+        }
         let has_requested_weapon_bones = (0..WEAPONSLOT_COUNT).any(|slot| {
             !self.weapon_fire_fx_bone[slot].is_empty()
                 || !self.weapon_recoil_bone[slot].is_empty()
@@ -467,11 +478,37 @@ impl ModelConditionInfo {
         }
 
         self.weapon_barrels = validated_barrels;
+        self.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
     }
 
-    fn validate_runtime_caches(&mut self) {
+    fn validate_public_bones(&mut self, extra_public_bones: &[AsciiString]) {
+        if (self.valid_stuff & MODEL_CONDITION_PUBLIC_BONES_VALID) != 0 {
+            return;
+        }
+        for bone in extra_public_bones {
+            add_public_bone(&mut self.public_bones, bone.as_str());
+        }
+        self.valid_stuff |= MODEL_CONDITION_PUBLIC_BONES_VALID;
+    }
+
+    fn validate_runtime_caches(&mut self, extra_public_bones: &[AsciiString]) {
+        self.validate_public_bones(extra_public_bones);
+        if !self.pristine_bones.is_empty() {
+            self.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+        }
         self.validate_turret_info();
         self.validate_weapon_barrel_info();
+    }
+
+    fn refresh_projectile_valid_bit(&mut self) {
+        self.valid_stuff &= !MODEL_CONDITION_HAS_PROJECTILE_BONES;
+        if self
+            .weapon_projectile_launch_bone
+            .iter()
+            .any(|name| !name.is_empty())
+        {
+            self.valid_stuff |= MODEL_CONDITION_HAS_PROJECTILE_BONES;
+        }
     }
 }
 
@@ -790,6 +827,7 @@ impl W3DModelDrawModuleData {
                 {
                     return Err(INIError::InvalidData);
                 }
+                info.refresh_projectile_valid_bit();
 
                 if state_type == ParseCondStateType::Transition {
                     if (info.ini_read_flags & INI_READ_FLAG_GOT_IDLE_ANIMS) != 0 {
@@ -911,6 +949,9 @@ impl Snapshotable for W3DModelDrawModuleData {
             let mut valid_stuff = model_condition_valid_stuff(state) as i8;
             xfer.xfer_byte(&mut valid_stuff)
                 .map_err(|e| e.to_string())?;
+            if xfer.is_reading() {
+                state.valid_stuff = valid_stuff as u8;
+            }
 
             if valid_stuff == 0 {
                 continue;
@@ -1555,7 +1596,8 @@ impl W3DModelDraw {
         if state_index >= self.data.condition_states.len() {
             return;
         }
-        self.data.condition_states[state_index].validate_runtime_caches();
+        let extra_public_bones = self.data.extra_public_bones.clone();
+        self.data.condition_states[state_index].validate_runtime_caches(&extra_public_bones);
 
         let mut new_state_ref = ActiveModelState::Condition(state_index);
         let mut pending_next_state: Option<usize> = None;
@@ -1597,7 +1639,7 @@ impl W3DModelDraw {
         }
 
         if let Some(state) = self.resolve_state_mut(new_state_ref) {
-            state.validate_runtime_caches();
+            state.validate_runtime_caches(&extra_public_bones);
         }
 
         let prev_state = self.cur_state;
@@ -3549,7 +3591,7 @@ fn anim_mode_to_i32(mode: AnimMode) -> i32 {
 }
 
 fn model_condition_valid_stuff(state: &ModelConditionInfo) -> u8 {
-    let mut valid = 0u8;
+    let mut valid = state.valid_stuff;
     if !state.pristine_bones.is_empty() {
         valid |= MODEL_CONDITION_PRISTINE_BONES_VALID;
     }
@@ -3663,6 +3705,41 @@ mod tests {
                 | MODEL_CONDITION_HAS_PROJECTILE_BONES
                 | MODEL_CONDITION_BARRELS_VALID
                 | MODEL_CONDITION_PUBLIC_BONES_VALID
+        );
+    }
+
+    #[test]
+    fn projectile_launch_bone_updates_stored_valid_stuff_bit() {
+        let mut state = ModelConditionInfo::new();
+        state.weapon_projectile_launch_bone[0] = AsciiString::from("muzzle");
+
+        state.refresh_projectile_valid_bit();
+
+        assert_eq!(
+            state.valid_stuff & MODEL_CONDITION_HAS_PROJECTILE_BONES,
+            MODEL_CONDITION_HAS_PROJECTILE_BONES
+        );
+    }
+
+    #[test]
+    fn runtime_validation_merges_extra_public_bones_once() {
+        let mut state = ModelConditionInfo::new();
+        let extra = [AsciiString::from("extra_bone")];
+
+        state.validate_runtime_caches(&extra);
+        state.validate_runtime_caches(&extra);
+
+        assert_eq!(
+            state.valid_stuff & MODEL_CONDITION_PUBLIC_BONES_VALID,
+            MODEL_CONDITION_PUBLIC_BONES_VALID
+        );
+        assert_eq!(
+            state
+                .public_bones
+                .iter()
+                .filter(|bone| bone.as_str() == "extra_bone")
+                .count(),
+            1
         );
     }
 
