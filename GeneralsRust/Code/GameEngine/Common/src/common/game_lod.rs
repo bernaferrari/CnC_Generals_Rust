@@ -5,8 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::{OnceLock, RwLock};
 
-use crate::common::ini::ini_game_data::get_global_data;
-use crate::common::ini::ini_game_lod::{get_game_lod_manager, StaticGameLODLevel};
+use crate::common::ini::ini_game_data::{get_global_data, GlobalData};
+use crate::common::ini::ini_game_lod::{
+    get_game_lod_manager, get_game_lod_manager_mut, StaticGameLODInfo, StaticGameLODLevel,
+};
 
 const MINIMUM_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const PROFILE_ERROR_LIMIT: f32 = 0.94;
@@ -147,9 +149,18 @@ fn apply_static_lod_level(level_name: &str) {
         None => return,
     };
 
+    if level == StaticGameLODLevel::Custom {
+        refresh_custom_static_lod_level();
+    }
+
     let lod_info = {
         let manager = get_game_lod_manager();
         manager.static_game_lod_info[index].clone()
+    };
+    let requested_texture_reduction = if level == StaticGameLODLevel::Custom {
+        Some(lod_info.texture_reduction)
+    } else {
+        None
     };
 
     let Some(global_data) = get_global_data() else {
@@ -166,12 +177,56 @@ fn apply_static_lod_level(level_name: &str) {
     global.max_tank_track_edges = lod_info.max_tank_track_edges;
     global.max_tank_track_opaque_edges = lod_info.max_tank_track_opaque_edges;
     global.max_tank_track_fade_delay = lod_info.max_tank_track_fade_delay;
+    if let Some(texture_reduction) = requested_texture_reduction {
+        global.texture_reduction_factor = texture_reduction;
+    }
     global.use_tree_sway = lod_info.use_tree_sway;
     global.use_draw_module_lod = !lod_info.use_buildup_scaffolds;
     global.use_heat_effects = lod_info.use_heat_effects;
     global.enable_dynamic_lod = lod_info.enable_dynamic_lod;
     global.use_fps_limit = lod_info.use_fps_limit;
     global.use_trees = lod_info.use_trees;
+}
+
+/// Mirrors C++ `GameLODManager::refreshCustomStaticLODLevel`.
+///
+/// The options menu writes custom display settings into GlobalData before selecting
+/// `STATIC_GAME_LOD_CUSTOM`; the C++ manager snapshots those live values into the
+/// Custom LOD slot before applying it.
+fn refresh_custom_static_lod_level() {
+    let Some(global_data) = get_global_data() else {
+        return;
+    };
+    let global = global_data.read();
+    let mut manager = get_game_lod_manager_mut();
+    if let Some(index) = StaticGameLODLevel::Custom.to_index() {
+        refresh_custom_static_lod_info_from_global(
+            &mut manager.static_game_lod_info[index],
+            &global,
+        );
+    }
+}
+
+fn refresh_custom_static_lod_info_from_global(
+    lod_info: &mut StaticGameLODInfo,
+    global: &GlobalData,
+) {
+    lod_info.max_particle_count = global.max_particle_count;
+    lod_info.use_shadow_volumes = global.use_shadow_volumes;
+    lod_info.use_shadow_decals = global.use_shadow_decals;
+    lod_info.use_cloud_map = global.use_cloud_map;
+    lod_info.use_light_map = global.use_light_map;
+    lod_info.show_soft_water_edge = global.show_soft_water_edge;
+    lod_info.max_tank_track_edges = global.max_tank_track_edges;
+    lod_info.max_tank_track_opaque_edges = global.max_tank_track_opaque_edges;
+    lod_info.max_tank_track_fade_delay = global.max_tank_track_fade_delay;
+    lod_info.use_buildup_scaffolds = !global.use_draw_module_lod;
+    lod_info.use_heat_effects = global.use_heat_effects;
+    lod_info.use_tree_sway = lod_info.use_buildup_scaffolds;
+    lod_info.texture_reduction = global.texture_reduction_factor;
+    lod_info.use_fps_limit = global.use_fps_limit;
+    lod_info.enable_dynamic_lod = global.enable_dynamic_lod;
+    lod_info.use_trees = global.use_trees;
 }
 
 pub fn get_static_lod() -> String {
@@ -312,6 +367,74 @@ mod tests {
         set_static_lod_from_string("High");
         set_ideal_static_lod_from_string("Low");
         assert!(prefers_low_res_movies());
+    }
+
+    #[test]
+    fn custom_static_lod_snapshots_current_global_settings_before_apply() {
+        crate::common::ini::ini_game_data::init_global_data();
+        let global_data = get_global_data().expect("global data initialized");
+
+        {
+            let mut global = global_data.write();
+            global.max_particle_count = 4321;
+            global.use_shadow_volumes = false;
+            global.use_shadow_decals = true;
+            global.use_cloud_map = false;
+            global.use_light_map = true;
+            global.show_soft_water_edge = false;
+            global.max_tank_track_edges = 17;
+            global.max_tank_track_opaque_edges = 9;
+            global.max_tank_track_fade_delay = 12345;
+            global.use_draw_module_lod = true;
+            global.use_heat_effects = false;
+            global.texture_reduction_factor = 2;
+            global.use_fps_limit = true;
+            global.enable_dynamic_lod = false;
+            global.use_trees = false;
+        }
+
+        {
+            let mut manager = get_game_lod_manager_mut();
+            let custom_index = StaticGameLODLevel::Custom.to_index().unwrap();
+            let custom = &mut manager.static_game_lod_info[custom_index];
+            custom.max_particle_count = 111;
+            custom.use_shadow_volumes = true;
+            custom.use_cloud_map = true;
+            custom.texture_reduction = 0;
+            custom.enable_dynamic_lod = true;
+            custom.use_trees = true;
+        }
+
+        set_static_lod_from_string("Custom");
+
+        {
+            let global = global_data.read();
+            assert_eq!(global.max_particle_count, 4321);
+            assert!(!global.use_shadow_volumes);
+            assert!(global.use_shadow_decals);
+            assert!(!global.use_cloud_map);
+            assert!(global.use_light_map);
+            assert!(!global.show_soft_water_edge);
+            assert_eq!(global.max_tank_track_edges, 17);
+            assert_eq!(global.max_tank_track_opaque_edges, 9);
+            assert_eq!(global.max_tank_track_fade_delay, 12345);
+            assert!(global.use_draw_module_lod);
+            assert!(!global.use_heat_effects);
+            assert_eq!(global.texture_reduction_factor, 2);
+            assert!(global.use_fps_limit);
+            assert!(!global.enable_dynamic_lod);
+            assert!(!global.use_trees);
+        }
+
+        let manager = get_game_lod_manager();
+        let custom = &manager.static_game_lod_info[StaticGameLODLevel::Custom.to_index().unwrap()];
+        assert_eq!(custom.max_particle_count, 4321);
+        assert!(!custom.use_shadow_volumes);
+        assert!(!custom.use_buildup_scaffolds);
+        assert!(!custom.use_tree_sway);
+        assert_eq!(custom.texture_reduction, 2);
+        assert!(!custom.enable_dynamic_lod);
+        assert!(!custom.use_trees);
     }
 
     #[test]
