@@ -54,6 +54,7 @@ pub mod particle_system;
 pub mod particle_system_manager;
 pub mod particles;
 pub mod ray_effects;
+pub mod runtime_fx;
 pub mod shadow_system;
 pub mod weather;
 pub mod weather_complete;
