@@ -87,7 +87,7 @@ pub use slider::{
     HorizontalSlider, SliderCallback, SliderConfig, SliderOrientation, SliderRenderCommand,
     SliderStyle, VerticalSlider,
 };
-pub use tabcontrol::{Tab, TabCallback, TabControl, TabControlData};
+pub use tabcontrol::{Tab, TabCallback, TabControl, TabControlData, TabControlRenderCommand};
 pub use text::{
     StaticText, TextAlignment, TextConfig, TextEntry, TextEntryCallback, TextRenderCommand,
     ValidationMode, VerticalAlignment,
