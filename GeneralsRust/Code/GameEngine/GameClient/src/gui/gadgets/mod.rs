@@ -76,7 +76,8 @@ pub use listbox::{
     ListBoxSelection, ListBoxTextAndColor, SelectionMode,
 };
 pub use progressbar::{
-    ProgressBar, ProgressBarBuilder, ProgressBarConfig, ProgressBarOrientation, ProgressBarStyle,
+    ProgressBar, ProgressBarBuilder, ProgressBarConfig, ProgressBarOrientation,
+    ProgressBarRenderCommand, ProgressBarStyle,
 };
 pub use radiobutton::{
     RadioButton, RadioButtonBuilder, RadioButtonCallback, RadioButtonGroup,
