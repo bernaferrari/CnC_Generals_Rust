@@ -16,6 +16,14 @@ pub const DEFAULT_TRACK_SPACING: f32 = MAP_XY_FACTOR * 1.4;
 /// C++ `DEFAULT_TRACK_WIDTH`.
 pub const DEFAULT_TRACK_WIDTH: f32 = 4.0;
 
+/// C++ `computeTrackSpacing`.
+pub fn compute_track_spacing(left_tread_bone: Option<Vec3>, right_tread_bone: Option<Vec3>) -> f32 {
+    match (left_tread_bone, right_tread_bone) {
+        (Some(left), Some(right)) => (right - left).length() + DEFAULT_TRACK_WIDTH,
+        _ => DEFAULT_TRACK_SPACING,
+    }
+}
+
 /// Height/normal provider used by the terrain track port.
 pub trait TerrainTrackHeightProvider {
     /// Ground height and terrain normal.
