@@ -324,81 +324,33 @@ pub fn add_cursor_info(name: String, info: CursorInfo) {
 
 /// Parse an ICoord2D from tokens (format: X:value Y:value or X:value Y:value)
 fn parse_icoord2d(args: &[&str]) -> INIResult<ICoord2D> {
-    let mut x: Option<i32> = None;
-    let mut y: Option<i32> = None;
-
-    let mut i = 0;
-    while i < args.len() {
-        let token = args[i];
-        if let Some((key, value)) = token.split_once(':') {
-            let parsed: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
-            match key.to_ascii_uppercase().as_str() {
-                "X" => x = Some(parsed),
-                "Y" => y = Some(parsed),
-                _ => {}
-            }
-        } else {
-            // Handle format where key and value are separate tokens
-            let key = token.trim_end_matches(':');
-            i += 1;
-            if i >= args.len() {
-                return Err(INIError::InvalidData);
-            }
-            let value: i32 = args[i].parse().map_err(|_| INIError::InvalidData)?;
-            match key.to_ascii_uppercase().as_str() {
-                "X" => x = Some(value),
-                "Y" => y = Some(value),
-                _ => {}
-            }
-        }
-        i += 1;
+    let mut index = 0;
+    let x = parse_cpp_labeled_i32(args, &mut index, "X")?;
+    let y = parse_cpp_labeled_i32(args, &mut index, "Y")?;
+    if index != args.len() {
+        return Err(INIError::InvalidData);
     }
 
-    Ok(ICoord2D::new(x.unwrap_or(0), y.unwrap_or(0)))
+    Ok(ICoord2D::new(x, y))
 }
 
 /// Parse an RGBAColorInt from tokens
-/// Supports both separate R/G/B/A values and packed ARGB integer
+/// Matches C++ INI::parseRGBAColorInt: R:value G:value B:value [A:value].
 fn parse_rgba_color_int(args: &[&str]) -> INIResult<RGBAColorInt> {
-    if args.len() >= 4 {
-        // Parse as separate R G B A values
-        let r: u8 = INI::parse_unsigned_byte(args[0])?;
-        let g: u8 = INI::parse_unsigned_byte(args[1])?;
-        let b: u8 = INI::parse_unsigned_byte(args[2])?;
-        let a: u8 = INI::parse_unsigned_byte(args[3])?;
-        return Ok(RGBAColorInt::new(r, g, b, a));
+    let mut index = 0;
+    let r = parse_cpp_labeled_u8(args, &mut index, "R")?;
+    let g = parse_cpp_labeled_u8(args, &mut index, "G")?;
+    let b = parse_cpp_labeled_u8(args, &mut index, "B")?;
+    let a = if index < args.len() {
+        parse_cpp_labeled_u8(args, &mut index, "A")?
+    } else {
+        255
+    };
+    if index != args.len() {
+        return Err(INIError::InvalidData);
     }
 
-    if args.len() == 1 {
-        // Parse as packed ARGB integer
-        let packed = INI::parse_unsigned_int(args[0])?;
-        return Ok(RGBAColorInt::from_packed_argb(packed));
-    }
-
-    // Try parsing as R:val G:val B:val A:val format
-    let mut r: Option<u8> = None;
-    let mut g: Option<u8> = None;
-    let mut b: Option<u8> = None;
-    let mut a: Option<u8> = None;
-
-    for token in args {
-        if let Some((key, value)) = token.split_once(':') {
-            let parsed: u8 = value.parse().map_err(|_| INIError::InvalidData)?;
-            match key.to_ascii_uppercase().as_str() {
-                "R" => r = Some(parsed),
-                "G" => g = Some(parsed),
-                "B" => b = Some(parsed),
-                "A" => a = Some(parsed),
-                _ => {}
-            }
-        }
-    }
-
-    if let (Some(r), Some(g), Some(b)) = (r, g, b) {
-        return Ok(RGBAColorInt::new(r, g, b, a.unwrap_or(255)));
-    }
-
-    Err(INIError::InvalidData)
+    Ok(RGBAColorInt::new(r, g, b, a))
 }
 
 /// Parse percent to real (0-100 -> 0.0-1.0)
@@ -408,6 +360,45 @@ fn parse_percent_to_real(token: &str) -> INIResult<f32> {
         .parse()
         .map_err(|_| INIError::InvalidData)?;
     Ok(value / 100.0)
+}
+
+fn parse_cpp_yes_no_bool(token: &str) -> INIResult<bool> {
+    match token.to_ascii_lowercase().as_str() {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+fn parse_cpp_labeled_i32(args: &[&str], index: &mut usize, expected: &str) -> INIResult<i32> {
+    let value = parse_cpp_labeled_value(args, index, expected)?;
+    INI::parse_int(value)
+}
+
+fn parse_cpp_labeled_u8(args: &[&str], index: &mut usize, expected: &str) -> INIResult<u8> {
+    let value = parse_cpp_labeled_value(args, index, expected)?;
+    INI::parse_unsigned_byte(value)
+}
+
+fn parse_cpp_labeled_value<'a>(
+    args: &'a [&'a str],
+    index: &mut usize,
+    expected: &str,
+) -> INIResult<&'a str> {
+    let token = args.get(*index).ok_or(INIError::InvalidData)?;
+    *index += 1;
+
+    let (key, value) = token.split_once(':').ok_or(INIError::InvalidData)?;
+    if !key.eq_ignore_ascii_case(expected) {
+        return Err(INIError::InvalidData);
+    }
+    if !value.is_empty() {
+        return Ok(value);
+    }
+
+    let value = args.get(*index).ok_or(INIError::InvalidData)?;
+    *index += 1;
+    Ok(value)
 }
 
 // ============================================================================
@@ -440,7 +431,7 @@ fn parse_tooltip_font_is_bold(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.tooltip_font_is_bold = INI::parse_bool(token)?;
+    settings.tooltip_font_is_bold = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -450,7 +441,7 @@ fn parse_tooltip_animate_background(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.tooltip_animate_background = INI::parse_bool(token)?;
+    settings.tooltip_animate_background = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -542,7 +533,7 @@ fn parse_use_tooltip_alt_text_color(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.use_tooltip_alt_text_color = INI::parse_bool(token)?;
+    settings.use_tooltip_alt_text_color = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -552,7 +543,7 @@ fn parse_use_tooltip_alt_back_color(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.use_tooltip_alt_back_color = INI::parse_bool(token)?;
+    settings.use_tooltip_alt_back_color = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -562,7 +553,7 @@ fn parse_adjust_tooltip_alt_color(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.adjust_tooltip_alt_color = INI::parse_bool(token)?;
+    settings.adjust_tooltip_alt_color = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -572,7 +563,7 @@ fn parse_ortho_camera(
     args: &[&str],
 ) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    settings.ortho_camera = INI::parse_bool(token)?;
+    settings.ortho_camera = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -752,7 +743,7 @@ fn parse_w3d_scale(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> IN
 
 fn parse_loop(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
-    cursor.loop_animation = INI::parse_bool(token)?;
+    cursor.loop_animation = parse_cpp_yes_no_bool(token)?;
     Ok(())
 }
 
@@ -1010,7 +1001,7 @@ mod tests {
 
     #[test]
     fn test_parse_rgba_color_int_separate() {
-        let result = parse_rgba_color_int(&["255", "128", "64", "32"]).unwrap();
+        let result = parse_rgba_color_int(&["R:255", "G:128", "B:64", "A:32"]).unwrap();
         assert_eq!(result.red, 255);
         assert_eq!(result.green, 128);
         assert_eq!(result.blue, 64);
@@ -1018,13 +1009,27 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rgba_color_int_packed() {
-        // ARGB: 0x80402010 = 128 alpha, 64 red, 32 green, 16 blue
-        let result = parse_rgba_color_int(&["2151698960"]).unwrap();
-        assert_eq!(result.alpha, 128);
+    fn test_parse_rgba_color_int_omitted_alpha_defaults_to_255() {
+        let result = parse_rgba_color_int(&["R:64", "G:32", "B:16"]).unwrap();
+        assert_eq!(result.alpha, 255);
         assert_eq!(result.red, 64);
         assert_eq!(result.green, 32);
         assert_eq!(result.blue, 16);
+    }
+
+    #[test]
+    fn test_parse_rgba_color_int_rejects_non_cpp_forms() {
+        assert!(parse_rgba_color_int(&["255", "128", "64", "32"]).is_err());
+        assert!(parse_rgba_color_int(&["2151698960"]).is_err());
+        assert!(parse_rgba_color_int(&["G:128", "R:255", "B:64"]).is_err());
+        assert!(parse_rgba_color_int(&["R:255", "G:128"]).is_err());
+    }
+
+    #[test]
+    fn test_parse_icoord2d_rejects_missing_cpp_subtokens() {
+        assert!(parse_icoord2d(&["X:10"]).is_err());
+        assert!(parse_icoord2d(&["Y:20", "X:10"]).is_err());
+        assert!(parse_icoord2d(&["X:10", "Y:20", "Z:30"]).is_err());
     }
 
     #[test]
@@ -1032,6 +1037,79 @@ mod tests {
         assert_eq!(parse_percent_to_real("100").unwrap(), 1.0);
         assert_eq!(parse_percent_to_real("50%").unwrap(), 0.5);
         assert_eq!(parse_percent_to_real("25").unwrap(), 0.25);
+    }
+
+    #[test]
+    fn test_mouse_bool_fields_use_cpp_yes_no_tokens() {
+        init_global_mouse_settings();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "Mouse\nTooltipFontIsBold = Yes\nTooltipAnimateBackground = No\nUseTooltipAltTextColor = Yes\nOrthoCamera = No\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ Yes/No mouse bools should parse");
+
+        let settings = get_mouse_settings().unwrap();
+        assert!(settings.tooltip_font_is_bold);
+        assert!(!settings.tooltip_animate_background);
+        assert!(settings.use_tooltip_alt_text_color);
+        assert!(!settings.ortho_camera);
+    }
+
+    #[test]
+    fn test_mouse_bool_fields_reject_non_cpp_tokens() {
+        init_global_mouse_settings();
+
+        let mut ini = INI::new();
+        let result = ini.with_inline_source("Mouse\nTooltipFontIsBold = true\nEnd\n", |ini| {
+            ini.parse_current_file()
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mouse_cursor_parses_cpp_color_hotspot_and_loop() {
+        init_global_mouse_settings();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "MouseCursor TestCursor\nCursorTextColor = R:10 G:20 B:30 A:40\nHotSpot = X: 5 Y: 7\nLoop = No\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ mouse cursor fields should parse");
+
+        let cursors = get_cursor_info("TestCursor").unwrap();
+        let cursor = cursors.get("TestCursor").unwrap();
+        assert_eq!(cursor.cursor_text_color, RGBAColorInt::new(10, 20, 30, 40));
+        assert_eq!(cursor.hot_spot, ICoord2D::new(5, 7));
+        assert!(!cursor.loop_animation);
+    }
+
+    #[test]
+    fn test_mouse_cursor_rejects_non_cpp_color_hotspot_and_loop() {
+        init_global_mouse_settings();
+
+        let mut ini = INI::new();
+        let bad_color = ini.with_inline_source(
+            "MouseCursor BadColor\nCursorTextColor = 10 20 30 40\nEnd\n",
+            |ini| ini.parse_current_file(),
+        );
+        assert!(bad_color.is_err());
+
+        let mut ini = INI::new();
+        let bad_hotspot = ini
+            .with_inline_source("MouseCursor BadHotSpot\nHotSpot = X: 5\nEnd\n", |ini| {
+                ini.parse_current_file()
+            });
+        assert!(bad_hotspot.is_err());
+
+        let mut ini = INI::new();
+        let bad_loop = ini.with_inline_source("MouseCursor BadLoop\nLoop = false\nEnd\n", |ini| {
+            ini.parse_current_file()
+        });
+        assert!(bad_loop.is_err());
     }
 
     #[test]
