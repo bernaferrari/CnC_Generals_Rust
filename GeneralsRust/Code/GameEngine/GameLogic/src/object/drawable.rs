@@ -2937,10 +2937,14 @@ impl Drawable {
     pub fn set_animation_loop_duration(&mut self, num_frames: u32) {
         for module_handle in self.modules() {
             module_handle.with_module(|module| {
-                let _ = with_draw_module_kind(module, |draw| {
-                    if let DrawModuleKindMut::Model(w3d_draw) = draw {
-                        w3d_draw.set_animation_loop_duration(num_frames);
+                let _ = with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Model(w3d_draw) => {
+                        w3d_draw.set_animation_loop_duration(num_frames)
                     }
+                    DrawModuleKindMut::Tank(w3d_draw) => {
+                        w3d_draw.set_animation_loop_duration(num_frames)
+                    }
+                    _ => {}
                 });
             });
         }
@@ -2956,10 +2960,14 @@ impl Drawable {
     pub fn set_animation_completion_time(&mut self, num_frames: u32) {
         for module_handle in self.modules() {
             module_handle.with_module(|module| {
-                let _ = with_draw_module_kind(module, |draw| {
-                    if let DrawModuleKindMut::Model(w3d_draw) = draw {
-                        w3d_draw.set_animation_completion_time(num_frames);
+                let _ = with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Model(w3d_draw) => {
+                        w3d_draw.set_animation_completion_time(num_frames)
                     }
+                    DrawModuleKindMut::Tank(w3d_draw) => {
+                        w3d_draw.set_animation_completion_time(num_frames)
+                    }
+                    _ => {}
                 });
             });
         }
@@ -2973,10 +2981,10 @@ impl Drawable {
     pub fn set_animation_frame(&mut self, frame: i32) {
         for module_handle in self.modules() {
             module_handle.with_module(|module| {
-                let _ = with_draw_module_kind(module, |draw| {
-                    if let DrawModuleKindMut::Model(w3d_draw) = draw {
-                        w3d_draw.set_animation_frame(frame);
-                    }
+                let _ = with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Model(w3d_draw) => w3d_draw.set_animation_frame(frame),
+                    DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.set_animation_frame(frame),
+                    _ => {}
                 });
             });
         }
@@ -2987,10 +2995,10 @@ impl Drawable {
     pub fn show_sub_object(&mut self, name: &str, show: bool) {
         for module_handle in self.modules() {
             module_handle.with_module(|module| {
-                let _ = with_draw_module_kind(module, |draw| {
-                    if let DrawModuleKindMut::Model(w3d_draw) = draw {
-                        w3d_draw.show_sub_object(name, show);
-                    }
+                let _ = with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Model(w3d_draw) => w3d_draw.show_sub_object(name, show),
+                    DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.show_sub_object(name, show),
+                    _ => {}
                 });
             });
         }
@@ -3053,10 +3061,10 @@ impl Drawable {
     pub fn update_sub_objects(&mut self) {
         for module_handle in self.modules() {
             module_handle.with_module(|module| {
-                let _ = with_draw_module_kind(module, |draw| {
-                    if let DrawModuleKindMut::Model(w3d_draw) = draw {
-                        w3d_draw.update_sub_objects();
-                    }
+                let _ = with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Model(w3d_draw) => w3d_draw.update_sub_objects(),
+                    DrawModuleKindMut::Tank(w3d_draw) => w3d_draw.update_sub_objects(),
+                    _ => {}
                 });
             });
         }
