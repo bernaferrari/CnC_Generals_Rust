@@ -8,7 +8,9 @@ use crate::gui::font::{get_font_library, FontDesc};
 use crate::gui::gadgets::tabcontrol::{
     TP_BOTTOMRIGHT, TP_BOTTOM_SIDE, TP_CENTER, TP_LEFT_SIDE, TP_RIGHT_SIDE, TP_TOP_SIDE,
 };
-use crate::gui::gadgets::{ClockMode, PushButton, TabControl, TextAlignment, VerticalAlignment};
+use crate::gui::gadgets::{
+    ClockMode, PushButton, TabControl, TextAlignment, TextEntry, VerticalAlignment,
+};
 use crate::gui::game_window::{
     read_video_frame, resolve_window_text, WindowId, WindowState, WindowStatus, GWS_COMBO_BOX,
     WIN_COLOR_UNDEFINED,
@@ -772,13 +774,15 @@ mod tests {
         WIN_COLOR_UNDEFINED,
     };
     use super::{
-        text_entry_clip_region, text_entry_cursor_window_x, text_entry_focus_matches,
-        text_entry_image_tile_rects, text_entry_start_y, text_entry_text_color_defined,
-        text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
+        text_entry_clip_region, text_entry_cursor_window_x, text_entry_draws_visible_composition,
+        text_entry_focus_matches, text_entry_image_tile_rects,
+        text_entry_password_composition_is_masked, text_entry_start_y,
+        text_entry_text_color_defined, text_entry_text_draw_x, text_entry_w3d_display_text,
+        truncate_to_i32, TextEntryImageTileKind,
     };
     use crate::gui::gadgets::{
         Color, ListBox, ListBoxItemData, PushButton, TabControl, TabControlData, TextAlignment,
-        VerticalAlignment,
+        TextEntry, VerticalAlignment,
     };
     use crate::gui::game_window::{
         GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
@@ -853,6 +857,28 @@ mod tests {
     fn text_entry_skips_undefined_text_color_like_cpp() {
         assert!(text_entry_text_color_defined(0xFF102030));
         assert!(!text_entry_text_color_defined(WIN_COLOR_UNDEFINED));
+    }
+
+    #[test]
+    fn text_entry_password_ime_composition_is_masked_like_cpp() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30).as_password();
+        entry.set_text("abc");
+        entry.set_ime_composition("de", 1);
+
+        assert_eq!(text_entry_w3d_display_text(&entry), "*****");
+        assert!(text_entry_password_composition_is_masked(&entry));
+        assert!(!text_entry_draws_visible_composition(&entry));
+    }
+
+    #[test]
+    fn text_entry_normal_ime_composition_stays_visible_like_cpp() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30);
+        entry.set_text("abc");
+        entry.set_ime_composition("de", 1);
+
+        assert_eq!(text_entry_w3d_display_text(&entry), "abc");
+        assert!(!text_entry_password_composition_is_masked(&entry));
+        assert!(text_entry_draws_visible_composition(&entry));
     }
 
     #[test]
@@ -4546,7 +4572,7 @@ fn draw_text_entry_text(
     } else {
         return;
     };
-    let text = entry.displayed_text();
+    let text = text_entry_w3d_display_text(entry);
     display.set_text(text.to_string());
     if let Some(font) = inst_data.font.as_ref() {
         display.set_font(font);
@@ -4567,9 +4593,13 @@ fn draw_text_entry_text(
     let text_width = display.get_width(-1);
     let draw_x = text_entry_text_draw_x(draw_from_start, start_x, width, text_width);
     display.draw(draw_x, start_y, text_color, drop_color);
-    let mut cursor_pos = draw_x + display.get_width(entry.cursor_position() as i32);
+    let mut cursor_pos = if text_entry_password_composition_is_masked(entry) {
+        draw_x + text_width
+    } else {
+        draw_x + display.get_width(entry.cursor_position() as i32)
+    };
 
-    if !entry.ime_composition().is_empty() {
+    if text_entry_draws_visible_composition(entry) {
         let comp_text = entry.ime_composition().to_string();
         let comp_x = draw_x + text_width;
         display.set_text(comp_text);
@@ -4594,6 +4624,22 @@ fn draw_text_entry_text(
 
     window.set_cursor_position_from_draw(text_entry_cursor_window_x(cursor_pos, origin_x), 0);
     display.set_clip_region(None);
+}
+
+fn text_entry_w3d_display_text(entry: &TextEntry) -> String {
+    if text_entry_password_composition_is_masked(entry) {
+        "*".repeat(entry.displayed_text().len() + entry.ime_composition().len())
+    } else {
+        entry.displayed_text().to_string()
+    }
+}
+
+fn text_entry_draws_visible_composition(entry: &TextEntry) -> bool {
+    !entry.is_password() && !entry.ime_composition().is_empty()
+}
+
+fn text_entry_password_composition_is_masked(entry: &TextEntry) -> bool {
+    entry.is_password() && !entry.ime_composition().is_empty()
 }
 
 fn text_entry_text_draw_x(draw_from_start: bool, start_x: i32, width: i32, text_width: i32) -> i32 {
