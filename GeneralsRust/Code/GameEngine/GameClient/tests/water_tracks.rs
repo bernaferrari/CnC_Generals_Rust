@@ -105,6 +105,28 @@ fn moving_wave_after_total_resets_elapsed_like_cpp_render() {
 }
 
 #[test]
+fn total_ms_truncates_like_cpp_int_member() {
+    let water = FlatWater;
+    let mut system = WaterTracksRenderSystem::new(1);
+    let handle = system.bind_track(WaterTrackType::Ocean).unwrap();
+    system.track_mut(handle).unwrap().init(
+        36.0,
+        55.0,
+        Vec2::new(0.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        "wave256.tga",
+        0,
+    );
+
+    assert_eq!(system.track(handle).unwrap().total_ms(), 12533.0);
+
+    system.track_mut(handle).unwrap().update(12533);
+    let _ = system.track_mut(handle).unwrap().build_vertices(&water);
+
+    assert_eq!(system.track(handle).unwrap().elapsed_ms(), 0.0);
+}
+
+#[test]
 fn flip_u_swaps_left_and_right_texture_coordinates() {
     let water = FlatWater;
     let mut system = WaterTracksRenderSystem::new(1);
