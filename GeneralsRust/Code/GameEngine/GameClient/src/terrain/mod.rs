@@ -85,11 +85,11 @@ pub use terrain_tracks::{
 };
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
 pub use tree_buffer::{
-    BreezeInfo, TreeCollisionUnit, TreeGeometryType, TreeModuleData, TreeRandom, TreeRegion2D,
-    TreeSaveRecord, TreeShroudStatus, TreeSphere, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT,
-    DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
-    TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
-    W3D_TOPPLE_OPTIONS_NO_FX,
+    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeGeometryType, TreeModuleData,
+    TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, W3DToppleState,
+    W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE,
+    END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
+    W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX,
 };
 pub use vertex::TerrainVertex;
 pub use water::{WaterBody, WaterSettings, WaterSystem};
