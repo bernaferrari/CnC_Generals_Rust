@@ -127,7 +127,8 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
     let mut properties = HashMap::new();
     let mut block_key_prefix: Option<String> = None;
     let mut block_depth = 0u32;
-    let mut block_counter = 0u32;
+    let mut weapon_set_counter = 0u32;
+    let mut armor_set_counter = 0u32;
 
     loop {
         ini.read_line().ok();
@@ -155,31 +156,44 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
             break;
         }
 
-        // Detect sub-block starts (lines without '=' that aren't End)
-        if !line.contains('=') && block_depth == 0 {
-            // This is a sub-block keyword like "Behavior", "WeaponSet", etc.
-            // Generate a prefixed key for this block
-            let block_name = first_token;
-            if block_name.eq_ignore_ascii_case("WeaponSet") {
-                block_key_prefix = Some(format!("WeaponSet{}", block_counter));
-                block_counter += 1;
+        if block_depth == 0 {
+            if let Some((key, value)) = split_ini_assignment(&line) {
+                if object_field_starts_subblock(key) {
+                    properties.insert(key.to_string(), value.to_string());
+                    block_key_prefix = object_prefixed_subblock_key(
+                        key,
+                        &mut weapon_set_counter,
+                        &mut armor_set_counter,
+                    );
+                    block_depth = 1;
+                    continue;
+                }
+
+                properties.insert(key.to_string(), value.to_string());
+                continue;
+            }
+
+            if object_field_starts_subblock(first_token) {
+                block_key_prefix = object_prefixed_subblock_key(
+                    first_token,
+                    &mut weapon_set_counter,
+                    &mut armor_set_counter,
+                );
                 block_depth = 1;
-            } else if block_name.eq_ignore_ascii_case("ArmorSet") {
-                block_key_prefix = Some(format!("ArmorSet{}", block_counter));
-                block_counter += 1;
-                block_depth = 1;
-            } else {
-                // Generic sub-block (Behavior, Draw, etc.) -- skip entirely
-                block_depth = 1;
-                block_key_prefix = None;
             }
             continue;
         }
 
         // Inside a sub-block
         if block_depth > 0 {
-            if !line.contains('=') {
-                // Nested sub-block start inside our block
+            if let Some((key, _value)) = split_ini_assignment(&line) {
+                if object_field_starts_subblock(key) {
+                    block_depth += 1;
+                    continue;
+                }
+            } else if object_field_starts_subblock(first_token)
+                || !object_line_is_plain_field_without_assignment(first_token)
+            {
                 block_depth += 1;
                 continue;
             }
@@ -196,15 +210,57 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
             continue;
         }
 
-        // Top-level key = value
-        if let Some(eq_pos) = line.find('=') {
-            let key = line[..eq_pos].trim().to_string();
-            let value = line[eq_pos + 1..].trim().to_string();
-            properties.insert(key, value);
-        }
+        debug_assert!(block_depth == 0);
     }
 
     properties
+}
+
+fn split_ini_assignment(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once('=')?;
+    Some((key.trim(), value.trim()))
+}
+
+fn object_field_starts_subblock(field: &str) -> bool {
+    matches!(
+        field.to_ascii_lowercase().as_str(),
+        "armorset"
+            | "weaponset"
+            | "prerequisites"
+            | "behavior"
+            | "body"
+            | "draw"
+            | "clientupdate"
+            | "addmodule"
+            | "replacemodule"
+            | "inheritablemodule"
+            | "overrideablebylikekind"
+    )
+}
+
+fn object_line_is_plain_field_without_assignment(first_token: &str) -> bool {
+    matches!(
+        first_token.to_ascii_lowercase().as_str(),
+        "removemodule" | "locomotor"
+    )
+}
+
+fn object_prefixed_subblock_key(
+    block_name: &str,
+    weapon_set_counter: &mut u32,
+    armor_set_counter: &mut u32,
+) -> Option<String> {
+    if block_name.eq_ignore_ascii_case("WeaponSet") {
+        let key = format!("WeaponSet{}", *weapon_set_counter);
+        *weapon_set_counter += 1;
+        Some(key)
+    } else if block_name.eq_ignore_ascii_case("ArmorSet") {
+        let key = format!("ArmorSet{}", *armor_set_counter);
+        *armor_set_counter += 1;
+        Some(key)
+    } else {
+        None
+    }
 }
 
 impl ThingFactory {
@@ -770,8 +826,11 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
 /// *after* the closing `End`.
 fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<String, String>, usize) {
     let mut properties = HashMap::new();
+    let mut block_key_prefix: Option<String> = None;
     let mut depth: u32 = 0;
     let mut index = start;
+    let mut weapon_set_counter = 0u32;
+    let mut armor_set_counter = 0u32;
 
     while index < lines.len() {
         let line = strip_ini_comment(lines[index]).trim();
@@ -784,24 +843,55 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
         if first_token.eq_ignore_ascii_case("End") {
             if depth > 0 {
                 depth -= 1;
+                if depth == 0 {
+                    block_key_prefix = None;
+                }
                 index += 1;
                 continue;
             }
             return (properties, index + 1);
         }
 
-        if !line.contains('=') {
-            depth += 1;
+        if depth == 0 {
+            if let Some((key, value)) = split_ini_assignment(line) {
+                properties.insert(key.to_string(), value.to_string());
+                if object_field_starts_subblock(key) {
+                    block_key_prefix = object_prefixed_subblock_key(
+                        key,
+                        &mut weapon_set_counter,
+                        &mut armor_set_counter,
+                    );
+                    depth += 1;
+                }
+                index += 1;
+                continue;
+            }
+
+            if object_field_starts_subblock(first_token) {
+                block_key_prefix = object_prefixed_subblock_key(
+                    first_token,
+                    &mut weapon_set_counter,
+                    &mut armor_set_counter,
+                );
+                depth += 1;
+            }
             index += 1;
             continue;
         }
 
-        if depth == 0 {
-            if let Some(eq_pos) = line.find('=') {
-                let key = line[..eq_pos].trim().to_string();
-                let value = line[eq_pos + 1..].trim().to_string();
-                properties.insert(key, value);
+        if let Some((key, _value)) = split_ini_assignment(line) {
+            if object_field_starts_subblock(key) {
+                depth += 1;
+            } else if let Some(ref prefix) = block_key_prefix {
+                let value = split_ini_assignment(line)
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                properties.insert(format!("{}.{}", prefix, key), value.to_string());
             }
+        } else if object_field_starts_subblock(first_token)
+            || !object_line_is_plain_field_without_assignment(first_token)
+        {
+            depth += 1;
         }
         index += 1;
     }
@@ -1037,7 +1127,21 @@ fn skip_ini_block(lines: &[&str], mut index: usize) -> usize {
             continue;
         }
 
-        if !line.contains('=') {
+        if nested_depth == 0 {
+            if let Some((key, _value)) = split_ini_assignment(line) {
+                if object_field_starts_subblock(key) {
+                    nested_depth += 1;
+                }
+            } else if object_field_starts_subblock(first) {
+                nested_depth += 1;
+            }
+        } else if let Some((key, _value)) = split_ini_assignment(line) {
+            if object_field_starts_subblock(key) {
+                nested_depth += 1;
+            }
+        } else if object_field_starts_subblock(first)
+            || !object_line_is_plain_field_without_assignment(first)
+        {
             nested_depth += 1;
         }
 
@@ -1049,7 +1153,9 @@ fn skip_ini_block(lines: &[&str], mut index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_object_declarations, ObjectDeclaration, ThingFactory};
+    use super::{
+        parse_object_block_properties, parse_object_declarations, ObjectDeclaration, ThingFactory,
+    };
 
     #[test]
     fn parse_object_declarations_handles_object_and_reskin_blocks() {
@@ -1080,6 +1186,136 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn parse_object_declarations_skips_equals_style_module_blocks() {
+        let contents = r#"
+            Object FirstObject
+              Draw = W3DModelDraw ModuleTag_01
+                DefaultConditionState
+                  Model = NVDeva_U2
+                End
+              End
+              BuildCost = 100
+            End
+
+            Object SecondObject
+              DisplayName = OBJECT:Second
+            End
+        "#;
+
+        let parsed = parse_object_declarations(contents);
+        assert_eq!(
+            parsed,
+            vec![
+                ObjectDeclaration {
+                    name: "FirstObject".to_string(),
+                    reskin_from: None,
+                },
+                ObjectDeclaration {
+                    name: "SecondObject".to_string(),
+                    reskin_from: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_object_block_properties_consumes_module_fields_without_leaking() {
+        let contents = r#"
+            Object TestObject
+              DisplayName = OBJECT:Test
+              Behavior = GrantUpgradeCreate ModuleTag_01
+                GrantUpgrade = Upgrade_Test
+              End
+              Locomotor = SET_NORMAL TestLocomotor
+              BuildCost = 42
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object TestObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, end_idx) = parse_object_block_properties(&lines, start);
+        assert_eq!(
+            properties.get("DisplayName").map(String::as_str),
+            Some("OBJECT:Test")
+        );
+        assert_eq!(properties.get("BuildCost").map(String::as_str), Some("42"));
+        assert_eq!(
+            properties.get("Locomotor").map(String::as_str),
+            Some("SET_NORMAL TestLocomotor")
+        );
+        assert_eq!(
+            properties.get("Behavior").map(String::as_str),
+            Some("GrantUpgradeCreate ModuleTag_01")
+        );
+        assert!(!properties.contains_key("GrantUpgrade"));
+        assert!(end_idx > start);
+    }
+
+    #[test]
+    fn parse_object_block_properties_consumes_nested_override_module_blocks() {
+        let contents = r#"
+            ObjectReskin TestObject ParentObject
+              ReplaceModule ModuleTag_01
+                Draw = W3DModelDraw ModuleTag_01_Override
+                  DefaultConditionState
+                    Model = TestModel
+                  End
+                End
+              End
+              BuildTime = 5.0
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("ObjectReskin TestObject"))
+            .expect("object reskin declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(properties.get("BuildTime").map(String::as_str), Some("5.0"));
+        assert!(!properties.contains_key("Draw"));
+        assert!(!properties.contains_key("Model"));
+    }
+
+    #[test]
+    fn parse_object_block_properties_keeps_weapon_and_armor_block_indices_separate() {
+        let contents = r#"
+            Object TestObject
+              WeaponSet
+                Conditions = None
+                Weapon = PRIMARY TestWeapon
+              End
+              ArmorSet
+                Conditions = None
+                Armor = TestArmor
+              End
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object TestObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(
+            properties.get("WeaponSet0.Conditions").map(String::as_str),
+            Some("None")
+        );
+        assert_eq!(
+            properties.get("ArmorSet0.Conditions").map(String::as_str),
+            Some("None")
+        );
+        assert!(!properties.contains_key("ArmorSet1.Conditions"));
     }
 
     #[test]
