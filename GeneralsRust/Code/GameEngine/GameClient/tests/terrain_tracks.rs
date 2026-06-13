@@ -123,3 +123,32 @@ fn bridge_layer_adds_cpp_bridge_offset() {
         20.0 + BRIDGE_OFFSET_FACTOR + 0.2 * MAP_XY_FACTOR
     );
 }
+
+#[test]
+fn set_detail_clears_tracks_and_accepts_new_edge_capacity() {
+    let terrain = FlatTerrain;
+    let mut system = TerrainTracksRenderObjClassSystem::new(config());
+    let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
+    system.add_edge_to_track(handle, &terrain, 0.0, 0.0, 0);
+    system.add_edge_to_track(handle, &terrain, 20.0, 0.0, 1);
+    system.submit_render(handle);
+
+    let mut new_config = config();
+    new_config.max_tank_track_edges = 6;
+    new_config.max_tank_track_opaque_edges = 3;
+    new_config.max_tank_track_fade_delay = 200;
+    system.set_detail(new_config);
+
+    let track = system.track(handle).unwrap();
+    assert_eq!(track.active_edge_count(), 0);
+    assert!(!track.have_anchor());
+    assert!(track.have_cap());
+    assert!(system.flush(0x0012_3456).vertices.is_empty());
+
+    for i in 0..7 {
+        system.add_edge_to_track(handle, &terrain, i as f32 * 20.0, 0.0, i);
+    }
+
+    assert_eq!(system.track(handle).unwrap().active_edge_count(), 6);
+    assert_eq!(system.track(handle).unwrap().active_edges(6).len(), 6);
+}

@@ -277,6 +277,16 @@ impl TerrainTracksRenderObjClass {
         self.active_edge_count
     }
 
+    /// C++ `m_haveAnchor`.
+    pub fn have_anchor(&self) -> bool {
+        self.have_anchor
+    }
+
+    /// C++ `m_haveCap`.
+    pub fn have_cap(&self) -> bool {
+        self.have_cap
+    }
+
     /// Ordered active edges, oldest first.
     pub fn active_edges(&self, max_edges: usize) -> Vec<TerrainTrackEdge> {
         (0..self.active_edge_count)
@@ -329,6 +339,16 @@ impl TerrainTracksRenderObjClass {
             time_added: sync_time,
             alpha,
         };
+    }
+
+    fn clear_track_edges(&mut self, max_edges: usize) {
+        self.edges.resize(max_edges, TerrainTrackEdge::default());
+        self.have_anchor = false;
+        self.have_cap = true;
+        self.top_index = 0;
+        self.bottom_index = 0;
+        self.active_edge_count = 0;
+        self.total_edges_added = 0;
     }
 }
 
@@ -576,13 +596,21 @@ impl TerrainTracksRenderObjClassSystem {
     /// C++ `clearTracks`.
     pub fn clear_tracks(&mut self) {
         for &handle in &self.used_modules {
-            let track = &mut self.tracks[handle];
-            track.have_anchor = false;
-            track.have_cap = true;
-            track.top_index = 0;
-            track.bottom_index = 0;
-            track.active_edge_count = 0;
-            track.total_edges_added = 0;
+            self.tracks[handle].clear_track_edges(self.config.max_tank_track_edges);
+        }
+        self.edges_to_flush = 0;
+    }
+
+    /// C++ `setDetail`.
+    pub fn set_detail(&mut self, config: TerrainTracksConfig) {
+        self.clear_tracks();
+        let old_modules = self.config.max_terrain_tracks;
+        self.config = TerrainTracksConfig {
+            max_terrain_tracks: old_modules,
+            ..config
+        };
+        for track in &mut self.tracks {
+            track.clear_track_edges(self.config.max_tank_track_edges);
         }
         self.edges_to_flush = 0;
     }
