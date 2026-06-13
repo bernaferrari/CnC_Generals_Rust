@@ -216,11 +216,11 @@ pub fn init_window_transition_store() {
 }
 
 /// Parse bool value from string
-fn parse_bool(value: &str) -> bool {
-    match value.to_lowercase().as_str() {
-        "yes" | "true" | "1" => true,
-        "no" | "false" | "0" => false,
-        _ => false,
+fn parse_bool(value: &str) -> INIResult<bool> {
+    match value.to_ascii_lowercase().as_str() {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        _ => Err(INIError::InvalidData),
     }
 }
 
@@ -271,7 +271,9 @@ fn parse_window_field(ini: &mut INI, group: &mut TransitionGroup) -> INIResult<(
             }
             "framedelay" => {
                 // FrameDelay = <value>
-                window.frame_delay = tokens[value_idx].parse().unwrap_or(0);
+                window.frame_delay = tokens[value_idx]
+                    .parse::<i32>()
+                    .map_err(|_| INIError::InvalidData)?;
             }
             _ => {
                 // Unknown field - skip
@@ -335,7 +337,7 @@ pub fn parse_window_transition_definition(ini: &mut INI) -> INIResult<()> {
         // Check for FireOnce field
         if first.eq_ignore_ascii_case("FireOnce") {
             let value = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
-            group.fire_once = parse_bool(&value);
+            group.fire_once = parse_bool(&value)?;
         }
         // Check for Window sub-block
         else if first.eq_ignore_ascii_case("Window") {
@@ -430,17 +432,72 @@ mod tests {
 
     #[test]
     fn test_parse_bool() {
-        assert!(parse_bool("yes"));
-        assert!(parse_bool("YES"));
-        assert!(parse_bool("true"));
-        assert!(parse_bool("TRUE"));
-        assert!(parse_bool("1"));
+        assert_eq!(parse_bool("yes"), Ok(true));
+        assert_eq!(parse_bool("YES"), Ok(true));
+        assert_eq!(parse_bool("no"), Ok(false));
+        assert_eq!(parse_bool("NO"), Ok(false));
 
-        assert!(!parse_bool("no"));
-        assert!(!parse_bool("NO"));
-        assert!(!parse_bool("false"));
-        assert!(!parse_bool("FALSE"));
-        assert!(!parse_bool("0"));
-        assert!(!parse_bool("invalid"));
+        assert_eq!(parse_bool("true"), Err(INIError::InvalidData));
+        assert_eq!(parse_bool("1"), Err(INIError::InvalidData));
+        assert_eq!(parse_bool("invalid"), Err(INIError::InvalidData));
+    }
+
+    #[test]
+    fn test_window_transition_block_parses_cpp_fields() {
+        get_window_transition_store_mut().clear();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "\
+WindowTransition TestTransition
+    FireOnce = Yes
+    Window
+        WinName = MainMenu.wnd:ButtonSinglePlayer
+        Style = FLASH
+        FrameDelay = 7
+    End
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ WindowTransition block");
+
+        let store = get_window_transition_store();
+        let group = store
+            .find_group("TestTransition")
+            .expect("transition group registered");
+
+        assert!(group.fire_once);
+        assert_eq!(group.windows.len(), 1);
+        assert_eq!(group.windows[0].win_name, "MainMenu.wnd:ButtonSinglePlayer");
+        assert_eq!(group.windows[0].style, TransitionStyle::Flash);
+        assert_eq!(group.windows[0].frame_delay, 7);
+    }
+
+    #[test]
+    fn test_window_transition_rejects_invalid_cpp_bool_and_int() {
+        let mut ini = INI::new();
+        let invalid_bool = "\
+WindowTransition BadBool
+    FireOnce = true
+End
+";
+        assert!(ini
+            .with_inline_source(invalid_bool, |ini| ini.parse_current_file())
+            .is_err());
+
+        let mut ini = INI::new();
+        let invalid_frame_delay = "\
+WindowTransition BadDelay
+    Window
+        WinName = MainMenu.wnd:ButtonSinglePlayer
+        Style = FLASH
+        FrameDelay = soon
+    End
+End
+";
+        assert!(ini
+            .with_inline_source(invalid_frame_delay, |ini| ini.parse_current_file())
+            .is_err());
     }
 }
