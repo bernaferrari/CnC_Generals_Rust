@@ -61,6 +61,49 @@ impl Tab {
 /// Tab selection callback
 pub type TabCallback = Box<dyn Fn(u32) + Send + Sync>;
 
+/// Draw command emitted by [`TabControl`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabControlRenderCommand {
+    Background {
+        rect: Rect,
+        color: Color,
+    },
+    TabBorder {
+        rect: Rect,
+        index: usize,
+        color: Color,
+        border_width: u32,
+    },
+    TabFill {
+        rect: Rect,
+        index: usize,
+        color: Color,
+        active: bool,
+        disabled: bool,
+        hovered: bool,
+    },
+    TabText {
+        rect: Rect,
+        index: usize,
+        text: String,
+        color: Color,
+    },
+    TabIcon {
+        rect: Rect,
+        index: usize,
+        image_path: String,
+    },
+    ContentBorder {
+        rect: Rect,
+        color: Color,
+        border_width: u32,
+    },
+    FocusOutline {
+        rect: Rect,
+        color: Color,
+    },
+}
+
 /// TabControl gadget
 pub struct TabControl {
     id: GadgetId,
@@ -404,6 +447,121 @@ impl TabControl {
             tab_count,
         }
     }
+
+    fn tab_render_color(
+        &self,
+        theme: &GadgetTheme,
+        index: usize,
+        tab: Option<&Tab>,
+    ) -> (Color, bool, bool, bool) {
+        let active = self.active_tab_index() == index;
+        let disabled = !self.enabled
+            || self.is_sub_pane_disabled(index)
+            || tab.map(|tab| !tab.enabled || !tab.visible).unwrap_or(false);
+        let hovered = self.hovered_tab == Some(index as u32);
+
+        let color = if disabled {
+            theme.disabled_color
+        } else if active {
+            theme.pressed_color
+        } else if hovered {
+            theme.hovered_color
+        } else {
+            theme.normal_color
+        };
+
+        (color, active, disabled, hovered)
+    }
+
+    fn tab_text_color(&self, theme: &GadgetTheme, disabled: bool) -> Color {
+        if disabled {
+            theme.disabled_text_color
+        } else {
+            theme.text_color
+        }
+    }
+
+    /// Build renderer-facing commands for the current tab-control state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<TabControlRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = vec![TabControlRenderCommand::Background {
+            rect: self.bounds,
+            color: if self.enabled {
+                theme.normal_color
+            } else {
+                theme.disabled_color
+            },
+        }];
+
+        let tab_count = self.tab_count().min(NUM_TAB_PANES);
+        for index in 0..tab_count {
+            let tab = self.tabs.get(index);
+            if tab.is_some_and(|tab| !tab.visible) {
+                continue;
+            }
+
+            let tab_bounds = self.get_tab_bounds(index);
+            let fill_rect = Rect::new(
+                tab_bounds.x + 1,
+                tab_bounds.y + 1,
+                tab_bounds.width.saturating_sub(2),
+                tab_bounds.height.saturating_sub(2),
+            );
+            let (color, active, disabled, hovered) = self.tab_render_color(theme, index, tab);
+
+            commands.push(TabControlRenderCommand::TabBorder {
+                rect: tab_bounds,
+                index,
+                color: theme.border_color,
+                border_width: theme.border_width,
+            });
+            commands.push(TabControlRenderCommand::TabFill {
+                rect: fill_rect,
+                index,
+                color,
+                active,
+                disabled,
+                hovered,
+            });
+
+            if let Some(tab) = tab {
+                if let Some(icon) = tab.icon.as_ref() {
+                    commands.push(TabControlRenderCommand::TabIcon {
+                        rect: fill_rect,
+                        index,
+                        image_path: icon.clone(),
+                    });
+                }
+
+                if !tab.title.is_empty() {
+                    commands.push(TabControlRenderCommand::TabText {
+                        rect: fill_rect,
+                        index,
+                        text: tab.title.clone(),
+                        color: self.tab_text_color(theme, disabled),
+                    });
+                }
+            }
+        }
+
+        commands.push(TabControlRenderCommand::ContentBorder {
+            rect: self.content_bounds(),
+            color: theme.border_color,
+            border_width: theme.border_width,
+        });
+
+        if self.focused {
+            commands.push(TabControlRenderCommand::FocusOutline {
+                rect: self.bounds,
+                color: theme.focused_color,
+            });
+        }
+
+        commands
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -558,33 +716,12 @@ impl Gadget for TabControl {
         }
     }
 
-    #[allow(unused_variables)]
     fn render(&self, theme: &GadgetTheme) {
         if !self.visible {
             return;
         }
 
-        // Render tabs
-        for (index, tab) in self.tabs.iter().enumerate() {
-            if !tab.visible {
-                continue;
-            }
-
-            let tab_bounds = self.get_tab_bounds(index);
-            let is_selected = self.selected_tab == Some(tab.id);
-            let is_hovered = if self.tabs.is_empty() {
-                self.hovered_tab == Some(index as u32)
-            } else {
-                self.hovered_tab == Some(tab.id)
-            };
-
-            // Tab rendering code would go here
-            // [Draw tab background, text, and icons]
-        }
-
-        // Render content area border
-        let content_bounds = self.content_bounds();
-        // [Draw content area border]
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -686,5 +823,177 @@ mod tests {
             blank.as_slice(),
             [GadgetMessage::Custom { data, .. }] if data == "input_handled"
         ));
+    }
+
+    #[test]
+    fn tabcontrol_render_commands_cover_tab_geometry_states_text_and_icon() {
+        let theme = GadgetTheme::default();
+        let mut disabled_panes = [false; NUM_TAB_PANES];
+        disabled_panes[2] = true;
+
+        let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: TP_TOP_SIDE,
+            tab_orientation: TP_TOPLEFT,
+            tab_width: 100,
+            tab_height: 30,
+            tab_count: 3,
+            pane_border: 5,
+            sub_pane_disabled: disabled_panes,
+        });
+        tab_control.add_tab(Tab::new(10, "One").with_icon("one.dds"));
+        tab_control.add_tab(Tab::new(20, "Two"));
+        tab_control.add_tab(Tab::new(30, "Three"));
+        tab_control.select_tab(20);
+
+        let messages = tab_control.handle_input(&InputEvent::MouseMove { x: 20, y: 30 });
+        assert!(messages.is_empty());
+
+        assert_eq!(
+            tab_control.render_commands(&theme),
+            vec![
+                TabControlRenderCommand::Background {
+                    rect: Rect::new(10, 20, 400, 300),
+                    color: theme.normal_color,
+                },
+                TabControlRenderCommand::TabBorder {
+                    rect: Rect::new(15, 25, 100, 30),
+                    index: 0,
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::TabFill {
+                    rect: Rect::new(16, 26, 98, 28),
+                    index: 0,
+                    color: theme.hovered_color,
+                    active: false,
+                    disabled: false,
+                    hovered: true,
+                },
+                TabControlRenderCommand::TabIcon {
+                    rect: Rect::new(16, 26, 98, 28),
+                    index: 0,
+                    image_path: "one.dds".to_string(),
+                },
+                TabControlRenderCommand::TabText {
+                    rect: Rect::new(16, 26, 98, 28),
+                    index: 0,
+                    text: "One".to_string(),
+                    color: theme.text_color,
+                },
+                TabControlRenderCommand::TabBorder {
+                    rect: Rect::new(115, 25, 100, 30),
+                    index: 1,
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::TabFill {
+                    rect: Rect::new(116, 26, 98, 28),
+                    index: 1,
+                    color: theme.pressed_color,
+                    active: true,
+                    disabled: false,
+                    hovered: false,
+                },
+                TabControlRenderCommand::TabText {
+                    rect: Rect::new(116, 26, 98, 28),
+                    index: 1,
+                    text: "Two".to_string(),
+                    color: theme.text_color,
+                },
+                TabControlRenderCommand::TabBorder {
+                    rect: Rect::new(215, 25, 100, 30),
+                    index: 2,
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::TabFill {
+                    rect: Rect::new(216, 26, 98, 28),
+                    index: 2,
+                    color: theme.disabled_color,
+                    active: false,
+                    disabled: true,
+                    hovered: false,
+                },
+                TabControlRenderCommand::TabText {
+                    rect: Rect::new(216, 26, 98, 28),
+                    index: 2,
+                    text: "Three".to_string(),
+                    color: theme.disabled_text_color,
+                },
+                TabControlRenderCommand::ContentBorder {
+                    rect: Rect::new(15, 55, 390, 260),
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn tabcontrol_render_commands_cover_data_only_right_edge_focus_and_hidden() {
+        let theme = GadgetTheme::default();
+        let mut tab_control = TabControl::new(1, 10, 20, 240, 180);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: TP_RIGHT_SIDE,
+            tab_orientation: TP_CENTER,
+            tab_width: 40,
+            tab_height: 30,
+            tab_count: 2,
+            pane_border: 5,
+            ..Default::default()
+        });
+        tab_control.set_active_tab_index_silent(1);
+        tab_control.set_focus(true);
+
+        assert_eq!(
+            tab_control.render_commands(&theme),
+            vec![
+                TabControlRenderCommand::Background {
+                    rect: Rect::new(10, 20, 240, 180),
+                    color: theme.normal_color,
+                },
+                TabControlRenderCommand::TabBorder {
+                    rect: Rect::new(205, 80, 40, 30),
+                    index: 0,
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::TabFill {
+                    rect: Rect::new(206, 81, 38, 28),
+                    index: 0,
+                    color: theme.normal_color,
+                    active: false,
+                    disabled: false,
+                    hovered: false,
+                },
+                TabControlRenderCommand::TabBorder {
+                    rect: Rect::new(205, 110, 40, 30),
+                    index: 1,
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::TabFill {
+                    rect: Rect::new(206, 111, 38, 28),
+                    index: 1,
+                    color: theme.pressed_color,
+                    active: true,
+                    disabled: false,
+                    hovered: false,
+                },
+                TabControlRenderCommand::ContentBorder {
+                    rect: Rect::new(15, 25, 190, 170),
+                    color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                TabControlRenderCommand::FocusOutline {
+                    rect: Rect::new(10, 20, 240, 180),
+                    color: theme.focused_color,
+                },
+            ]
+        );
+
+        tab_control.set_visible(false);
+        assert!(tab_control.render_commands(&theme).is_empty());
     }
 }
