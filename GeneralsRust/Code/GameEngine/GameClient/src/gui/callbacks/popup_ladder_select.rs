@@ -665,7 +665,7 @@ fn populate_qm_ladder_combo_box() -> bool {
     true
 }
 
-fn populate_custom_ladder_combo_box() -> bool {
+pub(crate) fn populate_custom_ladder_combo_box() -> bool {
     let combo_id = name_to_id("PopupHostGame.wnd:ComboBoxLadderName");
     let combo = with_window_manager(|manager| manager.get_window_by_id(combo_id));
     let Some(combo) = combo else {
