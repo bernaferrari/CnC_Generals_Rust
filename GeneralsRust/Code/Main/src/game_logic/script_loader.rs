@@ -624,6 +624,22 @@ pub struct HeightMapData {
     pub data: Vec<u8>,
 }
 
+/// Decoded `BlendTileData` fields needed by C++ terrain tile/color queries.
+#[derive(Debug, Clone)]
+pub struct BlendTileData {
+    pub tile_ndxes: Vec<i16>,
+    pub blend_tile_ndxes: Vec<i16>,
+    pub texture_classes: Vec<BlendTileTextureClass>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlendTileTextureClass {
+    pub first_tile: i32,
+    pub num_tiles: i32,
+    pub width: i32,
+    pub name: String,
+}
+
 /// Result returned after decoding a map file.
 pub struct MapScriptLoadResult {
     pub source_path: PathBuf,
@@ -1042,6 +1058,94 @@ pub fn parse_heightmap_data_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Opti
         border_size,
         boundaries,
         data,
+    }))
+}
+
+pub fn parse_blend_tile_data_from_chunky(
+    chunky: &ChunkyMap,
+    heightmap: &HeightMapData,
+) -> LoaderResult<Option<BlendTileData>> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "BlendTileData")? else {
+        return Ok(None);
+    };
+
+    let mut reader = BinaryReader::new(payload);
+    let data_size = reader.read_i32()?;
+    let expected = heightmap.width.saturating_mul(heightmap.height);
+    if data_size <= 0 || data_size != expected {
+        return Err(configuration_error(format!(
+            "BlendTileData has invalid dataSize={}, expected {}",
+            data_size, expected
+        )));
+    }
+    let data_size = data_size as usize;
+
+    let mut tile_ndxes = reader.read_i16_vec(data_size)?;
+    let mut blend_tile_ndxes = reader.read_i16_vec(data_size)?;
+
+    if version >= 6 {
+        let _extra_blend_tile_ndxes = reader.read_i16_vec(data_size)?;
+    }
+    if version >= 5 {
+        let _cliff_info_ndxes = reader.read_i16_vec(data_size)?;
+    }
+    if version >= 7 {
+        let byte_width = if version == 7 {
+            (heightmap.width + 1) / 8
+        } else {
+            (heightmap.width + 7) / 8
+        }
+        .max(0) as usize;
+        let byte_count = byte_width.saturating_mul(heightmap.height.max(0) as usize);
+        reader.read_bytes(byte_count)?;
+    }
+
+    let _num_bitmap_tiles = reader.read_i32()?;
+    let _num_blended_tiles = reader.read_i32()?;
+    if version >= 5 {
+        let _num_cliff_info = reader.read_i32()?;
+    }
+
+    let texture_class_count = reader.read_i32()?.max(0) as usize;
+    let mut texture_classes = Vec::with_capacity(texture_class_count);
+    for _ in 0..texture_class_count {
+        let first_tile = reader.read_i32()?;
+        let num_tiles = reader.read_i32()?;
+        let width = reader.read_i32()?;
+        let _legacy_gdf = reader.read_i32()?;
+        let name = reader.read_ascii_string()?;
+        texture_classes.push(BlendTileTextureClass {
+            first_tile,
+            num_tiles,
+            width,
+            name,
+        });
+    }
+
+    if version == 1 {
+        let new_width = (heightmap.width + 1) / 2;
+        let new_height = (heightmap.height + 1) / 2;
+        let mut resized_tiles = vec![0i16; (new_width * new_height).max(0) as usize];
+        let mut resized_blends = vec![0i16; resized_tiles.len()];
+        for i in 0..new_height.max(0) {
+            for j in 0..new_width.max(0) {
+                let src = (2 * i * heightmap.width + 2 * j).max(0) as usize;
+                let dst = (i * new_width + j).max(0) as usize;
+                if src < tile_ndxes.len() && dst < resized_tiles.len() {
+                    resized_tiles[dst] = tile_ndxes[src];
+                    resized_blends[dst] = 0;
+                }
+            }
+        }
+        tile_ndxes = resized_tiles;
+        blend_tile_ndxes = resized_blends;
+    }
+
+    Ok(Some(BlendTileData {
+        tile_ndxes,
+        blend_tile_ndxes,
+        texture_classes,
     }))
 }
 
@@ -1974,6 +2078,14 @@ impl<'a> BinaryReader<'a> {
         Ok(u16::from_le_bytes(bytes.try_into().unwrap()))
     }
 
+    fn read_i16_vec(&mut self, count: usize) -> LoaderResult<Vec<i16>> {
+        let bytes = self.read_bytes(count.saturating_mul(2))?;
+        Ok(bytes
+            .chunks_exact(2)
+            .map(|chunk| i16::from_le_bytes(chunk.try_into().unwrap()))
+            .collect())
+    }
+
     fn read_u8(&mut self) -> LoaderResult<u8> {
         Ok(self.read_bytes(1)?[0])
     }
@@ -2675,5 +2787,88 @@ fn build_relative_candidates(input: &str) -> Vec<PathBuf> {
 fn push_unique(vec: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !vec.iter().any(|existing| existing == &candidate) {
         vec.push(candidate);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(id: u32, version: u16, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&id.to_le_bytes());
+        bytes.extend_from_slice(&version.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    fn ascii(value: &str, out: &mut Vec<u8>) {
+        out.extend_from_slice(&(value.len() as u16).to_le_bytes());
+        out.extend_from_slice(value.as_bytes());
+    }
+
+    #[test]
+    fn blend_tile_data_parser_recovers_packed_tile_indices_and_texture_classes() {
+        let mut toc = HashMap::new();
+        toc.insert(1, "HeightMapData".to_string());
+        toc.insert(2, "BlendTileData".to_string());
+
+        let mut height_payload = Vec::new();
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&0i32.to_le_bytes());
+        height_payload.extend_from_slice(&1i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&4i32.to_le_bytes());
+        height_payload.extend_from_slice(&[1, 2, 3, 4]);
+
+        let mut blend_payload = Vec::new();
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        for value in [0i16, 4, 8, 12] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in [1i16, 2, 3, 4] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        blend_payload.extend_from_slice(&[0u8; 8]);
+        blend_payload.extend_from_slice(&[0u8; 8]);
+        blend_payload.extend_from_slice(&[0u8; 2]);
+        blend_payload.extend_from_slice(&16i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        blend_payload.extend_from_slice(&2i32.to_le_bytes());
+        blend_payload.extend_from_slice(&0i32.to_le_bytes());
+        ascii("Grass", &mut blend_payload);
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&chunk(1, 4, &height_payload));
+        bytes.extend_from_slice(&chunk(2, 8, &blend_payload));
+
+        let chunky = ChunkyMap {
+            source: PathBuf::from("Synthetic.map"),
+            toc,
+            body_offset: 0,
+            bytes,
+        };
+
+        let heightmap = parse_heightmap_data_from_chunky(&chunky)
+            .unwrap()
+            .expect("heightmap should parse");
+        let blend = parse_blend_tile_data_from_chunky(&chunky, &heightmap)
+            .unwrap()
+            .expect("blend data should parse");
+
+        assert_eq!(blend.tile_ndxes, vec![0, 4, 8, 12]);
+        assert_eq!(blend.blend_tile_ndxes, vec![1, 2, 3, 4]);
+        assert_eq!(blend.texture_classes.len(), 1);
+        assert_eq!(blend.texture_classes[0].first_tile, 4);
+        assert_eq!(blend.texture_classes[0].num_tiles, 4);
+        assert_eq!(blend.texture_classes[0].width, 2);
+        assert_eq!(blend.texture_classes[0].name, "Grass");
     }
 }
