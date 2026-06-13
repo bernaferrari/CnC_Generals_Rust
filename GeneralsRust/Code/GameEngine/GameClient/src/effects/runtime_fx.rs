@@ -37,6 +37,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use game_engine::common::global_data;
 use nalgebra::{Point3, Vector3};
 
 // ---------------------------------------------------------------------------
@@ -153,7 +154,9 @@ impl FXPoint {
             velocity,
             size,
             start_size: size,
-            gravity: -9.81, // PARITY_NOTE: C++ uses world gravity from GameLogic
+            gravity: global_data::read_safe()
+                .map(|data| data.gravity)
+                .unwrap_or(-1.0),
             drag: 0.0,
         }
     }
@@ -1076,6 +1079,28 @@ mod tests {
 
         point.update(0.6); // Total: 1.1s > 1.0s lifetime
         assert!(!point.is_alive());
+    }
+
+    #[test]
+    fn fx_point_default_gravity_tracks_global_data_like_cpp() {
+        let old_gravity = {
+            let mut global = global_data::write();
+            let old = global.gravity;
+            global.gravity = -2.5;
+            old
+        };
+
+        let point = FXPoint::new(
+            Point3::new(0.0, 0.0, 0.0),
+            [1.0, 1.0, 1.0, 1.0],
+            Vector3::zeros(),
+            1.0,
+            1.0,
+        );
+
+        global_data::write().gravity = old_gravity;
+
+        assert_eq!(point.gravity, -2.5);
     }
 
     #[test]
