@@ -7,6 +7,7 @@
 //!
 //! This module implements the complete map initialization flow from the C++ codebase.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
@@ -18,6 +19,7 @@ use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
 use crate::sides_list::get_sides_list;
 use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
 
@@ -402,7 +404,8 @@ impl MapLoader {
     fn parse_map_data(&mut self, data: &[u8], include_objects: bool) -> io::Result<()> {
         self.polygon_triggers.clear();
 
-        let mut input = DataChunkInput::new(data.to_vec());
+        let chunk_bytes = Self::decode_map_chunk_bytes(data)?;
+        let mut input = DataChunkInput::new(chunk_bytes.into_owned());
         if !input.is_valid_file_type() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -452,6 +455,14 @@ impl MapLoader {
         self.bridges = context.bridges;
 
         Ok(())
+    }
+
+    fn decode_map_chunk_bytes(data: &[u8]) -> io::Result<Cow<'_, [u8]>> {
+        if is_data_compressed(data) {
+            return decompress_data(data).map(Cow::Owned);
+        }
+
+        Ok(Cow::Borrowed(data))
     }
 
     /// Get the loaded heightmap
@@ -1023,6 +1034,31 @@ impl Default for MapCache {
 mod tests {
     use super::*;
 
+    fn make_chunk_bytes(label: &str, version: u16, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"CkMp");
+        bytes.extend_from_slice(&1i32.to_le_bytes());
+        bytes.push(label.len() as u8);
+        bytes.extend_from_slice(label.as_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&version.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    fn make_heightmap_chunk(width: i32, height: i32, border_size: i32, samples: &[u8]) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&width.to_le_bytes());
+        payload.extend_from_slice(&height.to_le_bytes());
+        payload.extend_from_slice(&border_size.to_le_bytes());
+        payload.extend_from_slice(&0i32.to_le_bytes());
+        payload.extend_from_slice(&(samples.len() as i32).to_le_bytes());
+        payload.extend_from_slice(samples);
+        make_chunk_bytes("HeightMapData", K_HEIGHT_MAP_VERSION_4 as u16, &payload)
+    }
+
     #[test]
     fn test_coord3d() {
         let coord = Coord3D::new(100.0, 200.0, 50.0);
@@ -1074,20 +1110,6 @@ mod tests {
 
     #[test]
     fn test_waypoints_list_parser_tolerates_trailing_bytes() {
-        fn make_chunk_bytes(label: &str, version: u16, payload: &[u8]) -> Vec<u8> {
-            let mut bytes = Vec::new();
-            bytes.extend_from_slice(b"CkMp");
-            bytes.extend_from_slice(&1i32.to_le_bytes());
-            bytes.push(label.len() as u8);
-            bytes.extend_from_slice(label.as_bytes());
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            bytes.extend_from_slice(&version.to_le_bytes());
-            bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
-            bytes.extend_from_slice(payload);
-            bytes
-        }
-
         let mut payload = Vec::new();
         payload.extend_from_slice(&1i32.to_le_bytes());
         payload.extend_from_slice(&7i32.to_le_bytes());
@@ -1101,6 +1123,26 @@ mod tests {
         input.register_parser("WaypointsList", "", parse_waypoints_list_chunk);
         assert!(input.parse(&mut ctx));
         assert_eq!(ctx.waypoint_links, vec![(7, 9)]);
+    }
+
+    #[test]
+    fn test_map_loader_accepts_compressed_map_chunks() {
+        use game_engine::common::system::compression::{
+            compress_data, CompressionLevel, CompressionType,
+        };
+
+        let raw = make_heightmap_chunk(2, 2, 0, &[1, 2, 3, 4]);
+        let compressed = compress_data(&raw, CompressionType::RefPack, CompressionLevel::Default)
+            .expect("compress map bytes");
+
+        let mut loader = MapLoader::new();
+        loader
+            .load_map_from_bytes(&compressed)
+            .expect("load compressed chunky map");
+
+        assert_eq!(loader.heightmap.width, 2);
+        assert_eq!(loader.heightmap.height, 2);
+        assert_eq!(loader.heightmap.data, vec![1, 2, 3, 4]);
     }
 
     #[test]
