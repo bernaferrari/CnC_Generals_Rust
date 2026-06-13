@@ -51,8 +51,10 @@ impl GameLod {
 static DYNAMIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static DYNAMIC_LOD_SLOW_DEATH: OnceLock<RwLock<HashMap<String, f32>>> = OnceLock::new();
 static STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
+static CURRENT_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static IDEAL_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static MEM_PASSED_OVERRIDE: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
+static CPU_FREQ_MHZ_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
 
 fn dynamic_lod_name() -> &'static RwLock<String> {
     DYNAMIC_LOD_NAME.get_or_init(|| RwLock::new("High".to_string()))
@@ -66,12 +68,20 @@ fn static_lod_name() -> &'static RwLock<String> {
     STATIC_LOD_NAME.get_or_init(|| RwLock::new("Medium".to_string()))
 }
 
+fn current_static_lod_name() -> &'static RwLock<String> {
+    CURRENT_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
+}
+
 fn ideal_static_lod_name() -> &'static RwLock<String> {
     IDEAL_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
 }
 
 fn mem_passed_override() -> &'static RwLock<Option<bool>> {
     MEM_PASSED_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
+fn cpu_freq_mhz_override() -> &'static RwLock<Option<i32>> {
+    CPU_FREQ_MHZ_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
 
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
@@ -97,6 +107,43 @@ fn detected_physical_memory_bytes() -> Option<u64> {
 
 #[cfg(not(unix))]
 fn detected_physical_memory_bytes() -> Option<u64> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn detected_cpu_frequency_mhz() -> Option<i32> {
+    let contents = fs::read_to_string("/proc/cpuinfo").ok()?;
+    contents.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        if !key.trim().eq_ignore_ascii_case("cpu mhz") {
+            return None;
+        }
+        value.trim().parse::<f32>().ok().map(|mhz| mhz as i32)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn detected_cpu_frequency_mhz() -> Option<i32> {
+    let mut freq_hz: u64 = 0;
+    let mut len = std::mem::size_of::<u64>();
+    let name = b"hw.cpufrequency\0";
+    let result = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr() as *const libc::c_char,
+            (&mut freq_hz as *mut u64).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 || freq_hz == 0 {
+        return None;
+    }
+    Some((freq_hz / 1_000_000) as i32)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn detected_cpu_frequency_mhz() -> Option<i32> {
     None
 }
 
@@ -134,7 +181,20 @@ pub fn set_static_lod_from_string(value: &str) {
     if let Ok(mut guard) = static_lod_name().write() {
         *guard = mapped.to_string();
     }
+    if mapped != "Custom"
+        && current_static_lod_name()
+            .read()
+            .map(|guard| guard.as_str() == mapped)
+            .unwrap_or(false)
+    {
+        return;
+    }
     apply_static_lod_level(mapped);
+    if mapped != "Unknown" {
+        if let Ok(mut guard) = current_static_lod_name().write() {
+            *guard = mapped.to_string();
+        }
+    }
 }
 
 /// Apply StaticGameLOD settings to GlobalData.
@@ -191,7 +251,7 @@ fn apply_static_lod_level(level_name: &str) {
     global.enable_dynamic_lod = lod_info.enable_dynamic_lod;
     global.use_fps_limit = lod_info.use_fps_limit;
     global.use_trees = requested_trees;
-    if !did_mem_pass() {
+    if !did_mem_pass() || is_really_low_mhz() {
         global.shell_map_on = false;
     }
 }
@@ -300,11 +360,46 @@ pub fn did_mem_pass() -> bool {
         .unwrap_or(true)
 }
 
+pub fn is_really_low_mhz() -> bool {
+    let Some(cpu_freq_mhz) = cpu_freq_mhz_override()
+        .read()
+        .ok()
+        .and_then(|guard| *guard)
+        .or_else(detected_cpu_frequency_mhz)
+    else {
+        return false;
+    };
+
+    cpu_freq_mhz < get_game_lod_manager().really_low_mhz
+}
+
 #[doc(hidden)]
 pub fn set_mem_passed_override_for_tests(value: Option<bool>) {
     if let Ok(mut guard) = mem_passed_override().write() {
         *guard = value;
     }
+}
+
+#[doc(hidden)]
+pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
+    if let Ok(mut guard) = cpu_freq_mhz_override().write() {
+        *guard = value;
+    }
+}
+
+#[doc(hidden)]
+pub fn reset_static_lod_state_for_tests() {
+    if let Ok(mut guard) = static_lod_name().write() {
+        *guard = "Medium".to_string();
+    }
+    if let Ok(mut guard) = current_static_lod_name().write() {
+        *guard = "Unknown".to_string();
+    }
+    if let Ok(mut guard) = ideal_static_lod_name().write() {
+        *guard = "Unknown".to_string();
+    }
+    set_mem_passed_override_for_tests(None);
+    set_cpu_freq_mhz_override_for_tests(None);
 }
 
 pub fn prefers_low_res_movies() -> bool {
@@ -387,6 +482,7 @@ mod tests {
 
     #[test]
     fn static_lod_parser_tracks_current_and_ideal_low_detail() {
+        reset_static_lod_state_for_tests();
         set_static_lod_from_string("Medium");
         set_ideal_static_lod_from_string("Unknown");
         assert!(!prefers_low_res_movies());
@@ -401,6 +497,7 @@ mod tests {
 
     #[test]
     fn custom_static_lod_snapshots_current_global_settings_before_apply() {
+        reset_static_lod_state_for_tests();
         crate::common::ini::ini_game_data::init_global_data();
         let global_data = get_global_data().expect("global data initialized");
 
@@ -469,6 +566,7 @@ mod tests {
 
     #[test]
     fn non_custom_static_lod_uses_cpp_memory_recommended_texture_reduction() {
+        reset_static_lod_state_for_tests();
         crate::common::ini::ini_game_data::init_global_data();
         let global_data = get_global_data().expect("global data initialized");
 
@@ -500,6 +598,66 @@ mod tests {
         }
 
         set_mem_passed_override_for_tests(None);
+    }
+
+    #[test]
+    fn repeated_non_custom_static_lod_does_not_reapply_cpp_current_level() {
+        reset_static_lod_state_for_tests();
+        crate::common::ini::ini_game_data::init_global_data();
+        let global_data = get_global_data().expect("global data initialized");
+
+        {
+            let mut manager = get_game_lod_manager_mut();
+            let high_index = StaticGameLODLevel::High.to_index().unwrap();
+            manager.static_game_lod_info[high_index].max_particle_count = 222;
+        }
+
+        {
+            let mut global = global_data.write();
+            global.max_particle_count = 111;
+        }
+
+        set_mem_passed_override_for_tests(Some(true));
+        set_cpu_freq_mhz_override_for_tests(Some(1000));
+        set_static_lod_from_string("High");
+        assert_eq!(global_data.read().max_particle_count, 222);
+
+        global_data.write().max_particle_count = 333;
+        set_static_lod_from_string("High");
+        assert_eq!(global_data.read().max_particle_count, 333);
+
+        global_data.write().max_particle_count = 444;
+        set_static_lod_from_string("Custom");
+        assert_eq!(global_data.read().max_particle_count, 444);
+
+        set_mem_passed_override_for_tests(None);
+        set_cpu_freq_mhz_override_for_tests(None);
+    }
+
+    #[test]
+    fn really_low_mhz_disables_shell_map_even_when_memory_passes() {
+        reset_static_lod_state_for_tests();
+        crate::common::ini::ini_game_data::init_global_data();
+        let global_data = get_global_data().expect("global data initialized");
+
+        {
+            let mut manager = get_game_lod_manager_mut();
+            manager.set_really_low_mhz(400);
+        }
+
+        {
+            let mut global = global_data.write();
+            global.shell_map_on = true;
+        }
+
+        set_mem_passed_override_for_tests(Some(true));
+        set_cpu_freq_mhz_override_for_tests(Some(399));
+        set_static_lod_from_string("High");
+
+        assert!(!global_data.read().shell_map_on);
+
+        set_mem_passed_override_for_tests(None);
+        set_cpu_freq_mhz_override_for_tests(None);
     }
 
     #[test]

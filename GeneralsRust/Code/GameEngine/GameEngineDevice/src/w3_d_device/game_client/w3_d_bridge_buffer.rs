@@ -721,8 +721,10 @@ impl W3DBridgeBuffer {
             if bridge.damage_state() != state {
                 changed = true;
                 let old_state = bridge.damage_state();
+                bridge.cur_damage_state = state;
                 if !bridge.load(provider, state) {
                     let _ = bridge.load(provider, old_state);
+                    bridge.cur_damage_state = state;
                 }
             }
         }
@@ -993,7 +995,7 @@ mod tests {
         buffer.sync_damage_states(&provider, &[(0, BridgeDamageState::Rubble)], 0);
         assert_eq!(
             buffer.bridges()[0].damage_state(),
-            BridgeDamageState::Damaged
+            BridgeDamageState::Rubble
         );
     }
 }
