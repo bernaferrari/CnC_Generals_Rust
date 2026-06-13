@@ -171,6 +171,12 @@ impl Video {
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
         vec![
+            ("Filename", |value| {
+                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+            }),
+            ("Comment", |value| {
+                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+            }),
             ("DisplayName", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
             }),
@@ -248,14 +254,14 @@ impl Video {
                 "DisplayName" => {
                     self.display_name = AsciiString::from(value);
                 }
-                "FilePath" => {
+                "Filename" | "FilePath" => {
                     self.file_path = AsciiString::from(value);
                     // Auto-detect codec from file extension
                     if let Some(ext) = self.file_path.as_str().split('.').last() {
                         self.codec = VideoCodec::from_extension(ext);
                     }
                 }
-                "Description" => {
+                "Comment" | "Description" => {
                     self.description = AsciiString::from(value);
                 }
                 "PlaybackMode" => {
@@ -379,10 +385,10 @@ impl VideoPlayer {
     )> {
         // Return a generic field parse table that can be used by any Video instance
         vec![
-            ("DisplayName", |value| {
+            ("Filename", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
             }),
-            ("FilePath", |value| {
+            ("Comment", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
             }),
         ]
@@ -834,6 +840,39 @@ mod tests {
         assert!(video.is_looping);
         assert_eq!(video.volume, 0.8);
         assert!(matches!(video.codec, VideoCodec::MP4));
+    }
+
+    #[test]
+    fn test_video_cpp_filename_and_comment_fields_update() {
+        let mut video = Video::new(AsciiString::from("Intro"));
+        let mut properties = HashMap::new();
+        properties.insert(
+            "Filename".to_string(),
+            "Data\\Movies\\Intro.bik".to_string(),
+        );
+        properties.insert("Comment".to_string(), "WorldBuilder note".to_string());
+
+        video.update_from_properties(&properties);
+
+        assert_eq!(video.file_path.as_str(), "Data\\Movies\\Intro.bik");
+        assert_eq!(video.description.as_str(), "WorldBuilder note");
+        assert!(matches!(video.codec, VideoCodec::BIK));
+        assert!(video.is_valid());
+    }
+
+    #[test]
+    fn test_parse_video_block_accepts_cpp_field_names() {
+        let mut properties = HashMap::new();
+        properties.insert("Filename".to_string(), "Intro.avi".to_string());
+        properties.insert("Comment".to_string(), "Intro movie".to_string());
+
+        let video = IniVideo::parse_video_block(AsciiString::from("Intro"), properties)
+            .expect("C++ Video block should parse");
+
+        assert_eq!(video.internal_name.as_str(), "Intro");
+        assert_eq!(video.file_path.as_str(), "Intro.avi");
+        assert_eq!(video.description.as_str(), "Intro movie");
+        assert!(matches!(video.codec, VideoCodec::AVI));
     }
 
     #[test]
