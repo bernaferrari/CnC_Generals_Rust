@@ -20,6 +20,8 @@ use crate::common::audio::launch_url_safe;
 use crate::common::ini::ini::{INIError, INIResult, INI};
 use crate::common::language::{get_current_language, Language, LanguageId};
 
+const CPP_WEBPAGE_URL_FIELDS: &[&str] = &["URL"];
+
 /// Result type for webpage URL parsing operations
 pub type WebpageUrlResult<T> = Result<T, WebpageUrlError>;
 
@@ -138,53 +140,23 @@ impl WebBrowserURL {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("URL", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("DisplayName", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Description", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Category", |value| {
-                Ok(Box::new(UrlCategory::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("IsLocalFile", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse is local file: {}", e))
-            }),
-            ("RequiresInternet", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse requires internet: {}", e))
-            }),
-            ("LanguageSpecific", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse language specific: {}", e))
-            }),
-            ("TargetWindow", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Tooltip", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Icon", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("IsEnabled", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse is enabled: {}", e))
-            }),
-        ]
+        CPP_WEBPAGE_URL_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_webpage_url_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Update URL from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> WebpageUrlResult<()> {
         for (key, value) in properties {
             match key.as_str() {
                 "URL" => {
@@ -193,50 +165,16 @@ impl WebBrowserURL {
                     self.requires_internet = !self.is_local_file
                         && (value.starts_with("http://") || value.starts_with("https://"));
                 }
-                "DisplayName" => {
-                    self.display_name = AsciiString::from(value);
-                }
-                "Description" => {
-                    self.description = AsciiString::from(value);
-                }
-                "Category" => {
-                    self.category = UrlCategory::from_string(value);
-                }
-                "IsLocalFile" => {
-                    if let Ok(is_local) = parse_bool(value) {
-                        self.is_local_file = is_local;
-                    }
-                }
-                "RequiresInternet" => {
-                    if let Ok(requires) = parse_bool(value) {
-                        self.requires_internet = requires;
-                    }
-                }
-                "LanguageSpecific" => {
-                    if let Ok(language_specific) = parse_bool(value) {
-                        self.language_specific = language_specific;
-                    }
-                }
-                "TargetWindow" => {
-                    self.target_window = AsciiString::from(value);
-                }
-                "Tooltip" => {
-                    self.tooltip = AsciiString::from(value);
-                }
-                "Icon" => {
-                    self.icon = AsciiString::from(value);
-                }
-                "IsEnabled" => {
-                    if let Ok(enabled) = parse_bool(value) {
-                        self.is_enabled = enabled;
-                    }
-                }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    return Err(WebpageUrlError::ParseError(format!(
+                        "Unknown webpage URL field '{}'",
+                        key
+                    )));
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_tag(&self) -> &AsciiString {
@@ -493,6 +431,10 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
     }
 }
 
+fn parse_cpp_webpage_url_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+}
+
 /// INI parsing functions for webpage URLs
 pub struct IniWebpageUrl;
 
@@ -609,7 +551,7 @@ impl IniWebpageUrl {
         let mut url = WebBrowserURL::new(tag);
 
         // Update URL from properties
-        url.update_from_properties(&properties);
+        url.update_from_properties(&properties)?;
 
         // Validate URL
         if !url.is_valid() {
@@ -669,13 +611,11 @@ impl IniWebpageUrl {
 
             if line.eq_ignore_ascii_case("End") {
                 if let Some(tag) = current_tag.take() {
-                    if let Ok(url) =
-                        IniWebpageUrl::parse_webpage_url_block(tag.clone(), properties.clone())
-                    {
-                        let _ = IniWebpageUrl::register_webpage_url(url);
-                        let _ = IniWebpageUrl::parse_webpage_url_definition(tag);
-                        loaded += 1;
-                    }
+                    let url =
+                        IniWebpageUrl::parse_webpage_url_block(tag.clone(), properties.clone())?;
+                    IniWebpageUrl::register_webpage_url(url)?;
+                    IniWebpageUrl::parse_webpage_url_definition(tag)?;
+                    loaded += 1;
                     properties.clear();
                 }
                 continue;
@@ -799,24 +739,47 @@ mod tests {
         let mut url = WebBrowserURL::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
         properties.insert("URL".to_string(), "https://secure-site.com".to_string());
-        properties.insert("DisplayName".to_string(), "Secure Site".to_string());
-        properties.insert("Category".to_string(), "Support".to_string());
-        properties.insert("RequiresInternet".to_string(), "true".to_string());
 
-        url.update_from_properties(&properties);
+        url.update_from_properties(&properties).unwrap();
 
         assert_eq!(url.url.as_str(), "https://secure-site.com");
-        assert_eq!(url.display_name.as_str(), "Secure Site");
-        assert!(matches!(url.category, UrlCategory::Support));
         assert!(url.requires_internet);
         assert!(url.is_secure());
+        assert!(url.properties.is_empty());
+    }
+
+    #[test]
+    fn webpage_url_rejects_fields_outside_cpp_parse_table() {
+        for field in [
+            "DisplayName",
+            "Description",
+            "Category",
+            "IsLocalFile",
+            "RequiresInternet",
+            "LanguageSpecific",
+            "TargetWindow",
+            "Tooltip",
+            "Icon",
+            "IsEnabled",
+            "UnknownField",
+        ] {
+            let mut properties = HashMap::new();
+            properties.insert("URL".to_string(), "https://example.com".to_string());
+            properties.insert(field.to_string(), "value".to_string());
+            assert!(
+                IniWebpageUrl::parse_webpage_url_block(AsciiString::from("StrictUrl"), properties)
+                    .is_err(),
+                "{} should be rejected because C++ WebBrowserURL does not parse it",
+                field
+            );
+        }
     }
 
     #[test]
     fn test_url_encoding() {
         let source = AsciiString::from("Hello World!");
         let encoded = encode_url(source);
-        assert!(encoded.as_str().contains("Hello%20World%21"));
+        assert!(encoded.as_str().contains("Hello%20World!"));
 
         let simple = AsciiString::from("simple-text_123");
         let encoded_simple = encode_url(simple);
@@ -844,7 +807,7 @@ mod tests {
         let mut properties = HashMap::new();
         properties.insert("URL".to_string(), "file://local/path/file.html".to_string());
 
-        url.update_from_properties(&properties);
+        url.update_from_properties(&properties).unwrap();
 
         assert!(url.is_local_file);
         assert!(!url.requires_internet);
