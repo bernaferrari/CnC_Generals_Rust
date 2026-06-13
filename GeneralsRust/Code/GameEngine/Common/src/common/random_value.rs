@@ -414,10 +414,6 @@ impl GameClientRandomVariable {
 
     /// Set the range and distribution type
     pub fn set_range(&mut self, low: f32, high: f32, distribution_type: DistributionType) {
-        assert!(
-            !(distribution_type == DistributionType::Constant && low != high),
-            "CONSTANT GameClientRandomVariables should have low == high"
-        );
         self.low = low;
         self.high = high;
         self.distribution_type = distribution_type;
@@ -427,14 +423,9 @@ impl GameClientRandomVariable {
     pub fn get_value(&self) -> f32 {
         match self.distribution_type {
             DistributionType::Constant => {
-                assert!(
-                    self.low == self.high,
-                    "m_low != m_high for a CONSTANT GameClientRandomVariable"
-                );
                 if self.low == self.high {
                     self.low
                 } else {
-                    // Fall through to uniform
                     get_game_client_random_value_real(self.low, self.high)
                 }
             }
@@ -481,10 +472,6 @@ impl GameLogicRandomVariable {
 
     /// Set the range and distribution type
     pub fn set_range(&mut self, low: f32, high: f32, distribution_type: DistributionType) {
-        assert!(
-            !(distribution_type == DistributionType::Constant && low != high),
-            "CONSTANT GameLogicRandomVariables should have low == high"
-        );
         self.low = low;
         self.high = high;
         self.distribution_type = distribution_type;
@@ -494,14 +481,9 @@ impl GameLogicRandomVariable {
     pub fn get_value(&self) -> f32 {
         match self.distribution_type {
             DistributionType::Constant => {
-                assert!(
-                    self.low == self.high,
-                    "m_low != m_high for a CONSTANT GameLogicRandomVariable"
-                );
                 if self.low == self.high {
                     self.low
                 } else {
-                    // Fall through to uniform
                     get_game_logic_random_value_real(self.low, self.high)
                 }
             }
@@ -527,6 +509,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
     use std::thread;
+
+    static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_random_initialization() {
@@ -564,6 +548,32 @@ mod tests {
 
         let val = var.get_value();
         assert_eq!(val, 42.0);
+    }
+
+    #[test]
+    fn constant_logic_random_variable_with_mismatched_range_falls_through_to_uniform() {
+        let _guard = RNG_TEST_LOCK.lock().unwrap();
+        init_random_with_seed(12345);
+        let mut var = GameLogicRandomVariable::new();
+        var.set_range(5.0, 15.0, DistributionType::Constant);
+        let actual = var.get_value();
+
+        init_random_with_seed(12345);
+        let expected = get_game_logic_random_value_real(5.0, 15.0);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn constant_client_random_variable_with_mismatched_range_falls_through_to_uniform() {
+        let _guard = RNG_TEST_LOCK.lock().unwrap();
+        init_random_with_seed(54321);
+        let mut var = GameClientRandomVariable::new();
+        var.set_range(5.0, 15.0, DistributionType::Constant);
+        let actual = var.get_value();
+
+        init_random_with_seed(54321);
+        let expected = get_game_client_random_value_real(5.0, 15.0);
+        assert_eq!(actual, expected);
     }
 
     // ============================================================================
