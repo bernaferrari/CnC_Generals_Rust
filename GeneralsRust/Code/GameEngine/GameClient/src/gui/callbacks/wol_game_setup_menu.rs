@@ -881,6 +881,13 @@ fn display_game_options(state: &mut WolGameSetupState) {
     }
 }
 
+pub(crate) fn refresh_map_selection_ui() {
+    let mut state = wol_game_setup_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    update_slot_list(&mut state);
+}
+
 fn handle_color_selection(state: &mut WolGameSetupState, index: usize) {
     let combo =
         with_window_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[index]));

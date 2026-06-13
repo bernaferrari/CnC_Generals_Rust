@@ -8,6 +8,7 @@ use crate::gamespy_game::{
     push_gamespy_game_options, with_gamespy_game_info, with_gamespy_game_info_mut,
 };
 use crate::gamespy_overlay::{close_overlay, raise_gs_message_box, GameSpyOverlayType};
+use crate::gui::callbacks::wol_game_setup_menu::refresh_map_selection_ui;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
@@ -406,9 +407,6 @@ pub fn wol_map_select_menu_system(
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_ok_id {
-                // TODO: C++ calls displaySlotList() and displayGameOptions() after setting
-                // map info. These functions update the game options UI. Add equivalent calls
-                // when display_slot_list/display_game_options are implemented.
                 if let Some(map_name) = state.selected_map.clone() {
                     let map_cache = get_map_cache_manager();
                     let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -433,6 +431,7 @@ pub fn wol_map_select_menu_system(
                     });
 
                     let _ = push_gamespy_game_options();
+                    refresh_map_selection_ui();
                 }
 
                 show_underlying_game_options(true);
