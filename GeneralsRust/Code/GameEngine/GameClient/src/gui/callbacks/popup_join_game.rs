@@ -5,7 +5,8 @@ use crate::gamespy_overlay::{
     set_lobby_attempt_host_join, GameSpyOverlayType,
 };
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
@@ -115,17 +116,12 @@ pub fn popup_join_game_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
-            // Rust uses values not pointers for WindowMsgData so write-back is not
-            // possible without API changes. Preserve this as a parity note.
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());

@@ -10,8 +10,8 @@ use crate::gamespy_game::{
 use crate::gamespy_overlay::{close_overlay, raise_gs_message_box, GameSpyOverlayType};
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image, populate_map_listbox,
@@ -361,7 +361,7 @@ pub fn wol_map_select_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -373,12 +373,7 @@ pub fn wol_map_select_menu_system(
             state.selected_map = None;
             WindowMsgHandled::Handled
         }
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
-            // Rust uses values not pointers for WindowMsgData so write-back is not
-            // possible without API changes. Preserve this as a parity note.
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;

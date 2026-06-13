@@ -7,8 +7,8 @@ use std::sync::{Mutex, OnceLock};
 use crate::game_text::GameText;
 use crate::gamespy_overlay::{check_reopen_player_info, close_overlay, GameSpyOverlayType};
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
@@ -96,15 +96,12 @@ pub fn wol_locale_select_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes *(Bool*)mData2 = TRUE when mData1 != 0 to accept focus
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let mut state = wol_locale_state().lock().unwrap_or_else(|e| e.into_inner());
