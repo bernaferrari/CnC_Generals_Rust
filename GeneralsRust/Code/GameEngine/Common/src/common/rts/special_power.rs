@@ -501,12 +501,12 @@ impl SpecialPowerStore {
 
         // { "PublicTimer",             INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_publicTimer) },
         if let Some(value) = properties.get("PublicTimer") {
-            template.public_timer = Self::parse_bool(value);
+            template.public_timer = Self::parse_bool(value)?;
         }
 
         // { "Enum",                    INI::parseIndexList,            SpecialPowerMaskType::getBitNames(), offsetof(SpecialPowerTemplate, m_type) },
         if let Some(value) = properties.get("Enum") {
-            template.power_type = Self::parse_special_power_enum(value);
+            template.power_type = Self::parse_special_power_enum(value)?;
         }
 
         // { "DetectionTime",           INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_detectionTime) },
@@ -516,7 +516,7 @@ impl SpecialPowerStore {
 
         // { "SharedSyncedTimer",       INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_sharedNSync) },
         if let Some(value) = properties.get("SharedSyncedTimer") {
-            template.shared_n_sync = Self::parse_bool(value);
+            template.shared_n_sync = Self::parse_bool(value)?;
         }
 
         // { "ViewObjectDuration",      INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_viewObjectDuration) },
@@ -540,13 +540,13 @@ impl SpecialPowerStore {
 
         // { "ShortcutPower",           INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_shortcutPower) },
         if let Some(value) = properties.get("ShortcutPower") {
-            template.shortcut_power = Self::parse_bool(value);
+            template.shortcut_power = Self::parse_bool(value)?;
         }
 
         // { "AcademyClassify",         INI::parseIndexList,            TheAcademyClassificationTypeNames, offsetof(SpecialPowerTemplate, m_academyClassificationType) },
         // Reference: C++ line 100
         if let Some(value) = properties.get("AcademyClassify") {
-            template.academy_classification_type = AcademyClassificationType::from_str(value);
+            template.academy_classification_type = Self::parse_academy_classification(value)?;
         }
 
         Ok(())
@@ -566,8 +566,15 @@ impl SpecialPowerStore {
     }
 
     /// Parse boolean (matches C++ INI::parseBool)
-    fn parse_bool(value: &str) -> bool {
-        matches!(value.trim().to_lowercase().as_str(), "yes" | "1" | "true")
+    fn parse_bool(value: &str) -> Result<bool, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "yes" => Ok(true),
+            "no" => Ok(false),
+            _ => Err(format!(
+                "invalid boolean token {} -- expected Yes or No",
+                value
+            )),
+        }
     }
 
     /// Parse science type (matches C++ INI::parseScience)
@@ -584,9 +591,21 @@ impl SpecialPowerStore {
     }
 
     /// Parse special power enum (matches C++ INI::parseIndexList with SpecialPowerMaskType::getBitNames())
-    fn parse_special_power_enum(value: &str) -> SpecialPowerType {
+    fn parse_special_power_enum(value: &str) -> Result<SpecialPowerType, String> {
         let value = value.trim();
-        SpecialPowerType::from_str(value).unwrap_or_else(|_| SpecialPowerType::Invalid)
+        SpecialPowerType::from_str(value)
+    }
+
+    fn parse_academy_classification(value: &str) -> Result<AcademyClassificationType, String> {
+        match value.trim().to_ascii_uppercase().as_str() {
+            "ACT_NONE" => Ok(AcademyClassificationType::None),
+            "ACT_UPGRADE_RADAR" => Ok(AcademyClassificationType::UpgradeRadar),
+            "ACT_SUPERPOWER" => Ok(AcademyClassificationType::Superpower),
+            _ => Err(format!(
+                "token {} is not a valid member of the academy classification list",
+                value
+            )),
+        }
     }
 }
 
@@ -976,7 +995,7 @@ mod tests {
         props.insert("ReloadTime".to_string(), "5000".to_string());
         props.insert("PublicTimer".to_string(), "Yes".to_string());
         props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
-        props.insert("AcademyClassify".to_string(), "SUPERWEAPON".to_string());
+        props.insert("AcademyClassify".to_string(), "ACT_SUPERPOWER".to_string());
 
         let result = store.parse_special_power_definition("TestPower", &props);
         assert!(result.is_ok());
@@ -1032,6 +1051,57 @@ mod tests {
 
         assert!(result.is_err());
         assert!(store.find_template("BadSciencePower").is_none());
+    }
+
+    #[test]
+    fn special_power_bool_fields_reject_non_cpp_tokens() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("PublicTimer".to_string(), "true".to_string());
+
+        let result = store.parse_special_power_definition("BadBoolPower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadBoolPower").is_none());
+    }
+
+    #[test]
+    fn special_power_enum_field_rejects_unknown_tokens() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("Enum".to_string(), "SPECIAL_NOT_A_POWER".to_string());
+
+        let result = store.parse_special_power_definition("BadEnumPower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadEnumPower").is_none());
+    }
+
+    #[test]
+    fn special_power_academy_field_uses_cpp_index_list_tokens() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("AcademyClassify".to_string(), "ACT_SUPERPOWER".to_string());
+
+        store
+            .parse_special_power_definition("AcademyPower", &props)
+            .unwrap();
+
+        assert_eq!(
+            store
+                .find_template("AcademyPower")
+                .unwrap()
+                .academy_classification_type,
+            AcademyClassificationType::Superpower
+        );
+
+        let mut bad_props = HashMap::new();
+        bad_props.insert("AcademyClassify".to_string(), "SUPERWEAPON".to_string());
+
+        let result = store.parse_special_power_definition("BadAcademyPower", &bad_props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadAcademyPower").is_none());
     }
 
     #[test]
@@ -1221,13 +1291,14 @@ mod tests {
 
     #[test]
     fn test_parse_bool() {
-        assert!(SpecialPowerStore::parse_bool("Yes"));
-        assert!(SpecialPowerStore::parse_bool("yes"));
-        assert!(SpecialPowerStore::parse_bool("TRUE"));
-        assert!(SpecialPowerStore::parse_bool("true"));
-        assert!(SpecialPowerStore::parse_bool("1"));
-        assert!(!SpecialPowerStore::parse_bool("No"));
-        assert!(!SpecialPowerStore::parse_bool("0"));
-        assert!(!SpecialPowerStore::parse_bool("false"));
+        assert!(SpecialPowerStore::parse_bool("Yes").unwrap());
+        assert!(SpecialPowerStore::parse_bool("yes").unwrap());
+        assert!(!SpecialPowerStore::parse_bool("No").unwrap());
+        assert!(!SpecialPowerStore::parse_bool("no").unwrap());
+        assert!(SpecialPowerStore::parse_bool("TRUE").is_err());
+        assert!(SpecialPowerStore::parse_bool("true").is_err());
+        assert!(SpecialPowerStore::parse_bool("1").is_err());
+        assert!(SpecialPowerStore::parse_bool("0").is_err());
+        assert!(SpecialPowerStore::parse_bool("false").is_err());
     }
 }
