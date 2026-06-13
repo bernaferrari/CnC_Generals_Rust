@@ -569,9 +569,7 @@ impl ScriptCallbackRegistry {
         self.register_win_system("QuitMessageBoxSystem", quit_message_box_system);
         self.register_win_system("ExtendedMessageBoxSystem", extended_message_box_system);
 
-        self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
+        self.register_win_system("MOTDSystem", cb::motd_system);
 
         self.register_win_system("MainMenuSystem", main_menu_system);
         self.register_win_system("OptionsMenuSystem", options_menu_system);

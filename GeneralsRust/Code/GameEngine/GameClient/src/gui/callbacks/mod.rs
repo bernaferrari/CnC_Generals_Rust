@@ -26,6 +26,7 @@ pub mod lan_game_options_menu;
 pub mod lan_map_select_menu;
 pub mod menu_callbacks;
 pub mod message_box;
+pub mod motd;
 #[cfg(feature = "online_ui")]
 pub mod network_direct_connect;
 mod network_stubs;
@@ -89,6 +90,7 @@ pub use lan_game_options_menu::*;
 pub use lan_map_select_menu::*;
 pub use menu_callbacks::*;
 pub use message_box::*;
+pub use motd::*;
 #[cfg(feature = "online_ui")]
 pub use network_direct_connect::*;
 pub use network_stubs::*;
