@@ -1078,9 +1078,7 @@ pub fn rc_game_details_menu_system(
             let first_window = layout.borrow().get_first_window();
             if let Some(first) = first_window {
                 first.borrow_mut().set_user_data(selected_id);
-                // TODO: C++ calls TheWindowManager->setLoneWindow(first) here to make
-                // this the exclusive lone window. Add call when set_lone_window is available
-                // in the window manager API.
+                with_window_manager(|manager| manager.set_lone_window(Some(&first)));
                 let _ = first.borrow_mut().hide(false);
                 first.borrow_mut().bring_to_top();
             }
