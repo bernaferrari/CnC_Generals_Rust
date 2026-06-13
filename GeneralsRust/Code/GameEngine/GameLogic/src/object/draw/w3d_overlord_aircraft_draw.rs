@@ -74,6 +74,10 @@ impl W3DOverlordAircraftDraw {
         self.owner_id = Some(owner_id);
         self.base.bind_owner_id(owner_id);
     }
+
+    pub fn owner_id(&self) -> Option<ObjectID> {
+        self.owner_id
+    }
 }
 impl Module for W3DOverlordAircraftDraw {
     fn on_object_created(&mut self) {
@@ -89,7 +93,9 @@ impl Module for W3DOverlordAircraftDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "W3DOverlordAircraftDraw",
+        )
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -225,5 +231,27 @@ impl Snapshotable for W3DOverlordAircraftDraw {
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn bind_owner_id_sets_wrapper_owner() {
+        let mut draw = W3DOverlordAircraftDraw::new(W3DOverlordAircraftDrawModuleData::new());
+        draw.bind_owner_id(77);
+        assert_eq!(draw.owner_id(), Some(77));
+    }
+
+    #[test]
+    fn module_name_key_is_overlord_aircraft_draw() {
+        let draw = W3DOverlordAircraftDraw::new(W3DOverlordAircraftDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DOverlordAircraftDraw")
+        );
     }
 }
