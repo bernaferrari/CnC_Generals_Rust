@@ -864,7 +864,7 @@ impl GlobalData {
             display_debug: false,
             win_cursors: false,
             constant_debug_update: false,
-            show_team_dot: true,
+            show_team_dot: false,
 
             dump_performance_statistics: false,
             dump_stats_at_interval: false,
@@ -2265,6 +2265,7 @@ mod tests {
         assert_eq!(data.network_disconnect_time, 5000);
         assert_eq!(data.network_player_timeout_time, 60000);
         assert_eq!(data.network_disconnect_screen_notify_time, 15000);
+        assert!(!data.show_team_dot);
     }
 
     #[test]
