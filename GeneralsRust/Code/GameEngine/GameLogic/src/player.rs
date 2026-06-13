@@ -660,6 +660,12 @@ pub struct ScoreKeeper {
     buildings_built: Int,
     buildings_destroyed: Int,
     buildings_lost: Int,
+    units_destroyed_by_player: [Int; MAX_PLAYER_COUNT],
+    buildings_destroyed_by_player: [Int; MAX_PLAYER_COUNT],
+    tech_buildings_captured: Int,
+    faction_buildings_captured: Int,
+    current_score: Int,
+    my_player_idx: PlayerIndex,
     supplies_collected: Int,
     supplies_spent: Int,
     experience_points: Int,
@@ -667,6 +673,10 @@ pub struct ScoreKeeper {
 
 impl ScoreKeeper {
     pub fn new() -> Self {
+        Self::new_for_player(0)
+    }
+
+    pub fn new_for_player(player_index: PlayerIndex) -> Self {
         Self {
             units_built: 0,
             units_killed: 0,
@@ -674,10 +684,48 @@ impl ScoreKeeper {
             buildings_built: 0,
             buildings_destroyed: 0,
             buildings_lost: 0,
+            units_destroyed_by_player: [0; MAX_PLAYER_COUNT],
+            buildings_destroyed_by_player: [0; MAX_PLAYER_COUNT],
+            tech_buildings_captured: 0,
+            faction_buildings_captured: 0,
+            current_score: 0,
+            my_player_idx: player_index,
             supplies_collected: 0,
             supplies_spent: 0,
             experience_points: 0,
         }
+    }
+
+    fn player_slot(player_index: Option<Int>) -> usize {
+        match player_index {
+            Some(index) if index >= 0 && (index as usize) < MAX_PLAYER_COUNT => index as usize,
+            _ => 0,
+        }
+    }
+
+    fn total_units_destroyed_by_array(&self) -> Int {
+        self.units_destroyed_by_player.iter().sum()
+    }
+
+    fn total_buildings_destroyed_by_array(&self) -> Int {
+        self.buildings_destroyed_by_player.iter().sum()
+    }
+
+    fn add_unit_destroyed_for_player(&mut self, player_index: Option<Int>) {
+        let slot = Self::player_slot(player_index);
+        self.units_destroyed_by_player[slot] += 1;
+        self.units_killed = self.total_units_destroyed_by_array();
+    }
+
+    fn add_building_destroyed_for_player(&mut self, player_index: Option<Int>) {
+        let slot = Self::player_slot(player_index);
+        self.buildings_destroyed_by_player[slot] += 1;
+        self.buildings_destroyed = self.total_buildings_destroyed_by_array();
+    }
+
+    fn recompute_destroyed_aggregates(&mut self) {
+        self.units_killed = self.total_units_destroyed_by_array();
+        self.buildings_destroyed = self.total_buildings_destroyed_by_array();
     }
 
     pub fn add_unit_built(&mut self) {
@@ -685,7 +733,7 @@ impl ScoreKeeper {
     }
 
     pub fn add_unit_killed(&mut self) {
-        self.units_killed += 1;
+        self.add_unit_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_unit_lost(&mut self) {
@@ -693,7 +741,20 @@ impl ScoreKeeper {
     }
 
     pub fn get_total_score(&self) -> Int {
-        self.units_built * 10 + self.units_killed * 20 + self.buildings_built * 50
+        let mut score =
+            self.units_built * 100 + self.supplies_collected + self.buildings_built * 100;
+        for (index, units_destroyed) in self.units_destroyed_by_player.iter().enumerate() {
+            if index as PlayerIndex == self.my_player_idx {
+                continue;
+            }
+            score += *units_destroyed * 100;
+            score += self.buildings_destroyed_by_player[index] * 100;
+        }
+        score
+    }
+
+    pub fn get_current_score(&self) -> Int {
+        self.current_score
     }
 
     pub fn add_money_earned(&mut self, amount: u32) {
@@ -709,7 +770,7 @@ impl ScoreKeeper {
     }
 
     pub fn get_total_units_destroyed(&self) -> Int {
-        self.units_killed
+        self.total_units_destroyed_by_array()
     }
 
     pub fn get_total_units_lost(&self) -> Int {
@@ -721,7 +782,7 @@ impl ScoreKeeper {
     }
 
     pub fn get_total_buildings_destroyed(&self) -> Int {
-        self.buildings_destroyed
+        self.total_buildings_destroyed_by_array()
     }
 
     pub fn get_total_buildings_lost(&self) -> Int {
@@ -741,7 +802,7 @@ impl ScoreKeeper {
     }
 
     pub fn get_buildings_destroyed(&self) -> Int {
-        self.buildings_destroyed
+        self.get_total_buildings_destroyed()
     }
 
     pub fn get_buildings_lost(&self) -> Int {
@@ -749,7 +810,7 @@ impl ScoreKeeper {
     }
 
     pub fn add_building_destroyed(&mut self) {
-        self.buildings_destroyed += 1;
+        self.add_building_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_building_built(&mut self) {
@@ -799,9 +860,9 @@ impl ScoreKeeper {
         use game_engine::common::rts::score_keeper::KindOf;
 
         if mask.is_set(KindOf::Structure) {
-            self.buildings_destroyed += 1;
+            self.add_building_destroyed_for_player(object.get_score_controlling_player_index());
         } else if mask.is_set(KindOf::Infantry) || mask.is_set(KindOf::Vehicle) {
-            self.units_killed += 1;
+            self.add_unit_destroyed_for_player(object.get_score_controlling_player_index());
         }
     }
 }
@@ -1243,7 +1304,7 @@ impl Player {
             special_power_ready_timers: RwLock::new(Vec::new()),
 
             academy_stats: AcademyStats::new(),
-            score_keeper: ScoreKeeper::new(),
+            score_keeper: ScoreKeeper::new_for_player(player_index),
 
             can_build_units: true,
             can_build_base: true,
@@ -4044,31 +4105,33 @@ impl Snapshotable for Player {
                 .map_err(|e| e.to_string())?;
             xfer.xfer_int(&mut self.score_keeper.supplies_spent)
                 .map_err(|e| e.to_string())?;
-            // units destroyed per player (C++ has array, we skip)
-            let mut _dummy: Int;
-            for _ in 0..MAX_PLAYER_COUNT {
-                _dummy = 0;
-                xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            for i in 0..MAX_PLAYER_COUNT {
+                xfer.xfer_int(&mut self.score_keeper.units_destroyed_by_player[i])
+                    .map_err(|e| e.to_string())?;
             }
             xfer.xfer_int(&mut self.score_keeper.units_built)
                 .map_err(|e| e.to_string())?;
             xfer.xfer_int(&mut self.score_keeper.units_lost)
                 .map_err(|e| e.to_string())?;
-            // buildings destroyed per player
-            for _ in 0..MAX_PLAYER_COUNT {
-                _dummy = 0;
-                xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            for i in 0..MAX_PLAYER_COUNT {
+                xfer.xfer_int(&mut self.score_keeper.buildings_destroyed_by_player[i])
+                    .map_err(|e| e.to_string())?;
             }
             xfer.xfer_int(&mut self.score_keeper.buildings_built)
                 .map_err(|e| e.to_string())?;
             xfer.xfer_int(&mut self.score_keeper.buildings_lost)
                 .map_err(|e| e.to_string())?;
-            // tech buildings captured, faction buildings captured, current score, player index
-            _dummy = 0;
-            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
-            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
-            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
-            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.tech_buildings_captured)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.faction_buildings_captured)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.current_score)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.my_player_idx)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.score_keeper.recompute_destroyed_aggregates();
+            }
             // objects built map (count + entries)
             {
                 let mut obj_map_count: u16 = 0;
@@ -4429,9 +4492,60 @@ impl ScienceAccess for Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::rts::score_keeper::{KindOf, KindOfMaskType, ScoreableObject};
     use game_engine::common::system::xfer_crc::XferCRC;
+    use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
+
+    struct TestScoreObject {
+        name: String,
+        mask: KindOfMaskType,
+        player_index: Option<Int>,
+        under_construction: Bool,
+    }
+
+    impl TestScoreObject {
+        fn unit(name: &str, player_index: Int) -> Self {
+            let mut mask = KindOfMaskType::new();
+            mask.set(KindOf::Vehicle);
+            Self {
+                name: name.to_string(),
+                mask,
+                player_index: Some(player_index),
+                under_construction: false,
+            }
+        }
+
+        fn structure(name: &str, player_index: Int) -> Self {
+            let mut mask = KindOfMaskType::new();
+            mask.set(KindOf::Structure);
+            Self {
+                name: name.to_string(),
+                mask,
+                player_index: Some(player_index),
+                under_construction: false,
+            }
+        }
+    }
+
+    impl ScoreableObject for TestScoreObject {
+        fn get_score_template_name(&self) -> &str {
+            &self.name
+        }
+
+        fn get_score_kindof_mask(&self) -> KindOfMaskType {
+            self.mask
+        }
+
+        fn get_score_controlling_player_index(&self) -> Option<i32> {
+            self.player_index
+        }
+
+        fn is_score_under_construction(&self) -> bool {
+            self.under_construction
+        }
+    }
 
     fn player_crc(player: &Player) -> u32 {
         let sink = Cursor::new(Vec::<u8>::new());
@@ -4439,6 +4553,71 @@ mod tests {
         let mut xfer = XferCRC::new(inner);
         Snapshotable::crc(player, &mut xfer).unwrap();
         xfer.get_crc()
+    }
+
+    fn player_xfer_round_trip(mut source: Player, loaded_player_index: PlayerIndex) -> Player {
+        let mut saved = Vec::new();
+        {
+            let cursor = Cursor::new(&mut saved);
+            let mut xfer = XferSave::new(cursor, 1);
+            Snapshotable::xfer(&mut source, &mut xfer).unwrap();
+        }
+
+        let mut loaded = Player::new(loaded_player_index);
+        {
+            let cursor = Cursor::new(saved);
+            let mut xfer = XferLoad::new(cursor, 1);
+            Snapshotable::xfer(&mut loaded, &mut xfer).unwrap();
+        }
+        loaded
+    }
+
+    #[test]
+    fn score_keeper_tracks_destroyed_objects_by_victim_player() {
+        let mut keeper = ScoreKeeper::new_for_player(2);
+        keeper.add_unit_built();
+        keeper.add_building_built();
+        keeper.add_money_earned(75);
+
+        keeper.add_object_destroyed_obj(&TestScoreObject::unit("EnemyTank", 1));
+        keeper.add_object_destroyed_obj(&TestScoreObject::unit("OwnTruck", 2));
+        keeper.add_object_destroyed_obj(&TestScoreObject::structure("EnemyBarracks", 3));
+
+        assert_eq!(keeper.units_destroyed_by_player[1], 1);
+        assert_eq!(keeper.units_destroyed_by_player[2], 1);
+        assert_eq!(keeper.buildings_destroyed_by_player[3], 1);
+        assert_eq!(keeper.get_total_units_destroyed(), 2);
+        assert_eq!(keeper.get_total_buildings_destroyed(), 1);
+        assert_eq!(
+            keeper.get_total_score(),
+            100 + 100 + 75 + 100 + 100,
+            "C++ score excludes destroyed objects owned by m_myPlayerIdx"
+        );
+    }
+
+    #[test]
+    fn player_xfer_preserves_score_keeper_destroyed_arrays_and_score_fields() {
+        let mut player = Player::new(4);
+        player
+            .score_keeper
+            .add_object_destroyed_obj(&TestScoreObject::unit("EnemyTank", 1));
+        player
+            .score_keeper
+            .add_object_destroyed_obj(&TestScoreObject::structure("EnemyBarracks", 3));
+        player.score_keeper.current_score = 1234;
+        player.score_keeper.tech_buildings_captured = 2;
+        player.score_keeper.faction_buildings_captured = 1;
+
+        let loaded = player_xfer_round_trip(player, 0);
+
+        assert_eq!(loaded.score_keeper.my_player_idx, 4);
+        assert_eq!(loaded.score_keeper.units_destroyed_by_player[1], 1);
+        assert_eq!(loaded.score_keeper.buildings_destroyed_by_player[3], 1);
+        assert_eq!(loaded.score_keeper.get_total_units_destroyed(), 1);
+        assert_eq!(loaded.score_keeper.get_total_buildings_destroyed(), 1);
+        assert_eq!(loaded.score_keeper.get_current_score(), 1234);
+        assert_eq!(loaded.score_keeper.tech_buildings_captured, 2);
+        assert_eq!(loaded.score_keeper.faction_buildings_captured, 1);
     }
 
     #[test]
