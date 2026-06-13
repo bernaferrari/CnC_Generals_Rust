@@ -6,9 +6,11 @@ use std::fmt;
 use std::sync::Arc;
 
 const WHITE: Color = 0xFFFFFFFF;
+const BLACK: Color = 0x000000FF;
+const W3D_DEBUG_TEXT_Y_OFFSET: i32 = 13;
 
 pub trait DebugTextSink: Send + Sync {
-    fn draw_text(&self, x: i32, y: i32, text: &str, color: Color);
+    fn draw_text(&self, x: i32, y: i32, text: &str, color: Color, drop_color: Color);
 }
 
 /// DebugDisplay mirrors the C++ DebugDisplay utility used by debug HUDs.
@@ -20,6 +22,10 @@ pub struct DebugDisplay {
     right_margin: i32,
     left_margin: i32,
     text_color: Color,
+    font_width: i32,
+    font_height: i32,
+    has_font: bool,
+    display_string_ready: bool,
     sink: Option<Arc<dyn DebugTextSink>>,
 }
 
@@ -33,6 +39,10 @@ impl DebugDisplay {
             right_margin: 0,
             left_margin: 0,
             text_color: WHITE,
+            font_width: 0,
+            font_height: 0,
+            has_font: false,
+            display_string_ready: false,
             sink: None,
         };
         display.reset();
@@ -47,6 +57,22 @@ impl DebugDisplay {
 
     pub fn set_sink(&mut self, sink: Option<Arc<dyn DebugTextSink>>) {
         self.sink = sink;
+    }
+
+    pub fn init(&mut self) {
+        self.display_string_ready = true;
+    }
+
+    pub fn set_font_available(&mut self, has_font: bool) {
+        self.has_font = has_font;
+    }
+
+    pub fn set_font_width(&mut self, width: i32) {
+        self.font_width = width;
+    }
+
+    pub fn set_font_height(&mut self, height: i32) {
+        self.font_height = height;
     }
 
     pub fn reset(&mut self) {
@@ -129,11 +155,17 @@ impl DebugDisplay {
     }
 
     fn draw_line(&self, text: &str) {
+        if !self.has_font || !self.display_string_ready {
+            return;
+        }
+
         let x = self.right_margin + self.x_pos;
+        let screen_x = x * self.font_width;
+        let screen_y = W3D_DEBUG_TEXT_Y_OFFSET + self.y_pos * self.font_height;
         if let Some(sink) = &self.sink {
-            sink.draw_text(x, self.y_pos, text, self.text_color);
+            sink.draw_text(screen_x, screen_y, text, WHITE, BLACK);
         } else {
-            debug!("DebugDisplay [{}:{}] {}", x, self.y_pos, text);
+            debug!("DebugDisplay [{}:{}] {}", screen_x, screen_y, text);
         }
     }
 }
@@ -149,4 +181,68 @@ macro_rules! debug_display_printf {
     ($display:expr, $($arg:tt)*) => {{
         $display.printf(format_args!($($arg)*));
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct CaptureSink {
+        draws: Mutex<Vec<(i32, i32, String, Color, Color)>>,
+    }
+
+    impl DebugTextSink for CaptureSink {
+        fn draw_text(&self, x: i32, y: i32, text: &str, color: Color, drop_color: Color) {
+            self.draws
+                .lock()
+                .unwrap()
+                .push((x, y, text.to_string(), color, drop_color));
+        }
+    }
+
+    #[test]
+    fn w3d_debug_display_requires_font_and_display_string_like_cpp() {
+        let sink = Arc::new(CaptureSink::default());
+        let mut display = DebugDisplay::with_sink(sink.clone());
+        display.set_font_width(8);
+        display.set_font_height(12);
+
+        display.write_text("hidden");
+        assert!(sink.draws.lock().unwrap().is_empty());
+
+        display.init();
+        display.write_text("still hidden");
+        assert!(sink.draws.lock().unwrap().is_empty());
+
+        display.set_font_available(true);
+        display.write_text("shown");
+        assert_eq!(sink.draws.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn w3d_debug_display_scales_character_coords_and_uses_cpp_colors() {
+        let sink = Arc::new(CaptureSink::default());
+        let mut display = DebugDisplay::with_sink(sink.clone());
+        display.init();
+        display.set_font_available(true);
+        display.set_font_width(9);
+        display.set_font_height(14);
+        display.set_text_color(0xAA00AAFF);
+        display.set_right_margin(2);
+        display.set_cursor_pos(3, 4);
+
+        display.write_text("alpha\nbeta");
+
+        assert_eq!(
+            sink.draws.lock().unwrap().as_slice(),
+            &[
+                (45, 69, "alpha".to_string(), WHITE, BLACK),
+                (18, 83, "beta".to_string(), WHITE, BLACK),
+            ]
+        );
+        assert_eq!(display.get_cursor_x(), 4);
+        assert_eq!(display.get_cursor_y(), 5);
+    }
 }
