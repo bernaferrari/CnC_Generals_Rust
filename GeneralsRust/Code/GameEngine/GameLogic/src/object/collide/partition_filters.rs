@@ -13,6 +13,8 @@ use crate::common::{
     ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID, KIND_OF_MASK_NONE,
 };
 use crate::player::ThePlayerList;
+use crate::squad::Squad;
+use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
 // PartitionFilterIsFlying
@@ -246,12 +248,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnTeam {
 /// Reject objects that are not on the specified squad (or are dead).
 /// Matches C++ PartitionFilterAcceptOnSquad.
 pub struct PartitionFilterAcceptOnSquad {
-    squad_id: ObjectId, // Using ObjectId as proxy for squad identifier
+    squad: Option<Arc<Mutex<Squad>>>,
 }
 
 impl PartitionFilterAcceptOnSquad {
-    pub fn new(squad_id: ObjectId) -> Self {
-        Self { squad_id }
+    pub fn new(squad: Option<Arc<Mutex<Squad>>>) -> Self {
+        Self { squad }
     }
 }
 
@@ -261,22 +263,14 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnSquad 
             return false;
         }
 
-        if self.squad_id == INVALID_ID {
-            return true;
-        }
+        let Some(squad) = &self.squad else {
+            return false;
+        };
+        let Ok(squad_guard) = squad.lock() else {
+            return false;
+        };
 
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                if let Some(team_id) = guard.get_team_id() {
-                    // PARITY_NOTE: Squad identity is not yet ported separately from Team.
-                    // Until Squad APIs exist on Object/GameObject, use team id as best available
-                    // membership discriminator while still honoring this filter's squad_id.
-                    return team_id == self.squad_id;
-                }
-            }
-        }
-
-        true
+        squad_guard.is_on_squad_by_id(obj.get_id())
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1786,6 +1780,53 @@ mod tests {
         let mut team = Team::new(AsciiString::from(name), id);
         team.set_controlling_player_id(Some(player_id));
         Arc::new(RwLock::new(team))
+    }
+
+    #[test]
+    fn squad_filter_rejects_without_squad_like_cpp_null_pointer() {
+        let object =
+            registered_object_with_kind_of(94_001, "INFANTRY", team_for_player("T", 94, 0));
+        let filter = PartitionFilterAcceptOnSquad::new(None);
+
+        assert!(!filter.allow(&object));
+
+        OBJECT_REGISTRY.unregister_object(94_001);
+    }
+
+    #[test]
+    fn squad_filter_uses_squad_membership_not_team_id() {
+        let team = team_for_player("SquadTeam", 95, 0);
+        let member = registered_object_with_kind_of(95_001, "INFANTRY", Arc::clone(&team));
+        let non_member_same_team =
+            registered_object_with_kind_of(95_002, "INFANTRY", Arc::clone(&team));
+
+        let mut squad = Squad::new();
+        squad.add_object_id(95_001);
+        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(Mutex::new(squad))));
+
+        assert!(filter.allow(&member));
+        assert!(!filter.allow(&non_member_same_team));
+
+        OBJECT_REGISTRY.unregister_object(95_001);
+        OBJECT_REGISTRY.unregister_object(95_002);
+    }
+
+    #[test]
+    fn squad_filter_rejects_dead_squad_member() {
+        let object =
+            registered_object_with_kind_of(96_001, "INFANTRY", team_for_player("T", 96, 0));
+        let mut squad = Squad::new();
+        squad.add_object_id(96_001);
+        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(Mutex::new(squad))));
+
+        object
+            .write()
+            .expect("object write lock")
+            .set_effectively_dead(true);
+
+        assert!(!filter.allow(&object));
+
+        OBJECT_REGISTRY.unregister_object(96_001);
     }
 
     #[test]
