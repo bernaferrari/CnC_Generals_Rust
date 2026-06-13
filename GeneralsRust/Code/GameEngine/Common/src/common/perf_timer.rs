@@ -15,10 +15,10 @@ use std::collections::HashMap;
 use std::fs::File;
 #[cfg(feature = "perf_timers")]
 use std::io::Write;
-use std::sync::Mutex;
 #[cfg(feature = "perf_timers")]
-use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 #[cfg(feature = "perf_timers")]
 use tracing::span::EnteredSpan;
 
@@ -32,26 +32,27 @@ pub const PERF_TIMERS_ENABLED: bool = !cfg!(feature = "no_perf_timers");
 #[cfg(not(any(feature = "debug", feature = "internal")))]
 pub const PERF_TIMERS_ENABLED: bool = false;
 
-pub const PERFMETRICS_BETWEEN_METRICS: u32 = 30; // Frames between metrics updates
+pub const PERFMETRICS_BETWEEN_METRICS: u32 = 150; // C++ PerfMetrics.h
 
 /// High precision timer type
 pub type PrecisionTime = u64;
+
+static PRECISION_TIMER_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Precision timer utilities
 pub struct PrecisionTimer;
 
 impl PrecisionTimer {
-    /// Initialize precision timer (placeholder)
+    /// Initialize precision timer
     pub fn init() {
-        // In real implementation, would calibrate timer frequency
+        let _ = PRECISION_TIMER_ORIGIN.get_or_init(Instant::now);
     }
 
     /// Get high precision time
     pub fn get_time() -> PrecisionTime {
-        // Use system time in nanoseconds as high precision timer
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
+        PRECISION_TIMER_ORIGIN
+            .get_or_init(Instant::now)
+            .elapsed()
             .as_nanos() as PrecisionTime
     }
 
@@ -623,6 +624,7 @@ mod tests {
 
     #[test]
     fn test_precision_timer() {
+        PrecisionTimer::init();
         let time1 = PrecisionTimer::get_time();
         sleep(Duration::from_millis(1));
         let time2 = PrecisionTimer::get_time();
@@ -685,5 +687,30 @@ mod tests {
 
         assert!(metrics.get_all_stats().contains_key("test"));
         assert_eq!(metrics.get_all_stats()["test"], "test data");
+    }
+
+    #[test]
+    fn perf_metrics_interval_matches_cpp() {
+        assert_eq!(PERFMETRICS_BETWEEN_METRICS, 150);
+    }
+
+    #[test]
+    fn show_metrics_resets_to_cpp_interval() {
+        time::initialize(30);
+        let mut timer = PerfTimer::new("metrics", false, 0, Some(1_000));
+
+        timer.start_timer();
+        sleep(Duration::from_millis(1));
+        timer.stop_timer();
+
+        let stats = timer.show_metrics().expect("metrics string");
+        assert!(stats.contains("metrics:"));
+        assert_eq!(timer.start_frame, time::frame() + 1);
+        assert_eq!(
+            timer.end_frame,
+            Some(timer.start_frame + PERFMETRICS_BETWEEN_METRICS)
+        );
+        assert_eq!(timer.call_count, 0);
+        assert_eq!(timer.running_time, Duration::default());
     }
 }
