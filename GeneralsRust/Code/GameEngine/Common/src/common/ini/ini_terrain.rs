@@ -101,13 +101,13 @@ impl TerrainSurface {
 
         match normalized {
             "ASPHALT" | "CONCRETE" | "RESIDENTIAL" => Some(Self::Pavement),
-            "BEACH_PARK" | "BEACH_TROPICAL" | "SAND" | "SAND_ACCENT" | "DESERT" | "DESERT_DRY" => {
-                Some(Self::Sand)
-            }
-            "FIELD" | "GRASS_ACCENT" | "GRASS_COBBLESTONE" => Some(Self::Grass),
-            "MOUNTAIN_RUGGED" | "ROCK_ACCENT" => Some(Self::Rock),
-            "SNOW_FLAT" | "SNOW_RUGGED" => Some(Self::Snow),
+            "BEACH_PARK" | "BEACH_TROPICAL" | "SAND" | "SAND_ACCENT" | "DESERT_1" | "DESERT_2"
+            | "DESERT_3" | "DESERT_DRY" | "DESERT_LIVE" => Some(Self::Sand),
+            "DIRT" | "FIELD" | "GRASS" | "GRASS_ACCENT" | "GRASS_COBBLESTONE" => Some(Self::Grass),
+            "CLIFF" | "MOUNTAIN_RUGGED" | "ROCK" | "ROCK_ACCENT" => Some(Self::Rock),
+            "SNOW_1" | "SNOW_2" | "SNOW_3" | "SNOW_FLAT" | "SNOW_RUGGED" => Some(Self::Snow),
             "WATER" => Some(Self::Water),
+            "WOOD" => Some(Self::Wood),
             _ => None,
         }
     }
@@ -150,8 +150,11 @@ impl Default for MovementModifiers {
 pub struct TerrainType {
     pub name: AsciiString,
     pub surface_type: TerrainSurface,
+    pub terrain_class: AsciiString,
     pub movement_modifiers: MovementModifiers,
     pub texture_name: AsciiString,
+    pub blend_edge_texture: bool,
+    pub restrict_construction: bool,
     pub normal_map: AsciiString,
     pub detail_texture: AsciiString,
     pub sound_effect: AsciiString,
@@ -173,8 +176,11 @@ impl TerrainType {
         Self {
             name,
             surface_type: TerrainSurface::Grass,
+            terrain_class: AsciiString::from("NONE"),
             movement_modifiers: MovementModifiers::default(),
             texture_name: AsciiString::from(""),
+            blend_edge_texture: false,
+            restrict_construction: false,
             normal_map: AsciiString::from(""),
             detail_texture: AsciiString::from(""),
             sound_effect: AsciiString::from(""),
@@ -200,103 +206,38 @@ impl TerrainType {
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
         vec![
-            ("Surface", |value| {
-                Ok(Box::new(TerrainSurface::from_string(value)) as Box<dyn std::any::Any>)
-            }),
             ("Texture", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
             }),
-            ("NormalMap", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("DetailTexture", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SoundEffect", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ParticleEffect", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("InfantrySpeedModifier", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse infantry speed: {}", e))
-            }),
-            ("VehicleSpeedModifier", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse vehicle speed: {}", e))
-            }),
-            ("TankSpeedModifier", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse tank speed: {}", e))
-            }),
-            ("Traction", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse traction: {}", e))
-            }),
-            ("Friction", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse friction: {}", e))
-            }),
-            ("Bounce", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse bounce: {}", e))
-            }),
-            ("Hardness", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse hardness: {}", e))
-            }),
-            ("IsBuildable", |value| {
+            ("BlendEdges", |value| {
                 parse_bool(value)
                     .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse buildable: {}", e))
+                    .map_err(|e| format!("Failed to parse BlendEdges: {}", e))
             }),
-            ("IsHarvestable", |value| {
+            ("Class", |value| {
+                parse_terrain_class(value)
+                    .map(|class| Box::new(class) as Box<dyn std::any::Any>)
+                    .map_err(|e| e.to_string())
+            }),
+            ("RestrictConstruction", |value| {
                 parse_bool(value)
                     .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse harvestable: {}", e))
-            }),
-            ("ResourceType", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ResourceAmount", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse resource amount: {}", e))
-            }),
-            ("MinimapColor", |value| {
-                parse_color_rgb(value)
-                    .map(|c| Box::new(c) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse minimap color: {}", e))
+                    .map_err(|e| format!("Failed to parse RestrictConstruction: {}", e))
             }),
         ]
     }
 
     /// Update terrain type from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> TerrainResult<()> {
         self.properties.extend(properties.clone());
 
         for (key, value) in properties {
             match key.as_str() {
-                "Surface" => {
-                    self.surface_type = TerrainSurface::from_string(value);
-                }
                 "Class" => {
+                    self.terrain_class = parse_terrain_class(value)?;
                     if let Some(surface) = TerrainSurface::from_class_name(value) {
                         self.surface_type = surface;
                     }
@@ -304,82 +245,23 @@ impl TerrainType {
                 "Texture" => {
                     self.texture_name = AsciiString::from(value);
                 }
-                "NormalMap" => {
-                    self.normal_map = AsciiString::from(value);
+                "BlendEdges" => {
+                    self.blend_edge_texture =
+                        parse_bool(value).map_err(TerrainError::ParseError)?;
                 }
-                "DetailTexture" => {
-                    self.detail_texture = AsciiString::from(value);
-                }
-                "SoundEffect" => {
-                    self.sound_effect = AsciiString::from(value);
-                }
-                "ParticleEffect" => {
-                    self.particle_effect = AsciiString::from(value);
-                }
-                "InfantrySpeedModifier" => {
-                    if let Ok(speed) = value.parse::<f32>() {
-                        self.movement_modifiers.infantry_speed = speed;
-                    }
-                }
-                "VehicleSpeedModifier" => {
-                    if let Ok(speed) = value.parse::<f32>() {
-                        self.movement_modifiers.vehicle_speed = speed;
-                    }
-                }
-                "TankSpeedModifier" => {
-                    if let Ok(speed) = value.parse::<f32>() {
-                        self.movement_modifiers.tank_speed = speed;
-                    }
-                }
-                "Traction" => {
-                    if let Ok(traction) = value.parse::<f32>() {
-                        self.traction = traction;
-                    }
-                }
-                "Friction" => {
-                    if let Ok(friction) = value.parse::<f32>() {
-                        self.friction = friction;
-                    }
-                }
-                "Bounce" => {
-                    if let Ok(bounce) = value.parse::<f32>() {
-                        self.bounce = bounce;
-                    }
-                }
-                "Hardness" => {
-                    if let Ok(hardness) = value.parse::<f32>() {
-                        self.hardness = hardness;
-                    }
-                }
-                "IsBuildable" => {
-                    if let Ok(buildable) = parse_bool(value) {
-                        self.is_buildable = buildable;
-                    }
-                }
-                "IsHarvestable" => {
-                    if let Ok(harvestable) = parse_bool(value) {
-                        self.is_harvestable = harvestable;
-                    }
-                }
-                "ResourceType" => {
-                    self.resource_type = AsciiString::from(value);
-                }
-                "ResourceAmount" => {
-                    if let Ok(amount) = value.parse::<u32>() {
-                        self.resource_amount = amount;
-                    }
-                }
-                "MinimapColor" => {
-                    if let Ok(color) = parse_color_rgb(value) {
-                        self.minimap_color = color;
-                    }
+                "RestrictConstruction" => {
+                    self.restrict_construction =
+                        parse_bool(value).map_err(TerrainError::ParseError)?;
                 }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    return Err(TerrainError::ParseError(format!(
+                        "Unknown terrain field: {}",
+                        key
+                    )));
                 }
             }
         }
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -484,7 +366,7 @@ impl TerrainTypes {
         }
 
         let terrain_type = self.get_or_create_terrain(&name);
-        terrain_type.update_from_properties(properties);
+        terrain_type.update_from_properties(properties)?;
         Ok(())
     }
 
@@ -548,10 +430,60 @@ pub fn get_terrain_types() -> Option<Arc<RwLock<TerrainTypes>>> {
 /// Parse a boolean value from string
 pub fn parse_bool(value: &str) -> Result<bool, String> {
     match value.trim().to_lowercase().as_str() {
-        "true" | "yes" | "1" => Ok(true),
-        "false" | "no" | "0" => Ok(false),
+        "yes" => Ok(true),
+        "no" => Ok(false),
         _ => Err(format!("Invalid boolean value: {}", value)),
     }
+}
+
+const TERRAIN_TYPE_NAMES: &[&str] = &[
+    "NONE",
+    "DESERT_1",
+    "DESERT_2",
+    "DESERT_3",
+    "EASTERN_EUROPE_1",
+    "EASTERN_EUROPE_2",
+    "EASTERN_EUROPE_3",
+    "SWISS_1",
+    "SWISS_2",
+    "SWISS_3",
+    "SNOW_1",
+    "SNOW_2",
+    "SNOW_3",
+    "DIRT",
+    "GRASS",
+    "TRANSITION",
+    "ROCK",
+    "SAND",
+    "CLIFF",
+    "WOOD",
+    "BLEND_EDGE",
+    "DESERT_LIVE",
+    "DESERT_DRY",
+    "SAND_ACCENT",
+    "BEACH_TROPICAL",
+    "BEACH_PARK",
+    "MOUNTAIN_RUGGED",
+    "GRASS_COBBLESTONE",
+    "GRASS_ACCENT",
+    "RESIDENTIAL",
+    "SNOW_RUGGED",
+    "SNOW_FLAT",
+    "FIELD",
+    "ASPHALT",
+    "CONCRETE",
+    "CHINA",
+    "ROCK_ACCENT",
+    "URBAN",
+];
+
+fn parse_terrain_class(value: &str) -> TerrainResult<AsciiString> {
+    let token = value.trim();
+    TERRAIN_TYPE_NAMES
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(token))
+        .map(|name| AsciiString::from(*name))
+        .ok_or_else(|| TerrainError::ParseError(format!("Invalid terrain class: {}", value)))
 }
 
 /// Parse RGB color from string (format: R G B or R,G,B)
@@ -634,7 +566,7 @@ impl IniTerrain {
         let mut terrain_type = TerrainType::new(name);
 
         // Update terrain type from properties
-        terrain_type.update_from_properties(&properties);
+        terrain_type.update_from_properties(&properties)?;
 
         // Validate terrain type
         if !terrain_type.is_valid() {
@@ -754,8 +686,12 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
 
         if trimmed.starts_with('[') {
             if let Some(name) = current_name.take() {
-                let props = std::mem::take(&mut properties);
-                target.register_terrain_properties(name, &props)?;
+                return Err(TerrainError::ParseError(format!(
+                    "Terrain block '{}' missing End before section '{}' (line {})",
+                    name.as_str(),
+                    trimmed,
+                    line_index + 1
+                )));
             }
             properties.clear();
             continue;
@@ -770,8 +706,12 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
                 .unwrap_or(false)
         {
             if let Some(name) = current_name.take() {
-                let props = std::mem::take(&mut properties);
-                target.register_terrain_properties(name, &props)?;
+                return Err(TerrainError::ParseError(format!(
+                    "Terrain block '{}' missing End before '{}' (line {})",
+                    name.as_str(),
+                    trimmed,
+                    line_index + 1
+                )));
             }
 
             let raw_name = trimmed[7..].trim();
@@ -808,8 +748,11 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
     }
 
     if let Some(name) = current_name.take() {
-        let props = std::mem::take(&mut properties);
-        target.register_terrain_properties(name, &props)?;
+        return Err(TerrainError::ParseError(format!(
+            "Terrain block '{}' missing End in '{}'",
+            name.as_str(),
+            path.display()
+        )));
     }
 
     let after_count = target.get_terrain_count();
@@ -897,7 +840,7 @@ mod tests {
             let default = manager.new_terrain(AsciiString::from("DefaultTerrain"));
             default.surface_type = TerrainSurface::Rock;
             default.texture_name = AsciiString::from("default_rock.tga");
-            default.is_buildable = false;
+            default.restrict_construction = true;
             default.traction = 0.75;
         }
 
@@ -905,7 +848,7 @@ mod tests {
         assert_eq!(first.name.as_str(), "FirstTerrain");
         assert!(matches!(first.surface_type, TerrainSurface::Rock));
         assert_eq!(first.texture_name.as_str(), "default_rock.tga");
-        assert!(!first.is_buildable);
+        assert!(first.restrict_construction);
         assert_eq!(first.traction, 0.75);
 
         manager.new_terrain(AsciiString::from("SecondTerrain"));
@@ -926,7 +869,7 @@ mod tests {
         {
             let default = manager.new_terrain(AsciiString::from("DefaultTerrain"));
             default.texture_name = AsciiString::from("default_texture.tga");
-            default.is_buildable = false;
+            default.restrict_construction = true;
             default.traction = 0.5;
         }
 
@@ -941,7 +884,7 @@ mod tests {
             .find_terrain(&AsciiString::from("CustomTerrain"))
             .unwrap();
         assert_eq!(terrain.texture_name.as_str(), "custom_texture.tga");
-        assert!(!terrain.is_buildable);
+        assert!(terrain.restrict_construction);
         assert_eq!(terrain.traction, 0.5);
         assert_eq!(
             terrain.properties.get("Texture").map(String::as_str),
@@ -966,32 +909,50 @@ mod tests {
     fn test_terrain_properties_update() {
         let mut terrain_type = TerrainType::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
-        properties.insert("Surface".to_string(), "Rock".to_string());
-        properties.insert("Traction".to_string(), "1.2".to_string());
-        properties.insert("IsBuildable".to_string(), "false".to_string());
-        properties.insert("ResourceAmount".to_string(), "500".to_string());
+        properties.insert("Class".to_string(), "ROCK".to_string());
+        properties.insert("Texture".to_string(), "rock.tga".to_string());
+        properties.insert("BlendEdges".to_string(), "Yes".to_string());
+        properties.insert("RestrictConstruction".to_string(), "No".to_string());
 
-        terrain_type.update_from_properties(&properties);
+        terrain_type.update_from_properties(&properties).unwrap();
 
         assert!(matches!(terrain_type.surface_type, TerrainSurface::Rock));
-        assert_eq!(terrain_type.traction, 1.2);
-        assert!(!terrain_type.is_buildable);
-        assert_eq!(terrain_type.resource_amount, 500);
+        assert_eq!(terrain_type.terrain_class.as_str(), "ROCK");
+        assert_eq!(terrain_type.texture_name.as_str(), "rock.tga");
+        assert!(terrain_type.blend_edge_texture);
+        assert!(!terrain_type.restrict_construction);
     }
 
     #[test]
     fn test_parse_bool() {
-        assert_eq!(parse_bool("true"), Ok(true));
-        assert_eq!(parse_bool("TRUE"), Ok(true));
         assert_eq!(parse_bool("yes"), Ok(true));
-        assert_eq!(parse_bool("1"), Ok(true));
+        assert_eq!(parse_bool("Yes"), Ok(true));
 
-        assert_eq!(parse_bool("false"), Ok(false));
-        assert_eq!(parse_bool("FALSE"), Ok(false));
         assert_eq!(parse_bool("no"), Ok(false));
-        assert_eq!(parse_bool("0"), Ok(false));
+        assert_eq!(parse_bool("No"), Ok(false));
 
+        assert!(parse_bool("true").is_err());
+        assert!(parse_bool("1").is_err());
+        assert!(parse_bool("false").is_err());
+        assert!(parse_bool("0").is_err());
         assert!(parse_bool("invalid").is_err());
+    }
+
+    #[test]
+    fn terrain_properties_reject_non_cpp_fields_and_values() {
+        let mut terrain_type = TerrainType::new(AsciiString::from("Test"));
+
+        let mut unknown = HashMap::new();
+        unknown.insert("Surface".to_string(), "Rock".to_string());
+        assert!(terrain_type.update_from_properties(&unknown).is_err());
+
+        let mut bad_bool = HashMap::new();
+        bad_bool.insert("BlendEdges".to_string(), "true".to_string());
+        assert!(terrain_type.update_from_properties(&bad_bool).is_err());
+
+        let mut bad_class = HashMap::new();
+        bad_class.insert("Class".to_string(), "NOT_A_TERRAIN_CLASS".to_string());
+        assert!(terrain_type.update_from_properties(&bad_class).is_err());
     }
 
     #[test]
@@ -1027,11 +988,21 @@ mod tests {
         assert!(TerrainTokenParser::get_next_name("  SpacedName  ").is_ok());
         assert!(TerrainTokenParser::get_next_name("").is_err());
 
-        let result = TerrainTokenParser::parse_property_line("Traction = 1.5");
+        let result = TerrainTokenParser::parse_property_line("Texture = terrain.tga");
         assert!(result.is_ok());
         let (key, value) = result.unwrap();
-        assert_eq!(key, "Traction");
-        assert_eq!(value, "1.5");
+        assert_eq!(key, "Texture");
+        assert_eq!(value, "terrain.tga");
+    }
+
+    #[test]
+    fn test_parse_terrain_class() {
+        assert_eq!(parse_terrain_class("rock").unwrap().as_str(), "ROCK");
+        assert_eq!(
+            parse_terrain_class("Eastern_Europe_1").unwrap().as_str(),
+            "EASTERN_EUROPE_1"
+        );
+        assert!(parse_terrain_class("NOT_A_TERRAIN_CLASS").is_err());
     }
 
     #[test]
@@ -1060,11 +1031,9 @@ mod tests {
         let contents = r#"
             Terrain TestSample
               Texture = SampleTexture.tga
-              Surface = Rock
-              HeightMin = 10
-              HeightMax = 25
-              SlopeMinDegrees = 30
-              Priority = 6
+              Class = ROCK
+              BlendEdges = Yes
+              RestrictConstruction = No
             End
         "#;
         fs::write(&path, contents).expect("failed to write temp terrain ini");
@@ -1076,11 +1045,10 @@ mod tests {
             .find_terrain(&AsciiString::from("TestSample"))
             .expect("Terrain definition missing");
         assert_eq!(terrain.texture_name.as_str(), "SampleTexture.tga");
-        assert_eq!(
-            terrain.properties.get("HeightMin").map(String::as_str),
-            Some("10")
-        );
         assert_eq!(terrain.surface_type, TerrainSurface::Rock);
+        assert_eq!(terrain.terrain_class.as_str(), "ROCK");
+        assert!(terrain.blend_edge_texture);
+        assert!(!terrain.restrict_construction);
 
         let count = load_terrain_definitions(&[path.clone()]).expect("failed to load terrain INI");
         assert_eq!(count, 1);
@@ -1091,5 +1059,38 @@ mod tests {
             .is_some());
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn terrain_file_rejects_missing_end_and_unknown_fields() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let missing_end_path =
+            std::env::temp_dir().join(format!("terrain_missing_end_{}.ini", unique));
+        let unknown_field_path =
+            std::env::temp_dir().join(format!("terrain_unknown_field_{}.ini", unique));
+
+        fs::write(
+            &missing_end_path,
+            "Terrain BadTerrain\nTexture = SampleTexture.tga\nClass = ROCK\n",
+        )
+        .expect("failed to write missing-End terrain ini");
+        fs::write(
+            &unknown_field_path,
+            "Terrain BadTerrain\nTexture = SampleTexture.tga\nSurface = Rock\nEnd\n",
+        )
+        .expect("failed to write unknown-field terrain ini");
+
+        let mut manager = TerrainTypes::new();
+        assert!(super::parse_terrain_file_into(&mut manager, &missing_end_path).is_err());
+        assert!(super::parse_terrain_file_into(&mut manager, &unknown_field_path).is_err());
+
+        let _ = fs::remove_file(&missing_end_path);
+        let _ = fs::remove_file(&unknown_field_path);
     }
 }
