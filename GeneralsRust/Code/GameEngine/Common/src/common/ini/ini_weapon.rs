@@ -28,6 +28,95 @@ pub enum WeaponError {
     AlreadyExists,
 }
 
+const CPP_WEAPON_TEMPLATE_FIELDS: &[&str] = &[
+    "PrimaryDamage",
+    "PrimaryDamageRadius",
+    "SecondaryDamage",
+    "SecondaryDamageRadius",
+    "ShockWaveAmount",
+    "ShockWaveRadius",
+    "ShockWaveTaperOff",
+    "AttackRange",
+    "MinimumAttackRange",
+    "RequestAssistRange",
+    "AcceptableAimDelta",
+    "ScatterRadius",
+    "ScatterTargetScalar",
+    "ScatterRadiusVsInfantry",
+    "DamageType",
+    "DamageStatusType",
+    "DeathType",
+    "WeaponSpeed",
+    "MinWeaponSpeed",
+    "ScaleWeaponSpeed",
+    "WeaponRecoil",
+    "MinTargetPitch",
+    "MaxTargetPitch",
+    "RadiusDamageAngle",
+    "ProjectileObject",
+    "FireSound",
+    "FireSoundLoopTime",
+    "FireFX",
+    "ProjectileDetonationFX",
+    "FireOCL",
+    "ProjectileDetonationOCL",
+    "ProjectileExhaust",
+    "VeterancyFireFX",
+    "VeterancyProjectileDetonationFX",
+    "VeterancyFireOCL",
+    "VeterancyProjectileDetonationOCL",
+    "VeterancyProjectileExhaust",
+    "ClipSize",
+    "ContinuousFireOne",
+    "ContinuousFireTwo",
+    "ContinuousFireCoast",
+    "AutoReloadWhenIdle",
+    "ClipReloadTime",
+    "DelayBetweenShots",
+    "ShotsPerBarrel",
+    "DamageDealtAtSelfPosition",
+    "RadiusDamageAffects",
+    "ProjectileCollidesWith",
+    "AntiAirborneVehicle",
+    "AntiGround",
+    "AntiProjectile",
+    "AntiSmallMissile",
+    "AntiMine",
+    "AntiParachute",
+    "AntiAirborneInfantry",
+    "AntiBallisticMissile",
+    "AutoReloadsClip",
+    "ProjectileStreamName",
+    "LaserName",
+    "LaserBoneName",
+    "WeaponBonus",
+    "HistoricBonusTime",
+    "HistoricBonusRadius",
+    "HistoricBonusCount",
+    "HistoricBonusWeapon",
+    "LeechRangeWeapon",
+    "ScatterTarget",
+    "CapableOfFollowingWaypoints",
+    "ShowsAmmoPips",
+    "AllowAttackGarrisonedBldgs",
+    "PlayFXWhenStealthed",
+    "PreAttackDelay",
+    "PreAttackType",
+    "ContinueAttackRange",
+    "SuspendFXDelay",
+    "MissileCallsOnDie",
+];
+
+fn is_cpp_weapon_template_field(key: &str) -> bool {
+    CPP_WEAPON_TEMPLATE_FIELDS
+        .iter()
+        .any(|field| field.eq_ignore_ascii_case(key))
+}
+
+fn parse_cpp_weapon_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+}
+
 impl std::fmt::Display for WeaponError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -235,174 +324,16 @@ impl WeaponTemplate {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("DisplayName", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("DamageType", |value| {
-                Ok(Box::new(DamageType::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("AttackType", |value| {
-                Ok(Box::new(AttackType::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("PrimaryDamage", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse primary damage: {}", e))
-            }),
-            ("SecondaryDamage", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse secondary damage: {}", e))
-            }),
-            ("PrimaryDamageRadius", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse primary damage radius: {}", e))
-            }),
-            ("DamageRadius", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse damage radius: {}", e))
-            }),
-            ("AttackRange", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse attack range: {}", e))
-            }),
-            ("Range", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse range: {}", e))
-            }),
-            ("MinimumAttackRange", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse minimum attack range: {}", e))
-            }),
-            ("MinRange", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse min range: {}", e))
-            }),
-            ("RateOfFire", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse rate of fire: {}", e))
-            }),
-            ("ReloadTime", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse reload time: {}", e))
-            }),
-            ("Accuracy", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse accuracy: {}", e))
-            }),
-            ("ProjectileSpeed", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse projectile speed: {}", e))
-            }),
-            ("WeaponSpeed", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse weapon speed: {}", e))
-            }),
-            ("ProjectileCount", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse projectile count: {}", e))
-            }),
-            ("AmmoCapacity", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse ammo capacity: {}", e))
-            }),
-            ("Penetration", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse penetration: {}", e))
-            }),
-            ("ArmorPiercing", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse armor piercing: {}", e))
-            }),
-            ("CanTargetAir", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can target air: {}", e))
-            }),
-            ("CanTargetGround", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can target ground: {}", e))
-            }),
-            ("CanTargetWater", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can target water: {}", e))
-            }),
-            ("CanTargetStealth", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can target stealth: {}", e))
-            }),
-            ("CanFireWhileMoving", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can fire while moving: {}", e))
-            }),
-            ("RequiresLOS", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse requires LOS: {}", e))
-            }),
-            ("MuzzleFlash", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ProjectileObject", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("HitEffect", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SoundEffect", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ProjectileTemplate", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("DamageFXTemplate", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Prerequisites", |value| {
-                let prereqs: Vec<AsciiString> = value
-                    .split_whitespace()
-                    .map(|s| AsciiString::from(s))
-                    .collect();
-                Ok(Box::new(prereqs) as Box<dyn std::any::Any>)
-            }),
-        ]
+        CPP_WEAPON_TEMPLATE_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_weapon_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Update template from properties
@@ -412,14 +343,8 @@ impl WeaponTemplate {
     ) -> WeaponResult<()> {
         for (key, value) in properties {
             match key.as_str() {
-                "DisplayName" => {
-                    self.display_name = AsciiString::from(value);
-                }
                 "DamageType" => {
                     self.damage_type = DamageType::from_string(value);
-                }
-                "AttackType" => {
-                    self.attack_type = AttackType::from_string(value);
                 }
                 "PrimaryDamage" => {
                     self.primary_damage = parse_f32_field(key, value)?;
@@ -427,91 +352,34 @@ impl WeaponTemplate {
                 "SecondaryDamage" => {
                     self.secondary_damage = parse_f32_field(key, value)?;
                 }
-                "DamageRadius" | "PrimaryDamageRadius" => {
+                "PrimaryDamageRadius" => {
                     self.damage_radius = parse_f32_field(key, value)?;
                 }
-                "Range" | "AttackRange" => {
+                "AttackRange" => {
                     self.range = parse_f32_field(key, value)?;
                 }
-                "MinRange" | "MinimumAttackRange" => {
+                "MinimumAttackRange" => {
                     self.min_range = parse_f32_field(key, value)?;
                 }
-                "RateOfFire" => {
-                    self.rate_of_fire = parse_f32_field(key, value)?;
-                }
-                "ReloadTime" => {
-                    self.reload_time = parse_f32_field(key, value)?;
-                }
-                "Accuracy" => {
-                    self.accuracy = parse_f32_field(key, value)?.clamp(0.0, 1.0);
-                }
-                "ProjectileSpeed" | "WeaponSpeed" => {
+                "WeaponSpeed" => {
                     self.projectile_speed = parse_f32_field(key, value)?;
-                }
-                "ProjectileCount" => {
-                    self.projectile_count = parse_u32_field(key, value)?;
-                }
-                "AmmoCapacity" => {
-                    self.ammo_capacity = parse_u32_field(key, value)?;
-                }
-                "Penetration" => {
-                    self.penetration = parse_f32_field(key, value)?;
-                }
-                "ArmorPiercing" => {
-                    self.armor_piercing = parse_f32_field(key, value)?;
-                }
-                "CanTargetAir" => {
-                    self.can_target_air = parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "CanTargetGround" => {
-                    self.can_target_ground = parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "CanTargetWater" => {
-                    self.can_target_water = parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "CanTargetStealth" => {
-                    self.can_target_stealth = parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "CanFireWhileMoving" => {
-                    self.can_fire_while_moving =
-                        parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "RequiresLOS" => {
-                    self.requires_los = parse_bool(value).map_err(WeaponError::ParseError)?;
-                }
-                "MuzzleFlash" => {
-                    self.effects.muzzle_flash = AsciiString::from(value);
                 }
                 "ProjectileObject" => {
                     self.effects.projectile_object = AsciiString::from(value);
                 }
-                "HitEffect" => {
-                    self.effects.hit_effect = AsciiString::from(value);
-                }
-                "MissEffect" => {
-                    self.effects.miss_effect = AsciiString::from(value);
-                }
-                "SoundEffect" => {
+                "FireSound" => {
                     self.effects.sound_effect = AsciiString::from(value);
                 }
-                "TracerEffect" => {
-                    self.effects.tracer_effect = AsciiString::from(value);
-                }
-                "ProjectileTemplate" => {
-                    self.projectile_template = AsciiString::from(value);
-                }
-                "DamageFXTemplate" => {
-                    self.damage_fx_template = AsciiString::from(value);
-                }
-                "Prerequisites" => {
-                    self.prerequisites = value
-                        .split_whitespace()
-                        .map(|s| AsciiString::from(s))
-                        .collect();
-                }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    if is_cpp_weapon_template_field(key) {
+                        validate_unmodeled_cpp_weapon_field(key, value)?;
+                        self.properties.insert(key.clone(), value.clone());
+                    } else {
+                        return Err(WeaponError::ParseError(format!(
+                            "Unknown weapon field '{}'",
+                            key
+                        )));
+                    }
                 }
             }
         }
@@ -749,6 +617,85 @@ fn parse_u32_field(field_name: &str, value: &str) -> WeaponResult<u32> {
     })
 }
 
+fn parse_i32_field(field_name: &str, value: &str) -> WeaponResult<i32> {
+    value.parse::<i32>().map_err(|e| {
+        WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
+fn validate_unmodeled_cpp_weapon_field(field_name: &str, value: &str) -> WeaponResult<()> {
+    match field_name {
+        "SecondaryDamageRadius"
+        | "ShockWaveAmount"
+        | "ShockWaveRadius"
+        | "ShockWaveTaperOff"
+        | "RequestAssistRange"
+        | "AcceptableAimDelta"
+        | "ScatterRadius"
+        | "ScatterTargetScalar"
+        | "ScatterRadiusVsInfantry"
+        | "MinWeaponSpeed"
+        | "WeaponRecoil"
+        | "MinTargetPitch"
+        | "MaxTargetPitch"
+        | "RadiusDamageAngle"
+        | "HistoricBonusRadius"
+        | "ContinueAttackRange" => {
+            parse_f32_field(field_name, value)?;
+        }
+        "ClipSize" | "ContinuousFireOne" | "ContinuousFireTwo" | "ShotsPerBarrel"
+        | "HistoricBonusCount" => {
+            parse_i32_field(field_name, value)?;
+        }
+        "FireSoundLoopTime"
+        | "ContinuousFireCoast"
+        | "AutoReloadWhenIdle"
+        | "ClipReloadTime"
+        | "HistoricBonusTime"
+        | "PreAttackDelay"
+        | "SuspendFXDelay" => {
+            parse_u32_field(field_name, value)?;
+        }
+        "ScaleWeaponSpeed"
+        | "DamageDealtAtSelfPosition"
+        | "AntiAirborneVehicle"
+        | "AntiGround"
+        | "AntiProjectile"
+        | "AntiSmallMissile"
+        | "AntiMine"
+        | "AntiParachute"
+        | "AntiAirborneInfantry"
+        | "AntiBallisticMissile"
+        | "LeechRangeWeapon"
+        | "CapableOfFollowingWaypoints"
+        | "ShowsAmmoPips"
+        | "AllowAttackGarrisonedBldgs"
+        | "PlayFXWhenStealthed"
+        | "MissileCallsOnDie" => {
+            parse_bool(value).map_err(WeaponError::ParseError)?;
+        }
+        "WeaponBonus" => {
+            let tokens = value.split_whitespace().count();
+            if tokens < 3 {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid WeaponBonus value '{}': expected condition field percent",
+                    value
+                )));
+            }
+        }
+        _ => {
+            if value.trim().is_empty() {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid {} value: missing token",
+                    field_name
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// INI parsing functions for weapons
 pub struct IniWeapon;
 
@@ -961,10 +908,10 @@ mod tests {
         let second_name = AsciiString::from("SecondWeapon");
         let mut first_properties = HashMap::new();
         first_properties.insert("PrimaryDamage".to_string(), "25".to_string());
-        first_properties.insert("Range".to_string(), "100".to_string());
+        first_properties.insert("AttackRange".to_string(), "100".to_string());
         let mut second_properties = HashMap::new();
         second_properties.insert("PrimaryDamage".to_string(), "50".to_string());
-        second_properties.insert("Range".to_string(), "150".to_string());
+        second_properties.insert("AttackRange".to_string(), "150".to_string());
 
         store
             .register_definition(
@@ -1044,17 +991,22 @@ mod tests {
         let mut properties = HashMap::new();
         properties.insert("DamageType".to_string(), "Fire".to_string());
         properties.insert("PrimaryDamage".to_string(), "75.0".to_string());
-        properties.insert("Range".to_string(), "200.0".to_string());
-        properties.insert("CanTargetAir".to_string(), "false".to_string());
-        properties.insert("ProjectileCount".to_string(), "3".to_string());
+        properties.insert("AttackRange".to_string(), "200.0".to_string());
+        properties.insert("WeaponSpeed".to_string(), "400.0".to_string());
+        properties.insert("ProjectileObject".to_string(), "TestProjectile".to_string());
+        properties.insert("FireSound".to_string(), "WeaponFire".to_string());
 
         template.update_from_properties(&properties).unwrap();
 
         assert!(matches!(template.damage_type, DamageType::Fire));
         assert_eq!(template.primary_damage, 75.0);
         assert_eq!(template.range, 200.0);
-        assert!(!template.can_target_air);
-        assert_eq!(template.projectile_count, 3);
+        assert_eq!(template.projectile_speed, 400.0);
+        assert_eq!(
+            template.effects.projectile_object.as_str(),
+            "TestProjectile"
+        );
+        assert_eq!(template.effects.sound_effect.as_str(), "WeaponFire");
     }
 
     #[test]
@@ -1066,6 +1018,9 @@ mod tests {
         properties.insert("MinimumAttackRange".to_string(), "35.0".to_string());
         properties.insert("WeaponSpeed".to_string(), "999.0".to_string());
         properties.insert("ProjectileObject".to_string(), "TestProjectile".to_string());
+        properties.insert("FireSound".to_string(), "TestWeaponFire".to_string());
+        properties.insert("RequestAssistRange".to_string(), "300.0".to_string());
+        properties.insert("SecondaryDamageRadius".to_string(), "12.0".to_string());
 
         let template =
             IniWeapon::parse_weapon_template_block(AsciiString::from("CxxWeapon"), properties)
@@ -1080,10 +1035,19 @@ mod tests {
             template.effects.projectile_object.as_str(),
             "TestProjectile"
         );
+        assert_eq!(template.effects.sound_effect.as_str(), "TestWeaponFire");
         assert!(!template.properties.contains_key("PrimaryDamageRadius"));
         assert!(!template.properties.contains_key("AttackRange"));
         assert!(!template.properties.contains_key("MinimumAttackRange"));
         assert!(!template.properties.contains_key("WeaponSpeed"));
+        assert_eq!(
+            template.properties.get("RequestAssistRange").unwrap(),
+            "300.0"
+        );
+        assert_eq!(
+            template.properties.get("SecondaryDamageRadius").unwrap(),
+            "12.0"
+        );
     }
 
     #[test]
@@ -1096,17 +1060,59 @@ mod tests {
         );
 
         let mut properties = HashMap::new();
-        properties.insert("ProjectileCount".to_string(), "many".to_string());
+        properties.insert("WeaponSpeed".to_string(), "fast".to_string());
         assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadProjectileCount"),
+            AsciiString::from("BadWeaponSpeed"),
             properties
         )
         .is_err());
 
         let mut properties = HashMap::new();
-        properties.insert("CanTargetAir".to_string(), "sometimes".to_string());
+        properties.insert("RequestAssistRange".to_string(), "far".to_string());
         assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadCanTargetAir"),
+            AsciiString::from("BadRequestAssistRange"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("ScaleWeaponSpeed".to_string(), "sometimes".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("BadScaleWeaponSpeed"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("ClipSize".to_string(), "many".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("BadClipSize"),
+            properties
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn weapon_block_rejects_fields_outside_cpp_parse_table() {
+        let mut properties = HashMap::new();
+        properties.insert("Range".to_string(), "200.0".to_string());
+        assert!(
+            IniWeapon::parse_weapon_template_block(AsciiString::from("RustRange"), properties)
+                .is_err()
+        );
+
+        let mut properties = HashMap::new();
+        properties.insert("CanTargetAir".to_string(), "false".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("RustCanTargetAir"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("TotallyUnknown".to_string(), "value".to_string());
+        assert!(IniWeapon::parse_weapon_template_block(
+            AsciiString::from("UnknownWeaponField"),
             properties
         )
         .is_err());
