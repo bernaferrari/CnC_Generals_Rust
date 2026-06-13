@@ -221,6 +221,8 @@ fn next_power_of_two_at_least_one(value: UnsignedInt) -> UnsignedInt {
 
 impl VideoBuffer for SoftwareVideoBuffer {
     fn allocate(&mut self, width: UnsignedInt, height: UnsignedInt) -> Bool {
+        self.free();
+
         let bpp = Self::bytes_per_pixel(self.base.format);
         if bpp == 0 {
             return false;
@@ -348,5 +350,21 @@ mod tests {
         assert_eq!(buffer.texture_width(), 16);
         assert_eq!(buffer.texture_height(), 128);
         assert_eq!(buffer.pitch(), 16 * 2);
+    }
+
+    #[test]
+    fn failed_allocate_frees_existing_buffer_like_w3d() {
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(64, 64));
+        assert!(buffer.valid());
+
+        buffer.base.format = VideoBufferType::Unknown;
+        assert!(!buffer.allocate(64, 64));
+
+        assert!(!buffer.valid());
+        assert_eq!(buffer.width(), 0);
+        assert_eq!(buffer.height(), 0);
+        assert_eq!(buffer.texture_width(), 0);
+        assert_eq!(buffer.texture_height(), 0);
     }
 }
