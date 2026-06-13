@@ -2537,6 +2537,17 @@ impl GameWindow {
         }
     }
 
+    fn set_slider_thumb_hilite_state(&mut self, state: bool) {
+        let Some(thumb_id) = self.slider_thumb else {
+            return;
+        };
+        if let Some(thumb) = self.find_child_by_id(thumb_id) {
+            if matches!(thumb.borrow().widget(), Some(WindowWidget::PushButton(_))) {
+                thumb.borrow_mut().set_hilite_state(state);
+            }
+        }
+    }
+
     /// Set user data
     pub fn set_user_data<T: 'static>(&mut self, data: T) {
         self.user_data = Some(Box::new(data));
@@ -2854,10 +2865,18 @@ impl GameWindow {
             };
         }
 
+        let mut slider_thumb_hilite_handled = false;
         if matches!(
             self.widget,
             Some(WindowWidget::HorizontalSlider(_)) | Some(WindowWidget::VerticalSlider(_))
         ) {
+            if matches!(event, InputEvent::MouseEnter { .. }) {
+                self.set_slider_thumb_hilite_state(true);
+                slider_thumb_hilite_handled = true;
+            } else if matches!(event, InputEvent::MouseLeave { .. }) {
+                self.set_slider_thumb_hilite_state(false);
+                slider_thumb_hilite_handled = true;
+            }
             self.update_slider_thumb();
         }
 
@@ -2880,7 +2899,7 @@ impl GameWindow {
             }
         }
 
-        let mut handled = false;
+        let mut handled = slider_thumb_hilite_handled;
         let target_owner = if self.get_parent().is_some() && !self.owner_is_self {
             self.get_owner()
         } else {
@@ -5552,6 +5571,49 @@ mod tests {
         );
         assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
         assert_eq!(thumb.borrow().get_position(), position_after_valid_set);
+    }
+
+    #[test]
+    fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
+        let mut window = GameWindow::new();
+        window.set_id(7);
+        window.enable(true).unwrap();
+        window.set_widget(WindowWidget::HorizontalSlider(
+            HorizontalSlider::new(7, 0, 0, 100, 20).with_range(0, 100),
+        ));
+
+        let thumb = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let mut thumb = thumb.borrow_mut();
+            thumb.set_id(77);
+            thumb.set_widget(WindowWidget::PushButton(PushButton::new(77, 0, 0, 16, 16)));
+        }
+        window.add_child(thumb.clone());
+        window.set_slider_thumb(77);
+
+        assert!(!thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED));
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED));
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseLeaving, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED));
     }
 
     #[test]
