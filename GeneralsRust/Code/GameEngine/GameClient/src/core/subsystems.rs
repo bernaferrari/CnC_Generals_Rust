@@ -203,6 +203,8 @@ fn tree_module_data_from_w3d(data: &W3DTreeDrawModuleData) -> TreeModuleData {
     TreeModuleData {
         model_name: data.model_name.to_string(),
         texture_name: data.texture_name.to_string(),
+        topple_fx: data.topple_fx.as_ref().map(|value| value.to_string()),
+        bounce_fx: data.bounce_fx.as_ref().map(|value| value.to_string()),
         frames_to_move_outward: data.frames_to_move_outward,
         frames_to_move_inward: data.frames_to_move_inward,
         max_outward_movement: data.max_outward_movement,
