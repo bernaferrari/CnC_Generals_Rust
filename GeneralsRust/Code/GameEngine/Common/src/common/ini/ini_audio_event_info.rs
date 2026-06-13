@@ -194,8 +194,8 @@ impl AudioEventInfo {
 
     /// Parse audio-specific fields
     fn parse_audio_fields(&mut self, ini: &mut INI) -> INIResult<()> {
-        // Mirror C++ parser behavior: parse known fields and ignore unknown keys.
-        ini.init_from_ini_with_fields_allow_unknown(self, Self::get_field_parse())
+        // Mirror C++ initFromINI behavior: unknown keys throw INI_UNKNOWN_TOKEN.
+        ini.init_from_ini_with_fields(self, Self::get_field_parse())
     }
 
     /// Parse delay values (min and max)
@@ -676,5 +676,41 @@ mod tests {
         assert!(!flags.all);
         assert!(!flags.post_delay);
         assert!(!flags.interrupt);
+    }
+
+    #[test]
+    fn audio_event_block_accepts_cpp_field_table_fields() {
+        let mut ini = INI::new();
+
+        ini.with_inline_source(
+            "\
+AudioEvent TestExplosion
+  Filename = explosion.wav
+  Volume = 75
+  Priority = HIGH
+  Control = LOOP RANDOM
+  Sounds = explosion1.wav explosion2.wav
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("C++ audio event fields should parse");
+    }
+
+    #[test]
+    fn audio_event_block_rejects_unknown_fields() {
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "\
+AudioEvent BadExplosion
+  Filename = explosion.wav
+  BogusField = 1
+End
+",
+            |ini| ini.parse_current_file(),
+        );
+
+        assert_eq!(result, Err(INIError::UnknownToken));
     }
 }
