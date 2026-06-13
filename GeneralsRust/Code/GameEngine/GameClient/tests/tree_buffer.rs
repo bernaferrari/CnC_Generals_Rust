@@ -636,6 +636,7 @@ fn remove_trees_for_construction_uses_cpp_tree_cylinder_radius() {
         major_radius: 1.0,
         minor_radius: 1.0,
         geometry_type: TreeGeometryType::Cylinder,
+        angle: 0.0,
     });
 
     assert_eq!(CONSTRUCTION_TREE_COLLISION_RADIUS, 14.0);
@@ -669,10 +670,87 @@ fn remove_trees_for_construction_skips_already_deleted_trees() {
         major_radius: 1.0,
         minor_radius: 1.0,
         geometry_type: TreeGeometryType::Cylinder,
+        angle: 0.0,
     });
 
     assert_eq!(buffer.trees()[deleted].tree_type, DELETED_TREE_TYPE);
     assert_eq!(buffer.trees()[removed].tree_type, DELETED_TREE_TYPE);
+}
+
+#[test]
+fn remove_trees_for_construction_uses_angle_aware_box_footprint() {
+    let mut buffer = W3DTreeBuffer::new();
+    let along_long_edge = buffer
+        .add_tree(
+            51,
+            Vec3::new(35.0, 12.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let outside_tree_cylinder = buffer
+        .add_tree(
+            52,
+            Vec3::new(35.0, 20.5, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Pine", "T"),
+            bounds(),
+        )
+        .unwrap();
+
+    buffer.remove_trees_for_construction(TreeConstructionGeometry {
+        position: Vec3::ZERO,
+        major_radius: 40.0,
+        minor_radius: 2.0,
+        geometry_type: TreeGeometryType::Box,
+        angle: 0.0,
+    });
+
+    assert_eq!(buffer.trees()[along_long_edge].tree_type, DELETED_TREE_TYPE);
+    assert!(buffer.trees()[outside_tree_cylinder].tree_type >= 0);
+}
+
+#[test]
+fn remove_trees_for_construction_rotates_box_footprint_like_cpp_angle() {
+    let mut buffer = W3DTreeBuffer::new();
+    let rotated_long_edge = buffer
+        .add_tree(
+            61,
+            Vec3::new(-12.0, 35.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let outside_rotated_edge = buffer
+        .add_tree(
+            62,
+            Vec3::new(-20.5, 35.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Pine", "T"),
+            bounds(),
+        )
+        .unwrap();
+
+    buffer.remove_trees_for_construction(TreeConstructionGeometry {
+        position: Vec3::ZERO,
+        major_radius: 40.0,
+        minor_radius: 2.0,
+        geometry_type: TreeGeometryType::Box,
+        angle: std::f32::consts::FRAC_PI_2,
+    });
+
+    assert_eq!(buffer.trees()[rotated_long_edge].tree_type, DELETED_TREE_TYPE);
+    assert!(buffer.trees()[outside_rotated_edge].tree_type >= 0);
 }
 
 #[test]
