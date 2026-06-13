@@ -447,6 +447,18 @@ impl BridgeMaterial {
     }
 }
 
+fn parse_f32_field(field_name: &str, value: &str) -> Result<f32, String> {
+    value
+        .parse::<f32>()
+        .map_err(|e| format!("{}: invalid real value '{}': {}", field_name, value, e))
+}
+
+fn parse_usize_field(field_name: &str, value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|e| format!("{}: invalid integer value '{}': {}", field_name, value, e))
+}
+
 /// Bridge connection points
 #[derive(Debug, Clone)]
 pub struct BridgeConnectionPoint {
@@ -867,7 +879,10 @@ impl TerrainRoadType {
     }
 
     /// Update bridge from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
         for (key, value) in properties {
             match key.as_str() {
                 "Material" => {
@@ -967,22 +982,16 @@ impl TerrainRoadType {
                     self.particle_effect_destruction = AsciiString::from(value);
                 }
                 "BridgeScale" => {
-                    if let Ok(scale) = value.parse::<f32>() {
-                        self.bridge_scale = scale;
-                    }
+                    self.bridge_scale = parse_f32_field(key, value)?;
                 }
                 "RadarColor" => {
                     self.radar_color = AsciiString::from(value);
                 }
                 "TransitionEffectsHeight" => {
-                    if let Ok(height) = value.parse::<f32>() {
-                        self.transition_effects_height = height;
-                    }
+                    self.transition_effects_height = parse_f32_field(key, value)?;
                 }
                 "NumFXPerType" => {
-                    if let Ok(count) = value.parse::<usize>() {
-                        self.num_fx_per_type = count;
-                    }
+                    self.num_fx_per_type = parse_usize_field(key, value)?;
                 }
                 "BridgeModelName" => {
                     self.model_name = AsciiString::from(value);
@@ -1029,6 +1038,8 @@ impl TerrainRoadType {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -1364,7 +1375,10 @@ impl IniTerrainBridge {
                 other => TerrainBridgeError::ParseError(other.to_string()),
             })?;
 
-        context.bridge.update_from_properties(&context.properties);
+        context
+            .bridge
+            .update_from_properties(&context.properties)
+            .map_err(TerrainBridgeError::ParseError)?;
 
         if !context.bridge.is_valid() {
             return Err(TerrainBridgeError::ParseError(
@@ -1386,7 +1400,9 @@ impl IniTerrainBridge {
         }
 
         let mut bridge = TerrainRoadType::new_bridge(name);
-        bridge.update_from_properties(&properties);
+        bridge
+            .update_from_properties(&properties)
+            .map_err(TerrainBridgeError::ParseError)?;
 
         if !bridge.is_valid() {
             return Err(TerrainBridgeError::ParseError(
@@ -1504,12 +1520,39 @@ mod tests {
         properties.insert("Health".to_string(), "2000.0".to_string());
         properties.insert("CanBeDestroyed".to_string(), "false".to_string());
 
-        bridge.update_from_properties(&properties);
+        bridge.update_from_properties(&properties).unwrap();
 
         assert!(matches!(bridge.material, BridgeMaterial::Concrete));
         assert_eq!(bridge.width, 15.0);
         assert_eq!(bridge.health, 2000.0);
         assert!(!bridge.can_be_destroyed);
+    }
+
+    #[test]
+    fn bridge_cpp_numeric_fields_reject_invalid_values() {
+        let mut properties = HashMap::new();
+        properties.insert("BridgeScale".to_string(), "wide".to_string());
+        assert!(IniTerrainBridge::parse_terrain_bridge_block(
+            AsciiString::from("BadBridgeScale"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("TransitionEffectsHeight".to_string(), "high".to_string());
+        assert!(IniTerrainBridge::parse_terrain_bridge_block(
+            AsciiString::from("BadTransitionHeight"),
+            properties,
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("NumFXPerType".to_string(), "many".to_string());
+        assert!(IniTerrainBridge::parse_terrain_bridge_block(
+            AsciiString::from("BadNumFX"),
+            properties
+        )
+        .is_err());
     }
 
     #[test]

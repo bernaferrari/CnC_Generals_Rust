@@ -217,7 +217,8 @@ impl IniTerrainRoad {
         let mut road = TerrainRoadType::new_road(name);
 
         // Update road from properties
-        road.update_from_properties(&properties);
+        road.update_from_properties(&properties)
+            .map_err(TerrainRoadError::ParseError)?;
 
         // Validate road
         if !road.is_valid() {
