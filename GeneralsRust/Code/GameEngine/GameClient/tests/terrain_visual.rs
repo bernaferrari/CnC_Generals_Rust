@@ -42,14 +42,21 @@ fn loaded_visual_with_border() -> TerrainVisualImpl {
 #[test]
 fn raw_map_height_only_lowers_and_reads_logic_height() {
     let mut visual = loaded_visual_with_border();
+    visual.debug_clear_dirty_chunks();
 
     assert_eq!(visual.get_raw_map_height(1, 2), 100);
+    assert_eq!(visual.debug_dirty_chunk_count(), 0);
+    assert!(!visual.debug_roads_need_terrain_normal_reprojection());
 
     visual.set_raw_map_height(1, 2, 130);
     assert_eq!(visual.get_raw_map_height(1, 2), 100);
+    assert_eq!(visual.debug_dirty_chunk_count(), 0);
+    assert!(!visual.debug_roads_need_terrain_normal_reprojection());
 
     visual.set_raw_map_height(1, 2, 80);
     assert_eq!(visual.get_raw_map_height(1, 2), 80);
+    assert!(visual.debug_dirty_chunk_count() > 0);
+    assert!(visual.debug_roads_need_terrain_normal_reprojection());
 
     assert_eq!(visual.get_raw_map_height(2, 2), 120);
 }
