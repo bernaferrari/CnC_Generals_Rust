@@ -721,10 +721,8 @@ impl DrawModuleData for W3DModelDrawModuleData {
 
 impl Snapshotable for W3DModelDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        let mut clone = self.clone();
+        clone.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -736,13 +734,7 @@ impl Snapshotable for W3DModelDrawModuleData {
             .map_err(|e| e.to_string())?;
 
         for state in &mut self.condition_states {
-            let has_cached_data = !state.pristine_bones.is_empty()
-                || !state.turrets.is_empty()
-                || state
-                    .weapon_barrels
-                    .iter()
-                    .any(|barrels| !barrels.is_empty());
-            let mut valid_stuff: i8 = if has_cached_data { 1 } else { 0 };
+            let mut valid_stuff = model_condition_valid_stuff(state) as i8;
             xfer.xfer_byte(&mut valid_stuff)
                 .map_err(|e| e.to_string())?;
 
@@ -2613,60 +2605,9 @@ impl ObjectDrawInterface for W3DModelDraw {
 
 impl Snapshotable for W3DModelDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ parity: W3DModelDraw::crc mirrors xfer (version 2) fields.
-        for slot in 0..WEAPONSLOT_COUNT {
-            let mut recoil_info_count = self
-                .weapon_recoil_info
-                .get(slot)
-                .map(|entries| entries.len())
-                .unwrap_or_default()
-                .min(u8::MAX as usize) as u8;
-            xfer.xfer_unsigned_byte(&mut recoil_info_count)
-                .map_err(|e| e.to_string())?;
-
-            if let Some(entries) = self.weapon_recoil_info.get(slot) {
-                for entry in entries.iter().take(recoil_info_count as usize) {
-                    let mut state_value = recoil_state_to_i32(entry.state);
-                    let mut shift = entry.shift;
-                    let mut recoil_rate = entry.recoil_rate;
-                    xfer.xfer_int(&mut state_value).map_err(|e| e.to_string())?;
-                    xfer.xfer_real(&mut shift).map_err(|e| e.to_string())?;
-                    xfer.xfer_real(&mut recoil_rate)
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-        }
-
-        let mut sub_object_count = self.sub_object_vec.len().min(u8::MAX as usize) as u8;
-        xfer.xfer_unsigned_byte(&mut sub_object_count)
-            .map_err(|e| e.to_string())?;
-        for sub_obj in self.sub_object_vec.iter().take(sub_object_count as usize) {
-            let mut sub_obj_name = sub_obj.sub_obj_name.as_str().to_string();
-            let mut hide = sub_obj.hide;
-            xfer.xfer_ascii_string(&mut sub_obj_name)
-                .map_err(|e| e.to_string())?;
-            xfer.xfer_bool(&mut hide).map_err(|e| e.to_string())?;
-        }
-
-        let mut animation_payload_present =
-            self.which_anim_in_cur_state >= 0 && !self.is_current_transition_state();
-        xfer.xfer_bool(&mut animation_payload_present)
-            .map_err(|e| e.to_string())?;
-        if animation_payload_present {
-            let mut mode = self
-                .current_state()
-                .map(|state| anim_mode_to_i32(state.anim_mode))
-                .unwrap_or(0);
-            xfer.xfer_int(&mut mode).map_err(|e| e.to_string())?;
-
-            let mut percent = if self.current_anim_num_frames > 1 {
-                self.current_anim_frame as Real / (self.current_anim_num_frames - 1) as Real
-            } else {
-                0.0
-            };
-            xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
-        }
-
+        let _ = xfer;
+        // C++ W3DModelDraw::crc only extends DrawModule::crc; it does not hash
+        // the versioned W3DModelDraw::xfer payload.
         Ok(())
     }
 
@@ -3398,9 +3339,42 @@ fn anim_mode_to_i32(mode: AnimMode) -> i32 {
     }
 }
 
+fn model_condition_valid_stuff(state: &ModelConditionInfo) -> u8 {
+    let mut valid = 0u8;
+    if !state.pristine_bones.is_empty() {
+        valid |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+    }
+    if !state.turrets.is_empty() {
+        valid |= MODEL_CONDITION_TURRETS_VALID;
+    }
+    if state
+        .weapon_projectile_launch_bone
+        .iter()
+        .any(|name| !name.is_empty())
+    {
+        valid |= MODEL_CONDITION_HAS_PROJECTILE_BONES;
+    }
+    if state
+        .weapon_barrels
+        .iter()
+        .any(|barrels| !barrels.is_empty())
+    {
+        valid |= MODEL_CONDITION_BARRELS_VALID;
+    }
+    if !state.public_bones.is_empty() {
+        valid |= MODEL_CONDITION_PUBLIC_BONES_VALID;
+    }
+    valid
+}
+
 // Constants
 const WEAPONSLOT_COUNT: usize = 3;
 const MAX_TURRETS: usize = 2;
+const MODEL_CONDITION_PRISTINE_BONES_VALID: u8 = 0x01;
+const MODEL_CONDITION_TURRETS_VALID: u8 = 0x02;
+const MODEL_CONDITION_HAS_PROJECTILE_BONES: u8 = 0x04;
+const MODEL_CONDITION_BARRELS_VALID: u8 = 0x08;
+const MODEL_CONDITION_PUBLIC_BONES_VALID: u8 = 0x10;
 
 #[cfg(test)]
 mod tests {
@@ -3456,5 +3430,30 @@ mod tests {
         draw.react_to_geometry_change();
 
         assert!(!draw.need_recalc_bone_particle_systems);
+    }
+
+    #[test]
+    fn model_condition_valid_stuff_preserves_cpp_bit_layout() {
+        let mut state = ModelConditionInfo::new();
+        state.pristine_bones.insert(
+            1,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 7,
+            },
+        );
+        state.turrets.push(TurretInfo::new());
+        state.weapon_projectile_launch_bone[0] = AsciiString::from("MUZZLE");
+        state.weapon_barrels[0].push(WeaponBarrelInfo::new());
+        state.public_bones.push(AsciiString::from("HEAD"));
+
+        assert_eq!(
+            model_condition_valid_stuff(&state),
+            MODEL_CONDITION_PRISTINE_BONES_VALID
+                | MODEL_CONDITION_TURRETS_VALID
+                | MODEL_CONDITION_HAS_PROJECTILE_BONES
+                | MODEL_CONDITION_BARRELS_VALID
+                | MODEL_CONDITION_PUBLIC_BONES_VALID
+        );
     }
 }
