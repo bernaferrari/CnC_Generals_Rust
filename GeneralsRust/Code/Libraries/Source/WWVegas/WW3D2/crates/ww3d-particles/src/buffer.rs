@@ -3,7 +3,7 @@
 //! This module implements the ParticleBufferClass which manages the actual
 //! particle data, updates particle states, and renders particles.
 
-use super::line_renderer::LineGroupRenderer;
+use super::line_renderer::{LineGroupRenderer, LineMode};
 use super::point_group::*;
 use super::properties::*;
 use super::sorting_renderer::TriangleIndices;
@@ -479,10 +479,27 @@ impl ParticleBuffer {
                     ]);
                 }
             }
-            RenderMode::Line | RenderMode::LineGroup => return None,
+            RenderMode::Line => return None,
+            RenderMode::LineGroup => {
+                let line_mode = self
+                    .line_group_renderer
+                    .as_ref()
+                    .map(|renderer| renderer.line_mode)
+                    .unwrap_or(LineMode::Tetrahedron);
+                append_line_group_sort_geometry(
+                    &mut geometry,
+                    &active_indices,
+                    &self.particles,
+                    line_mode,
+                );
+            }
         }
 
-        Some(geometry)
+        if geometry.indices.is_empty() {
+            None
+        } else {
+            Some(geometry)
+        }
     }
 
     /// Get the maximum buffer size
@@ -1221,6 +1238,136 @@ fn line_group_tail_position(particle: &Particle) -> Vec3 {
     particle.position - particle.velocity * particle.blur_time
 }
 
+fn append_line_group_sort_geometry(
+    geometry: &mut ParticleSortGeometry,
+    active_indices: &[usize],
+    particles: &[Particle],
+    line_mode: LineMode,
+) {
+    match line_mode {
+        LineMode::Tetrahedron => {
+            geometry.vertices.reserve(active_indices.len() * 4);
+            geometry.indices.reserve(active_indices.len() * 4);
+            for &particle_index in active_indices {
+                if geometry.vertices.len().saturating_add(4) > u16::MAX as usize {
+                    break;
+                }
+
+                let particle = &particles[particle_index];
+                let base = geometry.vertices.len() as u16;
+                let (start, end, offset_a, offset_b, offset_c) = line_group_sort_points(particle);
+
+                geometry.vertices.extend([
+                    end,
+                    start + offset_a,
+                    start + offset_b,
+                    start + offset_c,
+                ]);
+                geometry.indices.extend([
+                    TriangleIndices {
+                        i: base,
+                        j: base + 2,
+                        k: base + 1,
+                    },
+                    TriangleIndices {
+                        i: base,
+                        j: base + 3,
+                        k: base + 2,
+                    },
+                    TriangleIndices {
+                        i: base,
+                        j: base + 1,
+                        k: base + 3,
+                    },
+                    TriangleIndices {
+                        i: base + 1,
+                        j: base + 2,
+                        k: base + 3,
+                    },
+                ]);
+            }
+        }
+        LineMode::Prism => {
+            geometry.vertices.reserve(active_indices.len() * 6);
+            geometry.indices.reserve(active_indices.len() * 8);
+            for &particle_index in active_indices {
+                if geometry.vertices.len().saturating_add(6) > u16::MAX as usize {
+                    break;
+                }
+
+                let particle = &particles[particle_index];
+                let base = geometry.vertices.len() as u16;
+                let (start, end, offset_a, offset_b, offset_c) = line_group_sort_points(particle);
+
+                geometry.vertices.extend([
+                    start + offset_a,
+                    start + offset_b,
+                    start + offset_c,
+                    end + offset_a,
+                    end + offset_b,
+                    end + offset_c,
+                ]);
+                geometry.indices.extend([
+                    TriangleIndices {
+                        i: base,
+                        j: base + 1,
+                        k: base + 2,
+                    },
+                    TriangleIndices {
+                        i: base,
+                        j: base + 3,
+                        k: base + 1,
+                    },
+                    TriangleIndices {
+                        i: base + 1,
+                        j: base + 3,
+                        k: base + 4,
+                    },
+                    TriangleIndices {
+                        i: base + 1,
+                        j: base + 4,
+                        k: base + 5,
+                    },
+                    TriangleIndices {
+                        i: base + 1,
+                        j: base + 5,
+                        k: base + 2,
+                    },
+                    TriangleIndices {
+                        i: base,
+                        j: base + 2,
+                        k: base + 5,
+                    },
+                    TriangleIndices {
+                        i: base,
+                        j: base + 5,
+                        k: base + 3,
+                    },
+                    TriangleIndices {
+                        i: base + 3,
+                        j: base + 5,
+                        k: base + 4,
+                    },
+                ]);
+            }
+        }
+    }
+}
+
+fn line_group_sort_points(particle: &Particle) -> (Vec3, Vec3, Vec3, Vec3, Vec3) {
+    let size = particle.size;
+    let offset_a = Vec3::Y * size;
+    let offset_b = (Vec3::Y * -0.5 + Vec3::X * (3.0_f32.sqrt() / 2.0)) * size;
+    let offset_c = (Vec3::Y * -0.5 - Vec3::X * (3.0_f32.sqrt() / 2.0)) * size;
+    (
+        particle.position,
+        line_group_tail_position(particle),
+        offset_a,
+        offset_b,
+        offset_c,
+    )
+}
+
 #[derive(Debug, Default, PartialEq)]
 struct LineRenderRun {
     points: Vec<Vec3>,
@@ -1331,6 +1478,27 @@ mod tests {
             line_group_tail_position(&particle),
             Vec3::new(4.0, 0.0, 0.0)
         );
+    }
+
+    #[test]
+    fn line_group_sort_snapshot_outputs_tetrahedron_geometry() {
+        let mut buffer = test_buffer(RenderMode::LineGroup);
+        buffer.add_new_particle(NewParticle {
+            position: Vec3::new(10.0, 0.0, 0.0),
+            velocity: Vec3::new(2.0, 0.0, 0.0),
+            ..Default::default()
+        });
+        buffer.update(0);
+        buffer.particles[0].blur_time = 3.0;
+
+        let geometry = buffer
+            .sorting_geometry_snapshot()
+            .expect("active line group should produce sort geometry");
+
+        assert_eq!(geometry.vertices.len(), 4);
+        assert_eq!(geometry.indices.len(), 4);
+        assert_eq!(geometry.vertices[0], Vec3::new(4.0, 0.0, 0.0));
+        assert_eq!(geometry.indices[0], TriangleIndices { i: 0, j: 2, k: 1 });
     }
 
     #[test]
