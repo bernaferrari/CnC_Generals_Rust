@@ -26,18 +26,25 @@ pub struct ObjectPool<T> {
     stats: PoolStats,
     /// Configuration.
     config: PoolConfig,
+    /// Debug allocation tracker.
+    #[cfg(debug_assertions)]
+    debug_tracker: DebugTracker,
 }
 
 impl<T> ObjectPool<T> {
     /// Create a new object pool with the given configuration.
     pub fn new(config: PoolConfig) -> Result<Arc<Self>, String> {
         let name = config.name.clone();
+        #[cfg(debug_assertions)]
+        let debug_name = name.clone();
         let allocator = PoolAllocator::new(config.clone())?;
 
         let pool = Arc::new(Self {
             allocator: RwLock::new(allocator),
             stats: PoolStats::new(name),
             config,
+            #[cfg(debug_assertions)]
+            debug_tracker: DebugTracker::new(debug_name),
         });
 
         // Initialize stats with initial capacity
@@ -63,6 +70,8 @@ impl<T> ObjectPool<T> {
 
         let duration = start.elapsed();
         self.stats.record_alloc(std::mem::size_of::<T>(), duration);
+        #[cfg(debug_assertions)]
+        self.debug_tracker.track_alloc::<T>(index);
 
         Ok(PoolHandle::new(
             Arc::clone(self),
@@ -94,6 +103,8 @@ impl<T> ObjectPool<T> {
         let duration = start.elapsed();
         self.stats
             .record_dealloc(std::mem::size_of::<T>(), duration);
+        #[cfg(debug_assertions)]
+        self.debug_tracker.track_dealloc(index.index());
 
         Ok(value)
     }
@@ -211,6 +222,9 @@ impl<T> ObjectPool<T> {
         if cleared == 0 {
             return;
         }
+
+        #[cfg(debug_assertions)]
+        self.debug_tracker.clear();
 
         let duration = start.elapsed();
         let per = duration / cleared as u32;
@@ -335,6 +349,13 @@ impl<T> ObjectPool<T> {
 // when T is Send + Sync
 unsafe impl<T: Send> Send for ObjectPool<T> {}
 unsafe impl<T: Send + Sync> Sync for ObjectPool<T> {}
+
+impl<T> Drop for ObjectPool<T> {
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        self.debug_tracker.print_leak_report();
+    }
+}
 
 impl<T> std::fmt::Debug for ObjectPool<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -523,6 +544,11 @@ impl DebugTracker {
         self.allocations.lock().unwrap().len()
     }
 
+    /// Clear all tracked allocations.
+    pub fn clear(&self) {
+        self.allocations.lock().unwrap().clear();
+    }
+
     /// Print a leak report to stderr.
     ///
     /// This is called automatically on pool drop in debug builds if leaks
@@ -593,9 +619,7 @@ impl<T> PoolDebugExt<T> for Arc<ObjectPool<T>> {
     }
 
     fn check_leaks(&self) -> Vec<LeakInfo> {
-        // In a full implementation, we'd store a DebugTracker in ObjectPool
-        // For now, this is a placeholder
-        Vec::new()
+        self.debug_tracker.check_leaks()
     }
 }
 
@@ -707,6 +731,33 @@ mod tests {
         let snapshot = pool.stats().snapshot();
         assert_eq!(snapshot.total_allocations, 10);
         assert_eq!(snapshot.active_allocations, 10);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_tracking_reports_active_allocations_and_clears_on_drop() {
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("DebugTracking")).unwrap();
+        let handle = pool.alloc(42).unwrap();
+
+        let leaks = pool.check_leaks();
+        assert_eq!(leaks.len(), 1);
+        assert_eq!(leaks[0].index, handle.index().index());
+        assert_eq!(leaks[0].type_name, std::any::type_name::<u64>());
+
+        drop(handle);
+        assert!(pool.check_leaks().is_empty());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_tracking_clear_removes_all_active_allocations() {
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("DebugTrackingClear")).unwrap();
+        let _handle_a = pool.alloc(1).unwrap();
+        let _handle_b = pool.alloc(2).unwrap();
+        assert_eq!(pool.check_leaks().len(), 2);
+
+        pool.clear();
+        assert!(pool.check_leaks().is_empty());
     }
 
     // ============================================================================
