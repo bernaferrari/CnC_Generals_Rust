@@ -240,6 +240,8 @@ impl ParticleSystemIntegration {
         camera: &CameraClass,
     ) {
         let camera_position = camera.get_position();
+        self.particle_manager
+            .set_world_view_matrix(view_projection_matrix);
 
         // Batch particles for efficient rendering
         self.render_pass.batch_particles();
