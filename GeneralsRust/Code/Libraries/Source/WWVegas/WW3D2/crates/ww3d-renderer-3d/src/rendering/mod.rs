@@ -4,6 +4,7 @@ pub mod camera_system;
 pub mod frame_graph;
 pub mod frame_uniform_arena;
 pub mod frustum;
+pub mod light_system;
 pub mod lighting_system;
 pub mod mesh_system;
 pub mod shader_core;

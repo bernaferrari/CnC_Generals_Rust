@@ -501,21 +501,21 @@ impl MeshBuilderClass {
         }
 
         // Grow face array if needed
-        if self.face_count >= self.faces.len() {
+        if self.cur_face >= self.faces.len() {
             self.grow_face_array();
         }
 
         let mut new_face = face;
-        new_face.add_index = self.face_count as i32;
+        new_face.add_index = self.cur_face as i32;
         new_face.compute_plane();
         for i in 0..3 {
             new_face.verts[i].sm_group = new_face.sm_group;
         }
 
-        self.faces[self.face_count] = new_face;
-        self.face_count += 1;
+        self.faces[self.cur_face] = new_face;
+        self.cur_face += 1;
 
-        Ok((self.face_count - 1) as i32)
+        Ok((self.cur_face - 1) as i32)
     }
 
     /// Grow the face array
