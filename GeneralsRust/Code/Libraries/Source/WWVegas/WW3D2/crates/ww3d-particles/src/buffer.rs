@@ -655,36 +655,14 @@ impl ParticleBuffer {
                 self.render_particles(device, queue, encoder, render_pass, view_projection_matrix);
             }
             RenderMode::Line => {
-                if self.line_renderer.is_some() {
-                    let line_renderer = self.line_renderer.as_mut().unwrap();
-                    // Convert particles to line segments
+                let runs = self.collect_line_render_runs();
+                if let Some(ref mut line_renderer) = self.line_renderer {
                     line_renderer.clear();
 
-                    for i in 0..self.active_count {
-                        let particle = &self.particles[i];
-                        let velocity_normalized = particle.velocity.normalize_or_zero();
-                        let length = particle.size * 0.5; // Use size as line length factor
-
-                        let start_pos = particle.position - velocity_normalized * length;
-                        let end_pos = particle.position + velocity_normalized * length;
-
-                        let color = Vec4::new(
-                            particle.color.x,
-                            particle.color.y,
-                            particle.color.z,
-                            particle.alpha,
-                        );
-
-                        line_renderer.add_line(
-                            start_pos,
-                            end_pos,
-                            color,
-                            color,
-                            particle.size * 0.1,
-                        );
+                    for run in &runs {
+                        line_renderer.add_polyline(&run.points, &run.colors);
                     }
 
-                    // Render all lines
                     line_renderer.render(
                         device,
                         queue,
@@ -704,6 +682,40 @@ impl ParticleBuffer {
                 );
             }
         }
+    }
+
+    fn collect_line_render_runs(&self) -> Vec<LineRenderRun> {
+        if self.decimation_threshold >= self.lod_count - 1 {
+            return Vec::new();
+        }
+
+        let mut runs = Vec::new();
+        let mut current = LineRenderRun::default();
+        let mut current_group_id: Option<u8> = None;
+
+        for i in 0..self.active_count {
+            let perm_index = (i & 0xF) as usize;
+            if (PERMUTATION_ARRAY[perm_index] as usize) < self.decimation_threshold {
+                continue;
+            }
+
+            let particle = &self.particles[i];
+            if current_group_id != Some(particle.group_id) {
+                finish_line_run(&mut runs, &mut current);
+                current_group_id = Some(particle.group_id);
+            }
+
+            current.points.push(particle.position);
+            current.colors.push(Vec4::new(
+                particle.color.x,
+                particle.color.y,
+                particle.color.z,
+                particle.alpha,
+            ));
+        }
+
+        finish_line_run(&mut runs, &mut current);
+        runs
     }
 
     /// Render particles as triangles or quads
@@ -1206,6 +1218,21 @@ fn default_additive_line_group_tail_diffuse() -> Vec4 {
     Vec4::ZERO
 }
 
+#[derive(Debug, Default, PartialEq)]
+struct LineRenderRun {
+    points: Vec<Vec3>,
+    colors: Vec<Vec4>,
+}
+
+fn finish_line_run(runs: &mut Vec<LineRenderRun>, current: &mut LineRenderRun) {
+    if current.points.len() > 1 {
+        runs.push(std::mem::take(current));
+    } else {
+        current.points.clear();
+        current.colors.clear();
+    }
+}
+
 // ParticleInstanceData is now defined in point_group.rs
 use crate::point_group::ParticleInstanceData;
 
@@ -1286,5 +1313,62 @@ mod tests {
     #[test]
     fn default_line_group_tail_diffuse_matches_cpp_additive_shader_branch() {
         assert_eq!(default_additive_line_group_tail_diffuse(), Vec4::ZERO);
+    }
+
+    #[test]
+    fn line_render_runs_preserve_contiguous_group_polylines() {
+        let mut buffer = test_buffer(RenderMode::Line);
+        for (position, group_id) in [
+            (Vec3::new(0.0, 0.0, 0.0), 1),
+            (Vec3::new(1.0, 0.0, 0.0), 1),
+            (Vec3::new(2.0, 0.0, 0.0), 2),
+            (Vec3::new(3.0, 0.0, 0.0), 1),
+            (Vec3::new(4.0, 0.0, 0.0), 1),
+        ] {
+            buffer.add_new_particle(NewParticle {
+                position,
+                group_id,
+                ..Default::default()
+            });
+        }
+        buffer.update(0);
+
+        let runs = buffer.collect_line_render_runs();
+
+        assert_eq!(runs.len(), 2);
+        assert_eq!(
+            runs[0].points,
+            vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
+        );
+        assert_eq!(
+            runs[1].points,
+            vec![Vec3::new(3.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0)]
+        );
+    }
+
+    #[test]
+    fn line_render_runs_apply_lod_decimation_before_grouping() {
+        let mut buffer = test_buffer(RenderMode::Line);
+        for i in 0..4 {
+            buffer.add_new_particle(NewParticle {
+                position: Vec3::new(i as f32, 0.0, 0.0),
+                group_id: 7,
+                ..Default::default()
+            });
+        }
+        buffer.update(0);
+        buffer.decimation_threshold = 6;
+
+        let runs = buffer.collect_line_render_runs();
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0].points,
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(3.0, 0.0, 0.0)
+            ]
+        );
     }
 }

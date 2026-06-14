@@ -795,6 +795,16 @@ impl SegmentedLineRenderer {
         self.lines.push(line);
     }
 
+    pub fn add_polyline(&mut self, points: &[Vec3], colors: &[Vec4]) {
+        if points.len() < 2 {
+            return;
+        }
+
+        let mut line = StreakLine::new(self.device.clone(), self.queue.clone());
+        line.set_locs_widths_colors(points.len(), points, None, Some(colors));
+        self.lines.push(line);
+    }
+
     pub fn render(
         &mut self,
         _device: &Device,
