@@ -807,14 +807,7 @@ impl ParticleBuffer {
                     particle.alpha,
                 ));
 
-                // Tail color (can be faded or different)
-                // For now, use same color but with 0 alpha for fade effect
-                tail_diffuse.push(Vec4::new(
-                    particle.color.x,
-                    particle.color.y,
-                    particle.color.z,
-                    0.0,
-                ));
+                tail_diffuse.push(default_additive_line_group_tail_diffuse());
 
                 sizes.push(particle.size);
                 ucoords.push(particle.frame);
@@ -1209,6 +1202,10 @@ impl ParticleBuffer {
     }
 }
 
+fn default_additive_line_group_tail_diffuse() -> Vec4 {
+    Vec4::ZERO
+}
+
 // ParticleInstanceData is now defined in point_group.rs
 use crate::point_group::ParticleInstanceData;
 
@@ -1284,5 +1281,10 @@ mod tests {
         buffer.update(0);
 
         assert!(buffer.sorting_geometry_snapshot().is_none());
+    }
+
+    #[test]
+    fn default_line_group_tail_diffuse_matches_cpp_additive_shader_branch() {
+        assert_eq!(default_additive_line_group_tail_diffuse(), Vec4::ZERO);
     }
 }
