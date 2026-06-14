@@ -1323,7 +1323,12 @@ impl PrototypeLoader for HAnimLoader {
             let anim_name =
                 String::from_utf8(anim_bytes).unwrap_or_else(|_| asset_name.to_string());
 
-            (hier_name, anim_name, header.num_frames, header.frame_rate)
+            (
+                hier_name,
+                anim_name,
+                header.num_frames,
+                u32::from(header.frame_rate),
+            )
         } else {
             // Read uncompressed animation structure
             // Contains header and array of animation channels
@@ -1364,7 +1369,7 @@ impl PrototypeLoader for HAnimLoader {
 
         // Store animation parameters
         animation.num_frames = num_frames;
-        animation.frame_rate = frame_rate; // frame_rate is u32 in both W3dAnimationStruct and W3dCompressedAnimationStruct
+        animation.frame_rate = frame_rate;
 
         // Note: The compression status is implicit - if the original chunk was
         // W3D_CHUNK_COMPRESSED_ANIMATION, the data would be decompressed during playback
