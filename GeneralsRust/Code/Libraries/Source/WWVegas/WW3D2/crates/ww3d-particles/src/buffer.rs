@@ -6,6 +6,7 @@
 use super::line_renderer::LineGroupRenderer;
 use super::point_group::*;
 use super::properties::*;
+use super::sorting_renderer::TriangleIndices;
 use super::streak::SegmentedLineRenderer;
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::VecDeque;
@@ -169,6 +170,13 @@ pub enum FrameMode {
     Frame4x4 = 2,
     Frame8x8 = 3,
     Frame16x16 = 4,
+}
+
+/// CPU-side particle geometry submitted to the sorting renderer.
+#[derive(Debug, Clone, Default)]
+pub struct ParticleSortGeometry {
+    pub vertices: Vec<Vec3>,
+    pub indices: Vec<TriangleIndices>,
 }
 
 impl ParticleBuffer {
@@ -402,6 +410,79 @@ impl ParticleBuffer {
     /// Get the number of active particles
     pub fn get_active_count(&self) -> usize {
         self.active_count
+    }
+
+    /// Build a CPU geometry snapshot for transparent particle sorting.
+    pub fn sorting_geometry_snapshot(&self) -> Option<ParticleSortGeometry> {
+        if self.active_count == 0 {
+            return None;
+        }
+
+        let active_indices = self.get_active_particles_with_lod();
+        if active_indices.is_empty() {
+            return None;
+        }
+
+        let mut geometry = ParticleSortGeometry::default();
+        match self.render_mode {
+            RenderMode::TriParticles => {
+                geometry.vertices.reserve(active_indices.len() * 3);
+                geometry.indices.reserve(active_indices.len());
+
+                for particle_index in active_indices {
+                    if geometry.vertices.len().saturating_add(3) > u16::MAX as usize {
+                        break;
+                    }
+                    let particle = &self.particles[particle_index];
+                    let half_size = particle.size * 0.5;
+                    let base = geometry.vertices.len() as u16;
+                    geometry.vertices.extend([
+                        particle.position + Vec3::new(-half_size, -half_size, 0.0),
+                        particle.position + Vec3::new(half_size, -half_size, 0.0),
+                        particle.position + Vec3::new(0.0, half_size, 0.0),
+                    ]);
+                    geometry.indices.push(TriangleIndices {
+                        i: base,
+                        j: base + 1,
+                        k: base + 2,
+                    });
+                }
+            }
+            RenderMode::QuadParticles => {
+                geometry.vertices.reserve(active_indices.len() * 4);
+                geometry.indices.reserve(active_indices.len() * 2);
+
+                for particle_index in active_indices {
+                    if geometry.vertices.len().saturating_add(4) > u16::MAX as usize {
+                        break;
+                    }
+                    let particle = &self.particles[particle_index];
+                    let half_size = particle.size * 0.5;
+                    let base = geometry.vertices.len() as u16;
+                    geometry.vertices.extend([
+                        particle.position + Vec3::new(-half_size, -half_size, 0.0),
+                        particle.position + Vec3::new(half_size, -half_size, 0.0),
+                        particle.position + Vec3::new(half_size, half_size, 0.0),
+                        particle.position + Vec3::new(-half_size, half_size, 0.0),
+                    ]);
+                    geometry.indices.extend([
+                        TriangleIndices {
+                            i: base,
+                            j: base + 1,
+                            k: base + 2,
+                        },
+                        TriangleIndices {
+                            i: base + 2,
+                            j: base + 3,
+                            k: base,
+                        },
+                    ]);
+                }
+            }
+            RenderMode::Line | RenderMode::LineGroup => return None,
+        }
+
+        Some(geometry)
     }
 
     /// Get the maximum buffer size
@@ -1130,3 +1211,78 @@ impl ParticleBuffer {
 
 // ParticleInstanceData is now defined in point_group.rs
 use crate::point_group::ParticleInstanceData;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_buffer(render_mode: RenderMode) -> ParticleBuffer {
+        ParticleBuffer::new(
+            8,
+            ParticleColorProperty::with_start(Vec3::ONE),
+            ParticleOpacityProperty::with_start(1.0),
+            ParticleSizeProperty::with_start(2.0),
+            ParticleRotationProperty::with_start(0.0),
+            ParticleFrameProperty::with_start(0.0),
+            ParticleBlurTimeProperty::with_start(0.0),
+            Vec3::ZERO,
+            1000,
+            0,
+            render_mode,
+            FrameMode::Frame1x1,
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn tri_particle_sort_snapshot_uses_real_particle_geometry() {
+        let mut buffer = test_buffer(RenderMode::TriParticles);
+        buffer.add_new_particle(NewParticle {
+            position: Vec3::new(1.0, 2.0, 3.0),
+            ..Default::default()
+        });
+        buffer.update(0);
+
+        let geometry = buffer
+            .sorting_geometry_snapshot()
+            .expect("active tri particle should produce sort geometry");
+        assert_eq!(geometry.vertices.len(), 3);
+        assert_eq!(geometry.indices, vec![TriangleIndices { i: 0, j: 1, k: 2 }]);
+        assert_eq!(geometry.vertices[0], Vec3::new(0.0, 1.0, 3.0));
+        assert_eq!(geometry.vertices[1], Vec3::new(2.0, 1.0, 3.0));
+        assert_eq!(geometry.vertices[2], Vec3::new(1.0, 3.0, 3.0));
+    }
+
+    #[test]
+    fn quad_particle_sort_snapshot_outputs_two_triangles() {
+        let mut buffer = test_buffer(RenderMode::QuadParticles);
+        buffer.add_new_particle(NewParticle {
+            position: Vec3::new(0.0, 0.0, 5.0),
+            ..Default::default()
+        });
+        buffer.update(0);
+
+        let geometry = buffer
+            .sorting_geometry_snapshot()
+            .expect("active quad particle should produce sort geometry");
+        assert_eq!(geometry.vertices.len(), 4);
+        assert_eq!(
+            geometry.indices,
+            vec![
+                TriangleIndices { i: 0, j: 1, k: 2 },
+                TriangleIndices { i: 2, j: 3, k: 0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn line_particle_sort_snapshot_is_not_triangular_geometry() {
+        let mut buffer = test_buffer(RenderMode::Line);
+        buffer.add_new_particle(NewParticle::default());
+        buffer.update(0);
+
+        assert!(buffer.sorting_geometry_snapshot().is_none());
+    }
+}

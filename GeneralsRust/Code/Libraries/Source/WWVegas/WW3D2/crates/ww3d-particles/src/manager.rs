@@ -18,6 +18,7 @@ pub struct ParticleSystemManager {
     pub sorting_renderer: SortingRenderer,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
+    world_view_matrix: Mat4,
 }
 
 impl ParticleSystemManager {
@@ -30,6 +31,7 @@ impl ParticleSystemManager {
             sorting_renderer,
             device,
             queue,
+            world_view_matrix: Mat4::IDENTITY,
         }
     }
 
@@ -48,6 +50,11 @@ impl ParticleSystemManager {
     /// Get the number of emitters
     pub fn emitter_count(&self) -> usize {
         self.emitters.len()
+    }
+
+    /// Set the world-view matrix used for particle sorting depth.
+    pub fn set_world_view_matrix(&mut self, world_view_matrix: Mat4) {
+        self.world_view_matrix = world_view_matrix;
     }
 
     /// Create a simple fire emitter
@@ -232,28 +239,30 @@ impl super::ParticleSystem for ParticleSystemManager {
 impl ParticleSystemManager {
     /// Collect particle geometry and submit to sorting renderer
     fn collect_particle_geometry(&mut self) {
-        // For now, use identity matrix for view - in practice this would come from the camera
-        let world_view_matrix = Mat4::IDENTITY;
-
         for emitter in &mut self.emitters {
             if let Some(buffer) = emitter.get_buffer() {
                 if buffer.get_active_count() > 0 {
-                    // Create a bounding sphere for the particle system
-                    let bounding_sphere = BoundingSphere::new(
-                        emitter.prev_origin,
-                        10.0, // Conservative radius
-                    );
+                    if let Some(geometry) = buffer.sorting_geometry_snapshot() {
+                        let Ok(polygon_count) = u16::try_from(geometry.indices.len()) else {
+                            continue;
+                        };
+                        let Ok(vertex_count) = u16::try_from(geometry.vertices.len()) else {
+                            continue;
+                        };
+                        let sphere = buffer.get_bounding_sphere();
+                        let bounding_sphere = BoundingSphere::new(sphere.center, sphere.radius);
 
-                    // Insert triangles into sorting renderer
-                    // This is a simplified version - in practice you'd need actual geometry data
-                    self.sorting_renderer.insert_triangles(
-                        bounding_sphere,
-                        0,                                      // start_index
-                        buffer.get_active_count() as u16,       // polygon_count (simplified)
-                        0,                                      // min_vertex_index
-                        (buffer.get_active_count() * 3) as u16, // vertex_count (3 verts per particle triangle)
-                        &world_view_matrix,
-                    );
+                        self.sorting_renderer.insert_indexed_triangles(
+                            bounding_sphere,
+                            0,
+                            polygon_count,
+                            0,
+                            vertex_count,
+                            &geometry.vertices,
+                            &geometry.indices,
+                            &self.world_view_matrix,
+                        );
+                    }
                 }
             }
         }
