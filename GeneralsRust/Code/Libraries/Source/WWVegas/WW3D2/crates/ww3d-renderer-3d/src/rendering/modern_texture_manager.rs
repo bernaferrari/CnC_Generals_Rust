@@ -8,20 +8,18 @@
 //! - Texture compression optimization
 //! - Memory management and budgeting
 
-use crate::core::error::{W3dError, RendererResult};
+use crate::core::error::{Error, RendererResult};
 use crate::rendering::texture_system::texture_base::{
-    TextureAddressMode as TextureWrapMode, TextureBaseClass as TextureBase,
-    TextureFilterMode as TextureFilter, WW3DFormat as TextureFormat,
+    PoolType, TextureAddressMode as TextureWrapMode, TextureBaseClass as TextureBase,
+    TextureFilterMode as TextureFilter,
 };
-use crate::rendering::texture_system::TextureLoader;
-
-use crate::core::WW3DFormat;
-use crate::utils::w3d_file_format::W3dTexture;
+use crate::rendering::texture_system::texture_loader::TextureLoader;
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use wgpu::{Device, Queue, Sampler, Texture, TextureView};
+use wgpu::{Device, Queue, Sampler};
+use ww3d_core::W3dTextureStruct as W3dTexture;
 
 /// Texture manager configuration
 #[derive(Debug, Clone)]
@@ -254,13 +252,9 @@ impl ModernTextureManager {
     }
 
     /// Convert W3D texture format to our internal format
-    fn convert_w3d_texture(&self, w3d_texture: &W3dTexture) -> RendererResult<TextureBase> {
-        // This would convert W3D texture data to our TextureBase format
-        // Implementation would depend on W3D texture structure
-
-        Err(W3dError::NotImplemented(
-            "W3D texture conversion not yet implemented".to_string(),
-        ))
+    fn convert_w3d_texture(&mut self, w3d_texture: &W3dTexture) -> RendererResult<TextureBase> {
+        self.texture_loader
+            .load_w3d_descriptor(w3d_texture, PoolType::Managed)
     }
 
     /// Get a texture from cache
@@ -320,7 +314,7 @@ impl ModernTextureManager {
         }
 
         if freed_memory < required_memory {
-            return Err(W3dError::OutOfMemory(format!(
+            return Err(Error::OutOfMemory(format!(
                 "Failed to free enough memory. Required: {} bytes, Freed: {} bytes",
                 required_memory, freed_memory
             )));
@@ -506,12 +500,16 @@ impl ModernTextureManager {
     }
 
     /// Set texture priority
-    pub fn set_texture_priority(&mut self, name: &str, priority: TexturePriority) -> RendererResult<()> {
+    pub fn set_texture_priority(
+        &mut self,
+        name: &str,
+        priority: TexturePriority,
+    ) -> RendererResult<()> {
         if let Some(entry) = self.texture_cache.get_mut(name) {
             entry.priority = priority;
             Ok(())
         } else {
-            Err(W3dError::ResourceNotFound(format!(
+            Err(Error::ResourceNotFound(format!(
                 "Texture '{}' not found",
                 name
             )))
