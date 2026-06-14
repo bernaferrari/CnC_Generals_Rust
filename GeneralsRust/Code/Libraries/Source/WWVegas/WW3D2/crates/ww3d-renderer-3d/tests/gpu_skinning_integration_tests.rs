@@ -5,7 +5,21 @@
 //! the complete flow from animation evaluation to GPU skinning data preparation.
 
 use glam::{Mat4, Quat, Vec3};
+use ww3d_animation::{HAnimClass, HTreeClass};
 use ww3d_renderer_3d::animation_evaluator::{AnimationEvaluator, GPUSkinningData};
+
+fn evaluator_with_animation(bone_count: u32) -> AnimationEvaluator {
+    let mut evaluator = AnimationEvaluator::new(bone_count);
+    let mut hierarchy = HTreeClass::with_name("TestHierarchy");
+    hierarchy.init_default();
+    for index in 1..bone_count as usize {
+        hierarchy.add_pivot(&format!("Bone{}", index), 0, Vec3::ZERO, Quat::IDENTITY);
+    }
+
+    evaluator.set_hierarchy(hierarchy);
+    evaluator.set_uncompressed_animation(HAnimClass::new("TestAnim", "TestHierarchy", 60, 30.0));
+    evaluator
+}
 
 #[test]
 fn test_gpu_skinning_data_creation() {
@@ -280,7 +294,7 @@ fn test_gpu_skinning_matrix_multiplication() {
 #[test]
 fn test_animation_evaluator_frame_evaluation_with_skinning() {
     // Test that evaluator maintains separate frame evaluation and skinning data
-    let mut evaluator = AnimationEvaluator::new(16);
+    let mut evaluator = evaluator_with_animation(16);
 
     // Evaluate at frame 0
     evaluator.evaluate_frame(0).unwrap();
