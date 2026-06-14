@@ -18,13 +18,56 @@ use ww3d_collision::SphereClass;
 // Solution: Define Camera/Scene traits in ww3d-core, implement in respective crates.
 // C++ equivalent: Forward declarations and interface segregation
 
-// Temporary placeholder types to avoid circular dependencies
-pub struct SceneClass;
-pub struct CameraClass;
+#[derive(Debug, Clone)]
+pub struct SceneParticleBuffer {
+    pub buffer: Arc<Mutex<ParticleBuffer>>,
+    pub blend_mode: BlendMode,
+}
+
+#[derive(Debug, Default)]
+pub struct SceneClass {
+    particle_buffers: Vec<SceneParticleBuffer>,
+}
+
+impl SceneClass {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_particle_buffer(
+        &mut self,
+        buffer: Arc<Mutex<ParticleBuffer>>,
+        blend_mode: BlendMode,
+    ) {
+        self.particle_buffers
+            .push(SceneParticleBuffer { buffer, blend_mode });
+    }
+
+    pub fn clear_particle_buffers(&mut self) {
+        self.particle_buffers.clear();
+    }
+
+    pub fn particle_buffers(&self) -> &[SceneParticleBuffer] {
+        &self.particle_buffers
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CameraClass {
+    position: Vec3,
+}
 
 impl CameraClass {
+    pub fn new(position: Vec3) -> Self {
+        Self { position }
+    }
+
     pub fn get_position(&self) -> Vec3 {
-        Vec3::ZERO // Placeholder implementation
+        self.position
+    }
+
+    pub fn set_position(&mut self, position: Vec3) {
+        self.position = position;
     }
 }
 
@@ -78,6 +121,14 @@ impl ParticleRenderPass {
         self.additive_buffers.clear();
     }
 
+    /// Populate render queues from a scene particle registry.
+    pub fn collect_scene_buffers(&mut self, scene: &SceneClass) {
+        self.clear();
+        for entry in scene.particle_buffers() {
+            self.add_buffer(entry.buffer.clone(), entry.blend_mode);
+        }
+    }
+
     /// Sort transparent particles by depth
     pub fn sort_transparent_particles(&mut self, camera_position: Vec3) {
         // Sort transparent buffers by distance from camera
@@ -94,7 +145,6 @@ impl ParticleRenderPass {
 
     /// Render all particle buffers in proper order
     /// Note: Rendering Arc<ParticleBuffer> requires thread-safe mutability (RwLock or Mutex)
-    /// This is a placeholder that does not render - real implementation pending architecture decision
     pub fn render(
         &mut self,
         device: &Device,
@@ -129,9 +179,9 @@ impl ParticleRenderPass {
             return;
         }
 
-        // Batching would sort and group similar particles for efficient instancing.
-        // This is a placeholder for future optimization.
-        // Current implementation: each buffer is rendered independently.
+        self.opaque_buffers.retain(buffer_has_active_particles);
+        self.transparent_buffers.retain(buffer_has_active_particles);
+        self.additive_buffers.retain(buffer_has_active_particles);
     }
 
     /// Get statistics for the current frame
@@ -166,6 +216,13 @@ impl ParticleRenderPass {
             batches_rendered: total_buffers, // Simplified
         }
     }
+}
+
+fn buffer_has_active_particles(buffer: &Arc<Mutex<ParticleBuffer>>) -> bool {
+    buffer
+        .lock()
+        .map(|buffer| buffer.get_active_count() > 0)
+        .unwrap_or(false)
 }
 
 /// Particle blend modes
@@ -221,12 +278,7 @@ impl ParticleSystemIntegration {
         self.particle_manager.update((delta_time * 1000.0) as u32);
 
         // Clear render pass
-        self.render_pass.clear();
-
-        // Collect all active particle buffers from the scene
-        // This would iterate through scene objects and collect ParticleEmitter instances
-        // For now, this is a simplified implementation
-        let _ = scene; // Use parameter
+        self.render_pass.collect_scene_buffers(scene);
     }
 
     /// Render the particle system
@@ -242,6 +294,7 @@ impl ParticleSystemIntegration {
         let camera_position = camera.get_position();
         self.particle_manager
             .set_world_view_matrix(view_projection_matrix);
+        self.render_pass.sort_transparent_particles(camera_position);
 
         // Batch particles for efficient rendering
         self.render_pass.batch_particles();
@@ -354,6 +407,77 @@ pub fn cull_particle_systems(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::{FrameMode, NewParticle, RenderMode};
+    use crate::properties::{
+        ParticleBlurTimeProperty, ParticleColorProperty, ParticleFrameProperty,
+        ParticleOpacityProperty, ParticleRotationProperty, ParticleSizeProperty,
+    };
+
+    fn empty_test_buffer() -> ParticleBuffer {
+        ParticleBuffer::new(
+            4,
+            ParticleColorProperty::with_start(Vec3::ONE),
+            ParticleOpacityProperty::with_start(1.0),
+            ParticleSizeProperty::with_start(1.0),
+            ParticleRotationProperty::with_start(0.0),
+            ParticleFrameProperty::with_start(0.0),
+            ParticleBlurTimeProperty::with_start(0.0),
+            Vec3::ZERO,
+            1000,
+            0,
+            RenderMode::TriParticles,
+            FrameMode::Frame1x1,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn test_buffer_at(position: Vec3) -> Arc<Mutex<ParticleBuffer>> {
+        let mut buffer = empty_test_buffer();
+        buffer.add_new_particle(NewParticle {
+            position,
+            ..Default::default()
+        });
+        buffer.update(0);
+        Arc::new(Mutex::new(buffer))
+    }
+
+    fn inactive_test_buffer() -> Arc<Mutex<ParticleBuffer>> {
+        Arc::new(Mutex::new(empty_test_buffer()))
+    }
+
+    #[test]
+    fn batch_particles_prunes_empty_buffers_when_instancing_enabled() {
+        let inactive = inactive_test_buffer();
+        let active = test_buffer_at(Vec3::ZERO);
+
+        let mut render_pass = ParticleRenderPass::new();
+        render_pass.add_buffer(inactive, BlendMode::Alpha);
+        render_pass.add_buffer(active.clone(), BlendMode::Alpha);
+
+        render_pass.batch_particles();
+
+        assert_eq!(render_pass.transparent_buffers.len(), 1);
+        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &active));
+    }
+
+    #[test]
+    fn batch_particles_preserves_buffers_when_instancing_disabled() {
+        let inactive = inactive_test_buffer();
+        let active = test_buffer_at(Vec3::ZERO);
+
+        let mut render_pass = ParticleRenderPass::new();
+        render_pass.instancing_enabled = false;
+        render_pass.add_buffer(inactive.clone(), BlendMode::Opaque);
+        render_pass.add_buffer(active.clone(), BlendMode::Opaque);
+
+        render_pass.batch_particles();
+
+        assert_eq!(render_pass.opaque_buffers.len(), 2);
+        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[0], &inactive));
+        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[1], &active));
+    }
 
     #[test]
     fn test_particle_render_pass_creation() {
@@ -371,5 +495,50 @@ mod tests {
         // Would need actual particle buffer for full test
         // This is just a structure test
         assert_eq!(render_pass.opaque_buffers.len(), 0);
+    }
+
+    #[test]
+    fn scene_collects_particle_buffers_by_blend_mode() {
+        let opaque = test_buffer_at(Vec3::ZERO);
+        let alpha = test_buffer_at(Vec3::X);
+        let additive = test_buffer_at(Vec3::Y);
+        let mut scene = SceneClass::new();
+        scene.add_particle_buffer(opaque.clone(), BlendMode::Opaque);
+        scene.add_particle_buffer(alpha.clone(), BlendMode::Alpha);
+        scene.add_particle_buffer(additive.clone(), BlendMode::Additive);
+
+        let mut render_pass = ParticleRenderPass::new();
+        render_pass.collect_scene_buffers(&scene);
+
+        assert_eq!(render_pass.opaque_buffers.len(), 1);
+        assert_eq!(render_pass.transparent_buffers.len(), 1);
+        assert_eq!(render_pass.additive_buffers.len(), 1);
+        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[0], &opaque));
+        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &alpha));
+        assert!(Arc::ptr_eq(&render_pass.additive_buffers[0], &additive));
+    }
+
+    #[test]
+    fn transparent_scene_buffers_sort_back_to_front_from_camera() {
+        let near = test_buffer_at(Vec3::new(1.0, 0.0, 0.0));
+        let far = test_buffer_at(Vec3::new(5.0, 0.0, 0.0));
+        let mut scene = SceneClass::new();
+        scene.add_particle_buffer(near.clone(), BlendMode::Alpha);
+        scene.add_particle_buffer(far.clone(), BlendMode::Alpha);
+
+        let mut render_pass = ParticleRenderPass::new();
+        render_pass.collect_scene_buffers(&scene);
+        render_pass.sort_transparent_particles(Vec3::ZERO);
+
+        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &far));
+        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[1], &near));
+    }
+
+    #[test]
+    fn camera_position_is_stateful() {
+        let mut camera = CameraClass::new(Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(camera.get_position(), Vec3::new(1.0, 2.0, 3.0));
+        camera.set_position(Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(camera.get_position(), Vec3::new(4.0, 5.0, 6.0));
     }
 }
