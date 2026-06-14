@@ -470,16 +470,13 @@ impl LightClass {
 
     /// Notify when light is added to scene
     pub fn notify_added(&mut self, scene: &mut SceneClass) -> Result<()> {
-        // Add light to scene's light list
-        // In a full implementation, this would register the light with the scene
-        let _ = scene;
+        scene.register_light_object(self.light_id as usize);
         Ok(())
     }
 
     /// Notify when light is removed from scene
     pub fn notify_removed(&mut self, scene: &mut SceneClass) -> Result<()> {
-        // Remove light from scene's light list
-        let _ = scene;
+        scene.unregister_light_object(self.light_id as usize);
         Ok(())
     }
 
@@ -1185,6 +1182,24 @@ mod tests {
 
         assert_eq!(light.get_position(), position);
         assert_eq!(light.get_transform(), transform);
+    }
+
+    #[test]
+    fn test_notify_added_removed_registers_scene_light_like_cpp() {
+        let mut scene = SceneClass::new();
+        let mut light = LightClass::new_point(Vec3::ZERO, Vec4::ONE, 100.0);
+        let id = light.light_id as usize;
+
+        light.notify_added(&mut scene).unwrap();
+        light.notify_added(&mut scene).unwrap();
+
+        assert!(scene.is_light_registered(id));
+        assert_eq!(scene.registered_light_count(), 1);
+
+        light.notify_removed(&mut scene).unwrap();
+
+        assert!(!scene.is_light_registered(id));
+        assert_eq!(scene.registered_light_count(), 0);
     }
 
     #[test]
