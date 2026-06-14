@@ -428,8 +428,8 @@ pub struct W3dCompressedAnimationStruct {
     pub name: [u8; 16],
     pub hiera_name: [u8; 16],
     pub num_frames: u32,
-    pub frame_rate: u32,
-    pub flavor: u32,
+    pub frame_rate: u16,
+    pub flavor: u16,
 }
 
 // HModel header structure
@@ -1211,8 +1211,8 @@ pub struct W3dCompressedAnimHeaderStruct {
     pub name: [u8; 16],
     pub hierarchy_name: [u8; 16],
     pub num_frames: u32,
-    pub frame_rate: u32,
-    pub flavor: u32, // ANIM_FLAVOR_TIMECODED or ANIM_FLAVOR_ADAPTIVE_DELTA
+    pub frame_rate: u16,
+    pub flavor: u16, // ANIM_FLAVOR_TIMECODED or ANIM_FLAVOR_ADAPTIVE_DELTA
 }
 
 /// Time-coded animation channel header (W3D_CHUNK_TIMECODED_CHANNEL)

@@ -11,7 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use thiserror::Error;
 use ww3d_core::{
     W3DChunkType, W3dAnimChannelStruct, W3dAnimationStruct, W3dBitChannelStruct, W3dChunkHeader,
-    W3dCompressedAnimationStruct, W3dHModelHeaderStruct, W3dHModelNodeStruct, W3dHierarchyStruct,
+    W3dCompressedAnimHeaderStruct, W3dHModelHeaderStruct, W3dHModelNodeStruct, W3dHierarchyStruct,
     W3dPivotStruct,
 };
 
@@ -336,7 +336,7 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
 ) -> Result<W3DAnimationData, W3DAnimationError> {
     let chunk_end = reader.stream_position()? + chunk_size as u64;
 
-    let mut header: Option<W3dCompressedAnimationStruct> = None;
+    let mut header: Option<W3dCompressedAnimHeaderStruct> = None;
 
     // First pass: read header to create HCompressedAnimClass
     let start_pos = reader.stream_position()?;
@@ -367,19 +367,19 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
         let sub_header: W3dChunkHeader = reader.read_le()?;
         let sub_start = reader.stream_position()?;
         let sub_end = sub_start + sub_header.actual_size() as u64;
+        let chunk_size = sub_header.actual_size();
 
         match sub_header.chunk_type() {
             Some(W3DChunkType::CompressedAnimationChannel) => {
-                // Read just enough to get pivot index
-                if sub_header.actual_size() >= 4 {
+                if chunk_size >= 6 {
+                    let _count: u32 = reader.read_le()?;
                     let pivot_index: u16 = reader.read_le()?;
                     max_pivot_index = max_pivot_index.max(pivot_index as u32);
                 }
             }
             Some(W3DChunkType::CompressedBitChannel) => {
-                // Bit channels also have pivot indices
-                if sub_header.actual_size() >= 6 {
-                    reader.seek(SeekFrom::Current(2))?; // Skip flags
+                if chunk_size >= 6 {
+                    let _num_timecodes: u32 = reader.read_le()?;
                     let pivot_index: u16 = reader.read_le()?;
                     max_pivot_index = max_pivot_index.max(pivot_index as u32);
                 }
@@ -394,12 +394,13 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
     let num_nodes = (max_pivot_index + 1).max(1) as usize;
 
     // Create HCompressedAnimClass with calculated num_nodes
+    let flavor = u32::from(header.flavor);
     let mut compressed_anim = HCompressedAnimClass::new(
         ww3d_core::w3d_string_from_bytes(&header.name),
-        ww3d_core::w3d_string_from_bytes(&header.hiera_name),
+        ww3d_core::w3d_string_from_bytes(&header.hierarchy_name),
         header.num_frames,
         num_nodes,
-        header.flavor,
+        flavor,
         header.frame_rate as f32,
     );
 
@@ -413,7 +414,7 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
 
         match sub_header.chunk_type() {
             Some(W3DChunkType::CompressedAnimationChannel) => {
-                match header.flavor {
+                match flavor {
                     ANIM_FLAVOR_TIMECODED => {
                         if let Ok(channel) =
                             parse_timecoded_motion_channel(reader, sub_header.actual_size())
@@ -450,10 +451,10 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
 
     Ok(W3DAnimationData {
         name: ww3d_core::w3d_string_from_bytes(&header.name),
-        hierarchy_name: ww3d_core::w3d_string_from_bytes(&header.hiera_name),
+        hierarchy_name: ww3d_core::w3d_string_from_bytes(&header.hierarchy_name),
         num_frames: header.num_frames,
         frame_rate: header.frame_rate as f32,
-        compression_flavor: Some(header.flavor),
+        compression_flavor: Some(flavor),
         channels: Vec::new(), // Compressed animations use HCompressedAnimClass instead
         bit_channels: Vec::new(),
         compressed_anim: Some(compressed_anim),
@@ -467,17 +468,19 @@ fn parse_timecoded_motion_channel<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
 ) -> Result<TimeCodedMotionChannelClass, W3DAnimationError> {
-    let channel_struct: W3dAnimChannelStruct = reader.read_le()?;
+    const HEADER_SIZE: u32 = 8;
+    if chunk_size < HEADER_SIZE {
+        return Err(W3DAnimationError::InvalidData(format!(
+            "timecoded channel too small: {chunk_size}"
+        )));
+    }
 
-    // Calculate number of timecodes from the data size
-    let header_size = std::mem::size_of::<W3dAnimChannelStruct>();
-    let remaining_bytes = chunk_size as usize - header_size;
-
-    let vector_len = channel_struct.vector_len.max(1) as usize;
-    let packet_size = vector_len + 1; // timecode + values
-    let num_timecodes = remaining_bytes / (packet_size * 4); // 4 bytes per u32
-
-    // Read the packed data as u32 array
+    let num_timecodes: u32 = reader.read_le()?;
+    let pivot: u16 = reader.read_le()?;
+    let vector_len_raw: u8 = reader.read_le()?;
+    let flags: u8 = reader.read_le()?;
+    let vector_len = usize::from(vector_len_raw.max(1));
+    let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
     let data_u32_count = remaining_bytes / 4;
     let mut data = Vec::with_capacity(data_u32_count);
     for _ in 0..data_u32_count {
@@ -486,9 +489,9 @@ fn parse_timecoded_motion_channel<R: Read + Seek>(
     }
 
     Ok(TimeCodedMotionChannelClass::new(
-        channel_struct.pivot as u32,
-        channel_struct.flags,
-        num_timecodes as u32,
+        pivot as u32,
+        flags as u16,
+        num_timecodes,
         vector_len,
         data,
     ))
@@ -501,38 +504,37 @@ fn parse_adaptive_delta_motion_channel<R: Read + Seek>(
     chunk_size: u32,
     num_frames: u32,
 ) -> Result<AdaptiveDeltaMotionChannelClass, W3DAnimationError> {
-    let channel_struct: W3dAnimChannelStruct = reader.read_le()?;
-
-    let header_size = std::mem::size_of::<W3dAnimChannelStruct>();
-    let remaining_bytes = chunk_size as usize - header_size;
-
-    let vector_len = channel_struct.vector_len.max(1) as usize;
-
-    // Read scale value (first float in data)
-    let scale: f32 = reader.read_le()?;
-
-    // Read remaining compressed data as u32 array
-    let data_u32_count = (remaining_bytes - 4) / 4; // -4 for scale float
-    let mut data = Vec::with_capacity(data_u32_count + vector_len);
-
-    // First, add the header floats (base values)
-    for _ in 0..vector_len {
-        let value: u32 = reader.read_le()?;
-        data.push(value);
+    const HEADER_SIZE: u32 = 12;
+    if chunk_size < HEADER_SIZE {
+        return Err(W3DAnimationError::InvalidData(format!(
+            "adaptive delta channel too small: {chunk_size}"
+        )));
     }
 
-    // Then add the remaining compressed packets
-    let remaining = data_u32_count - vector_len;
-    for _ in 0..remaining {
+    let channel_num_frames: u32 = reader.read_le()?;
+    let pivot: u16 = reader.read_le()?;
+    let vector_len_raw: u8 = reader.read_le()?;
+    let flags: u8 = reader.read_le()?;
+    let scale: f32 = reader.read_le()?;
+    let vector_len = usize::from(vector_len_raw.max(1));
+    let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
+
+    let data_u32_count = remaining_bytes / 4;
+    let mut data = Vec::with_capacity(data_u32_count);
+    for _ in 0..data_u32_count {
         let value: u32 = reader.read_le()?;
         data.push(value);
     }
 
     Ok(AdaptiveDeltaMotionChannelClass::new(
-        channel_struct.pivot as u32,
-        channel_struct.flags,
+        pivot as u32,
+        flags as u16,
         vector_len,
-        num_frames,
+        if channel_num_frames == 0 {
+            num_frames
+        } else {
+            channel_num_frames
+        },
         scale,
         data,
     ))
@@ -544,34 +546,31 @@ fn parse_timecoded_bit_channel<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
 ) -> Result<TimeCodedBitChannelClass, W3DAnimationError> {
-    let channel_struct: W3dAnimChannelStruct = reader.read_le()?;
+    const HEADER_SIZE: u32 = 8;
+    if chunk_size < HEADER_SIZE {
+        return Err(W3DAnimationError::InvalidData(format!(
+            "timecoded bit channel too small: {chunk_size}"
+        )));
+    }
 
-    let header_size = std::mem::size_of::<W3dAnimChannelStruct>();
-    let remaining_bytes = chunk_size as usize - header_size;
+    let num_timecodes: u32 = reader.read_le()?;
+    let pivot: u16 = reader.read_le()?;
+    let flags: u8 = reader.read_le()?;
+    let default_val: u8 = reader.read_le()?;
+    let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
 
-    // Read the default value (first byte)
-    let default_val: i32 = if remaining_bytes > 0 {
-        let byte: u8 = reader.read_le()?;
-        byte as i32
-    } else {
-        1 // Default to visible
-    };
-
-    // Calculate number of timecodes
-    let num_timecodes = (remaining_bytes - 1) / 4; // -1 for default byte, / 4 for u32 size
-
-    // Read timecode data
-    let mut bits = Vec::with_capacity(num_timecodes);
-    for _ in 0..num_timecodes {
+    let num_words = remaining_bytes / 4;
+    let mut bits = Vec::with_capacity(num_timecodes as usize);
+    for _ in 0..num_words {
         let value: u32 = reader.read_le()?;
         bits.push(value);
     }
 
     Ok(TimeCodedBitChannelClass::new(
-        channel_struct.pivot as u32,
-        channel_struct.flags,
-        default_val,
-        num_timecodes as u32,
+        pivot as u32,
+        flags as u16,
+        default_val as i32,
+        num_timecodes,
         bits,
     ))
 }
@@ -1103,6 +1102,55 @@ mod tests {
         file
     }
 
+    fn compressed_animation_with_timecoded_channels_fixture() -> Vec<u8> {
+        let mut header = Vec::new();
+        push_u32(&mut header, 0x0001);
+        header.extend_from_slice(&fixed_name("Move"));
+        header.extend_from_slice(&fixed_name("Unit"));
+        push_u32(&mut header, 5);
+        push_u16(&mut header, 30);
+        push_u16(&mut header, ANIM_FLAVOR_TIMECODED as u16);
+
+        let mut x_channel = Vec::new();
+        push_u32(&mut x_channel, 2);
+        push_u16(&mut x_channel, 2);
+        x_channel.push(1);
+        x_channel.push(0);
+        push_u32(&mut x_channel, 0);
+        push_u32(&mut x_channel, 1.5f32.to_bits());
+        push_u32(&mut x_channel, 4);
+        push_u32(&mut x_channel, 3.0f32.to_bits());
+
+        let mut bit_channel = Vec::new();
+        push_u32(&mut bit_channel, 2);
+        push_u16(&mut bit_channel, 3);
+        bit_channel.push(1);
+        bit_channel.push(1);
+        push_u32(&mut bit_channel, 0);
+        push_u32(&mut bit_channel, 4 | 0x8000_0000);
+
+        let mut anim_payload = Vec::new();
+        push_chunk(
+            &mut anim_payload,
+            W3DChunkType::CompressedAnimationHeader,
+            &header,
+        );
+        push_chunk(
+            &mut anim_payload,
+            W3DChunkType::CompressedAnimationChannel,
+            &x_channel,
+        );
+        push_chunk(
+            &mut anim_payload,
+            W3DChunkType::CompressedBitChannel,
+            &bit_channel,
+        );
+
+        let mut file = Vec::new();
+        push_chunk(&mut file, W3DChunkType::CompressedAnimation, &anim_payload);
+        file
+    }
+
     #[test]
     fn test_channel_type_detection() {
         // Test that we can detect different channel types from flags
@@ -1246,6 +1294,33 @@ mod tests {
         assert!(!hanim.get_visibility(2, 3.0));
         assert!(hanim.get_visibility(2, 4.0));
         assert!(hanim.get_visibility(2, 5.0));
+    }
+
+    #[test]
+    fn load_w3d_animation_reads_compressed_header_and_channel_layouts() {
+        let bytes = compressed_animation_with_timecoded_channels_fixture();
+        let mut cursor = Cursor::new(bytes);
+
+        let anim_data = load_w3d_animation(&mut cursor).expect("load compressed animation");
+
+        assert_eq!(anim_data.name, "Move");
+        assert_eq!(anim_data.hierarchy_name, "Unit");
+        assert_eq!(anim_data.num_frames, 5);
+        assert_eq!(anim_data.frame_rate, 30.0);
+        assert_eq!(anim_data.compression_flavor, Some(ANIM_FLAVOR_TIMECODED));
+
+        let mut compressed = anim_data.compressed_anim.expect("compressed animation");
+        assert_eq!(compressed.get_name(), "Move");
+        assert_eq!(compressed.get_hname(), "Unit");
+        assert_eq!(compressed.get_num_frames(), 5);
+        assert_eq!(compressed.get_frame_rate(), 30.0);
+        assert_eq!(compressed.get_flavor(), ANIM_FLAVOR_TIMECODED);
+        assert_eq!(compressed.get_num_pivots(), 4);
+        assert!(compressed.has_x_translation(2));
+        assert!(compressed.has_visibility(3));
+        assert_eq!(compressed.get_translation(2, 0.0).x, 1.5);
+        assert!(!compressed.get_visibility(3, 0.0));
+        assert!(compressed.get_visibility(3, 4.0));
     }
 
     #[test]
