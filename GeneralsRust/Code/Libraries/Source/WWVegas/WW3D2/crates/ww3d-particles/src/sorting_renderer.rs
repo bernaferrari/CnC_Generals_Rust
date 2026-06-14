@@ -405,7 +405,7 @@ impl SortingRenderer {
         });
     }
 
-    /// Calculate the Z depth of a triangle (simplified)
+    /// Calculate the C++ sorting depth as the average transformed vertex Z.
     fn calculate_triangle_z(
         &self,
         node: &SortingNode,
@@ -642,6 +642,39 @@ mod tests {
         let commands = renderer.flush_to_draw_commands();
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].triangle_count, 2);
+        assert_eq!(commands[0].indices[0], TriangleIndices { i: 3, j: 4, k: 5 });
+        assert_eq!(commands[0].indices[1], TriangleIndices { i: 0, j: 1, k: 2 });
+    }
+
+    #[test]
+    fn triangle_depth_uses_average_transformed_vertex_z() {
+        let mut renderer = SortingRenderer::new_cpu_only();
+        let vertices = vec![
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(0.0, 1.0, 1.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 6.0),
+        ];
+        let indices = vec![
+            TriangleIndices { i: 0, j: 1, k: 2 },
+            TriangleIndices { i: 3, j: 4, k: 5 },
+        ];
+
+        renderer.insert_indexed_triangles(
+            BoundingSphere::new(Vec3::ZERO, 1.0),
+            0,
+            2,
+            0,
+            6,
+            &vertices,
+            &indices,
+            &Mat4::IDENTITY,
+        );
+
+        let commands = renderer.flush_to_draw_commands();
+        assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].indices[0], TriangleIndices { i: 3, j: 4, k: 5 });
         assert_eq!(commands[0].indices[1], TriangleIndices { i: 0, j: 1, k: 2 });
     }
