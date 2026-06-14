@@ -945,6 +945,42 @@ impl RoadSegment {
         )
     }
 
+    fn generate_w3d_segment_geometry(&self) -> TerrainResult<RoadGeometry> {
+        const U_OFFSET: f32 = 0.0;
+        const V_OFFSET: f32 = 85.0 / 512.0;
+
+        let road_vector = self.end - self.start;
+        let mut road_normal = Vec3::new(-road_vector.z, 0.0, road_vector.x);
+        if road_normal.length_squared() <= 1.0e-6 {
+            road_normal = Vec3::new(0.0, 0.0, 1.0);
+        } else {
+            road_normal = road_normal.normalize();
+        }
+
+        let scale = self.width.max(0.1);
+        let width_in_texture = self
+            .runtime_texture_override_f32("WidthInTexture")
+            .unwrap_or(1.0)
+            .max(0.1);
+        road_normal *= width_in_texture * scale / 2.0;
+
+        let bottom_left = self.start - road_normal;
+        let top_left = self.start + road_normal;
+        let bottom_right = self.end - road_normal;
+        let top_right = self.end + road_normal;
+
+        self.generate_float4pt_strip_geometry(
+            self.start,
+            road_normal,
+            road_vector,
+            [bottom_left, bottom_right, top_left, top_right],
+            U_OFFSET,
+            V_OFFSET,
+            scale,
+            scale,
+        )
+    }
+
     fn generate_curve_geometry(&self) -> TerrainResult<RoadGeometry> {
         let mut road_vector = self.end - self.start;
         road_vector.y = 0.0;
@@ -1157,6 +1193,11 @@ impl RoadSegment {
     pub fn generate_geometry(&mut self, config: &RoadGenerationConfig) -> TerrainResult<()> {
         if self.runtime_kind_is("ALPHA_JOIN") {
             self.geometry = Some(self.generate_alpha_join_geometry()?);
+            self.dirty = false;
+            return Ok(());
+        }
+        if self.runtime_kind_is("SEGMENT") {
+            self.geometry = Some(self.generate_w3d_segment_geometry()?);
             self.dirty = false;
             return Ok(());
         }
@@ -2513,6 +2554,33 @@ mod tests {
         assert_vertex_position(&geometry.vertices[1], Vec3::new(-7.95, 0.0, 2.9));
         assert_near(geometry.vertices[0].tex_coords[0], 0.29929686);
         assert_near(geometry.vertices[0].tex_coords[1], 0.63890624);
+    }
+
+    #[test]
+    fn test_kind_segment_uses_w3d_preload_segment_quad() {
+        let mut segment = RoadSegment::new(
+            1,
+            1,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 0.0),
+            10.0,
+        );
+        segment.properties.texture_override = Some("Kind=SEGMENT WidthInTexture=1.0".to_string());
+
+        segment
+            .generate_geometry(&RoadGenerationConfig::default())
+            .unwrap();
+        let geometry = segment.geometry.as_ref().unwrap();
+        let last = geometry.vertices.len() - 2;
+
+        assert_vertex_position(&geometry.vertices[0], Vec3::new(0.0, 0.0, -5.0));
+        assert_vertex_position(&geometry.vertices[1], Vec3::new(0.0, 0.0, 5.0));
+        assert_vertex_position(&geometry.vertices[last], Vec3::new(20.0, 0.0, -5.0));
+        assert_vertex_position(&geometry.vertices[last + 1], Vec3::new(20.0, 0.0, 5.0));
+        assert_near(geometry.vertices[0].tex_coords[0], 0.0);
+        assert_near(geometry.vertices[0].tex_coords[1], 0.29101563);
+        assert_near(geometry.vertices[last].tex_coords[0], 0.5);
+        assert_near(geometry.vertices[last].tex_coords[1], 0.29101563);
     }
 
     #[test]
