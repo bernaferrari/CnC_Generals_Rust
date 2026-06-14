@@ -2118,6 +2118,32 @@ impl TerrainVisualImpl {
         }
     }
 
+    fn terrain_static_diffuse_from_normal(
+        normal: Vec3,
+        light_pos: Vec3,
+        sun_color: [f32; 3],
+        ambient_color: [f32; 3],
+    ) -> [f32; 4] {
+        let normal = if normal.length_squared() > 1.0e-8 && normal.is_finite() {
+            normal.normalize()
+        } else {
+            Vec3::Y
+        };
+        let light_ray = if light_pos.length_squared() > 1.0e-8 && light_pos.is_finite() {
+            (-light_pos).normalize()
+        } else {
+            Vec3::Y
+        };
+        let intensity = normal.dot(light_ray).max(0.0);
+
+        [
+            (ambient_color[0] + sun_color[0] * intensity).clamp(0.0, 1.0),
+            (ambient_color[1] + sun_color[1] * intensity).clamp(0.0, 1.0),
+            (ambient_color[2] + sun_color[2] * intensity).clamp(0.0, 1.0),
+            1.0,
+        ]
+    }
+
     fn ensure_terrain_definitions(&mut self, reference: Option<&Path>) -> TerrainResult<()> {
         let reference = reference.or_else(|| {
             if self.filename.is_empty() {
@@ -4774,9 +4800,21 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         if let Some(height_map) = self.height_map.as_ref() {
             if self.road_system.needs_terrain_normal_reprojection() {
-                self.road_system.apply_terrain_heights_and_normals(
+                let light_pos = self.sun_direction;
+                let sun_color = self.sun_color;
+                let ambient_color = self.ambient_color;
+                self.road_system.apply_terrain_heights_normals_and_diffuse(
                     |pos| height_map.get_height_at(pos.x, pos.z),
                     |pos| height_map.get_normal_at(pos.x, pos.z),
+                    |pos| {
+                        let normal = height_map.get_normal_at(pos.x, pos.z);
+                        Self::terrain_static_diffuse_from_normal(
+                            normal,
+                            light_pos,
+                            sun_color,
+                            ambient_color,
+                        )
+                    },
                 );
             }
         }
@@ -5058,7 +5096,14 @@ mod tests {
     fn alpha_join_synthesis_scales_texture_width_not_road_width_like_cpp() {
         let source_width = 10.0;
         let segments = vec![
-            runtime_road_segment([0.0, 0.0, 0.0], [20.0, 0.0, 0.0], source_width, 2.0, 1, true),
+            runtime_road_segment(
+                [0.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                source_width,
+                2.0,
+                1,
+                true,
+            ),
             runtime_road_segment([-5.0, 0.0, -5.0], [5.0, 0.0, 5.0], 10.0, 1.0, 2, false),
         ];
         let topology = vec![
@@ -5077,6 +5122,25 @@ mod tests {
         assert_eq!(joins.len(), 1);
         assert!((joins[0].width - source_width).abs() < 0.001);
         assert!(joins[0].width_in_texture > source_width);
+    }
+
+    #[test]
+    fn terrain_static_diffuse_uses_negative_light_position_and_clamps() {
+        let diffuse = TerrainVisualImpl::terrain_static_diffuse_from_normal(
+            Vec3::Y,
+            Vec3::new(0.0, -1.0, 0.0),
+            [0.6, 0.5, 0.4],
+            [0.2, 0.2, 0.2],
+        );
+        assert_eq!(diffuse, [0.8, 0.7, 0.6, 1.0]);
+
+        let clamped = TerrainVisualImpl::terrain_static_diffuse_from_normal(
+            Vec3::Y,
+            Vec3::new(0.0, -1.0, 0.0),
+            [0.8, 0.8, 0.8],
+            [0.5, 0.4, 0.3],
+        );
+        assert_eq!(clamped, [1.0, 1.0, 1.0, 1.0]);
     }
 }
 
