@@ -137,6 +137,61 @@ impl W3DRadar {
         self.reconstruct_view_box = true;
     }
 
+    fn world_to_radar_unclamped(&self, world: &Coord3D) -> Option<ICoord2D> {
+        let extent = self.radar.map_extent();
+        let x_sample = extent.width() / RADAR_CELL_WIDTH as f32;
+        let y_sample = extent.height() / RADAR_CELL_HEIGHT as f32;
+        if x_sample <= f32::EPSILON || y_sample <= f32::EPSILON {
+            return None;
+        }
+
+        Some(ICoord2D::new(
+            ((world.x - extent.lo.x) / x_sample) as i32,
+            ((world.y - extent.lo.y) / y_sample) as i32,
+        ))
+    }
+
+    /// Rebuild the cached view-box radar-cell offsets from tactical-view corners.
+    ///
+    /// C++ `W3DRadar::reconstructViewBox` stores the first corner as `(0, 0)` and
+    /// each later corner as a delta from the previous corner. Drawing then starts
+    /// from the current screen-origin world point and walks these cached offsets.
+    pub fn reconstruct_view_box_from_corners(
+        &mut self,
+        corner_world: [Coord3D; 4],
+        view_angle: f32,
+        view_zoom: f32,
+    ) -> bool {
+        let mut previous = ICoord2D::new(0, 0);
+
+        for (index, world) in corner_world.iter().enumerate() {
+            let Some(radar) = self.world_to_radar_unclamped(world) else {
+                return false;
+            };
+
+            self.view_box[index] = if index == 0 {
+                ICoord2D::new(0, 0)
+            } else {
+                ICoord2D::new(radar.x - previous.x, radar.y - previous.y)
+            };
+            previous = radar;
+        }
+
+        self.view_angle = view_angle;
+        self.view_zoom = view_zoom;
+        self.reconstruct_view_box = false;
+        true
+    }
+
+    /// Mirror C++ draw-time invalidation when tactical-view angle or zoom changes.
+    pub fn update_view_box_camera_state(&mut self, view_angle: f32, view_zoom: f32) -> bool {
+        if view_angle != self.view_angle || view_zoom != self.view_zoom {
+            self.reconstruct_view_box = true;
+        }
+
+        self.reconstruct_view_box
+    }
+
     /// Select texture formats using C++ preference ordering.
     pub fn initialize_texture_formats(&mut self) {
         let supported = [
@@ -357,5 +412,42 @@ mod tests {
 
         let pixel = radar.radar_to_pixel(&ICoord2D::new(0, 0), 10, 20, 128, 128);
         assert_eq!(pixel, ICoord2D::new(10, 147));
+    }
+
+    #[test]
+    fn reconstruct_view_box_caches_cpp_corner_offsets() {
+        let mut radar = W3DRadar::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 10.0),
+            &[],
+        );
+
+        assert!(radar.should_reconstruct_view_box());
+        assert!(radar.reconstruct_view_box_from_corners(
+            [
+                Coord3D::new(32.0, 32.0, 0.0),
+                Coord3D::new(96.0, 32.0, 0.0),
+                Coord3D::new(96.0, 96.0, 0.0),
+                Coord3D::new(32.0, 96.0, 0.0),
+            ],
+            1.25,
+            0.5,
+        ));
+
+        assert!(!radar.should_reconstruct_view_box());
+        assert_eq!(
+            radar.view_box(),
+            &[
+                ICoord2D::new(0, 0),
+                ICoord2D::new(64, 0),
+                ICoord2D::new(0, 64),
+                ICoord2D::new(-64, 0),
+            ]
+        );
+
+        assert!(!radar.update_view_box_camera_state(1.25, 0.5));
+        assert!(radar.update_view_box_camera_state(1.25, 0.75));
+        assert!(radar.should_reconstruct_view_box());
     }
 }
