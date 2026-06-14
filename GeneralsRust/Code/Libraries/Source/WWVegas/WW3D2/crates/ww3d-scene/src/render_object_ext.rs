@@ -89,6 +89,17 @@ pub struct BoneAttachment {
     cached_world_transform: Mat4,
 }
 
+impl Clone for BoneAttachment {
+    fn clone(&self) -> Self {
+        Self {
+            bone_name: self.bone_name.clone(),
+            object: self.object.clone_obj(),
+            local_transform: self.local_transform,
+            cached_world_transform: self.cached_world_transform,
+        }
+    }
+}
+
 impl BoneAttachment {
     /// Create a new bone attachment
     /// C++ Reference: bone_attachment.cpp lines 50-65
