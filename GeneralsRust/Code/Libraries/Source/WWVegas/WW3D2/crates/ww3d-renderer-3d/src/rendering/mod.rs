@@ -50,6 +50,7 @@ pub mod render_target;
 pub mod mesh_geometry;
 pub mod mesh_mat_desc;
 pub mod mesh_model;
+pub mod modern_texture_manager;
 
 // Re-export commonly used types
 pub use crate::scene_system::{PolyRenderType, SceneClass, SceneId, SceneManagerClass};

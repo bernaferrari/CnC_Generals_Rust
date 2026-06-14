@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use wgpu::{Device, Queue};
+use ww3d_core::W3dTextureStruct;
 
 /// Texture loading priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -196,11 +197,59 @@ impl TextureLoader {
         Ok(result)
     }
 
+    /// Load a texture referenced by a W3D texture descriptor.
+    ///
+    /// C++ `Load_Texture` reads the texture filename, derives mip count and
+    /// format from `W3DTEXTURE_*`, loads through the asset manager, then applies
+    /// U/V address modes from the same flags.
+    pub fn load_w3d_descriptor(
+        &mut self,
+        descriptor: &W3dTextureStruct,
+        pool: PoolType,
+    ) -> RendererResult<TextureBaseClass> {
+        let name = w3d_texture_name(descriptor)?;
+        let request = texture_request_from_w3d_descriptor(descriptor);
+        let cache_key = w3d_texture_cache_key(&name, &request);
+
+        if let Some(texture) = self.loaded_textures.get(&cache_key) {
+            return Ok((**texture).clone());
+        }
+
+        let mut texture =
+            self.load_texture_from_file_internal_with_request(&name, pool, &request)?;
+        texture.set_name(&name);
+        texture.set_full_path(&name);
+        texture.set_u_address_mode(request.address_u);
+        texture.set_v_address_mode(request.address_v);
+        texture.set_usage_policy(TextureUsagePolicy::new(
+            true,
+            request.allow_reduction,
+            request.requested_mip_levels,
+        ));
+
+        let result = texture.clone();
+        self.loaded_textures.insert(cache_key, Box::new(texture));
+        Ok(result)
+    }
+
     /// Internal method to load texture from file
     fn load_texture_from_file_internal(
         &self,
         filename: &str,
         pool: PoolType,
+    ) -> RendererResult<TextureBaseClass> {
+        self.load_texture_from_file_internal_with_request(
+            filename,
+            pool,
+            &TextureDescriptorRequest::default(),
+        )
+    }
+
+    fn load_texture_from_file_internal_with_request(
+        &self,
+        filename: &str,
+        pool: PoolType,
+        request: &TextureDescriptorRequest,
     ) -> RendererResult<TextureBaseClass> {
         let path = Path::new(filename);
         let mut decode_error: Option<Error> = None;
@@ -215,20 +264,50 @@ impl TextureLoader {
                         };
 
                         let allow_compression = true;
-                        let decision =
-                            self.format_manager
-                                .decide(data.format, None, allow_compression);
+                        let decision = self.format_manager.decide(
+                            data.format,
+                            request.desired_format,
+                            allow_compression,
+                        );
                         data = data.convert_to_format(&decision)?;
 
-                        if matches!(data.kind, TextureDataKind::Texture2D) {
-                            let reduction = texture_quality::compute_effective_reduction(
+                        if let Some(target) = request.requested_mip_levels {
+                            if target > data.mip_levels && request.generate_mipmaps {
+                                if let Err(err) = data.ensure_mip_levels(target) {
+                                    warn!("Failed to generate mipmaps for {}: {}", filename, err);
+                                }
+                            }
+                        } else if request.generate_mipmaps {
+                            let desired = data.max_possible_mip_levels();
+                            if desired > data.mip_levels {
+                                if let Err(err) = data.ensure_mip_levels(desired) {
+                                    warn!(
+                                        "Failed to generate full mip chain for {}: {}",
+                                        filename, err
+                                    );
+                                }
+                            }
+                        }
+
+                        if matches!(data.kind, TextureDataKind::Texture2D)
+                            && request.allow_reduction
+                        {
+                            let mut reduction = texture_quality::compute_effective_reduction(
                                 data.width,
                                 data.height,
                                 data.mip_levels,
                             );
+                            if let Some(target) = request.requested_mip_levels {
+                                let max_drop = data.mip_levels.saturating_sub(target.max(1));
+                                reduction = reduction.min(max_drop);
+                            }
                             if reduction > 0 {
                                 data = data.drop_mip_levels(reduction);
                             }
+                        }
+
+                        if let Some(target) = request.requested_mip_levels {
+                            data = data.truncate_to_mip_count(target.max(1));
                         }
 
                         let full_path = candidate.to_string_lossy().to_string();
@@ -240,7 +319,11 @@ impl TextureLoader {
                             asset_type,
                         );
                         texture_base.apply_texture_data(&data);
-                        texture_base.set_usage_policy(TextureUsagePolicy::default());
+                        texture_base.set_usage_policy(TextureUsagePolicy::new(
+                            true,
+                            request.allow_reduction,
+                            request.requested_mip_levels,
+                        ));
                         texture_base.ensure_gpu_texture(&self.device, &self.queue)?;
                         texture_base.set_full_path(&full_path);
                         return Ok(texture_base);
@@ -338,9 +421,114 @@ impl TextureLoader {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextureDescriptorRequest {
+    requested_mip_levels: Option<u32>,
+    generate_mipmaps: bool,
+    allow_reduction: bool,
+    desired_format: Option<WW3DFormat>,
+    address_u: crate::rendering::texture_system::texture_base::TextureAddressMode,
+    address_v: crate::rendering::texture_system::texture_base::TextureAddressMode,
+}
+
+impl Default for TextureDescriptorRequest {
+    fn default() -> Self {
+        Self {
+            requested_mip_levels: None,
+            generate_mipmaps: false,
+            allow_reduction: true,
+            desired_format: None,
+            address_u: crate::rendering::texture_system::texture_base::TextureAddressMode::Wrap,
+            address_v: crate::rendering::texture_system::texture_base::TextureAddressMode::Wrap,
+        }
+    }
+}
+
+fn w3d_texture_name(descriptor: &W3dTextureStruct) -> RendererResult<String> {
+    let len = descriptor
+        .name
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(descriptor.name.len());
+    let name = String::from_utf8_lossy(&descriptor.name[..len])
+        .trim()
+        .to_string();
+
+    if name.is_empty() {
+        return Err(Error::InvalidData(
+            "W3D texture descriptor is missing a texture name".to_string(),
+        ));
+    }
+
+    Ok(name)
+}
+
+fn texture_request_from_w3d_descriptor(descriptor: &W3dTextureStruct) -> TextureDescriptorRequest {
+    use crate::rendering::texture_system::texture_base::TextureAddressMode;
+
+    let attrs = descriptor.texture_info.attributes;
+    let no_lod = attrs & ww3d_core::W3D_TEXTURE_NO_LOD != 0;
+    let requested_mip_levels = if no_lod {
+        Some(1)
+    } else {
+        match attrs & ww3d_core::W3D_TEXTURE_MIP_LEVELS_MASK {
+            ww3d_core::W3D_TEXTURE_MIP_LEVELS_ALL => None,
+            ww3d_core::W3D_TEXTURE_MIP_LEVELS_2 => Some(2),
+            ww3d_core::W3D_TEXTURE_MIP_LEVELS_3 => Some(3),
+            ww3d_core::W3D_TEXTURE_MIP_LEVELS_4 => Some(4),
+            _ => None,
+        }
+    };
+
+    let stage = crate::material_system::TextureStageSettings::from_descriptor(descriptor);
+    let desired_format = if matches!(
+        stage.texture_type,
+        crate::material_system::TextureStageType::BumpMap
+    ) {
+        Some(WW3DFormat::U8V8)
+    } else {
+        None
+    };
+
+    TextureDescriptorRequest {
+        requested_mip_levels,
+        generate_mipmaps: !no_lod,
+        allow_reduction: !no_lod,
+        desired_format,
+        address_u: if attrs & ww3d_core::W3D_TEXTURE_CLAMP_U != 0 {
+            TextureAddressMode::Clamp
+        } else {
+            TextureAddressMode::Wrap
+        },
+        address_v: if attrs & ww3d_core::W3D_TEXTURE_CLAMP_V != 0 {
+            TextureAddressMode::Clamp
+        } else {
+            TextureAddressMode::Wrap
+        },
+    }
+}
+
+fn w3d_texture_cache_key(name: &str, request: &TextureDescriptorRequest) -> String {
+    format!(
+        "{}|mips={:?}|fmt={:?}|u={:?}|v={:?}|reduce={}",
+        name,
+        request.requested_mip_levels,
+        request.desired_format,
+        request.address_u,
+        request.address_v,
+        request.allow_reduction
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PendingTextureLoad, TextureLoadPriority, TextureLoader};
+    use super::{
+        texture_request_from_w3d_descriptor, w3d_texture_cache_key, w3d_texture_name,
+        PendingTextureLoad, TextureDescriptorRequest, TextureLoadPriority, TextureLoader,
+    };
+    use crate::core::WW3DFormat;
+    use crate::rendering::texture_system::texture_base::TextureAddressMode;
+    use ww3d_core::{W3dTextureInfoStruct, W3dTextureStruct};
 
     #[test]
     fn pending_queue_upsert_promotes_priority_without_duplicates() {
@@ -382,6 +570,82 @@ mod tests {
                 TextureLoadPriority::High,
                 TextureLoadPriority::Low
             ]
+        );
+    }
+
+    fn descriptor(name: &str, attrs: u16) -> W3dTextureStruct {
+        let mut raw = [0u8; 256];
+        raw[..name.len()].copy_from_slice(name.as_bytes());
+        W3dTextureStruct {
+            name: raw,
+            texture_info: W3dTextureInfoStruct {
+                attributes: attrs,
+                animation_type: 0,
+                frame_count: 0,
+                frame_rate: 0.0,
+            },
+        }
+    }
+
+    #[test]
+    fn w3d_descriptor_name_trims_c_string_like_cpp_chunk_name() {
+        let tex = descriptor("terrain.tga", 0);
+        assert_eq!(w3d_texture_name(&tex).unwrap(), "terrain.tga");
+    }
+
+    #[test]
+    fn w3d_descriptor_flags_match_cpp_load_texture_mip_and_address_rules() {
+        let tex = descriptor(
+            "cliff.dds",
+            ww3d_core::W3D_TEXTURE_MIP_LEVELS_3
+                | ww3d_core::W3D_TEXTURE_CLAMP_U
+                | ww3d_core::W3D_TEXTURE_CLAMP_V,
+        );
+
+        let request = texture_request_from_w3d_descriptor(&tex);
+
+        assert_eq!(request.requested_mip_levels, Some(3));
+        assert!(request.generate_mipmaps);
+        assert!(request.allow_reduction);
+        assert_eq!(request.address_u, TextureAddressMode::Clamp);
+        assert_eq!(request.address_v, TextureAddressMode::Clamp);
+        assert_eq!(request.desired_format, None);
+    }
+
+    #[test]
+    fn w3d_no_lod_disables_mips_and_reduction_like_cpp_filter_none() {
+        let tex = descriptor(
+            "button",
+            ww3d_core::W3D_TEXTURE_NO_LOD | ww3d_core::W3D_TEXTURE_MIP_LEVELS_4,
+        );
+
+        let request = texture_request_from_w3d_descriptor(&tex);
+
+        assert_eq!(request.requested_mip_levels, Some(1));
+        assert!(!request.generate_mipmaps);
+        assert!(!request.allow_reduction);
+    }
+
+    #[test]
+    fn w3d_bump_map_requests_bump_format_preference() {
+        let tex = descriptor("normalmap", ww3d_core::W3D_TEXTURE_TYPE_BUMPMAP);
+
+        let request = texture_request_from_w3d_descriptor(&tex);
+
+        assert_eq!(request.desired_format, Some(WW3DFormat::U8V8));
+    }
+
+    #[test]
+    fn w3d_texture_cache_key_separates_same_file_with_different_sampler_policy() {
+        let base = TextureDescriptorRequest::default();
+        let clamped = TextureDescriptorRequest {
+            address_u: TextureAddressMode::Clamp,
+            ..TextureDescriptorRequest::default()
+        };
+
+        assert_ne!(
+            w3d_texture_cache_key("shared.dds", &base),
+            w3d_texture_cache_key("shared.dds", &clamped)
         );
     }
 }
