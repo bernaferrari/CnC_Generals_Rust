@@ -118,6 +118,9 @@ pub struct RoadSegmentProperties {
 pub enum RoadSyntheticIntersectionKind {
     Tee,
     FourWay,
+    ThreeWayY,
+    ThreeWayH,
+    ThreeWayHFlip,
 }
 
 /// Types of roads with different appearances
@@ -764,6 +767,19 @@ impl RoadSegment {
         &self,
         kind: RoadSyntheticIntersectionKind,
     ) -> TerrainResult<RoadGeometry> {
+        match kind {
+            RoadSyntheticIntersectionKind::Tee | RoadSyntheticIntersectionKind::FourWay => {}
+            RoadSyntheticIntersectionKind::ThreeWayY => {
+                return self.generate_three_way_y_geometry()
+            }
+            RoadSyntheticIntersectionKind::ThreeWayH => {
+                return self.generate_three_way_h_geometry(false);
+            }
+            RoadSyntheticIntersectionKind::ThreeWayHFlip => {
+                return self.generate_three_way_h_geometry(true);
+            }
+        }
+
         let loc1 = self.start;
         let loc2 = self.end;
         let road_vector = loc2 - loc1;
@@ -779,6 +795,9 @@ impl RoadSegment {
         let v_offset = match kind {
             RoadSyntheticIntersectionKind::Tee => 255.0 / 512.0,
             RoadSyntheticIntersectionKind::FourWay => 425.0 / 512.0,
+            RoadSyntheticIntersectionKind::ThreeWayY
+            | RoadSyntheticIntersectionKind::ThreeWayH
+            | RoadSyntheticIntersectionKind::ThreeWayHFlip => unreachable!(),
         };
 
         self.generate_float_section(
@@ -789,6 +808,88 @@ impl RoadSegment {
             right,
             u_offset,
             v_offset,
+            scale,
+        )
+    }
+
+    fn road_frame_for_w3d_join(&self) -> (Vec3, Vec3, f32) {
+        let mut road_vector = self.end - self.start;
+        road_vector.y = 0.0;
+        let mut road_normal = Vec3::new(-road_vector.z, 0.0, road_vector.x);
+        if road_vector.x.abs() < 1.0e-6 && road_vector.z.abs() < 1.0e-6 {
+            road_vector = Vec3::new(1.0, 0.0, 0.0);
+            road_normal = Vec3::new(0.0, 0.0, 1.0);
+        } else {
+            road_vector = road_vector.normalize();
+            road_normal = road_normal.normalize_or_zero();
+        }
+
+        (road_vector, road_normal, self.width.max(0.1))
+    }
+
+    fn generate_three_way_y_geometry(&self) -> TerrainResult<RoadGeometry> {
+        const U_OFFSET: f32 = 255.0 / 512.0;
+        const V_OFFSET: f32 = 226.0 / 512.0;
+
+        let (mut road_vector, mut road_normal, scale) = self.road_frame_for_w3d_join();
+        road_vector *= scale;
+        road_normal *= scale;
+        road_vector *= 1.59;
+
+        let loc = self.start;
+        let top_left = loc + road_normal * 0.29 - road_vector * 0.5;
+        let bottom_left = top_left - road_normal * 1.08;
+        let bottom_right = bottom_left + road_vector;
+        let top_right = top_left + road_vector;
+
+        self.generate_float4pt_strip_geometry(
+            loc,
+            road_normal,
+            road_vector,
+            [bottom_left, bottom_right, top_left, top_right],
+            U_OFFSET,
+            V_OFFSET,
+            scale,
+            scale,
+        )
+    }
+
+    fn generate_three_way_h_geometry(&self, flip: bool) -> TerrainResult<RoadGeometry> {
+        const U_OFFSET: f32 = 202.0 / 512.0;
+        const V_OFFSET: f32 = 364.0 / 512.0;
+
+        let (mut road_vector, mut road_normal, scale) = self.road_frame_for_w3d_join();
+        let width_in_texture = self
+            .runtime_texture_override_f32("WidthInTexture")
+            .unwrap_or(1.0)
+            .max(0.1);
+
+        road_vector *= scale;
+        road_normal *= scale;
+        road_normal *= 1.35;
+
+        let loc = self.start;
+        let bottom_left = if flip {
+            loc - road_normal * 0.20 - road_vector * width_in_texture / 2.0
+        } else {
+            loc - road_normal * 0.8 - road_vector * width_in_texture / 2.0
+        };
+        let width = road_vector * width_in_texture / 2.0 + road_vector * 1.2;
+        let bottom_right = bottom_left + width;
+        let top_right = bottom_right + road_normal;
+        let top_left = bottom_left + road_normal;
+        if flip {
+            road_normal = -road_normal;
+        }
+
+        self.generate_float4pt_strip_geometry(
+            loc,
+            road_normal,
+            road_vector,
+            [bottom_left, bottom_right, top_left, top_right],
+            U_OFFSET,
+            V_OFFSET,
+            scale,
             scale,
         )
     }
@@ -2382,6 +2483,64 @@ mod tests {
             assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
             assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
         }
+    }
+
+    fn assert_vertex_position(vertex: &RoadVertex, expected: Vec3) {
+        assert!((vertex.position[0] - expected.x).abs() < 1.0e-4);
+        assert!((vertex.position[1] - expected.y).abs() < 1.0e-4);
+        assert!((vertex.position[2] - expected.z).abs() < 1.0e-4);
+    }
+
+    fn assert_near(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn test_three_way_y_geometry_uses_w3d_join_constants() {
+        let segment = RoadSegment::new(
+            1,
+            1,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 0.0),
+            10.0,
+        );
+
+        let geometry = segment
+            .generate_synthetic_intersection_geometry(RoadSyntheticIntersectionKind::ThreeWayY)
+            .unwrap();
+
+        assert_vertex_position(&geometry.vertices[0], Vec3::new(-7.95, 0.0, -7.9));
+        assert_vertex_position(&geometry.vertices[1], Vec3::new(-7.95, 0.0, 2.9));
+        assert_near(geometry.vertices[0].tex_coords[0], 0.29929686);
+        assert_near(geometry.vertices[0].tex_coords[1], 0.63890624);
+    }
+
+    #[test]
+    fn test_three_way_h_geometry_uses_w3d_join_constants_and_flip() {
+        let mut segment = RoadSegment::new(
+            1,
+            1,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(20.0, 0.0, 0.0),
+            10.0,
+        );
+        segment.properties.texture_override = Some("WidthInTexture=1.0".to_string());
+
+        let geometry = segment
+            .generate_synthetic_intersection_geometry(RoadSyntheticIntersectionKind::ThreeWayH)
+            .unwrap();
+        assert_vertex_position(&geometry.vertices[0], Vec3::new(-5.0, 0.0, -10.8));
+        assert_vertex_position(&geometry.vertices[1], Vec3::new(-5.0, 0.0, 2.7));
+        assert_vertex_position(&geometry.vertices[2], Vec3::new(12.0, 0.0, -10.8));
+        assert_near(geometry.vertices[0].tex_coords[0], 0.26953125);
+        assert_near(geometry.vertices[0].tex_coords[1], 0.9809375);
+
+        let flipped = segment
+            .generate_synthetic_intersection_geometry(RoadSyntheticIntersectionKind::ThreeWayHFlip)
+            .unwrap();
+        assert_vertex_position(&flipped.vertices[0], Vec3::new(-5.0, 0.0, -2.7));
+        assert_vertex_position(&flipped.vertices[1], Vec3::new(-5.0, 0.0, 10.8));
+        assert_vertex_position(&flipped.vertices[2], Vec3::new(12.0, 0.0, -2.7));
     }
 
     #[test]
