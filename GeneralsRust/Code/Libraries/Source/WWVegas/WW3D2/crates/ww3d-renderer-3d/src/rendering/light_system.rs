@@ -7,16 +7,15 @@
 //! - light.cpp/h (light class implementation)
 //! - lightenvironment.cpp/h (light environment management)
 
+use crate::core::error::{Error, Result};
+use crate::render_object_system::RenderObjClass;
+use crate::scene_system::scene::SceneClass;
+use glam::{Mat4, Vec3, Vec4};
+use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use glam::{Vec3, Vec4, Mat4, Quat};
-use crate::core::error::{W3dError, Result};
-use crate::render_object_system::{RenderObjClass, RenderObjClassId};
-use crate::bounding_volumes::{AABoxClass, SphereClass};
-use crate::scene_system::SceneManagerClass;
-use crate::scene_system::scene::SceneClass;
-use crate::core::ww3d_core::WW3D;
+use ww3d_collision::bounding_volumes::{aabox::AABoxClass, sphere::SphereClass};
 
 static LIGHT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -24,13 +23,108 @@ fn next_light_id() -> u32 {
     LIGHT_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
 }
 
+const DEFAULT_LIGHT_COLOR: Vec4 = Vec4::new(1.0, 1.0, 1.0, 1.0);
+const DEFAULT_FAR_ATTENUATION_START: f32 = 50.0;
+const DEFAULT_FAR_ATTENUATION_END: f32 = 100.0;
+const DEFAULT_SPOT_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+const DEFAULT_SPOT_DIRECTION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
+const DEFAULT_NEAR_ATTENUATION_START: f32 = 0.0;
+const DEFAULT_NEAR_ATTENUATION_END: f32 = 0.0;
+
+const W3D_CHUNK_LIGHT: u32 = 0x0000_0460;
+const W3D_CHUNK_LIGHT_INFO: u32 = 0x0000_0461;
+const W3D_CHUNK_SPOT_LIGHT_INFO: u32 = 0x0000_0462;
+const W3D_CHUNK_NEAR_ATTENUATION: u32 = 0x0000_0463;
+const W3D_CHUNK_FAR_ATTENUATION: u32 = 0x0000_0464;
+const W3D_CHUNK_SIZE_MASK: u32 = 0x7fff_ffff;
+const W3D_CHUNK_HAS_SUBCHUNKS: u32 = 0x8000_0000;
+
+const W3D_LIGHT_ATTRIBUTE_TYPE_MASK: u32 = 0x0000_00ff;
+const W3D_LIGHT_ATTRIBUTE_POINT: u32 = 0x0000_0001;
+const W3D_LIGHT_ATTRIBUTE_DIRECTIONAL: u32 = 0x0000_0002;
+const W3D_LIGHT_ATTRIBUTE_SPOT: u32 = 0x0000_0003;
+const W3D_LIGHT_ATTRIBUTE_CAST_SHADOWS: u32 = 0x0000_0100;
+
+const LIGHT_FLAG_NEAR_ATTENUATION: u32 = 0;
+const LIGHT_FLAG_FAR_ATTENUATION: u32 = 1;
+const W3D_LIGHT_INFO_SIZE: usize = 24;
+const W3D_SPOT_LIGHT_INFO_SIZE: usize = 20;
+const W3D_LIGHT_ATTENUATION_SIZE: usize = 8;
+
+fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
+    let bytes = data
+        .get(offset..offset + 4)
+        .ok_or_else(|| Error::InvalidData("truncated W3D u32".to_string()))?;
+    Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
+}
+
+fn read_f32_le(data: &[u8], offset: usize) -> Result<f32> {
+    let bytes = data
+        .get(offset..offset + 4)
+        .ok_or_else(|| Error::InvalidData("truncated W3D f32".to_string()))?;
+    Ok(f32::from_le_bytes(bytes.try_into().unwrap()))
+}
+
+fn read_chunk<'a>(data: &'a [u8], cursor: &mut usize) -> Result<Option<(u32, &'a [u8])>> {
+    if *cursor == data.len() {
+        return Ok(None);
+    }
+    if data.len().saturating_sub(*cursor) < 8 {
+        return Err(Error::InvalidData("truncated W3D chunk header".to_string()));
+    }
+
+    let chunk_type = read_u32_le(data, *cursor)?;
+    let chunk_size = read_u32_le(data, *cursor + 4)? & W3D_CHUNK_SIZE_MASK;
+    let payload_start = *cursor + 8;
+    let payload_end = payload_start
+        .checked_add(chunk_size as usize)
+        .ok_or_else(|| Error::InvalidData("W3D chunk size overflow".to_string()))?;
+    if payload_end > data.len() {
+        return Err(Error::InvalidData(format!(
+            "W3D chunk 0x{chunk_type:08x} overruns light payload"
+        )));
+    }
+
+    *cursor = payload_end;
+    Ok(Some((chunk_type, &data[payload_start..payload_end])))
+}
+
+fn write_chunk_bytes(out: &mut Vec<u8>, chunk_type: u32, payload: &[u8], has_subchunks: bool) {
+    out.extend_from_slice(&chunk_type.to_le_bytes());
+    let mut chunk_size = payload.len() as u32;
+    if has_subchunks {
+        chunk_size |= W3D_CHUNK_HAS_SUBCHUNKS;
+    }
+    out.extend_from_slice(&chunk_size.to_le_bytes());
+    out.extend_from_slice(payload);
+}
+
+fn w3d_rgb_to_vec4(data: &[u8], offset: usize) -> Result<Vec4> {
+    let bytes = data
+        .get(offset..offset + 4)
+        .ok_or_else(|| Error::InvalidData("truncated W3D RGB color".to_string()))?;
+    Ok(Vec4::new(
+        bytes[0] as f32 / 255.0,
+        bytes[1] as f32 / 255.0,
+        bytes[2] as f32 / 255.0,
+        1.0,
+    ))
+}
+
+fn push_w3d_rgb(out: &mut Vec<u8>, color: Vec4) {
+    out.push((255.0 * color.x) as u8);
+    out.push((255.0 * color.y) as u8);
+    out.push((255.0 * color.z) as u8);
+    out.push(0);
+}
+
 /// Light type enumeration
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LightType {
-    /// Directional light
-    Directional = 0,
     /// Point light
-    Point,
+    Point = 0,
+    /// Directional light
+    Directional,
     /// Spot light
     Spot,
 }
@@ -42,6 +136,12 @@ pub struct LightClass {
     pub base: Option<Arc<dyn RenderObjClass>>,
     /// Light type
     pub light_type: LightType,
+    /// C++ `Flags` bit field.
+    pub flags: u32,
+    /// Whether this light casts shadows.
+    pub cast_shadows: bool,
+    /// Mirrors C++ `Set_Force_Visible(true)` for directional lights.
+    pub force_visible: bool,
     /// Light position
     pub position: Vec3,
     /// Light direction (for directional and spot lights)
@@ -60,6 +160,10 @@ pub struct LightClass {
     pub outer_cone_angle: f32,
     /// Spotlight falloff
     pub spot_falloff: f32,
+    /// Near attenuation start distance
+    pub near_attenuation_start: f32,
+    /// Near attenuation end distance
+    pub near_attenuation_end: f32,
     /// Attenuation start distance
     pub attenuation_start: f32,
     /// Attenuation end distance
@@ -75,79 +179,77 @@ pub struct LightClass {
 }
 
 impl LightClass {
-    /// Create new directional light
-    pub fn new_directional(direction: Vec3, color: Vec4) -> Self {
+    /// Create a light with the same defaults as C++ LightClass::LightClass.
+    pub fn new(light_type: LightType) -> Self {
         let light_id = next_light_id();
+        let position = Vec3::ZERO;
 
         Self {
-            base: None, // Placeholder - would be proper render object
-            light_type: LightType::Directional,
-            position: Vec3::ZERO,
-            direction: direction.normalize(),
-            ambient: Vec4::ZERO,
-            diffuse: color,
-            specular: color,
+            base: None,
+            light_type,
+            flags: 0,
+            cast_shadows: false,
+            force_visible: light_type == LightType::Directional,
+            position,
+            direction: DEFAULT_SPOT_DIRECTION,
+            ambient: DEFAULT_LIGHT_COLOR,
+            diffuse: DEFAULT_LIGHT_COLOR,
+            specular: DEFAULT_LIGHT_COLOR,
             intensity: 1.0,
-            inner_cone_angle: 0.0,
-            outer_cone_angle: 0.0,
+            inner_cone_angle: DEFAULT_SPOT_ANGLE,
+            outer_cone_angle: DEFAULT_SPOT_ANGLE,
             spot_falloff: 1.0,
-            attenuation_start: 0.0,
-            attenuation_end: f32::INFINITY,
-            range: f32::INFINITY,
-            transform: Mat4::IDENTITY,
-            transform_dirty: true,
+            near_attenuation_start: DEFAULT_NEAR_ATTENUATION_START,
+            near_attenuation_end: DEFAULT_NEAR_ATTENUATION_END,
+            attenuation_start: DEFAULT_FAR_ATTENUATION_START,
+            attenuation_end: DEFAULT_FAR_ATTENUATION_END,
+            range: DEFAULT_FAR_ATTENUATION_END,
+            transform: Mat4::from_translation(position),
+            transform_dirty: false,
             light_id,
         }
+    }
+
+    /// Create new directional light
+    pub fn new_directional(direction: Vec3, color: Vec4) -> Self {
+        let mut light = Self::new(LightType::Directional);
+        light.direction = direction.normalize_or_zero();
+        light.diffuse = color;
+        light.specular = color;
+        light
     }
 
     /// Create new point light
     pub fn new_point(position: Vec3, color: Vec4, range: f32) -> Self {
-        let light_id = next_light_id();
-
-        Self {
-            base: None, // Placeholder
-            light_type: LightType::Point,
-            position,
-            direction: Vec3::ZERO,
-            ambient: Vec4::ZERO,
-            diffuse: color,
-            specular: color,
-            intensity: 1.0,
-            inner_cone_angle: 0.0,
-            outer_cone_angle: 0.0,
-            spot_falloff: 1.0,
-            attenuation_start: 0.0,
-            attenuation_end: range,
-            range,
-            transform: Mat4::from_translation(position),
-            transform_dirty: false,
-            light_id,
-        }
+        let mut light = Self::new(LightType::Point);
+        light.position = position;
+        light.direction = Vec3::ZERO;
+        light.diffuse = color;
+        light.specular = color;
+        light.transform = Mat4::from_translation(position);
+        light.set_range(range);
+        light
     }
 
     /// Create new spot light
-    pub fn new_spot(position: Vec3, direction: Vec3, color: Vec4, range: f32, inner_angle: f32, outer_angle: f32) -> Self {
-        let light_id = next_light_id();
-
-        Self {
-            base: None, // Placeholder
-            light_type: LightType::Spot,
-            position,
-            direction: direction.normalize(),
-            ambient: Vec4::ZERO,
-            diffuse: color,
-            specular: color,
-            intensity: 1.0,
-            inner_cone_angle: inner_angle,
-            outer_cone_angle: outer_angle,
-            spot_falloff: 1.0,
-            attenuation_start: 0.0,
-            attenuation_end: range,
-            range,
-            transform: Mat4::from_translation(position),
-            transform_dirty: false,
-            light_id,
-        }
+    pub fn new_spot(
+        position: Vec3,
+        direction: Vec3,
+        color: Vec4,
+        range: f32,
+        inner_angle: f32,
+        outer_angle: f32,
+    ) -> Self {
+        let mut light = Self::new(LightType::Spot);
+        light.position = position;
+        light.direction = direction.normalize_or_zero();
+        light.diffuse = color;
+        light.specular = color;
+        light.inner_cone_angle = inner_angle;
+        light.outer_cone_angle = outer_angle;
+        light.transform = Mat4::from_translation(position);
+        light.set_range(range);
+        light
     }
 
     /// Clone light
@@ -157,6 +259,9 @@ impl LightClass {
         Self {
             base: self.base.clone(),
             light_type: self.light_type,
+            flags: self.flags,
+            cast_shadows: self.cast_shadows,
+            force_visible: self.force_visible,
             position: self.position,
             direction: self.direction,
             ambient: self.ambient,
@@ -166,6 +271,8 @@ impl LightClass {
             inner_cone_angle: self.inner_cone_angle,
             outer_cone_angle: self.outer_cone_angle,
             spot_falloff: self.spot_falloff,
+            near_attenuation_start: self.near_attenuation_start,
+            near_attenuation_end: self.near_attenuation_end,
             attenuation_start: self.attenuation_start,
             attenuation_end: self.attenuation_end,
             range: self.range,
@@ -242,15 +349,58 @@ impl LightClass {
         self.intensity
     }
 
+    /// Set a C++ light flag. The values intentionally mirror `FlagsType`.
+    pub fn set_flag(&mut self, flag: u32, onoff: bool) {
+        if onoff {
+            self.flags |= flag;
+        } else {
+            self.flags &= !flag;
+        }
+    }
+
+    /// Get a C++ light flag. `NEAR_ATTENUATION` is zero in the original enum,
+    /// so this method preserves the original `(Flags & flag) != 0` behavior.
+    pub fn get_flag(&self, flag: u32) -> bool {
+        (self.flags & flag) != 0
+    }
+
+    /// Enable or disable shadow casting.
+    pub fn enable_shadows(&mut self, onoff: bool) {
+        self.cast_shadows = onoff;
+    }
+
+    /// Check whether shadow casting is enabled.
+    pub fn are_shadows_enabled(&self) -> bool {
+        self.cast_shadows
+    }
+
+    /// Check whether culling should force this light visible.
+    pub fn is_force_visible(&self) -> bool {
+        self.force_visible
+    }
+
     /// Set range (for point and spot lights)
     pub fn set_range(&mut self, range: f32) {
         self.range = range;
+        self.attenuation_start =
+            range * (DEFAULT_FAR_ATTENUATION_START / DEFAULT_FAR_ATTENUATION_END);
         self.attenuation_end = range;
     }
 
     /// Get range
     pub fn get_range(&self) -> f32 {
         self.range
+    }
+
+    /// Set near attenuation parameters.
+    pub fn set_near_attenuation(&mut self, start: f32, end: f32) {
+        self.near_attenuation_start = start;
+        self.near_attenuation_end = end;
+    }
+
+    /// Get near attenuation parameters.
+    pub fn get_near_attenuation(&self) -> (f32, f32) {
+        (self.near_attenuation_start, self.near_attenuation_end)
     }
 
     /// Set spot angles (for spot lights)
@@ -268,9 +418,7 @@ impl LightClass {
     pub fn set_attenuation(&mut self, start: f32, end: f32) {
         self.attenuation_start = start;
         self.attenuation_end = end;
-        if self.light_type != LightType::Directional {
-            self.range = end;
-        }
+        self.range = end;
     }
 
     /// Get attenuation parameters
@@ -282,7 +430,7 @@ impl LightClass {
     pub fn set_transform(&mut self, transform: Mat4) {
         self.transform = transform;
         // Extract position from transform
-        self.position = transform.row(3).truncate();
+        self.position = transform.w_axis.truncate();
         self.transform_dirty = false;
     }
 
@@ -298,38 +446,13 @@ impl LightClass {
 
     /// Get object space bounding sphere
     pub fn get_obj_space_bounding_sphere(&self) -> SphereClass {
-        // For lights, the bounding sphere represents the light's influence area
-        match self.light_type {
-            LightType::Directional => {
-                // Directional lights affect everything
-                SphereClass::from_center_and_radius(Vec3::ZERO, f32::INFINITY)
-            }
-            LightType::Point => {
-                SphereClass::from_center_and_radius(Vec3::ZERO, self.range)
-            }
-            LightType::Spot => {
-                SphereClass::from_center_and_radius(Vec3::ZERO, self.range)
-            }
-        }
+        SphereClass::new(Vec3::ZERO, self.get_attenuation_range())
     }
 
     /// Get object space bounding box
     pub fn get_obj_space_bounding_box(&self) -> AABoxClass {
-        // For lights, the bounding box represents the light's influence area
-        match self.light_type {
-            LightType::Directional => {
-                // Directional lights affect everything
-                AABoxClass::from_center_and_extent(Vec3::ZERO, Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY))
-            }
-            LightType::Point => {
-                let extent = Vec3::new(self.range, self.range, self.range);
-                AABoxClass::from_center_and_extent(Vec3::ZERO, extent)
-            }
-            LightType::Spot => {
-                let extent = Vec3::new(self.range, self.range, self.range);
-                AABoxClass::from_center_and_extent(Vec3::ZERO, extent)
-            }
-        }
+        let range = self.get_attenuation_range();
+        AABoxClass::from_center_and_extent(Vec3::ZERO, Vec3::new(range, range, range))
     }
 
     /// Push light to vertex processor
@@ -362,16 +485,148 @@ impl LightClass {
 
     /// Load light from W3D file
     pub fn load_w3d(&mut self, data: &[u8]) -> Result<()> {
-        // In a full implementation, this would parse W3D light chunk data
-        // For now, this is a placeholder
-        let _ = data;
+        let mut outer_cursor = 0;
+        let payload = match read_chunk(data, &mut outer_cursor)? {
+            Some((W3D_CHUNK_LIGHT, payload)) if outer_cursor == data.len() => payload,
+            _ => data,
+        };
+
+        let mut cursor = 0;
+        let (chunk_type, light_info) = read_chunk(payload, &mut cursor)?
+            .ok_or_else(|| Error::InvalidData("missing W3D light info chunk".to_string()))?;
+        if chunk_type != W3D_CHUNK_LIGHT_INFO {
+            return Err(Error::InvalidData(format!(
+                "expected W3D_CHUNK_LIGHT_INFO, got 0x{chunk_type:08x}"
+            )));
+        }
+        if light_info.len() < W3D_LIGHT_INFO_SIZE {
+            return Err(Error::InvalidData("truncated W3D light info".to_string()));
+        }
+
+        let attributes = read_u32_le(light_info, 0)?;
+        match attributes & W3D_LIGHT_ATTRIBUTE_TYPE_MASK {
+            W3D_LIGHT_ATTRIBUTE_POINT => self.light_type = LightType::Point,
+            W3D_LIGHT_ATTRIBUTE_DIRECTIONAL => self.light_type = LightType::Directional,
+            W3D_LIGHT_ATTRIBUTE_SPOT => self.light_type = LightType::Spot,
+            _ => {}
+        }
+        self.force_visible = self.light_type == LightType::Directional;
+
+        self.enable_shadows((attributes & W3D_LIGHT_ATTRIBUTE_CAST_SHADOWS) != 0);
+        self.ambient = w3d_rgb_to_vec4(light_info, 8)?;
+        self.diffuse = w3d_rgb_to_vec4(light_info, 12)?;
+        self.specular = w3d_rgb_to_vec4(light_info, 16)?;
+        self.intensity = read_f32_le(light_info, 20)?;
+
+        while let Some((chunk_type, chunk)) = read_chunk(payload, &mut cursor)? {
+            match chunk_type {
+                W3D_CHUNK_SPOT_LIGHT_INFO => {
+                    if chunk.len() < W3D_SPOT_LIGHT_INFO_SIZE {
+                        return Err(Error::InvalidData(
+                            "truncated W3D spot light info".to_string(),
+                        ));
+                    }
+                    self.direction = Vec3::new(
+                        read_f32_le(chunk, 0)?,
+                        read_f32_le(chunk, 4)?,
+                        read_f32_le(chunk, 8)?,
+                    );
+                    let spot_angle = read_f32_le(chunk, 12)?;
+                    self.inner_cone_angle = spot_angle;
+                    self.outer_cone_angle = spot_angle;
+                    self.spot_falloff = read_f32_le(chunk, 16)?;
+                }
+                W3D_CHUNK_NEAR_ATTENUATION => {
+                    if chunk.len() < W3D_LIGHT_ATTENUATION_SIZE {
+                        return Err(Error::InvalidData(
+                            "truncated W3D near attenuation".to_string(),
+                        ));
+                    }
+                    self.set_flag(LIGHT_FLAG_NEAR_ATTENUATION, true);
+                    self.set_near_attenuation(read_f32_le(chunk, 0)?, read_f32_le(chunk, 4)?);
+                }
+                W3D_CHUNK_FAR_ATTENUATION => {
+                    if chunk.len() < W3D_LIGHT_ATTENUATION_SIZE {
+                        return Err(Error::InvalidData(
+                            "truncated W3D far attenuation".to_string(),
+                        ));
+                    }
+                    self.set_flag(LIGHT_FLAG_FAR_ATTENUATION, true);
+                    self.set_attenuation(read_f32_le(chunk, 0)?, read_f32_le(chunk, 4)?);
+                }
+                _ => {}
+            }
+        }
+
         Ok(())
     }
 
     /// Save light to W3D file
-    pub fn save_w3d(&self, writer: &mut dyn std::io::Write) -> Result<()> {
-        // In a full implementation, this would write W3D light chunk data
-        let _ = writer;
+    pub fn save_w3d(&self, writer: &mut dyn Write) -> Result<()> {
+        let mut light_body = Vec::new();
+        let mut light_info = Vec::with_capacity(W3D_LIGHT_INFO_SIZE);
+
+        let mut attributes = match self.light_type {
+            LightType::Point => W3D_LIGHT_ATTRIBUTE_POINT,
+            LightType::Directional => W3D_LIGHT_ATTRIBUTE_DIRECTIONAL,
+            LightType::Spot => W3D_LIGHT_ATTRIBUTE_SPOT,
+        };
+        if self.are_shadows_enabled() {
+            attributes |= W3D_LIGHT_ATTRIBUTE_CAST_SHADOWS;
+        }
+
+        light_info.extend_from_slice(&attributes.to_le_bytes());
+        light_info.extend_from_slice(&0u32.to_le_bytes());
+        push_w3d_rgb(&mut light_info, self.ambient);
+        push_w3d_rgb(&mut light_info, self.diffuse);
+        push_w3d_rgb(&mut light_info, self.specular);
+        light_info.extend_from_slice(&self.intensity.to_le_bytes());
+        write_chunk_bytes(&mut light_body, W3D_CHUNK_LIGHT_INFO, &light_info, false);
+
+        if self.light_type == LightType::Spot {
+            let mut spot_info = Vec::with_capacity(W3D_SPOT_LIGHT_INFO_SIZE);
+            spot_info.extend_from_slice(&self.direction.x.to_le_bytes());
+            spot_info.extend_from_slice(&self.direction.y.to_le_bytes());
+            spot_info.extend_from_slice(&self.direction.z.to_le_bytes());
+            spot_info.extend_from_slice(&self.outer_cone_angle.to_le_bytes());
+            spot_info.extend_from_slice(&self.spot_falloff.to_le_bytes());
+            write_chunk_bytes(
+                &mut light_body,
+                W3D_CHUNK_SPOT_LIGHT_INFO,
+                &spot_info,
+                false,
+            );
+        }
+
+        if self.get_flag(LIGHT_FLAG_NEAR_ATTENUATION) {
+            let mut attenuation = Vec::with_capacity(W3D_LIGHT_ATTENUATION_SIZE);
+            attenuation.extend_from_slice(&self.near_attenuation_start.to_le_bytes());
+            attenuation.extend_from_slice(&self.near_attenuation_end.to_le_bytes());
+            write_chunk_bytes(
+                &mut light_body,
+                W3D_CHUNK_NEAR_ATTENUATION,
+                &attenuation,
+                false,
+            );
+        }
+
+        if self.get_flag(LIGHT_FLAG_FAR_ATTENUATION) {
+            let mut attenuation = Vec::with_capacity(W3D_LIGHT_ATTENUATION_SIZE);
+            attenuation.extend_from_slice(&self.attenuation_start.to_le_bytes());
+            attenuation.extend_from_slice(&self.attenuation_end.to_le_bytes());
+            write_chunk_bytes(
+                &mut light_body,
+                W3D_CHUNK_FAR_ATTENUATION,
+                &attenuation,
+                false,
+            );
+        }
+
+        let mut out = Vec::with_capacity(light_body.len() + 8);
+        write_chunk_bytes(&mut out, W3D_CHUNK_LIGHT, &light_body, true);
+        writer
+            .write_all(&out)
+            .map_err(|e| Error::Generic(format!("failed to write W3D light: {e}")))?;
         Ok(())
     }
 
@@ -421,7 +676,9 @@ impl LightClass {
         }
 
         // Linear attenuation
-        let factor = 1.0 - ((distance - self.attenuation_start) / (self.attenuation_end - self.attenuation_start));
+        let factor = 1.0
+            - ((distance - self.attenuation_start)
+                / (self.attenuation_end - self.attenuation_start));
         self.intensity * factor
     }
 
@@ -583,8 +840,9 @@ impl LightEnvironmentClass {
     /// Add light to environment
     pub fn add_light(&mut self, light: Arc<LightClass>) -> Result<()> {
         if self.lights.len() >= self.max_lights {
-            return Err(W3dError::InvalidParameter(format!(
-                "Maximum number of lights ({}) exceeded", self.max_lights
+            return Err(Error::InvalidParameter(format!(
+                "Maximum number of lights ({}) exceeded",
+                self.max_lights
             )));
         }
 
@@ -740,14 +998,21 @@ pub fn create_point_light(position: Vec3, color: Vec4, range: f32) -> LightClass
     LightClass::new_point(position, color, range)
 }
 
-pub fn create_spot_light(position: Vec3, direction: Vec3, color: Vec4, range: f32, inner_angle: f32, outer_angle: f32) -> LightClass {
+pub fn create_spot_light(
+    position: Vec3,
+    direction: Vec3,
+    color: Vec4,
+    range: f32,
+    inner_angle: f32,
+    outer_angle: f32,
+) -> LightClass {
     LightClass::new_spot(position, direction, color, range, inner_angle, outer_angle)
 }
 
 /// Quick light environment functions
 pub fn add_light_to_environment(light: LightClass) -> Result<()> {
     let mut env = get_light_environment()
-        .ok_or_else(|| W3dError::NotInitialized("Light environment not initialized".to_string()))?;
+        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?;
 
     env.add_light(Arc::new(light))
 }
@@ -768,6 +1033,103 @@ pub fn get_light_contribution(point: Vec3, normal: Vec3, view_dir: Vec3) -> Ligh
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+    use glam::Quat;
+
+    fn assert_vec4_close(actual: Vec4, expected: Vec4) {
+        assert!((actual.x - expected.x).abs() <= (1.0 / 255.0));
+        assert!((actual.y - expected.y).abs() <= (1.0 / 255.0));
+        assert!((actual.z - expected.z).abs() <= (1.0 / 255.0));
+        assert!((actual.w - expected.w).abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    fn test_light_type_order_matches_cpp() {
+        assert_eq!(LightType::Point as u32, 0);
+        assert_eq!(LightType::Directional as u32, 1);
+        assert_eq!(LightType::Spot as u32, 2);
+    }
+
+    #[test]
+    fn test_light_constructor_matches_cpp_defaults() {
+        let light = LightClass::new(LightType::Spot);
+
+        assert_eq!(light.light_type, LightType::Spot);
+        assert_eq!(light.flags, 0);
+        assert!(!light.cast_shadows);
+        assert!(!light.is_force_visible());
+        assert_eq!(light.ambient, Vec4::ONE);
+        assert_eq!(light.diffuse, Vec4::ONE);
+        assert_eq!(light.specular, Vec4::ONE);
+        assert_eq!(light.intensity, 1.0);
+        assert_eq!(light.near_attenuation_start, 0.0);
+        assert_eq!(light.near_attenuation_end, 0.0);
+        assert_eq!(light.attenuation_start, 50.0);
+        assert_eq!(light.attenuation_end, 100.0);
+        assert_eq!(light.range, 100.0);
+        assert!((light.inner_cone_angle - std::f32::consts::FRAC_PI_4).abs() < f32::EPSILON);
+        assert!((light.outer_cone_angle - std::f32::consts::FRAC_PI_4).abs() < f32::EPSILON);
+        assert_eq!(light.spot_falloff, 1.0);
+        assert_eq!(light.direction, Vec3::Z);
+    }
+
+    #[test]
+    fn test_light_w3d_save_load_round_trip_matches_cpp_chunks() {
+        let mut light = LightClass::new(LightType::Spot);
+        light.enable_shadows(true);
+        light.set_ambient(Vec4::new(0.25, 0.5, 0.75, 1.0));
+        light.set_diffuse(Vec4::new(1.0, 0.5, 0.25, 1.0));
+        light.set_specular(Vec4::new(0.1, 0.2, 0.3, 1.0));
+        light.set_intensity(2.5);
+        light.set_direction(Vec3::new(0.0, 1.0, 0.0));
+        light.set_spot_angles(0.4, 0.6);
+        light.spot_falloff = 3.0;
+        light.set_attenuation(20.0, 80.0);
+        light.set_flag(LIGHT_FLAG_FAR_ATTENUATION, true);
+
+        let mut bytes = Vec::new();
+        light.save_w3d(&mut bytes).unwrap();
+
+        assert_eq!(read_u32_le(&bytes, 0).unwrap(), W3D_CHUNK_LIGHT);
+        assert_ne!(read_u32_le(&bytes, 4).unwrap() & W3D_CHUNK_HAS_SUBCHUNKS, 0);
+        assert_eq!(read_u32_le(&bytes, 8).unwrap(), W3D_CHUNK_LIGHT_INFO);
+
+        let mut loaded = LightClass::new(LightType::Point);
+        loaded.load_w3d(&bytes).unwrap();
+
+        assert_eq!(loaded.light_type, LightType::Spot);
+        assert!(loaded.are_shadows_enabled());
+        assert_vec4_close(loaded.ambient, Vec4::new(0.25, 0.5, 0.75, 1.0));
+        assert_vec4_close(loaded.diffuse, Vec4::new(1.0, 0.5, 0.25, 1.0));
+        assert_vec4_close(loaded.specular, Vec4::new(0.1, 0.2, 0.3, 1.0));
+        assert_eq!(loaded.intensity, 2.5);
+        assert_eq!(loaded.direction, Vec3::Y);
+        assert_eq!(loaded.inner_cone_angle, 0.6);
+        assert_eq!(loaded.outer_cone_angle, 0.6);
+        assert_eq!(loaded.spot_falloff, 3.0);
+        assert_eq!(loaded.get_attenuation(), (20.0, 80.0));
+        assert_eq!(loaded.get_range(), 80.0);
+        assert!(loaded.get_flag(LIGHT_FLAG_FAR_ATTENUATION));
+    }
+
+    #[test]
+    fn test_light_w3d_load_accepts_open_light_payload() {
+        let mut bytes = Vec::new();
+        LightClass::new(LightType::Directional)
+            .save_w3d(&mut bytes)
+            .unwrap();
+
+        let payload_size = (read_u32_le(&bytes, 4).unwrap() & W3D_CHUNK_SIZE_MASK) as usize;
+        let payload = &bytes[8..8 + payload_size];
+        let mut loaded = LightClass::new(LightType::Point);
+
+        loaded.load_w3d(payload).unwrap();
+
+        assert_eq!(loaded.light_type, LightType::Directional);
+        assert_eq!(loaded.ambient, Vec4::ONE);
+        assert_eq!(loaded.diffuse, Vec4::ONE);
+        assert_eq!(loaded.specular, Vec4::ONE);
+        assert!(loaded.is_force_visible());
+    }
 
     #[test]
     fn test_directional_light_creation() {
@@ -777,7 +1139,9 @@ mod tests {
 
         assert_eq!(light.light_type, LightType::Directional);
         assert_eq!(light.direction, direction.normalize());
+        assert_eq!(light.ambient, Vec4::ONE);
         assert_eq!(light.diffuse, color);
+        assert!(light.is_force_visible());
     }
 
     #[test]
@@ -801,13 +1165,26 @@ mod tests {
         let range = 50.0;
         let inner_angle = 0.1;
         let outer_angle = 0.5;
-        let light = LightClass::new_spot(position, direction, color, range, inner_angle, outer_angle);
+        let light =
+            LightClass::new_spot(position, direction, color, range, inner_angle, outer_angle);
 
         assert_eq!(light.light_type, LightType::Spot);
         assert_eq!(light.position, position);
         assert_eq!(light.direction, direction.normalize());
         assert_eq!(light.inner_cone_angle, inner_angle);
         assert_eq!(light.outer_cone_angle, outer_angle);
+    }
+
+    #[test]
+    fn test_set_transform_uses_glam_translation_axis() {
+        let mut light = LightClass::new_point(Vec3::ZERO, Vec4::ONE, 100.0);
+        let position = Vec3::new(12.0, -4.0, 7.5);
+        let transform = Mat4::from_rotation_translation(Quat::from_rotation_y(0.5), position);
+
+        light.set_transform(transform);
+
+        assert_eq!(light.get_position(), position);
+        assert_eq!(light.get_transform(), transform);
     }
 
     #[test]
@@ -822,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_spot_light_factor() {
-        let mut light = LightClass::new_spot(Vec3::ZERO, Vec3::Z, Vec4::ONE, 10.0, 0.1, 0.5);
+        let light = LightClass::new_spot(Vec3::ZERO, Vec3::Z, Vec4::ONE, 10.0, 0.1, 0.5);
 
         // Light direction is +Z, so -Z direction should have full intensity
         let factor = light.calculate_spot_factor(-Vec3::Z);
@@ -858,7 +1235,7 @@ mod tests {
         // For directional light pointing down -Z, hitting surface with +Z normal
         // should give full diffuse contribution
         assert_eq!(contribution.diffuse, Vec4::ONE);
-        assert_eq!(contribution.specular, Vec4::ZERO); // No specular for this case
+        assert_eq!(contribution.specular, Vec4::ONE);
     }
 
     #[test]

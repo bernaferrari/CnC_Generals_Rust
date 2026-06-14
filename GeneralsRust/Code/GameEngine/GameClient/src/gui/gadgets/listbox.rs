@@ -847,7 +847,11 @@ impl ListBox {
     }
 
     pub fn set_selected_indices(&mut self, indices: &[usize]) {
-        self.selected_indices = indices.iter().cloned().collect();
+        self.selected_indices = indices
+            .iter()
+            .copied()
+            .filter(|&index| index < self.items.len() && self.items[index].enabled)
+            .collect();
         self.last_selected = self.selected_indices.last().copied();
     }
 
@@ -2181,6 +2185,24 @@ mod tests {
         assert_eq!(
             multi.get_selection(),
             ListBoxSelection::Multiple(vec![0, 2])
+        );
+    }
+
+    #[test]
+    fn forced_selection_rejects_off_list_rows_like_cpp_set_selected() {
+        let mut single = ListBox::new(7, 0, 0, 100, 40);
+        single.add_item_with_id(10, "Alpha");
+        single.add_item_with_id(20, "Bravo");
+        single.set_selected_indices(&[2]);
+        assert_eq!(single.get_selection(), ListBoxSelection::Single(-1));
+
+        let mut multi = ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        multi.add_item_with_id(10, "Alpha");
+        multi.add_item_with_id(20, "Bravo");
+        multi.set_selected_indices(&[0, 2, 1]);
+        assert_eq!(
+            multi.get_selection(),
+            ListBoxSelection::Multiple(vec![0, 1])
         );
     }
 

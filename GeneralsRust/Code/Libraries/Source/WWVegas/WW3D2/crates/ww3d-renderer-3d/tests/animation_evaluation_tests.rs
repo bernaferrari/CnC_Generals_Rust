@@ -5,9 +5,23 @@
 //! and GPU skinning data generation.
 
 use glam::{Mat4, Quat, Vec3};
+use ww3d_animation::{HAnimClass, HTreeClass};
 use ww3d_renderer_3d::animation_evaluator::{
     AnimationEvaluator, AnimationEvaluatorError, BoneTransformData, GPUSkinningData,
 };
+
+fn evaluator_with_animation(bone_count: u32) -> AnimationEvaluator {
+    let mut evaluator = AnimationEvaluator::new(bone_count);
+    let mut hierarchy = HTreeClass::with_name("TestHierarchy");
+    hierarchy.init_default();
+    for index in 1..bone_count as usize {
+        hierarchy.add_pivot(&format!("Bone{}", index), 0, Vec3::ZERO, Quat::IDENTITY);
+    }
+
+    evaluator.set_hierarchy(hierarchy);
+    evaluator.set_uncompressed_animation(HAnimClass::new("TestAnim", "TestHierarchy", 60, 30.0));
+    evaluator
+}
 
 #[test]
 fn test_animation_evaluator_creation() {
@@ -264,7 +278,7 @@ fn test_bone_transform_local_matrix_combined() {
 
 #[test]
 fn test_animation_evaluator_frame_evaluation() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     // Evaluate at frame 0
     let result = evaluator.evaluate_frame(0);
@@ -275,7 +289,7 @@ fn test_animation_evaluator_frame_evaluation() {
 
 #[test]
 fn test_animation_evaluator_frame_caching() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     // First evaluation at frame 5
     let result1 = evaluator.evaluate_frame(5);
@@ -291,7 +305,7 @@ fn test_animation_evaluator_frame_caching() {
 
 #[test]
 fn test_animation_evaluator_different_frames() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     // Evaluate at frame 3
     evaluator.evaluate_frame(3).unwrap();
@@ -315,7 +329,7 @@ fn test_animation_evaluator_root_transform() {
 
 #[test]
 fn test_animation_evaluator_mark_dirty() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     // Not dirty initially after evaluation
     evaluator.evaluate_frame(0).unwrap();
@@ -350,8 +364,8 @@ fn test_multiple_evaluators() {
 
 #[test]
 fn test_animation_evaluator_state_independence() {
-    let mut eval1 = AnimationEvaluator::new(8);
-    let mut eval2 = AnimationEvaluator::new(8);
+    let mut eval1 = evaluator_with_animation(8);
+    let mut eval2 = evaluator_with_animation(8);
 
     // Set different states
     eval1.evaluate_frame(5).unwrap();
@@ -394,7 +408,7 @@ fn test_gpu_skinning_all_bones_accessible() {
 
 #[test]
 fn test_animation_evaluator_update_placeholder() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     let result = evaluator.update_placeholder(42);
     assert!(result.is_ok());
@@ -431,7 +445,7 @@ fn test_bone_transform_data_clone() {
 
 #[test]
 fn test_animation_evaluator_current_frame_getter() {
-    let mut evaluator = AnimationEvaluator::new(8);
+    let mut evaluator = evaluator_with_animation(8);
 
     assert_eq!(evaluator.current_frame(), 0);
 
