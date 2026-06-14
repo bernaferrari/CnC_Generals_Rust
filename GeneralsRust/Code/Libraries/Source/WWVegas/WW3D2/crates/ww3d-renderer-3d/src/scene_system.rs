@@ -350,6 +350,26 @@ impl SceneManagerClass {
         self.light_list.retain(|&id| id != object_id);
         self.release_list.retain(|&id| id != object_id);
     }
+
+    /// Register an object identifier in the scene light stream.
+    pub fn register_light_object(&mut self, object_id: usize) {
+        self.register_internal(object_id, SceneRegistrationType::Light);
+    }
+
+    /// Remove an object identifier from the scene light stream.
+    pub fn unregister_light_object(&mut self, object_id: usize) {
+        self.unregister_internal(object_id, SceneRegistrationType::Light);
+    }
+
+    /// Check whether an object identifier is registered as a light.
+    pub fn is_light_registered(&self, object_id: usize) -> bool {
+        self.light_list.contains(&object_id)
+    }
+
+    /// Number of objects currently registered as lights.
+    pub fn registered_light_count(&self) -> usize {
+        self.light_list.len()
+    }
 }
 
 struct SceneRegistrationContext<'a> {
@@ -423,6 +443,26 @@ impl SimpleSceneClass {
     /// Get mutable access to the scene manager
     pub fn scene_manager_mut(&mut self) -> &mut SceneManagerClass {
         &mut self.base_scene
+    }
+
+    /// Register a light object with the underlying scene.
+    pub fn register_light_object(&mut self, object_id: usize) {
+        self.base_scene.register_light_object(object_id);
+    }
+
+    /// Unregister a light object from the underlying scene.
+    pub fn unregister_light_object(&mut self, object_id: usize) {
+        self.base_scene.unregister_light_object(object_id);
+    }
+
+    /// Check whether a light object is registered with the scene.
+    pub fn is_light_registered(&self, object_id: usize) -> bool {
+        self.base_scene.is_light_registered(object_id)
+    }
+
+    /// Number of light objects registered with the scene.
+    pub fn registered_light_count(&self) -> usize {
+        self.base_scene.registered_light_count()
     }
 }
 
