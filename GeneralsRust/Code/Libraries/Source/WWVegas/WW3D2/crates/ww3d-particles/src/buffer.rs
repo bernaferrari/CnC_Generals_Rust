@@ -792,7 +792,7 @@ impl ParticleBuffer {
         _queue: &wgpu::Queue,
         _encoder: &mut wgpu::CommandEncoder,
         render_pass: &mut wgpu::RenderPass<'_>,
-        _view_projection_matrix: Mat4,
+        view_projection_matrix: Mat4,
     ) {
         // Skip rendering if decimation threshold is at max (all particles culled)
         if self.decimation_threshold >= self.lod_count - 1 {
@@ -842,10 +842,7 @@ impl ParticleBuffer {
             }
 
             if !start_locs.is_empty() {
-                // Calculate camera up and right vectors from view matrix
-                // For now, use world space up and right
-                let camera_up = Vec3::Y;
-                let camera_right = Vec3::X;
+                let (camera_up, camera_right) = line_group_camera_axes(view_projection_matrix);
 
                 line_group.render(
                     render_pass,
@@ -1238,6 +1235,16 @@ fn line_group_tail_position(particle: &Particle) -> Vec3 {
     particle.position - particle.velocity * particle.blur_time
 }
 
+fn line_group_camera_axes(view_projection_matrix: Mat4) -> (Vec3, Vec3) {
+    let inverse = view_projection_matrix.inverse();
+    let up = inverse.transform_vector3(Vec3::Y).normalize_or_zero();
+    let right = inverse.transform_vector3(Vec3::X).normalize_or_zero();
+    (
+        if up == Vec3::ZERO { Vec3::Y } else { up },
+        if right == Vec3::ZERO { Vec3::X } else { right },
+    )
+}
+
 fn append_line_group_sort_geometry(
     geometry: &mut ParticleSortGeometry,
     active_indices: &[usize],
@@ -1478,6 +1485,25 @@ mod tests {
             line_group_tail_position(&particle),
             Vec3::new(4.0, 0.0, 0.0)
         );
+    }
+
+    #[test]
+    fn line_group_camera_axes_use_inverse_render_matrix() {
+        let (up, right) = line_group_camera_axes(Mat4::IDENTITY);
+        assert_eq!(up, Vec3::Y);
+        assert_eq!(right, Vec3::X);
+
+        let view = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let (up, right) = line_group_camera_axes(view);
+        assert!(up.abs_diff_eq(Vec3::X, 0.0001));
+        assert!(right.abs_diff_eq(-Vec3::Y, 0.0001));
+    }
+
+    #[test]
+    fn line_group_camera_axes_fall_back_for_degenerate_matrix() {
+        let (up, right) = line_group_camera_axes(Mat4::ZERO);
+        assert_eq!(up, Vec3::Y);
+        assert_eq!(right, Vec3::X);
     }
 
     #[test]
