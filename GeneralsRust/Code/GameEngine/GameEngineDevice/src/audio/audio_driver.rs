@@ -44,6 +44,72 @@ impl Default for DriverType {
     }
 }
 
+impl DriverType {
+    fn uses_kira_backend(self) -> bool {
+        match self {
+            DriverType::Kira => true,
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi | DriverType::DirectSound => true,
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa | DriverType::PulseAudio => true,
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => true,
+            DriverType::Null => false,
+        }
+    }
+
+    fn default_device_id(self) -> &'static str {
+        match self {
+            DriverType::Kira => "kira-system-default",
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => "wasapi-system-default",
+            #[cfg(target_os = "windows")]
+            DriverType::DirectSound => "directsound-system-default",
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => "alsa-system-default",
+            #[cfg(target_os = "linux")]
+            DriverType::PulseAudio => "pulseaudio-system-default",
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => "coreaudio-system-default",
+            DriverType::Null => "null-audio",
+        }
+    }
+
+    fn default_device_name(self) -> &'static str {
+        match self {
+            DriverType::Null => "Null Audio Driver",
+            DriverType::Kira => "System Default Audio Output",
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => "System Default WASAPI Output",
+            #[cfg(target_os = "windows")]
+            DriverType::DirectSound => "System Default DirectSound Output",
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => "System Default ALSA Output",
+            #[cfg(target_os = "linux")]
+            DriverType::PulseAudio => "System Default PulseAudio Output",
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => "System Default CoreAudio Output",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            DriverType::Kira => "Kira Modern Audio Driver",
+            #[cfg(target_os = "windows")]
+            DriverType::Wasapi => "Kira WASAPI Audio Driver",
+            #[cfg(target_os = "windows")]
+            DriverType::DirectSound => "Kira DirectSound Compatibility Driver",
+            #[cfg(target_os = "linux")]
+            DriverType::Alsa => "Kira ALSA Audio Driver",
+            #[cfg(target_os = "linux")]
+            DriverType::PulseAudio => "Kira PulseAudio Audio Driver",
+            #[cfg(target_os = "macos")]
+            DriverType::CoreAudio => "Kira CoreAudio Audio Driver",
+            DriverType::Null => "Null Audio Driver",
+        }
+    }
+}
+
 /// Sample format enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SampleFormat {
@@ -108,43 +174,58 @@ pub struct AudioDriver {
 impl AudioDriver {
     /// Create a new audio driver
     pub async fn new(driver_type: DriverType) -> Result<Self> {
-        match driver_type {
-            DriverType::Kira => {
-                let driver = KiraAudioDriver::new().await?;
-                let capabilities = build_capabilities(driver_type, driver.get_capabilities());
-                let initialized = driver.is_initialized();
-                Ok(Self {
-                    driver_type,
-                    capabilities,
-                    kira_driver: Some(Arc::new(driver)),
-                    initialized,
-                })
+        if driver_type.uses_kira_backend() {
+            let driver = KiraAudioDriver::new().await?;
+            let capabilities = build_capabilities(driver_type, driver.get_capabilities());
+            let initialized = driver.is_initialized();
+            Ok(Self {
+                driver_type,
+                capabilities,
+                kira_driver: Some(Arc::new(driver)),
+                initialized,
+            })
+        } else {
+            match driver_type {
+                DriverType::Null => {
+                    let capabilities = build_null_capabilities(driver_type);
+                    Ok(Self {
+                        driver_type,
+                        capabilities,
+                        kira_driver: None,
+                        initialized: true,
+                    })
+                }
+                _ => {
+                    let driver = KiraAudioDriver::new().await?;
+                    let capabilities = build_capabilities(driver_type, driver.get_capabilities());
+                    let initialized = driver.is_initialized();
+                    Ok(Self {
+                        driver_type,
+                        capabilities,
+                        kira_driver: Some(Arc::new(driver)),
+                        initialized,
+                    })
+                }
             }
-            DriverType::Null => {
-                let capabilities = DriverCapabilities {
-                    driver_type,
-                    name: "Null Audio Driver".to_string(),
-                    hardware_acceleration: false,
-                    exclusive_mode: false,
-                    min_latency_ms: 0.0,
-                    max_latency_ms: 1000.0,
-                    supported_formats: vec![SampleFormat::F32, SampleFormat::I16],
-                    supported_sample_rates: vec![22050, 44100, 48000],
-                    max_input_channels: 2,
-                    max_output_channels: 2,
-                    version: "1.0.0".to_string(),
-                };
-                Ok(Self {
-                    driver_type,
-                    capabilities,
-                    kira_driver: None,
-                    initialized: true,
-                })
-            }
-            _ => Err(AudioDeviceError::InitializationFailed(format!(
-                "{driver_type:?} is not wired to a real backend; use Kira or Null explicitly"
-            ))),
         }
+    }
+
+    /// Build a driver directly from an existing Kira backend.
+    pub fn from_kira_backend(driver_type: DriverType, driver: KiraAudioDriver) -> Result<Self> {
+        if !driver_type.uses_kira_backend() {
+            return Err(AudioDeviceError::InitializationFailed(format!(
+                "{driver_type:?} cannot be backed by Kira"
+            )));
+        }
+
+        let capabilities = build_capabilities(driver_type, driver.get_capabilities());
+        let initialized = driver.is_initialized();
+        Ok(Self {
+            driver_type,
+            capabilities,
+            kira_driver: Some(Arc::new(driver)),
+            initialized,
+        })
     }
 
     /// Get driver capabilities
@@ -167,16 +248,16 @@ impl AudioDriver {
         }
 
         match self.driver_type {
-            DriverType::Kira => {
+            driver_type if driver_type.uses_kira_backend() => {
                 if self.kira_driver.is_none() {
-                    return Err(AudioDeviceError::InitializationFailed(
-                        "Kira driver is initialized without an audio backend".to_string(),
-                    ));
+                    return Err(AudioDeviceError::InitializationFailed(format!(
+                        "{driver_type:?} is initialized without an audio backend"
+                    )));
                 }
 
                 Ok(vec![AudioDeviceInfo {
-                    id: "kira-system-default".to_string(),
-                    name: "System Default Audio Output".to_string(),
+                    id: driver_type.default_device_id().to_string(),
+                    name: driver_type.default_device_name().to_string(),
                     is_default: true,
                     capabilities: self.capabilities.clone(),
                 }])
@@ -188,7 +269,7 @@ impl AudioDriver {
                 capabilities: self.capabilities.clone(),
             }]),
             _ => Err(AudioDeviceError::InitializationFailed(format!(
-                "{:?} device enumeration is not implemented",
+                "{:?} has no available audio backend",
                 self.driver_type
             ))),
         }
@@ -199,13 +280,13 @@ impl AudioDriver {
         if self.initialized {
             return Ok(());
         }
-        if self.driver_type == DriverType::Kira && self.kira_driver.is_none() {
+        if self.driver_type.uses_kira_backend() && self.kira_driver.is_none() {
             let driver = KiraAudioDriver::new().await?;
             self.capabilities = build_capabilities(self.driver_type, driver.get_capabilities());
             self.kira_driver = Some(Arc::new(driver));
         } else if self.driver_type != DriverType::Null && self.kira_driver.is_none() {
             return Err(AudioDeviceError::InitializationFailed(format!(
-                "{:?} is not wired to a real backend",
+                "{:?} has no available audio backend",
                 self.driver_type
             )));
         }
@@ -380,13 +461,29 @@ impl AudioStream for StubAudioStream {
     }
 }
 
+fn build_null_capabilities(driver_type: DriverType) -> DriverCapabilities {
+    DriverCapabilities {
+        driver_type,
+        name: driver_type.display_name().to_string(),
+        hardware_acceleration: false,
+        exclusive_mode: false,
+        min_latency_ms: 0.0,
+        max_latency_ms: 1000.0,
+        supported_formats: vec![SampleFormat::F32, SampleFormat::I16],
+        supported_sample_rates: vec![22050, 44100, 48000],
+        max_input_channels: 2,
+        max_output_channels: 2,
+        version: "1.0.0".to_string(),
+    }
+}
+
 fn build_capabilities(
     driver_type: DriverType,
     simple: &SimpleDeviceCapabilities,
 ) -> DriverCapabilities {
     DriverCapabilities {
         driver_type,
-        name: "Kira Modern Audio Driver".to_string(),
+        name: driver_type.display_name().to_string(),
         hardware_acceleration: true,
         exclusive_mode: false,
         min_latency_ms: 5.0,
@@ -428,24 +525,35 @@ mod tests {
         assert!(err.to_string().contains("audio feature is disabled"));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "audio")))]
     #[tokio::test]
-    async fn native_coreaudio_driver_is_not_silently_stubbed() {
+    async fn native_coreaudio_driver_reports_disabled_audio_backend() {
         let err = AudioDriver::new(DriverType::CoreAudio).await.unwrap_err();
-        assert!(err.to_string().contains("not wired to a real backend"));
+        assert!(err.to_string().contains("audio feature is disabled"));
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(feature = "audio")))]
     #[tokio::test]
-    async fn native_pulseaudio_driver_is_not_silently_stubbed() {
+    async fn native_pulseaudio_driver_reports_disabled_audio_backend() {
         let err = AudioDriver::new(DriverType::PulseAudio).await.unwrap_err();
-        assert!(err.to_string().contains("not wired to a real backend"));
+        assert!(err.to_string().contains("audio feature is disabled"));
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", not(feature = "audio")))]
     #[tokio::test]
-    async fn native_wasapi_driver_is_not_silently_stubbed() {
+    async fn native_wasapi_driver_reports_disabled_audio_backend() {
         let err = AudioDriver::new(DriverType::Wasapi).await.unwrap_err();
-        assert!(err.to_string().contains("not wired to a real backend"));
+        assert!(err.to_string().contains("audio feature is disabled"));
+    }
+
+    #[cfg(all(target_os = "macos", feature = "audio"))]
+    #[tokio::test]
+    async fn native_coreaudio_driver_enumerates_system_default_device() {
+        let driver = AudioDriver::new(DriverType::CoreAudio).await.unwrap();
+        let devices = driver.enumerate_devices().await.unwrap();
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "coreaudio-system-default");
+        assert_eq!(devices[0].capabilities.driver_type, DriverType::CoreAudio);
     }
 }
