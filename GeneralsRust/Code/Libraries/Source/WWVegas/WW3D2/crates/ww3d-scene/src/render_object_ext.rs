@@ -140,6 +140,11 @@ pub struct AnimationState {
     pub speed: f32,
     /// Total frames in animation
     pub frame_count: f32,
+    /// Source animation frame rate.
+    ///
+    /// C++ HAnimClass exposes this via Get_Frame_Rate(); playback advances by
+    /// that source rate rather than by a fixed scene constant.
+    pub frame_rate: f32,
     /// Ping-pong direction (1.0 forward, -1.0 backward)
     pub ping_pong_direction: f32,
 }
@@ -153,6 +158,7 @@ impl Default for AnimationState {
             is_playing: false,
             speed: 1.0,
             frame_count: 0.0,
+            frame_rate: 0.0,
             ping_pong_direction: 1.0,
         }
     }
@@ -162,11 +168,16 @@ impl AnimationState {
     /// Advance animation by delta time
     /// C++ Reference: renderobj.cpp lines 190-250
     pub fn update(&mut self, delta_time: f32, fps: f32) {
-        if !self.is_playing || self.frame_count == 0.0 {
+        if !self.is_playing || self.frame_count <= 0.0 {
             return;
         }
 
-        let frame_delta = delta_time * fps * self.speed * self.ping_pong_direction;
+        let frame_rate = if self.frame_rate > 0.0 {
+            self.frame_rate
+        } else {
+            fps
+        };
+        let frame_delta = delta_time * frame_rate * self.speed * self.ping_pong_direction;
         self.current_frame += frame_delta;
 
         match self.mode {
@@ -622,6 +633,7 @@ mod tests {
             is_playing: true,
             speed: 1.0,
             frame_count: 30.0,
+            frame_rate: 30.0,
             ping_pong_direction: 1.0,
         };
 
@@ -642,6 +654,7 @@ mod tests {
             is_playing: true,
             speed: 1.0,
             frame_count: 30.0,
+            frame_rate: 30.0,
             ping_pong_direction: 1.0,
         };
 
@@ -662,6 +675,7 @@ mod tests {
             is_playing: true,
             speed: 1.0,
             frame_count: 10.0,
+            frame_rate: 30.0,
             ping_pong_direction: 1.0,
         };
 
@@ -670,6 +684,24 @@ mod tests {
 
         // Should be going backward now
         assert_eq!(state.ping_pong_direction, -1.0);
+    }
+
+    #[test]
+    fn test_animation_state_uses_source_frame_rate() {
+        let mut state = AnimationState {
+            animation_name: "slow".to_string(),
+            current_frame: 0.0,
+            mode: AnimationMode::Loop,
+            is_playing: true,
+            speed: 1.0,
+            frame_count: 60.0,
+            frame_rate: 15.0,
+            ping_pong_direction: 1.0,
+        };
+
+        state.update(1.0, 30.0);
+
+        assert_eq!(state.current_frame, 15.0);
     }
 
     #[test]

@@ -23,7 +23,7 @@ mod tests {
     #[test]
     fn test_animation_play_once() {
         let mut model = MeshModel::new("AnimTest".to_string());
-        model.play_animation("walk", AnimationMode::Once);
+        model.play_animation_with_metadata("walk", AnimationMode::Once, 30, 30.0);
 
         assert!(model.is_animation_playing());
         assert_eq!(model.get_animation_frame(), 0.0);
@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn test_animation_loop() {
         let mut model = MeshModel::new("LoopTest".to_string());
-        model.play_animation("idle", AnimationMode::Loop);
+        model.play_animation_with_metadata("idle", AnimationMode::Loop, 30, 30.0);
 
         assert!(model.is_animation_playing());
 
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_animation_speed() {
         let mut model = MeshModel::new("SpeedTest".to_string());
-        model.play_animation("run", AnimationMode::Once);
+        model.play_animation_with_metadata("run", AnimationMode::Once, 30, 30.0);
         model.set_animation_speed(2.0);
 
         // Animation should play twice as fast
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn test_animation_frame_control() {
         let mut model = MeshModel::new("FrameTest".to_string());
-        model.play_animation("attack", AnimationMode::Once);
+        model.play_animation_with_metadata("attack", AnimationMode::Once, 30, 30.0);
 
         model.set_animation_frame(15.0);
         assert_eq!(model.get_animation_frame(), 15.0);
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn test_animation_stop() {
         let mut model = MeshModel::new("StopTest".to_string());
-        model.play_animation("jump", AnimationMode::Loop);
+        model.play_animation_with_metadata("jump", AnimationMode::Loop, 30, 30.0);
         assert!(model.is_animation_playing());
 
         model.stop_animation();
