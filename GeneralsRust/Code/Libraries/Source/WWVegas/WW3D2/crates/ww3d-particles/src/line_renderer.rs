@@ -605,6 +605,9 @@ pub struct LineGroupRenderer {
     _queue: Arc<Queue>,
 }
 
+pub const DEFAULT_LINE_GROUP_TRANSFORM_ENABLED: bool = false;
+pub const DEFAULT_LINE_GROUP_SIZE: f32 = 0.0;
+
 /// Line rendering mode for line groups
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LineMode {
@@ -619,8 +622,8 @@ impl LineGroupRenderer {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         Self {
             line_mode: LineMode::Tetrahedron,
-            transform_enabled: true,
-            default_line_size: 1.0,
+            transform_enabled: DEFAULT_LINE_GROUP_TRANSFORM_ENABLED,
+            default_line_size: DEFAULT_LINE_GROUP_SIZE,
             default_line_color: Vec3::ONE,
             default_line_alpha: 1.0,
             default_line_ucoord: 0.0,
@@ -715,6 +718,7 @@ impl LineGroupRenderer {
         }
 
         let _line_count = start_locs.len();
+        let (camera_up, camera_right) = self.line_basis(camera_up, camera_right);
 
         // Generate geometry based on mode
         let (vertices, indices) = match self.line_mode {
@@ -767,6 +771,10 @@ impl LineGroupRenderer {
             render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
         }
+    }
+
+    fn line_basis(&self, camera_up: Vec3, camera_right: Vec3) -> (Vec3, Vec3) {
+        resolve_line_group_basis(self.transform_enabled, camera_up, camera_right)
     }
 
     /// Generate tetrahedron geometry
@@ -967,3 +975,41 @@ pub struct LineGroupVertex {
 // Manual implementation of Pod and Zeroable
 unsafe impl bytemuck::Pod for LineGroupVertex {}
 unsafe impl bytemuck::Zeroable for LineGroupVertex {}
+
+fn resolve_line_group_basis(
+    transform_enabled: bool,
+    camera_up: Vec3,
+    camera_right: Vec3,
+) -> (Vec3, Vec3) {
+    if transform_enabled {
+        (camera_up, camera_right)
+    } else {
+        (Vec3::Y, Vec3::X)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_group_defaults_match_cpp_constructor() {
+        assert!(!DEFAULT_LINE_GROUP_TRANSFORM_ENABLED);
+        assert_eq!(DEFAULT_LINE_GROUP_SIZE, 0.0);
+    }
+
+    #[test]
+    fn line_group_basis_uses_camera_axes_only_when_transform_enabled() {
+        let camera_up = Vec3::new(0.0, 0.0, 1.0);
+        let camera_right = Vec3::new(1.0, 0.0, 0.0);
+
+        assert_eq!(
+            resolve_line_group_basis(false, camera_up, camera_right),
+            (Vec3::Y, Vec3::X)
+        );
+        assert_eq!(
+            resolve_line_group_basis(true, camera_up, camera_right),
+            (camera_up, camera_right)
+        );
+    }
+}
