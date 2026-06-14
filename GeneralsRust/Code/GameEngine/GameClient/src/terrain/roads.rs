@@ -1589,6 +1589,33 @@ impl RoadManager {
         }
     }
 
+    fn apply_vertex_diffuse<F>(vertices: &mut [RoadVertex], sample_diffuse: &mut F)
+    where
+        F: FnMut(Vec3) -> [f32; 4],
+    {
+        for vertex in vertices {
+            let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
+            let mut color = sample_diffuse(pos);
+            for channel in &mut color {
+                if !channel.is_finite() {
+                    *channel = 1.0;
+                } else {
+                    *channel = channel.clamp(0.0, 1.0);
+                }
+            }
+            color[3] = 1.0;
+            vertex.color = color;
+        }
+    }
+
+    fn refresh_geometry_colors(geometry: &mut RoadGeometry) {
+        geometry.colors = geometry
+            .vertices
+            .iter()
+            .map(|vertex| vertex.color)
+            .collect();
+    }
+
     fn rebuild_strip_indices(indices: &mut Vec<u32>, row_count: u32) {
         indices.clear();
         if row_count < 2 {
@@ -1812,6 +1839,71 @@ impl RoadManager {
                     &mut sample_height,
                 );
                 Self::reproject_vertex_normals(&mut marking.vertices, &mut sample_normal);
+            }
+        }
+
+        self.terrain_normals_dirty = false;
+    }
+
+    /// Reproject road vertices and refresh C++-style static diffuse lighting.
+    ///
+    /// C++ `RoadSegment::updateSegLighting` samples `getStaticDiffuse` for each road
+    /// vertex after terrain projection and stores an opaque diffuse color in the vertex
+    /// buffer. This variant lets terrain callers provide that same world-space diffuse
+    /// sample while keeping the existing height/normal-only API intact.
+    pub fn apply_terrain_heights_normals_and_diffuse<FH, FN, FD>(
+        &mut self,
+        mut sample_height: FH,
+        mut sample_normal: FN,
+        mut sample_diffuse: FD,
+    ) where
+        FH: FnMut(Vec3) -> f32,
+        FN: FnMut(Vec3) -> Vec3,
+        FD: FnMut(Vec3) -> [f32; 4],
+    {
+        if !self.terrain_normals_dirty {
+            return;
+        }
+
+        for segment in self.segments.values_mut() {
+            let Some(geometry) = segment.geometry.as_mut() else {
+                continue;
+            };
+
+            Self::project_vertices_to_terrain(
+                &mut geometry.vertices,
+                segment.properties.elevation,
+                true,
+                Some(&geometry.row_height_samples),
+                &mut sample_height,
+            );
+            Self::collapse_strip_rows(&mut geometry.vertices, &mut geometry.indices);
+            Self::reproject_vertex_normals(&mut geometry.vertices, &mut sample_normal);
+            Self::apply_vertex_diffuse(&mut geometry.vertices, &mut sample_diffuse);
+            Self::refresh_geometry_colors(geometry);
+
+            if let Some(edge) = geometry.edge_geometry.as_mut() {
+                Self::project_vertices_to_terrain(
+                    &mut edge.vertices,
+                    segment.properties.elevation,
+                    true,
+                    None,
+                    &mut sample_height,
+                );
+                Self::reproject_vertex_normals(&mut edge.vertices, &mut sample_normal);
+                Self::apply_vertex_diffuse(&mut edge.vertices, &mut sample_diffuse);
+            }
+
+            if let Some(marking) = geometry.marking_geometry.as_mut() {
+                Self::project_vertices_to_terrain(
+                    &mut marking.vertices,
+                    segment.properties.elevation + 0.02,
+                    true,
+                    None,
+                    &mut sample_height,
+                );
+                Self::reproject_vertex_normals(&mut marking.vertices, &mut sample_normal);
+                Self::apply_vertex_diffuse(&mut marking.vertices, &mut sample_diffuse);
             }
         }
 
@@ -2524,6 +2616,57 @@ mod tests {
             assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
             assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
         }
+    }
+
+    #[test]
+    fn test_apply_terrain_diffuse_updates_road_vertex_colors() {
+        let mut manager = RoadManager::new();
+        let road_id = manager.create_road(
+            "Lit Road".to_string(),
+            RoadType::DirtPath { wear_factor: 0.2 },
+        );
+        let segment_id = manager
+            .create_segment(
+                road_id,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(20.0, 0.0, 0.0),
+                Some(10.0),
+            )
+            .unwrap();
+        {
+            let segment = manager.get_segment_mut(segment_id).unwrap();
+            segment.properties.texture_override =
+                Some("Kind=SEGMENT WidthInTexture=1.0".to_string());
+        }
+        manager.update_geometry().unwrap();
+
+        manager.apply_terrain_heights_normals_and_diffuse(
+            |_| 3.0,
+            |_| Vec3::new(0.0, 1.0, 0.0),
+            |pos| {
+                if pos.x < 10.0 {
+                    [0.25, 0.5, 0.75, 1.0]
+                } else {
+                    [0.9, 0.8, 0.7, 1.0]
+                }
+            },
+        );
+
+        let geometry = manager
+            .get_segment(segment_id)
+            .and_then(|s| s.geometry.as_ref())
+            .unwrap();
+        assert_eq!(geometry.vertices[0].color, [0.25, 0.5, 0.75, 1.0]);
+        assert_eq!(
+            geometry.vertices.last().unwrap().color,
+            [0.9, 0.8, 0.7, 1.0]
+        );
+        assert_eq!(geometry.colors.len(), geometry.vertices.len());
+        assert_eq!(geometry.colors[0], geometry.vertices[0].color);
+        assert_eq!(
+            *geometry.colors.last().unwrap(),
+            geometry.vertices.last().unwrap().color
+        );
     }
 
     fn assert_vertex_position(vertex: &RoadVertex, expected: Vec3) {
