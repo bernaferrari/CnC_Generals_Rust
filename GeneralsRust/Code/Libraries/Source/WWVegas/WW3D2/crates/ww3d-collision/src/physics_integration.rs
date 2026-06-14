@@ -933,7 +933,51 @@ impl RigidBody {
                         info
                     })
             }
-            _ => None, // Other combinations not implemented yet
+            (CollisionShape::Sphere { radius }, CollisionShape::Mesh { vertices, indices }) => {
+                self.sphere_mesh_collision(other, *radius, vertices, indices)
+            }
+            (CollisionShape::Mesh { vertices, indices }, CollisionShape::Sphere { radius }) => {
+                other
+                    .sphere_mesh_collision(self, *radius, vertices, indices)
+                    .map(|mut info| {
+                        info.normal = -info.normal;
+                        info
+                    })
+            }
+            (CollisionShape::Box { half_extents }, CollisionShape::Mesh { vertices, indices }) => {
+                self.box_mesh_collision(other, *half_extents, vertices, indices)
+            }
+            (CollisionShape::Mesh { vertices, indices }, CollisionShape::Box { half_extents }) => {
+                other
+                    .box_mesh_collision(self, *half_extents, vertices, indices)
+                    .map(|mut info| {
+                        info.normal = -info.normal;
+                        info
+                    })
+            }
+            (
+                CollisionShape::Capsule { radius, height },
+                CollisionShape::Mesh { vertices, indices },
+            ) => self.capsule_mesh_collision(other, *radius, *height, vertices, indices),
+            (
+                CollisionShape::Mesh { vertices, indices },
+                CollisionShape::Capsule { radius, height },
+            ) => other
+                .capsule_mesh_collision(self, *radius, *height, vertices, indices)
+                .map(|mut info| {
+                    info.normal = -info.normal;
+                    info
+                }),
+            (
+                CollisionShape::Mesh {
+                    vertices: vertices_a,
+                    indices: indices_a,
+                },
+                CollisionShape::Mesh {
+                    vertices: vertices_b,
+                    indices: indices_b,
+                },
+            ) => self.mesh_mesh_collision(other, vertices_a, indices_a, vertices_b, indices_b),
         }
     }
 
@@ -1219,6 +1263,149 @@ impl RigidBody {
         }
     }
 
+    fn sphere_mesh_collision(
+        &self,
+        other: &RigidBody,
+        radius: f32,
+        vertices: &[Vec3],
+        indices: &[u32],
+    ) -> Option<CollisionInfo> {
+        let mesh_rot = Mat3::from_quat(other.rotation);
+        let mut best: Option<CollisionInfo> = None;
+        let mut best_distance = radius;
+
+        for (v0, v1, v2) in mesh_world_triangles(other, vertices, indices) {
+            let closest = closest_point_on_triangle(self.position, v0, v1, v2);
+            let delta = closest - self.position;
+            let distance = delta.length();
+
+            if distance < best_distance {
+                let tri_normal = triangle_normal(v0, v1, v2);
+                let normal = if distance > 0.000001 {
+                    delta / distance
+                } else {
+                    orient_normal(tri_normal, other.position - self.position)
+                        .unwrap_or(mesh_rot * Vec3::Y)
+                };
+
+                best_distance = distance;
+                best = Some(CollisionInfo {
+                    contact_point: closest,
+                    normal: normal.normalize_or_zero(),
+                    penetration: radius - distance,
+                });
+            }
+        }
+
+        best
+    }
+
+    fn box_mesh_collision(
+        &self,
+        other: &RigidBody,
+        half_extents: Vec3,
+        vertices: &[Vec3],
+        indices: &[u32],
+    ) -> Option<CollisionInfo> {
+        let box_rot = Mat3::from_quat(self.rotation);
+        let inv_box_rot = box_rot.transpose();
+        let mut best: Option<CollisionInfo> = None;
+        let mut best_penetration = f32::MAX;
+
+        for (v0, v1, v2) in mesh_world_triangles(other, vertices, indices) {
+            let local_v0 = inv_box_rot * (v0 - self.position);
+            let local_v1 = inv_box_rot * (v1 - self.position);
+            let local_v2 = inv_box_rot * (v2 - self.position);
+
+            if let Some(hit) =
+                triangle_aabb_intersection(local_v0, local_v1, local_v2, half_extents)
+            {
+                if hit.penetration < best_penetration {
+                    best_penetration = hit.penetration;
+                    best = Some(CollisionInfo {
+                        contact_point: self.position + box_rot * hit.contact_point,
+                        normal: (box_rot * hit.normal).normalize_or_zero(),
+                        penetration: hit.penetration,
+                    });
+                }
+            }
+        }
+
+        best
+    }
+
+    fn capsule_mesh_collision(
+        &self,
+        other: &RigidBody,
+        radius: f32,
+        height: f32,
+        vertices: &[Vec3],
+        indices: &[u32],
+    ) -> Option<CollisionInfo> {
+        let (seg_a, seg_b) = capsule_segment_endpoints(self, height);
+        let mut best: Option<CollisionInfo> = None;
+        let mut best_distance = radius;
+
+        for (v0, v1, v2) in mesh_world_triangles(other, vertices, indices) {
+            let (segment_point, triangle_point) =
+                closest_segment_triangle_points(seg_a, seg_b, v0, v1, v2);
+            let delta = triangle_point - segment_point;
+            let distance = delta.length();
+
+            if distance < best_distance {
+                let tri_normal = triangle_normal(v0, v1, v2);
+                let normal = if distance > 0.000001 {
+                    delta / distance
+                } else {
+                    orient_normal(tri_normal, other.position - self.position).unwrap_or(Vec3::Y)
+                };
+
+                best_distance = distance;
+                best = Some(CollisionInfo {
+                    contact_point: triangle_point,
+                    normal: normal.normalize_or_zero(),
+                    penetration: radius - distance,
+                });
+            }
+        }
+
+        best
+    }
+
+    fn mesh_mesh_collision(
+        &self,
+        other: &RigidBody,
+        vertices_a: &[Vec3],
+        indices_a: &[u32],
+        vertices_b: &[Vec3],
+        indices_b: &[u32],
+    ) -> Option<CollisionInfo> {
+        let tris_a = mesh_world_triangles(self, vertices_a, indices_a);
+        let tris_b = mesh_world_triangles(other, vertices_b, indices_b);
+
+        for &(a0, a1, a2) in &tris_a {
+            for &(b0, b1, b2) in &tris_b {
+                if triangles_intersect(a0, a1, a2, b0, b1, b2) {
+                    let center_a = (a0 + a1 + a2) / 3.0;
+                    let center_b = (b0 + b1 + b2) / 3.0;
+                    let tri_normal = triangle_normal(a0, a1, a2);
+                    let normal = (center_b - center_a)
+                        .try_normalize()
+                        .or_else(|| orient_normal(tri_normal, other.position - self.position))
+                        .unwrap_or(Vec3::Y);
+
+                    return Some(CollisionInfo {
+                        contact_point: (center_a + center_b) * 0.5,
+                        normal,
+                        penetration: 0.001,
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
     fn ray_cast(&self, origin: Vec3, direction: Vec3, max_distance: f32) -> Option<RayCastInfo> {
         match &self.shape {
             CollisionShape::Sphere { radius } => {
@@ -1448,6 +1635,371 @@ impl RigidBody {
             distance,
         })
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TriangleAabbHit {
+    normal: Vec3,
+    contact_point: Vec3,
+    penetration: f32,
+}
+
+fn mesh_world_triangles(
+    body: &RigidBody,
+    vertices: &[Vec3],
+    indices: &[u32],
+) -> Vec<(Vec3, Vec3, Vec3)> {
+    let rot = Mat3::from_quat(body.rotation);
+    indices
+        .chunks_exact(3)
+        .filter_map(|tri| {
+            let v0 = vertices.get(tri[0] as usize).copied()?;
+            let v1 = vertices.get(tri[1] as usize).copied()?;
+            let v2 = vertices.get(tri[2] as usize).copied()?;
+            Some((
+                body.position + rot * v0,
+                body.position + rot * v1,
+                body.position + rot * v2,
+            ))
+        })
+        .collect()
+}
+
+fn triangle_normal(v0: Vec3, v1: Vec3, v2: Vec3) -> Vec3 {
+    (v1 - v0).cross(v2 - v0).normalize_or_zero()
+}
+
+fn orient_normal(normal: Vec3, toward: Vec3) -> Option<Vec3> {
+    let normal = normal.try_normalize()?;
+    if normal.dot(toward) < 0.0 {
+        Some(-normal)
+    } else {
+        Some(normal)
+    }
+}
+
+fn closest_point_on_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let ab = b - a;
+    let ac = c - a;
+    let ap = point - a;
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+
+    let bp = point - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return a + ab * v;
+    }
+
+    let cp = point - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return a + ac * w;
+    }
+
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + (c - b) * w;
+    }
+
+    let denom = 1.0 / (va + vb + vc);
+    let v = vb * denom;
+    let w = vc * denom;
+    a + ab * v + ac * w
+}
+
+fn project_triangle(axis: Vec3, v0: Vec3, v1: Vec3, v2: Vec3) -> (f32, f32) {
+    let p0 = axis.dot(v0);
+    let p1 = axis.dot(v1);
+    let p2 = axis.dot(v2);
+    (p0.min(p1).min(p2), p0.max(p1).max(p2))
+}
+
+fn test_triangle_aabb_axis(
+    axis: Vec3,
+    v0: Vec3,
+    v1: Vec3,
+    v2: Vec3,
+    half_extents: Vec3,
+    best_axis: &mut Vec3,
+    best_penetration: &mut f32,
+) -> bool {
+    let Some(axis) = axis.try_normalize() else {
+        return true;
+    };
+
+    let (tri_min, tri_max) = project_triangle(axis, v0, v1, v2);
+    let box_radius = half_extents.x * axis.x.abs()
+        + half_extents.y * axis.y.abs()
+        + half_extents.z * axis.z.abs();
+
+    if tri_min > box_radius || tri_max < -box_radius {
+        return false;
+    }
+
+    let penetration = (box_radius - tri_min).min(tri_max + box_radius);
+    if penetration < *best_penetration {
+        let tri_center = (v0 + v1 + v2) / 3.0;
+        *best_axis = if axis.dot(tri_center) < 0.0 {
+            -axis
+        } else {
+            axis
+        };
+        *best_penetration = penetration;
+    }
+
+    true
+}
+
+fn triangle_aabb_intersection(
+    v0: Vec3,
+    v1: Vec3,
+    v2: Vec3,
+    half_extents: Vec3,
+) -> Option<TriangleAabbHit> {
+    let edges = [v1 - v0, v2 - v1, v0 - v2];
+    let mut best_axis = Vec3::Y;
+    let mut best_penetration = f32::MAX;
+
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z, triangle_normal(v0, v1, v2)] {
+        if !test_triangle_aabb_axis(
+            axis,
+            v0,
+            v1,
+            v2,
+            half_extents,
+            &mut best_axis,
+            &mut best_penetration,
+        ) {
+            return None;
+        }
+    }
+
+    for edge in edges {
+        for axis in [
+            Vec3::X.cross(edge),
+            Vec3::Y.cross(edge),
+            Vec3::Z.cross(edge),
+        ] {
+            if !test_triangle_aabb_axis(
+                axis,
+                v0,
+                v1,
+                v2,
+                half_extents,
+                &mut best_axis,
+                &mut best_penetration,
+            ) {
+                return None;
+            }
+        }
+    }
+
+    let centroid = (v0 + v1 + v2) / 3.0;
+    Some(TriangleAabbHit {
+        normal: best_axis,
+        contact_point: closest_point_on_aabb(centroid, half_extents),
+        penetration: best_penetration.max(0.001),
+    })
+}
+
+fn segment_triangle_intersection(a: Vec3, b: Vec3, v0: Vec3, v1: Vec3, v2: Vec3) -> Option<Vec3> {
+    let direction = b - a;
+    let edge1 = v1 - v0;
+    let edge2 = v2 - v0;
+    let pvec = direction.cross(edge2);
+    let det = edge1.dot(pvec);
+    if det.abs() < 0.000001 {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+    let tvec = a - v0;
+    let u = tvec.dot(pvec) * inv_det;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+
+    let qvec = tvec.cross(edge1);
+    let v = direction.dot(qvec) * inv_det;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let t = edge2.dot(qvec) * inv_det;
+    if !(0.0..=1.0).contains(&t) {
+        return None;
+    }
+
+    Some(a + direction * t)
+}
+
+fn closest_segment_triangle_points(a: Vec3, b: Vec3, v0: Vec3, v1: Vec3, v2: Vec3) -> (Vec3, Vec3) {
+    if let Some(point) = segment_triangle_intersection(a, b, v0, v1, v2) {
+        return (point, point);
+    }
+
+    let mut best_segment_point = a;
+    let mut best_triangle_point = closest_point_on_triangle(a, v0, v1, v2);
+    let mut best_distance = best_segment_point.distance_squared(best_triangle_point);
+
+    for endpoint in [b] {
+        let triangle_point = closest_point_on_triangle(endpoint, v0, v1, v2);
+        let distance = endpoint.distance_squared(triangle_point);
+        if distance < best_distance {
+            best_distance = distance;
+            best_segment_point = endpoint;
+            best_triangle_point = triangle_point;
+        }
+    }
+
+    for (edge_a, edge_b) in [(v0, v1), (v1, v2), (v2, v0)] {
+        let (segment_point, triangle_point) = closest_points_between_segments(a, b, edge_a, edge_b);
+        let distance = segment_point.distance_squared(triangle_point);
+        if distance < best_distance {
+            best_distance = distance;
+            best_segment_point = segment_point;
+            best_triangle_point = triangle_point;
+        }
+    }
+
+    (best_segment_point, best_triangle_point)
+}
+
+fn point_in_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> bool {
+    point.distance_squared(closest_point_on_triangle(point, a, b, c)) <= 0.000001
+}
+
+fn project_to_2d(point: Vec3, drop_axis: usize) -> (f32, f32) {
+    match drop_axis {
+        0 => (point.y, point.z),
+        1 => (point.x, point.z),
+        _ => (point.x, point.y),
+    }
+}
+
+fn orient_2d(a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> f32 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
+fn on_segment_2d(a: (f32, f32), b: (f32, f32), p: (f32, f32)) -> bool {
+    p.0 >= a.0.min(b.0) - 0.000001
+        && p.0 <= a.0.max(b.0) + 0.000001
+        && p.1 >= a.1.min(b.1) - 0.000001
+        && p.1 <= a.1.max(b.1) + 0.000001
+        && orient_2d(a, b, p).abs() <= 0.000001
+}
+
+fn segments_intersect_2d(a0: (f32, f32), a1: (f32, f32), b0: (f32, f32), b1: (f32, f32)) -> bool {
+    let o1 = orient_2d(a0, a1, b0);
+    let o2 = orient_2d(a0, a1, b1);
+    let o3 = orient_2d(b0, b1, a0);
+    let o4 = orient_2d(b0, b1, a1);
+
+    if o1.signum() != o2.signum() && o3.signum() != o4.signum() {
+        return true;
+    }
+
+    on_segment_2d(a0, a1, b0)
+        || on_segment_2d(a0, a1, b1)
+        || on_segment_2d(b0, b1, a0)
+        || on_segment_2d(b0, b1, a1)
+}
+
+fn point_in_triangle_2d(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
+    let o1 = orient_2d(a, b, p);
+    let o2 = orient_2d(b, c, p);
+    let o3 = orient_2d(c, a, p);
+    let has_neg = o1 < -0.000001 || o2 < -0.000001 || o3 < -0.000001;
+    let has_pos = o1 > 0.000001 || o2 > 0.000001 || o3 > 0.000001;
+    !(has_neg && has_pos)
+}
+
+fn coplanar_triangles_intersect(
+    a0: Vec3,
+    a1: Vec3,
+    a2: Vec3,
+    b0: Vec3,
+    b1: Vec3,
+    b2: Vec3,
+) -> bool {
+    let normal = triangle_normal(a0, a1, a2);
+    if normal == Vec3::ZERO {
+        return false;
+    }
+
+    if normal.dot(b0 - a0).abs() > 0.0001
+        || normal.dot(b1 - a0).abs() > 0.0001
+        || normal.dot(b2 - a0).abs() > 0.0001
+    {
+        return false;
+    }
+
+    let abs_normal = normal.abs();
+    let drop_axis = if abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z {
+        0
+    } else if abs_normal.y > abs_normal.z {
+        1
+    } else {
+        2
+    };
+
+    let a = [
+        project_to_2d(a0, drop_axis),
+        project_to_2d(a1, drop_axis),
+        project_to_2d(a2, drop_axis),
+    ];
+    let b = [
+        project_to_2d(b0, drop_axis),
+        project_to_2d(b1, drop_axis),
+        project_to_2d(b2, drop_axis),
+    ];
+
+    for edge_a in [(a[0], a[1]), (a[1], a[2]), (a[2], a[0])] {
+        for edge_b in [(b[0], b[1]), (b[1], b[2]), (b[2], b[0])] {
+            if segments_intersect_2d(edge_a.0, edge_a.1, edge_b.0, edge_b.1) {
+                return true;
+            }
+        }
+    }
+
+    point_in_triangle_2d(a[0], b[0], b[1], b[2]) || point_in_triangle_2d(b[0], a[0], a[1], a[2])
+}
+
+fn triangles_intersect(a0: Vec3, a1: Vec3, a2: Vec3, b0: Vec3, b1: Vec3, b2: Vec3) -> bool {
+    for (p0, p1) in [(a0, a1), (a1, a2), (a2, a0)] {
+        if segment_triangle_intersection(p0, p1, b0, b1, b2).is_some() {
+            return true;
+        }
+    }
+
+    for (p0, p1) in [(b0, b1), (b1, b2), (b2, b0)] {
+        if segment_triangle_intersection(p0, p1, a0, a1, a2).is_some() {
+            return true;
+        }
+    }
+
+    point_in_triangle(a0, b0, b1, b2)
+        || point_in_triangle(b0, a0, a1, a2)
+        || coplanar_triangles_intersect(a0, a1, a2, b0, b1, b2)
 }
 
 fn capsule_segment_endpoints(body: &RigidBody, height: f32) -> (Vec3, Vec3) {
@@ -2349,6 +2901,160 @@ mod tests {
         assert!((collision.penetration - 0.1).abs() < 0.0001);
         assert!(collision.normal.dot(Vec3::NEG_X) > 0.999);
         assert!((collision.contact_point.x - 1.0).abs() < 0.0001);
+    }
+
+    fn flat_mesh_body(position: Vec3, rotation: Quat) -> RigidBody {
+        test_body(
+            position,
+            rotation,
+            CollisionShape::Mesh {
+                vertices: vec![
+                    Vec3::new(-1.0, -1.0, 0.0),
+                    Vec3::new(1.0, -1.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                ],
+                indices: vec![0, 1, 2],
+            },
+        )
+    }
+
+    #[test]
+    fn test_sphere_mesh_collision_uses_triangle_surface() {
+        let sphere = test_body(
+            Vec3::new(0.0, 0.0, -0.25),
+            Quat::IDENTITY,
+            CollisionShape::Sphere { radius: 0.5 },
+        );
+        let mesh = flat_mesh_body(Vec3::ZERO, Quat::IDENTITY);
+
+        let collision = sphere
+            .collide_with(&mesh)
+            .expect("sphere should overlap mesh triangle");
+        assert!((collision.penetration - 0.25).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::Z) > 0.999);
+        assert!(collision.contact_point.length() < 0.0001);
+    }
+
+    #[test]
+    fn test_mesh_sphere_collision_inverts_normal() {
+        let mesh = flat_mesh_body(Vec3::ZERO, Quat::IDENTITY);
+        let sphere = test_body(
+            Vec3::new(0.0, 0.0, -0.25),
+            Quat::IDENTITY,
+            CollisionShape::Sphere { radius: 0.5 },
+        );
+
+        let collision = mesh
+            .collide_with(&sphere)
+            .expect("mesh should overlap sphere");
+        assert!((collision.penetration - 0.25).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::NEG_Z) > 0.999);
+    }
+
+    #[test]
+    fn test_box_mesh_collision_handles_rotated_mesh_transform() {
+        let box_body = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Box {
+                half_extents: Vec3::splat(0.5),
+            },
+        );
+        let mesh = flat_mesh_body(
+            Vec3::new(0.0, 0.0, 0.45),
+            Quat::from_axis_angle(Vec3::Z, std::f32::consts::FRAC_PI_2),
+        );
+
+        let collision = box_body
+            .collide_with(&mesh)
+            .expect("box should intersect transformed mesh triangle");
+        assert!((collision.penetration - 0.05).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::Z) > 0.999);
+        assert!(collision.contact_point.z <= 0.5);
+    }
+
+    #[test]
+    fn test_capsule_mesh_collision_uses_segment_triangle_distance() {
+        let capsule = test_body(
+            Vec3::new(0.0, 0.0, -0.25),
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+        let mesh = flat_mesh_body(Vec3::ZERO, Quat::IDENTITY);
+
+        let collision = capsule
+            .collide_with(&mesh)
+            .expect("capsule should overlap mesh triangle");
+        assert!((collision.penetration - 0.25).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::Z) > 0.999);
+    }
+
+    #[test]
+    fn test_mesh_mesh_collision_detects_triangle_intersection() {
+        let mesh_a = flat_mesh_body(Vec3::ZERO, Quat::IDENTITY);
+        let mesh_b = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Mesh {
+                vertices: vec![
+                    Vec3::new(0.0, -1.0, -1.0),
+                    Vec3::new(0.0, -1.0, 1.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                ],
+                indices: vec![0, 1, 2],
+            },
+        );
+
+        let collision = mesh_a
+            .collide_with(&mesh_b)
+            .expect("crossing mesh triangles should collide");
+        assert!(collision.penetration > 0.0);
+        assert!(collision.normal.length() > 0.999);
+    }
+
+    #[test]
+    fn test_mesh_mesh_collision_detects_coplanar_overlap() {
+        let mesh_a = flat_mesh_body(Vec3::ZERO, Quat::IDENTITY);
+        let mesh_b = test_body(
+            Vec3::new(0.25, 0.0, 0.0),
+            Quat::IDENTITY,
+            CollisionShape::Mesh {
+                vertices: vec![
+                    Vec3::new(-0.5, -0.5, 0.0),
+                    Vec3::new(0.5, -0.5, 0.0),
+                    Vec3::new(0.0, 0.5, 0.0),
+                ],
+                indices: vec![0, 1, 2],
+            },
+        );
+
+        let collision = mesh_a
+            .collide_with(&mesh_b)
+            .expect("coplanar overlapping mesh triangles should collide");
+        assert!(collision.penetration > 0.0);
+        assert!(collision.normal.length() > 0.999);
+    }
+
+    #[test]
+    fn test_mesh_collision_skips_invalid_indices() {
+        let sphere = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Sphere { radius: 1.0 },
+        );
+        let mesh = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Mesh {
+                vertices: vec![Vec3::ZERO],
+                indices: vec![0, 1, 2],
+            },
+        );
+
+        assert!(sphere.collide_with(&mesh).is_none());
     }
 
     #[test]
