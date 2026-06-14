@@ -10,12 +10,12 @@ use binrw::BinReaderExt;
 use std::io::{Read, Seek, SeekFrom};
 use thiserror::Error;
 use ww3d_core::{
-    W3DChunkType, W3dAnimChannelStruct, W3dAnimationStruct, W3dChunkHeader,
+    W3DChunkType, W3dAnimChannelStruct, W3dAnimationStruct, W3dBitChannelStruct, W3dChunkHeader,
     W3dCompressedAnimationStruct, W3dHModelHeaderStruct, W3dHModelNodeStruct, W3dHierarchyStruct,
     W3dPivotStruct,
 };
 
-use crate::hanim::{HAnimClass, MotionChannel, MotionChannelType};
+use crate::hanim::{BitChannel, HAnimClass, MotionChannel, MotionChannelType};
 use crate::hcompressed_anim::{
     HCompressedAnimClass, ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED,
 };
@@ -60,6 +60,7 @@ pub struct W3DAnimationData {
     pub frame_rate: f32,
     pub compression_flavor: Option<u32>, // None = uncompressed, Some(0) = timecoded, Some(1) = adaptive delta
     pub channels: Vec<W3DAnimationChannel>,
+    pub bit_channels: Vec<W3DAnimationBitChannel>,
     pub compressed_anim: Option<HCompressedAnimClass>, // NEW: Holds compressed animation if present
     pub morph_anim: Option<W3DMorphAnimationData>,
 }
@@ -71,7 +72,19 @@ pub struct W3DAnimationChannel {
     pub channel_type: MotionChannelType,
     pub first_frame: u16,
     pub last_frame: u16,
+    pub vector_len: usize,
     pub data: Vec<f32>,
+}
+
+/// Packed visibility channel data.
+#[derive(Debug, Clone)]
+pub struct W3DAnimationBitChannel {
+    pub pivot_index: u16,
+    pub channel_type: MotionChannelType,
+    pub first_frame: u16,
+    pub last_frame: u16,
+    pub default_value: u8,
+    pub data: Vec<u8>,
 }
 
 /// Morph animation data
@@ -170,6 +183,7 @@ fn parse_animation_chunk<R: Read + Seek>(
 
     let mut header: Option<W3dAnimationStruct> = None;
     let mut channels: Vec<W3DAnimationChannel> = Vec::new();
+    let mut bit_channels: Vec<W3DAnimationBitChannel> = Vec::new();
 
     while reader.stream_position()? < chunk_end {
         let sub_header: W3dChunkHeader = reader.read_le()?;
@@ -186,7 +200,7 @@ fn parse_animation_chunk<R: Read + Seek>(
             }
             Some(W3DChunkType::BitChannel) => {
                 let channel = parse_bit_channel_chunk(reader, sub_header.actual_size())?;
-                channels.push(channel);
+                bit_channels.push(channel);
             }
             Some(W3DChunkType::TimeCodedAnimChannel) => {
                 let channel = parse_timecoded_channel_chunk(reader, sub_header.actual_size())?;
@@ -211,6 +225,7 @@ fn parse_animation_chunk<R: Read + Seek>(
         frame_rate: header.frame_rate as f32,
         compression_flavor: None, // Uncompressed animation
         channels,
+        bit_channels,
         compressed_anim: None,
         morph_anim: None,
     })
@@ -244,6 +259,7 @@ fn parse_animation_channel_chunk<R: Read + Seek>(
         channel_type,
         first_frame: channel_struct.first_frame,
         last_frame: channel_struct.last_frame,
+        vector_len,
         data,
     })
 }
@@ -252,32 +268,25 @@ fn parse_animation_channel_chunk<R: Read + Seek>(
 fn parse_bit_channel_chunk<R: Read + Seek>(
     reader: &mut R,
     _chunk_size: u32,
-) -> Result<W3DAnimationChannel, W3DAnimationError> {
+) -> Result<W3DAnimationBitChannel, W3DAnimationError> {
     // Read the channel header
-    let channel_struct: W3dAnimChannelStruct = reader.read_le()?;
+    let channel_struct: W3dBitChannelStruct = reader.read_le()?;
 
-    // Bit channels store visibility data as packed bits
     let num_frames = (channel_struct.last_frame - channel_struct.first_frame + 1) as usize;
-    let num_bytes = (num_frames + 7) / 8;
-
-    // Read the bit data
-    let mut bit_data = vec![0u8; num_bytes];
-    reader.read_exact(&mut bit_data)?;
-
-    // Unpack bits to floats (0.0 = hidden, 1.0 = visible)
-    let mut data = Vec::with_capacity(num_frames);
-    for i in 0..num_frames {
-        let byte_idx = i / 8;
-        let bit_idx = i % 8;
-        let is_visible = (bit_data[byte_idx] & (1 << bit_idx)) != 0;
-        data.push(if is_visible { 1.0 } else { 0.0 });
+    let num_bytes = ((num_frames + 7) / 8).max(1);
+    let mut data = Vec::with_capacity(num_bytes);
+    data.push(channel_struct.data[0]);
+    if num_bytes > 1 {
+        data.resize(num_bytes, 0);
+        reader.read_exact(&mut data[1..])?;
     }
 
-    Ok(W3DAnimationChannel {
+    Ok(W3DAnimationBitChannel {
         pivot_index: channel_struct.pivot,
         channel_type: MotionChannelType::Visibility,
         first_frame: channel_struct.first_frame,
         last_frame: channel_struct.last_frame,
+        default_value: channel_struct.default_val,
         data,
     })
 }
@@ -314,6 +323,7 @@ fn parse_timecoded_channel_chunk<R: Read + Seek>(
         channel_type,
         first_frame: channel_struct.first_frame,
         last_frame: channel_struct.last_frame,
+        vector_len,
         data,
     })
 }
@@ -445,6 +455,7 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
         frame_rate: header.frame_rate as f32,
         compression_flavor: Some(header.flavor),
         channels: Vec::new(), // Compressed animations use HCompressedAnimClass instead
+        bit_channels: Vec::new(),
         compressed_anim: Some(compressed_anim),
         morph_anim: None,
     })
@@ -580,6 +591,7 @@ fn parse_morph_animation_chunk<R: Read + Seek>(
         frame_rate: morph_data.frame_rate,
         compression_flavor: None,
         channels: Vec::new(), // Morph animations don't use standard channels
+        bit_channels: Vec::new(),
         compressed_anim: None,
         morph_anim: Some(morph_data),
     })
@@ -722,9 +734,21 @@ pub fn w3d_animation_to_hanim(anim_data: W3DAnimationData) -> HAnimClass {
                 channel.pivot_index as usize,
                 channel.first_frame,
                 channel.last_frame,
-                1, // vector_len - would need to be determined from data
+                channel.vector_len,
                 channel.data,
             )
+        })
+        .collect();
+    let bit_channels: Vec<BitChannel> = anim_data
+        .bit_channels
+        .into_iter()
+        .map(|channel| BitChannel {
+            pivot_idx: channel.pivot_index as usize,
+            channel_type: channel.channel_type,
+            data: channel.data,
+            first_frame: channel.first_frame,
+            last_frame: channel.last_frame,
+            default_value: channel.default_value,
         })
         .collect();
 
@@ -734,7 +758,7 @@ pub fn w3d_animation_to_hanim(anim_data: W3DAnimationData) -> HAnimClass {
         anim_data.num_frames,
         anim_data.frame_rate,
         channels,
-        Vec::new(), // bit channels
+        bit_channels,
     )
 }
 
@@ -964,6 +988,7 @@ pub fn load_w3x_from_file(path: &str) -> Result<HTreeClass, W3DAnimationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Quat;
     use std::io::Cursor;
 
     fn fixed_name(name: &str) -> [u8; 16] {
@@ -975,6 +1000,10 @@ mod tests {
     }
 
     fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_u16(bytes: &mut Vec<u8>, value: u16) {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
 
@@ -1049,12 +1078,37 @@ mod tests {
         file
     }
 
+    fn raw_animation_with_bit_channel_fixture() -> Vec<u8> {
+        let mut header = Vec::new();
+        push_u32(&mut header, 0x0001);
+        header.extend_from_slice(&fixed_name("Blink"));
+        header.extend_from_slice(&fixed_name("Unit"));
+        push_u32(&mut header, 6);
+        push_u32(&mut header, 30);
+
+        let mut bit_channel = Vec::new();
+        push_u16(&mut bit_channel, 1);
+        push_u16(&mut bit_channel, 4);
+        push_u16(&mut bit_channel, 0);
+        push_u16(&mut bit_channel, 2);
+        bit_channel.push(1);
+        bit_channel.push(0b0000_1010);
+
+        let mut anim_payload = Vec::new();
+        push_chunk(&mut anim_payload, W3DChunkType::AnimationHeader, &header);
+        push_chunk(&mut anim_payload, W3DChunkType::BitChannel, &bit_channel);
+
+        let mut file = Vec::new();
+        push_chunk(&mut file, W3DChunkType::Animation, &anim_payload);
+        file
+    }
+
     #[test]
     fn test_channel_type_detection() {
         // Test that we can detect different channel types from flags
         let flags_translation = 0x0000; // Translation X
         let flags_rotation = 0x0006; // Rotation (quaternion)
-        let flags_visibility = 0x001F; // Visibility
+        let flags_visibility = 15; // Visibility
 
         let ct_translation = MotionChannelType::from_flags(flags_translation);
         let ct_rotation = MotionChannelType::from_flags(flags_rotation);
@@ -1075,6 +1129,7 @@ mod tests {
             frame_rate: 30.0,
             compression_flavor: None,
             channels: vec![],
+            bit_channels: vec![],
             compressed_anim: None,
             morph_anim: None,
         };
@@ -1100,6 +1155,7 @@ mod tests {
             frame_rate: 30.0,
             compression_flavor: Some(ANIM_FLAVOR_TIMECODED),
             channels: vec![],
+            bit_channels: vec![],
             compressed_anim: Some(compressed_anim),
             morph_anim: None,
         };
@@ -1107,6 +1163,89 @@ mod tests {
         assert_eq!(compressed.name, "CompressedAnim");
         assert_eq!(compressed.compression_flavor, Some(ANIM_FLAVOR_TIMECODED));
         assert!(compressed.compressed_anim.is_some());
+    }
+
+    #[test]
+    fn test_w3d_animation_to_hanim_preserves_quaternion_vector_len() {
+        let q0 = Quat::from_rotation_z(0.25);
+        let q1 = Quat::from_rotation_z(0.75);
+        let anim_data = W3DAnimationData {
+            name: "Turn".to_string(),
+            hierarchy_name: "Unit".to_string(),
+            num_frames: 2,
+            frame_rate: 30.0,
+            compression_flavor: None,
+            channels: vec![W3DAnimationChannel {
+                pivot_index: 1,
+                channel_type: MotionChannelType::Quaternion,
+                first_frame: 0,
+                last_frame: 1,
+                vector_len: 4,
+                data: vec![q0.x, q0.y, q0.z, q0.w, q1.x, q1.y, q1.z, q1.w],
+            }],
+            bit_channels: vec![],
+            compressed_anim: None,
+            morph_anim: None,
+        };
+
+        let hanim = w3d_animation_to_hanim(anim_data);
+
+        assert!(hanim.has_quaternion_rotation(1));
+        assert!(hanim.get_orientation(1, 0.0).abs_diff_eq(q0, 0.00001));
+        assert!(hanim.get_orientation(1, 1.0).abs_diff_eq(q1, 0.00001));
+    }
+
+    #[test]
+    fn test_w3d_animation_to_hanim_installs_packed_visibility_bits() {
+        let anim_data = W3DAnimationData {
+            name: "Blink".to_string(),
+            hierarchy_name: "Unit".to_string(),
+            num_frames: 6,
+            frame_rate: 30.0,
+            compression_flavor: None,
+            channels: vec![],
+            bit_channels: vec![W3DAnimationBitChannel {
+                pivot_index: 2,
+                channel_type: MotionChannelType::Visibility,
+                first_frame: 1,
+                last_frame: 4,
+                default_value: 1,
+                data: vec![0b0000_1010],
+            }],
+            compressed_anim: None,
+            morph_anim: None,
+        };
+
+        let hanim = w3d_animation_to_hanim(anim_data);
+
+        assert!(hanim.has_visibility(2));
+        assert!(hanim.get_visibility(2, 0.0));
+        assert!(!hanim.get_visibility(2, 1.0));
+        assert!(hanim.get_visibility(2, 2.0));
+        assert!(!hanim.get_visibility(2, 3.0));
+        assert!(hanim.get_visibility(2, 4.0));
+        assert!(hanim.get_visibility(2, 5.0));
+    }
+
+    #[test]
+    fn load_w3d_animation_reads_classic_bit_channel_layout() {
+        let bytes = raw_animation_with_bit_channel_fixture();
+        let mut cursor = Cursor::new(bytes);
+
+        let anim_data = load_w3d_animation(&mut cursor).expect("load raw animation");
+
+        assert_eq!(anim_data.bit_channels.len(), 1);
+        assert_eq!(anim_data.bit_channels[0].pivot_index, 2);
+        assert_eq!(anim_data.bit_channels[0].default_value, 1);
+        assert_eq!(anim_data.bit_channels[0].data, vec![0b0000_1010]);
+
+        let hanim = w3d_animation_to_hanim(anim_data);
+        assert!(hanim.get_visibility(2, 0.0));
+        assert!(!hanim.get_visibility(2, 1.0));
+        assert!(hanim.get_visibility(2, 2.0));
+        assert!(!hanim.get_visibility(2, 3.0));
+        assert!(hanim.get_visibility(2, 4.0));
+        assert!(hanim.get_visibility(2, 5.0));
     }
 
     #[test]
