@@ -845,7 +845,7 @@ fn extract_animation_duration_ms_from_chunks(
             W3DChunk::AnimationHeader(header) => {
                 if animation_name_matches(animation_name, &header.name_str()) {
                     if let Some(duration_ms) =
-                        calculate_duration_ms(header.num_frames, header.frame_rate)
+                        calculate_duration_ms(header.num_frames, u32::from(header.frame_rate))
                     {
                         return Some(duration_ms);
                     }
@@ -862,7 +862,7 @@ fn extract_animation_duration_ms_from_chunks(
                 let header_name = chunk_name_str(&header.name);
                 if animation_name_matches(animation_name, &header_name) {
                     if let Some(duration_ms) =
-                        calculate_duration_ms(header.num_frames, header.frame_rate)
+                        calculate_duration_ms(header.num_frames, u32::from(header.frame_rate))
                     {
                         return Some(duration_ms);
                     }
@@ -899,7 +899,7 @@ fn extract_all_animation_durations_ms_from_chunks(
             }
             W3DChunk::CompressedAnimationHeader(header) => {
                 if let Some(duration_ms) =
-                    calculate_duration_ms(header.num_frames, header.frame_rate)
+                    calculate_duration_ms(header.num_frames, u32::from(header.frame_rate))
                 {
                     out.push((chunk_name_str(&header.name), duration_ms));
                 }
