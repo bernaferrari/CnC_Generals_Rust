@@ -176,6 +176,30 @@ impl MaterialPass {
     }
 }
 
+/// Source animation metadata used by the scene-level animation wrapper.
+///
+/// C++ render objects store an HAnimClass pointer and query Get_Num_Frames()
+/// and Get_Frame_Rate() from it. The Rust scene facade stores those values
+/// explicitly because this crate does not own the asset manager.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnimationMetadata {
+    pub frame_count: u32,
+    pub frame_rate: f32,
+}
+
+impl AnimationMetadata {
+    pub fn new(frame_count: u32, frame_rate: f32) -> Self {
+        Self {
+            frame_count,
+            frame_rate,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.frame_count > 0 && self.frame_rate > 0.0
+    }
+}
+
 /// Complete mesh model with all features
 /// C++ Reference: meshmodel.h lines 1-350
 #[derive(Debug)]
@@ -192,6 +216,8 @@ pub struct MeshModel {
     hierarchy: Option<HTree>,
     /// Current animation state
     animation_state: AnimationState,
+    /// Metadata for animations known to this render object.
+    animation_metadata: HashMap<String, AnimationMetadata>,
     /// Bone attachments
     attachments: Vec<BoneAttachment>,
     /// Material passes
@@ -229,6 +255,7 @@ impl MeshModel {
             skin_data: None,
             hierarchy: None,
             animation_state: AnimationState::default(),
+            animation_metadata: HashMap::new(),
             attachments: Vec::new(),
             material_passes: Vec::new(),
             hidden: false,
@@ -257,6 +284,33 @@ impl MeshModel {
     /// Set bone hierarchy
     pub fn set_hierarchy(&mut self, hierarchy: HTree) {
         self.hierarchy = Some(hierarchy);
+    }
+
+    pub fn register_animation_metadata(
+        &mut self,
+        anim_name: impl Into<String>,
+        frame_count: u32,
+        frame_rate: f32,
+    ) {
+        let metadata = AnimationMetadata::new(frame_count, frame_rate);
+        if metadata.is_valid() {
+            self.animation_metadata.insert(anim_name.into(), metadata);
+        }
+    }
+
+    pub fn play_animation_with_metadata(
+        &mut self,
+        anim_name: &str,
+        mode: AnimationMode,
+        frame_count: u32,
+        frame_rate: f32,
+    ) {
+        self.register_animation_metadata(anim_name, frame_count, frame_rate);
+        self.play_animation(anim_name, mode);
+    }
+
+    pub fn get_animation_metadata(&self, anim_name: &str) -> Option<AnimationMetadata> {
+        self.animation_metadata.get(anim_name).copied()
     }
 
     /// Get material passes
@@ -570,12 +624,18 @@ impl RenderObjClassExt for MeshModel {
     fn play_animation(&mut self, anim_name: &str, mode: AnimationMode) {
         self.animation_state.animation_name = anim_name.to_string();
         self.animation_state.mode = mode;
-        self.animation_state.is_playing = true;
         self.animation_state.current_frame = 0.0;
+        self.animation_state.ping_pong_direction = 1.0;
 
-        // In a real implementation, we would load the animation and get frame count
-        // For now, assume 30 frames
-        self.animation_state.frame_count = 30.0;
+        if let Some(metadata) = self.animation_metadata.get(anim_name).copied() {
+            self.animation_state.frame_count = metadata.frame_count as f32;
+            self.animation_state.frame_rate = metadata.frame_rate;
+            self.animation_state.is_playing = true;
+        } else {
+            self.animation_state.frame_count = 0.0;
+            self.animation_state.frame_rate = 0.0;
+            self.animation_state.is_playing = false;
+        }
     }
 
     fn stop_animation(&mut self) {
@@ -583,8 +643,12 @@ impl RenderObjClassExt for MeshModel {
     }
 
     fn set_animation_frame(&mut self, frame: f32) {
-        self.animation_state.current_frame =
-            frame.clamp(0.0, self.animation_state.frame_count - 1.0);
+        if self.animation_state.frame_count <= 0.0 {
+            self.animation_state.current_frame = 0.0;
+        } else {
+            self.animation_state.current_frame =
+                frame.clamp(0.0, self.animation_state.frame_count - 1.0);
+        }
     }
 
     fn get_animation_frame(&self) -> f32 {
@@ -796,6 +860,7 @@ impl RenderObjClassExt for MeshModel {
             skin_data: self.skin_data.clone(),
             hierarchy: None, // Don't deep clone hierarchy
             animation_state: self.animation_state.clone(),
+            animation_metadata: self.animation_metadata.clone(),
             attachments: Vec::new(), // Don't clone attachments
             material_passes: self.material_passes.clone(),
             hidden: self.hidden,
@@ -861,7 +926,7 @@ mod tests {
     fn test_animation_control() {
         let mut model = MeshModel::new("AnimTest".to_string());
 
-        model.play_animation("walk", AnimationMode::Loop);
+        model.play_animation_with_metadata("walk", AnimationMode::Loop, 30, 30.0);
         assert!(model.is_animation_playing());
         assert_eq!(model.get_animation_frame(), 0.0);
 
@@ -870,6 +935,33 @@ mod tests {
 
         model.stop_animation();
         assert!(!model.is_animation_playing());
+    }
+
+    #[test]
+    fn test_animation_missing_metadata_does_not_fabricate_frames() {
+        let mut model = MeshModel::new("MissingAnim".to_string());
+
+        model.play_animation("unknown", AnimationMode::Loop);
+
+        assert!(!model.is_animation_playing());
+        assert_eq!(model.get_animation_frame(), 0.0);
+
+        model.set_animation_frame(12.0);
+        assert_eq!(model.get_animation_frame(), 0.0);
+    }
+
+    #[test]
+    fn test_animation_uses_registered_frame_rate_and_count() {
+        let mut model = MeshModel::new("SlowAnim".to_string());
+        model.play_animation_with_metadata("slow", AnimationMode::Loop, 20, 10.0);
+
+        model.update(1.0);
+
+        assert!(model.is_animation_playing());
+        assert_eq!(model.get_animation_frame(), 10.0);
+
+        model.set_animation_frame(99.0);
+        assert_eq!(model.get_animation_frame(), 19.0);
     }
 
     #[test]
