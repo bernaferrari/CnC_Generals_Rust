@@ -858,10 +858,10 @@ impl RenderObjClassExt for MeshModel {
             transform: self.transform,
             geometry: self.geometry.clone(),
             skin_data: self.skin_data.clone(),
-            hierarchy: None, // Don't deep clone hierarchy
+            hierarchy: self.hierarchy.clone(),
             animation_state: self.animation_state.clone(),
             animation_metadata: self.animation_metadata.clone(),
-            attachments: Vec::new(), // Don't clone attachments
+            attachments: self.attachments.clone(),
             material_passes: self.material_passes.clone(),
             hidden: self.hidden,
             lod_level: self.lod_level,
@@ -871,7 +871,7 @@ impl RenderObjClassExt for MeshModel {
             parent_transform: self.parent_transform,
             cached_bbox: self.cached_bbox,
             cached_sphere: self.cached_sphere,
-            cached_bone_transforms: HashMap::new(),
+            cached_bone_transforms: self.cached_bone_transforms.clone(),
         })
     }
 
@@ -1044,6 +1044,56 @@ mod tests {
         assert_eq!(
             attachments[0].object.get_transform().w_axis.truncate(),
             Vec3::new(0.0, 3.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn test_clone_preserves_hierarchy_and_attachments() {
+        let mut model = MeshModel::new("Parent".to_string());
+        model.attachments.push(BoneAttachment::with_local_transform(
+            "Turret".to_string(),
+            Box::new(MeshModel::new("Child".to_string())),
+            Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+        ));
+
+        let mut hierarchy = HTree::new("Vehicle".to_string());
+        hierarchy.init_default();
+        hierarchy.add_pivot(
+            "Turret".to_string(),
+            Some(0),
+            Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0)),
+        );
+        model.set_hierarchy(hierarchy);
+        model.update(0.0);
+
+        let mut cloned = model.clone_obj();
+        let cloned_model = cloned.as_any().downcast_ref::<MeshModel>().unwrap();
+        assert!(cloned_model.hierarchy.is_some());
+        assert_eq!(cloned_model.attachments.len(), 1);
+        assert_eq!(cloned_model.cached_bone_transforms.len(), 2);
+        assert_eq!(cloned_model.attachments[0].bone_name, "Turret");
+        assert_eq!(
+            cloned_model.attachments[0]
+                .object
+                .get_transform()
+                .w_axis
+                .truncate(),
+            Vec3::new(2.0, 3.0, 0.0)
+        );
+
+        cloned
+            .as_any_mut()
+            .downcast_mut::<MeshModel>()
+            .unwrap()
+            .update(0.0);
+        let cloned_model = cloned.as_any().downcast_ref::<MeshModel>().unwrap();
+        assert_eq!(
+            cloned_model.attachments[0]
+                .object
+                .get_transform()
+                .w_axis
+                .truncate(),
+            Vec3::new(2.0, 3.0, 0.0)
         );
     }
 
