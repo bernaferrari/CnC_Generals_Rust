@@ -275,17 +275,20 @@ impl MeshModel {
         // Update animation state (always, regardless of hierarchy)
         self.animation_state.update(delta_time, 30.0); // Assume 30 FPS
 
-        // Update bone transforms from hierarchy if present
-        if let Some(_hierarchy) = &mut self.hierarchy {
-            // Update bone transforms from hierarchy
+        let root_transform = self.get_effective_transform();
+
+        // Update bone transforms from hierarchy if present.
+        if let Some(hierarchy) = &mut self.hierarchy {
+            hierarchy.base_update(&root_transform);
             self.cached_bone_transforms.clear();
 
-            // In a real implementation, we would evaluate the hierarchy
-            // and get transforms for each bone. For now, just provide identity.
-            if let Some(skin_data) = &self.skin_data {
-                for bone_name in &skin_data.bone_names {
+            for pivot_index in 0..hierarchy.num_pivots() {
+                if let (Some(bone_name), Some(transform)) = (
+                    hierarchy.get_bone_name(pivot_index),
+                    hierarchy.get_transform(pivot_index),
+                ) {
                     self.cached_bone_transforms
-                        .insert(bone_name.clone(), Mat4::IDENTITY);
+                        .insert(bone_name.to_string(), *transform);
                 }
             }
         }
@@ -896,6 +899,60 @@ mod tests {
         assert_eq!(deformed.len(), 3);
         // Without skinning, vertices should match base geometry
         assert_eq!(deformed[0], Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_skinned_vertices_use_hierarchy_base_transforms() {
+        let mut model = MeshModel::new("Skinned".to_string());
+        let mut geometry = MeshGeometry::new();
+        geometry.vertices = vec![Vec3::new(1.0, 0.0, 0.0)];
+        geometry.normals = vec![Vec3::Y];
+        model.set_geometry(geometry);
+        model.set_skin_data(SkinData {
+            bone_links: vec![1],
+            bone_names: vec!["RootTransform".to_string(), "Forearm".to_string()],
+        });
+
+        let mut hierarchy = HTree::new("Unit".to_string());
+        hierarchy.init_default();
+        hierarchy.add_pivot(
+            "Forearm".to_string(),
+            Some(0),
+            Mat4::from_translation(Vec3::new(4.0, 0.0, 0.0)),
+        );
+        model.set_hierarchy(hierarchy);
+
+        model.update(0.0);
+
+        let deformed = model.get_deformed_vertices().unwrap();
+        assert_eq!(deformed[0], Vec3::new(5.0, 0.0, 0.0));
+
+        let normals = model.get_deformed_normals().unwrap();
+        assert_eq!(normals[0], Vec3::Y);
+    }
+
+    #[test]
+    fn test_bone_attachments_follow_hierarchy_base_transforms() {
+        let mut model = MeshModel::new("Parent".to_string());
+        model.attach_to_bone("Turret", Box::new(MeshModel::new("Child".to_string())));
+
+        let mut hierarchy = HTree::new("Vehicle".to_string());
+        hierarchy.init_default();
+        hierarchy.add_pivot(
+            "Turret".to_string(),
+            Some(0),
+            Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0)),
+        );
+        model.set_hierarchy(hierarchy);
+
+        model.update(0.0);
+
+        let attachments = model.get_bone_attachments();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(
+            attachments[0].object.get_transform().w_axis.truncate(),
+            Vec3::new(0.0, 3.0, 0.0)
+        );
     }
 
     #[test]
