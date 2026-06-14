@@ -254,8 +254,10 @@ impl LightClass {
 
     /// Clone light
     pub fn clone(&self) -> Self {
-        let light_id = next_light_id();
+        self.copy_with_light_id(next_light_id())
+    }
 
+    fn copy_with_light_id(&self, light_id: u32) -> Self {
         Self {
             base: self.base.clone(),
             light_type: self.light_type,
@@ -457,14 +459,19 @@ impl LightClass {
 
     /// Push light to vertex processor
     pub fn vertex_processor_push(&self) -> Result<()> {
-        // In a full implementation, this would add the light to the GPU pipeline
-        // For now, this is a placeholder
-        Ok(())
+        let mut env = get_light_environment().ok_or_else(|| {
+            Error::NotInitialized("Light environment not initialized".to_string())
+        })?;
+        env.remove_light(self.light_id);
+        env.add_light(Arc::new(self.copy_with_light_id(self.light_id)))
     }
 
     /// Pop light from vertex processor
     pub fn vertex_processor_pop(&self) -> Result<()> {
-        // In a full implementation, this would remove the light from the GPU pipeline
+        let mut env = get_light_environment().ok_or_else(|| {
+            Error::NotInitialized("Light environment not initialized".to_string())
+        })?;
+        env.remove_light(self.light_id);
         Ok(())
     }
 
@@ -849,8 +856,9 @@ impl LightEnvironmentClass {
 
     /// Remove light from environment
     pub fn remove_light(&mut self, light_id: u32) -> bool {
+        let old_len = self.lights.len();
         self.lights.retain(|light| light.light_id != light_id);
-        true
+        self.lights.len() != old_len
     }
 
     /// Clear all lights
@@ -1200,6 +1208,34 @@ mod tests {
 
         assert!(!scene.is_light_registered(id));
         assert_eq!(scene.registered_light_count(), 0);
+    }
+
+    #[test]
+    fn test_light_push_pop_updates_environment() {
+        init_light_system().unwrap();
+        let light = LightClass::new_point(Vec3::new(1.0, 2.0, 3.0), Vec4::ONE, 100.0);
+        let light_id = light.light_id;
+
+        light.vertex_processor_push().unwrap();
+        {
+            let env = get_light_environment().unwrap();
+            assert_eq!(env.get_light_count(), 1);
+            assert_eq!(env.get_light(0).unwrap().light_id, light_id);
+        }
+
+        light.vertex_processor_push().unwrap();
+        {
+            let env = get_light_environment().unwrap();
+            assert_eq!(env.get_light_count(), 1);
+            assert_eq!(env.get_light(0).unwrap().light_id, light_id);
+        }
+
+        light.vertex_processor_pop().unwrap();
+        {
+            let env = get_light_environment().unwrap();
+            assert_eq!(env.get_light_count(), 0);
+        }
+        shutdown_light_system();
     }
 
     #[test]
