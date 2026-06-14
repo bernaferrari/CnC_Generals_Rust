@@ -644,7 +644,7 @@ impl ParticleEmitterClass {
     /// Set one time burst
     pub fn set_one_time_burst(&mut self, burst_size: u32) {
         self.one_time_burst = true;
-        self.one_time_burst_size = burst_size;
+        self.one_time_burst_size = if burst_size != 0 { burst_size } else { 1 };
     }
 
     /// Load from W3D file
@@ -903,6 +903,16 @@ mod tests {
 
         emitter.stop();
         assert!(!emitter.active);
+    }
+
+    #[test]
+    fn test_one_time_burst_zero_clamps_to_one() {
+        let mut emitter = create_particle_emitter(10.0, None, 100);
+
+        emitter.set_one_time_burst(0);
+
+        assert!(emitter.one_time_burst);
+        assert_eq!(emitter.one_time_burst_size, 1);
     }
 
     #[test]
