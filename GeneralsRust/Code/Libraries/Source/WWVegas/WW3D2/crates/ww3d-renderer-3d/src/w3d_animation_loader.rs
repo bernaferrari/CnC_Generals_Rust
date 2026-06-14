@@ -205,6 +205,8 @@ pub struct AnimationPlayback {
     pub mode: PlaybackMode,
     /// Is playback active
     pub is_playing: bool,
+    /// Direction used by ping-pong playback.
+    pub playback_direction: f32,
 }
 
 /// Animation playback modes matching W3D specification
@@ -232,6 +234,7 @@ impl AnimationPlayback {
             current_frame: 0.0,
             mode: PlaybackMode::default(),
             is_playing: true,
+            playback_direction: 1.0,
         }
     }
 
@@ -243,36 +246,51 @@ impl AnimationPlayback {
 
         let frame_rate = self.animation.frame_rate;
         let frame_delta = frame_rate * delta_time;
-        let total_frames = self.animation.frame_count as f32;
+        let max_frame = self.animation.frame_count.saturating_sub(1) as f32;
 
-        self.current_frame += frame_delta;
+        if max_frame <= 0.0 {
+            self.current_frame = 0.0;
+            return;
+        }
+
+        let direction = if matches!(self.mode, PlaybackMode::PingPong) {
+            self.playback_direction
+        } else {
+            1.0
+        };
+        self.current_frame += frame_delta * direction;
 
         // Handle playback mode
         match self.mode {
             PlaybackMode::Loop => {
-                if self.current_frame >= total_frames {
-                    self.current_frame = self.current_frame % total_frames;
+                if self.current_frame >= max_frame {
+                    self.current_frame -= max_frame;
+                }
+                if self.current_frame >= max_frame {
+                    self.current_frame = 0.0;
                 }
             }
             PlaybackMode::Once => {
-                if self.current_frame >= total_frames {
-                    self.current_frame = total_frames - 1.0;
+                if self.current_frame >= max_frame {
+                    self.current_frame = max_frame;
                     self.is_playing = false;
                 }
             }
             PlaybackMode::PingPong => {
-                // Forward and reverse playback
-                let frame_index = (self.current_frame as u32) / total_frames as u32;
-                let frame_offset = self.current_frame % total_frames;
-
-                if frame_index % 2 == 0 {
-                    self.current_frame = frame_offset;
-                } else {
-                    self.current_frame = total_frames - frame_offset;
-                }
-
-                if (self.current_frame as u32) >= (total_frames as u32) * 2 {
-                    self.current_frame = 0.0;
+                if self.playback_direction >= 1.0 {
+                    if self.current_frame >= max_frame {
+                        self.current_frame = max_frame * 2.0 - self.current_frame;
+                        if self.current_frame >= max_frame {
+                            self.current_frame = max_frame;
+                        }
+                        self.playback_direction = -1.0;
+                    }
+                } else if self.current_frame < 0.0 {
+                    self.current_frame = -self.current_frame;
+                    if self.current_frame >= max_frame {
+                        self.current_frame = 0.0;
+                    }
+                    self.playback_direction = 1.0;
                 }
             }
         }
@@ -280,19 +298,23 @@ impl AnimationPlayback {
 
     /// Get current frame number (clamped to valid range)
     pub fn get_current_frame(&self) -> u32 {
+        let max_frame = self.animation.frame_count.saturating_sub(1) as f32;
         self.current_frame
-            .clamp(0.0, self.animation.frame_count as f32 - 1.0) as u32
+            .clamp(0.0, max_frame) as u32
     }
 
     /// Set playback position to specific frame
     pub fn seek_to_frame(&mut self, frame: u32) {
-        self.current_frame = (frame as f32).clamp(0.0, self.animation.frame_count as f32 - 1.0);
+        let max_frame = self.animation.frame_count.saturating_sub(1) as f32;
+        self.current_frame = (frame as f32).clamp(0.0, max_frame);
+        self.playback_direction = 1.0;
     }
 
     /// Reset playback to start
     pub fn reset(&mut self) {
         self.current_frame = 0.0;
         self.is_playing = true;
+        self.playback_direction = 1.0;
     }
 
     /// Pause playback without changing position
@@ -305,13 +327,10 @@ impl AnimationPlayback {
         self.is_playing = true;
     }
 
-    /// Get bone transform at current frame
-    ///
-    /// Note: Actual animation evaluation requires integration with ww3d-animation crate.
-    /// This returns identity transform as placeholder.
-    pub fn get_bone_transform(&self, _bone_index: u32) -> Mat4 {
+    /// Get bone transform at current frame.
+    pub fn get_bone_transform(&self, bone_index: u32) -> Mat4 {
         let frame = self.get_current_frame() as f32;
-        let bone_index = _bone_index as usize;
+        let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
             if let Ok(mut anim) = compressed.lock() {
@@ -326,13 +345,10 @@ impl AnimationPlayback {
         Mat4::IDENTITY
     }
 
-    /// Get bone translation at current frame
-    ///
-    /// Note: Actual animation evaluation requires integration with ww3d-animation crate.
-    /// This returns zero vector as placeholder.
-    pub fn get_bone_translation(&self, _bone_index: u32) -> Vec3 {
+    /// Get bone translation at current frame.
+    pub fn get_bone_translation(&self, bone_index: u32) -> Vec3 {
         let frame = self.get_current_frame() as f32;
-        let bone_index = _bone_index as usize;
+        let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
             if let Ok(mut anim) = compressed.lock() {
@@ -347,13 +363,10 @@ impl AnimationPlayback {
         Vec3::ZERO
     }
 
-    /// Get bone rotation at current frame
-    ///
-    /// Note: Actual animation evaluation requires integration with ww3d-animation crate.
-    /// This returns identity quaternion as placeholder.
-    pub fn get_bone_rotation(&self, _bone_index: u32) -> Quat {
+    /// Get bone rotation at current frame.
+    pub fn get_bone_rotation(&self, bone_index: u32) -> Quat {
         let frame = self.get_current_frame() as f32;
-        let bone_index = _bone_index as usize;
+        let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
             if let Ok(mut anim) = compressed.lock() {
@@ -368,13 +381,10 @@ impl AnimationPlayback {
         Quat::IDENTITY
     }
 
-    /// Get bone visibility at current frame
-    ///
-    /// Note: Actual animation evaluation requires integration with ww3d-animation crate.
-    /// This returns true (visible) as placeholder.
-    pub fn get_bone_visibility(&self, _bone_index: u32) -> bool {
+    /// Get bone visibility at current frame.
+    pub fn get_bone_visibility(&self, bone_index: u32) -> bool {
         let frame = self.get_current_frame() as f32;
-        let bone_index = _bone_index as usize;
+        let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
             if let Ok(mut anim) = compressed.lock() {
@@ -473,9 +483,61 @@ pub struct CacheStats {
 mod tests {
     use super::*;
 
+    fn test_playback(frame_count: u32, frame_rate: f32, mode: PlaybackMode) -> AnimationPlayback {
+        let mut playback = AnimationPlayback::new(LoadedAnimation::new(
+            "test".to_string(),
+            frame_count,
+            frame_rate,
+            0,
+        ));
+        playback.mode = mode;
+        playback
+    }
+
     #[test]
     fn test_playback_mode_default() {
         assert_eq!(PlaybackMode::default(), PlaybackMode::Loop);
+    }
+
+    #[test]
+    fn loop_playback_wraps_at_last_valid_frame() {
+        let mut playback = test_playback(5, 1.0, PlaybackMode::Loop);
+
+        playback.update(4.5);
+
+        assert_eq!(playback.current_frame, 0.5);
+        assert_eq!(playback.get_current_frame(), 0);
+    }
+
+    #[test]
+    fn pingpong_playback_reflects_and_preserves_direction() {
+        let mut playback = test_playback(5, 1.0, PlaybackMode::PingPong);
+
+        playback.update(4.5);
+        assert_eq!(playback.current_frame, 3.5);
+        assert_eq!(playback.playback_direction, -1.0);
+
+        playback.update(4.0);
+        assert_eq!(playback.current_frame, 0.5);
+        assert_eq!(playback.playback_direction, 1.0);
+    }
+
+    #[test]
+    fn reset_and_seek_restore_forward_pingpong_direction() {
+        let mut playback = test_playback(5, 1.0, PlaybackMode::PingPong);
+        playback.update(4.5);
+        assert_eq!(playback.playback_direction, -1.0);
+
+        playback.seek_to_frame(2);
+        assert_eq!(playback.current_frame, 2.0);
+        assert_eq!(playback.playback_direction, 1.0);
+
+        playback.update(4.0);
+        assert_eq!(playback.playback_direction, -1.0);
+
+        playback.reset();
+        assert_eq!(playback.current_frame, 0.0);
+        assert_eq!(playback.playback_direction, 1.0);
     }
 
     #[test]
