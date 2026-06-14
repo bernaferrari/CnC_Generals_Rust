@@ -258,6 +258,7 @@ impl VictoryManager {
                 if context.game_time.as_secs_f32() > time_limit {
                     self.fail_condition(&mut condition, "Time limit exceeded")
                         .await?;
+                    self.store_condition(&condition)?;
                     continue;
                 }
             }
@@ -266,6 +267,7 @@ impl VictoryManager {
             if self.check_failure_conditions(&condition, context).await? {
                 self.fail_condition(&mut condition, "Failure condition met")
                     .await?;
+                self.store_condition(&condition)?;
                 continue;
             }
 
@@ -278,17 +280,21 @@ impl VictoryManager {
             }
 
             // Update condition in storage
-            {
-                let mut conditions = self.conditions.write().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to write conditions: {}", e))
-                })?;
-                conditions.insert(condition.id.clone(), condition);
-            }
+            self.store_condition(&condition)?;
         }
 
         // Check for overall victory/defeat
         self.check_game_end_conditions().await?;
 
+        Ok(())
+    }
+
+    fn store_condition(&self, condition: &VictoryCondition) -> GameLogicResult<()> {
+        let mut conditions = self
+            .conditions
+            .write()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to write conditions: {}", e)))?;
+        conditions.insert(condition.id.clone(), condition.clone());
         Ok(())
     }
 
@@ -403,12 +409,32 @@ impl VictoryManager {
         condition: &VictoryCondition,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let _ = context;
-        for _failure_condition_id in &condition.failure_conditions {
-            // In a real implementation, this would evaluate the failure condition
-            // For now, just return false (no failure)
+        for failure_condition_id in &condition.failure_conditions {
+            if self.is_objective_condition_completed(failure_condition_id)? {
+                return Ok(true);
+            }
+
+            let parameters = HashMap::new();
+            if self
+                .evaluate_custom_condition(failure_condition_id, &parameters, context)
+                .await?
+            {
+                return Ok(true);
+            }
         }
         Ok(false)
+    }
+
+    fn is_objective_condition_completed(&self, condition_id: &str) -> GameLogicResult<bool> {
+        let conditions = self
+            .conditions
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read conditions: {}", e)))?;
+
+        Ok(conditions
+            .get(condition_id)
+            .map(|condition| condition.completed)
+            .unwrap_or(false))
     }
 
     /// Complete a victory condition
@@ -557,38 +583,52 @@ impl VictoryManager {
 
     /// Check for overall game end conditions
     async fn check_game_end_conditions(&self) -> GameLogicResult<()> {
-        let conditions = self
-            .conditions
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read conditions: {}", e)))?;
+        enum EndDecision {
+            Victory(u32),
+            Defeat(u32),
+        }
 
-        let states = self
-            .player_victory_states
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read states: {}", e)))?;
+        let decisions = {
+            let conditions = self.conditions.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read conditions: {}", e))
+            })?;
 
-        // Check each player's victory/defeat status
-        for (player_id, state) in states.iter() {
-            if state.victorious || state.defeated {
-                continue; // Already decided
+            let states = self
+                .player_victory_states
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read states: {}", e)))?;
+
+            let mut decisions = Vec::new();
+            for (player_id, state) in states.iter() {
+                if state.victorious || state.defeated {
+                    continue;
+                }
+
+                let player_conditions: Vec<_> = conditions
+                    .values()
+                    .filter(|c| c.players.contains(player_id) && c.required)
+                    .collect();
+
+                let all_completed =
+                    !player_conditions.is_empty() && player_conditions.iter().all(|c| c.completed);
+                let any_critical_failed = player_conditions.iter().any(|c| c.failed);
+
+                if all_completed {
+                    decisions.push(EndDecision::Victory(*player_id));
+                } else if any_critical_failed {
+                    decisions.push(EndDecision::Defeat(*player_id));
+                }
             }
+            decisions
+        };
 
-            // Check for victory (all required conditions completed)
-            let player_conditions: Vec<_> = conditions
-                .values()
-                .filter(|c| c.players.contains(player_id) && c.required)
-                .collect();
-
-            let all_completed =
-                !player_conditions.is_empty() && player_conditions.iter().all(|c| c.completed);
-
-            let any_critical_failed = player_conditions.iter().any(|c| c.failed);
-
-            if all_completed {
-                self.set_player_victorious(*player_id).await?;
-            } else if any_critical_failed {
-                self.set_player_defeated(*player_id, "Critical objective failed")
-                    .await?;
+        for decision in decisions {
+            match decision {
+                EndDecision::Victory(player_id) => self.set_player_victorious(player_id).await?,
+                EndDecision::Defeat(player_id) => {
+                    self.set_player_defeated(player_id, "Critical objective failed")
+                        .await?
+                }
             }
         }
 
@@ -1123,5 +1163,122 @@ mod tests {
         let conditions = manager.get_all_conditions().await.unwrap();
         assert_eq!(conditions[0].progress, 0.5);
         assert!(!conditions[0].completed);
+    }
+
+    #[tokio::test]
+    async fn test_failure_conditions_evaluate_registered_script_conditions() {
+        let manager = VictoryManager::new();
+        manager.initialize_player(1).await.unwrap();
+
+        let condition = VictoryCondition {
+            id: "survive_with_failure".to_string(),
+            name: "Survive With Failure".to_string(),
+            description: "Should fail when its failure condition is true".to_string(),
+            condition_type: VictoryConditionType::Survive(30.0),
+            players: vec![1],
+            required: true,
+            completed: false,
+            failed: false,
+            progress: 0.0,
+            active: true,
+            prerequisites: Vec::new(),
+            time_limit: None,
+            failure_conditions: vec!["condition_true".to_string()],
+            rewards: Vec::new(),
+        };
+
+        manager.add_victory_condition(condition).await.unwrap();
+
+        let context = ScriptContext {
+            game_time: Duration::from_secs(1),
+            active_player: Some(1),
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+
+        manager.update(&context).await.unwrap();
+
+        let conditions = manager.get_all_conditions().await.unwrap();
+        let condition = conditions
+            .iter()
+            .find(|condition| condition.id == "survive_with_failure")
+            .expect("survive_with_failure condition");
+        assert!(condition.failed);
+
+        let state = manager.get_player_state(1).await.unwrap().unwrap();
+        assert!(state.defeated);
+        assert!(state.failed_objectives.contains("survive_with_failure"));
+    }
+
+    #[tokio::test]
+    async fn test_failure_conditions_can_reference_completed_objectives() {
+        let manager = VictoryManager::new();
+        manager.initialize_player(1).await.unwrap();
+
+        manager
+            .add_victory_condition(VictoryCondition {
+                id: "tripwire".to_string(),
+                name: "Tripwire".to_string(),
+                description: "Already completed failure tripwire".to_string(),
+                condition_type: VictoryConditionType::Survive(0.0),
+                players: vec![1],
+                required: false,
+                completed: true,
+                failed: false,
+                progress: 1.0,
+                active: true,
+                prerequisites: Vec::new(),
+                time_limit: None,
+                failure_conditions: Vec::new(),
+                rewards: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        manager
+            .add_victory_condition(VictoryCondition {
+                id: "main".to_string(),
+                name: "Main".to_string(),
+                description: "Fails because referenced objective is complete".to_string(),
+                condition_type: VictoryConditionType::Survive(30.0),
+                players: vec![1],
+                required: true,
+                completed: false,
+                failed: false,
+                progress: 0.0,
+                active: true,
+                prerequisites: Vec::new(),
+                time_limit: None,
+                failure_conditions: vec!["tripwire".to_string()],
+                rewards: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let context = ScriptContext {
+            game_time: Duration::from_secs(1),
+            active_player: Some(1),
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+
+        manager.update(&context).await.unwrap();
+
+        let conditions = manager.get_all_conditions().await.unwrap();
+        let main = conditions
+            .iter()
+            .find(|condition| condition.id == "main")
+            .expect("main condition");
+        assert!(main.failed);
     }
 }
