@@ -808,8 +808,7 @@ impl ParticleBuffer {
                 start_locs.push(particle.position);
 
                 // End position is particle position + velocity (for motion blur effect)
-                let velocity_scaled = particle.velocity * particle.blur_time;
-                end_locs.push(particle.position + velocity_scaled);
+                end_locs.push(line_group_tail_position(particle));
 
                 // Head color (current particle color)
                 diffuse.push(Vec4::new(
@@ -1218,6 +1217,10 @@ fn default_additive_line_group_tail_diffuse() -> Vec4 {
     Vec4::ZERO
 }
 
+fn line_group_tail_position(particle: &Particle) -> Vec3 {
+    particle.position - particle.velocity * particle.blur_time
+}
+
 #[derive(Debug, Default, PartialEq)]
 struct LineRenderRun {
     points: Vec<Vec3>,
@@ -1313,6 +1316,21 @@ mod tests {
     #[test]
     fn default_line_group_tail_diffuse_matches_cpp_additive_shader_branch() {
         assert_eq!(default_additive_line_group_tail_diffuse(), Vec4::ZERO);
+    }
+
+    #[test]
+    fn line_group_tail_position_uses_cpp_backward_velocity_blur() {
+        let particle = Particle {
+            position: Vec3::new(10.0, 0.0, 0.0),
+            velocity: Vec3::new(2.0, 0.0, 0.0),
+            blur_time: 3.0,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            line_group_tail_position(&particle),
+            Vec3::new(4.0, 0.0, 0.0)
+        );
     }
 
     #[test]
