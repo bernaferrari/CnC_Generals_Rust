@@ -51,6 +51,8 @@ pub enum UIEvent {
         mode: GameMode,
         faction: String,
         map: String,
+        /// Full skirmish slot/rule config when starting from the skirmish menu.
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     },
     /// Load existing game
     LoadGame(String),
@@ -657,7 +659,12 @@ impl UIManager {
                 UIEvent::ChangeScreen(screen) => {
                     self.transition_to_screen(screen);
                 }
-                UIEvent::StartGame { mode, faction, map } => {
+                UIEvent::StartGame {
+                    mode,
+                    faction,
+                    map,
+                    skirmish,
+                } => {
                     let mode_label = format!("{:?}", mode);
                     info!(
                         "{}",
@@ -672,8 +679,12 @@ impl UIManager {
                         )
                     );
                     // Instruct game logic to start the appropriate mode/map when available
-                    self.event_queue
-                        .push(UIEvent::StartGame { mode, faction, map });
+                    self.event_queue.push(UIEvent::StartGame {
+                        mode,
+                        faction,
+                        map,
+                        skirmish,
+                    });
                 }
                 UIEvent::LoadGame(save_path) => {
                     info!(
@@ -872,6 +883,7 @@ mod tests {
             mode: GameMode::Skirmish,
             faction: "America".to_string(),
             map: "Maps/Test/Test.map".to_string(),
+            skirmish: None,
         });
         manager.update(1.0 / 30.0).unwrap();
         assert_eq!(manager.current_screen, None);

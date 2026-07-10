@@ -352,6 +352,22 @@ name = "playability_audit"
 path = "src/bin/playability_audit.rs"
 
 [[bin]]
+name = "map_frame_gate"
+path = "src/bin/map_frame_gate.rs"
+
+[[bin]]
+name = "golden_skirmish_gate"
+path = "src/bin/golden_skirmish_gate.rs"
+
+[[bin]]
+name = "breadth_gate"
+path = "src/bin/breadth_gate.rs"
+
+[[bin]]
+name = "release_candidate_gate"
+path = "src/bin/release_candidate_gate.rs"
+
+[[bin]]
 name = "verify_ini_parsing"
 path = "src/bin/verify_ini_parsing.rs"
 required-features = ["dev-tools"]

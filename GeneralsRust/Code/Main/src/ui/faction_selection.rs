@@ -389,6 +389,7 @@ impl FactionSelectionScreen {
                     mode: GameMode::Skirmish,
                     faction: format!("{:?}", self.selected_faction.unwrap()),
                     map: self.selected_map.clone(),
+                    skirmish: None,
                 });
             }
         }
@@ -572,6 +573,7 @@ impl Interactive for FactionSelectionScreen {
                         mode: GameMode::Skirmish,
                         faction: format!("{:?}", self.selected_faction.unwrap()),
                         map: self.selected_map.clone(),
+                        skirmish: None,
                     });
                     return true;
                 }

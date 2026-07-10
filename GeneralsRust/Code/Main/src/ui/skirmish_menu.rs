@@ -422,10 +422,16 @@ impl SkirmishMenu {
                             Faction::Random => "Random",
                         })
                         .unwrap_or("Random");
+                    let skirmish = crate::skirmish_config::config_from_skirmish_menu(
+                        &self.map_name,
+                        &self.rules,
+                        &self.slots,
+                    );
                     Some(UIEvent::StartGame {
                         mode: GameMode::Skirmish,
                         faction: faction.to_string(),
                         map: self.map_name.clone(),
+                        skirmish: Some(skirmish),
                     })
                 } else {
                     info!(
