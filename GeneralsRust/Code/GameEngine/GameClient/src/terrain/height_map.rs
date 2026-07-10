@@ -606,7 +606,7 @@ impl HeightMap {
                 alpha_ndx = K_LLDIAG;
             }
         }
-        if blend.inverted & 0x1 != 0 {
+        if blend.inverted != 0 {
             alpha_ndx += K_INV;
         }
 
@@ -880,6 +880,22 @@ mod tests {
 
         assert_eq!(heightmap.get_packed_terrain_tile_at_world(1.25, 1.75), 11);
         assert_eq!(heightmap.get_packed_terrain_tile_at_world(-99.0, -99.0), 7);
+    }
+
+    #[test]
+    fn alpha_tile_selection_treats_any_nonzero_inverted_as_cpp_true() {
+        let alpha_tiles: [Option<Vec<u8>>; NUM_ALPHA_TILES] = std::array::from_fn(|index| {
+            let mut data = vec![0u8; 4];
+            data[3] = index as u8;
+            Some(data)
+        });
+        let mut blend = super::textures::BlendTileInfo::new();
+        blend.horiz = 1;
+        blend.inverted = super::textures::FLIPPED_MASK;
+
+        let alpha = HeightMap::get_rgb_alpha_data_for_width(1, &blend, &alpha_tiles);
+
+        assert_eq!(alpha[3], (K_INV + K_HORIZ) as u8);
     }
 
     #[test]
