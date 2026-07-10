@@ -40,7 +40,7 @@ MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
     ("Include", "GameLogic/AISkirmishPlayer.h"): "GameLogic/src/ai/skirmish_player.rs",
     ("Include", "GameLogic/AIStateMachine.h"): "GameLogic/src/ai/state_machine.rs",
     ("Include", "GameLogic/AITNGuard.h"): "GameLogic/src/ai/tn_guard.rs",
-    ("Include", "GameLogic/ArmorSet.h"): "GameLogic/src/weapon/damage_calculator.rs",
+    ("Include", "GameLogic/ArmorSet.h"): "GameLogic/src/common/types.rs",
     ("Include", "GameLogic/FPUControl.h"): "GameLogic/src/system/game_logic.rs",
     ("Include", "GameLogic/LogicRandomValue.h"): "GameLogic/src/helpers.rs",
     (

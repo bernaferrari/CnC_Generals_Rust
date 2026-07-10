@@ -85,11 +85,22 @@ pub struct FileMappingCounts {
     pub found_by_basename: u32,
     pub missing: u32,
     pub unknown: u32,
+    /// Rows marked FOUND/FOUND_BY_BASENAME whose mapped destination path does not exist.
+    pub stale_mapped: u32,
 }
 
 impl FileMappingCounts {
     pub fn total_entries(&self) -> u32 {
-        self.found + self.found_by_basename + self.missing + self.unknown
+        self.found
+            + self.found_by_basename
+            + self.missing
+            + self.unknown
+            + self.stale_mapped
+    }
+
+    /// Covered entries exclude stale mapped paths (claimed found but file missing).
+    pub fn covered_entries(&self) -> u32 {
+        self.found + self.found_by_basename
     }
 
     pub fn parity_percent(&self) -> f32 {
@@ -97,7 +108,7 @@ impl FileMappingCounts {
         if total == 0 {
             0.0
         } else {
-            100.0 * (self.found + self.found_by_basename) as f32 / total as f32
+            100.0 * self.covered_entries() as f32 / total as f32
         }
     }
 }
@@ -130,6 +141,9 @@ pub struct PlayabilityAuditSummary {
     pub include_missing_count: usize,
     pub network_deferred: bool,
     pub input_warnings: Vec<String>,
+    /// Mapped destinations marked FOUND* that do not exist on disk.
+    pub stale_mapped_paths: Vec<String>,
+    pub verify_mapped_paths_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +152,10 @@ pub struct PlayabilityGateConfig {
     pub missing_files_path: PathBuf,
     pub mismatch_files_path: PathBuf,
     pub include_network: bool,
+    /// When true (default), FOUND rows whose mapped path is missing count as stale blockers.
+    pub verify_mapped_paths: bool,
+    /// Root under which matrix mapped paths are resolved (typically GeneralsRust/Code/GameEngine).
+    pub rust_engine_root: Option<PathBuf>,
 }
 
 impl Default for PlayabilityGateConfig {
@@ -161,11 +179,23 @@ impl PlayabilityGateConfig {
             missing_files_path,
             mismatch_files_path,
             include_network: false,
+            verify_mapped_paths: true,
+            rust_engine_root: Self::discover_rust_engine_root(),
         }
     }
 
     pub fn with_include_network(mut self, include_network: bool) -> Self {
         self.include_network = include_network;
+        self
+    }
+
+    pub fn with_verify_mapped_paths(mut self, verify: bool) -> Self {
+        self.verify_mapped_paths = verify;
+        self
+    }
+
+    pub fn with_rust_engine_root(mut self, root: Option<PathBuf>) -> Self {
+        self.rust_engine_root = root;
         self
     }
 
@@ -194,6 +224,31 @@ impl PlayabilityGateConfig {
         ];
         candidates.into_iter().find(|candidate| candidate.is_file())
     }
+
+    pub fn discover_rust_engine_root() -> Option<PathBuf> {
+        let cwd = std::env::current_dir().ok()?;
+        let candidates = [
+            cwd.join("GeneralsRust").join("Code").join("GameEngine"),
+            cwd.join("Code").join("GameEngine"),
+            cwd.join("..").join("Code").join("GameEngine"),
+            cwd.join("..")
+                .join("GeneralsRust")
+                .join("Code")
+                .join("GameEngine"),
+            cwd.join("..")
+                .join("..")
+                .join("GeneralsRust")
+                .join("Code")
+                .join("GameEngine"),
+            cwd.join("..")
+                .join("..")
+                .join("..")
+                .join("GeneralsRust")
+                .join("Code")
+                .join("GameEngine"),
+        ];
+        candidates.into_iter().find(|candidate| candidate.is_dir())
+    }
 }
 
 #[derive(Debug)]
@@ -218,8 +273,8 @@ impl PlayabilityAuditSummary {
             let source_total = subsystem.source.total_entries();
             let include_total = subsystem.include.total_entries();
             total_entries += source_total + include_total;
-            covered += subsystem.source.found + subsystem.source.found_by_basename;
-            covered += subsystem.include.found + subsystem.include.found_by_basename;
+            covered += subsystem.source.covered_entries();
+            covered += subsystem.include.covered_entries();
         }
 
         if total_entries == 0 {
@@ -227,6 +282,26 @@ impl PlayabilityAuditSummary {
         }
 
         100.0 * covered as f32 / total_entries as f32
+    }
+
+    pub fn stale_mapped_path_count(&self) -> usize {
+        self.stale_mapped_paths.len()
+    }
+
+    /// Count of matrix rows marked MISSING or UNKNOWN (not covered, not stale-found).
+    ///
+    /// These are independent of the PORT_MISSING_FILES report: a matrix can claim
+    /// incomplete parity without listing Source-missing rows.
+    pub fn matrix_missing_entry_count(&self) -> usize {
+        self.matrix_by_subsystem
+            .iter()
+            .map(|subsystem| {
+                (subsystem.source.missing
+                    + subsystem.include.missing
+                    + subsystem.source.unknown
+                    + subsystem.include.unknown) as usize
+            })
+            .sum()
     }
 
     pub fn unresolved_high_impact(&self) -> usize {
@@ -241,7 +316,43 @@ impl PlayabilityAuditSummary {
         // Keep malformed/unsectioned rows visible while ignoring non-impact buckets (e.g. Precompiled).
         let known_all = self.total_missing_reports.values().sum::<usize>();
         let unsectioned = self.source_missing_count.saturating_sub(known_all);
-        known_high_impact + unsectioned
+        // Stale FOUND mappings are always blockers: file presence without a real destination
+        // is not playability evidence.
+        // Matrix MISSING rows lower total_parity and are enforced via phase/strict
+        // min_parity thresholds (not double-counted here as missing-file blockers).
+        known_high_impact + unsectioned + self.stale_mapped_path_count()
+    }
+
+    /// Strict gate used by `playability_audit --strict` (no --phase).
+    ///
+    /// Applies release-candidate thresholds: non-zero min parity, zero unresolved
+    /// blockers (including matrix MISSING + stale paths), complete inputs.
+    pub fn pass_strict_gate(&self) -> bool {
+        self.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate)
+    }
+
+    pub fn strict_gate_description(&self) -> String {
+        format!(
+            "strict: {}",
+            self.gate_description(PlayabilityPhase::PlayabilityReleaseCandidate)
+        )
+    }
+
+    /// Evaluate the shipped strict audit path; returns Err with a human reason on failure.
+    pub fn evaluate_strict_gate(&self) -> Result<(), String> {
+        if self.has_input_warnings() {
+            return Err("audit inputs are incomplete".to_string());
+        }
+        if self.stale_mapped_path_count() > 0 {
+            return Err(format!(
+                "{} stale mapped path(s) (FOUND but missing on disk)",
+                self.stale_mapped_path_count()
+            ));
+        }
+        if !self.pass_strict_gate() {
+            return Err(self.strict_gate_description());
+        }
+        Ok(())
     }
 
     pub fn total_unresolved_including_headers(&self) -> usize {
@@ -288,6 +399,10 @@ impl PlayabilityAuditSummary {
         if target.require_complete_inputs && self.has_input_warnings() {
             return false;
         }
+        // Path verification is never optional for gate truthfulness: stale FOUND rows always fail.
+        if self.verify_mapped_paths_enabled && self.stale_mapped_path_count() > 0 {
+            return false;
+        }
         let unresolved = if target.strict_missing_headers {
             self.total_unresolved_including_headers()
         } else {
@@ -301,13 +416,18 @@ impl PlayabilityAuditSummary {
     pub fn gate_description(&self, phase: PlayabilityPhase) -> String {
         let target = phase_threshold(phase);
         format!(
-            "{}: parity {:.1}% >= {:.1}%; unresolved blockers <= {} ({} phase scope); layout mismatches <= {}{}",
+            "{}: parity {:.1}% >= {:.1}%; unresolved blockers <= {} ({} phase scope); layout mismatches <= {}; stale mapped paths = {}{}",
             phase.as_str(),
             self.total_parity_percent(),
             target.min_parity_percent,
             target.max_unresolved_blockers,
-            if target.strict_missing_headers { "strict" } else { "high-impact-only" },
+            if target.strict_missing_headers {
+                "strict"
+            } else {
+                "high-impact-only"
+            },
             target.max_layout_mismatches,
+            self.stale_mapped_path_count(),
             if target.require_complete_inputs {
                 "; input tracking must be complete"
             } else {
@@ -344,37 +464,40 @@ struct PhaseGateConfig {
 }
 
 fn phase_threshold(phase: PlayabilityPhase) -> PhaseGateConfig {
+    // Thresholds are intentionally non-zero where possible so a matrix that only
+    // counts "files present" cannot pass with min_parity_percent = 0.0.
+    // Stale mapped paths fail independently of these thresholds.
     match phase {
         PlayabilityPhase::BaselineLock => PhaseGateConfig {
-            min_parity_percent: 0.0,
+            min_parity_percent: 50.0,
             max_unresolved_blockers: 0,
             max_layout_mismatches: 700,
             strict_missing_headers: false,
             require_complete_inputs: false,
         },
         PlayabilityPhase::GameplayParity => PhaseGateConfig {
-            min_parity_percent: 0.0,
+            min_parity_percent: 80.0,
             max_unresolved_blockers: 12,
             max_layout_mismatches: 600,
             strict_missing_headers: false,
             require_complete_inputs: false,
         },
         PlayabilityPhase::SaveLoadTerrain => PhaseGateConfig {
-            min_parity_percent: 0.0,
+            min_parity_percent: 85.0,
             max_unresolved_blockers: 6,
             max_layout_mismatches: 420,
             strict_missing_headers: false,
             require_complete_inputs: false,
         },
         PlayabilityPhase::UiInputParity => PhaseGateConfig {
-            min_parity_percent: 0.0,
+            min_parity_percent: 90.0,
             max_unresolved_blockers: 2,
             max_layout_mismatches: 250,
             strict_missing_headers: true,
             require_complete_inputs: true,
         },
         PlayabilityPhase::PlayabilityReleaseCandidate => PhaseGateConfig {
-            min_parity_percent: 0.0,
+            min_parity_percent: 99.0,
             max_unresolved_blockers: 0,
             max_layout_mismatches: 0,
             strict_missing_headers: true,
@@ -436,6 +559,21 @@ impl fmt::Display for PlayabilityAuditSummary {
         }
         writeln!(
             f,
+            "Stale mapped paths (FOUND but missing on disk): {}",
+            self.stale_mapped_path_count()
+        )?;
+        for path in self.stale_mapped_paths.iter().take(20) {
+            writeln!(f, "  stale: {path}")?;
+        }
+        if self.stale_mapped_path_count() > 20 {
+            writeln!(
+                f,
+                "  ... and {} more",
+                self.stale_mapped_path_count() - 20
+            )?;
+        }
+        writeln!(
+            f,
             "High-impact unresolved blockers: {}",
             self.unresolved_high_impact()
         )?;
@@ -443,7 +581,13 @@ impl fmt::Display for PlayabilityAuditSummary {
             f,
             "Total matrix parity: {:.1}%",
             self.total_parity_percent()
-        )
+        )?;
+        if self.verify_mapped_paths_enabled {
+            writeln!(f, "Mapped-path verification: enabled")?;
+        } else {
+            writeln!(f, "Mapped-path verification: disabled")?;
+        }
+        Ok(())
     }
 }
 
@@ -488,11 +632,30 @@ pub fn current_unresolved_blocker_examples(
         ));
     }
 
+    for stale in &summary.stale_mapped_paths {
+        if lines.len() >= max_entries {
+            break;
+        }
+        lines.push(format!("stale mapped path: {stale}"));
+    }
+
     lines.into_iter().take(max_entries).collect()
 }
 
-fn parse_matrix_row(line: &str) -> Option<(String, MappingKind, MappingStatus)> {
-    let parts = line.splitn(5, " | ").map(str::trim).collect::<Vec<_>>();
+#[derive(Debug, Clone)]
+struct ParsedMatrixRow {
+    subsystem: String,
+    kind: MappingKind,
+    status: MappingStatus,
+    mapped_path: Option<String>,
+}
+
+fn parse_matrix_row(line: &str) -> Option<ParsedMatrixRow> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let parts = trimmed.splitn(5, " | ").map(str::trim).collect::<Vec<_>>();
     if parts.len() < 4 {
         return None;
     }
@@ -501,9 +664,33 @@ fn parse_matrix_row(line: &str) -> Option<(String, MappingKind, MappingStatus)> 
     let path = parts[1]
         .trim_start_matches("Source/")
         .trim_start_matches("Include/");
+    let mapped_raw = parts[2].trim();
+    let mapped_path = if mapped_raw.is_empty() || mapped_raw == "-" {
+        None
+    } else {
+        Some(mapped_raw.to_string())
+    };
     let status = MappingStatus::from_value(parts[3]);
     let subsystem = path.split('/').next().unwrap_or("unknown").to_string();
-    Some((subsystem, kind, status))
+    Some(ParsedMatrixRow {
+        subsystem,
+        kind,
+        status,
+        mapped_path,
+    })
+}
+
+/// Returns true when a FOUND* mapped destination exists under `rust_engine_root`.
+pub fn mapped_path_exists(rust_engine_root: &std::path::Path, mapped_rel: &str) -> bool {
+    let cleaned = mapped_rel
+        .trim()
+        .trim_start_matches("./")
+        .replace('\\', "/");
+    if cleaned.is_empty() || cleaned == "-" {
+        return false;
+    }
+    let candidate = rust_engine_root.join(&cleaned);
+    candidate.is_file()
 }
 
 fn parse_mismatch_row(line: &str) -> Option<(String, MappingKind)> {
@@ -528,9 +715,11 @@ fn is_tracking_section_header(line: &str) -> bool {
 
 fn increment_counts(
     target: &mut HashMap<String, (FileMappingCounts, FileMappingCounts)>,
-    row: (String, MappingKind, MappingStatus),
+    subsystem: String,
+    kind: MappingKind,
+    status: MappingStatus,
+    is_stale: bool,
 ) {
-    let (subsystem, kind, status) = row;
     let entry = target
         .entry(subsystem)
         .or_insert_with(|| (FileMappingCounts::default(), FileMappingCounts::default()));
@@ -539,6 +728,11 @@ fn increment_counts(
         MappingKind::Source => &mut entry.0,
         MappingKind::Include => &mut entry.1,
     };
+
+    if is_stale {
+        counts.stale_mapped += 1;
+        return;
+    }
 
     match status {
         MappingStatus::Found => counts.found += 1,
@@ -582,15 +776,59 @@ pub fn build_playability_audit(
         ));
     }
 
+    if config.verify_mapped_paths && config.rust_engine_root.is_none() {
+        input_warnings.push(
+            "mapped-path verification enabled but GeneralsRust/Code/GameEngine root was not found; \
+             stale-path checks are skipped until the root is available"
+                .to_string(),
+        );
+    }
+
+    let verify_paths = config.verify_mapped_paths && config.rust_engine_root.is_some();
+    let rust_root = config.rust_engine_root.clone();
+
     let mut map = HashMap::<String, (FileMappingCounts, FileMappingCounts)>::new();
+    let mut stale_mapped_paths = Vec::new();
     for line in matrix_data.lines() {
         if let Some(row) = parse_matrix_row(line) {
-            if !config.include_network && row.0 == "GameNetwork" {
+            if !config.include_network && row.subsystem == "GameNetwork" {
                 continue;
             }
-            increment_counts(&mut map, row);
+            let mut is_stale = false;
+            if verify_paths {
+                if matches!(
+                    row.status,
+                    MappingStatus::Found | MappingStatus::FoundByBasename
+                ) {
+                    match row.mapped_path.as_deref() {
+                        Some(mapped) => {
+                            let root = rust_root.as_ref().expect("verified above");
+                            if !mapped_path_exists(root, mapped) {
+                                is_stale = true;
+                                stale_mapped_paths.push(mapped.to_string());
+                            }
+                        }
+                        None => {
+                            is_stale = true;
+                            stale_mapped_paths.push(format!(
+                                "<empty mapped path for {} {:?}>",
+                                row.subsystem, row.kind
+                            ));
+                        }
+                    }
+                }
+            }
+            increment_counts(
+                &mut map,
+                row.subsystem,
+                row.kind,
+                row.status,
+                is_stale,
+            );
         }
     }
+    stale_mapped_paths.sort();
+    stale_mapped_paths.dedup();
 
     let mut by_subsystem = map
         .into_iter()
@@ -693,6 +931,8 @@ pub fn build_playability_audit(
         include_missing_count,
         network_deferred: !config.include_network,
         input_warnings,
+        stale_mapped_paths,
+        verify_mapped_paths_enabled: verify_paths,
     })
 }
 
@@ -757,7 +997,9 @@ mod tests {
             message: format!("write missing: {err}"),
         })?;
 
-        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path);
+        // Fixture rows use synthetic mapped paths; disable existence checks for pure parse tests.
+        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path)
+            .with_verify_mapped_paths(false);
         build_playability_audit(&config)
     }
 
@@ -772,6 +1014,132 @@ mod tests {
         assert_eq!(summary.include_missing_count, 1);
         assert!(summary.unresolved_high_impact() > 0);
         assert!((summary.total_parity_percent() - 66.66667).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_stale_mapped_path_fails_gate_and_lowers_parity() {
+        let temp_dir = std::env::temp_dir();
+        let unique = SAMPLE_CONFIG_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let rust_root = temp_dir.join(format!("playability_rust_root_{pid}_{unique}"));
+        fs::create_dir_all(rust_root.join("GameLogic").join("src")).expect("mkdir");
+        // Present file for one FOUND row; second FOUND row points at a missing path.
+        fs::write(
+            rust_root.join("GameLogic").join("src").join("real.rs"),
+            "// present\n",
+        )
+        .expect("write real");
+
+        let matrix = "\
+Source | Source/GameLogic/Real.cpp | GameLogic/src/real.rs | FOUND\n\
+Source | Source/GameLogic/Missing.cpp | GameLogic/src/ai/modules/missile_ai_update.rs | FOUND\n\
+";
+        let matrix_path = temp_dir.join(format!("playability_stale_matrix_{pid}_{unique}.txt"));
+        let missing_path = temp_dir.join(format!("playability_stale_missing_{pid}_{unique}.txt"));
+        let mismatch_path = temp_dir.join(format!("playability_stale_mismatch_{pid}_{unique}.txt"));
+        fs::write(&matrix_path, matrix).expect("write matrix");
+        fs::write(&missing_path, "").expect("write missing");
+        fs::write(&mismatch_path, "").expect("write mismatch");
+
+        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path)
+            .with_verify_mapped_paths(true)
+            .with_rust_engine_root(Some(rust_root));
+        let summary = build_playability_audit(&config).expect("audit");
+
+        assert_eq!(summary.stale_mapped_path_count(), 1);
+        assert!(summary
+            .stale_mapped_paths
+            .iter()
+            .any(|p| p.contains("missile_ai_update.rs")));
+        assert_eq!(summary.unresolved_high_impact(), 1);
+        // One covered of two total → 50% parity; stale is not counted as covered.
+        assert!((summary.total_parity_percent() - 50.0).abs() < 0.1);
+        // Baseline requires 50% parity but zero blockers including stale paths.
+        assert!(!summary.pass_gate(PlayabilityPhase::BaselineLock));
+        assert!(!summary.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate));
+    }
+
+    #[test]
+    fn test_phase_thresholds_reject_zero_parity_even_without_missing_reports() {
+        // Empty matrix → 0% parity. min_parity is no longer 0.0 for baseline.
+        let summary = sample_config("", "", "").expect("audit parse");
+        assert_eq!(summary.total_parity_percent(), 0.0);
+        assert!(!summary.pass_gate(PlayabilityPhase::BaselineLock));
+        assert!(!summary.pass_gate(PlayabilityPhase::GameplayParity));
+    }
+
+    #[test]
+    fn test_strict_gate_rejects_incomplete_matrix_parity_with_empty_missing_report() {
+        // Spot-check the dishonest path the skeptic flagged:
+        // - matrix has FOUND + MISSING (40% parity)
+        // - missing-files report has no Source-missing rows
+        // - no stale paths (verify disabled for synthetic destinations)
+        // Strict must NOT claim zero blockers / success.
+        let matrix = "\
+Source | Source/GameLogic/A.cpp | GameLogic/src/a.rs | FOUND\n\
+Source | Source/GameLogic/B.cpp | GameLogic/src/b.rs | FOUND\n\
+Source | Source/GameLogic/C.cpp | - | MISSING\n\
+Source | Source/GameLogic/D.cpp | - | MISSING\n\
+Source | Source/GameLogic/E.cpp | - | MISSING\n\
+";
+        // Empty section headers only — no Source missing lines.
+        let missing = "[GameLogic]\nSource missing:\nInclude missing:\n";
+        let summary = sample_config(matrix, missing, "").expect("audit parse");
+
+        assert!(
+            (summary.total_parity_percent() - 40.0).abs() < 0.1,
+            "expected ~40% parity, got {}",
+            summary.total_parity_percent()
+        );
+        assert_eq!(summary.matrix_missing_entry_count(), 3);
+        // Missing-files report is empty of high-impact Source rows.
+        assert_eq!(summary.source_missing_count, 0);
+        // Stale not involved.
+        assert_eq!(summary.stale_mapped_path_count(), 0);
+
+        // Shipped strict path (same as playability_audit --strict without --phase).
+        assert!(!summary.pass_strict_gate());
+        assert!(!summary.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate));
+        let strict_err = summary
+            .evaluate_strict_gate()
+            .expect_err("strict gate must fail on 40% matrix parity");
+        assert!(
+            strict_err.contains("strict") || strict_err.contains("parity") || strict_err.contains("phase5"),
+            "error should describe parity failure: {strict_err}"
+        );
+    }
+
+    #[test]
+    fn test_strict_gate_accepts_complete_found_matrix() {
+        let matrix = "\
+Source | Source/GameLogic/A.cpp | GameLogic/src/a.rs | FOUND\n\
+Source | Source/GameLogic/B.cpp | GameLogic/src/b.rs | FOUND\n\
+Include | Include/GameLogic/A.h | GameLogic/src/a.rs | FOUND\n\
+";
+        let missing = "[GameLogic]\nSource missing:\nInclude missing:\n";
+        let summary = sample_config(matrix, missing, "").expect("audit parse");
+        assert_eq!(summary.total_parity_percent(), 100.0);
+        assert_eq!(summary.matrix_missing_entry_count(), 0);
+        assert!(summary.pass_strict_gate());
+        assert!(summary.evaluate_strict_gate().is_ok());
+    }
+
+    #[test]
+    fn test_mapped_path_exists_helper() {
+        let temp_dir = std::env::temp_dir();
+        let unique = SAMPLE_CONFIG_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let rust_root = temp_dir.join(format!("playability_exists_{pid}_{unique}"));
+        let nested = rust_root.join("GameLogic").join("src");
+        fs::create_dir_all(&nested).expect("mkdir");
+        let file = nested.join("exists.rs");
+        fs::write(&file, "ok\n").expect("write");
+        assert!(mapped_path_exists(&rust_root, "GameLogic/src/exists.rs"));
+        assert!(!mapped_path_exists(
+            &rust_root,
+            "GameLogic/src/does_not_exist.rs"
+        ));
+        assert!(!mapped_path_exists(&rust_root, "-"));
     }
 
     #[test]
@@ -864,7 +1232,9 @@ mod tests {
         assert_eq!(summary.include_missing_count, 0);
         assert_eq!(summary.unresolved_high_impact(), 0);
         assert_eq!(summary.total_unresolved_including_headers(), 0);
-        assert!(summary.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate));
+        // Precompiled misses are not blockers, but 0% parity no longer passes release.
+        assert!(!summary.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate));
+        assert_eq!(summary.total_parity_percent(), 0.0);
     }
 
     #[test]
@@ -877,7 +1247,8 @@ mod tests {
         let mismatch_path =
             temp_dir.join(format!("playability_missing_mismatch_{pid}_{unique}.txt"));
 
-        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path);
+        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path)
+            .with_verify_mapped_paths(false);
         let summary =
             build_playability_audit(&config).expect("audit should tolerate missing inputs");
 

@@ -109,7 +109,13 @@ pub mod unit_input_handler;
 pub mod win32_game_engine;
 
 // Playability integration
+pub mod authoritative_world;
+pub mod breadth_scenarios;
+pub mod golden_skirmish;
+pub mod map_frame_scenario;
 pub mod playability_integration;
+pub mod release_candidate;
+pub mod skirmish_config;
 
 // New factory pattern modules
 pub mod command_line;

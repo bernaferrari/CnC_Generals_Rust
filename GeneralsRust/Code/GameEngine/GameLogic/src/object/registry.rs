@@ -123,3 +123,12 @@ impl ObjectRegistry {
 
 /// Global instance mirroring the legacy singleton.
 pub static OBJECT_REGISTRY: Lazy<ObjectRegistry> = Lazy::new(ObjectRegistry::default);
+
+/// Process-wide mutex for tests that clear/register objects on the shared
+/// [`OBJECT_REGISTRY`] / GameLogic singleton. Parallel weapon collision tests
+/// otherwise clobber each other mid-assertion.
+pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}

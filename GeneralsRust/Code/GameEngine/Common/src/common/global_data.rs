@@ -8,7 +8,7 @@
 //! the engine.
 
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use once_cell::sync::Lazy;
 
@@ -1475,6 +1475,37 @@ pub mod access {
 
     pub fn clear_override(key: &str) {
         write().clear_override(key);
+    }
+}
+
+/// Process-wide mutex for tests that temporarily mutate [`GLOBAL_DATA`].
+///
+/// All such tests must hold this lock so parallel suites cannot clobber
+/// sell percentages and other shared knobs mid-assertion.
+pub fn test_isolation_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Run `f` while holding [`test_isolation_lock`], restoring GlobalData afterward.
+///
+/// Recovers from a poisoned mutex (a prior panicking test) and still restores
+/// the snapshot if `f` panics, then re-raises the panic.
+pub fn with_global_data_restored<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+
+    let _guard = test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let snapshot = read().clone();
+    let result = catch_unwind(AssertUnwindSafe(f));
+    *write() = snapshot;
+    match result {
+        Ok(value) => value,
+        Err(payload) => resume_unwind(payload),
     }
 }
 

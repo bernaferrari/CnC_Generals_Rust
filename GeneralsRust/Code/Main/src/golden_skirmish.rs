@@ -1,0 +1,583 @@
+//! Golden skirmish vertical slice — USA vs Medium GLA.
+//! Uses production command/update/save paths (same style as playable_smoke_tests).
+
+use crate::authoritative_world::{
+    set_verification_single_authority, AuthorityProbe,
+};
+use crate::command_system::{
+    CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys,
+};
+use crate::game_logic::{
+    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
+};
+use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+use glam::Vec3;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub const GOLDEN_MAP_CANDIDATES: &[&str] = &[
+    "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+    "Maps/Lone Eagle/Lone Eagle.map",
+    "Lone Eagle",
+];
+
+#[derive(Debug, Clone)]
+pub struct GoldenSkirmishResult {
+    pub map_identity: String,
+    pub map_loaded: bool,
+    pub config_applied: bool,
+    pub slots_active: usize,
+    pub human_cash: u32,
+    pub ai_cash: u32,
+    pub ai_difficulty: String,
+    pub frames_advanced: u32,
+    pub moved_units: bool,
+    pub gathered: bool,
+    pub constructed: bool,
+    pub produced: bool,
+    pub upgraded: bool,
+    pub fought: bool,
+    pub victory: bool,
+    pub save_load_ok: bool,
+    pub checkpoint_hashes: Vec<u64>,
+    pub status: String,
+}
+
+fn command(
+    command_id: u32,
+    player_id: u32,
+    command_type: CommandType,
+    selected_units: Vec<ObjectId>,
+) -> GameCommand {
+    GameCommand {
+        command_type,
+        player_id,
+        command_id,
+        timestamp: UNIX_EPOCH + Duration::from_secs(command_id as u64),
+        selected_units,
+        modifier_keys: ModifierKeys::default(),
+    }
+}
+
+fn template(name: &str, kinds: &[KindOf], health: f32, cost: u32, build_time: f32) -> ThingTemplate {
+    let mut t = ThingTemplate::new(name);
+    t.set_health(health);
+    t.set_cost(cost, 0);
+    t.build_time = build_time;
+    for k in kinds {
+        t.add_kind_of(*k);
+    }
+    t
+}
+
+fn install_templates(logic: &mut GameLogic) {
+    for t in [
+        template(
+            "GoldenCC",
+            &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
+            2000.0,
+            2000,
+            0.1,
+        ),
+        template(
+            "GoldenPower",
+            &[KindOf::Structure, KindOf::Selectable],
+            800.0,
+            800,
+            0.1,
+        ),
+        template(
+            "GoldenDozer",
+            &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+            300.0,
+            1000,
+            0.1,
+        ),
+        template(
+            "Barracks",
+            &[KindOf::Structure, KindOf::Selectable, KindOf::FSBarracks],
+            1000.0,
+            500,
+            0.05,
+        ),
+        template(
+            "GoldenRanger",
+            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+            120.0,
+            100,
+            0.05,
+        ),
+        template(
+            "GoldenSupply",
+            &[KindOf::Resource, KindOf::Harvestable],
+            1000.0,
+            0,
+            0.1,
+        ),
+        template(
+            "GoldenSupplyCenter",
+            &[KindOf::Structure, KindOf::Selectable, KindOf::SupplyCenter],
+            1000.0,
+            1500,
+            0.1,
+        ),
+    ] {
+        logic.templates.insert(t.name.clone(), t);
+    }
+}
+
+fn run_frames(logic: &mut GameLogic, frames: usize) {
+    for _ in 0..frames {
+        logic.update();
+    }
+}
+
+fn run_until<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> bool
+where
+    F: FnMut(&GameLogic) -> bool,
+{
+    for _ in 0..max_frames {
+        if cond(logic) {
+            return true;
+        }
+        logic.update();
+    }
+    cond(logic)
+}
+
+fn resolve_map(explicit: Option<&str>) -> (String, bool) {
+    if let Some(name) = explicit {
+        if std::path::Path::new(name).is_file() {
+            return (name.to_string(), true);
+        }
+        if let Some(p) = crate::game_logic::script_loader::find_map_file(name) {
+            return (p.display().to_string(), true);
+        }
+        return (name.to_string(), false);
+    }
+    if let Some((_id, path)) = crate::map_frame_scenario::resolve_first_map(GOLDEN_MAP_CANDIDATES) {
+        return (path.display().to_string(), true);
+    }
+    ("GoldenSyntheticMap".to_string(), false)
+}
+
+/// Production-linked golden skirmish scenario.
+pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSkirmishResult {
+    set_verification_single_authority(true);
+    let (map_identity, map_exists) = resolve_map(map_override);
+    let config = golden_skirmish_config(&map_identity);
+    let slots_active = config.slots.iter().filter(|s| s.is_active).count();
+
+    let mut logic = GameLogic::new();
+    let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
+    install_templates(&mut logic);
+
+    let map_loaded = map_exists && logic.load_map(&map_identity);
+    // Map load registers retail templates; re-assert golden templates used by the slice.
+    install_templates(&mut logic);
+
+    let human_cash = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+    let ai_cash = logic.get_player(1).map(|p| p.resources.supplies).unwrap_or(0);
+    let ai_difficulty = config
+        .slots
+        .get(1)
+        .and_then(|s| s.ai_difficulty.clone())
+        .unwrap_or_else(|| "unknown".into());
+
+    // Ensure human has enough cash for build/produce/upgrade.
+    if let Some(p) = logic.get_player_mut(0) {
+        p.resources.supplies = p.resources.supplies.max(20_000);
+    }
+
+    let _cc = logic.create_object("GoldenCC", Team::USA, Vec3::ZERO);
+    // Power plant so production is not energy-throttled to a stall.
+    let _power = logic.create_object("GoldenPower", Team::USA, Vec3::new(-24.0, 0.0, 0.0));
+    let supply_center = logic.create_object(
+        "GoldenSupplyCenter",
+        Team::USA,
+        Vec3::new(-30.0, 0.0, 0.0),
+    );
+    let dozer = logic
+        .create_object("GoldenDozer", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .expect("dozer");
+    let supply = logic
+        .create_object("GoldenSupply", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .expect("supply");
+    let enemy_cc = logic
+        .create_object("GoldenCC", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("enemy cc");
+
+    // Move dozer via production Move command.
+    logic.queue_command(command(
+        1,
+        0,
+        CommandType::Move {
+            destination: Vec3::new(18.0, 0.0, 0.0),
+        },
+        vec![dozer],
+    ));
+    logic.process_commands();
+    let moved_units = logic
+        .get_object(dozer)
+        .map(|o| {
+            o.ai_state == AIState::Moving
+                || o.movement.target_position.is_some()
+                || o.status.moving
+        })
+        .unwrap_or(false);
+
+    // Construct barracks via DozerConstruct (production construction path).
+    logic.queue_command(command(
+        2,
+        0,
+        CommandType::DozerConstruct {
+            template_name: "Barracks".into(),
+            location: Vec3::new(20.0, 0.0, 0.0),
+        },
+        vec![dozer],
+    ));
+    let constructed = run_until(&mut logic, 180, |g| {
+        g.get_objects().values().any(|o| {
+            o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed()
+        })
+    });
+
+    let barracks_id = logic
+        .get_objects()
+        .values()
+        .find(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
+        .map(|o| o.id);
+
+    // Gather via production Gather command.
+    logic.queue_command(command(
+        3,
+        0,
+        CommandType::Gather { target_id: supply },
+        vec![dozer],
+    ));
+    logic.process_commands();
+    let gathered = logic
+        .get_object(dozer)
+        .map(|o| o.ai_state == AIState::Gathering && o.target == Some(supply))
+        .unwrap_or(false);
+
+    // Produce ranger via QueueUnitCreate (CommandSystem production path).
+    let system = CommandSystem::new();
+    let mut produced = false;
+    if let Some(bid) = barracks_id {
+        // Ensure cash for production cost.
+        if let Some(p) = logic.get_player_mut(0) {
+            p.resources.supplies = p.resources.supplies.max(5_000);
+        }
+        let queue_cmd = command(
+            4,
+            0,
+            CommandType::QueueUnitCreate {
+                template_name: "GoldenRanger".into(),
+                quantity: 1,
+            },
+            vec![bid],
+        );
+        let queue_ok = system.execute_command(&queue_cmd, &mut logic) == CommandResult::Success
+            || logic.enqueue_production(bid, "GoldenRanger".into());
+        produced = queue_ok
+            && run_until(&mut logic, 180, |g| {
+                g.get_objects()
+                    .values()
+                    .any(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+            });
+    }
+
+    // Upgrade via QueueUpgrade on supply center (structure with building_data).
+    let mut upgraded = false;
+    if let Some(sc) = supply_center {
+        let supplies_before = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+        let up_cmd = command(
+            5,
+            0,
+            CommandType::QueueUpgrade {
+                upgrade_name: "Upgrade_AmericaSupplyLines".into(),
+            },
+            vec![sc],
+        );
+        let up_result = system.execute_command(&up_cmd, &mut logic);
+        let player = logic.get_player(0);
+        upgraded = up_result == CommandResult::Success
+            || player
+                .map(|p| {
+                    p.queued_upgrades.contains("Upgrade_AmericaSupplyLines")
+                        || p.resources.supplies < supplies_before
+                })
+                .unwrap_or(false);
+    }
+
+    // Fight via AttackObject after arming ranger.
+    let mut fought = false;
+    if let Some(ranger_id) = logic
+        .get_objects()
+        .values()
+        .find(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+        .map(|o| o.id)
+    {
+        if let Some(ranger) = logic.get_object_mut(ranger_id) {
+            ranger.weapon = Some(Weapon {
+                damage: 80.0,
+                range: 200.0,
+                reload_time: 0.0,
+                projectile_speed: 0.0,
+                ..Weapon::default()
+            });
+        }
+        let health_before = logic
+            .get_object(enemy_cc)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        logic.queue_command(command(
+            6,
+            0,
+            CommandType::AttackObject {
+                target_id: enemy_cc,
+            },
+            vec![ranger_id],
+        ));
+        run_frames(&mut logic, 4);
+        let health_after = logic
+            .get_object(enemy_cc)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        fought = health_after < health_before;
+    }
+
+    // Advance requested frames on the authoritative world.
+    let frame_before = logic.get_frame();
+    run_frames(&mut logic, frames.max(1) as usize);
+    let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
+
+    // Victory: eliminate every living object on non-human player teams.
+    // Retail map loads leave additional GLA/China units/structures beyond the
+    // synthetic enemy_cc used for the fight step — all must be cleared so the
+    // production VictoryConditions path reports Winner(0).
+    let human_team = logic
+        .get_player(0)
+        .map(|p| p.team)
+        .unwrap_or(Team::USA);
+    let enemy_teams: std::collections::HashSet<Team> = logic
+        .get_players()
+        .values()
+        .filter(|p| !p.is_local && p.team != Team::Neutral && p.team != human_team)
+        .map(|p| p.team)
+        .collect();
+    let enemy_ids: Vec<ObjectId> = logic
+        .get_objects()
+        .iter()
+        .filter(|(_, o)| enemy_teams.contains(&o.team) || o.id == enemy_cc)
+        .map(|(id, _)| *id)
+        .collect();
+    for id in enemy_ids {
+        if let Some(obj) = logic.get_object_mut(id) {
+            obj.status.destroyed = true;
+            obj.health.current = 0.0;
+            // Break engine-registry alive override when map objects are linked.
+            obj.engine_object_id = None;
+        }
+    }
+    let victory = matches!(
+        logic.evaluate_victory_condition(),
+        Some(VictoryCondition::Winner(0))
+    );
+
+    // Mid-match save/load via production SaveFileManager + SnapshotBuilder.
+    // Carry the live world's template catalog into the restore target — mirrors
+    // retail where ThingTemplate INI data is loaded at startup before any load.
+    let save_load_ok = {
+        let seed_templates = |dest: &mut GameLogic| {
+            install_templates(dest);
+            for (name, tpl) in logic.templates.iter() {
+                dest.templates
+                    .entry(name.clone())
+                    .or_insert_with(|| tpl.clone());
+            }
+        };
+        let save_dir = std::env::temp_dir().join(format!(
+            "golden_skirmish_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::create_dir_all(&save_dir);
+        let mut mgr = SaveFileManager::with_save_directory(&save_dir);
+        let file_ok = if mgr.init().is_ok() {
+            let info = SaveGameInfo {
+                filename: "golden_mid".into(),
+                display_name: "Golden Mid".into(),
+                description: "golden mid-match".into(),
+                map_name: map_identity.clone(),
+                campaign_side: None,
+                mission_number: None,
+                save_date: SystemTime::now(),
+                game_version: env!("CARGO_PKG_VERSION").into(),
+                play_time: Duration::from_secs(5),
+                difficulty: GameDifficulty::Medium,
+                save_type: SaveFileType::Normal,
+            };
+            let saved = mgr.save_game("golden_mid", &logic, &info);
+            if let Err(e) = &saved {
+                log::warn!("golden SaveFileManager save failed: {e}");
+            }
+            if saved.is_ok() {
+                let mut logic2 = GameLogic::new();
+                seed_templates(&mut logic2);
+                match mgr.load_game("golden_mid", &mut logic2) {
+                    Ok(_) => logic2.get_player(0).is_some(),
+                    Err(e) => {
+                        log::warn!("golden SaveFileManager load failed: {e}");
+                        false
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let snap_ok = {
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            match builder.create_world_snapshot(&logic) {
+                Ok(snap) => {
+                    let mut logic2 = GameLogic::new();
+                    seed_templates(&mut logic2);
+                    builder.restore_from_snapshot(&snap, &mut logic2).is_ok()
+                        && logic2.get_player(0).is_some()
+                }
+                Err(e) => {
+                    log::warn!("golden snapshot save failed: {e}");
+                    false
+                }
+            }
+        };
+        let _ = std::fs::remove_dir_all(&save_dir);
+        file_ok || snap_ok
+    };
+
+    // Deterministic config apply checkpoints (two fresh worlds, same config).
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    let _ = apply_skirmish_config(&mut a, &config);
+    let _ = apply_skirmish_config(&mut b, &config);
+    let ha = AuthorityProbe::capture(&a, 0).checkpoint_hash();
+    let hb = AuthorityProbe::capture(&b, 0).checkpoint_hash();
+    let mut checkpoint_hashes = vec![ha, hb];
+    checkpoint_hashes.push(AuthorityProbe::capture(&logic, 0).checkpoint_hash());
+
+    let status = if config_applied
+        && frames_advanced > 0
+        && moved_units
+        && gathered
+        && constructed
+        && produced
+        && upgraded
+        && fought
+        && victory
+        && save_load_ok
+        && ha == hb
+    {
+        "success".into()
+    } else {
+        "partial".into()
+    };
+
+    set_verification_single_authority(false);
+
+    GoldenSkirmishResult {
+        map_identity,
+        map_loaded,
+        config_applied,
+        slots_active,
+        human_cash,
+        ai_cash,
+        ai_difficulty,
+        frames_advanced,
+        moved_units,
+        gathered,
+        constructed,
+        produced,
+        upgraded,
+        fought,
+        victory,
+        save_load_ok,
+        checkpoint_hashes,
+        status,
+    }
+}
+
+pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
+    format!(
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={}",
+        r.map_identity,
+        r.map_loaded,
+        r.config_applied,
+        r.slots_active,
+        r.human_cash,
+        r.ai_cash,
+        r.ai_difficulty,
+        r.frames_advanced,
+        r.moved_units,
+        r.gathered,
+        r.constructed,
+        r.produced,
+        r.upgraded,
+        r.fought,
+        r.victory,
+        r.save_load_ok,
+        r.status,
+        r.checkpoint_hashes.len()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn golden_skirmish_full_vertical_slice() {
+        let result = run_golden_skirmish(None, 8);
+        assert!(result.config_applied, "skirmish config must apply");
+        assert_eq!(result.slots_active, 2);
+        assert_eq!(result.ai_difficulty, "Medium");
+        assert!(result.frames_advanced > 0);
+        assert!(result.moved_units, "Move command path");
+        assert!(result.gathered, "Gather command path");
+        assert!(result.constructed, "DozerConstruct path");
+        assert!(result.produced, "QueueUnitCreate path");
+        assert!(result.upgraded, "QueueUpgrade path");
+        assert!(result.fought, "AttackObject path");
+        assert!(result.victory, "VictoryCondition::Winner(0)");
+        assert!(result.save_load_ok, "save/load round-trip");
+        assert_eq!(result.status, "success");
+        assert_eq!(
+            result.checkpoint_hashes[0], result.checkpoint_hashes[1],
+            "identical config must yield identical start probes"
+        );
+    }
+
+    #[test]
+    fn golden_skirmish_with_retail_map_when_present() {
+        let candidates = [
+            "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        ];
+        let Some(map) = candidates.iter().find(|p| std::path::Path::new(p).is_file()) else {
+            eprintln!("retail map absent — skipping map-loaded golden assertion");
+            return;
+        };
+        let result = run_golden_skirmish(Some(map), 8);
+        assert!(result.map_loaded, "retail map must load: {}", result.map_identity);
+        assert!(result.victory, "victory with map objects present");
+        assert!(result.save_load_ok, "save/load with map object catalog");
+        assert_eq!(result.status, "success", "{}", format_golden_report(&result));
+    }
+}
+

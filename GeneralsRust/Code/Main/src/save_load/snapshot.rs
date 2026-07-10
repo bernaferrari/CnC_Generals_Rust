@@ -3045,16 +3045,25 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        let template = game_logic
-            .templates
-            .get(snapshot.template_name.as_str())
-            .cloned()
-            .ok_or_else(|| {
-                SaveLoadError::Corrupted(format!(
-                    "Template not found while restoring object {}: {}",
-                    snapshot.id, snapshot.template_name
-                ))
-            })?;
+        // Prefer catalog templates when present. Map-spawned objects often have a
+        // matching entry after load_map, but mid-match loads into a fresh GameLogic
+        // may not have the full INI catalog — synthesize a minimal template so
+        // retail map saves remain restorable (production fail-open for catalog gaps).
+        let template = if let Some(t) = game_logic.templates.get(snapshot.template_name.as_str()) {
+            t.clone()
+        } else {
+            let mut t = ThingTemplate::new(&snapshot.template_name);
+            t.set_health(snapshot.health.maximum.max(1.0));
+            game_logic
+                .templates
+                .insert(snapshot.template_name.clone(), t.clone());
+            log::debug!(
+                "Synthesized template '{}' while restoring object {}",
+                snapshot.template_name,
+                snapshot.id
+            );
+            t
+        };
 
         let mut object = Object::new(template, snapshot.id, snapshot.team);
         object.name = snapshot.template_name.clone();

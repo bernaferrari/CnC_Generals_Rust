@@ -279,26 +279,29 @@ mod explored_territory_tests {
         let mut manager = ExploredTerritoryManager::new();
 
         let visible = HashSet::new();
+        // Use MAX_PLAYER_COUNT (not a hard-coded 8) so the test stays valid if
+        // the engine's supported player count grows beyond classic 8 slots.
+        let invalid_player = MAX_PLAYER_COUNT;
 
         // Invalid player ID should fail
         assert!(
             manager
-                .update_explored_for_player(8, &visible, 100)
+                .update_explored_for_player(invalid_player, &visible, 100)
                 .is_err(),
-            "Update should fail for invalid player ID 8"
+            "Update should fail for invalid player ID {invalid_player}"
         );
         assert!(
-            manager.clear_for_player(255).is_err(),
-            "Clear should fail for invalid player ID 255"
+            manager.clear_for_player(usize::MAX).is_err(),
+            "Clear should fail for invalid player ID usize::MAX"
         );
 
         // Invalid player ID should return false/empty
         assert!(
-            !manager.has_explored_object(8, 10),
+            !manager.has_explored_object(invalid_player, 10),
             "Invalid player should return false visibility"
         );
         assert!(
-            manager.get_explored_objects(8).is_empty(),
+            manager.get_explored_objects(invalid_player).is_empty(),
             "Invalid player should return empty explored set"
         );
     }

@@ -5288,15 +5288,14 @@ where
 mod tests {
     use super::*;
     use crate::damage::DamageInfo;
-    use std::sync::OnceLock;
-
-    static WEAPON_RANGE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        WEAPON_RANGE_TEST_LOCK
-            .get_or_init(|| Mutex::new(()))
+        // Share isolation with other registry-mutating weapon tests (e.g.
+        // weapon_template collision checks) so parallel suites cannot clear
+        // objects mid-assertion.
+        crate::object::registry::test_isolation_lock()
             .lock()
-            .expect("weapon range test lock")
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]

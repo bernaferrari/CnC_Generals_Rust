@@ -2711,6 +2711,12 @@ fn parse_weapon_prefire_type(s: &str) -> WeaponPrefireType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serialize tests that mutate the shared object registry / GameLogic singleton.
+    fn collision_test_lock() -> &'static Mutex<()> {
+        crate::object::registry::test_isolation_lock()
+    }
 
     fn registered_collision_object(
         id: ObjectID,
@@ -2731,7 +2737,7 @@ mod tests {
         .expect("create weapon template collision object");
         crate::system::game_logic::get_game_logic()
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .register_object(object.clone())
             .expect("register weapon template collision object");
         object
@@ -2741,8 +2747,20 @@ mod tests {
         crate::object::registry::OBJECT_REGISTRY.clear();
         crate::system::game_logic::get_game_logic()
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .clear_all_objects();
+    }
+
+    fn with_collision_isolation<F: FnOnce()>(f: F) {
+        let _guard = collision_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reset_collision_objects();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        reset_collision_objects();
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 
     #[test]
@@ -2881,40 +2899,42 @@ mod tests {
 
     #[test]
     fn projectile_collision_uses_small_missile_kindof_not_name() {
-        reset_collision_objects();
-        let projectile = registered_collision_object(98_001, "PlainProjectile", "PROJECTILE");
-        let target = registered_collision_object(98_002, "PlainTarget", "PROJECTILE SMALL_MISSILE");
+        with_collision_isolation(|| {
+            let projectile = registered_collision_object(98_001, "PlainProjectile", "PROJECTILE");
+            let target =
+                registered_collision_object(98_002, "PlainTarget", "PROJECTILE SMALL_MISSILE");
 
-        let mut weapon = WeaponTemplate::new("SmallMissileCollision".to_string());
-        weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::SMALL_MISSILES);
+            let mut weapon = WeaponTemplate::new("SmallMissileCollision".to_string());
+            weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::SMALL_MISSILES);
 
-        assert!(weapon.should_projectile_collide_with(
-            crate::common::INVALID_ID,
-            projectile.read().unwrap().get_id(),
-            target.read().unwrap().get_id(),
-            crate::common::INVALID_ID,
-        ));
-
-        reset_collision_objects();
+            assert!(weapon.should_projectile_collide_with(
+                crate::common::INVALID_ID,
+                projectile.read().unwrap().get_id(),
+                target.read().unwrap().get_id(),
+                crate::common::INVALID_ID,
+            ));
+        });
     }
 
     #[test]
     fn projectile_collision_uses_ballistic_missile_kindof_not_name() {
-        reset_collision_objects();
-        let projectile = registered_collision_object(98_011, "PlainProjectile", "PROJECTILE");
-        let target =
-            registered_collision_object(98_012, "PlainTarget", "PROJECTILE BALLISTIC_MISSILE");
+        with_collision_isolation(|| {
+            let projectile = registered_collision_object(98_011, "PlainProjectile", "PROJECTILE");
+            let target = registered_collision_object(
+                98_012,
+                "PlainTarget",
+                "PROJECTILE BALLISTIC_MISSILE",
+            );
 
-        let mut weapon = WeaponTemplate::new("BallisticMissileCollision".to_string());
-        weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::BALLISTIC_MISSILES);
+            let mut weapon = WeaponTemplate::new("BallisticMissileCollision".to_string());
+            weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::BALLISTIC_MISSILES);
 
-        assert!(weapon.should_projectile_collide_with(
-            crate::common::INVALID_ID,
-            projectile.read().unwrap().get_id(),
-            target.read().unwrap().get_id(),
-            crate::common::INVALID_ID,
-        ));
-
-        reset_collision_objects();
+            assert!(weapon.should_projectile_collide_with(
+                crate::common::INVALID_ID,
+                projectile.read().unwrap().get_id(),
+                target.read().unwrap().get_id(),
+                crate::common::INVALID_ID,
+            ));
+        });
     }
 }

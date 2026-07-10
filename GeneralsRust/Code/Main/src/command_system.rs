@@ -1665,20 +1665,7 @@ impl CommandableObject for Object {
 mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, Object, ObjectType};
-    use std::sync::{Mutex, OnceLock};
-
-    fn global_data_test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    struct GlobalDataRestore(game_engine::common::global_data::GlobalData);
-
-    impl Drop for GlobalDataRestore {
-        fn drop(&mut self) {
-            *game_engine::common::global_data::write() = self.0.clone();
-        }
-    }
+    use game_engine::common::global_data::with_global_data_restored;
 
     #[test]
     fn test_command_creation() {
@@ -2076,143 +2063,146 @@ mod tests {
     fn sell_refunds_queued_production() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
-        let _global_guard = global_data_test_lock()
-            .lock()
-            .expect("global data test lock should not be poisoned");
-        let _global_restore = GlobalDataRestore(game_engine::common::global_data::read().clone());
-        game_engine::common::global_data::write().sell_percentage = 0.5;
+        with_global_data_restored(|| {
+            game_engine::common::global_data::write().sell_percentage = 0.5;
 
-        let system = CommandSystem::new();
-        let mut game_logic = GameLogic::new();
-        let mut player = Player::new(0, Team::USA, "USA", true);
-        player.resources.supplies = 1_000;
-        game_logic.add_player(player);
+            let system = CommandSystem::new();
+            let mut game_logic = GameLogic::new();
+            let mut player = Player::new(0, Team::USA, "USA", true);
+            player.resources.supplies = 1_000;
+            game_logic.add_player(player);
 
-        let mut barracks = ThingTemplate::new("TestBarracks");
-        barracks
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(1_000.0)
-            .set_cost(1_000, -1);
-        game_logic
-            .templates
-            .insert("TestBarracks".to_string(), barracks);
-
-        let mut infantry = ThingTemplate::new("TestInfantry");
-        infantry
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(100.0)
-            .set_cost(100, 0);
-        game_logic
-            .templates
-            .insert("TestInfantry".to_string(), infantry);
-
-        let barracks_id = game_logic
-            .create_object("TestBarracks", Team::USA, Vec3::ZERO)
-            .expect("barracks should be created");
-
-        let queue_command = GameCommand {
-            command_type: CommandType::QueueUnitCreate {
-                template_name: "TestInfantry".to_string(),
-                quantity: 1,
-            },
-            player_id: 0,
-            command_id: 50,
-            timestamp: SystemTime::now(),
-            selected_units: vec![barracks_id],
-            modifier_keys: ModifierKeys::default(),
-        };
-        assert_eq!(
-            system.execute_command(&queue_command, &mut game_logic),
-            CommandResult::Success
-        );
-        assert_eq!(
-            game_logic.get_player(0).unwrap().resources.supplies,
-            900,
-            "queued unit should charge before selling"
-        );
-
-        let sell_command = GameCommand {
-            command_type: CommandType::Sell {
-                object_id: barracks_id,
-            },
-            player_id: 0,
-            command_id: 51,
-            timestamp: SystemTime::now(),
-            selected_units: vec![barracks_id],
-            modifier_keys: ModifierKeys::default(),
-        };
-        assert_eq!(
-            system.execute_command(&sell_command, &mut game_logic),
-            CommandResult::Success
-        );
-
-        assert_eq!(
-            game_logic.get_player(0).unwrap().resources.supplies,
-            1_500,
-            "selling should refund both the structure sell value and queued production"
-        );
-        assert!(
+            let mut barracks = ThingTemplate::new("TestBarracks");
+            barracks
+                .add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1_000.0)
+                .set_cost(1_000, -1);
             game_logic
-                .find_object(barracks_id)
-                .and_then(|object| object.building_data.as_ref())
-                .map(|building| building.production_queue.is_empty())
-                .unwrap_or(true),
-            "sell should drain queued production before destroying the producer"
-        );
+                .templates
+                .insert("TestBarracks".to_string(), barracks);
+
+            let mut infantry = ThingTemplate::new("TestInfantry");
+            infantry
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0)
+                .set_cost(100, 0);
+            game_logic
+                .templates
+                .insert("TestInfantry".to_string(), infantry);
+
+            let barracks_id = game_logic
+                .create_object("TestBarracks", Team::USA, Vec3::ZERO)
+                .expect("barracks should be created");
+
+            let queue_command = GameCommand {
+                command_type: CommandType::QueueUnitCreate {
+                    template_name: "TestInfantry".to_string(),
+                    quantity: 1,
+                },
+                player_id: 0,
+                command_id: 50,
+                timestamp: SystemTime::now(),
+                selected_units: vec![barracks_id],
+                modifier_keys: ModifierKeys::default(),
+            };
+            assert_eq!(
+                system.execute_command(&queue_command, &mut game_logic),
+                CommandResult::Success
+            );
+            assert_eq!(
+                game_logic.get_player(0).unwrap().resources.supplies,
+                900,
+                "queued unit should charge before selling"
+            );
+
+            let sell_command = GameCommand {
+                command_type: CommandType::Sell {
+                    object_id: barracks_id,
+                },
+                player_id: 0,
+                command_id: 51,
+                timestamp: SystemTime::now(),
+                selected_units: vec![barracks_id],
+                modifier_keys: ModifierKeys::default(),
+            };
+            assert_eq!(
+                system.execute_command(&sell_command, &mut game_logic),
+                CommandResult::Success
+            );
+
+            assert_eq!(
+                game_logic.get_player(0).unwrap().resources.supplies,
+                1_500,
+                "selling should refund both the structure sell value and queued production"
+            );
+            assert!(
+                game_logic
+                    .find_object(barracks_id)
+                    .and_then(|object| object.building_data.as_ref())
+                    .map(|building| building.production_queue.is_empty())
+                    .unwrap_or(true),
+                "sell should drain queued production before destroying the producer"
+            );
+        });
     }
 
     #[test]
     fn sell_refund_uses_global_sell_percentage() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
-        let _global_guard = global_data_test_lock()
-            .lock()
-            .expect("global data test lock should not be poisoned");
-        let _global_restore = GlobalDataRestore(game_engine::common::global_data::read().clone());
-        game_engine::common::global_data::write().sell_percentage = 0.25;
+        with_global_data_restored(|| {
+            game_engine::common::global_data::write().sell_percentage = 0.25;
 
-        let system = CommandSystem::new();
-        let mut game_logic = GameLogic::new();
-        let mut player = Player::new(0, Team::USA, "USA", true);
-        player.resources.supplies = 0;
-        game_logic.add_player(player);
+            let system = CommandSystem::new();
+            let mut game_logic = GameLogic::new();
+            let mut player = Player::new(0, Team::USA, "USA", true);
+            player.resources.supplies = 0;
+            game_logic.add_player(player);
 
-        let mut barracks = ThingTemplate::new("TestBarracks");
-        barracks
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(1_000.0)
-            .set_cost(1_000, -1);
-        game_logic
-            .templates
-            .insert("TestBarracks".to_string(), barracks);
+            let mut barracks = ThingTemplate::new("TestBarracks");
+            barracks
+                .add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1_000.0)
+                .set_cost(1_000, -1);
+            game_logic
+                .templates
+                .insert("TestBarracks".to_string(), barracks);
 
-        let barracks_id = game_logic
-            .create_object("TestBarracks", Team::USA, Vec3::ZERO)
-            .expect("barracks should be created");
+            let barracks_id = game_logic
+                .create_object("TestBarracks", Team::USA, Vec3::ZERO)
+                .expect("barracks should be created");
 
-        let sell_command = GameCommand {
-            command_type: CommandType::Sell {
-                object_id: barracks_id,
-            },
-            player_id: 0,
-            command_id: 52,
-            timestamp: SystemTime::now(),
-            selected_units: vec![barracks_id],
-            modifier_keys: ModifierKeys::default(),
-        };
-        assert_eq!(
-            system.execute_command(&sell_command, &mut game_logic),
-            CommandResult::Success
-        );
+            // Re-assert sell percentage immediately before sell so the production
+            // path is proven to consume the live GlobalData value under isolation.
+            assert!(
+                (game_engine::common::global_data::read().sell_percentage - 0.25).abs() < f32::EPSILON,
+                "test isolation must preserve configured SellPercentage"
+            );
 
-        assert_eq!(
-            game_logic.get_player(0).unwrap().resources.supplies,
-            250,
-            "sell refund should use GlobalData SellPercentage"
-        );
+            let sell_command = GameCommand {
+                command_type: CommandType::Sell {
+                    object_id: barracks_id,
+                },
+                player_id: 0,
+                command_id: 52,
+                timestamp: SystemTime::now(),
+                selected_units: vec![barracks_id],
+                modifier_keys: ModifierKeys::default(),
+            };
+            assert_eq!(
+                system.execute_command(&sell_command, &mut game_logic),
+                CommandResult::Success
+            );
+
+            assert_eq!(
+                game_logic.get_player(0).unwrap().resources.supplies,
+                250,
+                "sell refund should use GlobalData SellPercentage"
+            );
+        });
     }
 
     #[test]

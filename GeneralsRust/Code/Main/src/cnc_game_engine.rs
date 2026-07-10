@@ -90,35 +90,29 @@ mod tests {
         GameMode, GameState, StartupNewGameDispatch,
     };
     use crate::command_line::CommandLineArgs;
+    use game_engine::common::global_data::{
+        test_isolation_lock, with_global_data_restored as with_global_data_snapshot_restored,
+    };
     use std::fs;
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn with_global_data_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let snapshot = game_engine::common::global_data::read().clone();
-        f();
-        *game_engine::common::global_data::write() = snapshot;
-    }
-
     fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK
+        let _guard = test_isolation_lock()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let global_snapshot = game_engine::common::global_data::read().clone();
         let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
         let previous_rank_points =
             gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-        f();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
         *game_engine::common::global_data::write() = global_snapshot;
         gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
         gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
             previous_rank_points,
         );
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 
     fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
@@ -1799,7 +1793,7 @@ impl CnCGameEngine {
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
                 self.set_runtime_host_ui_screen_override(None);
-                self.start_game_from_ui(mode, faction, map);
+                self.start_game_from_ui(mode, faction, map, None);
                 // start_game_from_ui transitions Loading -> InGame internally
             }
             "load_game" => {
@@ -5592,13 +5586,19 @@ impl CnCGameEngine {
                 self.apply_script_fps_limit_request(fps);
             }
 
-            // C++ parity: also tick the gamelogic crate's full update pipeline.
-            // This runs AI players, production/build assistant, weapon store (delayed
-            // damage), partition manager, death cleanup, locomotor store, victory
-            // conditions, and disabled-status checks — all phases from the C++
-            // GameLogic::update() that the simplified Main GameLogic does not cover.
-            if let Err(e) = crate::game_logic::tick_gamelogic_crate() {
-                log::trace!("gamelogic crate update failed (non-fatal): {}", e);
+            // Single-authority policy: Main GameLogic is the match host by default.
+            // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
+            // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
+            let policy = crate::authoritative_world::dual_tick_policy();
+            if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
+                policy,
+                crate::game_logic::tick_gamelogic_crate,
+            ) {
+                log::error!("{e}");
+                // Verification: refuse to continue a dual-world silent failure.
+                if crate::authoritative_world::verification_single_authority() {
+                    panic!("{e}");
+                }
             }
 
             #[cfg(feature = "game_client")]
@@ -6001,8 +6001,13 @@ impl CnCGameEngine {
     fn process_ui_events(&mut self) {
         while let Some(event) = self.ui_manager.pop_event() {
             match event {
-                UIEvent::StartGame { mode, faction, map } => {
-                    self.start_game_from_ui(mode, faction, map);
+                UIEvent::StartGame {
+                    mode,
+                    faction,
+                    map,
+                    skirmish,
+                } => {
+                    self.start_game_from_ui(mode, faction, map, skirmish);
                 }
                 UIEvent::LoadGame(slot) => {
                     if slot == "quicksave" {
@@ -6192,7 +6197,7 @@ impl CnCGameEngine {
             "UI requested restart: mode={:?}, faction={}, map={}",
             mode, faction, map
         );
-        self.start_game_from_ui(mode, faction, map);
+        self.start_game_from_ui(mode, faction, map, None);
     }
 
     fn map_ai_difficulty_to_save(difficulty: crate::ai::AIDifficulty) -> GameDifficulty {
@@ -6394,7 +6399,13 @@ impl CnCGameEngine {
     }
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
-    fn start_game_from_ui(&mut self, mode: GameMode, faction: String, map: String) {
+    fn start_game_from_ui(
+        &mut self,
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    ) {
         // Show loading screen before starting map load (matches C++ loading screen flow)
         #[cfg(feature = "game_client")]
         self.prepare_cpp_load_screen_for_mode(mode, false);
@@ -6408,25 +6419,48 @@ impl CnCGameEngine {
         };
 
         info!(
-            "UI requested start: mode={:?}, faction={}, map={}",
+            "UI requested start: mode={:?}, faction={}, map={}, skirmish_slots={}",
             mode,
             faction_team.get_name(),
-            map_name
+            map_name,
+            skirmish
+                .as_ref()
+                .map(|c| c.slots.iter().filter(|s| s.is_active).count())
+                .unwrap_or(0)
         );
 
-        self.game_logic.start_new_game(mode);
-        // Ensure local player uses the chosen team.
-        let _ = self
-            .game_logic
-            .set_player_team(self.current_player_id, faction_team);
+        if mode == GameMode::Skirmish {
+            if let Some(ref config) = skirmish {
+                if let Err(e) =
+                    crate::skirmish_config::apply_skirmish_config(&mut self.game_logic, config)
+                {
+                    warn!("apply_skirmish_config failed: {e}; falling back to legacy start");
+                    self.game_logic.start_new_game(mode);
+                    let _ = self
+                        .game_logic
+                        .set_player_team(self.current_player_id, faction_team);
+                    self.game_logic.setup_skirmish_ai(self.current_player_id);
+                } else if let Some(human) = config.slots.iter().find(|s| s.is_human && s.is_active)
+                {
+                    self.current_player_id = human.slot_index as u32;
+                }
+            } else {
+                self.game_logic.start_new_game(mode);
+                let _ = self
+                    .game_logic
+                    .set_player_team(self.current_player_id, faction_team);
+                self.game_logic.setup_skirmish_ai(self.current_player_id);
+            }
+        } else {
+            self.game_logic.start_new_game(mode);
+            let _ = self
+                .game_logic
+                .set_player_team(self.current_player_id, faction_team);
+        }
+
         if !self.game_logic.load_map(&map_name) {
             warn!("Failed to load map '{}', falling back to default", map_name);
             let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
-        }
-
-        // Set up AI opponents for skirmish mode
-        if mode == GameMode::Skirmish {
-            self.game_logic.setup_skirmish_ai(self.current_player_id);
         }
 
         // Reset transient state.
