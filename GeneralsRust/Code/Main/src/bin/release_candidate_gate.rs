@@ -7,10 +7,16 @@ fn main() {
         && report.deterministic_match
         && report.dual_run_hash_match
         && report.missing_asset_policy_ok
+        && report.presentation_ok
+        && report.campaign_soak_ok
+        && report.golden_status == "success"
     {
         println!("release_candidate_gate: PASS");
         std::process::exit(0);
     }
-    eprintln!("release_candidate_gate: FAIL");
+    eprintln!(
+        "release_candidate_gate: FAIL presentation={} campaign={} golden={}",
+        report.presentation_ok, report.campaign_soak_ok, report.golden_status
+    );
     std::process::exit(1);
 }

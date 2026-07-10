@@ -1,9 +1,15 @@
 //! Phase-3 content breadth: production-linked checks per category.
 
-use crate::command_system::{CommandType, GameCommand, ModifierKeys, PowerTarget, SpecialPowerType};
-use crate::game_logic::{GameLogic, GameMode, KindOf, ObjectId, Resources, Team, ThingTemplate};
+use crate::command_system::{
+    CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys, PowerTarget,
+    SpecialPowerType,
+};
+use crate::game_logic::{
+    AIState, GameLogic, GameMode, KindOf, ObjectId, Resources, Team, ThingTemplate,
+};
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
+    MissionStatus,
 };
 use crate::save_load::snapshot::SnapshotBuilder;
 use crate::skirmish_config::{
@@ -54,9 +60,13 @@ fn faction_slot(index: usize, faction: &str, human: bool) -> SkirmishSlotConfig 
 }
 
 fn tpl(name: &str, kinds: &[KindOf], hp: f32) -> ThingTemplate {
+    tpl_cost(name, kinds, hp, 100)
+}
+
+fn tpl_cost(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
     let mut t = ThingTemplate::new(name);
     t.set_health(hp);
-    t.set_cost(100, 0);
+    t.set_cost(cost, 0);
     for k in kinds {
         t.add_kind_of(*k);
     }
@@ -150,6 +160,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         .map(|p| p.resources.supplies == 50_000)
         .unwrap_or(false);
 
+    let system = CommandSystem::new();
+
     logic.templates.insert(
         "BreadthJet".into(),
         tpl("BreadthJet", &[KindOf::Aircraft, KindOf::Selectable], 200.0),
@@ -158,6 +170,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         .create_object("BreadthJet", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .is_some();
 
+    // Transport: Vehicle can_contain + Infantry Enter -> AIState::Entering + target set.
     logic.templates.insert(
         "BreadthTransport".into(),
         tpl(
@@ -178,22 +191,27 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let infantry = logic.create_object("BreadthInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0));
     let mut transport_ok = false;
     if let (Some(tid), Some(iid)) = (transport, infantry) {
-        logic.queue_command(command(
-            1,
-            0,
-            CommandType::Enter { target_id: tid },
-            vec![iid],
-        ));
-        logic.process_commands();
-        transport_ok = true;
+        assert!(
+            logic.get_object(tid).map(|o| o.can_contain()).unwrap_or(false),
+            "transport template must support contain"
+        );
+        let enter_cmd = command(1, 0, CommandType::Enter { target_id: tid }, vec![iid]);
+        let enter_result = system.execute_command(&enter_cmd, &mut logic);
+        transport_ok = enter_result == CommandResult::Success
+            && logic
+                .get_object(iid)
+                .map(|o| o.ai_state == AIState::Entering && o.target == Some(tid))
+                .unwrap_or(false);
     }
 
+    // Capture: requires completed capture upgrade; assert Capturing state (not just queue).
     logic.templates.insert(
         "BreadthEnemyBldg".into(),
-        tpl(
+        tpl_cost(
             "BreadthEnemyBldg",
             &[KindOf::Structure, KindOf::Selectable],
             500.0,
+            1_000,
         ),
     );
     let enemy = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(30.0, 0.0, 0.0));
@@ -203,19 +221,33 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             p.unlocked_sciences
                 .insert("Upgrade_AmericaRangerCaptureBuilding".into());
         }
-        logic.queue_command(command(
+        let cap_cmd = command(
             2,
             0,
             CommandType::CaptureBuilding { target_id: eid },
             vec![iid],
-        ));
-        logic.process_commands();
-        capture_ok = true;
+        );
+        let cap_result = system.execute_command(&cap_cmd, &mut logic);
+        capture_ok = cap_result == CommandResult::Success
+            && logic
+                .get_object(iid)
+                .map(|o| o.ai_state == AIState::Capturing && o.target == Some(eid))
+                .unwrap_or(false)
+            && logic
+                .get_object(eid)
+                .map(|o| o.team == Team::China)
+                .unwrap_or(false);
     }
 
+    // Special power: consume charge + SpecialAbility AI state (production executor path).
     let mut special_ok = false;
     if let Some(iid) = infantry {
-        logic.queue_command(command(
+        // Re-arm special power readiness after prior command may have changed state.
+        if let Some(u) = logic.get_object_mut(iid) {
+            u.special_power_ready = true;
+            u.special_power_cooldown_remaining = 0.0;
+        }
+        let sp_cmd = command(
             3,
             0,
             CommandType::DoSpecialPower {
@@ -223,27 +255,96 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 target: PowerTarget::Location(Vec3::new(40.0, 0.0, 0.0)),
             },
             vec![iid],
-        ));
-        logic.process_commands();
-        special_ok = true;
+        );
+        let sp_result = system.execute_command(&sp_cmd, &mut logic);
+        special_ok = sp_result == CommandResult::Success
+            && logic
+                .get_object(iid)
+                .map(|o| {
+                    o.ai_state == AIState::SpecialAbility
+                        && !o.special_power_ready
+                        && o.special_power_cooldown_remaining > 0.0
+                })
+                .unwrap_or(false);
     }
 
+    // Salvage/Sell: must refund cash AND destroy the structure (no-op sell fails).
     let mut salvage_ok = false;
-    if let Some(bldg) = logic.create_object("BreadthEnemyBldg", Team::USA, Vec3::new(0.0, 0.0, 10.0))
+    // Ensure production sell percentage is non-zero for refund assertion.
+    game_engine::common::global_data::write().sell_percentage = 0.5;
+    logic.templates.insert(
+        "BreadthSellBldg".into(),
+        tpl_cost(
+            "BreadthSellBldg",
+            &[KindOf::Structure, KindOf::Selectable],
+            500.0,
+            2_000,
+        ),
+    );
+    if let Some(bldg) = logic.create_object("BreadthSellBldg", Team::USA, Vec3::new(0.0, 0.0, 10.0))
     {
+        // Confirm template cost is present on the live object (sell refund source).
+        let cost = logic
+            .get_object(bldg)
+            .map(|o| o.thing.template.build_cost.supplies)
+            .unwrap_or(0);
         let before = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
-        logic.queue_command(command(4, 0, CommandType::Sell { object_id: bldg }, vec![]));
-        logic.process_commands();
+        let sell_cmd = command(4, 0, CommandType::Sell { object_id: bldg }, vec![]);
+        let sell_result = system.execute_command(&sell_cmd, &mut logic);
+        // destroy_object defers removal to the destroy list; advance logic so it applies.
+        logic.update();
         let after = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
-        salvage_ok = after >= before;
+        let destroyed = logic
+            .get_object(bldg)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true);
+        salvage_ok = sell_result == CommandResult::Success
+            && cost > 0
+            && after > before
+            && destroyed;
+        if !salvage_ok {
+            log::warn!(
+                "salvage fail: result={sell_result:?} cost={cost} before={before} after={after} destroyed={destroyed}"
+            );
+        }
     }
 
-    let ok = cash_ok && aircraft_ok && transport_ok && capture_ok && special_ok && salvage_ok;
+    // Stealth: production ObjectStatus.stealthed + is_visible_to_team path.
+    logic.templates.insert(
+        "BreadthStealth".into(),
+        tpl(
+            "BreadthStealth",
+            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+            80.0,
+        ),
+    );
+    let mut stealth_ok = false;
+    if let Some(sid) = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0)) {
+        if let Some(u) = logic.get_object_mut(sid) {
+            u.status.stealthed = true;
+        }
+        stealth_ok = logic
+            .get_object(sid)
+            .map(|o| {
+                o.status.stealthed
+                    && o.is_visible_to_team(Team::USA)
+                    && !o.is_visible_to_team(Team::China)
+            })
+            .unwrap_or(false);
+    }
+
+    let ok = cash_ok
+        && aircraft_ok
+        && transport_ok
+        && capture_ok
+        && special_ok
+        && salvage_ok
+        && stealth_ok;
     BreadthCategoryResult {
         category: "economy_combat_variants".into(),
         ok,
         detail: format!(
-            "cash={cash_ok},aircraft={aircraft_ok},transport={transport_ok},capture={capture_ok},special={special_ok},salvage={salvage_ok}"
+            "cash={cash_ok},aircraft={aircraft_ok},transport={transport_ok},capture={capture_ok},special={special_ok},salvage={salvage_ok},stealth={stealth_ok}"
         ),
     }
 }
@@ -294,6 +395,7 @@ pub fn breadth_scripts_victory_hooks() -> BreadthCategoryResult {
 
 pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
     let mut mgr = CampaignManager::new();
+    // Standard USA campaign mission
     let mission = MissionInfo {
         id: "TEST_USA_01".into(),
         campaign_id: CampaignId::USACampaign,
@@ -322,9 +424,45 @@ pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
     mgr.mission_definitions
         .insert("TEST_USA_01".into(), mission);
 
+    // Generals Challenge campaign mission — real start/progress path.
+    let challenge_mission = MissionInfo {
+        id: "TEST_USA_GEN_01".into(),
+        campaign_id: CampaignId::USAGeneral,
+        mission_number: 1,
+        name: "Challenge Mission".into(),
+        description: "generals challenge".into(),
+        map_name: "ChallengeMap".into(),
+        briefing_video: None,
+        preview_image: None,
+        required_missions: vec![],
+        required_rank: None,
+        required_honor_points: None,
+        time_limit: None,
+        starting_resources: Resources {
+            supplies: 8_000,
+            power: 0,
+        },
+        starting_units: vec![],
+        tech_restrictions: vec![],
+        special_rules: vec![],
+        victory_rule: None,
+        primary_objectives: vec![],
+        secondary_objectives: vec![],
+        bonus_objectives: vec![],
+    };
+    mgr.mission_definitions
+        .insert("TEST_USA_GEN_01".into(), challenge_mission);
+
+    // Ensure campaign progress I/O has a writable directory (production save root).
+    let _ = std::fs::create_dir_all(
+        crate::save_load::SaveLoadManager::default_save_directory().join("Campaign"),
+    );
+
     let started = mgr.start_campaign(CampaignId::USACampaign, "breadth_tester");
-    let mut progressed = false;
+    let mut campaign_progressed = false;
     if started.is_ok() {
+        assert_eq!(mgr.current_campaign_id(), Some(CampaignId::USACampaign));
+        assert_eq!(mgr.current_mission_id(), Some("TEST_USA_01"));
         let data = MissionCompletionData {
             play_duration: Duration::from_secs(60),
             score: 1000,
@@ -342,22 +480,58 @@ pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
             no_losses: true,
             stealth_completion: false,
         };
-        // complete_mission may fail on progress I/O; still count start as progression hook.
-        let completed = mgr
-            .complete_mission("TEST_USA_01", MissionDifficulty::Normal, data)
-            .is_ok();
-        // start_campaign sets current mission; complete_mission advances progress when I/O allows.
-        progressed = completed || started.is_ok();
+        let _ = mgr.complete_mission("TEST_USA_01", MissionDifficulty::Normal, data);
+        campaign_progressed = matches!(
+            mgr.get_mission_status("TEST_USA_01"),
+            MissionStatus::Completed | MissionStatus::CompletedPerfect
+        ) || mgr.get_campaign_completion(CampaignId::USACampaign) > 0.0;
     }
-    // Generals Challenge campaign id is also a production enum path.
-    let challenge_id = CampaignId::USAGeneral.get_name();
-    let ok = started.is_ok() && progressed && challenge_id.contains("Challenge");
+
+    let challenge_started = mgr.start_campaign(CampaignId::USAGeneral, "breadth_challenger");
+    let mut challenge_progressed = false;
+    if challenge_started.is_ok() {
+        assert_eq!(mgr.current_campaign_id(), Some(CampaignId::USAGeneral));
+        assert_eq!(mgr.current_mission_id(), Some("TEST_USA_GEN_01"));
+        assert!(
+            CampaignId::USAGeneral.get_name().contains("Challenge"),
+            "USAGeneral must be Generals Challenge campaign"
+        );
+        let data = MissionCompletionData {
+            play_duration: Duration::from_secs(90),
+            score: 1500,
+            completed_primary: vec!["cobj1".into()],
+            completed_secondary: vec![],
+            completed_bonus: vec![],
+            units_built: 3,
+            units_lost: 1,
+            enemies_destroyed: 5,
+            resources_gathered: 200,
+            buildings_constructed: 1,
+            special_powers_used: 2,
+            perfect_completion: false,
+            under_time_limit: true,
+            no_losses: false,
+            stealth_completion: true,
+        };
+        let _ = mgr.complete_mission("TEST_USA_GEN_01", MissionDifficulty::Hard, data);
+        challenge_progressed = matches!(
+            mgr.get_mission_status("TEST_USA_GEN_01"),
+            MissionStatus::Completed | MissionStatus::CompletedPerfect
+        ) || mgr.get_campaign_completion(CampaignId::USAGeneral) > 0.0;
+    }
+
+    let ok = started.is_ok()
+        && campaign_progressed
+        && challenge_started.is_ok()
+        && challenge_progressed;
     BreadthCategoryResult {
         category: "campaign_hooks".into(),
         ok,
         detail: format!(
-            "start_ok={},progressed={progressed},challenge={challenge_id}",
-            started.is_ok()
+            "usa_start={},usa_progress={campaign_progressed},challenge_start={},challenge_progress={challenge_progressed},name={}",
+            started.is_ok(),
+            challenge_started.is_ok(),
+            CampaignId::USAGeneral.get_name()
         ),
     }
 }
@@ -365,15 +539,63 @@ pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
 pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
     logic.start_new_game(GameMode::Skirmish);
+    logic.templates.insert(
+        "BreadthSnapUnit".into(),
+        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+    );
+    let unit_id = logic
+        .create_object("BreadthSnapUnit", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+        .expect("snap unit");
     let builder = SnapshotBuilder::new();
-    let snap1 = builder.create_world_snapshot(&logic);
+    let snap1 = match builder.create_world_snapshot(&logic) {
+        Ok(s) => s,
+        Err(e) => {
+            return BreadthCategoryResult {
+                category: "saveload_multipoint".into(),
+                ok: false,
+                detail: format!("snap1_err={e}"),
+            };
+        }
+    };
     logic.update();
-    let snap2 = builder.create_world_snapshot(&logic);
-    let ok = snap1.is_ok() && snap2.is_ok();
+    let frame_mid = logic.get_frame();
+    let snap2 = match builder.create_world_snapshot(&logic) {
+        Ok(s) => s,
+        Err(e) => {
+            return BreadthCategoryResult {
+                category: "saveload_multipoint".into(),
+                ok: false,
+                detail: format!("snap2_err={e}"),
+            };
+        }
+    };
+
+    // Restore multipoint: snap1 then snap2 with state assertions.
+    let mut r1 = GameLogic::new();
+    r1.templates.insert(
+        "BreadthSnapUnit".into(),
+        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+    );
+    let restore1_ok = builder.restore_from_snapshot(&snap1, &mut r1).is_ok()
+        && r1.get_object(unit_id).is_some();
+
+    let mut r2 = GameLogic::new();
+    r2.templates.insert(
+        "BreadthSnapUnit".into(),
+        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+    );
+    let restore2_ok = builder.restore_from_snapshot(&snap2, &mut r2).is_ok()
+        && r2.get_object(unit_id).is_some()
+        && r2.get_frame() >= frame_mid.saturating_sub(1);
+
+    let ok = restore1_ok && restore2_ok && snap1.frame_number <= snap2.frame_number;
     BreadthCategoryResult {
         category: "saveload_multipoint".into(),
         ok,
-        detail: format!("snap1={},snap2={}", snap1.is_ok(), snap2.is_ok()),
+        detail: format!(
+            "restore1={restore1_ok},restore2={restore2_ok},frame1={},frame2={}",
+            snap1.frame_number, snap2.frame_number
+        ),
     }
 }
 
