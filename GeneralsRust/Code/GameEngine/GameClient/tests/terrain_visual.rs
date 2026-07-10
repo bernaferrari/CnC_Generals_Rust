@@ -3,7 +3,7 @@ use game_client_rust::{
     terrain::{
         height_map::HeightMap,
         terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
-        textures::TileData,
+        textures::{BlendTileInfo, TileData, FLIPPED_MASK},
         TerrainTrackHeightProvider, TerrainTracksConfig,
     },
 };
@@ -109,6 +109,67 @@ fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
 
     let color = visual.get_terrain_color_at(1.25, 2.75).unwrap();
     assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
+}
+
+#[test]
+fn tile_blend_alpha_selection_matches_cpp_nonzero_inverted_flag() {
+    let mut heightmap = HeightMap::new(1, 1, 255.0, 1.0);
+    heightmap.tile_ndxes[0] = 0;
+    heightmap.blend_tile_ndxes[0] = 1;
+
+    let source_tiles: Box<
+        [Option<TileData>; game_client_rust::terrain::height_map::NUM_SOURCE_TILES],
+    > = vec![None; game_client_rust::terrain::height_map::NUM_SOURCE_TILES]
+        .into_boxed_slice()
+        .try_into()
+        .ok()
+        .expect("source tile array size");
+    let mut blend_tiles: Box<
+        [BlendTileInfo; game_client_rust::terrain::height_map::NUM_BLEND_TILES],
+    > = vec![BlendTileInfo::new(); game_client_rust::terrain::height_map::NUM_BLEND_TILES]
+        .into_boxed_slice()
+        .try_into()
+        .ok()
+        .expect("blend tile array size");
+    blend_tiles[1].blend_ndx = 4;
+    blend_tiles[1].horiz = 1;
+    blend_tiles[1].inverted = FLIPPED_MASK;
+
+    let alpha_tiles: [Option<Vec<u8>>; 12] = std::array::from_fn(|index| {
+        let mut pixel = vec![0, 0, 0, 0];
+        if index == 6 {
+            pixel[3] = 255;
+        }
+        Some(pixel)
+    });
+
+    let get_raw_tile_data = |tile_ndx: i16, _width: i32, buffer: &mut [u8]| {
+        match tile_ndx {
+            0 => {
+                buffer[..4].copy_from_slice(&[10, 20, 30, 255]);
+                true
+            }
+            4 => {
+                buffer[..4].copy_from_slice(&[110, 120, 130, 255]);
+                true
+            }
+            _ => false,
+        }
+    };
+
+    let blended = heightmap
+        .get_pointer_to_tile_data(
+            0,
+            0,
+            1,
+            &source_tiles,
+            &blend_tiles,
+            &alpha_tiles,
+            &get_raw_tile_data,
+        )
+        .expect("tile data should blend");
+
+    assert_eq!(&blended[..4], &[110, 120, 130, 255]);
 }
 
 #[test]
