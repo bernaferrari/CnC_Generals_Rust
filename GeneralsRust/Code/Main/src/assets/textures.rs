@@ -453,6 +453,9 @@ impl TextureManager {
         let entry = self.missing_texture_counts.entry(key.clone()).or_insert(0);
         *entry += 1;
 
+        // Production missing-asset diagnostic (no silent gameplay assumption).
+        crate::release_candidate::note_missing_texture_fallback(requested_name);
+
         // Keep logs compact: emit detailed misses only for first occurrences.
         if self.missing_texture_total <= 16 {
             warn!(
@@ -608,6 +611,17 @@ impl TextureManager {
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         self.known_missing_textures.contains(&texture_key)
+    }
+
+    /// Total times a missing texture fallback was recorded (production diagnostic).
+    pub fn missing_texture_total(&self) -> usize {
+        self.missing_texture_total
+    }
+
+    /// Record a missing texture via the same production fallback path (for verification).
+    pub fn record_missing_texture_for_verification(&mut self, requested_name: &str) {
+        let key = requested_name.to_ascii_lowercase();
+        self.cache_missing_fallback(&key, requested_name);
     }
 
     fn clone_water_texture_asset_payload(

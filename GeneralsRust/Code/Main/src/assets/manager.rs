@@ -1128,6 +1128,7 @@ impl AssetManager {
             Err(e) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
+                crate::release_candidate::note_missing_w3d_model(model_name);
                 warn!("W3D loader failed for '{}': {}", model_name, e);
                 return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
             }
@@ -1211,6 +1212,7 @@ impl AssetManager {
             Err(err) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
+                crate::release_candidate::note_missing_w3d_model(&resolved_name);
                 warn!(
                     "Synchronous W3D load failed for '{}': {}",
                     resolved_name, err
