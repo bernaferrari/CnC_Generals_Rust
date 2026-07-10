@@ -734,21 +734,10 @@ struct ResolvedModPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::global_data::with_global_data_restored as with_runtime_global_data_restored;
     use std::fs;
     use std::path::Path;
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn with_runtime_global_data_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let snapshot = game_engine::common::global_data::read().clone();
-        f();
-        *game_engine::common::global_data::write() = snapshot;
-    }
 
     fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()

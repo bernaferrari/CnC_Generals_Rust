@@ -2942,9 +2942,45 @@ pub fn get_shell() -> std::cell::RefMut<'static, Shell> {
     })
 }
 
+/// Run `f` with a mutable shell borrow when available.
+///
+/// Returns `None` if the shell is already borrowed (e.g. nested `MainMenuInit`
+/// while `Shell::push` holds the RefCell). Callers should treat that as success
+/// when the outer holder already applied the desired side effect (C++ TheShell
+/// re-entrancy).
+pub fn try_with_shell_mut<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&mut Shell) -> R,
+{
+    SHELL.with(|cell| match cell.try_borrow_mut() {
+        Ok(mut shell) => Some(f(&mut *shell)),
+        Err(_) => None,
+    })
+}
+
+/// Enable shell map without panicking if the shell RefCell is already borrowed.
+pub fn show_shell_map_if_available(on: bool) {
+    if try_with_shell_mut(|shell| shell.show_shell_map(on)).is_none() {
+        log::debug!(
+            "show_shell_map({}) skipped: shell already borrowed (nested push/init)",
+            on
+        );
+    }
+}
+
 pub fn request_shell_menu_scheme(name: &str) {
     SHELL.with(|cell| {
-        cell.borrow_mut().load_scheme(name);
+        if let Ok(mut shell) = cell.try_borrow_mut() {
+            shell.load_scheme(name);
+        } else {
+            // Defer scheme load until the outer borrow is released.
+            PENDING_SHELL_SCHEME.with(|pending| {
+                *pending.borrow_mut() = Some(name.to_string());
+            });
+            log::debug!(
+                "request_shell_menu_scheme({name}) deferred: shell already borrowed"
+            );
+        }
     });
 }
 

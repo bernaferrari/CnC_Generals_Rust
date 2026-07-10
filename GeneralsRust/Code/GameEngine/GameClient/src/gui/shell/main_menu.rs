@@ -563,7 +563,10 @@ impl MainMenu {
             global.write().break_the_movie = false;
         }
 
-        get_shell().show_shell_map(true);
+        // C++ MainMenuInit calls TheShell->showShellMap while TheShell may already
+        // be on the stack for push/do_push. Use the re-entrancy-safe helper so we
+        // never panic on RefCell double-borrow during smoke-test menu entry.
+        crate::gui::shell::base::show_shell_map_if_available(true);
         set_main_menu_cursor_visibility(true);
 
         // Reset state - matches C++ lines 431-442

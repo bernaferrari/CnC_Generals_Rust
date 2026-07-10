@@ -303,16 +303,19 @@ impl MainMenu {
                 mode: GameMode::Internet,
                 faction: "USA".to_string(),
                 map: "multiplayer_01".to_string(),
+                skirmish: None,
             }),
             ButtonId::Network => Some(UIEvent::StartGame {
                 mode: GameMode::Lan,
                 faction: "USA".to_string(),
                 map: "multiplayer_01".to_string(),
+                skirmish: None,
             }),
             ButtonId::Direct => Some(UIEvent::StartGame {
                 mode: GameMode::Lan,
                 faction: "USA".to_string(),
                 map: "multiplayer_01".to_string(),
+                skirmish: None,
             }),
 
             // Options buttons - handled by options menu itself

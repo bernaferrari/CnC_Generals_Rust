@@ -18,9 +18,10 @@ pub mod shell_menu_scheme;
 
 // Re-export base shell types
 pub use base::{
-    get_shell, request_shell_menu_scheme, AnimateWindowManager, AnimationType, BasicWindowLayout,
-    Color, Coord2D, LayoutState, Shell, ShellError, ShellMenuScheme, ShellMenuSchemeImage,
-    ShellMenuSchemeLine, ShellMenuSchemeManager, WindowLayout, WindowRect,
+    get_shell, request_shell_menu_scheme, show_shell_map_if_available, try_with_shell_mut,
+    AnimateWindowManager, AnimationType, BasicWindowLayout, Color, Coord2D, LayoutState, Shell,
+    ShellError, ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
+    WindowLayout, WindowRect,
 };
 
 // Re-export main menu types

@@ -247,13 +247,30 @@ fn current_audio_path_settings() -> AudioPathSettings {
     let mut settings = AudioPathSettings::default();
 
     if let Some(manager) = super::game_audio::get_global_audio_manager() {
-        if let Ok(guard) = manager.lock() {
-            let audio_settings = guard.get_audio_settings();
-            settings.audio_root = audio_settings.audio_root.clone();
-            settings.sounds_folder = audio_settings.sounds_folder.clone();
-            settings.music_folder = audio_settings.music_folder.clone();
-            settings.streaming_folder = audio_settings.streaming_folder.clone();
-            settings.sounds_extension = audio_settings.sounds_extension.clone();
+        // Use try_lock: generate_filename is often called while AudioManager is already
+        // locked (add_audio_event → generate_filename). A blocking re-lock deadlocks
+        // the calling thread forever (seen in special-power money withdraw tests).
+        match manager.try_lock() {
+            Ok(guard) => {
+                let audio_settings = guard.get_audio_settings();
+                settings.audio_root = audio_settings.audio_root.clone();
+                settings.sounds_folder = audio_settings.sounds_folder.clone();
+                settings.music_folder = audio_settings.music_folder.clone();
+                settings.streaming_folder = audio_settings.streaming_folder.clone();
+                settings.sounds_extension = audio_settings.sounds_extension.clone();
+            }
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                let guard = poisoned.into_inner();
+                let audio_settings = guard.get_audio_settings();
+                settings.audio_root = audio_settings.audio_root.clone();
+                settings.sounds_folder = audio_settings.sounds_folder.clone();
+                settings.music_folder = audio_settings.music_folder.clone();
+                settings.streaming_folder = audio_settings.streaming_folder.clone();
+                settings.sounds_extension = audio_settings.sounds_extension.clone();
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                // Nested call under an existing AudioManager lock — defaults are fine.
+            }
         }
     }
 

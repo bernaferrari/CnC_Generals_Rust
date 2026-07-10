@@ -7853,6 +7853,12 @@ impl GameLogic {
         println!("\n✅ RTS FUNCTIONALITY DEMONSTRATION COMPLETE!\n");
     }
 
+    /// Add one AI opponent with an explicit difficulty (skirmish config path).
+    pub fn add_ai_opponent(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
+        self.ai_manager
+            .add_ai_player(player_id, team, difficulty);
+    }
+
     /// Set up AI opponents for skirmish matches
     pub fn setup_skirmish_ai(&mut self, human_player_id: u32) {
         println!("🤖 Setting up AI opponents for skirmish match...");
@@ -7874,8 +7880,10 @@ impl GameLogic {
                 continue;
             }
 
-            if let Some(player) = self.players.get(&player_id) {
-                // Determine AI difficulty based on player ID (for testing)
+            let team = self.players.get(&player_id).map(|p| p.team);
+            if let Some(team) = team {
+                // Legacy fallback when no SkirmishMatchConfig was supplied:
+                // difficulty-by-player-id. Prefer apply_skirmish_config.
                 let difficulty = match player_id {
                     1 => AIDifficulty::Medium,
                     2 => AIDifficulty::Hard,
@@ -7883,12 +7891,11 @@ impl GameLogic {
                     _ => AIDifficulty::Medium,
                 };
 
-                self.ai_manager
-                    .add_ai_player(player_id, player.team, difficulty);
+                self.add_ai_opponent(player_id, team, difficulty);
                 println!(
                     "  Added AI player {} ({}) with {:?} difficulty",
                     player_id,
-                    player.team.get_name(),
+                    team.get_name(),
                     difficulty
                 );
             }
