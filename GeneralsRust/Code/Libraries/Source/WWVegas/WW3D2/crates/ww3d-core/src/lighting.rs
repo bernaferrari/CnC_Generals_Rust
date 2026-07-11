@@ -109,6 +109,7 @@ impl Light {
         light
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn spot(
         name: String,
         position: Vec3,

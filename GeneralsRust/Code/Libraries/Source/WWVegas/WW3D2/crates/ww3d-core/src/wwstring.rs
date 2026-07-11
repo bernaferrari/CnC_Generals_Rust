@@ -14,6 +14,8 @@ impl StringClass {
         }
     }
 
+    /// Construct from a string slice (C++ StringClass parity name; not `std::str::FromStr`).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         Self {
             data: s.to_string(),
