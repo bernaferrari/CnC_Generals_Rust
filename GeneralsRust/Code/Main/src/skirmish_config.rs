@@ -222,8 +222,9 @@ pub fn apply_skirmish_config(logic: &mut GameLogic, config: &SkirmishMatchConfig
         return Err("skirmish config produced no active players".into());
     }
 
-    // Fog-of-war / crates flags are stored for later systems; apply cash already done.
-    let _ = (
+    // Apply skirmish game rules that the host currently models.
+    // FOW: enable/disable shroud evaluation path on GameLogic when supported.
+    logic.set_skirmish_rules(
         config.rules.fog_of_war,
         config.rules.crates_enabled,
         config.rules.limit_superweapons,
@@ -231,7 +232,13 @@ pub fn apply_skirmish_config(logic: &mut GameLogic, config: &SkirmishMatchConfig
         config.rules.game_speed,
     );
 
+    // Starting cash already applied per-player above. Colors / start positions
+    // remain for placement systems when map spawn is fully wired.
     let _ = human_id;
+    for slot in config.slots.iter().filter(|s| s.is_active) {
+        let _ = (slot.color_rgb, slot.start_position, slot.team);
+    }
+
     Ok(())
 }
 
@@ -280,6 +287,10 @@ mod tests {
         let p1 = logic.get_player(1).expect("ai");
         assert_eq!(p1.resources.supplies, 10_000);
         assert_eq!(logic.get_players().len(), 2);
+        // Rules from config must be applied onto the authoritative world.
+        assert!(logic.skirmish_rules().fog_of_war);
+        assert!(logic.skirmish_rules().crates_enabled);
+        assert!((logic.skirmish_rules().game_speed - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -419,6 +419,28 @@ fn capture_upgrade_names_for_team(team: Team) -> &'static [&'static str] {
     }
 }
 
+/// Skirmish/match rules applied from UI configuration (FOW, crates, etc.).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkirmishRulesState {
+    pub fog_of_war: bool,
+    pub crates_enabled: bool,
+    pub limit_superweapons: bool,
+    pub allow_tech_buildings: bool,
+    pub game_speed: f32,
+}
+
+impl Default for SkirmishRulesState {
+    fn default() -> Self {
+        Self {
+            fog_of_war: true,
+            crates_enabled: true,
+            limit_superweapons: false,
+            allow_tech_buildings: true,
+            game_speed: 1.0,
+        }
+    }
+}
+
 /// Main GameLogic system
 pub struct GameLogic {
     /// Objects in the world
@@ -435,6 +457,9 @@ pub struct GameLogic {
 
     /// Game mode
     game_mode: GameMode,
+
+    /// Active skirmish/match rules (from skirmish UI config).
+    skirmish_rules: SkirmishRulesState,
 
     /// Game world dimensions
     world_width: f32,
@@ -1225,6 +1250,7 @@ impl GameLogic {
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             frame: 0,
             game_mode: GameMode::None,
+            skirmish_rules: SkirmishRulesState::default(),
             world_width,
             world_height,
             world_min,
@@ -7386,6 +7412,30 @@ impl GameLogic {
     pub fn get_frame(&self) -> u32 {
         self.frame
     }
+
+    /// Apply skirmish match rules from UI configuration.
+    pub fn set_skirmish_rules(
+        &mut self,
+        fog_of_war: bool,
+        crates_enabled: bool,
+        limit_superweapons: bool,
+        allow_tech_buildings: bool,
+        game_speed: f32,
+    ) {
+        self.skirmish_rules = SkirmishRulesState {
+            fog_of_war,
+            crates_enabled,
+            limit_superweapons,
+            allow_tech_buildings,
+            game_speed: game_speed.clamp(0.1, 4.0),
+        };
+    }
+
+    /// Read-only skirmish rules snapshot.
+    pub fn skirmish_rules(&self) -> &SkirmishRulesState {
+        &self.skirmish_rules
+    }
+
 
     pub fn world_dimensions(&self) -> (f32, f32) {
         (self.world_width, self.world_height)

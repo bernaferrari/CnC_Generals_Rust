@@ -368,6 +368,10 @@ name = "release_candidate_gate"
 path = "src/bin/release_candidate_gate.rs"
 
 [[bin]]
+name = "behavior_gate"
+path = "src/bin/behavior_gate.rs"
+
+[[bin]]
 name = "verify_ini_parsing"
 path = "src/bin/verify_ini_parsing.rs"
 required-features = ["dev-tools"]
