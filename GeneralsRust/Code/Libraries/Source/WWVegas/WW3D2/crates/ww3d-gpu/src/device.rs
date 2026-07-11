@@ -426,6 +426,12 @@ pub struct ResourceTracker {
     pub textures: Vec<Arc<wgpu::Texture>>,
 }
 
+impl Default for ResourceTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceTracker {
     /// Create a new resource tracker
     pub fn new() -> Self {

@@ -244,6 +244,12 @@ pub struct SurfaceManager {
     active_surface: Option<usize>,
 }
 
+impl Default for SurfaceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SurfaceManager {
     /// Create a new surface manager
     pub fn new() -> Self {
@@ -305,10 +311,10 @@ impl SurfaceManager {
 
     /// Set the active surface
     pub fn set_active_surface(&mut self, index: usize) {
-        if index == 0 && self.primary_surface.is_some() {
-            self.active_surface = Some(index);
-        } else if index > 0 && index - 1 < self.surfaces.len() {
-            self.active_surface = Some(index);
+        let valid = (index == 0 && self.primary_surface.is_some())
+            || (index > 0 && index - 1 < self.surfaces.len());
+        if valid {
+            self.active_surface.replace(index);
         }
     }
 
@@ -355,15 +361,21 @@ pub struct SurfaceConfig {
     pub usage: wgpu::TextureUsages,
 }
 
-impl SurfaceConfig {
-    /// Create a default surface configuration
-    pub fn default() -> Self {
+impl Default for SurfaceConfig {
+    fn default() -> Self {
         Self {
             format: None, // Will be chosen automatically
             present_mode: Some(wgpu::PresentMode::Fifo),
             alpha_mode: Some(wgpu::CompositeAlphaMode::Auto),
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         }
+    }
+}
+
+impl SurfaceConfig {
+    /// Create a default surface configuration
+    pub fn default_config() -> Self {
+        Self::default()
     }
 
     /// Create a configuration optimized for gaming
@@ -384,12 +396,6 @@ impl SurfaceConfig {
             alpha_mode: Some(wgpu::CompositeAlphaMode::Opaque),
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
         }
-    }
-}
-
-impl Default for SurfaceConfig {
-    fn default() -> Self {
-        Self::default()
     }
 }
 

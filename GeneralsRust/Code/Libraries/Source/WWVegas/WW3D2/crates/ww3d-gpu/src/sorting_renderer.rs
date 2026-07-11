@@ -111,6 +111,7 @@ impl SortingRenderer {
     }
 
     /// Add triangles with bounding sphere for distance sorting
+    #[allow(clippy::too_many_arguments)]
     pub fn add_triangles(
         &mut self,
         vertex_buffer: Arc<GpuBuffer>,
@@ -134,6 +135,7 @@ impl SortingRenderer {
     }
 
     /// Add volume particles (layered rendering)
+    #[allow(clippy::too_many_arguments)]
     pub fn add_volume_particle(
         &mut self,
         vertex_buffer: Arc<GpuBuffer>,
@@ -312,6 +314,7 @@ pub fn add_sorted_triangles(
 }
 
 /// Add volume particle to global sorting renderer
+#[allow(clippy::too_many_arguments)]
 pub fn add_sorted_volume_particle(
     vertex_buffer: Arc<GpuBuffer>,
     index_buffer: Arc<GpuBuffer>,
