@@ -146,6 +146,50 @@ impl PresentationFrame {
     pub fn alive_object_count(&self) -> usize {
         self.objects.iter().filter(|o| !o.destroyed).count()
     }
+
+    /// Apply presentation identity fields onto a HUD/UI state (production consumer path).
+    /// Does not re-borrow GameLogic — uses only owned snapshot data.
+    pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        ui.credits = self.local_supplies as i32;
+        ui.power_generated = self.local_power.max(0);
+        ui.power_used = 0;
+        ui.max_power = self.local_power.max(0).max(1);
+        ui.player_id = self.local_player_id;
+        ui.selected_units = self.selected.clone();
+        ui.match_over = self.match_over;
+    }
+
+    /// Resource triple for GameHud::update_resources (credits, power, max_power).
+    pub fn hud_resource_triple(&self) -> (i32, i32, i32) {
+        let credits = self.local_supplies as i32;
+        let power = self.local_power.max(0);
+        (credits, power, power.max(1))
+    }
+
+    /// Units list for GameHud minimap: (id, x, z, team_color_index).
+    pub fn hud_minimap_units(&self) -> Vec<(ObjectId, f32, f32, u8)> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed)
+            .map(|o| {
+                let team_idx = match o.team {
+                    Team::USA => 1u8,
+                    Team::China => 0u8,
+                    Team::GLA => 4u8,
+                    Team::Neutral => 7u8,
+                };
+                (o.id, o.position.x, o.position.z, team_idx)
+            })
+            .collect()
+    }
+
+    /// Apply presentation resources + minimap units to the production GameHUD.
+    pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        let (credits, power, max_power) = self.hud_resource_triple();
+        hud.update_resources(credits, power, max_power);
+        let units = self.hud_minimap_units();
+        hud.update_minimap(&units);
+    }
 }
 
 #[cfg(test)]
