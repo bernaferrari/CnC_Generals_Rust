@@ -3292,6 +3292,9 @@ impl SnapshotBuilder {
                 is_alive: snap.is_active,
                 statistics,
                 power_sabotaged_till_frame: 0,
+                color_rgb: (200, 200, 200),
+                start_position: -1,
+                alliance_team: -1,
             });
         }
 

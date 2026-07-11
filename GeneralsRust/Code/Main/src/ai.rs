@@ -161,6 +161,9 @@ pub struct AIPlayer {
     // AI Decision State
     pub current_strategy: AIStrategy,
     pub build_phase: AIBuildPhase,
+
+    /// Count of production-linked actions (build/produce/attack) for gates.
+    pub activity_count: u64,
 }
 
 /// AI strategic states
@@ -207,6 +210,7 @@ impl AIPlayer {
             enemy_check_time: 0.0,
             current_strategy: AIStrategy::EarlyGame,
             build_phase: AIBuildPhase::BaseConstruction,
+            activity_count: 0,
         }
     }
 
@@ -215,6 +219,11 @@ impl AIPlayer {
         self.base_center = base_position;
         self.setup_base_layout();
         self.setup_initial_strategy();
+        // Act on the first host AI update (skirmish vertical-slice pacing).
+        self.next_building_time = 0.0;
+        self.next_team_time = 0.0;
+        self.enemy_check_time = 0.0;
+        self.last_attack_time = -120.0;
     }
 
     /// Main AI update method - called every frame
@@ -430,6 +439,7 @@ impl AIPlayer {
                 ) {
                     building.object_id = Some(object_id);
                     building.rebuild_count += 1;
+                    self.activity_count = self.activity_count.saturating_add(1);
 
                     // Spend the resources
                     let cost = game_logic
@@ -557,18 +567,28 @@ impl AIPlayer {
             }
         }
 
-        // Process factory assignments
+        // Process factory assignments and enqueue production on the host path.
+        let mut produced = 0u64;
         for (team_index, order_index, template_name) in factory_assignments {
             if let Some(factory_id) =
                 Self::find_factory_for_unit_static(game_logic, &template_name, self.team)
             {
+                let queued = game_logic.enqueue_production(factory_id, template_name.clone());
                 if let Some(team) = self.team_queue.get_mut(team_index) {
                     if let Some(work_order) = team.work_orders.get_mut(order_index) {
                         work_order.factory_id = Some(factory_id);
+                        if queued {
+                            work_order.num_completed = work_order
+                                .num_completed
+                                .saturating_add(1)
+                                .min(work_order.num_required);
+                            produced = produced.saturating_add(1);
+                        }
                     }
                 }
             }
         }
+        self.activity_count = self.activity_count.saturating_add(produced);
 
         // Remove completed teams
         for &index in completed_teams.iter().rev() {
@@ -759,10 +779,11 @@ impl AIPlayer {
             _ => return None,
         };
 
-        // Find a constructed factory
+        // Find a constructed factory (match template_name used by create_object).
         for (object_id, object) in game_logic.get_objects() {
             if object.team == team
-                && object.get_template().name == factory_name
+                && (object.template_name == factory_name
+                    || object.get_template().name == factory_name)
                 && object.is_constructed()
                 && object.is_alive()
             {
@@ -861,7 +882,7 @@ impl AIPlayer {
                 Vec3::ZERO
             };
 
-            // Command all units to attack-move to enemy base
+            // Command all units to attack-move to enemy base (production path).
             for &unit_id in &attack_units {
                 if let Some(unit) = game_logic.find_object_mut(unit_id) {
                     unit.move_to(enemy_base);
@@ -871,6 +892,7 @@ impl AIPlayer {
 
             self.attack_in_progress = true;
             self.last_attack_time = current_time;
+            self.activity_count = self.activity_count.saturating_add(1);
         }
     }
 
@@ -958,7 +980,8 @@ impl AIManager {
         Self {
             ai_players: HashMap::new(),
             update_interval: 1.0 / 10.0, // Update AI at 10 FPS
-            last_update_time: 0.0,
+            // Negative so the first host update at sim_time=0 is not skipped.
+            last_update_time: -1.0,
         }
     }
 
@@ -992,7 +1015,9 @@ impl AIManager {
 
     /// Update all AI players
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if current_time - self.last_update_time < self.update_interval {
+        if self.last_update_time >= 0.0
+            && current_time - self.last_update_time < self.update_interval
+        {
             return;
         }
 
@@ -1019,6 +1044,11 @@ impl AIManager {
         if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
             ai_player.is_active = active;
         }
+    }
+
+    /// Sum of production-linked AI actions across all host AI players.
+    pub fn total_activity_count(&self) -> u64 {
+        self.ai_players.values().map(|p| p.activity_count).sum()
     }
 
     /// Get AI player information
