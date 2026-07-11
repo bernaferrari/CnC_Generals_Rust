@@ -5473,38 +5473,44 @@ impl GameLogic {
 
             self.objects.insert(id, object);
 
-            // Phase 1: Bridge to GameEngine's ObjectFactory for full module system.
-            // C++ parity: TheThingFactory->newThing() creates objects with full modules.
-            if let Some(obj) = self.objects.get_mut(&id) {
-                let gl_team = resolve_gamelogic_team(&team);
-                let coord = glam::Vec3::new(position.x, position.y, position.z);
-                let factory_arc = get_object_factory();
-                let result = match factory_arc.write() {
-                    Ok(mut factory) => factory.create_object(
-                        template_name,
-                        coord,
-                        gl_team,
-                        ObjectCreationFlags::NONE,
-                    ),
-                    Err(e) => Err(format!("ObjectFactory lock poisoned: {}", e).into()),
-                };
-
-                match result {
-                    Ok(engine_id) => {
-                        obj.engine_object_id = Some(engine_id);
-                        log::debug!(
-                            "Bridged object {} to GameEngine object {} ({})",
-                            id,
-                            engine_id,
-                            template_name
-                        );
-                    }
-                    Err(e) => {
-                        log::debug!(
-                            "ObjectFactory creation skipped for '{}' (lightweight-only): {}",
+            // Dual-object factory bridge is opt-in. Default host path owns objects
+            // directly (engine_object_id stays None) so combat/commands/victory do not
+            // require a second living world. Enable with GENERALS_ALLOW_DUAL_TICK or
+            // GENERALS_BRIDGE_ENGINE_OBJECTS.
+            let allow_engine_bridge = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some()
+                || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some();
+            if allow_engine_bridge {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let gl_team = resolve_gamelogic_team(&team);
+                    let coord = glam::Vec3::new(position.x, position.y, position.z);
+                    let factory_arc = get_object_factory();
+                    let result = match factory_arc.write() {
+                        Ok(mut factory) => factory.create_object(
                             template_name,
-                            e
-                        );
+                            coord,
+                            gl_team,
+                            ObjectCreationFlags::NONE,
+                        ),
+                        Err(e) => Err(format!("ObjectFactory lock poisoned: {}", e).into()),
+                    };
+
+                    match result {
+                        Ok(engine_id) => {
+                            obj.engine_object_id = Some(engine_id);
+                            log::debug!(
+                                "Bridged object {} to GameEngine object {} ({})",
+                                id,
+                                engine_id,
+                                template_name
+                            );
+                        }
+                        Err(e) => {
+                            log::debug!(
+                                "ObjectFactory creation skipped for '{}' (lightweight-only): {}",
+                                template_name,
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -8032,25 +8038,25 @@ impl GameLogic {
                     "GLA_CommandCenter",
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     1800.0,
-                    1800,
+                    500,
                 ),
                 structure(
                     "GLA_SupplyStash",
                     &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
                     900.0,
-                    1200,
+                    300,
                 ),
                 structure(
                     "GLA_ArmsDealer",
                     &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
                     1100.0,
-                    1400,
+                    400,
                 ),
                 structure(
                     "GLA_Barracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     900.0,
-                    400,
+                    200,
                 ),
                 unit(
                     "GLA_Soldier",

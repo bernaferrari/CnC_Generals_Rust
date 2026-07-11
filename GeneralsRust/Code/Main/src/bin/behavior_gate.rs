@@ -52,9 +52,13 @@ fn main() {
     }
 
     // 4) Medium AI non-idle activity on host path.
-    let ai = run_medium_ai_skirmish_activity(90);
+    let ai = run_medium_ai_skirmish_activity(120);
     println!("ai: {}", format_ai_activity_report(&ai));
-    if ai.status != "success" || ai.activity_count == 0 {
+    if ai.status != "success"
+        || !(ai.activity_count >= 2
+            || ai.ai_structures >= 3
+            || (ai.activity_count >= 1 && ai.ai_units_or_queue >= 1))
+    {
         failed.push(format!(
             "ai activity={} status={}",
             ai.activity_count, ai.status
