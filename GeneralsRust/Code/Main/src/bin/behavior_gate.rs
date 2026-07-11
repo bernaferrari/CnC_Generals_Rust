@@ -3,6 +3,7 @@
 //! Runs production-linked map/golden/breadth/RC checks. Matrix audit is reported
 //! separately and never alone proves playability.
 
+use generals_main::ai_skirmish_activity::{format_ai_activity_report, run_medium_ai_skirmish_activity};
 use generals_main::breadth_scenarios::{format_breadth_report, run_all_breadth};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
@@ -50,7 +51,17 @@ fn main() {
         }
     }
 
-    // 4) RC package.
+    // 4) Medium AI non-idle activity on host path.
+    let ai = run_medium_ai_skirmish_activity(90);
+    println!("ai: {}", format_ai_activity_report(&ai));
+    if ai.status != "success" || ai.activity_count == 0 {
+        failed.push(format!(
+            "ai activity={} status={}",
+            ai.activity_count, ai.status
+        ));
+    }
+
+    // 5) RC package.
     let rc = run_release_candidate_package(2, 5);
     println!("rc: {}", format_rc_report(&rc));
     if !(rc.soak_ok
@@ -65,7 +76,7 @@ fn main() {
     }
 
     if failed.is_empty() {
-        println!("behavior_gate: PASS (map+golden+breadth+rc)");
+        println!("behavior_gate: PASS (map+golden+breadth+ai+rc)");
         std::process::exit(0);
     }
     eprintln!("behavior_gate: FAIL");

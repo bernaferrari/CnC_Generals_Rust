@@ -243,6 +243,12 @@ pub struct Player {
     /// Frame at which power sabotage expires (0 = not sabotaged).
     /// Matches C++ Player::m_powerSabotagedUntilFrame.
     pub power_sabotaged_till_frame: u32,
+    /// Skirmish UI color (RGB) applied from match config.
+    pub color_rgb: (u8, u8, u8),
+    /// Skirmish start position index from match config.
+    pub start_position: i32,
+    /// Skirmish alliance team index from match config (not faction Team).
+    pub alliance_team: i32,
 }
 
 impl Player {
@@ -270,6 +276,9 @@ impl Player {
             is_alive: true,
             statistics: PlayerStatistics::default(),
             power_sabotaged_till_frame: 0,
+            color_rgb: (200, 200, 200),
+            start_position: -1,
+            alliance_team: -1,
         }
     }
 
@@ -3124,6 +3133,16 @@ impl GameLogic {
 
         // Main crate simplified per-object AI decisions (scan for enemies, retreat, etc.)
         self.update_ai(&object_ids, dt);
+
+        // Host skirmish AI players (AIManager / AIPlayer) — production path for
+        // Medium+ opponents registered via apply_skirmish_config / add_ai_opponent.
+        // Borrow-split: take manager out, update against &mut self, put back.
+        {
+            let sim_time = self.sim_time_seconds;
+            let mut ai_mgr = std::mem::replace(&mut self.ai_manager, AIManager::new());
+            ai_mgr.update(self, sim_time);
+            self.ai_manager = ai_mgr;
+        }
 
         // -----------------------------------------------------------------------
         // Phase 9: Production / Build Assistant (C++ line 3748)
@@ -7905,8 +7924,164 @@ impl GameLogic {
 
     /// Add one AI opponent with an explicit difficulty (skirmish config path).
     pub fn add_ai_opponent(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
+        self.ensure_ai_faction_templates(team);
         self.ai_manager
             .add_ai_player(player_id, team, difficulty);
+    }
+
+    /// Ensure faction templates the host AI build/produce paths require are registered.
+    pub fn ensure_ai_faction_templates(&mut self, team: Team) {
+        fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
+            let mut t = ThingTemplate::new(name);
+            t.set_health(hp);
+            t.set_cost(cost, 0);
+            t.build_time = 0.05;
+            for k in kinds {
+                t.add_kind_of(*k);
+            }
+            t
+        }
+        fn unit(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
+            structure(name, kinds, hp, cost)
+        }
+        let entries: Vec<ThingTemplate> = match team {
+            Team::USA => vec![
+                structure(
+                    "USA_CommandCenter",
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    2000.0,
+                    2000,
+                ),
+                structure(
+                    "USA_SupplyCenter",
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    1000.0,
+                    1500,
+                ),
+                structure(
+                    "USA_PowerPlant",
+                    &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
+                    800.0,
+                    800,
+                ),
+                structure(
+                    "USA_Barracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    1000.0,
+                    500,
+                ),
+                structure(
+                    "USA_WarFactory",
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    1200.0,
+                    1500,
+                ),
+                unit(
+                    "USA_Ranger",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    120.0,
+                    100,
+                ),
+                unit(
+                    "USA_Humvee",
+                    &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
+                    300.0,
+                    400,
+                ),
+            ],
+            Team::China => vec![
+                structure(
+                    "China_CommandCenter",
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    2000.0,
+                    2000,
+                ),
+                structure(
+                    "China_SupplyCenter",
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    1000.0,
+                    1500,
+                ),
+                structure(
+                    "China_PowerPlant",
+                    &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
+                    800.0,
+                    800,
+                ),
+                structure(
+                    "China_Barracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    1000.0,
+                    500,
+                ),
+                structure(
+                    "China_WarFactory",
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    1200.0,
+                    1500,
+                ),
+                unit(
+                    "China_RedGuard",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    100.0,
+                    80,
+                ),
+            ],
+            Team::GLA => vec![
+                structure(
+                    "GLA_CommandCenter",
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    1800.0,
+                    1800,
+                ),
+                structure(
+                    "GLA_SupplyStash",
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    900.0,
+                    1200,
+                ),
+                structure(
+                    "GLA_ArmsDealer",
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    1100.0,
+                    1400,
+                ),
+                structure(
+                    "GLA_Barracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    900.0,
+                    400,
+                ),
+                unit(
+                    "GLA_Soldier",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    100.0,
+                    80,
+                ),
+                unit(
+                    "GLA_Technical",
+                    &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
+                    250.0,
+                    300,
+                ),
+            ],
+            Team::Neutral => vec![],
+        };
+        for t in entries {
+            self.templates
+                .entry(t.name.clone())
+                .or_insert_with(|| t);
+        }
+    }
+
+    /// Total host-AI activity counter (builds/production/attacks issued).
+    pub fn host_ai_activity_count(&self) -> u64 {
+        self.ai_manager.total_activity_count()
+    }
+
+    /// Number of registered host AI players.
+    pub fn host_ai_player_count(&self) -> usize {
+        self.ai_manager.ai_players.len()
     }
 
     /// Set up AI opponents for skirmish matches
