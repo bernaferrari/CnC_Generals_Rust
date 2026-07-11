@@ -307,6 +307,35 @@ impl SkirmishMenu {
         )
     }
 
+    /// Production slot-type cycle used by the skirmish UI (Open → Easy → Medium → …).
+    /// Exposed for headless host smoke so config is built via the same menu path.
+    pub fn cycle_slot_player_type(&mut self, slot_index: usize) {
+        self.cycle_slot_setting(slot_index);
+    }
+
+    /// Configure slot as Medium AI opponent (common skirmish setup) via type cycling.
+    /// Returns true when the slot ends as MediumAI.
+    pub fn configure_slot_medium_ai(&mut self, slot_index: usize) -> bool {
+        if slot_index >= self.slots.len() {
+            return false;
+        }
+        // Cycle until MediumAI or until a full type loop (safety).
+        for _ in 0..8 {
+            if matches!(self.slots[slot_index].player_type, PlayerType::MediumAI) {
+                self.setup_action_buttons();
+                return true;
+            }
+            self.cycle_slot_setting(slot_index);
+        }
+        self.setup_action_buttons();
+        matches!(self.slots[slot_index].player_type, PlayerType::MediumAI)
+    }
+
+    /// Set the selected map name (map select screen → skirmish menu).
+    pub fn set_map_name(&mut self, map: impl Into<String>) {
+        self.map_name = map.into();
+    }
+
     // Private methods
 
     fn setup_action_buttons(&mut self) {

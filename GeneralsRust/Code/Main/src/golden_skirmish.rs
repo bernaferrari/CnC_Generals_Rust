@@ -36,6 +36,12 @@ pub struct GoldenSkirmishResult {
     pub victory: bool,
     pub save_load_ok: bool,
     pub checkpoint_hashes: Vec<u64>,
+    /// Combat runs on a synthetic host world (not retail map object armies).
+    pub synthetic_combat: bool,
+    /// Opponent AI disabled so rebuilds do not block Winner(0).
+    pub ai_disabled_for_slice: bool,
+    /// Always false for this gate: not a natural retail match finish.
+    pub playable_claim: bool,
     pub status: String,
 }
 
@@ -109,12 +115,12 @@ fn install_templates(logic: &mut GameLogic) {
             100,
             0.05,
         ),
-        // Low-HP enemy base so default Weapon::default() combat can finish honestly
-        // without post-spawn HP mutation or take_damage fallbacks.
+        // Structure-scale HP (not a 80-HP toy). Default Weapon (25 dmg / 1s reload)
+        // must kill via update_combat over enough frames — no take_damage fallback.
         template(
             "GoldenEnemyCC",
             &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-            80.0,
+            200.0,
             2000,
             0.1,
         ),
@@ -228,7 +234,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let supply = logic
         .create_object("GoldenSupply", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
         .expect("supply");
-    // Enemy within default Weapon range (100); template HP is 80.
+    // Enemy within default Weapon range (100); template HP is 200 (structure-scale).
     let enemy_cc = logic
         .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .expect("enemy cc");
@@ -329,17 +335,16 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         );
         let up_result = system.execute_command(&up_cmd, &mut logic);
         let player = logic.get_player(0);
+        // Fail closed: require command success or explicit upgrade queue — not cash drift.
         upgraded = up_result == CommandResult::Success
             || player
-                .map(|p| {
-                    p.queued_upgrades.contains("Upgrade_AmericaSupplyLines")
-                        || p.resources.supplies < supplies_before
-                })
+                .map(|p| p.queued_upgrades.contains("Upgrade_AmericaSupplyLines"))
                 .unwrap_or(false);
+        let _ = supplies_before; // combat cash may still change elsewhere
     }
 
-    // Fight: production AttackObject only — no HP caps, no take_damage fallback,
-    // no re-teaming map enemies. Default infantry weapon applies damage in update_combat.
+    // Fight: production AttackObject only — no post-spawn HP mutation, no take_damage
+    // gate fallback, no re-teaming map enemies. Default infantry weapon via update_combat.
     let mut fought = false;
     let mut combat_destroyed_base = false;
     if let Some(ranger_id) = logic
@@ -348,8 +353,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         .find(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
         .map(|o| o.id)
     {
-        // Default infantry weapon comes from create_object (Weapon::default) — no
-        // injected special weapon. Clear engine bridge so host combat is authoritative.
+        // Only ensure create_object left a weapon; never inject custom DPS.
         if let Some(ranger) = logic.get_object_mut(ranger_id) {
             if ranger.weapon.is_none() {
                 ranger.weapon = Some(Weapon::default());
@@ -363,8 +367,8 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             .get_object(enemy_cc)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        // Attack until dead via real update_combat path only.
-        for round in 0..90u32 {
+        // 200 HP / 25 dmg ≈ 8 shots at 1s reload → need ~240+ logic frames.
+        for round in 0..150u32 {
             logic.queue_command(command(
                 6 + round,
                 0,
@@ -387,6 +391,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             .get_object(enemy_cc)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
+        // Fought only if combat path reduced HP or killed — not a soft always-true.
         fought = health_after < health_before || combat_destroyed_base;
     }
 
@@ -474,7 +479,10 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             }
         };
         let _ = std::fs::remove_dir_all(&save_dir);
-        file_ok || snap_ok
+        // Fail closed: require production SnapshotBuilder path (always available).
+        // File manager is reported separately via logs; snapshot is the gate contract.
+        let _ = file_ok;
+        snap_ok
     };
 
     // Deterministic config apply checkpoints (two fresh worlds, same config).
@@ -486,6 +494,11 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let hb = AuthorityProbe::capture(&b, 0).checkpoint_hash();
     let mut checkpoint_hashes = vec![ha, hb];
     checkpoint_hashes.push(AuthorityProbe::capture(&logic, 0).checkpoint_hash());
+
+    let synthetic_combat = true;
+    let ai_disabled_for_slice = true;
+    // Fail-closed for "playable" claims: synthetic world + AI off is not a natural match.
+    let playable_claim = false;
 
     let status = if config_applied
         && frames_advanced > 0
@@ -524,13 +537,16 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         victory,
         save_load_ok,
         checkpoint_hashes,
+        synthetic_combat,
+        ai_disabled_for_slice,
+        playable_claim,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -548,7 +564,10 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.victory,
         r.save_load_ok,
         r.status,
-        r.checkpoint_hashes.len()
+        r.checkpoint_hashes.len(),
+        r.synthetic_combat,
+        r.ai_disabled_for_slice,
+        r.playable_claim
     )
 }
 
@@ -572,6 +591,12 @@ mod tests {
         assert!(result.victory, "VictoryCondition::Winner(0)");
         assert!(result.save_load_ok, "save/load round-trip");
         assert_eq!(result.status, "success");
+        assert!(result.synthetic_combat, "labeled synthetic combat world");
+        assert!(result.ai_disabled_for_slice, "AI off is labeled");
+        assert!(
+            !result.playable_claim,
+            "must not claim full playability for synthetic slice"
+        );
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
             "identical config must yield identical start probes"

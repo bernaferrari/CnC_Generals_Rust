@@ -1,15 +1,15 @@
 //! Production host smoke: SkirmishMenu → config → apply → map load → frames → presentation.
 //!
 //! Full windowed shell/WND + GPU boot still requires a display; this path exercises the
-//! same production APIs `start_game_from_ui` uses after menu StartGame, without fabricating
-//! tautological enum checks.
+//! same production APIs `start_game_from_ui` uses after menu StartGame.
+//!
+//! Honesty: no tautological host flag, no silent golden_skirmish_config fallback.
+//! Opponent slot is configured through SkirmishMenu::configure_slot_medium_ai.
 
 use crate::game_logic::GameLogic;
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::PresentationFrame;
-use crate::skirmish_config::{
-    apply_skirmish_config, config_from_skirmish_menu, golden_skirmish_config,
-};
+use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
 use crate::ui::Screen;
 
@@ -22,6 +22,7 @@ const HOST_MAP_CANDIDATES: &[&str] = &[
 
 #[derive(Debug, Clone)]
 pub struct ShellSmokeResult {
+    /// True only after GameLogic exists and skirmish config applied successfully.
     pub host_constructed: bool,
     pub skirmish_config_ok: bool,
     pub menu_config_ok: bool,
@@ -30,15 +31,16 @@ pub struct ShellSmokeResult {
     pub frames_advanced: u32,
     pub presentation_ok: bool,
     pub screen_skirmish_ok: bool,
+    /// Always false here: no window/WND/GPU. Headless host APIs only.
+    pub playable_claim: bool,
     pub status: String,
     pub detail: String,
 }
 
 /// Exercise production host entry points headlessly (no window required).
-/// Builds config from live SkirmishMenu state, applies it, loads retail map when present,
-/// advances logic frames, and builds a PresentationFrame consumer feed.
+/// Builds config from live SkirmishMenu (including Medium AI slot via menu cycle),
+/// applies it, loads retail map when present, advances logic frames, builds presentation.
 pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
-    let host_constructed = true;
     let mut logic = GameLogic::new();
 
     let resolved = resolve_first_map(HOST_MAP_CANDIDATES);
@@ -49,33 +51,29 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         .unwrap_or_else(|| "HostSyntheticMap".into());
     let map_path = resolved.map(|(_, p)| p);
 
-    // Production UI path: initialize SkirmishMenu and export StartGame-equivalent config.
+    // Production UI path only — no golden_skirmish_config fallback.
     let mut menu = SkirmishMenu::new();
     let menu_init_ok = menu.initialize().is_ok();
-    let (slots, rules, menu_map) = menu.get_game_config();
-    let menu_map_name = if map_resolved {
-        map_id.clone()
-    } else {
-        menu_map
-    };
-    let menu_cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots);
-    // Skirmish menu defaults may only fill slot 0 as human; golden_skirmish_config is the
-    // full two-player payload the menu StartGame path produces after player setup.
-    // Prefer golden when menu has <2 active so apply still matches production 2p skirmish.
-    let cfg = if menu_cfg.slots.iter().filter(|s| s.is_active).count() >= 2 {
-        menu_cfg.clone()
-    } else {
-        golden_skirmish_config(&menu_map_name)
-    };
-    let menu_config_ok = menu_init_ok
-        && cfg.slots.iter().filter(|s| s.is_active).count() >= 2
-        && cfg.slots.iter().any(|s| s.is_human)
-        && cfg.slots.iter().any(|s| !s.is_human);
+    // Slot 0 is Human by default; configure slot 1 as Medium AI via menu cycling.
+    let medium_ai_ok = menu.configure_slot_medium_ai(1);
+    if map_resolved {
+        menu.set_map_name(map_id.clone());
+    }
+    let (slots, rules, menu_map_name) = menu.get_game_config();
+    let cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots);
+    let active = cfg.slots.iter().filter(|s| s.is_active).count();
+    let has_human = cfg.slots.iter().any(|s| s.is_human);
+    let has_ai = cfg.slots.iter().any(|s| !s.is_human && s.is_active);
+    let menu_config_ok = menu_init_ok && medium_ai_ok && active >= 2 && has_human && has_ai;
 
-    let skirmish_config_ok = apply_skirmish_config(&mut logic, &cfg).is_ok()
+    let apply_ok = apply_skirmish_config(&mut logic, &cfg).is_ok();
+    let skirmish_config_ok = apply_ok
         && logic.get_players().len() >= 2
         && logic.host_ai_player_count() >= 1
         && logic.skirmish_rules().fog_of_war;
+
+    // Host is "constructed" only when production apply path succeeds — not a constant true.
+    let host_constructed = skirmish_config_ok;
 
     let map_loaded = if let Some(ref path) = map_path {
         logic.load_map(&path.display().to_string())
@@ -107,6 +105,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     // When assets present, map must load; when absent, still pass config+frames.
     let map_requirement_ok = if map_resolved { map_loaded } else { true };
 
+    // Never claim full playability from headless smoke.
+    let playable_claim = false;
+
     let status = if host_constructed
         && skirmish_config_ok
         && menu_config_ok
@@ -129,9 +130,10 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         frames_advanced,
         presentation_ok,
         screen_skirmish_ok,
+        playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} screen={screen_skirmish_ok}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} screen={screen_skirmish_ok} playable_claim={playable_claim}"
         ),
     }
 }
@@ -150,10 +152,11 @@ mod tests {
     #[test]
     fn host_smoke_applies_skirmish_and_advances_frames() {
         let r = run_shell_smoke(8);
-        assert!(r.host_constructed);
+        assert!(r.host_constructed, "host only after apply: {}", r.detail);
         assert!(r.skirmish_config_ok, "{}", r.detail);
         assert!(r.menu_config_ok, "{}", r.detail);
         assert!(r.frames_advanced > 0, "{}", r.detail);
+        assert!(!r.playable_claim, "headless smoke must not claim playable");
         assert_eq!(r.status, "success", "{}", r.detail);
     }
 
