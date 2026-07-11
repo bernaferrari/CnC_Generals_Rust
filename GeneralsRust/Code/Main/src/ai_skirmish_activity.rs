@@ -62,9 +62,7 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
     }
 
     let ai_players = logic.host_ai_player_count();
-    let difficulty = logic
-        .get_ai_status(1)
-        .unwrap_or_else(|| "missing".into());
+    let difficulty = logic.get_ai_status(1).unwrap_or_else(|| "missing".into());
 
     let frame_before = logic.get_frame();
     for _ in 0..frames.max(1) {
@@ -85,8 +83,7 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
             o.team == Team::GLA
                 && (o.is_kind_of(KindOf::Infantry)
                     || o.is_kind_of(KindOf::Vehicle)
-                    || o
-                        .building_data
+                    || o.building_data
                         .as_ref()
                         .map(|b| !b.production_queue.is_empty())
                         .unwrap_or(false))
@@ -97,11 +94,7 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
     let multi_action = activity_count >= 2
         || ai_structures >= 3
         || (activity_count >= 1 && ai_units_or_queue >= 1);
-    let status = if config_applied
-        && ai_players >= 1
-        && frames_advanced > 0
-        && multi_action
-    {
+    let status = if config_applied && ai_players >= 1 && frames_advanced > 0 && multi_action {
         "success".into()
     } else {
         "partial".into()

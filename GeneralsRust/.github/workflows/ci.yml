@@ -35,6 +35,34 @@ jobs:
     - name: Run Clippy
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  # Headless host playability composite (no window/WND). Map load is best-effort when
+  # retail assets are absent in CI; golden combat/shell/AI still must pass honestly.
+  behavior-gates:
+    name: Behavior gates (headless host)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libx11-dev libxi-dev libxrandr-dev \
+          libasound2-dev libpulse-dev libudev-dev libvulkan-dev
+
+    - name: shell_smoke_gate
+      run: cargo run -p generals_main --bin shell_smoke_gate --release
+
+    - name: golden_skirmish_gate
+      run: cargo run -p generals_main --bin golden_skirmish_gate --release
+
+    - name: behavior_gate
+      run: cargo run -p generals_main --bin behavior_gate --release
+
   build-all:
     name: Build All Platforms
     needs: check
@@ -175,7 +203,7 @@ jobs:
 
   success:
     name: All checks passed
-    needs: [check, build-all, security-audit]
+    needs: [check, behavior-gates, build-all, security-audit]
     runs-on: ubuntu-latest
     if: success()
 

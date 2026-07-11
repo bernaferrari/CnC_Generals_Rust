@@ -69,7 +69,8 @@ impl PresentationFrame {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
-                position: obj.position,
+                // Use accessors so presentation matches authoritative transform state.
+                position: obj.get_position(),
                 orientation: obj.get_orientation(),
                 health_current: obj.health.current,
                 health_max: obj.health.maximum,
@@ -278,7 +279,10 @@ mod tests {
         assert!(!client_view.objects[0].destroyed);
         // Fresh presentation reflects authority.
         let next = PresentationFrame::build_from_logic(&logic, 0);
-        assert!(next.objects.iter().all(|o| o.destroyed || o.id != id) || next.alive_object_count() == 0
-            || next.objects.iter().any(|o| o.id == id && o.destroyed));
+        assert!(
+            next.objects.iter().all(|o| o.destroyed || o.id != id)
+                || next.alive_object_count() == 0
+                || next.objects.iter().any(|o| o.id == id && o.destroyed)
+        );
     }
 }

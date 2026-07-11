@@ -1,4 +1,6 @@
-use generals_main::ai_skirmish_activity::{format_ai_activity_report, run_medium_ai_skirmish_activity};
+use generals_main::ai_skirmish_activity::{
+    format_ai_activity_report, run_medium_ai_skirmish_activity,
+};
 
 fn main() {
     let frames = std::env::args()

@@ -5824,9 +5824,7 @@ impl CnCGameEngine {
     }
 
     /// Last immutable presentation snapshot after the most recent logic step.
-    pub fn last_presentation_frame(
-        &self,
-    ) -> Option<&crate::presentation_frame::PresentationFrame> {
+    pub fn last_presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
         self.last_presentation_frame.as_ref()
     }
 
@@ -5975,12 +5973,9 @@ impl CnCGameEngine {
                 render_call, skip_world_scene, self.current_state
             );
         }
-        // Presentation frame identity for render collect (owned snapshot IDs).
-        let pres_ids = self
-            .last_presentation_frame
-            .as_ref()
-            .map(|f| f.renderable_object_ids());
-        self.render_pipeline.set_presentation_object_ids(pres_ids);
+        // Full presentation snapshot for render collect (transforms/model/selection/health).
+        self.render_pipeline
+            .set_presentation_frame(self.last_presentation_frame.clone());
         self.render_pipeline.execute(
             &mut self.graphics_system,
             &self.game_logic,

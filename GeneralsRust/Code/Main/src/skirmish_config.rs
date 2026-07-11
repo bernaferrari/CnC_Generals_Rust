@@ -185,7 +185,10 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
 /// Apply full skirmish configuration to the authoritative Main GameLogic.
 ///
 /// This is the shipped match-start path for slots/rules (not hard-coded difficulty-by-id).
-pub fn apply_skirmish_config(logic: &mut GameLogic, config: &SkirmishMatchConfig) -> Result<(), String> {
+pub fn apply_skirmish_config(
+    logic: &mut GameLogic,
+    config: &SkirmishMatchConfig,
+) -> Result<(), String> {
     logic.start_new_game(GameMode::Skirmish);
     logic.clear_all_players();
 

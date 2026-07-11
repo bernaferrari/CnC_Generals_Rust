@@ -431,10 +431,26 @@ impl UIRenderContext {
     /// Push a filled-rectangle draw command.
     pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
         let vertices = vec![
-            Vertex { position: [x, y, 0.0], color, tex_coords: [0.0, 0.0] },
-            Vertex { position: [x + w, y, 0.0], color, tex_coords: [1.0, 0.0] },
-            Vertex { position: [x + w, y + h, 0.0], color, tex_coords: [1.0, 1.0] },
-            Vertex { position: [x, y + h, 0.0], color, tex_coords: [0.0, 1.0] },
+            Vertex {
+                position: [x, y, 0.0],
+                color,
+                tex_coords: [0.0, 0.0],
+            },
+            Vertex {
+                position: [x + w, y, 0.0],
+                color,
+                tex_coords: [1.0, 0.0],
+            },
+            Vertex {
+                position: [x + w, y + h, 0.0],
+                color,
+                tex_coords: [1.0, 1.0],
+            },
+            Vertex {
+                position: [x, y + h, 0.0],
+                color,
+                tex_coords: [0.0, 1.0],
+            },
         ];
         let indices = vec![0, 1, 2, 0, 2, 3];
         self.draw_commands.push(UIRenderCommand {
@@ -472,11 +488,34 @@ impl UIRenderContext {
                     let py = cursor_y + row as f32 * pixel;
                     let base = vertices.len() as u16;
 
-                    vertices.push(Vertex { position: [px, py, 0.0], color, tex_coords: [0.0, 0.0] });
-                    vertices.push(Vertex { position: [px + pixel, py, 0.0], color, tex_coords: [1.0, 0.0] });
-                    vertices.push(Vertex { position: [px + pixel, py + pixel, 0.0], color, tex_coords: [1.0, 1.0] });
-                    vertices.push(Vertex { position: [px, py + pixel, 0.0], color, tex_coords: [0.0, 1.0] });
-                    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                    vertices.push(Vertex {
+                        position: [px, py, 0.0],
+                        color,
+                        tex_coords: [0.0, 0.0],
+                    });
+                    vertices.push(Vertex {
+                        position: [px + pixel, py, 0.0],
+                        color,
+                        tex_coords: [1.0, 0.0],
+                    });
+                    vertices.push(Vertex {
+                        position: [px + pixel, py + pixel, 0.0],
+                        color,
+                        tex_coords: [1.0, 1.0],
+                    });
+                    vertices.push(Vertex {
+                        position: [px, py + pixel, 0.0],
+                        color,
+                        tex_coords: [0.0, 1.0],
+                    });
+                    indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
                 }
             }
 

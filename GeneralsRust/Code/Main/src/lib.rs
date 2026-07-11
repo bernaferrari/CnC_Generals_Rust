@@ -110,13 +110,13 @@ pub mod win32_game_engine;
 
 // Playability integration
 pub mod ai_skirmish_activity;
-pub mod authority_bridge;
 pub mod authoritative_world;
-pub mod presentation_frame;
+pub mod authority_bridge;
 pub mod breadth_scenarios;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;
 pub mod playability_integration;
+pub mod presentation_frame;
 pub mod release_candidate;
 pub mod shell_smoke;
 pub mod skirmish_config;

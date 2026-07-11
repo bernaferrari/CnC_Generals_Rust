@@ -9,6 +9,7 @@ use crate::authoritative_world::{
 use crate::deterministic_trace::{run_trace_scenario, TraceScenario};
 use crate::effects::particle_system::{ParticleSystem, ParticleSystemTemplate};
 use crate::game_logic::GameLogic;
+use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
 use crate::golden_skirmish::run_golden_skirmish;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
@@ -18,7 +19,6 @@ use crate::save_load::SaveLoadManager;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use crate::ui::hud_state::{color_for_player, UiColor};
 use crate::ui::main_menu::MainMenuState;
-use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
 use glam::Vec3;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -51,8 +51,14 @@ pub fn missing_w3d_note_count() -> usize {
 /// Result of attempting to open a gameplay asset through the production file path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetLoadOutcome {
-    Found { path: PathBuf, bytes: usize },
-    Missing { requested: String, diagnostic: String },
+    Found {
+        path: PathBuf,
+        bytes: usize,
+    },
+    Missing {
+        requested: String,
+        diagnostic: String,
+    },
 }
 
 /// Resolve a gameplay asset using the same path roots the runtime searches
@@ -106,7 +112,10 @@ pub fn diagnose_missing_asset(path: &str) -> String {
 
 /// Production policy: verification builds must fail closed on missing critical assets
 /// instead of silently substituting placeholder gameplay content.
-pub fn handle_gameplay_asset(requested: &str, verification: bool) -> Result<AssetLoadOutcome, String> {
+pub fn handle_gameplay_asset(
+    requested: &str,
+    verification: bool,
+) -> Result<AssetLoadOutcome, String> {
     match try_load_gameplay_asset(requested) {
         found @ AssetLoadOutcome::Found { .. } => Ok(found),
         AssetLoadOutcome::Missing {
@@ -257,7 +266,9 @@ pub fn exercise_campaign_progression_soak() -> (bool, String) {
         },
     );
 
-    let usa_start = mgr.start_campaign(CampaignId::USACampaign, "rc_soak").is_ok();
+    let usa_start = mgr
+        .start_campaign(CampaignId::USACampaign, "rc_soak")
+        .is_ok();
     let mut usa_done = false;
     if usa_start {
         let data = MissionCompletionData {
@@ -360,8 +371,8 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
         }
     }
 
-    let deterministic_match = !start_hashes.is_empty()
-        && start_hashes.iter().all(|&h| h == start_hashes[0]);
+    let deterministic_match =
+        !start_hashes.is_empty() && start_hashes.iter().all(|&h| h == start_hashes[0]);
 
     // Dual-run: identical config + identical frame advances → equal end hashes.
     let cfg = golden_skirmish_config("RCDual");

@@ -223,7 +223,8 @@ impl AIPlayer {
         self.next_building_time = 0.0;
         self.next_team_time = 0.0;
         self.enemy_check_time = 0.0;
-        self.last_attack_time = -120.0;
+        // C++-aligned: no artificial negative last_attack to force immediate attacks.
+        self.last_attack_time = 0.0;
     }
 
     /// Main AI update method - called every frame
@@ -830,11 +831,9 @@ impl AIPlayer {
         None
     }
 
-    /// Evaluate opportunities to attack enemies
+    /// Evaluate opportunities to attack enemies (strength-threshold based; 60s spacing).
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        // Early skirmish: allow attack/move soon after first military units exist.
-        let min_gap = if self.activity_count < 5 { 2.0 } else { 60.0 };
-        if self.attack_in_progress || current_time - self.last_attack_time < min_gap {
+        if self.attack_in_progress || current_time - self.last_attack_time < 60.0 {
             return;
         }
 
@@ -850,12 +849,7 @@ impl AIPlayer {
                 AIPersonality::Economic => 2.0 * aggression,
             };
 
-            // Host skirmish vertical slice: if we have any attack-capable unit and an
-            // enemy, issue attack-move even when strength math is conservative.
-            let has_attackers = our_strength > 0.0;
-            if (our_strength > enemy_strength * attack_threshold)
-                || (has_attackers && self.activity_count >= 1)
-            {
+            if our_strength > enemy_strength * attack_threshold {
                 self.launch_attack(game_logic, current_time);
             }
         }
