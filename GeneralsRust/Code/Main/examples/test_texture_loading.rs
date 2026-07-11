@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
 
     // Initialize archive system
     let mut archive_system = ArchiveFileSystem::new();
-    archive_system.add_search_path(&std::path::PathBuf::from("assets"));
+    archive_system.add_search_path(std::path::PathBuf::from("assets"));
     archive_system.init().await?;
 
     println!("✅ Archive system initialized\n");

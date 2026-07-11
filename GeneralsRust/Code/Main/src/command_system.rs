@@ -408,7 +408,7 @@ impl CommandSystem {
     fn player_settings_mut(&mut self, player_id: u32) -> &mut PlayerCommandSettings {
         self.player_settings
             .entry(player_id)
-            .or_insert_with(PlayerCommandSettings::default)
+            .or_default()
     }
 
     /// Read-only view of a player's settings (creating default when missing).
@@ -1131,7 +1131,7 @@ impl CommandSystem {
                     continue;
                 }
                 let origin = unit.get_position();
-                let angle = ((unit_id.0 as usize + index) as f32 * 0.31830988618) % TAU;
+                let angle = ((unit_id.0 as usize + index) as f32 * 0.318_309_87) % TAU;
                 let distance = BASE_DISTANCE + (index as f32 % DISTANCE_VARIATION).abs();
                 let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * distance;
                 let destination = origin + offset;
@@ -1174,7 +1174,7 @@ impl CommandSystem {
         centroid /= movable_units.len() as f32;
 
         let columns = (movable_units.len() as f32).sqrt().ceil() as usize;
-        let rows = (movable_units.len() + columns - 1) / columns;
+        let rows = movable_units.len().div_ceil(columns);
         let spacing = 20.0;
 
         for (index, (unit_id, _)) in movable_units.iter().enumerate() {

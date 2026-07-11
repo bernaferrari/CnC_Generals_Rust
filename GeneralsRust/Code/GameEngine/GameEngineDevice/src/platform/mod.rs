@@ -1,7 +1,7 @@
 //! # Platform-Specific Device Interfaces
 //!
 //! This module provides platform-specific device implementations and abstractions,
-//! enabling the GameEngineDevice to work seamlessly across different operating systems.
+//! enabling the `GameEngineDevice` to work seamlessly across different operating systems.
 
 pub mod device_interface;
 
@@ -79,6 +79,7 @@ pub enum Platform {
 
 impl Platform {
     /// Get the current platform
+    #[must_use]
     pub fn current() -> Self {
         #[cfg(target_os = "windows")]
         return Self::Windows;
@@ -94,6 +95,7 @@ impl Platform {
     }
 
     /// Get platform name as string
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::Windows => "Windows",
@@ -104,6 +106,7 @@ impl Platform {
     }
 
     /// Check if platform supports a specific feature
+    #[must_use]
     pub fn supports_feature(self, feature: PlatformFeature) -> bool {
         match (self, feature) {
             (Self::Windows, PlatformFeature::DirectSound) => true,
@@ -155,7 +158,7 @@ pub enum PlatformFeature {
 pub enum CpuArchitecture {
     /// x86-64 / AMD64
     X86_64,
-    /// ARM64 / AArch64
+    /// ARM64 / `AArch64`
     Aarch64,
     /// x86 32-bit
     X86,
@@ -167,6 +170,7 @@ pub enum CpuArchitecture {
 
 impl CpuArchitecture {
     /// Get the current CPU architecture
+    #[must_use]
     pub fn current() -> Self {
         #[cfg(target_arch = "x86_64")]
         return Self::X86_64;
@@ -190,6 +194,7 @@ impl CpuArchitecture {
     }
 
     /// Get architecture name as string
+    #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::X86_64 => "x86_64",
@@ -201,6 +206,7 @@ impl CpuArchitecture {
     }
 
     /// Check if architecture supports SIMD instructions
+    #[must_use]
     pub fn supports_simd(self) -> bool {
         match self {
             Self::X86_64 | Self::X86 => true,  // SSE, AVX

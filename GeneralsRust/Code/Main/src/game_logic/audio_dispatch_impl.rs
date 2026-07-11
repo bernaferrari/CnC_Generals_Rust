@@ -25,6 +25,12 @@ pub struct GameplayAudioEvent {
     pub position: Option<(f32, f32, f32)>,
 }
 
+impl Default for MainAudioDispatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MainAudioDispatch {
     pub fn new() -> Self {
         Self {

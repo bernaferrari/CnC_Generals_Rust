@@ -175,6 +175,12 @@ pub struct ClickSpring {
     pressed_time: f32,
 }
 
+impl Default for ClickSpring {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClickSpring {
     pub fn new() -> Self {
         Self {

@@ -396,7 +396,7 @@ impl DiplomacyCallbacks {
             }
         }
 
-        for (player_id, _) in &self.players {
+        for player_id in self.players.keys() {
             self.update_player_row(*player_id);
         }
     }
@@ -474,9 +474,9 @@ impl DiplomacyCallbacks {
     }
 
     fn handle_radio_buttons(&self, control_id: u32) -> bool {
-        let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame") as u32;
+        let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
         let radio_buddies =
-            NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies") as u32;
+            NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
         if control_id != radio_ingame && control_id != radio_buddies {
             return false;
         }

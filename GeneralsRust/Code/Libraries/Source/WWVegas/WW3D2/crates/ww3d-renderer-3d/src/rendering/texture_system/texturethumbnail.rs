@@ -70,7 +70,7 @@ impl ThumbnailClass {
 
     /// Get bitmap data
     pub fn bitmap(&self) -> Option<&[u8]> {
-        self.bitmap.as_ref().map(|v| v.as_slice())
+        self.bitmap.as_deref()
     }
 
     /// Get width

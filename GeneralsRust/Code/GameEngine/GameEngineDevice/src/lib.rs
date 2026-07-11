@@ -1,32 +1,32 @@
-//! # GameEngineDevice - Complete Hardware Abstraction Layer
+//! # `GameEngineDevice` - Complete Hardware Abstraction Layer
 //!
 //! This crate provides the complete device abstraction layer for Command & Conquer Generals Zero Hour,
-//! converting the original C++ GameEngineDevice to modern Rust with enhanced performance and safety.
+//! converting the original C++ `GameEngineDevice` to modern Rust with enhanced performance and safety.
 //!
 //! ## Architecture Overview
 //!
-//! The GameEngineDevice system provides three main device layers:
+//! The `GameEngineDevice` system provides three main device layers:
 //!
 //! ### Audio Device Layer (`audio/`)
-//! - **MilesAudioDevice**: Modern conversion of the original Miles Sound System integration
-//! - **AudioDriver**: Cross-platform audio driver abstraction (WASAPI, ALSA, CoreAudio)
-//! - **SoundBuffer**: High-performance audio buffer management with zero-copy where possible
-//! - **StreamingSound**: Efficient streaming audio for large files (music, speech)
-//! - **DeviceManager**: Audio device enumeration, selection, and lifecycle management
+//! - **`MilesAudioDevice`**: Modern conversion of the original Miles Sound System integration
+//! - **`AudioDriver`**: Cross-platform audio driver abstraction (WASAPI, ALSA, `CoreAudio`)
+//! - **`SoundBuffer`**: High-performance audio buffer management with zero-copy where possible
+//! - **`StreamingSound`**: Efficient streaming audio for large files (music, speech)
+//! - **`DeviceManager`**: Audio device enumeration, selection, and lifecycle management
 //!
 //! ### Video Device Layer (`video/`)
-//! - **VideoDevice**: Display device abstraction and management
-//! - **DisplayAdapter**: Graphics adapter enumeration and capability detection
-//! - **RenderDevice**: Rendering device abstraction for various graphics APIs
+//! - **`VideoDevice`**: Display device abstraction and management
+//! - **`DisplayAdapter`**: Graphics adapter enumeration and capability detection
+//! - **`RenderDevice`**: Rendering device abstraction for various graphics APIs
 //!
 //! ### W3D Device Layer (`w3d/`)
-//! - **W3DDevice**: Westwood 3D graphics system integration
+//! - **`W3DDevice`**: Westwood 3D graphics system integration
 //! - **Renderer**: High-performance 3D rendering with modern graphics APIs
-//! - **GraphicsContext**: Graphics context management and state tracking
+//! - **`GraphicsContext`**: Graphics context management and state tracking
 //!
 //! ### Platform Layer (`platform/`)
-//! - **Win32Device**: Windows-specific device implementations
-//! - **DeviceInterface**: Cross-platform device interface abstractions
+//! - **`Win32Device`**: Windows-specific device implementations
+//! - **`DeviceInterface`**: Cross-platform device interface abstractions
 //!
 //! ## Key Features
 //!
@@ -136,7 +136,7 @@ pub use input::{
 
 pub use platform::{DeviceInterface, PlatformError};
 
-/// Main error type for GameEngineDevice operations
+/// Main error type for `GameEngineDevice` operations
 #[derive(Error, Debug)]
 pub enum GameEngineDeviceError {
     /// Audio device related errors
@@ -175,7 +175,7 @@ pub enum GameEngineDeviceError {
     Resource(String),
 }
 
-/// Result type for GameEngineDevice operations
+/// Result type for `GameEngineDevice` operations
 pub type Result<T> = std::result::Result<T, GameEngineDeviceError>;
 
 /// Device configuration builder
@@ -245,7 +245,7 @@ pub struct PerformanceMetrics {
     pub throughput: f32,
 }
 
-/// Main GameEngineDevice system
+/// Main `GameEngineDevice` system
 pub struct GameEngineDevice {
     /// Audio device manager
     #[cfg(feature = "audio")]
@@ -328,12 +328,12 @@ impl DeviceConfig {
 }
 
 impl GameEngineDevice {
-    /// Create a new GameEngineDevice system
+    /// Create a new `GameEngineDevice` system
     pub async fn new() -> Result<Self> {
         Self::with_config(SystemConfig::default()).await
     }
 
-    /// Create a new GameEngineDevice system with custom configuration
+    /// Create a new `GameEngineDevice` system with custom configuration
     pub async fn with_config(config: SystemConfig) -> Result<Self> {
         let platform_interface = Arc::new(DeviceInterface::new().await?);
 
@@ -403,7 +403,7 @@ impl GameEngineDevice {
 
     /// Get system status for all initialized devices
     pub async fn get_system_status(&self) -> Result<Vec<DeviceStatus>> {
-        let mut statuses = Vec::new();
+        let statuses = Vec::new();
 
         #[cfg(feature = "audio")]
         if let Some(audio_manager) = self.audio_manager.read().await.as_ref() {
@@ -452,7 +452,7 @@ impl GameEngineDevice {
     pub async fn get_performance_metrics(
         &self,
     ) -> Result<std::collections::HashMap<DeviceType, PerformanceMetrics>> {
-        let mut metrics = std::collections::HashMap::new();
+        let metrics = std::collections::HashMap::new();
 
         #[cfg(feature = "audio")]
         if let Some(audio_manager) = self.audio_manager.read().await.as_ref() {
@@ -603,17 +603,18 @@ impl Drop for GameEngineDevice {
     }
 }
 
-/// Initialize the GameEngineDevice system with default configuration
+/// Initialize the `GameEngineDevice` system with default configuration
 pub async fn init() -> Result<GameEngineDevice> {
     GameEngineDevice::new().await
 }
 
-/// Initialize the GameEngineDevice system with custom configuration  
+/// Initialize the `GameEngineDevice` system with custom configuration  
 pub async fn init_with_config(config: SystemConfig) -> Result<GameEngineDevice> {
     GameEngineDevice::with_config(config).await
 }
 
 /// Get version information
+#[must_use]
 pub fn version_info() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }

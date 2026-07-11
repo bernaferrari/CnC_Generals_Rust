@@ -318,7 +318,7 @@ fn test_timecoded_bit_channel() {
     // Create a bit channel with visibility changes
     // Format: timecode (31 bits) | bit value (1 bit in MSB)
     let data = vec![
-        0 | W3D_TIMECODED_BIT_MASK,  // Frame 0: visible (bit set)
+        W3D_TIMECODED_BIT_MASK,  // Frame 0: visible (bit set)
         10,                          // Frame 10: hidden (bit not set)
         20 | W3D_TIMECODED_BIT_MASK, // Frame 20: visible (bit set)
     ];

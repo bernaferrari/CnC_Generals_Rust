@@ -564,7 +564,7 @@ impl AudioManager {
         self.sound_effects.clear();
 
         // Stop all channel audio
-        for (_, channels) in &mut self.audio_channels {
+        for channels in self.audio_channels.values_mut() {
             for channel in &*channels {
                 channel.sink.get().stop();
             }
@@ -776,7 +776,7 @@ impl AudioManager {
 
     fn cleanup_finished_sounds(&mut self) {
         // Clean up finished sounds in all channels
-        for (_, channels) in &mut self.audio_channels {
+        for channels in self.audio_channels.values_mut() {
             channels.retain(|channel| !channel.sink.get().empty());
         }
 

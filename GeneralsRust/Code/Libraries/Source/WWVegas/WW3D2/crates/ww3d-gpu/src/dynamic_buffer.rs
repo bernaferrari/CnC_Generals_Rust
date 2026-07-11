@@ -394,21 +394,21 @@ pub fn write_dynamic_vertices<T: bytemuck::Pod>(
 ) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
     DYNAMIC_BUFFERS
         .with_vertex_ring(|ring| ring.write_vertices(vertices))
-        .ok_or_else(|| GpuError::NotInitialized)?
+        .ok_or(GpuError::NotInitialized)?
 }
 
 /// Write indices to dynamic buffer (u16)
 pub fn write_dynamic_indices_u16(indices: &[u16]) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
     DYNAMIC_BUFFERS
         .with_index_ring(|ring| ring.write_indices_u16(indices))
-        .ok_or_else(|| GpuError::NotInitialized)?
+        .ok_or(GpuError::NotInitialized)?
 }
 
 /// Write indices to dynamic buffer (u32)
 pub fn write_dynamic_indices_u32(indices: &[u32]) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
     DYNAMIC_BUFFERS
         .with_index_ring(|ring| ring.write_indices_u32(indices))
-        .ok_or_else(|| GpuError::NotInitialized)?
+        .ok_or(GpuError::NotInitialized)?
 }
 
 /// Advance dynamic buffers to next frame

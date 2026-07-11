@@ -475,7 +475,7 @@ impl AnimationPlayer {
         if duration > 0.0 {
             if self.current_time >= duration {
                 if self.looping {
-                    self.current_time = self.current_time % duration;
+                    self.current_time %= duration;
                 } else {
                     self.current_time = duration;
                     self.state = AnimationState::Stopped;

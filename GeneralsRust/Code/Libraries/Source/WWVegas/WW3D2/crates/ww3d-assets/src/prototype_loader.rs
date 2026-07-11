@@ -410,7 +410,7 @@ impl MeshLoader {
         mesh.textures = detail_mesh
             .textures
             .iter()
-            .map(|tex| Self::convert_detailed_texture(tex))
+            .map(Self::convert_detailed_texture)
             .collect();
         if !detail_mesh.tex_coords.is_empty() {
             mesh.stage_texcoords
@@ -819,9 +819,9 @@ impl MeshLoader {
             .enumerate()
             .map(|(index, vmat)| {
                 let stage0_type =
-                    ((vmat.attributes & STAGE0_MAPPING_MASK) >> STAGE0_MAPPING_SHIFT) as u32;
+                    (vmat.attributes & STAGE0_MAPPING_MASK) >> STAGE0_MAPPING_SHIFT;
                 let stage1_type =
-                    ((vmat.attributes & STAGE1_MAPPING_MASK) >> STAGE1_MAPPING_SHIFT) as u32;
+                    (vmat.attributes & STAGE1_MAPPING_MASK) >> STAGE1_MAPPING_SHIFT;
 
                 let args_entry = mapper_args.get(index);
                 let stage0 = stage_mapping_to_mapper_type(stage0_type).and_then(|mapper_type| {
@@ -965,7 +965,7 @@ fn parse_mapper_definition(mapper_type: u32, raw_args: Option<&str>) -> Option<M
 }
 
 fn parse_args(raw: &str) -> HashMap<String, String> {
-    raw.split(|c| c == '\n' || c == ';')
+    raw.split(['\n', ';'])
         .filter_map(|line| {
             let trimmed = line.trim();
             if trimmed.is_empty() {
@@ -989,7 +989,7 @@ fn parse_float(args: &HashMap<String, String>, key: &str, default: f32) -> f32 {
         .and_then(|value| {
             let sanitized = value
                 .trim()
-                .trim_end_matches(|c| c == 'f' || c == 'F')
+                .trim_end_matches(['f', 'F'])
                 .trim();
             sanitized.parse::<f32>().ok()
         })
@@ -1439,10 +1439,10 @@ impl Default for DefaultLoaders {
 }
 
 /// Helper function to find an appropriate loader for a chunk type
-pub fn find_loader<'a>(
-    loaders: &'a [Box<dyn PrototypeLoader>],
+pub fn find_loader(
+    loaders: &[Box<dyn PrototypeLoader>],
     chunk_type: u32,
-) -> Option<&'a Box<dyn PrototypeLoader>> {
+) -> Option<&Box<dyn PrototypeLoader>> {
     loaders.iter().find(|loader| loader.can_load(chunk_type))
 }
 

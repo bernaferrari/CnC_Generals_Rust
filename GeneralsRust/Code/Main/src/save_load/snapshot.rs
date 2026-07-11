@@ -2671,8 +2671,8 @@ impl SnapshotBuilder {
         }
 
         Ok(TechTreeSnapshot {
-            unlocked_units: Self::sorted_unique_strings(unlocked_units.into_iter()),
-            unlocked_buildings: Self::sorted_unique_strings(unlocked_buildings.into_iter()),
+            unlocked_units: Self::sorted_unique_strings(unlocked_units),
+            unlocked_buildings: Self::sorted_unique_strings(unlocked_buildings),
             unlocked_upgrades,
             research_progress,
         })
@@ -3280,7 +3280,7 @@ impl SnapshotBuilder {
                 id: snap.id,
                 team: snap.team,
                 name: snap.name.clone(),
-                resources: snap.resources.clone(),
+                resources: snap.resources,
                 power_available: snap.resources.power,
                 power_produced: 0,
                 power_consumed: 0,

@@ -158,7 +158,7 @@ impl EacHeader {
         let mut signature = [0u8; 4];
         signature.copy_from_slice(&data[0..4]);
 
-        let compression_type = CompressionType::from_signature(&signature).ok_or_else(|| {
+        let compression_type = CompressionType::from_signature(&signature).ok_or({
             EacError::InvalidSignature {
                 expected: *b"EAR\0",
                 got: signature,

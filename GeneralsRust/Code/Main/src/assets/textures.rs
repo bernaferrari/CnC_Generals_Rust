@@ -468,7 +468,7 @@ impl TextureManager {
         }
 
         // Periodic compact summary for long runs.
-        if self.missing_texture_total % 64 == 0 {
+        if self.missing_texture_total.is_multiple_of(64) {
             let mut top: Vec<(&String, &usize)> = self.missing_texture_counts.iter().collect();
             top.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
             let summary: Vec<String> = top
@@ -912,7 +912,7 @@ impl TextureManager {
             .get_level_data(0)
             .ok_or_else(|| anyhow!("DDS level 0 data missing"))?;
 
-        let has_alpha = dds.compression.map_or(false, |c| {
+        let has_alpha = dds.compression.is_some_and(|c| {
             matches!(c, DdsCompression::Dxt3 | DdsCompression::Dxt5)
         });
 

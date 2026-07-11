@@ -897,7 +897,7 @@ impl LightEnvironmentClass {
 
     /// Get light by index
     pub fn get_light(&self, index: usize) -> Option<Arc<LightClass>> {
-        self.lights.get(index).map(|light| Arc::clone(light))
+        self.lights.get(index).map(Arc::clone)
     }
 
     /// Set ambient color

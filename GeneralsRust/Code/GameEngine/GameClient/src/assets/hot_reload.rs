@@ -780,7 +780,7 @@ impl HotReloadManager {
             let mut attempts = reload_attempts.write().unwrap_or_else(|e| e.into_inner());
             attempts
                 .entry(path.to_path_buf())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(attempt);
         }
 
@@ -955,7 +955,7 @@ impl HotReloadManager {
             .write()
             .unwrap()
             .entry(asset_type)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(Arc::new(callback));
     }
 

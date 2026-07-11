@@ -198,10 +198,8 @@ impl GapFiller {
 
         // Shrink texture arrays
         for pass_textures in &mut self.texture_array {
-            for stage_opt in pass_textures {
-                if let Some(tex_vec) = stage_opt {
-                    tex_vec.truncate(self.polygon_count);
-                }
+            for tex_vec in pass_textures.iter_mut().flatten() {
+                tex_vec.truncate(self.polygon_count);
             }
         }
 
@@ -636,11 +634,7 @@ impl MeshModel {
     /// Enable or disable alternate material description
     /// C++: Enable_Alternate_Material_Description (meshmdl.h line 244, meshmdl.cpp lines 320-349)
     pub fn enable_alternate_material_description(&mut self, enable: bool) {
-        if enable && self.alternate_mat_desc.is_some() {
-            self.use_alternate = true;
-        } else {
-            self.use_alternate = false;
-        }
+        self.use_alternate = enable && self.alternate_mat_desc.is_some();
     }
 
     /// Check if alternate material description is enabled

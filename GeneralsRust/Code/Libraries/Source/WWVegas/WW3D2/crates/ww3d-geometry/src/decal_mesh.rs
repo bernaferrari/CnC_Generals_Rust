@@ -39,9 +39,7 @@ impl DecalMesh {
         size: f32,
         texture: Rc<Texture>,
     ) -> Option<usize> {
-        if self.parent_mesh.is_none() {
-            return None;
-        }
+        self.parent_mesh.as_ref()?;
 
         let parent = self.parent_mesh.as_ref().unwrap();
 
@@ -263,7 +261,7 @@ impl SkinDecalMesh {
     pub fn update_bone_transforms(&mut self, transforms: &[Mat4]) {
         for (i, transform) in transforms.iter().enumerate() {
             if i < self.bone_transforms.len() {
-                self.bone_transforms[i] = transform.clone();
+                self.bone_transforms[i] = *transform;
             }
         }
     }

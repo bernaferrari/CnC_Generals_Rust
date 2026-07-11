@@ -100,6 +100,7 @@ pub struct BibLighting {
 
 impl BibLighting {
     /// Create lighting from ambient and diffuse RGB triples.
+    #[must_use]
     pub const fn new(ambient: [f32; 3], diffuse: [f32; 3]) -> Self {
         Self { ambient, diffuse }
     }
@@ -138,6 +139,7 @@ pub struct W3DBibBuffer {
 
 impl W3DBibBuffer {
     /// Construct a bib buffer with the C++ initial buffer sizes.
+    #[must_use]
     pub fn new() -> Self {
         let mut buffer = Self {
             vertex_bib_size: INITIAL_BIB_VERTEX,
@@ -158,6 +160,7 @@ impl W3DBibBuffer {
     }
 
     /// Construct with custom buffer sizes, useful for exact capacity tests.
+    #[must_use]
     pub fn with_buffer_sizes(vertex_bib_size: usize, index_bib_size: usize) -> Self {
         let mut buffer = Self::new();
         buffer.vertex_bib_size = vertex_bib_size;
@@ -227,16 +230,19 @@ impl W3DBibBuffer {
     }
 
     /// Number of allocated bib slots, matching C++ `m_numBibs`.
+    #[must_use]
     pub fn num_bibs(&self) -> usize {
         self.bibs.len()
     }
 
     /// Access current bib records.
+    #[must_use]
     pub fn bibs(&self) -> &[Bib] {
         &self.bibs
     }
 
     /// Return whether the buffer is initialized.
+    #[must_use]
     pub fn initialized(&self) -> bool {
         self.initialized
     }

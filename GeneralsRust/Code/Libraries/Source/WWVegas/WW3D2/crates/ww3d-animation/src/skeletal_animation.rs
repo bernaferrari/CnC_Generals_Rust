@@ -333,7 +333,7 @@ impl AnimatedModel {
                     -delta_frames
                 };
                 let mut pos = frame + direction_delta;
-                pos = pos % period;
+                pos %= period;
                 if pos < 0.0 {
                     pos += period;
                 }

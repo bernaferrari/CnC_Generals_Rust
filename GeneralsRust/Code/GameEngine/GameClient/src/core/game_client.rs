@@ -677,7 +677,7 @@ impl From<Box<dyn std::error::Error>> for GameClientError {
         // Convert the error to a string and create a Send + Sync box
         let error_string = error.to_string();
         let sendable_error: Box<dyn std::error::Error + Send + Sync> =
-            Box::new(std::io::Error::new(std::io::ErrorKind::Other, error_string));
+            Box::new(std::io::Error::other(error_string));
         GameClientError::GenericError(sendable_error)
     }
 }
@@ -845,7 +845,7 @@ fn extract_animation_duration_ms_from_chunks(
             W3DChunk::AnimationHeader(header) => {
                 if animation_name_matches(animation_name, &header.name_str()) {
                     if let Some(duration_ms) =
-                        calculate_duration_ms(header.num_frames, u32::from(header.frame_rate))
+                        calculate_duration_ms(header.num_frames, header.frame_rate)
                     {
                         return Some(duration_ms);
                     }
@@ -966,10 +966,12 @@ struct DrawableTOCEntry {
 
 /// Shadow projection type — mirrors C++ `ShadowType` (Shadow.h).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ShadowType {
     /// No shadow rendered.
     None,
     /// Simple circular blob projected onto terrain.
+    #[default]
     Blob,
     /// Volumetric shadow projected from the model silhouette.
     Volume,
@@ -977,11 +979,6 @@ pub enum ShadowType {
     Decal,
 }
 
-impl Default for ShadowType {
-    fn default() -> Self {
-        ShadowType::Blob
-    }
-}
 
 /// Shadow instance projected onto terrain beneath an object.
 ///
@@ -1056,20 +1053,17 @@ impl Default for Shadow {
 /// `Clear` (fully visible), `Fogged` (previously seen, now dimmed),
 /// `Shrouded` (never explored or fully obscured).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ShroudStatus {
     /// Position is fully visible — no shroud or fog.
     Clear,
     /// Position was previously seen but is now in fog of war.
     Fogged,
     /// Position has never been explored or is fully shrouded.
+    #[default]
     Shrouded,
 }
 
-impl Default for ShroudStatus {
-    fn default() -> Self {
-        ShroudStatus::Shrouded
-    }
-}
 
 impl From<gamelogic::common::types::ObjectShroudStatus> for ShroudStatus {
     fn from(status: gamelogic::common::types::ObjectShroudStatus) -> Self {
@@ -1760,7 +1754,7 @@ impl GameClient {
                 "BeaconClientUpdate" => {
                     if let Some(module) = BeaconClientUpdateModule::from_module_data(
                         module_name_key,
-                        Arc::clone(&entry.data),
+                        Arc::clone(entry.data),
                         INVALID_ID,
                     ) {
                         snapshot_modules.push(Box::new(
@@ -1777,7 +1771,7 @@ impl GameClient {
                             identifier.to_string(),
                             Box::new(SwayClientUpdateModule::new(
                                 module_name_key,
-                                Arc::clone(&entry.data),
+                                Arc::clone(entry.data),
                                 INVALID_ID,
                             )),
                         ),
@@ -1789,7 +1783,7 @@ impl GameClient {
                             identifier.to_string(),
                             Box::new(AnimatedParticleSysBoneClientUpdateModule::new(
                                 module_name_key,
-                                Arc::clone(&entry.data),
+                                Arc::clone(entry.data),
                                 INVALID_ID,
                             )),
                         ),
@@ -2720,7 +2714,7 @@ impl GameClient {
                 if path
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map_or(false, |ext| ext.eq_ignore_ascii_case("big"))
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("big"))
                 {
                     asset_config.archive_paths.push(path);
                 }
@@ -3018,7 +3012,7 @@ impl GameClient {
         let _ = crate::snow::initialize_snow_manager();
 
         if self.subsystem_manager.video_player.is_none() {
-            let mut video_player = VideoPlayerSubsystem::default();
+            let mut video_player = VideoPlayerSubsystem;
             video_player.init()?;
             self.subsystem_manager.video_player = Some(Arc::new(Mutex::new(video_player)));
         }
@@ -3352,9 +3346,9 @@ impl GameClient {
             if logic_frame == 0 {
                 return false;
             }
-            return get_global_data()
+            get_global_data()
                 .map(|global| global.read().no_draw > logic_frame)
-                .unwrap_or(false);
+                .unwrap_or(false)
         }
 
         #[cfg(not(any(debug_assertions, feature = "internal")))]

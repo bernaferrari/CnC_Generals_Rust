@@ -477,12 +477,7 @@ impl Render2DSentenceClass {
                 continue;
             }
 
-            let is_hotkey = if pending_hotkey {
-                pending_hotkey = false;
-                true
-            } else {
-                false
-            };
+            let is_hotkey = std::mem::take(&mut pending_hotkey);
 
             let advance = if self.monospace {
                 space_advance

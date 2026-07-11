@@ -425,6 +425,12 @@ pub struct FrameTimer {
     total_time: std::time::Duration,
 }
 
+impl Default for FrameTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameTimer {
     pub fn new() -> Self {
         Self {

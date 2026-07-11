@@ -397,8 +397,8 @@ fn decompress_block_slice(
         }
     };
 
-    let blocks_x = ((width + 3) / 4) as usize;
-    let blocks_y = ((height + 3) / 4) as usize;
+    let blocks_x = width.div_ceil(4) as usize;
+    let blocks_y = height.div_ceil(4) as usize;
     let expected = blocks_x * blocks_y * block_size;
     if slice.len() < expected {
         return Err(Error::InvalidData(
@@ -480,7 +480,7 @@ fn convert_to_rgba8(
                 ));
             }
             let slice = &data[slice_begin..slice_end];
-            if slice.len() % 4 != 0 {
+            if !slice.len().is_multiple_of(4) {
                 return Err(Error::InvalidData(
                     "Unexpected pixel stride while converting to RGBA".to_string(),
                 ));
@@ -530,7 +530,7 @@ fn convert_to_rgb565(
                 ));
             }
             let slice = &data[slice_begin..slice_end];
-            if slice.len() % 4 != 0 {
+            if !slice.len().is_multiple_of(4) {
                 return Err(Error::InvalidData(
                     "Unexpected pixel stride for RGB565 conversion".to_string(),
                 ));
@@ -578,7 +578,7 @@ fn convert_to_argb1555(
                 ));
             }
             let slice = &data[slice_begin..slice_end];
-            if slice.len() % 4 != 0 {
+            if !slice.len().is_multiple_of(4) {
                 return Err(Error::InvalidData(
                     "Unexpected pixel stride for ARGB1555 conversion".to_string(),
                 ));
@@ -630,7 +630,7 @@ fn convert_to_argb4444(
                 ));
             }
             let slice = &data[slice_begin..slice_end];
-            if slice.len() % 4 != 0 {
+            if !slice.len().is_multiple_of(4) {
                 return Err(Error::InvalidData(
                     "Unexpected pixel stride for ARGB4444 conversion".to_string(),
                 ));
@@ -807,12 +807,12 @@ mod tests {
         let face1_size = 2 * 2 * 4;
         let mut data = Vec::new();
         for layer in 0..6 {
-            data.extend(std::iter::repeat(layer as u8).take(face0_size));
+            data.extend(std::iter::repeat_n(layer as u8, face0_size));
         }
         let level0_size = data.len();
         let level1_offset = data.len();
         for layer in 0..6 {
-            data.extend(std::iter::repeat(100 + layer as u8).take(face1_size));
+            data.extend(std::iter::repeat_n(100 + layer as u8, face1_size));
         }
         let level1_size = data.len() - level1_offset;
 

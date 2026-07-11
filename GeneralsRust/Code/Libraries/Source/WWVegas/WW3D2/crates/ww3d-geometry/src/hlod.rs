@@ -46,6 +46,12 @@ pub struct ModelArray {
     pub benefit_factor: f32,
 }
 
+impl Default for ModelArray {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelArray {
     pub fn new() -> Self {
         Self {

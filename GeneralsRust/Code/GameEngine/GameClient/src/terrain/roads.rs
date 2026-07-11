@@ -613,7 +613,7 @@ impl RoadSegment {
         let _v_count = (((2.0 * half_height) / MAP_XY_FACTOR) as u32)
             .saturating_add(1)
             .max(2)
-            .min(MAX_ROWS as u32);
+            .min(MAX_ROWS);
 
         let elevation = self.properties.elevation;
         let u_scale = u_scale.max(1.0e-6);
@@ -624,7 +624,7 @@ impl RoadSegment {
         let mut u_vector2 = corners[3] - corners[2];
         let v_vector1 = corners[2] - corners[0];
         let v_vector2 = corners[3] - corners[1];
-        u_vector2 = u_vector2 + (v_vector1 - v_vector2);
+        u_vector2 += v_vector1 - v_vector2;
 
         let mut vertices = Vec::with_capacity((u_count as usize * 2).min(MAX_SEG_VERTEX));
         let mut row_height_samples = Vec::with_capacity(u_count as usize);
@@ -694,7 +694,7 @@ impl RoadSegment {
             row_height_samples.push(row_samples);
 
             if i > 0 && indices.len() + 6 <= MAX_SEG_INDEX {
-                let base = (i as u32) * 2;
+                let base = i * 2;
                 indices.extend_from_slice(&[base - 2, base - 1, base, base - 1, base + 1, base]);
             }
         }
@@ -1281,7 +1281,7 @@ impl RoadSegment {
 
         // Generate indices for triangle strips
         for i in 0..(resolution - 1) {
-            let base = (i * 2) as u32;
+            let base = i * 2;
 
             // First triangle
             indices.push(base);
@@ -1395,7 +1395,7 @@ impl RoadSegment {
         }
 
         for i in 0..(resolution - 1) {
-            let base = (i * 4) as u32;
+            let base = i * 4;
 
             // Left strip
             indices.push(base);
@@ -1467,7 +1467,7 @@ impl RoadSegment {
         }
 
         for i in 0..(resolution - 1) {
-            let base = (i * 2) as u32;
+            let base = i * 2;
             indices.push(base);
             indices.push(base + 2);
             indices.push(base + 1);
@@ -1629,7 +1629,7 @@ impl RoadManager {
     }
 
     fn collapse_strip_rows(vertices: &mut Vec<RoadVertex>, indices: &mut Vec<u32>) {
-        if vertices.len() < 6 || vertices.len() % 2 != 0 {
+        if vertices.len() < 6 || !vertices.len().is_multiple_of(2) {
             return;
         }
 
@@ -2206,7 +2206,7 @@ impl RoadManager {
         vertices: &[RoadVertex],
         indices: &[u32],
     ) -> TerrainResult<()> {
-        if indices.len() % 3 != 0 {
+        if !indices.len().is_multiple_of(3) {
             return Err(TerrainError::InvalidData(format!(
                 "Road segment {} {} geometry has non-triangle index count {}",
                 segment_id,

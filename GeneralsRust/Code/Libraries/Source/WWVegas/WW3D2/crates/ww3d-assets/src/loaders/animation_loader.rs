@@ -115,6 +115,12 @@ pub struct BoneAnimation {
     pub visibility_channel: Option<BitChannel>,
 }
 
+impl Default for BoneAnimation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BoneAnimation {
     pub fn new() -> Self {
         Self {
@@ -295,6 +301,12 @@ impl BitChannel {
 pub struct W3DAnimation {
     pub header: W3DAnimHeader,
     pub bone_animations: Vec<BoneAnimation>,
+}
+
+impl Default for W3DAnimation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl W3DAnimation {
@@ -546,7 +558,7 @@ impl AnimationLoader {
 
             for _ in 0..num_time_codes {
                 let delta_quat = reader.read_quaternion()?;
-                accumulated = accumulated * delta_quat;
+                accumulated *= delta_quat;
                 accumulated = accumulated.normalize();
                 quaternions.push(accumulated);
             }
@@ -747,12 +759,12 @@ mod tests {
         };
 
         // At frame 0
-        assert_eq!(bit_channel.evaluate(0.0), true);
+        assert!(bit_channel.evaluate(0.0));
 
         // At frame 0.5 (15 ticks at 30fps)
-        assert_eq!(bit_channel.evaluate(0.6), false);
+        assert!(!bit_channel.evaluate(0.6));
 
         // At frame 1.6 (48 ticks at 30fps)
-        assert_eq!(bit_channel.evaluate(1.6), true);
+        assert!(bit_channel.evaluate(1.6));
     }
 }

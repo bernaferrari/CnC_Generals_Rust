@@ -3,7 +3,6 @@
 //! The Resource Manager provides global resource management and pooling for all game assets
 //! including textures, audio, models, and data files.
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, trace, warn};
@@ -487,7 +486,7 @@ impl ResourceManager {
         let target_size = (self.audio_pool.max_cache_size_mb as f64 * 0.8) as u64;
         let mut audio_ids_to_remove = Vec::new();
 
-        for (audio_id, _) in &self.audio_pool.audio_cache {
+        for audio_id in self.audio_pool.audio_cache.keys() {
             if self.audio_pool.current_cache_size_mb <= target_size {
                 break;
             }
@@ -519,7 +518,7 @@ impl ResourceManager {
         let target_size = (self.model_pool.max_cache_size_mb as f64 * 0.8) as u64;
         let mut model_ids_to_remove = Vec::new();
 
-        for (model_id, _) in &self.model_pool.model_cache {
+        for model_id in self.model_pool.model_cache.keys() {
             if self.model_pool.current_cache_size_mb <= target_size {
                 break;
             }
@@ -551,7 +550,7 @@ impl ResourceManager {
         let target_size = (self.data_pool.max_cache_size_mb as f64 * 0.8) as u64;
         let mut data_ids_to_remove = Vec::new();
 
-        for (data_id, _) in &self.data_pool.data_cache {
+        for data_id in self.data_pool.data_cache.keys() {
             if self.data_pool.current_cache_size_mb <= target_size {
                 break;
             }

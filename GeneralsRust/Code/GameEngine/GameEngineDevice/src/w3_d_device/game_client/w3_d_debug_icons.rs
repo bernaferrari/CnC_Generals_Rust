@@ -35,11 +35,13 @@ pub struct RGBColor {
 
 impl RGBColor {
     /// Construct a color from real RGB components.
+    #[must_use]
     pub const fn new(red: f32, green: f32, blue: f32) -> Self {
         Self { red, green, blue }
     }
 
     /// Match C++ `RGBColor::getAsInt`.
+    #[must_use]
     pub fn get_as_int(self) -> u32 {
         ((self.red * 255.0) as u32) << 16
             | ((self.green * 255.0) as u32) << 8
@@ -127,27 +129,32 @@ pub struct W3DDebugIcons;
 
 impl W3DDebugIcons {
     /// Construct the debug icon render object and allocate the C++ static icon array.
+    #[must_use]
     pub fn new() -> Self {
         allocate_icons_array();
         Self
     }
 
     /// C++ `Class_ID`.
+    #[must_use]
     pub const fn class_id(&self) -> i32 {
         0
     }
 
     /// C++ `Cast_Ray`.
+    #[must_use]
     pub const fn cast_ray(&self) -> bool {
         false
     }
 
     /// C++ `Clone`.
+    #[must_use]
     pub fn clone_render_object(&self) -> W3DDebugIcons {
         W3DDebugIcons::new()
     }
 
     /// C++ `Get_Obj_Space_Bounding_Sphere`.
+    #[must_use]
     pub fn get_obj_space_bounding_sphere(
         &self,
         water_extent_x: f32,
@@ -159,6 +166,7 @@ impl W3DDebugIcons {
     }
 
     /// C++ `Get_Obj_Space_Bounding_Box`.
+    #[must_use]
     pub fn get_obj_space_bounding_box(
         &self,
         water_extent_x: f32,
@@ -186,6 +194,7 @@ impl W3DDebugIcons {
     }
 
     /// Build the CPU geometry that C++ `Render` writes into dynamic buffers.
+    #[must_use]
     pub fn render_batches(&self, current_frame: i32) -> Vec<DebugIconBatch> {
         render_batches(current_frame)
     }
@@ -234,11 +243,13 @@ pub fn allocate_icons_array() {
 }
 
 /// Return the number of currently queued icons.
+#[must_use]
 pub fn debug_icon_count() -> usize {
     lock_store().icons.len()
 }
 
 /// Return the maximum count observed during null-position clears.
+#[must_use]
 pub fn max_icons_seen() -> usize {
     lock_store().max_icons_seen
 }
@@ -287,7 +298,7 @@ fn render_batches(current_frame: i32) -> Vec<DebugIconBatch> {
 }
 
 fn append_icon_quad(batch: &mut DebugIconBatch, icon: &DebugIcon, frames_left: i32) {
-    let mut alpha = BASE_ALPHA as f32;
+    let mut alpha = f32::from(BASE_ALPHA);
     if frames_left < FADE_FRAMES {
         alpha *= frames_left as f32 / FADE_FRAMES as f32;
     }
@@ -356,7 +367,7 @@ fn compress_icons_array(store: &mut DebugIconStore, current_frame: i32) {
 fn lock_store() -> MutexGuard<'static, DebugIconStore> {
     DEBUG_ICONS
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[cfg(test)]
@@ -392,7 +403,7 @@ mod tests {
 
         assert_eq!(debug_icon_count(), 1);
         assert_eq!(batches.len(), 1);
-        assert_eq!(batches[0].vertices[0].diffuse >> 24, BASE_ALPHA as u32);
+        assert_eq!(batches[0].vertices[0].diffuse >> 24, u32::from(BASE_ALPHA));
     }
 
     #[test]

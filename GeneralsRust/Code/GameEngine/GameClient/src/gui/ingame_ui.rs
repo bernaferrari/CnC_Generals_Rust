@@ -174,6 +174,7 @@ pub struct NamedTimerData {
 /// they are not defined in retail Zero Hour builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[derive(Default)]
 pub enum MouseCursor {
     /// C++: INVALID_MOUSE_CURSOR = -1
     Invalid = -1,
@@ -182,6 +183,7 @@ pub enum MouseCursor {
     /// C++: FIRST_CURSOR = 1, NORMAL = FIRST_CURSOR = 1
     FirstCursor = 1,
     /// C++: ARROW = 2
+    #[default]
     Arrow = 2,
     /// C++: SCROLL = 3
     Scroll = 3,
@@ -261,11 +263,6 @@ pub enum MouseCursor {
     NumMouseCursors = 40,
 }
 
-impl Default for MouseCursor {
-    fn default() -> Self {
-        Self::Arrow
-    }
-}
 
 impl MouseCursor {
     /// Total number of cursor types (excluding Invalid and NumMouseCursors sentinels).
@@ -400,7 +397,9 @@ pub struct IdleWorkerData {
 /// Ordering and values must match C++ for parity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
+#[derive(Default)]
 pub enum RadiusCursorType {
+    #[default]
     None = 0,
     AttackDamageArea = 1,
     AttackScatterArea = 2,
@@ -440,11 +439,6 @@ impl RadiusCursorType {
     pub const COUNT: u32 = 30;
 }
 
-impl Default for RadiusCursorType {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 /// Radius cursor state. C++: m_curRadiusCursor + m_curRcType (InGameUI.h:799-801)
 /// State-only tracking — actual decal rendering is handled by the rendering subsystem.
@@ -1222,9 +1216,9 @@ impl InGameUI {
                     self.selection_box.update(mouse_pos);
                 }
             }
-            ButtonState::JustReleased => {
+            ButtonState::JustReleased
                 // Finish selection box
-                if self.selection_box.active {
+                if self.selection_box.active => {
                     if self.selection_box.is_significant() {
                         // Perform box selection
                         let rect = self.selection_box.get_rect();
@@ -1248,7 +1242,6 @@ impl InGameUI {
                     }
                     self.selection_box.finish();
                 }
-            }
             _ => {}
         }
 
@@ -1630,14 +1623,13 @@ impl InGameUI {
             let dx = pos.x - world.x;
             let dy = pos.y - world.y;
             let dist_sq = dx * dx + dy * dy;
-            if dist_sq <= PICK_RADIUS_WORLD * PICK_RADIUS_WORLD {
-                if best
+            if dist_sq <= PICK_RADIUS_WORLD * PICK_RADIUS_WORLD
+                && best
                     .map(|(_, best_dist)| dist_sq < best_dist)
                     .unwrap_or(true)
                 {
                     best = Some((guard.get_id(), dist_sq));
                 }
-            }
         }
         best.map(|(id, _)| id)
     }
@@ -1825,7 +1817,6 @@ impl InGameUI {
                 return selection
                     .get_selected_objects()
                     .into_iter()
-                    .map(|id| id as u32)
                     .collect();
             }
         }
@@ -2831,7 +2822,7 @@ impl InGameUI {
         renderer.draw_rect_outline_with_scissor(viewport_rect, 1.0, [1.0, 1.0, 1.0, 0.8], None)?;
 
         // Draw unit icons
-        for (_, icon) in &self.minimap.unit_icons {
+        for icon in self.minimap.unit_icons.values() {
             renderer.draw_rect_with_scissor(
                 UIRect::new(
                     icon.position.x - icon.size / 2.0,
@@ -3611,7 +3602,7 @@ impl Snapshotable for InGameUI {
 
         if xfer.is_writing() {
             for obj_id in self.get_selection() {
-                let mut id = obj_id as u32;
+                let mut id = obj_id;
                 xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
             }
         } else if xfer.is_reading() {
@@ -3638,7 +3629,7 @@ impl Snapshotable for InGameUI {
 
             if xfer.is_writing() {
                 for obj_id in group {
-                    let mut id = obj_id as u32;
+                    let mut id = obj_id;
                     xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
                 }
             } else if xfer.is_reading() {
@@ -3665,7 +3656,7 @@ impl Snapshotable for InGameUI {
             xfer.xfer_int(&mut sw_count).map_err(|e| e.to_string())?;
             for timer in &self.superweapon_timers {
                 let mut player_index = timer.player_index as i32;
-                let mut object_id = timer.object_id as u32;
+                let mut object_id = timer.object_id;
                 let mut ready_frame = timer.ready_frame;
                 let mut hidden_by_script = timer.hidden_by_script;
                 let mut hidden_by_science = timer.hidden_by_science;

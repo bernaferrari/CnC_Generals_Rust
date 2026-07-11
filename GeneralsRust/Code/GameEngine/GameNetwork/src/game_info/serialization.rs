@@ -368,7 +368,7 @@ fn parse_human_slot(data: &str, slot: &mut GameSlot) -> bool {
     if parts[3].len() != 2 {
         return false;
     }
-    let is_accepted = match parts[3].chars().nth(0) {
+    let is_accepted = match parts[3].chars().next() {
         Some(c) => c == 'T',
         None => return false,
     };

@@ -338,38 +338,10 @@ impl UnitInputHandler {
     /// Get current drag selection box for UI rendering
     pub fn get_selection_box(&self) -> Option<(Vec2, Vec2)> {
         if self.drag_in_progress {
-            if let Some(start_pos) = self.drag_start_pos {
-                Some((start_pos, self.current_mouse_pos))
-            } else {
-                None
-            }
+            self.drag_start_pos.map(|start_pos| (start_pos, self.current_mouse_pos))
         } else {
             None
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn get_selection_box_returns_drag_bounds() {
-        let mut handler = UnitInputHandler::new((1280.0, 720.0), Team::USA, 0);
-        handler.drag_in_progress = true;
-        handler.drag_start_pos = Some(Vec2::new(100.0, 120.0));
-        handler.current_mouse_pos = Vec2::new(300.0, 340.0);
-
-        assert_eq!(
-            handler.get_selection_box(),
-            Some((Vec2::new(100.0, 120.0), Vec2::new(300.0, 340.0)))
-        );
-    }
-
-    #[test]
-    fn get_selection_box_none_when_not_dragging() {
-        let handler = UnitInputHandler::new((1280.0, 720.0), Team::USA, 0);
-        assert_eq!(handler.get_selection_box(), None);
     }
 }
 
@@ -445,5 +417,29 @@ impl UnitInputHandler {
                 log::debug!("Unhandled RTS command: {:?}", command);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_selection_box_returns_drag_bounds() {
+        let mut handler = UnitInputHandler::new((1280.0, 720.0), Team::USA, 0);
+        handler.drag_in_progress = true;
+        handler.drag_start_pos = Some(Vec2::new(100.0, 120.0));
+        handler.current_mouse_pos = Vec2::new(300.0, 340.0);
+
+        assert_eq!(
+            handler.get_selection_box(),
+            Some((Vec2::new(100.0, 120.0), Vec2::new(300.0, 340.0)))
+        );
+    }
+
+    #[test]
+    fn get_selection_box_none_when_not_dragging() {
+        let handler = UnitInputHandler::new((1280.0, 720.0), Team::USA, 0);
+        assert_eq!(handler.get_selection_box(), None);
     }
 }

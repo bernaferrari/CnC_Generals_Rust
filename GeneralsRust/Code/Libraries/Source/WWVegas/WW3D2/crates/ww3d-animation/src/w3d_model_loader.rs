@@ -139,7 +139,7 @@ impl W3DModel {
     /// Load a complete W3D model from a file
     /// Automatically detects and loads hierarchies, animations, and LODs
     pub fn load_from_file(path: &str) -> Result<Self, W3DAnimationError> {
-        let mut file = std::fs::File::open(path).map_err(|e| W3DAnimationError::IoError(e))?;
+        let mut file = std::fs::File::open(path).map_err(W3DAnimationError::IoError)?;
         Self::load_from_reader(&mut file, path)
     }
 

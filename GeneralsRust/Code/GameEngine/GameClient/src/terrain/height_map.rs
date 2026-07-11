@@ -720,8 +720,8 @@ impl HeightMap {
         }
 
         // Generate indices for triangle strips
-        let width_in_vertices = ((max_x - min_x) / step + 1) as u32;
-        let height_in_vertices = ((max_y - min_y) / step + 1) as u32;
+        let width_in_vertices = (max_x - min_x) / step + 1;
+        let height_in_vertices = (max_y - min_y) / step + 1;
 
         for y in 0..height_in_vertices - 1 {
             for x in 0..width_in_vertices - 1 {

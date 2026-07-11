@@ -87,6 +87,7 @@ pub struct W3DRadar {
 
 impl W3DRadar {
     /// Create a new W3D radar adapter.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             radar: RadarSystem::new(),
@@ -249,6 +250,7 @@ impl W3DRadar {
     }
 
     /// Compute radar draw rectangle for a HUD window.
+    #[must_use]
     pub fn draw_positions(
         &self,
         pixel_x: i32,
@@ -260,6 +262,7 @@ impl W3DRadar {
     }
 
     /// Convert a radar-cell coordinate to a screen pixel.
+    #[must_use]
     pub fn radar_to_pixel(
         &self,
         radar: &ICoord2D,
@@ -278,6 +281,7 @@ impl W3DRadar {
     }
 
     /// Underlying common radar system.
+    #[must_use]
     pub fn radar(&self) -> &RadarSystem {
         &self.radar
     }
@@ -288,21 +292,25 @@ impl W3DRadar {
     }
 
     /// Selected texture formats.
+    #[must_use]
     pub fn texture_formats(&self) -> W3DRadarTextureFormats {
         self.texture_formats
     }
 
     /// Whether W3D radar resources are currently allocated.
+    #[must_use]
     pub fn resources_allocated(&self) -> bool {
         self.resources_allocated
     }
 
     /// Whether the cached view box should be reconstructed.
+    #[must_use]
     pub fn should_reconstruct_view_box(&self) -> bool {
         self.reconstruct_view_box
     }
 
     /// Cached W3D view-box deltas.
+    #[must_use]
     pub fn view_box(&self) -> &[ICoord2D; 4] {
         &self.view_box
     }

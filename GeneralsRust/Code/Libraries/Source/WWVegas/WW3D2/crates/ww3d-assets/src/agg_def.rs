@@ -246,7 +246,7 @@ impl RenderObj for AggregateInstance {
                     object: att.object.as_ref().map(|obj| obj.clone_box()),
                 })
                 .collect(),
-            _misc_info: self._misc_info.clone(),
+            _misc_info: self._misc_info,
             _texture_replacers: self._texture_replacers.clone(),
         })
     }

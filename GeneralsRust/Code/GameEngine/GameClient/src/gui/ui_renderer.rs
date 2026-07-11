@@ -1121,7 +1121,7 @@ impl UIRenderer {
             let mut current_texture: Option<Arc<TextureView>> = None;
 
             for (command, (start, count)) in
-                self.draw_commands.iter().zip(command_ranges.into_iter())
+                self.draw_commands.iter().zip(command_ranges)
             {
                 let pipeline = if command.texture.is_some() {
                     &self.textured_pipeline
@@ -1138,7 +1138,7 @@ impl UIRenderer {
                     Some(texture) => {
                         let texture_changed = current_texture
                             .as_ref()
-                            .map_or(true, |current| !Arc::ptr_eq(current, texture));
+                            .is_none_or(|current| !Arc::ptr_eq(current, texture));
                         if texture_changed {
                             let texture_bind_group =
                                 self.device.create_bind_group(&BindGroupDescriptor {

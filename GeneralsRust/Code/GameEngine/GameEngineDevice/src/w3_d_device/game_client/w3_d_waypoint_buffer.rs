@@ -110,6 +110,7 @@ pub struct WaypointAiPath {
 
 impl WaypointAiPath {
     /// Construct a waypoint path.
+    #[must_use]
     pub fn new(goal_path: Vec<Option<Vector3>>, current_goal_path_index: i32) -> Self {
         Self {
             goal_path,
@@ -175,6 +176,7 @@ pub struct WaypointObject {
 
 impl WaypointObject {
     /// Construct an object with C++-neutral defaults.
+    #[must_use]
     pub fn new(id: u32, position: Vector3) -> Self {
         Self {
             id,
@@ -215,6 +217,7 @@ pub struct W3DWaypointBuffer {
 
 impl W3DWaypointBuffer {
     /// Construct with the C++ asset names available.
+    #[must_use]
     pub fn new() -> Self {
         let mut buffer = Self {
             waypoint_node_render_object: Some(WAYPOINT_NODE_RENDER_OBJECT.to_string()),
@@ -228,6 +231,7 @@ impl W3DWaypointBuffer {
     }
 
     /// Construct with explicit asset availability.
+    #[must_use]
     pub fn with_assets(has_waypoint_node: bool, has_texture: bool) -> Self {
         let mut buffer = Self {
             waypoint_node_render_object: has_waypoint_node
@@ -262,16 +266,19 @@ impl W3DWaypointBuffer {
     }
 
     /// Current default line style.
+    #[must_use]
     pub fn line_style(&self) -> &WaypointLineStyle {
         &self.line_style
     }
 
     /// Waypoint node render-object name.
+    #[must_use]
     pub fn waypoint_node_render_object(&self) -> Option<&str> {
         self.waypoint_node_render_object.as_deref()
     }
 
     /// Waypoint line texture name.
+    #[must_use]
     pub fn line_texture_name(&self) -> Option<&str> {
         self.line_texture_name.as_deref()
     }
@@ -392,10 +399,10 @@ impl W3DWaypointBuffer {
         let Some(natural_rally_point) = exit_interface.natural_rally_point else {
             return;
         };
-        if !equals(natural_rally_point, exit_point) {
-            points.push(natural_rally_point);
-        } else {
+        if equals(natural_rally_point, exit_point) {
             box_wrap = false;
+        } else {
+            points.push(natural_rally_point);
         }
 
         let Some(rally_point) = exit_interface.rally_point else {

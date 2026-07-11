@@ -93,6 +93,12 @@ pub struct SmudgeManager {
     hardware_support: HardwareSmudgeSupport,
 }
 
+impl Default for SmudgeManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SmudgeManager {
     pub fn new() -> Self {
         Self {

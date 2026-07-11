@@ -50,8 +50,7 @@ impl MacOsDevice {
         {
             // Fallback: log the priority change without system call
             log::warn!(
-                "Thread priority change requested but libc not available: {:?}",
-                priority
+                "Thread priority change requested but libc not available: {priority:?}"
             );
         }
 

@@ -151,7 +151,7 @@ impl WgpuAdapterManager {
     /// Check if selected adapter supports surface
     pub fn selected_adapter_supports_surface(&self, surface: &wgpu::Surface) -> bool {
         if let Some(adapter) = &self.selected_adapter {
-            surface.get_capabilities(adapter).formats.len() > 0
+            !surface.get_capabilities(adapter).formats.is_empty()
         } else {
             false
         }

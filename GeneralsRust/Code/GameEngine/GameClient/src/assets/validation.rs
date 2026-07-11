@@ -697,8 +697,8 @@ impl AssetValidator {
         }
 
         // Add fallback suggestion as last resort
-        if !issues.is_empty() {
-            if self.fallback_configs.contains_key(&asset_type) {
+        if !issues.is_empty()
+            && self.fallback_configs.contains_key(&asset_type) {
                 suggestions.push(RepairSuggestion {
                     issue_type: ValidationIssueType::FormatCorruption,
                     action: RepairAction::UseFallback,
@@ -707,7 +707,6 @@ impl AssetValidator {
                     estimated_time: Duration::from_millis(100),
                 });
             }
-        }
 
         suggestions
     }

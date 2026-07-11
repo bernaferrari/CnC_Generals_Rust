@@ -428,8 +428,7 @@ impl WgpuMainRenderer {
                                 Some(clear_color)
                             },
                             None,
-                        )
-                        .map_err(RendererError::from)?;
+                        )?;
                     (
                         renderer_guard.mesh_stats().clone(),
                         renderer_guard.take_pending_shadow_caster_submissions(),
@@ -478,8 +477,7 @@ impl WgpuMainRenderer {
                     Some(TextureFormat::Depth24PlusStencil8),
                     msaa_samples,
                     false,
-                )
-                .map_err(RendererError::from)?;
+                )?;
 
             let animation_input = self.legacy_frame_clock.advance();
             let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)

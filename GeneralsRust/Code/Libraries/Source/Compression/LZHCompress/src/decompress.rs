@@ -282,19 +282,12 @@ struct HuffmanDecoder {
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)] // C++ parity: LZH Huffman decoder entry
+#[derive(Default)]
 struct DecoderEntry {
     symbol: u8,
     length: u8,
 }
 
-impl Default for DecoderEntry {
-    fn default() -> Self {
-        Self {
-            symbol: 0,
-            length: 0,
-        }
-    }
-}
 
 impl HuffmanDecoder {
     fn new() -> Self {

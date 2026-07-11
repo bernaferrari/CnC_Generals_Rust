@@ -122,6 +122,12 @@ pub struct DefaultAudioSubsystem {
     active_sounds: Vec<(String, f32)>,
 }
 
+impl Default for DefaultAudioSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultAudioSubsystem {
     pub fn new() -> Self {
         Self {
@@ -239,6 +245,12 @@ pub struct DefaultGraphicsSubsystem {
     fullscreen: bool,
     frame_active: bool,
     last_clear_color: [f32; 4],
+}
+
+impl Default for DefaultGraphicsSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DefaultGraphicsSubsystem {
@@ -359,6 +371,12 @@ pub struct DefaultInputSubsystem {
     mouse_button_states: std::collections::HashSet<u32>,
     mouse_position: (i32, i32),
     mouse_delta: (i32, i32),
+}
+
+impl Default for DefaultInputSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DefaultInputSubsystem {
@@ -635,6 +653,12 @@ pub struct DefaultFileSystemSubsystem {
     root_dir: PathBuf,
 }
 
+impl Default for DefaultFileSystemSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultFileSystemSubsystem {
     pub fn new() -> Self {
         Self {
@@ -760,6 +784,12 @@ pub struct DefaultAssetSubsystem {
     assets: HashMap<u32, Box<dyn Any + Send + Sync>>,
     search_paths: Vec<PathBuf>,
     loaded_asset_paths: Vec<String>,
+}
+
+impl Default for DefaultAssetSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DefaultAssetSubsystem {
@@ -964,6 +994,12 @@ pub struct DefaultGameLogicSubsystem {
     save_manager: std::sync::Mutex<SaveFileManager>,
 }
 
+impl Default for DefaultGameLogicSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultGameLogicSubsystem {
     pub fn new() -> Self {
         Self {
@@ -1149,7 +1185,7 @@ impl DefaultConfigSubsystem {
         }
     }
 
-    fn split_key<'a>(key: &'a str) -> (Option<&'a str>, &'a str) {
+    fn split_key(key: &str) -> (Option<&str>, &str) {
         if let Some((section, entry)) = key.split_once('.') {
             (Some(section), entry)
         } else {
@@ -1436,6 +1472,12 @@ pub fn initialize_engine_factories() -> EngineFactoryRegistry {
 
 /// Cross-platform game engine factory
 pub struct CrossPlatformGameEngineFactory;
+
+impl Default for CrossPlatformGameEngineFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CrossPlatformGameEngineFactory {
     const NAME: &'static str = "CrossPlatformGameEngineFactory";

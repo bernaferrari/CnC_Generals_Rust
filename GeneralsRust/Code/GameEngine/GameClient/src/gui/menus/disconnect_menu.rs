@@ -172,7 +172,7 @@ impl DisconnectMenu {
         // Load the disconnect screen window
         if let Some(manager) = &self.window_manager {
             let mut manager = manager.lock().map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "WindowManager lock poisoned")
+                std::io::Error::other("WindowManager lock poisoned")
             })?;
             self.window = Some(manager.load_window("DisconnectScreen.wnd")?);
         }
@@ -243,10 +243,8 @@ impl DisconnectMenu {
         }
 
         let mut buttons: Vec<std::rc::Rc<std::cell::RefCell<GameWindow>>> = Vec::new();
-        for control in &self.player_vote_controls {
-            if let Some(control) = control {
-                buttons.push(control.clone());
-            }
+        for control in self.player_vote_controls.iter().flatten() {
+            buttons.push(control.clone());
         }
         if let Some(window) = &self.window {
             if let Some(button) = window.borrow().find_child_window(BUTTON_QUIT_CONTROL) {
@@ -294,10 +292,8 @@ impl DisconnectMenu {
             }
         }
 
-        for button in &self.player_vote_controls {
-            if let Some(button) = button {
-                let _ = button.borrow_mut().enable(true);
-            }
+        for button in self.player_vote_controls.iter().flatten() {
+            let _ = button.borrow_mut().enable(true);
         }
 
         if let Some(window) = &self.window {
@@ -810,12 +806,11 @@ impl DisconnectMenu {
                     }
                 }
             }
-            WindowMessage::GadgetEditDone => {
-                if name == TEXT_ENTRY_CONTROL {
+            WindowMessage::GadgetEditDone
+                if name == TEXT_ENTRY_CONTROL => {
                     self.submit_chat();
                     return WindowMsgHandled::Handled;
                 }
-            }
             _ => {}
         }
 

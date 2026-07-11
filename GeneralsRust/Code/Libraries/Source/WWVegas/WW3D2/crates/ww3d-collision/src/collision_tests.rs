@@ -68,9 +68,7 @@ impl AABoxCollisionTest {
                 self.movement.y = temp;
 
                 // Swap x and y extents
-                let temp = self.aabb.extent.x;
-                self.aabb.extent.x = self.aabb.extent.y;
-                self.aabb.extent.y = temp;
+                std::mem::swap(&mut self.aabb.extent.x, &mut self.aabb.extent.y);
 
                 // Update sweep bounds
                 let min_x = self.sweep_min.x;
@@ -112,9 +110,7 @@ impl AABoxCollisionTest {
                 self.movement.y = -temp;
 
                 // Swap x and y extents
-                let temp = self.aabb.extent.x;
-                self.aabb.extent.x = self.aabb.extent.y;
-                self.aabb.extent.y = temp;
+                std::mem::swap(&mut self.aabb.extent.x, &mut self.aabb.extent.y);
 
                 // Update sweep bounds
                 let min_x = self.sweep_min.x;

@@ -351,6 +351,12 @@ pub struct SimpleGameEngine {
     name: String,
 }
 
+impl Default for SimpleGameEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleGameEngine {
     pub fn new() -> Self {
         Self {

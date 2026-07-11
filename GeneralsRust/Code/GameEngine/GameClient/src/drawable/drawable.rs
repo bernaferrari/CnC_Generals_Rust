@@ -494,6 +494,12 @@ pub struct IconInfo {
     pub keep_till_frame: HashMap<IconType, u32>,
 }
 
+impl Default for IconInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IconInfo {
     pub fn new() -> Self {
         Self {
@@ -831,6 +837,12 @@ pub enum EnvelopeState {
     Attack,
     Decay,
     Sustain,
+}
+
+impl Default for TintEnvelope {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TintEnvelope {
@@ -1333,6 +1345,7 @@ impl DrawModule for LogicDrawModuleSnapshotAdapter {
 /// This struct provides the same query interface using pre-loaded data from INI.
 /// When the full W3D system is ported, this will be replaced by actual HTree queries.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct BoneData {
     /// Map from bone name prefix to ordered list of (position, transform) pairs.
     /// Index in the Vec corresponds to the bone suffix (01, 02, ...).
@@ -1345,16 +1358,6 @@ pub struct BoneData {
     pub barrel_counts: [i32; 3],
 }
 
-impl Default for BoneData {
-    fn default() -> Self {
-        Self {
-            pristine_bones: HashMap::new(),
-            current_bones: HashMap::new(),
-            worldspace_bones: HashMap::new(),
-            barrel_counts: [0; 3],
-        }
-    }
-}
 
 impl BoneData {
     /// Create empty bone data with specified barrel counts.
@@ -1952,7 +1955,7 @@ impl BasicDrawable {
     /// Check if drawable has expired
     pub fn is_expired(&self, current_frame: u32) -> bool {
         self.expiration_frame
-            .map_or(false, |frame| current_frame >= frame)
+            .is_some_and(|frame| current_frame >= frame)
     }
 
     pub fn set_tint_status(&mut self, status: TintStatus) {
@@ -2059,9 +2062,9 @@ impl BasicDrawable {
     }
 
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
-        self.object_id.map_or(false, |obj_id| {
-            OBJECT_REGISTRY.get_object(obj_id).map_or(false, |obj_arc| {
-                obj_arc.read().map_or(false, |obj| obj.is_kind_of(kind))
+        self.object_id.is_some_and(|obj_id| {
+            OBJECT_REGISTRY.get_object(obj_id).is_some_and(|obj_arc| {
+                obj_arc.read().is_ok_and(|obj| obj.is_kind_of(kind))
             })
         })
     }
@@ -2638,7 +2641,7 @@ impl BasicDrawable {
                 let active = icon_info
                     .keep_till_frame
                     .get(&IconType::Emoticon)
-                    .map_or(false, |&frame| frame >= now);
+                    .is_some_and(|&frame| frame >= now);
                 self.overlay_data.show_emoticon = active;
                 if !active {
                     self.clear_emoticon();
@@ -2903,11 +2906,11 @@ impl BasicDrawable {
                 let expired_timed = icon_info
                     .keep_till_frame
                     .get(&IconType::BombTimed)
-                    .map_or(true, |&f| f <= now);
+                    .is_none_or(|&f| f <= now);
                 let expired_remote = icon_info
                     .keep_till_frame
                     .get(&IconType::BombRemote)
-                    .map_or(true, |&f| f <= now);
+                    .is_none_or(|&f| f <= now);
                 if expired_timed {
                     icon_info.clear_icon(IconType::BombTimed);
                 }
@@ -3475,7 +3478,7 @@ impl Drawable for BasicDrawable {
         }
         self.overlay_data.second_material_pass_opacity = self.second_material_pass_opacity;
 
-        if self.flash_count > 0 && (self.current_frame % DRAWABLE_FRAMES_PER_FLASH) == 0 {
+        if self.flash_count > 0 && self.current_frame.is_multiple_of(DRAWABLE_FRAMES_PER_FLASH) {
             self.color_flash_envelope(Some(self.flash_color), DEF_DECAY_FRAMES, 0, 0);
             self.flash_count = self.flash_count.saturating_sub(1);
         }

@@ -8,8 +8,7 @@ use game_network::commands::cpp_compat_serialization::{
 };
 use game_network::commands::{
     ChatData, CommandPayload, DisconnectVoteData, DisconnectVoteType, FileAnnouncementData,
-    FileProgressData, FrameInfoData, GameCommandData, NetCommandType, PlayerLeaveData,
-    PlayerLeaveReason, ProgressData, ProgressType, RunAheadMetricsData,
+    FileProgressData, FrameInfoData, GameCommandData, NetCommandType, PlayerLeaveData, ProgressData, ProgressType, RunAheadMetricsData,
 };
 use game_network::file_transfer::FileMetadata;
 use std::collections::HashMap;
@@ -550,7 +549,7 @@ fn test_all_parameter_types() {
         if let Some(game_network::commands::CommandParameter::Bool(v)) =
             data.parameters.get("bool_param")
         {
-            assert_eq!(*v, true);
+            assert!(*v);
         } else {
             panic!("bool_param not found or wrong type");
         }

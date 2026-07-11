@@ -784,12 +784,9 @@ impl OptionsMenu {
         if let Some(controls) = self.options.get_mut(&self.current_tab) {
             for control in controls {
                 if control.key == key {
-                    match &mut control.value {
-                        OptionValue::Boolean(val) => {
-                            *val = !*val;
-                            self.settings_modified = true;
-                        }
-                        _ => {}
+                    if let OptionValue::Boolean(val) = &mut control.value {
+                        *val = !*val;
+                        self.settings_modified = true;
                     }
                     info!(
                         "{}",

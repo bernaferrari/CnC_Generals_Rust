@@ -652,12 +652,12 @@ fn load_sides_list_fallback(
     body: &[u8],
     toc: &HashMap<u32, String>,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
-    let Some((sides_version, sides_payload)) = find_chunk_by_label(body, &toc, SIDES_LIST_LABEL)?
+    let Some((sides_version, sides_payload)) = find_chunk_by_label(body, toc, SIDES_LIST_LABEL)?
     else {
         return Ok(None);
     };
 
-    let script_lists = parse_script_lists_from_sides_chunk(sides_payload, &toc, sides_version)?;
+    let script_lists = parse_script_lists_from_sides_chunk(sides_payload, toc, sides_version)?;
     let total = count_scripts(&script_lists);
     info!(
         "Decoded {} script lists ({} scripts) from '{}' via SidesList fallback",

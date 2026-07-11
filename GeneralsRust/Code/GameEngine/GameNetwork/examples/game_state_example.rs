@@ -15,7 +15,7 @@
 //! cargo run --example game_state_example
 //! ```
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 // Re-export necessary types from the game_network crate
 // In a real implementation, you would import these
@@ -278,7 +278,7 @@ impl SimpleGameState {
                 }
                 UnitState::Gathering => {
                     // Gather resources every 10 frames
-                    if self.frame % 10 == 0 {
+                    if self.frame.is_multiple_of(10) {
                         if let Some(player) = self.players.get_mut(unit.owner as usize) {
                             player.resources += 10; // Gather 10 resources
                         }
@@ -478,7 +478,7 @@ impl SimpleGameState {
 
             GameCommand::UpgradeUnit {
                 unit_id,
-                upgrade_type,
+                upgrade_type: _,
             } => {
                 // Verify unit exists and belongs to player
                 if let Some(_unit) = self.units.get(unit_id) {

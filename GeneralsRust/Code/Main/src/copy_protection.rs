@@ -219,6 +219,12 @@ pub struct DevelopmentProvider {
     _process_id: u32,
 }
 
+impl Default for DevelopmentProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DevelopmentProvider {
     pub fn new() -> Self {
         Self {
@@ -269,6 +275,12 @@ pub struct ProductionProvider {
     process_id: u32,
     launcher_last_seen: Mutex<Option<SystemTime>>,
     message_queue: Mutex<VecDeque<LauncherMessage>>,
+}
+
+impl Default for ProductionProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProductionProvider {

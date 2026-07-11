@@ -248,19 +248,15 @@ impl MeshMatDesc {
         let mut hasher = DefaultHasher::new();
 
         // Hash polygon materials
-        for mat in &self.polygon_materials {
-            if let Some(ref m) = mat {
-                m.name.hash(&mut hasher);
-                Vec3Hashable(m.diffuse_color).hash(&mut hasher);
-            }
+        for m in self.polygon_materials.iter().flatten() {
+            m.name.hash(&mut hasher);
+            Vec3Hashable(m.diffuse_color).hash(&mut hasher);
         }
 
         // Hash textures
         for poly_textures in &self.polygon_textures {
-            for texture in poly_textures {
-                if let Some(ref t) = texture {
-                    t.name.hash(&mut hasher);
-                }
+            for t in poly_textures.iter().flatten() {
+                t.name.hash(&mut hasher);
             }
         }
 

@@ -402,17 +402,14 @@ impl Default for GeneralPersona {
 /// Matches C++ GameDifficulty enum (GameCommon.h lines 109-116)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
+#[derive(Default)]
 pub enum GameDifficulty {
     Easy = 0,
+    #[default]
     Normal = 1,
     Hard = 2,
 }
 
-impl Default for GameDifficulty {
-    fn default() -> Self {
-        GameDifficulty::Normal
-    }
-}
 
 /// Manager for Challenge Generals data and operations
 /// Matches C++ ChallengeGenerals class (ChallengeGenerals.h lines 99-128)

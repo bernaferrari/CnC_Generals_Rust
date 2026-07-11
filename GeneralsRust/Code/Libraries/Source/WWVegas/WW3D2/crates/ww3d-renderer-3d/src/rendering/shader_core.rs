@@ -6,6 +6,12 @@ pub struct ShaderManager {
     // Placeholder for shader management
 }
 
+impl Default for ShaderManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShaderManager {
     pub fn new() -> Self {
         Self {}

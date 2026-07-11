@@ -165,7 +165,7 @@ impl From<&GameInfo> for GameInfoSnapshot {
         let slots: Vec<GameSlotSnapshot> = (0..MAX_SLOTS)
             .map(|i| {
                 info.get_slot(i)
-                    .map(|s| GameSlotSnapshot::from(s))
+                    .map(GameSlotSnapshot::from)
                     .unwrap_or_else(|| GameSlotSnapshot::from(&GameSlot::new()))
             })
             .collect();

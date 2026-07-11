@@ -1,7 +1,7 @@
 //! Terrain Integration Test
 //! Verifies TerrainQuery implementation and PhysicsEngine integration
 
-use gamelogic::common::{Coord3D, Real};
+use gamelogic::common::Coord3D;
 use gamelogic::physics::{get_physics_engine, PhysicsState, PhysicsType, TerrainQuery};
 use gamelogic::terrain::{
     init_terrain_physics_integration, TerrainLogic, TerrainQueryWrapper, THE_TERRAIN_LOGIC,
@@ -26,7 +26,7 @@ fn test_terrain_query_trait_implementation() {
 
 #[test]
 fn test_terrain_query_wrapper() {
-    use std::sync::{Arc, RwLock};
+    
 
     // Create wrapper for global terrain instance
     let wrapper = TerrainQueryWrapper::new(THE_TERRAIN_LOGIC.clone());

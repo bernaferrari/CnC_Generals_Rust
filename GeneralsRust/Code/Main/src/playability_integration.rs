@@ -375,7 +375,7 @@ impl PlayabilityAuditSummary {
         let mut keys: Vec<String> = self
             .total_missing_reports
             .iter()
-            .filter_map(|(section, count)| (count > &0).then(|| section.clone()))
+            .filter(|&(_section, count)| count > &0).map(|(section, _count)| section.clone())
             .filter(|section| is_high_impact_subsystem(section, !self.network_deferred))
             .collect();
 
@@ -787,8 +787,8 @@ pub fn build_playability_audit(
                 continue;
             }
             let mut is_stale = false;
-            if verify_paths {
-                if matches!(
+            if verify_paths
+                && matches!(
                     row.status,
                     MappingStatus::Found | MappingStatus::FoundByBasename
                 ) {
@@ -809,7 +809,6 @@ pub fn build_playability_audit(
                         }
                     }
                 }
-            }
             increment_counts(&mut map, row.subsystem, row.kind, row.status, is_stale);
         }
     }

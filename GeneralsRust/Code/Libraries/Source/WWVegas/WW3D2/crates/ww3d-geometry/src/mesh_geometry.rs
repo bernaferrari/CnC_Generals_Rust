@@ -76,6 +76,12 @@ pub struct MeshGeometry {
     pub cull_tree: Option<AABTree>,
 }
 
+impl Default for MeshGeometry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MeshGeometry {
     pub fn new() -> Self {
         Self {
@@ -632,9 +638,9 @@ impl MeshGeometry {
 
         for triangle in &self.triangles {
             let edges = [
-                ((triangle.indices[0], triangle.indices[1])),
-                ((triangle.indices[1], triangle.indices[2])),
-                ((triangle.indices[2], triangle.indices[0])),
+                (triangle.indices[0], triangle.indices[1]),
+                (triangle.indices[1], triangle.indices[2]),
+                (triangle.indices[2], triangle.indices[0]),
             ];
 
             for (i0, i1) in edges {

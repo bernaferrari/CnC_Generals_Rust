@@ -317,11 +317,10 @@ impl CollisionSystem {
                 let candidates = self.spatial_hash.query_near(&query_aabb);
 
                 for static_obj in &self.static_objects {
-                    if candidates.contains(&static_obj.id) {
-                        if CollisionMath::aabb_intersect(&query_aabb, &static_obj.aabb) {
+                    if candidates.contains(&static_obj.id)
+                        && CollisionMath::aabb_intersect(&query_aabb, &static_obj.aabb) {
                             return Some(sphere_test.result);
                         }
-                    }
                 }
             }
             _ => {}

@@ -80,7 +80,7 @@ pub fn popup_communicator_input(
 
     let state_handle = popup_communicator_state();
     let guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let button_ok_id = guard.button_ok_id.unwrap_or(0) as u32;
+    let button_ok_id = guard.button_ok_id.unwrap_or(0);
 
     with_window_manager(|manager| {
         if let Some(handle) = manager.get_window_by_id(window.get_id()) {

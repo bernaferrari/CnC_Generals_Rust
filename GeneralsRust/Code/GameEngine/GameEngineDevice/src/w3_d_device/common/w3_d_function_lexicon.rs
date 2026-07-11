@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Name key type (matches C++ NameKeyType)
+/// Name key type (matches C++ `NameKeyType`)
 pub type NameKeyType = u32;
 
-/// Invalid name key value (matches C++ NAMEKEY_INVALID)
+/// Invalid name key value (matches C++ `NAMEKEY_INVALID`)
 pub const NAMEKEY_INVALID: NameKeyType = 0;
 
-/// Maximum name key value (matches C++ NAMEKEY_MAX)
+/// Maximum name key value (matches C++ `NAMEKEY_MAX`)
 pub const NAMEKEY_MAX: NameKeyType = 1 << 23;
 
 const SOCKET_COUNT: usize = 45_007;
@@ -86,7 +86,7 @@ pub struct FunctionPtr(pub *const ());
 unsafe impl Send for FunctionPtr {}
 unsafe impl Sync for FunctionPtr {}
 
-/// Function table entry (matches C++ FunctionLexicon::TableEntry)
+/// Function table entry (matches C++ `FunctionLexicon::TableEntry`)
 #[derive(Debug, Clone)]
 pub struct TableEntry {
     pub key: NameKeyType,
@@ -95,6 +95,7 @@ pub struct TableEntry {
 }
 
 impl TableEntry {
+    #[must_use]
     pub fn new(name: &'static str, func: Option<FunctionPtr>) -> Self {
         Self {
             key: NAMEKEY_INVALID,
@@ -104,7 +105,7 @@ impl TableEntry {
     }
 }
 
-/// Table indices (matches C++ FunctionLexicon::TableIndex)
+/// Table indices (matches C++ `FunctionLexicon::TableIndex`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum TableIndex {
@@ -134,6 +135,7 @@ pub struct FunctionLexicon {
 }
 
 impl FunctionLexicon {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tables: vec![Vec::new(); TableIndex::MaxFunctionTables as usize],
@@ -141,7 +143,7 @@ impl FunctionLexicon {
     }
 
     pub fn init(&mut self) {
-        with_name_key_state(|state| state.reset());
+        with_name_key_state(NameKeyGeneratorState::reset);
     }
 
     pub fn reset(&mut self) {
@@ -164,6 +166,7 @@ impl FunctionLexicon {
         }
     }
 
+    #[must_use]
     pub fn find_function(&self, key: NameKeyType, index: TableIndex) -> Option<FunctionPtr> {
         if key == NAMEKEY_INVALID {
             return None;
@@ -183,9 +186,10 @@ impl FunctionLexicon {
         }
     }
 
+    #[must_use]
     pub fn get_table(&self, index: TableIndex) -> Option<&[TableEntry]> {
         let idx = index.as_usize();
-        self.tables.get(idx).map(|table| table.as_slice())
+        self.tables.get(idx).map(std::vec::Vec::as_slice)
     }
 }
 
@@ -204,18 +208,19 @@ fn calc_hash(name: &str, lowercase: bool) -> usize {
         } else {
             byte
         };
-        result = result.wrapping_mul(33).wrapping_add(b as u32);
+        result = result.wrapping_mul(33).wrapping_add(u32::from(b));
     }
     (result as usize) % SOCKET_COUNT
 }
 
-/// W3D function lexicon (device-specific extension of FunctionLexicon).
+/// W3D function lexicon (device-specific extension of `FunctionLexicon`).
 #[derive(Debug, Default)]
 pub struct W3DFunctionLexicon {
     base: FunctionLexicon,
 }
 
 impl W3DFunctionLexicon {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             base: FunctionLexicon::new(),
@@ -235,10 +240,12 @@ impl W3DFunctionLexicon {
         self.base.update();
     }
 
+    #[must_use]
     pub fn find_function(&self, key: NameKeyType, index: TableIndex) -> Option<FunctionPtr> {
         self.base.find_function(key, index)
     }
 
+    #[must_use]
     pub fn get_table(&self, index: TableIndex) -> Option<&[TableEntry]> {
         self.base.get_table(index)
     }

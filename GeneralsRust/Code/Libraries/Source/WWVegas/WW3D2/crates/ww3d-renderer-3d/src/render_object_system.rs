@@ -671,21 +671,13 @@ fn obbox_corners(box_obj: &OBBoxClass) -> [Vec3; 8] {
 
 /// Material info class
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MaterialInfoClass {
     pub vertex_materials: Vec<crate::material_system::VertexMaterialClass>,
     pub textures: Vec<Arc<crate::texture_system::TextureClass>>,
     pub passes: Vec<MaterialPassClass>,
 }
 
-impl Default for MaterialInfoClass {
-    fn default() -> Self {
-        Self {
-            vertex_materials: Vec::new(),
-            textures: Vec::new(),
-            passes: Vec::new(),
-        }
-    }
-}
 
 /// Material pass class
 // Use the unified MaterialPassClass from material_system
@@ -817,7 +809,7 @@ impl DecalGeneratorClass {
         }
         if let Ok(mut handles) = self.mesh_handles.lock() {
             let address = mesh_ptr as usize;
-            if !handles.iter().any(|&existing| existing == address) {
+            if !handles.contains(&address) {
                 handles.push(address);
             }
         }
@@ -892,7 +884,7 @@ impl Drop for DecalGeneratorClass {
                 let mesh_ptr = address as *mut MeshClass;
 
                 // Additional safety: only dereference if pointer is properly aligned
-                if mesh_ptr as usize % std::mem::align_of::<MeshClass>() != 0 {
+                if !(mesh_ptr as usize).is_multiple_of(std::mem::align_of::<MeshClass>()) {
                     continue;
                 }
 

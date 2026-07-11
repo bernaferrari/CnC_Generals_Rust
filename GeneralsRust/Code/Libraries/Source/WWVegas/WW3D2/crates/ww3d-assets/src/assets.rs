@@ -39,7 +39,7 @@ impl PrototypeClassRegistry {
         self.name_to_id.insert(key.clone(), class_id);
         self.id_to_names
             .entry(class_id)
-            .or_insert_with(BTreeSet::new)
+            .or_default()
             .insert(key);
     }
 
@@ -81,6 +81,12 @@ pub struct AssetManager {
     dazzle_library: DazzleLibrary,
     sound_objects: HashMap<String, SoundRenderObject>,
     class_registry: PrototypeClassRegistry,
+}
+
+impl Default for AssetManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AssetManager {
@@ -197,7 +203,7 @@ impl AssetManager {
                 let info = AnimationNameInfo::new(&candidate.name);
                 let base_score = Self::animation_base_score(&info, candidate);
                 AnimationCandidate {
-                    proto: *candidate,
+                    proto: candidate,
                     info,
                     base_score,
                 }
@@ -1116,14 +1122,10 @@ mod tests {
 
         for (prefix, expected) in expectations {
             let mut manager = AssetManager::new();
-            match load_prefix_assets(&mut manager, &data_root, prefix)
-                .with_context(|| format!("loading assets for {prefix}"))
-            {
-                Err(e) => {
-                    eprintln!("Skipping {prefix}: {}", e);
-                    continue;
-                }
-                Ok(_) => {}
+            if let Err(e) = load_prefix_assets(&mut manager, &data_root, prefix)
+                .with_context(|| format!("loading assets for {prefix}")) {
+                eprintln!("Skipping {prefix}: {}", e);
+                continue;
             }
 
             let hierarchy =
@@ -1402,7 +1404,7 @@ impl<'a> Iterator for RenderPrototypeIter<'a> {
     type Item = (&'a str, RenderObjClassId);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((name, prototype)) = self.inner.next() {
+        for (name, prototype) in self.inner.by_ref() {
             if let Some(class_id) = prototype.class_id() {
                 return Some((name.as_str(), class_id));
             }

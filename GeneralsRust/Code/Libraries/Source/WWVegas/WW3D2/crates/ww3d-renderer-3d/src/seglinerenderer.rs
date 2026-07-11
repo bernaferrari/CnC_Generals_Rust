@@ -252,7 +252,7 @@ impl SegLineRenderer {
         let shader = if self.opacity() < 1.0 {
             ShaderClass::get_alpha_shader()
         } else {
-            self.shader.clone()
+            self.shader
         };
         pass.shader = shader;
         pass.diffuse_vertex_colors = Some(vertex_colors);
@@ -294,5 +294,5 @@ impl Default for SegLineRenderer {
 
 fn pseudo_noise(index: u32, axis: u32, time: f32) -> f32 {
     let seed = (index as f32 * 12.9898) + (axis as f32 * 78.233) + time * 37.719;
-    (seed.sin() * 43758.5453).fract()
+    (seed.sin() * 43_758.547).fract()
 }

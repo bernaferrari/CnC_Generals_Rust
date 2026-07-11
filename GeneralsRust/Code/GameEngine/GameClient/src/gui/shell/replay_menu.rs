@@ -348,11 +348,7 @@ impl ReplayHeader {
 
     /// Get replay duration in seconds
     pub fn get_duration_seconds(&self) -> u64 {
-        if self.end_time > self.start_time {
-            self.end_time - self.start_time
-        } else {
-            0
-        }
+        self.end_time.saturating_sub(self.start_time)
     }
 
     /// Format duration as MM:SS

@@ -45,10 +45,10 @@ fn test_rendering_clear_color_white() {
     let a = 1.0;
 
     // Color values should be valid
-    assert!(r >= 0.0 && r <= 1.0);
-    assert!(g >= 0.0 && g <= 1.0);
-    assert!(b >= 0.0 && b <= 1.0);
-    assert!(a >= 0.0 && a <= 1.0);
+    assert!((0.0..=1.0).contains(&r));
+    assert!((0.0..=1.0).contains(&g));
+    assert!((0.0..=1.0).contains(&b));
+    assert!((0.0..=1.0).contains(&a));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_rendering_clear_color_transparent() {
     let alpha = 0.5;
 
     // Transparency should be valid
-    assert!(alpha >= 0.0 && alpha <= 1.0);
+    assert!((0.0..=1.0).contains(&alpha));
 }
 
 #[test]

@@ -505,6 +505,12 @@ pub struct AssetDependencyResolver {
     reverse_dependencies: HashMap<PathBuf, Vec<PathBuf>>,
 }
 
+impl Default for AssetDependencyResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AssetDependencyResolver {
     pub fn new() -> Self {
         Self {
@@ -517,12 +523,12 @@ impl AssetDependencyResolver {
     pub fn add_dependency(&mut self, asset: PathBuf, depends_on: PathBuf) {
         self.dependency_graph
             .entry(asset.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(depends_on.clone());
 
         self.reverse_dependencies
             .entry(depends_on)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(asset);
     }
 

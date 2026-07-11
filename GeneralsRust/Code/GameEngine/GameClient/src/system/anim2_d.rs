@@ -379,6 +379,12 @@ pub struct Anim2DCollection {
     instances: Vec<Weak<Mutex<Anim2D>>>,
 }
 
+impl Default for Anim2DCollection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Anim2DCollection {
     pub fn new() -> Self {
         Self {

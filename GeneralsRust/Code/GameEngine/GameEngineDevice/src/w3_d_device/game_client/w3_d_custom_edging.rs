@@ -20,6 +20,7 @@ pub struct Region2D {
 
 impl Region2D {
     /// Construct a UV region.
+    #[must_use]
     pub fn new(lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) -> Self {
         Self {
             lo: Coord2D { x: lo_x, y: lo_y },
@@ -28,11 +29,13 @@ impl Region2D {
     }
 
     /// Region width.
+    #[must_use]
     pub fn width(self) -> f32 {
         self.hi.x - self.lo.x
     }
 
     /// Region height.
+    #[must_use]
     pub fn height(self) -> f32 {
         self.hi.y - self.lo.y
     }
@@ -240,6 +243,7 @@ pub struct CustomEdgingDrawPlan<'a> {
 
 impl CustomEdgingDrawPlan<'_> {
     /// Whether there is anything to render.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.passes.is_empty()
     }
@@ -256,6 +260,7 @@ pub struct W3DCustomEdging {
 
 impl W3DCustomEdging {
     /// Construct and initialize the edging buffer.
+    #[must_use]
     pub fn new() -> Self {
         let mut edging = Self {
             vertices: Vec::with_capacity(MAX_EDGE_VERTEX),
@@ -518,16 +523,19 @@ impl W3DCustomEdging {
     }
 
     /// Current vertices.
+    #[must_use]
     pub fn vertices(&self) -> &[CustomEdgingVertex] {
         &self.vertices
     }
 
     /// Current indices.
+    #[must_use]
     pub fn indices(&self) -> &[u16] {
         &self.indices
     }
 
     /// Whether geometry is dirty.
+    #[must_use]
     pub fn anything_changed(&self) -> bool {
         self.anything_changed
     }
@@ -566,11 +574,7 @@ mod tests {
         }
 
         fn blend_tile_index(&self, x: i32, y: i32) -> i32 {
-            if x == 1 && y == 1 {
-                1
-            } else {
-                0
-            }
+            i32::from(x == 1 && y == 1)
         }
 
         fn blend_tile(&self, index: i32) -> Option<CustomBlendTile> {

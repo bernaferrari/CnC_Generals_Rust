@@ -83,7 +83,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
     let height = header.height as u32;
 
     let bytes_per_pixel: u32 = match header.bits_per_pixel {
-        8 | 16 | 24 | 32 => (header.bits_per_pixel as u32 + 7) / 8,
+        8 | 16 | 24 | 32 => (header.bits_per_pixel as u32).div_ceil(8),
         _ => {
             return Err(Error::InvalidData(format!(
                 "Unsupported TGA bit depth: {}",
@@ -98,7 +98,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
         let color_map_length =
             u16::from_le_bytes([header.color_map_spec[2], header.color_map_spec[3]]);
         let color_map_entry_size = header.color_map_spec[4];
-        let color_map_size = (color_map_length as u32 * color_map_entry_size as u32 + 7) / 8;
+        let color_map_size = (color_map_length as u32 * color_map_entry_size as u32).div_ceil(8);
         cursor.set_position(cursor.position() + color_map_size as u64);
     }
     let pixel_data_start = cursor.position() as usize;
@@ -117,7 +117,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
             let cmap_start_idx =
                 u16::from_le_bytes([header.color_map_spec[0], header.color_map_spec[1]]) as usize;
             let cmap_entry_bits = header.color_map_spec[4];
-            let cmap_bytes_per_entry = (cmap_entry_bits as usize + 7) / 8;
+            let cmap_bytes_per_entry = (cmap_entry_bits as usize).div_ceil(8);
 
             let indices = if header.image_type == tga_type::UNCOMPRESSED_COLOR_MAPPED {
                 load_uncompressed_tga(&mut cursor, width, height, bytes_per_pixel)?

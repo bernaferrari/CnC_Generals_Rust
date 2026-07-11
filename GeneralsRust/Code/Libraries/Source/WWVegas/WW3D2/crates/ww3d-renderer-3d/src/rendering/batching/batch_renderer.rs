@@ -356,7 +356,7 @@ impl BatchRenderer {
         let batches = self
             .instanced_batches
             .entry(material.clone())
-            .or_insert_with(Vec::new);
+            .or_default();
 
         // Try to find a batch that matches this mesh
         // In production, would use mesh hash to find matching batches

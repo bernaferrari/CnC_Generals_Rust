@@ -160,7 +160,7 @@ impl DynamicMeshModel {
     pub fn set_single_shader(&mut self, shader: ShaderClass, pass: usize) {
         if pass < self.pass_count {
             for poly_idx in 0..self.max_poly_count {
-                self.shaders[pass][poly_idx] = shader.clone();
+                self.shaders[pass][poly_idx] = shader;
             }
         }
     }
@@ -420,7 +420,7 @@ impl DynamicMeshClass {
 
     /// Check if face needs to be flipped for strip winding
     fn should_flip_face(&self) -> bool {
-        !(self.tri_vertex_count & 1 != 0)
+        self.tri_vertex_count & 1 == 0
     }
 
     /// End triangle strip
@@ -491,12 +491,12 @@ impl DynamicMeshClass {
 
     /// Get object space bounding sphere
     pub fn get_obj_space_bounding_sphere(&mut self) -> SphereClass {
-        self.model.get_bounding_sphere().clone()
+        *self.model.get_bounding_sphere()
     }
 
     /// Get object space bounding box
     pub fn get_obj_space_bounding_box(&mut self) -> AABoxClass {
-        self.model.get_bounding_box().clone()
+        *self.model.get_bounding_box()
     }
 
     /// Set transform

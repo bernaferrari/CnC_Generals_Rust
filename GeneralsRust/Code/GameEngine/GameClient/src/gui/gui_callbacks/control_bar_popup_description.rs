@@ -360,7 +360,7 @@ fn populate_layout_for_window(layout: &Rc<RefCell<WindowLayout>>, tooltip_window
             .and_then(|player| player.read().ok())
             .map(|guard| {
                 let energy = guard.get_energy();
-                (energy.production() as i32, energy.consumption() as i32)
+                (energy.production(), energy.consumption())
             })
             .unwrap_or((0, 0));
         description = format_template(&description, &[prod.to_string(), cons.to_string()]);

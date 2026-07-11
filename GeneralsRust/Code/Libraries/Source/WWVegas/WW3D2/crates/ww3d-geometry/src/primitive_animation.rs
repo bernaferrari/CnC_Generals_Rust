@@ -379,7 +379,7 @@ impl AnimationController {
         self.current_time += delta_time * self.speed;
 
         if self.looping && self.duration > 0.0 {
-            self.current_time = self.current_time % self.duration;
+            self.current_time %= self.duration;
         } else if self.current_time > self.duration {
             self.current_time = self.duration;
         }

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{info, instrument, trace, warn};
 
 use ww3d_engine::FrameTiming;
 
@@ -230,7 +230,7 @@ impl DiagnosticsSystem {
 
     async fn calculate_engine_health(&self) -> IntegrationResult<f64> {
         // Engine health based on overall system stability
-        let uptime_minutes = self.diagnostics.uptime.as_secs() / 60;
+        let _uptime_minutes = self.diagnostics.uptime.as_secs() / 60;
         let base_health = 100.0;
 
         // Reduce health based on error counts
@@ -470,7 +470,7 @@ impl DiagnosticsSystem {
         // Simplified heap usage estimation
         // In a real implementation, this would query the memory allocator
         let base_usage = 512; // Base heap usage in MB
-        let uptime_factor = (self.diagnostics.uptime.as_secs() / 60) as u64; // Grow with uptime
+        let uptime_factor = self.diagnostics.uptime.as_secs() / 60; // Grow with uptime
 
         Ok(base_usage + uptime_factor)
     }

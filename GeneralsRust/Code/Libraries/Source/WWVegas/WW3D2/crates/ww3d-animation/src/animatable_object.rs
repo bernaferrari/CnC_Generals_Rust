@@ -87,15 +87,11 @@ impl Default for ModeInterpData {
 /// Multiple animation blend state (combo)
 /// Reference: animobj.h:65-68
 #[derive(Debug, Clone)]
+#[derive(Default)]
 struct ModeComboData {
     anim_combo: Option<HAnimCombo>,
 }
 
-impl Default for ModeComboData {
-    fn default() -> Self {
-        Self { anim_combo: None }
-    }
-}
 
 /// Animatable 3D object with hierarchical animation support
 /// This is a direct port of C++ Animatable3DObjClass
@@ -291,8 +287,8 @@ impl Animatable3DObjClass {
             let count = combo.num_anims();
             for index in 0..count {
                 if let Some(motion) = combo.peek_motion(index) {
-                    if has_embedded_sounds(&motion) {
-                        if let Some(bone_name) = embedded_sound_bone(&motion) {
+                    if has_embedded_sounds(motion) {
+                        if let Some(bone_name) = embedded_sound_bone(motion) {
                             if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                 let _ = bone_index; // Will be used in update
                             }
@@ -462,8 +458,8 @@ impl Animatable3DObjClass {
                     let count = combo.num_anims();
                     for index in 0..count {
                         if let Some(motion) = combo.peek_motion(index) {
-                            if has_embedded_sounds(&motion) {
-                                if let Some(bone_name) = embedded_sound_bone(&motion) {
+                            if has_embedded_sounds(motion) {
+                                if let Some(bone_name) = embedded_sound_bone(motion) {
                                     if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                         if let Some(bone_transform) =
                                             self.htree.get_transform(bone_index)
@@ -473,7 +469,7 @@ impl Animatable3DObjClass {
                                                 combo.get_frame(index),
                                             ) {
                                                 let _new_prev_frame = trigger_sound(
-                                                    &motion,
+                                                    motion,
                                                     prev_frame,
                                                     current_frame,
                                                     &bone_transform,
@@ -545,8 +541,8 @@ impl Animatable3DObjClass {
         let mut frame = self.mode_anim.frame;
         let mut direction = self.mode_anim.anim_direction;
 
-        if self.cur_motion_mode == MotionMode::SingleAnim {
-            if self.mode_anim.anim_mode != AnimationMode::Manual {
+        if self.cur_motion_mode == MotionMode::SingleAnim
+            && self.mode_anim.anim_mode != AnimationMode::Manual {
                 if let Some(ref motion) = self.mode_anim.motion {
                     // Calculate frame delta from time
                     // Reference: animobj.cpp:904-906
@@ -619,7 +615,6 @@ impl Animatable3DObjClass {
                     }
                 }
             }
-        }
 
         (frame, direction)
     }
@@ -670,17 +665,13 @@ impl Animatable3DObjClass {
         &self,
     ) -> Option<(Arc<HAnimClass>, f32, u32, AnimationMode, f32)> {
         if self.cur_motion_mode == MotionMode::SingleAnim {
-            if let Some(ref motion) = self.mode_anim.motion {
-                Some((
+            self.mode_anim.motion.as_ref().map(|motion| (
                     motion.clone(),
                     self.mode_anim.frame,
                     motion.num_frames,
                     self.mode_anim.anim_mode,
                     self.mode_anim.frame_rate_multiplier,
                 ))
-            } else {
-                None
-            }
         } else {
             None
         }
@@ -694,11 +685,10 @@ impl Animatable3DObjClass {
 
     /// Update animation (call this every frame)
     pub fn update(&mut self, _delta_time: f32, sync_time: f64) {
-        if self.cur_motion_mode == MotionMode::SingleAnim {
-            if self.mode_anim.anim_mode != AnimationMode::Manual {
+        if self.cur_motion_mode == MotionMode::SingleAnim
+            && self.mode_anim.anim_mode != AnimationMode::Manual {
                 self.single_anim_progress(sync_time);
             }
-        }
 
         if !self.is_tree_valid {
             self.update_sub_object_transforms();

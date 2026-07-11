@@ -543,7 +543,7 @@ impl ControlBarCommandProcessor {
             .copied()
             .unwrap_or(0);
 
-        let upgrade_key = upgrade_template.get_name_key() as u32;
+        let upgrade_key = upgrade_template.get_name_key();
         if let Ok(mut stream) = get_message_stream().write() {
             stream.append_message(GameMessageType::QueueUpgrade(upgrade_key));
             let _ = obj_id;
@@ -566,7 +566,7 @@ impl ControlBarCommandProcessor {
             return false;
         };
 
-        let sp_id = sp_template.get_id() as u32;
+        let sp_id = sp_template.get_id();
         let options = logic_button.get_options_bits();
         let source_obj_id = selected_objects_for_local_player()
             .first()
@@ -603,21 +603,19 @@ pub fn get_command_availability(
         return CommandAvailability::Restricted;
     }
 
-    if (button.options & CommandOption::MustBeStopped as u32) != 0 {
-        if obj.is_moving() {
+    if (button.options & CommandOption::MustBeStopped as u32) != 0
+        && obj.is_moving() {
             return CommandAvailability::Restricted;
         }
-    }
 
     if (button.options & CommandOption::NeedUpgrade as u32) != 0 {
         // Upgrade template check requires button -> template resolution
     }
 
-    if (button.options & CommandOption::NotQueueable as u32) != 0 {
-        if obj.has_production_in_queue() {
+    if (button.options & CommandOption::NotQueueable as u32) != 0
+        && obj.has_production_in_queue() {
             return CommandAvailability::Restricted;
         }
-    }
 
     match button.command_type {
         CommandType::DozerConstruct => {

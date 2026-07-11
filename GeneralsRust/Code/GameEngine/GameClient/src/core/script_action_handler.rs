@@ -434,6 +434,12 @@ pub fn set_script_fps_limit(fps: i32) {
 
 pub struct GameClientScriptActionHandler;
 
+impl Default for GameClientScriptActionHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameClientScriptActionHandler {
     pub fn new() -> Self {
         Self
@@ -537,7 +543,7 @@ impl GameClientScriptActionHandler {
         let subtitle_label = format!("DIALOGEVENT:{name}Subtitle");
         let subtitle = GameText::fetch(&subtitle_label);
         let fallback = format!("LOC:{subtitle_label}");
-        if subtitle.is_empty() || subtitle.chars().next() == Some('*') || subtitle == fallback {
+        if subtitle.is_empty() || subtitle.starts_with('*') || subtitle == fallback {
             return;
         }
         TheInGameUI::military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS);
@@ -599,7 +605,7 @@ impl GameClientScriptActionHandler {
 
 impl ScriptActionHandler for GameClientScriptActionHandler {
     fn set_border_shroud_level(&self, _level: u8) -> GameLogicResult<()> {
-        if !with_script_display(|display| display.set_border_shroud_level(_level)).is_some() {
+        if with_script_display(|display| display.set_border_shroud_level(_level)).is_none() {
             // For fallback or non-visual environments, keep the action no-op rather than fail.
             // A dedicated terrain compositor path will consume this value later.
         }

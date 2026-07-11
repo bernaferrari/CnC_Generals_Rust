@@ -299,7 +299,7 @@ impl Render2DGpuContext {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&*sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         })

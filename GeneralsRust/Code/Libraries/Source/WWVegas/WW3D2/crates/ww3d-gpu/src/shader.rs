@@ -33,7 +33,7 @@ pub mod shift {
 /// Bit mask constants for shader state
 /// C++ Reference: shader.h lines 233-249
 mod mask {
-    pub const DEPTHCOMPARE: u32 = 7 << 0;
+    pub const DEPTHCOMPARE: u32 = 7;
     pub const DEPTHMASK: u32 = 1 << 3;
     pub const COLORMASK: u32 = 1 << 4;
     pub const DSTBLEND: u32 = 7 << 5;
@@ -339,7 +339,7 @@ impl Shader {
 
     pub fn get_depth_compare(&self) -> DepthCompareType {
         let value = (self.shader_bits & mask::DEPTHCOMPARE) >> shift::DEPTHCOMPARE;
-        DepthCompareType::from_u32(value as u32)
+        DepthCompareType::from_u32(value)
     }
 
     pub fn get_depth_mask(&self) -> DepthMaskType {
@@ -999,15 +999,14 @@ impl Shader {
                     self.set_primary_gradient(PriGradientType::Modulate);
                 }
             }
-            PriGradientType::BumpEnvMapLuminance => {
+            PriGradientType::BumpEnvMapLuminance
                 // C++ Reference: shader.cpp lines 621-639
                 // if (TextureOpCaps & D3DTEXOPCAPS_BUMPENVMAPLUMINANCE) { use bump map }
                 // else { fallback to vertex color only }
-                if !caps.supports_feature(GpuFeature::TexOpBumpEnvMapLuminance) {
+                if !caps.supports_feature(GpuFeature::TexOpBumpEnvMapLuminance) => {
                     // Fallback: disable texturing and use vertex color
                     self.set_primary_gradient(PriGradientType::Modulate);
                 }
-            }
             _ => {
                 // Disable, Modulate - always supported
             }

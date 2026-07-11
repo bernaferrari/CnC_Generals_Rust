@@ -84,9 +84,9 @@ impl LODManager {
         let angular_size = 2.0 * (sphere_radius / distance).atan();
 
         // Convert to screen space pixels
-        let screen_space_size = (angular_size / fov_y) * screen_height;
+        
 
-        screen_space_size
+        (angular_size / fov_y) * screen_height
     }
 }
 

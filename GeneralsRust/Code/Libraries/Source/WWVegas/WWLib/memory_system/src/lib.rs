@@ -166,7 +166,7 @@ impl MemoryPoolBlob {
     /// Free a block in this blob
     fn free_block(&mut self, block_ptr: *mut u8) -> bool {
         let block_offset = unsafe { block_ptr.offset_from(self.memory) } as usize;
-        if block_offset % self.block_size != 0 {
+        if !block_offset.is_multiple_of(self.block_size) {
             return false; // Invalid block pointer
         }
 
@@ -323,7 +323,7 @@ impl MemoryPool {
             self.overflow_allocation_count
         };
 
-        let mut new_blob = MemoryPoolBlob::new(self.allocation_size, allocation_count)?;
+        let new_blob = MemoryPoolBlob::new(self.allocation_size, allocation_count)?;
         self.total_blocks_in_pool += allocation_count;
 
         // Link the new blob into the list
@@ -361,8 +361,7 @@ impl MemoryPool {
         while let Some(blob) = current_blob {
             if blob.memory <= block_ptr
                 && block_ptr < unsafe { blob.memory.add(blob.block_size * blob.block_count) }
-            {
-                if blob.free_block(block_ptr) {
+                && blob.free_block(block_ptr) {
                     self.used_blocks_in_pool -= 1;
 
                     // Update first_blob_with_free_blocks if needed
@@ -373,7 +372,6 @@ impl MemoryPool {
 
                     return true;
                 }
-            }
             current_blob = blob.next_blob.as_mut();
         }
 

@@ -540,7 +540,7 @@ impl WgpuWrapper {
 
     /// Bind a shader for upcoming draw calls.
     pub fn set_shader(&mut self, shader: &ShaderClass) {
-        self.render_state.shader = Some(Arc::new(shader.clone()));
+        self.render_state.shader = Some(Arc::new(*shader));
         self.render_state_changed
             .insert(ChangedStates::SHADER_CHANGED);
     }
@@ -734,8 +734,7 @@ impl WgpuWrapper {
             );
             let vertex_buffer = self
                 .render_state
-                .vertex_buffers
-                .get(0)
+                .vertex_buffers.first()
                 .and_then(|vb| vb.clone());
             let index_buffer = self.render_state.index_buffer.clone();
             let vertex_buffer_handle = vertex_buffer.as_ref().map(|vb| vb.buffer().clone());
@@ -894,8 +893,7 @@ impl WgpuWrapper {
 
         let vertex_buffer_handle = self
             .render_state
-            .vertex_buffers
-            .get(0)
+            .vertex_buffers.first()
             .and_then(|vb| vb.clone())
             .map(|vb| vb.buffer().clone());
 

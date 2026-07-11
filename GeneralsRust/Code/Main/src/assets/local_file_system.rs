@@ -308,8 +308,7 @@ impl LocalFileSystem {
         }
 
         // Handle simple wildcard patterns like "*.txt"
-        if pattern.starts_with("*.") {
-            let extension = &pattern[2..];
+        if let Some(extension) = pattern.strip_prefix("*.") {
             let filename_lower = if self.case_sensitive {
                 filename.to_string()
             } else {
@@ -385,7 +384,7 @@ impl LocalFileSystem {
 
         if full_path.is_file() {
             if let Some(filename) = full_path.file_name().and_then(|n| n.to_str()) {
-                if pattern.map_or(true, |p| self.matches_pattern(filename, p)) {
+                if pattern.is_none_or(|p| self.matches_pattern(filename, p)) {
                     files.push(full_path);
                 }
             }
@@ -401,7 +400,7 @@ impl LocalFileSystem {
 
                 if entry_path.is_file() {
                     if let Some(filename) = entry_path.file_name().and_then(|n| n.to_str()) {
-                        if pattern.map_or(true, |p| self.matches_pattern(filename, p)) {
+                        if pattern.is_none_or(|p| self.matches_pattern(filename, p)) {
                             files.push(entry_path);
                         }
                     }

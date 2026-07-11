@@ -273,7 +273,7 @@ fn parse_bit_channel_chunk<R: Read + Seek>(
     let channel_struct: W3dBitChannelStruct = reader.read_le()?;
 
     let num_frames = (channel_struct.last_frame - channel_struct.first_frame + 1) as usize;
-    let num_bytes = ((num_frames + 7) / 8).max(1);
+    let num_bytes = num_frames.div_ceil(8).max(1);
     let mut data = Vec::with_capacity(num_bytes);
     data.push(channel_struct.data[0]);
     if num_bytes > 1 {
@@ -377,13 +377,12 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
                     max_pivot_index = max_pivot_index.max(pivot_index as u32);
                 }
             }
-            Some(W3DChunkType::CompressedBitChannel) => {
-                if chunk_size >= 6 {
+            Some(W3DChunkType::CompressedBitChannel)
+                if chunk_size >= 6 => {
                     let _num_timecodes: u32 = reader.read_le()?;
                     let pivot_index: u16 = reader.read_le()?;
                     max_pivot_index = max_pivot_index.max(pivot_index as u32);
                 }
-            }
             _ => {}
         }
 

@@ -38,11 +38,11 @@ async fn test_all_message_types_roundtrip() {
     for (name, command) in test_cases {
         let serialized = codec
             .serialize(&command)
-            .expect(&format!("{} serialization failed", name));
+            .unwrap_or_else(|_| panic!("{} serialization failed", name));
 
         let deserialized = codec
             .deserialize(&serialized)
-            .expect(&format!("{} deserialization failed", name));
+            .unwrap_or_else(|_| panic!("{} deserialization failed", name));
 
         assert_eq!(
             command.command_type, deserialized.command_type,

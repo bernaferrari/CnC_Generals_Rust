@@ -127,7 +127,7 @@ impl GameState {
         // Remove dead objects
         self.objects.retain(|_, obj| obj.is_alive());
 
-        if self.frame_count % 60 == 0 {
+        if self.frame_count.is_multiple_of(60) {
             println!(
                 "Frame {}: {} objects alive",
                 self.frame_count,

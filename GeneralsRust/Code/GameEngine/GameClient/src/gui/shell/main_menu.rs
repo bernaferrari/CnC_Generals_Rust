@@ -243,6 +243,7 @@ pub type MainMenuResult<T> = Result<T, MainMenuError>;
 /// Window IDs for main menu buttons and windows
 /// Matches C++ static NameKeyType variables (lines 90-123)
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct WindowIds {
     pub main_menu_id: u32,
     pub skirmish_id: u32,
@@ -279,45 +280,6 @@ pub struct WindowIds {
     pub button_diff_back_id: u32,
 }
 
-impl Default for WindowIds {
-    fn default() -> Self {
-        Self {
-            main_menu_id: 0,
-            skirmish_id: 0,
-            online_id: 0,
-            network_id: 0,
-            options_id: 0,
-            exit_id: 0,
-            motd_id: 0,
-            world_builder_id: 0,
-            get_update_id: 0,
-            button_training_id: 0,
-            button_challenge_id: 0,
-            button_usa_id: 0,
-            button_gla_id: 0,
-            button_china_id: 0,
-            button_usa_recent_save_id: 0,
-            button_usa_load_game_id: 0,
-            button_gla_recent_save_id: 0,
-            button_gla_load_game_id: 0,
-            button_china_recent_save_id: 0,
-            button_china_load_game_id: 0,
-            button_single_player_id: 0,
-            button_multi_player_id: 0,
-            button_multi_back_id: 0,
-            button_single_back_id: 0,
-            button_load_replay_back_id: 0,
-            button_replay_id: 0,
-            button_load_replay_id: 0,
-            button_load_id: 0,
-            button_credits_id: 0,
-            button_easy_id: 0,
-            button_medium_id: 0,
-            button_hard_id: 0,
-            button_diff_back_id: 0,
-        }
-    }
-}
 
 // ================================================================================================
 // DISPLAY SETTINGS
@@ -768,11 +730,10 @@ impl MainMenu {
         }
 
         // Handle transitions - matches C++ lines 847-848
-        if state.dont_allow_transitions {
-            if self.transitions_finished() {
+        if state.dont_allow_transitions
+            && self.transitions_finished() {
                 state.dont_allow_transitions = false;
             }
-        }
 
         // Show logo logic - matches C++ lines 850-878
         if state.show_logo && !state.dont_allow_transitions {
@@ -813,22 +774,20 @@ impl MainMenu {
         update_gamespy_overlays();
 
         // Check if we should start the game - matches C++ lines 933-936
-        if state.start_game {
-            if get_shell().is_anim_finished() && self.transitions_finished() {
+        if state.start_game
+            && get_shell().is_anim_finished() && self.transitions_finished() {
                 self.do_game_start(&mut state)?;
             }
-        }
 
         // Check if shutdown is complete - matches C++ lines 939-942
-        if state.is_shutting_down {
-            if get_shell().is_anim_finished() && self.transitions_finished() {
+        if state.is_shutting_down
+            && get_shell().is_anim_finished() && self.transitions_finished() {
                 self.finish_shutdown_complete(Some(layout), &mut state)?;
                 drop(state);
                 self.complete_shell_shutdown()?;
                 log::info!("Main menu shutdown complete");
                 return Ok(());
             }
-        }
 
         pending_actions.append(&mut state.pending_actions);
         drop(state);
@@ -883,12 +842,11 @@ impl MainMenu {
             }
 
             // GWM_CHAR - matches C++ lines 996-1009
-            GWM_CHAR => {
-                if state.not_shown {
+            GWM_CHAR
+                if state.not_shown => {
                     self.reveal_hidden_main_menu(&mut state);
                     return true; // MSG_HANDLED
                 }
-            }
 
             _ => {}
         }
@@ -1373,7 +1331,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Single;
-            self.show_only_dropdown(&state, DropdownType::Single);
+            self.show_only_dropdown(state, DropdownType::Single);
             self.transition_remove("MainMenuDefaultMenu", false);
             self.transition_reverse("MainMenuDefaultMenuBack");
             self.transition_set_group("MainMenuSinglePlayerMenu", false);
@@ -1385,7 +1343,7 @@ impl MainMenu {
             }
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(&state, DropdownType::Main);
+            self.show_only_dropdown(state, DropdownType::Main);
             self.transition_remove("MainMenuSinglePlayerMenu", false);
             self.transition_reverse("MainMenuSinglePlayerMenuBack");
             self.transition_set_group("MainMenuDefaultMenu", false);
@@ -1399,7 +1357,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(&state, DropdownType::Main);
+            self.show_only_dropdown(state, DropdownType::Main);
             self.transition_remove("MainMenuMultiPlayerMenu", false);
             self.transition_reverse("MainMenuMultiPlayerMenuReverse");
             self.transition_set_group("MainMenuDefaultMenu", false);
@@ -1412,7 +1370,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(&state, DropdownType::Main);
+            self.show_only_dropdown(state, DropdownType::Main);
             self.transition_remove("MainMenuLoadReplayMenu", false);
             self.transition_reverse("MainMenuLoadReplayMenuBack");
             self.transition_set_group("MainMenuDefaultMenu", false);
@@ -1429,7 +1387,7 @@ impl MainMenu {
                 PendingMainMenuAction::PushShellScreen("Menus/CreditsMenu.wnd"),
             );
             state.drop_down = DropdownType::Main;
-            self.show_only_dropdown(&state, DropdownType::Main);
+            self.show_only_dropdown(state, DropdownType::Main);
             self.transition_reverse("MainMenuDefaultMenu");
             log::info!("Credits button selected");
         } else if control_id == state.window_ids.button_multi_player_id {
@@ -1440,7 +1398,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(&state, DropdownType::Multiplayer);
+            self.show_only_dropdown(state, DropdownType::Multiplayer);
             self.transition_remove("MainMenuDefaultMenu", false);
             self.transition_reverse("MainMenuDefaultMenuBack");
             self.transition_set_group("MainMenuMultiPlayerMenu", false);
@@ -1453,7 +1411,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = false;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(&state, DropdownType::LoadReplay);
+            self.show_only_dropdown(state, DropdownType::LoadReplay);
             self.transition_remove("MainMenuDefaultMenu", false);
             self.transition_reverse("MainMenuDefaultMenuBack");
             self.transition_set_group("MainMenuLoadReplayMenu", false);
@@ -1466,7 +1424,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(&state, DropdownType::LoadReplay);
+            self.show_only_dropdown(state, DropdownType::LoadReplay);
             self.transition_reverse("MainMenuLoadReplayMenuBackTransition");
             Self::queue_action(
                 state,
@@ -1481,7 +1439,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::LoadReplay;
-            self.show_only_dropdown(&state, DropdownType::LoadReplay);
+            self.show_only_dropdown(state, DropdownType::LoadReplay);
             self.transition_reverse("MainMenuLoadReplayMenuBackTransition");
             Self::queue_action(
                 state,
@@ -1497,7 +1455,7 @@ impl MainMenu {
             state.button_pushed = true;
             state.campaign_selected = true;
             state.drop_down = DropdownType::Single;
-            self.show_only_dropdown(&state, DropdownType::Single);
+            self.show_only_dropdown(state, DropdownType::Single);
             self.transition_remove("MainMenuFactionSkirmish", false);
             self.transition_reverse("MainMenuSinglePlayerMenuBackSkirmish");
             Self::queue_action(
@@ -1519,7 +1477,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(&state, DropdownType::Multiplayer);
+            self.show_only_dropdown(state, DropdownType::Multiplayer);
             self.transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
             Self::queue_action(state, PendingMainMenuAction::StartPatchCheck);
             state.drop_down = DropdownType::None;
@@ -1532,7 +1490,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             state.button_pushed = true;
             state.drop_down = DropdownType::Multiplayer;
-            self.show_only_dropdown(&state, DropdownType::Multiplayer);
+            self.show_only_dropdown(state, DropdownType::Multiplayer);
             self.transition_reverse("MainMenuMultiPlayerMenuTransitionToNext");
             Self::queue_action(
                 state,

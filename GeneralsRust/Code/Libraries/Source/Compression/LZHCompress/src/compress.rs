@@ -250,16 +250,12 @@ struct HuffmanEncoder {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 struct HuffmanCode {
     code: u32,
     length: u8,
 }
 
-impl Default for HuffmanCode {
-    fn default() -> Self {
-        Self { code: 0, length: 0 }
-    }
-}
 
 #[derive(Debug, Clone)]
 enum Symbol {
