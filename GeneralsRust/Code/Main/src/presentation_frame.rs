@@ -49,6 +49,7 @@ pub struct PresentationFrame {
     pub local_player_id: u32,
     pub local_supplies: u32,
     pub local_power: i32,
+    pub local_color_rgb: (u8, u8, u8),
     pub selected: Vec<ObjectId>,
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
@@ -86,6 +87,7 @@ impl PresentationFrame {
         let local = logic.get_player(local_player_id);
         let local_supplies = local.map(|p| p.resources.supplies).unwrap_or(0);
         let local_power = local.map(|p| p.power_available).unwrap_or(0);
+        let local_color_rgb = local.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
         let selected = local
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -96,6 +98,7 @@ impl PresentationFrame {
             local_player_id,
             local_supplies,
             local_power,
+            local_color_rgb,
             selected,
             events: Vec::new(),
             match_over: false,
@@ -193,5 +196,34 @@ mod tests {
             PresentationFrame::build_from_logic(&logic, 0).presentation_hash()
         };
         assert_eq!(mk(), mk());
+    }
+
+    #[test]
+    fn client_reads_snapshot_not_live_world() {
+        // Simulate: authority builds snapshot, then world mutates; client still holds old frame.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ClientSnap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("SnapUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("SnapUnit".into(), t);
+        let id = logic
+            .create_object("SnapUnit", Team::USA, glam::Vec3::ZERO)
+            .expect("unit");
+        let client_view = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(client_view.alive_object_count(), 1);
+        // Authority continues without client re-borrowing world during "render".
+        if let Some(o) = logic.get_object_mut(id) {
+            o.status.destroyed = true;
+            o.health.current = 0.0;
+        }
+        // Stale presentation still has the pre-destroy object; proves client feed is owned data.
+        assert_eq!(client_view.objects.len(), 1);
+        assert!(!client_view.objects[0].destroyed);
+        // Fresh presentation reflects authority.
+        let next = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(next.objects.iter().all(|o| o.destroyed || o.id != id) || next.alive_object_count() == 0
+            || next.objects.iter().any(|o| o.id == id && o.destroyed));
     }
 }

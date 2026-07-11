@@ -109,6 +109,7 @@ pub mod unit_input_handler;
 pub mod win32_game_engine;
 
 // Playability integration
+pub mod ai_skirmish_activity;
 pub mod authoritative_world;
 pub mod presentation_frame;
 pub mod breadth_scenarios;
