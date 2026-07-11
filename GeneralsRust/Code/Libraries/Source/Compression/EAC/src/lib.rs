@@ -1,4 +1,7 @@
 #![cfg_attr(test, cfg(feature = "internal"))]
+// C/gimex-style APIs intentionally take raw pointers; marking every call site
+// `unsafe` would be a large FFI rewrite. Keep pointer use audited locally.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 //! # EA Compression (EAC) Library
 //!
 //! Modern Rust implementation of Electronic Arts' compression algorithms:
