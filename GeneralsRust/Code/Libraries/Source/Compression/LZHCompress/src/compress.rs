@@ -18,10 +18,7 @@
 //!    - Generate optimal Huffman codes
 //!    - Encode output using variable-length codes
 
-use crate::{
-    CompressionLevel, LzhHeader, LzhMatch, Result,
-    dictionary::Dictionary,
-};
+use crate::{dictionary::Dictionary, CompressionLevel, LzhHeader, LzhMatch, Result};
 
 /// Maximum block size for compression (matches C++ BLOCKSIZE = 500000)
 const MAX_BLOCK_SIZE: usize = 500_000;
@@ -201,28 +198,18 @@ impl LzhCompressor {
         }
 
         let search_depth = self.level.search_depth();
-        let max_length = std::cmp::min(
-            self.level.max_match_length(),
-            data.len() - pos,
-        );
+        let max_length = std::cmp::min(self.level.max_match_length(), data.len() - pos);
 
-        self.dictionary.find_longest_match(
-            &data[pos..],
-            MIN_MATCH_LENGTH,
-            max_length,
-            search_depth,
-        )
+        self.dictionary
+            .find_longest_match(&data[pos..], MIN_MATCH_LENGTH, max_length, search_depth)
     }
 
     /// Encode a match (length, distance) pair
     fn encode_match(&mut self, match_data: &LzhMatch, output: &mut Vec<u8>) -> Result<()> {
         // Encode match using Huffman encoder
         // Format: [flag=1][length_code][distance_code]
-        self.huffman_encoder.encode_match(
-            match_data.length,
-            match_data.distance,
-            output,
-        )
+        self.huffman_encoder
+            .encode_match(match_data.length, match_data.distance, output)
     }
 
     /// Encode a literal byte
@@ -357,10 +344,8 @@ impl HuffmanEncoder {
         generate_codes(&length_tree, &mut self.length_codes);
 
         // Build Huffman codes for distances (limited set)
-        let distance_freq_limited: Vec<u32> = self.distance_freq.iter()
-            .take(256)
-            .copied()
-            .collect();
+        let distance_freq_limited: Vec<u32> =
+            self.distance_freq.iter().take(256).copied().collect();
         let distance_tree = build_huffman_tree(&distance_freq_limited);
 
         self.distance_codes.clear();
@@ -498,8 +483,8 @@ impl HuffmanNode {
 
 /// Build Huffman tree from frequency table
 fn build_huffman_tree(frequencies: &[u32]) -> Option<HuffmanNode> {
-    use std::collections::BinaryHeap;
     use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
 
     // Create leaf nodes for all symbols with non-zero frequency
     let mut heap: BinaryHeap<Reverse<(u32, usize, HuffmanNode)>> = frequencies

@@ -252,16 +252,40 @@ mod simd_match {
 
                     // Load into SIMD registers
                     let window_vec = u8x16::new([
-                        window_slice[0], window_slice[1], window_slice[2], window_slice[3],
-                        window_slice[4], window_slice[5], window_slice[6], window_slice[7],
-                        window_slice[8], window_slice[9], window_slice[10], window_slice[11],
-                        window_slice[12], window_slice[13], window_slice[14], window_slice[15],
+                        window_slice[0],
+                        window_slice[1],
+                        window_slice[2],
+                        window_slice[3],
+                        window_slice[4],
+                        window_slice[5],
+                        window_slice[6],
+                        window_slice[7],
+                        window_slice[8],
+                        window_slice[9],
+                        window_slice[10],
+                        window_slice[11],
+                        window_slice[12],
+                        window_slice[13],
+                        window_slice[14],
+                        window_slice[15],
                     ]);
                     let data_vec = u8x16::new([
-                        data_slice[0], data_slice[1], data_slice[2], data_slice[3],
-                        data_slice[4], data_slice[5], data_slice[6], data_slice[7],
-                        data_slice[8], data_slice[9], data_slice[10], data_slice[11],
-                        data_slice[12], data_slice[13], data_slice[14], data_slice[15],
+                        data_slice[0],
+                        data_slice[1],
+                        data_slice[2],
+                        data_slice[3],
+                        data_slice[4],
+                        data_slice[5],
+                        data_slice[6],
+                        data_slice[7],
+                        data_slice[8],
+                        data_slice[9],
+                        data_slice[10],
+                        data_slice[11],
+                        data_slice[12],
+                        data_slice[13],
+                        data_slice[14],
+                        data_slice[15],
                     ]);
 
                     // Compare
