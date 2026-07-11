@@ -109,8 +109,7 @@ pub enum ProductionType {
 pub const MAX_BUILD_QUEUE_BUTTONS: usize = 9;
 
 /// Control bar state - mirrors C++ ControlBarContext enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ControlBarState {
     #[default]
     None,
@@ -197,7 +196,6 @@ pub struct ProductionItem {
     pub cost: HashMap<String, i32>,
     pub build_time: f32,
 }
-
 
 impl Default for ControlBarContext {
     fn default() -> Self {

@@ -49,9 +49,7 @@ impl MacOsDevice {
         #[cfg(not(feature = "libc"))]
         {
             // Fallback: log the priority change without system call
-            log::warn!(
-                "Thread priority change requested but libc not available: {priority:?}"
-            );
+            log::warn!("Thread priority change requested but libc not available: {priority:?}");
         }
 
         Ok(())

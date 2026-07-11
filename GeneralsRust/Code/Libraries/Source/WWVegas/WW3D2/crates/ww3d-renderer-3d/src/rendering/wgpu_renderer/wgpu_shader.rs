@@ -357,7 +357,9 @@ impl ShaderUtils {
                 }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: shader.fragment_module().map(|frag_module| wgpu::FragmentState {
+            fragment: shader
+                .fragment_module()
+                .map(|frag_module| wgpu::FragmentState {
                     module: frag_module,
                     entry_point: Some("main"),
                     targets: &color_targets,

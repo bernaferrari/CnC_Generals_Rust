@@ -475,8 +475,7 @@ impl DiplomacyCallbacks {
 
     fn handle_radio_buttons(&self, control_id: u32) -> bool {
         let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
-        let radio_buddies =
-            NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
+        let radio_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
         if control_id != radio_ingame && control_id != radio_buddies {
             return false;
         }

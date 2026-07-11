@@ -177,7 +177,6 @@ impl MouseCursor {
     }
 }
 
-
 /// Cursor tooltip animation state.
 /// Tracks still-time, animated fill progress, and display string for the tooltip.
 /// C++ Reference: Mouse.h:254-270, Mouse.h:298-336

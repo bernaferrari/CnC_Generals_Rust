@@ -252,8 +252,7 @@ impl SkeletalAnimationSynchronizer {
         // 2. Update bone transforms
         // 3. Ensure material animations stay synchronized
 
-        if !context.is_playing {
-        }
+        if !context.is_playing {}
 
         // This would integrate with HAnim/HCompressedAnim playback
         // For now, the animation system handles this directly

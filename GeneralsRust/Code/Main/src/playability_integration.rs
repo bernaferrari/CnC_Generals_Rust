@@ -375,7 +375,8 @@ impl PlayabilityAuditSummary {
         let mut keys: Vec<String> = self
             .total_missing_reports
             .iter()
-            .filter(|&(_section, count)| count > &0).map(|(section, _count)| section.clone())
+            .filter(|&(_section, count)| count > &0)
+            .map(|(section, _count)| section.clone())
             .filter(|section| is_high_impact_subsystem(section, !self.network_deferred))
             .collect();
 
@@ -791,24 +792,25 @@ pub fn build_playability_audit(
                 && matches!(
                     row.status,
                     MappingStatus::Found | MappingStatus::FoundByBasename
-                ) {
-                    match row.mapped_path.as_deref() {
-                        Some(mapped) => {
-                            let root = rust_root.as_ref().expect("verified above");
-                            if !mapped_path_exists(root, mapped) {
-                                is_stale = true;
-                                stale_mapped_paths.push(mapped.to_string());
-                            }
-                        }
-                        None => {
+                )
+            {
+                match row.mapped_path.as_deref() {
+                    Some(mapped) => {
+                        let root = rust_root.as_ref().expect("verified above");
+                        if !mapped_path_exists(root, mapped) {
                             is_stale = true;
-                            stale_mapped_paths.push(format!(
-                                "<empty mapped path for {} {:?}>",
-                                row.subsystem, row.kind
-                            ));
+                            stale_mapped_paths.push(mapped.to_string());
                         }
                     }
+                    None => {
+                        is_stale = true;
+                        stale_mapped_paths.push(format!(
+                            "<empty mapped path for {} {:?}>",
+                            row.subsystem, row.kind
+                        ));
+                    }
                 }
+            }
             increment_counts(&mut map, row.subsystem, row.kind, row.status, is_stale);
         }
     }

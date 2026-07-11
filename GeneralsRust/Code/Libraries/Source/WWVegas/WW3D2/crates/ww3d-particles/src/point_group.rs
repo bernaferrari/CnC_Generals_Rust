@@ -201,20 +201,17 @@ impl PointGroup {
             .zip(&self.sizes)
             .zip(&self.orientations)
             .zip(&self.frames)
-            
-            .map(
-                |(((((view_pos, pos), color), size), orientation), frame)| {
-                    let depth = view_pos.z;
-                    SortableParticle {
-                        instance_data: ParticleInstanceData {
-                            position: [pos.x, pos.y, pos.z, *size],
-                            color: [color.x, color.y, color.z, color.w],
-                            rotation_frame: [*orientation as f32, *frame as f32, 0.0, depth],
-                        },
-                        depth,
-                    }
-                },
-            )
+            .map(|(((((view_pos, pos), color), size), orientation), frame)| {
+                let depth = view_pos.z;
+                SortableParticle {
+                    instance_data: ParticleInstanceData {
+                        position: [pos.x, pos.y, pos.z, *size],
+                        color: [color.x, color.y, color.z, color.w],
+                        rotation_frame: [*orientation as f32, *frame as f32, 0.0, depth],
+                    },
+                    depth,
+                }
+            })
             .collect();
 
         // Sort by depth (back to front for transparency)

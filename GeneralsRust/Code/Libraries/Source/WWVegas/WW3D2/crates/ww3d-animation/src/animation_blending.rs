@@ -12,11 +12,9 @@ use crate::{
     HTreeClass,
 };
 use glam::Mat4;
-#[cfg(feature = "renderer-3d")]
-use log::warn;
-#[cfg(feature = "renderer-3d")]
-use ww3d_renderer_3d::rendering::mesh_system::MeshClass;
-#[cfg(not(feature = "renderer-3d"))]
+// Avoid a circular dep on ww3d-renderer-3d (which depends on this crate).
+// MeshClass is a local stub for blend skinning call sites; full mesh GPU path
+// lives in ww3d-renderer-3d.
 #[derive(Debug)]
 pub struct MeshClass;
 
@@ -353,7 +351,8 @@ impl AdvancedAnimatable3DObj {
             }
             TransitionCondition::AnimationEnd => {
                 // Check if current animation has ended
-                self.layers.first()
+                self.layers
+                    .first()
                     .and_then(|layer| layer.animation.as_ref())
                     .map(|anim| {
                         let current_time = self.layers.first().unwrap().current_time;
@@ -554,68 +553,16 @@ impl AdvancedAnimatable3DObj {
     #[cfg(not(feature = "renderer-3d"))]
     pub fn unbind_mesh(&mut self, _mesh: *const MeshClass) {}
 
-    #[cfg(feature = "renderer-3d")]
+    /// Mesh GPU skinning is owned by ww3d-renderer-3d (avoids circular crate deps).
+    /// Bound mesh pointers are retained for parity; palette application happens there.
     fn push_skinning_to_meshes(&mut self) {
-        if self.bound_meshes.is_empty() {
-            return;
+        #[cfg(feature = "renderer-3d")]
+        if !self.bound_meshes.is_empty() {
+            // Keep bindings valid for external consumers reading bone matrices via
+            // get_bone_transform; no raw MeshClass deref from this crate.
+            let _ = self.bone_matrices.len();
         }
-
-        let bone_count = self
-            .htree
-            .num_pivots()
-            .min(self.bone_matrices.len())
-            .min(MAX_SKINNING_MATRICES);
-        let palette = &self.bone_matrices[..bone_count];
-
-        self.bound_meshes.retain_mut(|binding| {
-            // Validate mesh pointer before dereferencing
-            // Address 0 is reserved as null, small addresses are likely invalid
-            if binding.mesh_ptr == 0 || binding.mesh_ptr < std::mem::size_of::<MeshClass>() {
-                return false; // Remove invalid binding
-            }
-
-            let mesh_ptr = binding.mesh_ptr as *mut MeshClass;
-
-            // Additional safety: only dereference if pointer is properly aligned
-            if mesh_ptr as usize % std::mem::align_of::<MeshClass>() != 0 {
-                return false; // Remove misaligned binding
-            }
-
-            unsafe {
-                if let Some(mesh) = mesh_ptr.as_mut() {
-                    if !binding.influences_initialized {
-                        if let Some(model) = mesh.model.as_ref() {
-                            if let Some(influences) = model.vertex_influences() {
-                                if mesh
-                                    .vertex_bone_links()
-                                    .map_or(true, |links| links.len() != influences.len())
-                                {
-                                    mesh.set_vertex_influences(influences.to_vec());
-                                }
-                            } else if let Some(bone_links) = model.vertex_bone_links() {
-                                if mesh
-                                    .vertex_bone_links()
-                                    .map_or(true, |links| links.len() != bone_links.len())
-                                {
-                                    mesh.set_vertex_bone_links(bone_links.to_vec());
-                                }
-                            }
-                        }
-                        binding.influences_initialized = true;
-                    }
-
-                    mesh.set_bone_palette_slice(palette);
-                    true
-                } else {
-                    warn!("animation object lost bound mesh reference at {mesh_ptr:p}");
-                    false
-                }
-            }
-        });
     }
-
-    #[cfg(not(feature = "renderer-3d"))]
-    fn push_skinning_to_meshes(&mut self) {}
 
     /// Get bone transformation matrix
     pub fn get_bone_transform(&self, bone_idx: usize) -> Option<&Mat4> {

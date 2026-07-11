@@ -714,9 +714,7 @@ impl TerrainCollision {
 
     /// Get terrain material at world position
     pub fn get_material_at_position(&self, position: Point2<f32>) -> TerrainMaterial {
-        self.grid
-            .query_material(position)
-            .unwrap_or_default()
+        self.grid.query_material(position).unwrap_or_default()
     }
 
     /// Get surface properties at world position

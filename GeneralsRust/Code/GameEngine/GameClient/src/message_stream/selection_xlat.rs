@@ -540,15 +540,14 @@ impl SelectionTranslator {
 
             // If mouse has moved while left button is down, begin drag selection
             // Matches C++ SelectionXlat.cpp:399-408
-            if (delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE)
-                && !self.drag_selecting {
-                    self.drag_selecting = true;
-                    TheInGameUI::set_selecting(true);
-                    debug!(
-                        "Started drag selection at {:?}",
-                        self.select_feedback_anchor
-                    );
-                }
+            if (delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE) && !self.drag_selecting {
+                self.drag_selecting = true;
+                TheInGameUI::set_selecting(true);
+                debug!(
+                    "Started drag selection at {:?}",
+                    self.select_feedback_anchor
+                );
+            }
 
             // Create "hint" messages defining selection region under construction
             // Matches C++ SelectionXlat.cpp:410-420
@@ -757,10 +756,11 @@ impl SelectionTranslator {
             let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
 
             if (!use_alternate_mouse || pending_place_source_object_id != 0)
-                && !self.current_selection.is_empty() {
-                    self.deselect_all();
-                    messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
-                }
+                && !self.current_selection.is_empty()
+            {
+                self.deselect_all();
+                messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
+            }
         }
 
         messages

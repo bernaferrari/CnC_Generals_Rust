@@ -393,9 +393,10 @@ pub async fn load_weapon_templates(
 
         for (block_type, block_name, properties) in &sections {
             if block_type.eq_ignore_ascii_case("Weapon")
-                && register_weapon_template(block_name, properties) {
-                    file_weapon_count += 1;
-                }
+                && register_weapon_template(block_name, properties)
+            {
+                file_weapon_count += 1;
+            }
         }
 
         total_weapons += file_weapon_count;
@@ -455,9 +456,10 @@ pub async fn load_upgrade_templates(
 
         for (block_type, block_name, properties) in &sections {
             if block_type.eq_ignore_ascii_case("Upgrade")
-                && register_upgrade_template(block_name, properties) {
-                    file_upgrade_count += 1;
-                }
+                && register_upgrade_template(block_name, properties)
+            {
+                file_upgrade_count += 1;
+            }
         }
 
         total_upgrades += file_upgrade_count;
@@ -517,9 +519,10 @@ pub async fn load_science_templates(
 
         for (block_type, block_name, properties) in &sections {
             if block_type.eq_ignore_ascii_case("Science")
-                && register_science_template(block_name, properties) {
-                    file_science_count += 1;
-                }
+                && register_science_template(block_name, properties)
+            {
+                file_science_count += 1;
+            }
         }
 
         total_sciences += file_science_count;

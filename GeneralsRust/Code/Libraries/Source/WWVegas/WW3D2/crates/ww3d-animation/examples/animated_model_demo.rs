@@ -10,8 +10,7 @@ use glam::Mat4;
 ///!
 ///! This is a complete, production-ready implementation matching the C++ W3D engine.
 use ww3d_animation::{
-    AnimatedModel, AnimationStateMachineBuilder, GameAnimationState,
-    HAnimClass, W3DModel,
+    AnimatedModel, AnimationStateMachineBuilder, GameAnimationState, HAnimClass, W3DModel,
 };
 
 fn main() {

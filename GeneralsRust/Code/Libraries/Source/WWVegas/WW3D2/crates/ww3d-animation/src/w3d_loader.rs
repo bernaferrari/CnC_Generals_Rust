@@ -377,12 +377,11 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
                     max_pivot_index = max_pivot_index.max(pivot_index as u32);
                 }
             }
-            Some(W3DChunkType::CompressedBitChannel)
-                if chunk_size >= 6 => {
-                    let _num_timecodes: u32 = reader.read_le()?;
-                    let pivot_index: u16 = reader.read_le()?;
-                    max_pivot_index = max_pivot_index.max(pivot_index as u32);
-                }
+            Some(W3DChunkType::CompressedBitChannel) if chunk_size >= 6 => {
+                let _num_timecodes: u32 = reader.read_le()?;
+                let pivot_index: u16 = reader.read_le()?;
+                max_pivot_index = max_pivot_index.max(pivot_index as u32);
+            }
             _ => {}
         }
 

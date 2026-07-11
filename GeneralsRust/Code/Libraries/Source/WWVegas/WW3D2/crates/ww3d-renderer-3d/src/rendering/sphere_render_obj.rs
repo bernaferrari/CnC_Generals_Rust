@@ -1115,7 +1115,9 @@ impl SphereRenderObjClass {
         // For alpha blend: Set opacity to alpha, emissive to color
         if is_additive {
             let emissive = self.current_color * self.current_alpha;
-            if let Some(m) = Arc::get_mut(&mut self.sphere_material) { m.set_emissive(emissive) }
+            if let Some(m) = Arc::get_mut(&mut self.sphere_material) {
+                m.set_emissive(emissive)
+            }
         } else {
             Arc::get_mut(&mut self.sphere_material).map(|m| {
                 m.set_opacity(self.current_alpha);

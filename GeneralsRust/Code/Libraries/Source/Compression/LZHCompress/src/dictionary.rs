@@ -144,10 +144,7 @@ impl Dictionary {
         let hash = self.calculate_hash(&pattern);
 
         // Add position to hash chain
-        self.hash_table
-            .entry(hash)
-            .or_default()
-            .push(pos);
+        self.hash_table.entry(hash).or_default().push(pos);
 
         // Limit hash chain length to prevent excessive memory usage
         let chain = self.hash_table.get_mut(&hash).unwrap();

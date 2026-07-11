@@ -1256,13 +1256,8 @@ pub struct VolumeTextureClass {
 impl VolumeTextureClass {
     /// Create new volume texture
     pub fn new(width: u32, height: u32, depth: u32, mip_level_count: u32, pool: PoolType) -> Self {
-        let mut base = TextureBaseClass::new(
-            width,
-            height,
-            mip_level_count,
-            pool,
-            TexAssetType::Volume,
-        );
+        let mut base =
+            TextureBaseClass::new(width, height, mip_level_count, pool, TexAssetType::Volume);
         base.depth = depth;
         Self { base }
     }

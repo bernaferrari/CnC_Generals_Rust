@@ -12,8 +12,7 @@ const FRAME_EPS: f32 = 1e-5;
 
 /// Animation playback modes matching C++ RenderObjClass::AnimMode
 /// Reference: rendobj.h:331-339
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnimationMode {
     /// ANIM_MODE_MANUAL - Application controls frame manually
     Manual,
@@ -29,7 +28,6 @@ pub enum AnimationMode {
     /// ANIM_MODE_ONCE_BACKWARDS - Play once backwards and stop
     OnceBackwards,
 }
-
 
 /// Animation event for triggering game logic at specific frames
 #[derive(Debug, Clone)]

@@ -171,9 +171,9 @@ impl DisconnectMenu {
 
         // Load the disconnect screen window
         if let Some(manager) = &self.window_manager {
-            let mut manager = manager.lock().map_err(|_| {
-                std::io::Error::other("WindowManager lock poisoned")
-            })?;
+            let mut manager = manager
+                .lock()
+                .map_err(|_| std::io::Error::other("WindowManager lock poisoned"))?;
             self.window = Some(manager.load_window("DisconnectScreen.wnd")?);
         }
         if let Some(window) = &self.window {
@@ -806,11 +806,10 @@ impl DisconnectMenu {
                     }
                 }
             }
-            WindowMessage::GadgetEditDone
-                if name == TEXT_ENTRY_CONTROL => {
-                    self.submit_chat();
-                    return WindowMsgHandled::Handled;
-                }
+            WindowMessage::GadgetEditDone if name == TEXT_ENTRY_CONTROL => {
+                self.submit_chat();
+                return WindowMsgHandled::Handled;
+            }
             _ => {}
         }
 

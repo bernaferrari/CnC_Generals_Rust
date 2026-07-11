@@ -818,10 +818,8 @@ impl MeshLoader {
             .iter()
             .enumerate()
             .map(|(index, vmat)| {
-                let stage0_type =
-                    (vmat.attributes & STAGE0_MAPPING_MASK) >> STAGE0_MAPPING_SHIFT;
-                let stage1_type =
-                    (vmat.attributes & STAGE1_MAPPING_MASK) >> STAGE1_MAPPING_SHIFT;
+                let stage0_type = (vmat.attributes & STAGE0_MAPPING_MASK) >> STAGE0_MAPPING_SHIFT;
+                let stage1_type = (vmat.attributes & STAGE1_MAPPING_MASK) >> STAGE1_MAPPING_SHIFT;
 
                 let args_entry = mapper_args.get(index);
                 let stage0 = stage_mapping_to_mapper_type(stage0_type).and_then(|mapper_type| {
@@ -987,10 +985,7 @@ fn parse_args(raw: &str) -> HashMap<String, String> {
 fn parse_float(args: &HashMap<String, String>, key: &str, default: f32) -> f32 {
     args.get(key)
         .and_then(|value| {
-            let sanitized = value
-                .trim()
-                .trim_end_matches(['f', 'F'])
-                .trim();
+            let sanitized = value.trim().trim_end_matches(['f', 'F']).trim();
             sanitized.parse::<f32>().ok()
         })
         .unwrap_or(default)

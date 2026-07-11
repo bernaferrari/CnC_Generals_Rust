@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod tests {
     use glam::{Mat3, Vec2, Vec3};
-    
+
     use ww3d_geometry::{
         GridMapper, LinearOffsetMapper, NoOpMapper, RotateMapper, SineLinearOffsetMapper,
         TextureMapper, TextureMapperState, TextureMapperType,

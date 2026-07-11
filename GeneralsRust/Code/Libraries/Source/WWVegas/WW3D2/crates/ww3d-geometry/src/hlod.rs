@@ -820,7 +820,10 @@ pub struct Camera {
 pub trait RenderObject: std::fmt::Debug + Send + Sync {
     // Basic render object interface
     #[cfg(feature = "wgpu")]
-    fn render(&self, render_pass: &mut wgpu::RenderPass) -> Result<()>;
+    fn render(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
     fn get_bounding_box(&self) -> &AABox;
     fn get_transform(&self) -> &Mat4;
     fn set_transform(&mut self, transform: Mat4);

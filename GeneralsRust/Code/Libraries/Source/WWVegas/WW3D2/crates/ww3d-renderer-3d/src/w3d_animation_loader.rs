@@ -210,8 +210,7 @@ pub struct AnimationPlayback {
 }
 
 /// Animation playback modes matching W3D specification
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlaybackMode {
     /// Loop: Restart from frame 0 when finished
     #[default]
@@ -221,7 +220,6 @@ pub enum PlaybackMode {
     /// PingPong: Play forward, reverse, repeat
     PingPong,
 }
-
 
 impl AnimationPlayback {
     /// Create a new animation playback controller

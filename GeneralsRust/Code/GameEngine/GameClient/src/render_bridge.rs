@@ -844,13 +844,12 @@ impl RenderBridge {
                 continue;
             }
             let key = model_name.to_lowercase();
-            if seen.insert(key.clone())
-                && !self.model_cache.contains_key(&key) {
-                    if let Some((render_obj, resolution)) = self.resolve_model(&key) {
-                        self.model_cache.insert(key.clone(), render_obj);
-                        self.model_resolution.insert(key, resolution);
-                    }
+            if seen.insert(key.clone()) && !self.model_cache.contains_key(&key) {
+                if let Some((render_obj, resolution)) = self.resolve_model(&key) {
+                    self.model_cache.insert(key.clone(), render_obj);
+                    self.model_resolution.insert(key, resolution);
                 }
+            }
         }
     }
 
@@ -1187,11 +1186,7 @@ impl SceneSubmissionTrait for RenderBridge {
         if let Some(bridge) = guard.as_mut() {
             let id = NEXT_LINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let entry = SceneLineEntry {
-                start: glam::Vec3::new(
-                    desc.start.x,
-                    desc.start.y,
-                    desc.start.z,
-                ),
+                start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
                 end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),
                 width: desc.width,
                 color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
@@ -1218,13 +1213,8 @@ impl SceneSubmissionTrait for RenderBridge {
         let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(bridge) = guard.as_mut() {
             if let Some(entry) = bridge.scene_lines.get_mut(&id) {
-                entry.start = glam::Vec3::new(
-                    desc.start.x,
-                    desc.start.y,
-                    desc.start.z,
-                );
-                entry.end =
-                    glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z);
+                entry.start = glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z);
+                entry.end = glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z);
                 entry.width = desc.width;
                 entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
                 entry.texture_name = desc.texture_name.clone().unwrap_or_default();
@@ -1548,7 +1538,6 @@ pub fn projectile_stream_to_flat_points(
 }
 
 pub fn create_default_game_scene() -> Scene {
-    
     SceneBuilder::new("Game World".to_string()).build()
 }
 

@@ -23,8 +23,7 @@ use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 // ---------------------------------------------------------------------------
 
 /// Priority level for a speech line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum SpeechPriority {
     /// Normal unit voice response.
     #[default]
@@ -36,7 +35,6 @@ pub enum SpeechPriority {
     /// Critical EVA that cannot be queued behind other EVA lines.
     Critical = 3,
 }
-
 
 // ---------------------------------------------------------------------------
 // SpeechLine

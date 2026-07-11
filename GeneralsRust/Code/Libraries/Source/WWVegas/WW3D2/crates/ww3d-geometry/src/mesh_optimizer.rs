@@ -278,7 +278,11 @@ impl MeshOptimizer {
     /// Find the unshared vertex in a triangle given a shared edge
     /// Returns None if the triangle doesn't have exactly one unshared vertex (invalid mesh)
     fn find_unshared_vertex(triangle: &MeshTriangle, shared_edge: Edge) -> Option<u32> {
-        triangle.indices.iter().find(|&&vertex| vertex as usize != shared_edge.v0 && vertex as usize != shared_edge.v1).copied()
+        triangle
+            .indices
+            .iter()
+            .find(|&&vertex| vertex as usize != shared_edge.v0 && vertex as usize != shared_edge.v1)
+            .copied()
     }
 
     /// Generate level-of-detail (LOD) meshes

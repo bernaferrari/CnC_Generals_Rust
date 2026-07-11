@@ -4386,16 +4386,15 @@ impl CnCGameEngine {
                         writable.play_stats = Self::parse_startup_i32_like_atoi(&value);
                     }
                 }
-                "benchmark"
-                    if allow_debug_flags => {
-                        if let Some(value) =
-                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
-                        {
-                            let parsed = Self::parse_startup_i32_like_atoi(&value);
-                            writable.benchmark_timer = parsed;
-                            writable.play_stats = parsed;
-                        }
+                "benchmark" if allow_debug_flags => {
+                    if let Some(value) =
+                        Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                    {
+                        let parsed = Self::parse_startup_i32_like_atoi(&value);
+                        writable.benchmark_timer = parsed;
+                        writable.play_stats = parsed;
                     }
+                }
                 _ => {}
             }
 

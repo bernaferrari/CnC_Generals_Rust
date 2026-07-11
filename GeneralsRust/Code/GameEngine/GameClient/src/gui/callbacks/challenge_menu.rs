@@ -118,14 +118,12 @@ fn set_general_button_checked(control_id: i32, checked: bool) {
                 Some(crate::gui::WindowWidget::CheckBox(_)) => {
                     let _ = button.gadget_check_box_set_checked(checked);
                 }
-                Some(crate::gui::WindowWidget::RadioButton(_))
-                    if checked => {
-                        if let Some(crate::gui::WindowWidget::RadioButton(radio)) =
-                            button.widget_mut()
-                        {
-                            radio.select();
-                        }
+                Some(crate::gui::WindowWidget::RadioButton(_)) if checked => {
+                    if let Some(crate::gui::WindowWidget::RadioButton(radio)) = button.widget_mut()
+                    {
+                        radio.select();
                     }
+                }
                 _ => {}
             }
         }

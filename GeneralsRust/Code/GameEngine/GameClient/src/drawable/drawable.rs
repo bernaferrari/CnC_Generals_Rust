@@ -1344,8 +1344,7 @@ impl DrawModule for LogicDrawModuleSnapshotAdapter {
 /// PARITY_NOTE: In C++, bone data lives inside the W3D RenderObjClass → HTreeClass.
 /// This struct provides the same query interface using pre-loaded data from INI.
 /// When the full W3D system is ported, this will be replaced by actual HTree queries.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct BoneData {
     /// Map from bone name prefix to ordered list of (position, transform) pairs.
     /// Index in the Vec corresponds to the bone suffix (01, 02, ...).
@@ -1357,7 +1356,6 @@ pub struct BoneData {
     /// Per-slot barrel counts (Primary, Secondary, Tertiary).
     pub barrel_counts: [i32; 3],
 }
-
 
 impl BoneData {
     /// Create empty bone data with specified barrel counts.
@@ -2063,9 +2061,9 @@ impl BasicDrawable {
 
     fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
         self.object_id.is_some_and(|obj_id| {
-            OBJECT_REGISTRY.get_object(obj_id).is_some_and(|obj_arc| {
-                obj_arc.read().is_ok_and(|obj| obj.is_kind_of(kind))
-            })
+            OBJECT_REGISTRY
+                .get_object(obj_id)
+                .is_some_and(|obj_arc| obj_arc.read().is_ok_and(|obj| obj.is_kind_of(kind)))
         })
     }
 

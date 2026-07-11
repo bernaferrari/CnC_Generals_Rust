@@ -178,9 +178,9 @@ fn select_mesh_prototype<'a>(
                 let container = hdr.container_name_str().to_ascii_uppercase();
                 let container_base = hierarchy_base(&container);
                 container == target_upper
-                        || container_base == base
-                        || container == skn_upper
-                        || container == skl_upper
+                    || container_base == base
+                    || container == skn_upper
+                    || container == skl_upper
             })
             .unwrap_or(false)
     })

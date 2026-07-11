@@ -1897,11 +1897,10 @@ impl BinkVideoDecoder {
         let mut u_plane = vec![0u8; cw * ch];
         let mut v_plane = vec![0u8; cw * ch];
 
-        if self.has_alpha
-            && self.is_ver_i {
-                br.skip(32)?;
-            }
-            // Skip alpha plane decoding — not critical for gameplay
+        if self.has_alpha && self.is_ver_i {
+            br.skip(32)?;
+        }
+        // Skip alpha plane decoding — not critical for gameplay
         if self.is_ver_i {
             br.skip(32)?;
         }

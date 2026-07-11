@@ -1865,13 +1865,15 @@ pub async fn init_with_window<W>(window: W, config: EngineConfig) -> EngineResul
 where
     W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
 {
-    let mut slot = global_engine().lock();
-    if slot.is_some() {
-        return Err(EngineError::AlreadyInitialised);
-    }
+    {
+        let slot = global_engine().lock();
+        if slot.is_some() {
+            return Err(EngineError::AlreadyInitialised);
+        }
+    } // drop lock before await
 
     let engine = Engine::new_windowed(window, config).await?;
-    *slot = Some(engine);
+    *global_engine().lock() = Some(engine);
     Ok(())
 }
 
@@ -1882,13 +1884,15 @@ pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<()> {
 
 /// Initialise the engine without a surface (headless).
 pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    if slot.is_some() {
-        return Err(EngineError::AlreadyInitialised);
-    }
+    {
+        let slot = global_engine().lock();
+        if slot.is_some() {
+            return Err(EngineError::AlreadyInitialised);
+        }
+    } // drop lock before await
 
     let engine = Engine::new_headless(config).await?;
-    *slot = Some(engine);
+    *global_engine().lock() = Some(engine);
     Ok(())
 }
 

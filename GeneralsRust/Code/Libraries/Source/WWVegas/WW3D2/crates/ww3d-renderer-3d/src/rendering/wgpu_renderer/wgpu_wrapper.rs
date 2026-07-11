@@ -734,7 +734,8 @@ impl WgpuWrapper {
             );
             let vertex_buffer = self
                 .render_state
-                .vertex_buffers.first()
+                .vertex_buffers
+                .first()
                 .and_then(|vb| vb.clone());
             let index_buffer = self.render_state.index_buffer.clone();
             let vertex_buffer_handle = vertex_buffer.as_ref().map(|vb| vb.buffer().clone());
@@ -893,7 +894,8 @@ impl WgpuWrapper {
 
         let vertex_buffer_handle = self
             .render_state
-            .vertex_buffers.first()
+            .vertex_buffers
+            .first()
             .and_then(|vb| vb.clone())
             .map(|vb| vb.buffer().clone());
 

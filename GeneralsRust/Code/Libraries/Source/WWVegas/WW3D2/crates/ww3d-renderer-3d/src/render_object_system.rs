@@ -670,14 +670,12 @@ fn obbox_corners(box_obj: &OBBoxClass) -> [Vec3; 8] {
 }
 
 /// Material info class
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MaterialInfoClass {
     pub vertex_materials: Vec<crate::material_system::VertexMaterialClass>,
     pub textures: Vec<Arc<crate::texture_system::TextureClass>>,
     pub passes: Vec<MaterialPassClass>,
 }
-
 
 /// Material pass class
 // Use the unified MaterialPassClass from material_system

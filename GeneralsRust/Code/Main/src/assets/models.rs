@@ -542,11 +542,8 @@ impl W3DModel {
         let anim = self.animations.get(anim_index)?;
         let hierarchy = self.hierarchy.as_ref()?;
 
-        let mut local_transforms: Vec<[f32; 16]> = hierarchy
-            .pivots
-            .iter()
-            .map(mat4_from_pivot)
-            .collect();
+        let mut local_transforms: Vec<[f32; 16]> =
+            hierarchy.pivots.iter().map(mat4_from_pivot).collect();
 
         for channel in &anim.channels {
             let pivot_idx = channel.pivot as usize;
@@ -572,14 +569,13 @@ impl W3DModel {
                         local_transforms[pivot_idx][14] = *v;
                     }
                 }
-                6
-                    if values.len() >= 4 => {
-                        let qx = values[0];
-                        let qy = values[1];
-                        let qz = values[2];
-                        let qw = values[3];
-                        apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
-                    }
+                6 if values.len() >= 4 => {
+                    let qx = values[0];
+                    let qy = values[1];
+                    let qz = values[2];
+                    let qw = values[3];
+                    apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
+                }
                 _ => {}
             }
         }
@@ -2020,11 +2016,11 @@ impl W3DLoader {
                 // Some materials might point to actual filenames (from DC_MAP chunks)
                 if let Some(ref tex_name) = material.texture_name {
                     // Only add non-numeric filenames - these are actual texture names
-                    if tex_name.parse::<usize>().is_err()
-                        && !collected_textures.contains(tex_name) {
-                            debug!("  Added texture from material: {}", tex_name);
-                            collected_textures.push(tex_name.clone());
-                        }
+                    if tex_name.parse::<usize>().is_err() && !collected_textures.contains(tex_name)
+                    {
+                        debug!("  Added texture from material: {}", tex_name);
+                        collected_textures.push(tex_name.clone());
+                    }
                 }
             }
 

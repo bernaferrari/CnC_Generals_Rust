@@ -352,10 +352,7 @@ impl PhysicsWorld {
                             grid_y.saturating_add(dy),
                             grid_z.saturating_add(dz),
                         );
-                        spatial_grid
-                            .entry(key)
-                            .or_default()
-                            .push((*id, body));
+                        spatial_grid.entry(key).or_default().push((*id, body));
                     }
                 }
             }
@@ -567,7 +564,7 @@ impl PhysicsWorld {
         // Helper function to do depth-first search
         fn dfs(
             body_id: PhysicsBodyId,
-            bodies: &HashMap<PhysicsBodyId, RigidBody>,
+            _bodies: &HashMap<PhysicsBodyId, RigidBody>,
             contact_cache: &[ContactManifold],
             visited: &mut HashSet<PhysicsBodyId>,
             island: &mut Vec<PhysicsBodyId>,
@@ -582,9 +579,9 @@ impl PhysicsWorld {
             // Find all bodies connected to this one via contacts
             for contact in contact_cache {
                 if contact.body_a == body_id {
-                    dfs(contact.body_b, bodies, contact_cache, visited, island);
+                    dfs(contact.body_b, _bodies, contact_cache, visited, island);
                 } else if contact.body_b == body_id {
-                    dfs(contact.body_a, bodies, contact_cache, visited, island);
+                    dfs(contact.body_a, _bodies, contact_cache, visited, island);
                 }
             }
         }

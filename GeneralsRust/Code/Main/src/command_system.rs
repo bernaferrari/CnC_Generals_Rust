@@ -406,9 +406,7 @@ impl CommandSystem {
 
     /// Get (or lazily create) mutable command settings for a player
     fn player_settings_mut(&mut self, player_id: u32) -> &mut PlayerCommandSettings {
-        self.player_settings
-            .entry(player_id)
-            .or_default()
+        self.player_settings.entry(player_id).or_default()
     }
 
     /// Read-only view of a player's settings (creating default when missing).

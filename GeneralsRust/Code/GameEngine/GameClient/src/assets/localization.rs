@@ -912,8 +912,7 @@ impl LocalizationManager {
 
     /// Check if language is RTL (right-to-left)
     pub fn is_rtl(&self) -> bool {
-        self.get_current_language()
-            .is_some_and(|lang| lang.is_rtl)
+        self.get_current_language().is_some_and(|lang| lang.is_rtl)
     }
 
     /// Get language completion percentage

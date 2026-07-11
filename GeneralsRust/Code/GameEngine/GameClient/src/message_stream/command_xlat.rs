@@ -49,15 +49,13 @@ pub enum Relationship {
 }
 
 /// Legacy pick-and-play metadata. The active translator owns the actual behavior.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PickAndPlayInfo {
     pub air: bool,
     pub draw_target: Option<DrawableID>,
     pub weapon_slot: Option<WeaponSlotType>,
     pub special_power_type: Option<u32>,
 }
-
 
 /// Legacy weapon slot type retained for API compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

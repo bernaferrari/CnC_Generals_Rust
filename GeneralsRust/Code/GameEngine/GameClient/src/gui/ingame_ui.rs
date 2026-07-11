@@ -263,7 +263,6 @@ pub enum MouseCursor {
     NumMouseCursors = 40,
 }
 
-
 impl MouseCursor {
     /// Total number of cursor types (excluding Invalid and NumMouseCursors sentinels).
     pub const COUNT: i32 = 40;
@@ -438,7 +437,6 @@ impl RadiusCursorType {
     /// Total number of radius cursor types. C++: RADIUSCURSOR_COUNT
     pub const COUNT: u32 = 30;
 }
-
 
 /// Radius cursor state. C++: m_curRadiusCursor + m_curRcType (InGameUI.h:799-801)
 /// State-only tracking — actual decal rendering is handled by the rendering subsystem.
@@ -1627,9 +1625,9 @@ impl InGameUI {
                 && best
                     .map(|(_, best_dist)| dist_sq < best_dist)
                     .unwrap_or(true)
-                {
-                    best = Some((guard.get_id(), dist_sq));
-                }
+            {
+                best = Some((guard.get_id(), dist_sq));
+            }
         }
         best.map(|(id, _)| id)
     }
@@ -1814,10 +1812,7 @@ impl InGameUI {
         let selection_manager = get_selection_manager();
         if let Ok(manager) = selection_manager.read() {
             if let Some(selection) = manager.get_player_selection_ref(self.player_id as i32) {
-                return selection
-                    .get_selected_objects()
-                    .into_iter()
-                    .collect();
+                return selection.get_selected_objects().into_iter().collect();
             }
         }
         self.selection_state

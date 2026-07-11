@@ -15,7 +15,7 @@ pub struct IntersectionResult {
     pub normal: Vec3,
 }
 
-/// Advanced intersection testing functions
+// Advanced intersection testing functions
 
 /// Test ray-sphere intersection
 pub fn ray_sphere_intersection(ray: &Ray, sphere: &Sphere) -> Option<IntersectionResult> {

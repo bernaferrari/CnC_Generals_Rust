@@ -276,8 +276,7 @@ impl Default for EmissionVelocity {
 }
 
 /// Emission volume configuration
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum EmissionVolume {
     #[default]
     Point,
@@ -296,7 +295,6 @@ pub enum EmissionVolume {
         length: f32,
     },
 }
-
 
 /// Particle system information (matches C++ ParticleSystemInfo)
 #[derive(Debug, Clone)]

@@ -410,7 +410,6 @@ pub enum GameDifficulty {
     Hard = 2,
 }
 
-
 /// Manager for Challenge Generals data and operations
 /// Matches C++ ChallengeGenerals class (ChallengeGenerals.h lines 99-128)
 pub struct ChallengeGenerals {

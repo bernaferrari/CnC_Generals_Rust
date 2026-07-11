@@ -328,8 +328,8 @@ impl DeviceInterface {
     /// Detect performance profile
     async fn detect_performance_profile() -> PerformanceProfile {
         // Simplified performance detection - real implementation would benchmark
-        let cpu_cores = std::thread::available_parallelism()
-            .map_or(1, std::num::NonZero::get) as u32;
+        let cpu_cores =
+            std::thread::available_parallelism().map_or(1, std::num::NonZero::get) as u32;
 
         let cpu_tier = match cpu_cores {
             1..=2 => 3,

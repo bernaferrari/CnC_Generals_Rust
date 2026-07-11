@@ -2478,9 +2478,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         object_id: gamelogic::common::ObjectID,
     ) -> GameLogicResult<()> {
         self.hooks.push_superweapon_object_display_mutation(
-            SuperweaponObjectDisplayMutation::Hide {
-                object_id,
-            },
+            SuperweaponObjectDisplayMutation::Hide { object_id },
         );
         Ok(())
     }
@@ -2490,9 +2488,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         object_id: gamelogic::common::ObjectID,
     ) -> GameLogicResult<()> {
         self.hooks.push_superweapon_object_display_mutation(
-            SuperweaponObjectDisplayMutation::Show {
-                object_id,
-            },
+            SuperweaponObjectDisplayMutation::Show { object_id },
         );
         Ok(())
     }

@@ -26,8 +26,6 @@ fn test_terrain_query_trait_implementation() {
 
 #[test]
 fn test_terrain_query_wrapper() {
-    
-
     // Create wrapper for global terrain instance
     let wrapper = TerrainQueryWrapper::new(THE_TERRAIN_LOGIC.clone());
 
