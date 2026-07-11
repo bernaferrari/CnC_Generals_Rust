@@ -186,9 +186,9 @@ impl Dictionary {
         let max_len = std::cmp::min(max_length, data.len());
         let mut length = 0;
 
-        for i in 0..max_len {
+        for (i, byte) in data.iter().take(max_len).enumerate() {
             let window_idx = (dict_pos + i) % self.window_size;
-            if self.window[window_idx] != data[i] {
+            if self.window[window_idx] != *byte {
                 break;
             }
             length += 1;
