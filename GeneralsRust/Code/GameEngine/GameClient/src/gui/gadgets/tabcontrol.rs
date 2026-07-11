@@ -647,27 +647,26 @@ impl Gadget for TabControl {
                 self.hovered_tab = self.tab_at_position(*x, *y).map(|idx| idx as u32);
             }
 
-            InputEvent::MouseDown { x, y, button }
-                if *button == MouseButton::Left => {
-                    if let Some(tab_index) = self.tab_at_position(*x, *y) {
-                        if tab_index == self.active_tab_index() {
-                            return vec![GadgetMessage::Custom {
-                                gadget_id: self.id,
-                                data: "input_handled".to_string(),
-                            }];
-                        }
-                        if self.select_tab_index(tab_index) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(tab_index as i32),
-                            }];
-                        }
+            InputEvent::MouseDown { x, y, button } if *button == MouseButton::Left => {
+                if let Some(tab_index) = self.tab_at_position(*x, *y) {
+                    if tab_index == self.active_tab_index() {
+                        return vec![GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "input_handled".to_string(),
+                        }];
                     }
-                    return vec![GadgetMessage::Custom {
-                        gadget_id: self.id,
-                        data: "input_handled".to_string(),
-                    }];
+                    if self.select_tab_index(tab_index) {
+                        return vec![GadgetMessage::ValueChanged {
+                            gadget_id: self.id,
+                            value: GadgetValue::Integer(tab_index as i32),
+                        }];
+                    }
                 }
+                return vec![GadgetMessage::Custom {
+                    gadget_id: self.id,
+                    data: "input_handled".to_string(),
+                }];
+            }
 
             _ => {}
         }

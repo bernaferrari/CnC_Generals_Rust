@@ -249,13 +249,11 @@ struct HuffmanEncoder {
     symbol_buffer: Vec<Symbol>,
 }
 
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct HuffmanCode {
     code: u32,
     length: u8,
 }
-
 
 #[derive(Debug, Clone)]
 enum Symbol {

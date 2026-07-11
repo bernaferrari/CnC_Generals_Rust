@@ -338,7 +338,8 @@ impl UnitInputHandler {
     /// Get current drag selection box for UI rendering
     pub fn get_selection_box(&self) -> Option<(Vec2, Vec2)> {
         if self.drag_in_progress {
-            self.drag_start_pos.map(|start_pos| (start_pos, self.current_mouse_pos))
+            self.drag_start_pos
+                .map(|start_pos| (start_pos, self.current_mouse_pos))
         } else {
             None
         }

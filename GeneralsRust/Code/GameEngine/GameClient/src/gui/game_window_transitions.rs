@@ -966,8 +966,7 @@ impl Transition for ScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {
-            }
+            if draw_window_image(&win_ref, rect, 255) {}
         }
     }
 
@@ -1218,8 +1217,7 @@ impl Transition for MainMenuScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(grow_rc) = self.with_grow_window() {
             let grow_ref = grow_rc.borrow();
-            if draw_window_image(&grow_ref, rect, 255) {
-            }
+            if draw_window_image(&grow_ref, rect, 255) {}
         }
     }
 
@@ -1383,8 +1381,7 @@ impl Transition for MainMenuMediumScaleUpTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {
-            }
+            if draw_window_image(&win_ref, rect, 255) {}
         }
     }
 
@@ -1528,8 +1525,7 @@ impl Transition for MainMenuSmallScaleDownTransition {
         let rect = UIRect::new(x as f32, y as f32, (x1 - x) as f32, (y1 - y) as f32);
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
-            if draw_window_image(&win_ref, rect, 255) {
-            }
+            if draw_window_image(&win_ref, rect, 255) {}
         }
     }
 

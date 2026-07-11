@@ -242,8 +242,7 @@ pub type MainMenuResult<T> = Result<T, MainMenuError>;
 
 /// Window IDs for main menu buttons and windows
 /// Matches C++ static NameKeyType variables (lines 90-123)
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WindowIds {
     pub main_menu_id: u32,
     pub skirmish_id: u32,
@@ -279,7 +278,6 @@ pub struct WindowIds {
     pub button_hard_id: u32,
     pub button_diff_back_id: u32,
 }
-
 
 // ================================================================================================
 // DISPLAY SETTINGS
@@ -730,10 +728,9 @@ impl MainMenu {
         }
 
         // Handle transitions - matches C++ lines 847-848
-        if state.dont_allow_transitions
-            && self.transitions_finished() {
-                state.dont_allow_transitions = false;
-            }
+        if state.dont_allow_transitions && self.transitions_finished() {
+            state.dont_allow_transitions = false;
+        }
 
         // Show logo logic - matches C++ lines 850-878
         if state.show_logo && !state.dont_allow_transitions {
@@ -774,20 +771,18 @@ impl MainMenu {
         update_gamespy_overlays();
 
         // Check if we should start the game - matches C++ lines 933-936
-        if state.start_game
-            && get_shell().is_anim_finished() && self.transitions_finished() {
-                self.do_game_start(&mut state)?;
-            }
+        if state.start_game && get_shell().is_anim_finished() && self.transitions_finished() {
+            self.do_game_start(&mut state)?;
+        }
 
         // Check if shutdown is complete - matches C++ lines 939-942
-        if state.is_shutting_down
-            && get_shell().is_anim_finished() && self.transitions_finished() {
-                self.finish_shutdown_complete(Some(layout), &mut state)?;
-                drop(state);
-                self.complete_shell_shutdown()?;
-                log::info!("Main menu shutdown complete");
-                return Ok(());
-            }
+        if state.is_shutting_down && get_shell().is_anim_finished() && self.transitions_finished() {
+            self.finish_shutdown_complete(Some(layout), &mut state)?;
+            drop(state);
+            self.complete_shell_shutdown()?;
+            log::info!("Main menu shutdown complete");
+            return Ok(());
+        }
 
         pending_actions.append(&mut state.pending_actions);
         drop(state);
@@ -842,11 +837,10 @@ impl MainMenu {
             }
 
             // GWM_CHAR - matches C++ lines 996-1009
-            GWM_CHAR
-                if state.not_shown => {
-                    self.reveal_hidden_main_menu(&mut state);
-                    return true; // MSG_HANDLED
-                }
+            GWM_CHAR if state.not_shown => {
+                self.reveal_hidden_main_menu(&mut state);
+                return true; // MSG_HANDLED
+            }
 
             _ => {}
         }

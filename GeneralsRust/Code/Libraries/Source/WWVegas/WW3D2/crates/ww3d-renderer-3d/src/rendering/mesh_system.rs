@@ -1000,15 +1000,17 @@ impl MeshModelClass {
         if self.stage_texture_coords.is_empty() && !self.texture_coords.is_empty() {
             self.stage_texture_coords.push(self.texture_coords.clone());
         } else if self
-            .stage_texture_coords.first()
+            .stage_texture_coords
+            .first()
             .is_none_or(|layer| layer.is_empty())
-            && !self.texture_coords.is_empty() {
-                if self.stage_texture_coords.is_empty() {
-                    self.stage_texture_coords.push(self.texture_coords.clone());
-                } else {
-                    self.stage_texture_coords[0] = self.texture_coords.clone();
-                }
+            && !self.texture_coords.is_empty()
+        {
+            if self.stage_texture_coords.is_empty() {
+                self.stage_texture_coords.push(self.texture_coords.clone());
+            } else {
+                self.stage_texture_coords[0] = self.texture_coords.clone();
             }
+        }
     }
 
     /// Get mesh name - equivalent to C++ Get_Name

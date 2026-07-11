@@ -288,7 +288,6 @@ struct DecoderEntry {
     length: u8,
 }
 
-
 impl HuffmanDecoder {
     fn new() -> Self {
         Self {

@@ -451,8 +451,6 @@ impl PerformanceManager {
         #[cfg(target_os = "macos")]
         {
             // macOS implementation using host_processor_info
-            
-            
 
             // Simplified CPU usage estimation for macOS
             // In a real implementation, you'd use mach/host_info.h functions

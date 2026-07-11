@@ -33,8 +33,7 @@ const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: i32 = 8;
 const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ScoreScreenType {
     #[default]
     SinglePlayer,
@@ -43,7 +42,6 @@ enum ScoreScreenType {
     Internet,
     Replay,
 }
-
 
 #[derive(Default)]
 struct ScoreGather {
@@ -717,37 +715,36 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                 if player.get_base_side().eq_ignore_ascii_case(side)
                     && (TheGameLogic::get_game_mode() != GAME_SINGLE_PLAYER
                         || player.get_list_in_score_screen())
-                    {
-                        let relationship = player
-                            .get_default_team()
-                            .as_ref()
-                            .and_then(|team| {
-                                team.read()
-                                    .ok()
-                                    .map(|team| local_player.get_relationship_with_team(&team))
-                            })
-                            .unwrap_or(gamelogic::prelude::Relationship::Neutral);
+                {
+                    let relationship = player
+                        .get_default_team()
+                        .as_ref()
+                        .and_then(|team| {
+                            team.read()
+                                .ok()
+                                .map(|team| local_player.get_relationship_with_team(&team))
+                        })
+                        .unwrap_or(gamelogic::prelude::Relationship::Neutral);
 
-                        let is_allied = relationship == gamelogic::prelude::Relationship::Allies;
-                        if (is_friend && is_allied) || (!is_friend && !is_allied) {
-                            let score = player.get_score_keeper();
-                            gather.total_buildings_built += score.get_total_buildings_built();
-                            gather.total_buildings_destroyed +=
-                                score.get_total_buildings_destroyed();
-                            gather.total_buildings_lost += score.get_total_buildings_lost();
-                            gather.total_money_earned += score.get_total_money_earned();
-                            gather.total_money_spent += score.get_total_money_spent();
-                            gather.total_units_built += score.get_total_units_built();
-                            gather.total_units_destroyed += score.get_total_units_destroyed();
-                            gather.total_units_lost += score.get_total_units_lost();
-                            gather.side_icon = player
-                                .get_player_template()
-                                .map(|template| template.get_side_icon_image().to_string())
-                                .unwrap_or_default();
-                            color = player.get_player_color().to_argb_u32();
-                            populate = true;
-                        }
+                    let is_allied = relationship == gamelogic::prelude::Relationship::Allies;
+                    if (is_friend && is_allied) || (!is_friend && !is_allied) {
+                        let score = player.get_score_keeper();
+                        gather.total_buildings_built += score.get_total_buildings_built();
+                        gather.total_buildings_destroyed += score.get_total_buildings_destroyed();
+                        gather.total_buildings_lost += score.get_total_buildings_lost();
+                        gather.total_money_earned += score.get_total_money_earned();
+                        gather.total_money_spent += score.get_total_money_spent();
+                        gather.total_units_built += score.get_total_units_built();
+                        gather.total_units_destroyed += score.get_total_units_destroyed();
+                        gather.total_units_lost += score.get_total_units_lost();
+                        gather.side_icon = player
+                            .get_player_template()
+                            .map(|template| template.get_side_icon_image().to_string())
+                            .unwrap_or_default();
+                        color = player.get_player_color().to_argb_u32();
+                        populate = true;
                     }
+                }
             }
         }
 

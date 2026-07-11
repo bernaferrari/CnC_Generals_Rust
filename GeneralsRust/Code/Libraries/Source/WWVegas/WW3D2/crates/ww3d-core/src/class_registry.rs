@@ -249,9 +249,7 @@ pub fn type_id_from_class(id: u32) -> Option<TypeId> {
 
 /// Convenience helper to check whether a class identifier has been registered.
 pub fn is_class_registered(id: u32) -> bool {
-    REGISTRY_BY_ID
-        .read()
-        .is_ok_and(|map| map.contains_key(&id))
+    REGISTRY_BY_ID.read().is_ok_and(|map| map.contains_key(&id))
 }
 
 #[cfg(test)]

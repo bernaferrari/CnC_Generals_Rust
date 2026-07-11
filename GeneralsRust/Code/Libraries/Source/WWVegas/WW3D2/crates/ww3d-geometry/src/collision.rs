@@ -137,7 +137,7 @@ pub struct RayIntersection {
     pub barycentric_coords: (f32, f32, f32),
 }
 
-/// Collision detection functions for geometric primitives
+// Collision detection functions for geometric primitives
 
 /// Test ray-triangle intersection
 pub fn ray_triangle_intersect(ray: &Ray, triangle: &Triangle, cull_backface: bool) -> Option<Vec3> {

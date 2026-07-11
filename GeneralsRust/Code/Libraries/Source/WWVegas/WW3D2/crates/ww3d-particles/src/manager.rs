@@ -189,9 +189,8 @@ impl super::ParticleSystem for ParticleSystemManager {
         }
 
         // Remove completed emitters if they have auto-remove enabled
-        self.emitters.retain(|emitter| {
-            !(emitter.is_complete() && emitter.is_remove_on_complete_enabled())
-        });
+        self.emitters
+            .retain(|emitter| !(emitter.is_complete() && emitter.is_remove_on_complete_enabled()));
     }
 
     fn emit(&mut self, transform: Mat4) {

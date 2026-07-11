@@ -3228,10 +3228,8 @@ impl ForwardPass {
         if let Some(w3d_model) = graphics_system.get_model(&item.model_name) {
             if !w3d_model.animations.is_empty() && w3d_model.hierarchy.is_some() {
                 if let Some(bone_transforms) = w3d_model.sample_animation(0, item.animation_frame) {
-                    let matrices: Vec<Mat4> = bone_transforms
-                        .iter()
-                        .map(Mat4::from_cols_array)
-                        .collect();
+                    let matrices: Vec<Mat4> =
+                        bone_transforms.iter().map(Mat4::from_cols_array).collect();
                     mesh.set_bone_palette_slice(&matrices);
                 }
             }

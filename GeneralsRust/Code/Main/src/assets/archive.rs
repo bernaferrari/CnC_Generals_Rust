@@ -559,9 +559,9 @@ impl AsyncRead for BlockingAsyncReader {
                         Poll::Ready(Ok(()))
                     }
                     Ok(Err(err)) => Poll::Ready(Err(err)),
-                    Err(err) => Poll::Ready(Err(io::Error::other(
-                        format!("blocking reader task failed: {err}"),
-                    ))),
+                    Err(err) => Poll::Ready(Err(io::Error::other(format!(
+                        "blocking reader task failed: {err}"
+                    )))),
                 }
             }
         }

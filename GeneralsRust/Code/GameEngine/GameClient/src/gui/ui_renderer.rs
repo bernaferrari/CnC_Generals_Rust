@@ -1120,9 +1120,7 @@ impl UIRenderer {
             let mut current_pipeline: Option<*const RenderPipeline> = None;
             let mut current_texture: Option<Arc<TextureView>> = None;
 
-            for (command, (start, count)) in
-                self.draw_commands.iter().zip(command_ranges)
-            {
+            for (command, (start, count)) in self.draw_commands.iter().zip(command_ranges) {
                 let pipeline = if command.texture.is_some() {
                     &self.textured_pipeline
                 } else {

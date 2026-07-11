@@ -37,7 +37,6 @@ pub struct HeaderTemplateManager {
     templates: Vec<HeaderTemplate>,
 }
 
-
 impl HeaderTemplateManager {
     pub fn new() -> Self {
         Self::default()

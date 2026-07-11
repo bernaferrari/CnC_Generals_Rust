@@ -11,7 +11,7 @@
 
 #[cfg(test)]
 mod chaos_tests {
-    
+
     use std::time::{Duration, Instant};
     use tokio::time::sleep;
 

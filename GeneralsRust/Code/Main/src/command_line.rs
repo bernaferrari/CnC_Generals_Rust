@@ -27,8 +27,7 @@ use game_engine::common::global_data as runtime_global_data;
 pub const MAX_STARTUP_ARGS: usize = 20;
 
 /// Command line arguments parsed from the application startup
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CommandLineArgs {
     /// Raw command line arguments
     pub raw_args: Vec<String>,
@@ -71,7 +70,6 @@ pub struct CommandLineArgs {
     /// `Some(true)` => windowed, `Some(false)` => fullscreen.
     window_mode_override: Option<bool>,
 }
-
 
 impl CommandLineArgs {
     /// Parse command line arguments from environment

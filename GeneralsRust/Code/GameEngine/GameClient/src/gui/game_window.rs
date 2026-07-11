@@ -2726,9 +2726,9 @@ impl GameWindow {
                 || self.is_hidden()
                 || !self.is_enabled()
                 || self.status.contains(WindowStatus::NO_INPUT))
-            {
-                return WindowMsgHandled::Ignored;
-            }
+        {
+            return WindowMsgHandled::Ignored;
+        }
         self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
@@ -2777,12 +2777,11 @@ impl GameWindow {
                     self.press_was_down = true;
                 }
             }
-            WindowMessage::LeftUp
-                if self.press_was_down => {
-                    self.press_scale_target = 1.0;
-                    self.press_scale_velocity = self.release_impulse;
-                    self.press_was_down = false;
-                }
+            WindowMessage::LeftUp if self.press_was_down => {
+                self.press_scale_target = 1.0;
+                self.press_scale_velocity = self.release_impulse;
+                self.press_was_down = false;
+            }
             _ => {}
         }
     }

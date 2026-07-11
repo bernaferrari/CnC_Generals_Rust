@@ -355,26 +355,25 @@ pub fn lan_map_select_menu_system(
                 return WindowMsgHandled::Handled;
             }
         }
-        WindowMessage::User(0x8000)
-            if data1 as i32 == state.listbox_map_id => {
-                if (data2 as i32) >= 0 {
-                    if let Some(listbox) = state.listbox_map.as_ref() {
-                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-                            let _ = widget.select_index(data2, KeyModifiers::none());
-                        }
+        WindowMessage::User(0x8000) if data1 as i32 == state.listbox_map_id => {
+            if (data2 as i32) >= 0 {
+                if let Some(listbox) = state.listbox_map.as_ref() {
+                    if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                        let _ = widget.select_index(data2, KeyModifiers::none());
                     }
                 }
-                update_selected_map(&mut state);
-                update_preview(&mut state);
-                if let Some(parent) = state.parent.as_ref() {
-                    let _ = parent.borrow_mut().send_system_message(
-                        WindowMessage::GadgetSelected,
-                        state.button_ok_id as WindowMsgData,
-                        state.button_ok_id as WindowMsgData,
-                    );
-                }
-                return WindowMsgHandled::Handled;
             }
+            update_selected_map(&mut state);
+            update_preview(&mut state);
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_ok_id as WindowMsgData,
+                    state.button_ok_id as WindowMsgData,
+                );
+            }
+            return WindowMsgHandled::Handled;
+        }
         _ => {}
     }
 

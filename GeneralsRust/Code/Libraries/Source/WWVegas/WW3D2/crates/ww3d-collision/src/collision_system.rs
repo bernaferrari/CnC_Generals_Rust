@@ -318,9 +318,10 @@ impl CollisionSystem {
 
                 for static_obj in &self.static_objects {
                     if candidates.contains(&static_obj.id)
-                        && CollisionMath::aabb_intersect(&query_aabb, &static_obj.aabb) {
-                            return Some(sphere_test.result);
-                        }
+                        && CollisionMath::aabb_intersect(&query_aabb, &static_obj.aabb)
+                    {
+                        return Some(sphere_test.result);
+                    }
                 }
             }
             _ => {}

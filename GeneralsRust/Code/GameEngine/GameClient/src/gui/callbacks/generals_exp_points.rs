@@ -20,10 +20,9 @@ pub fn generals_exp_points_input(
         WindowMessage::MouseEntering => {
             TheInGameUI::place_build_available(None, None);
         }
-        WindowMessage::Char
-            if data1 == KEY_ESC => {
-                TheControlBar::hide_purchase_science();
-            }
+        WindowMessage::Char if data1 == KEY_ESC => {
+            TheControlBar::hide_purchase_science();
+        }
         _ => {}
     }
 
@@ -40,8 +39,7 @@ pub fn generals_exp_points_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, false),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            let button_exit_id =
-                NameKeyGenerator::name_to_key("GeneralsExpPoints.wnd:ButtonExit");
+            let button_exit_id = NameKeyGenerator::name_to_key("GeneralsExpPoints.wnd:ButtonExit");
 
             if control_id == button_exit_id {
                 TheControlBar::hide_purchase_science();

@@ -270,17 +270,13 @@ impl ControlBarCallbacks {
     }
 
     fn handle_button_selected(&mut self, control_id: u32, right_click: bool) {
-        let beacon_place_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
-        let beacon_delete_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
+        let beacon_place_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
+        let beacon_delete_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
         let beacon_clear_text_id =
             NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonClearBeaconText");
-        let beacon_general_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral");
+        let beacon_general_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral");
         let button_large_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge");
-        let button_options_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions");
+        let button_options_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions");
         let button_idle_worker_id =
             NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker");
 

@@ -593,10 +593,12 @@ impl GadgetManager {
             | InputEvent::MouseUp { x, y, .. } => {
                 // Find gadget under mouse
                 for gadget in self.gadgets.values_mut() {
-                    if gadget.is_visible() && gadget.is_enabled()
-                        && gadget.bounds().contains_point(*x, *y) {
-                            messages.extend(gadget.handle_input(event));
-                        }
+                    if gadget.is_visible()
+                        && gadget.is_enabled()
+                        && gadget.bounds().contains_point(*x, *y)
+                    {
+                        messages.extend(gadget.handle_input(event));
+                    }
                 }
             }
 

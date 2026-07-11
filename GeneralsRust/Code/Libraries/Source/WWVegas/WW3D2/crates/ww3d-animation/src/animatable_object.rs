@@ -86,12 +86,10 @@ impl Default for ModeInterpData {
 
 /// Multiple animation blend state (combo)
 /// Reference: animobj.h:65-68
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct ModeComboData {
     anim_combo: Option<HAnimCombo>,
 }
-
 
 /// Animatable 3D object with hierarchical animation support
 /// This is a direct port of C++ Animatable3DObjClass
@@ -542,79 +540,80 @@ impl Animatable3DObjClass {
         let mut direction = self.mode_anim.anim_direction;
 
         if self.cur_motion_mode == MotionMode::SingleAnim
-            && self.mode_anim.anim_mode != AnimationMode::Manual {
-                if let Some(ref motion) = self.mode_anim.motion {
-                    // Calculate frame delta from time
-                    // Reference: animobj.cpp:904-906
-                    let sync_time_diff = sync_time - self.mode_anim.last_sync_time;
-                    let delta = motion.frame_rate
-                        * self.mode_anim.frame_rate_multiplier
-                        * self.mode_anim.anim_direction
-                        * (sync_time_diff as f32)
-                        * 0.001; // Convert ms to seconds
+            && self.mode_anim.anim_mode != AnimationMode::Manual
+        {
+            if let Some(ref motion) = self.mode_anim.motion {
+                // Calculate frame delta from time
+                // Reference: animobj.cpp:904-906
+                let sync_time_diff = sync_time - self.mode_anim.last_sync_time;
+                let delta = motion.frame_rate
+                    * self.mode_anim.frame_rate_multiplier
+                    * self.mode_anim.anim_direction
+                    * (sync_time_diff as f32)
+                    * 0.001; // Convert ms to seconds
 
-                    frame += delta;
+                frame += delta;
 
-                    // Wrap frame based on animation mode
-                    // Reference: animobj.cpp:911-964
-                    let max_frame = motion.num_frames as f32 - 1.0;
-                    match self.mode_anim.anim_mode {
-                        AnimationMode::Once => {
-                            // Reference: animobj.cpp:913-917
-                            if frame >= max_frame {
-                                frame = max_frame;
-                            }
+                // Wrap frame based on animation mode
+                // Reference: animobj.cpp:911-964
+                let max_frame = motion.num_frames as f32 - 1.0;
+                match self.mode_anim.anim_mode {
+                    AnimationMode::Once => {
+                        // Reference: animobj.cpp:913-917
+                        if frame >= max_frame {
+                            frame = max_frame;
                         }
-                        AnimationMode::Loop => {
-                            // Reference: animobj.cpp:918-926
-                            if frame >= max_frame {
-                                frame -= max_frame;
-                            }
-                            if frame >= max_frame {
-                                frame = 0.0;
-                            }
-                        }
-                        AnimationMode::OnceBackwards => {
-                            // Reference: animobj.cpp:927-930
-                            if frame < 0.0 {
-                                frame = 0.0;
-                            }
-                        }
-                        AnimationMode::LoopBackwards => {
-                            // Reference: animobj.cpp:931-939
-                            if frame < 0.0 {
-                                frame += max_frame;
-                            }
-                            if frame < 0.0 {
-                                frame = max_frame;
-                            }
-                        }
-                        AnimationMode::PingPong => {
-                            // Reference: animobj.cpp:941-964
-                            if self.mode_anim.anim_direction >= 1.0 {
-                                // Playing forwards, check if we need to reverse
-                                if frame >= max_frame {
-                                    frame = max_frame * 2.0 - frame;
-                                    if frame >= max_frame {
-                                        frame = max_frame;
-                                    }
-                                    direction = -1.0;
-                                }
-                            } else {
-                                // Playing backwards, check if we need to reverse
-                                if frame < 0.0 {
-                                    frame = -frame;
-                                    if frame >= max_frame {
-                                        frame = 0.0;
-                                    }
-                                    direction = 1.0;
-                                }
-                            }
-                        }
-                        AnimationMode::Manual => {}
                     }
+                    AnimationMode::Loop => {
+                        // Reference: animobj.cpp:918-926
+                        if frame >= max_frame {
+                            frame -= max_frame;
+                        }
+                        if frame >= max_frame {
+                            frame = 0.0;
+                        }
+                    }
+                    AnimationMode::OnceBackwards => {
+                        // Reference: animobj.cpp:927-930
+                        if frame < 0.0 {
+                            frame = 0.0;
+                        }
+                    }
+                    AnimationMode::LoopBackwards => {
+                        // Reference: animobj.cpp:931-939
+                        if frame < 0.0 {
+                            frame += max_frame;
+                        }
+                        if frame < 0.0 {
+                            frame = max_frame;
+                        }
+                    }
+                    AnimationMode::PingPong => {
+                        // Reference: animobj.cpp:941-964
+                        if self.mode_anim.anim_direction >= 1.0 {
+                            // Playing forwards, check if we need to reverse
+                            if frame >= max_frame {
+                                frame = max_frame * 2.0 - frame;
+                                if frame >= max_frame {
+                                    frame = max_frame;
+                                }
+                                direction = -1.0;
+                            }
+                        } else {
+                            // Playing backwards, check if we need to reverse
+                            if frame < 0.0 {
+                                frame = -frame;
+                                if frame >= max_frame {
+                                    frame = 0.0;
+                                }
+                                direction = 1.0;
+                            }
+                        }
+                    }
+                    AnimationMode::Manual => {}
                 }
             }
+        }
 
         (frame, direction)
     }
@@ -665,13 +664,15 @@ impl Animatable3DObjClass {
         &self,
     ) -> Option<(Arc<HAnimClass>, f32, u32, AnimationMode, f32)> {
         if self.cur_motion_mode == MotionMode::SingleAnim {
-            self.mode_anim.motion.as_ref().map(|motion| (
+            self.mode_anim.motion.as_ref().map(|motion| {
+                (
                     motion.clone(),
                     self.mode_anim.frame,
                     motion.num_frames,
                     self.mode_anim.anim_mode,
                     self.mode_anim.frame_rate_multiplier,
-                ))
+                )
+            })
         } else {
             None
         }
@@ -686,9 +687,10 @@ impl Animatable3DObjClass {
     /// Update animation (call this every frame)
     pub fn update(&mut self, _delta_time: f32, sync_time: f64) {
         if self.cur_motion_mode == MotionMode::SingleAnim
-            && self.mode_anim.anim_mode != AnimationMode::Manual {
-                self.single_anim_progress(sync_time);
-            }
+            && self.mode_anim.anim_mode != AnimationMode::Manual
+        {
+            self.single_anim_progress(sync_time);
+        }
 
         if !self.is_tree_valid {
             self.update_sub_object_transforms();

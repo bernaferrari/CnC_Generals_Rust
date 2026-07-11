@@ -639,7 +639,7 @@ async fn test_multiple_desync_recovery() {
                 &mut p2,
                 DesyncType::ExtraResources {
                     player_id: 0,
-                    amount: 100 * ((recovery_count + 1)),
+                    amount: 100 * (recovery_count + 1),
                 },
             );
         }

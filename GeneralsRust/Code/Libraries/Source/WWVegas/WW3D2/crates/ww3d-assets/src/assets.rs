@@ -37,10 +37,7 @@ impl PrototypeClassRegistry {
         self.unregister(&key);
 
         self.name_to_id.insert(key.clone(), class_id);
-        self.id_to_names
-            .entry(class_id)
-            .or_default()
-            .insert(key);
+        self.id_to_names.entry(class_id).or_default().insert(key);
     }
 
     fn unregister(&mut self, name: &str) {
@@ -1123,7 +1120,8 @@ mod tests {
         for (prefix, expected) in expectations {
             let mut manager = AssetManager::new();
             if let Err(e) = load_prefix_assets(&mut manager, &data_root, prefix)
-                .with_context(|| format!("loading assets for {prefix}")) {
+                .with_context(|| format!("loading assets for {prefix}"))
+            {
                 eprintln!("Skipping {prefix}: {}", e);
                 continue;
             }

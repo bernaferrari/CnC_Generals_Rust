@@ -131,9 +131,9 @@ impl EstablishConnectionsMenu {
         self.aborted = false;
 
         if let Some(manager) = &self.window_manager {
-            let mut manager = manager.lock().map_err(|_| {
-                std::io::Error::other("WindowManager lock poisoned")
-            })?;
+            let mut manager = manager
+                .lock()
+                .map_err(|_| std::io::Error::other("WindowManager lock poisoned"))?;
             if self.window.is_none() {
                 self.window = Some(manager.load_window("EstablishConnectionsScreen.wnd")?);
             }

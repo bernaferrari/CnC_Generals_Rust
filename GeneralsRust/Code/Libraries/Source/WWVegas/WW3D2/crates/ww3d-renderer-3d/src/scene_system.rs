@@ -13,15 +13,13 @@ use glam::{Vec3, Vec4};
 use std::collections::HashMap;
 
 /// Scene ID enumeration - equivalent to C++ SceneClass RTTI
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SceneId {
     Unknown = 0xFFFFFFFF,
     #[default]
     Scene = 0,
     Simple = 1,
 }
-
 
 /// Polygon render type - equivalent to C++ PolyRenderType
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1038,7 +1038,8 @@ impl MeshBuilderClass {
                 }
                 shader_index[pass] = self.faces[0].shader_index[pass];
                 vmat_index[pass] = self
-                    .verts.first()
+                    .verts
+                    .first()
                     .map(|v| v.vertex_material_index[pass])
                     .unwrap_or(-1);
             }

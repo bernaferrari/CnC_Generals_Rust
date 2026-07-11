@@ -218,8 +218,7 @@ impl Default for DazzleInitClass {
 
 /// Configuration for a lensflare type.
 /// Matches C++ LensflareInitClass exactly.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LensflareInitClass {
     pub type_id: usize,
     pub texture_name: String,
@@ -229,7 +228,6 @@ pub struct LensflareInitClass {
     pub flare_colors: Vec<Vector3>,
     pub flare_uv: Vec<Vector4>,
 }
-
 
 impl LensflareInitClass {
     pub fn new(flare_count: usize) -> Self {

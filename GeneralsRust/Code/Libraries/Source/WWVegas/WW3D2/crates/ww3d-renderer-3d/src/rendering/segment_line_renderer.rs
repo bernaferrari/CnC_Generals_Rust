@@ -86,8 +86,7 @@ const PARALLEL_FACTOR: f32 = 0.9;
 
 /// Texture mapping modes for line rendering
 /// C++ Reference: seglinerenderer.h lines 74-78
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureMapMode {
     /// Entire line uses one row of texture (constant V coordinate)
     #[default]
@@ -97,7 +96,6 @@ pub enum TextureMapMode {
     /// Tiled continuously over line
     TiledTextureMap = 0x00000002,
 }
-
 
 /// Flags for controlling segment line rendering behavior
 /// C++ Reference: seglinerenderer.h lines 164-176

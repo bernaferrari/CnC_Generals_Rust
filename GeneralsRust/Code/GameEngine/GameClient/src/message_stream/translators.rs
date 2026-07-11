@@ -2069,18 +2069,19 @@ impl CommandTranslator {
                 &self.current_selection,
                 world,
                 None,
-            ) {
-                let messages = pending_command_messages_for_position(
-                    &pending,
-                    world.clone(),
-                    &self.current_selection,
-                    None,
-                );
-                if !messages.is_empty() {
-                    self.clear_targeting_modes();
-                    return messages;
-                }
+            )
+        {
+            let messages = pending_command_messages_for_position(
+                &pending,
+                world.clone(),
+                &self.current_selection,
+                None,
+            );
+            if !messages.is_empty() {
+                self.clear_targeting_modes();
+                return messages;
             }
+        }
 
         if pending_command_accepts_object(pending.options)
             || pending_command_accepts_position(pending.options)
@@ -3459,10 +3460,11 @@ impl GUICommandTranslator {
                 &selection_ids,
                 &world,
                 None,
-            ) {
-                translated =
-                    pending_command_messages_for_position(&pending, world, &selection_ids, None);
-            }
+            )
+        {
+            translated =
+                pending_command_messages_for_position(&pending, world, &selection_ids, None);
+        }
 
         for message in &translated {
             dispatch_translated_message(message);

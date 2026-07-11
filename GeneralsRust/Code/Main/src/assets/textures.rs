@@ -912,9 +912,9 @@ impl TextureManager {
             .get_level_data(0)
             .ok_or_else(|| anyhow!("DDS level 0 data missing"))?;
 
-        let has_alpha = dds.compression.is_some_and(|c| {
-            matches!(c, DdsCompression::Dxt3 | DdsCompression::Dxt5)
-        });
+        let has_alpha = dds
+            .compression
+            .is_some_and(|c| matches!(c, DdsCompression::Dxt3 | DdsCompression::Dxt5));
 
         Ok(RawTexture {
             name,
