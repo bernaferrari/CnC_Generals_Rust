@@ -249,6 +249,9 @@ pub struct RenderPipeline {
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
     animation_states: HashMap<u32, ObjectAnimationState>,
     last_frame_time: f32,
+    /// When set, collect_render_items uses this presentation-derived ID list
+    /// as frame identity instead of iterating the live object map alone.
+    presentation_object_ids: Option<Vec<ObjectID>>,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -597,7 +600,13 @@ impl RenderPipeline {
             model_cull_bounds_cache: HashMap::new(),
             animation_states: HashMap::new(),
             last_frame_time: 0.0,
+            presentation_object_ids: None,
         })
+    }
+
+    /// Provide presentation-derived object IDs for the next collect_render_items pass.
+    pub fn set_presentation_object_ids(&mut self, ids: Option<Vec<ObjectID>>) {
+        self.presentation_object_ids = ids;
     }
 
     /// Execute complete rendering pipeline - equivalent to C++ RenderPipeline::Execute()
@@ -1150,13 +1159,18 @@ impl RenderPipeline {
         delta_time: f32,
     ) -> Result<()> {
         let collect_started = Instant::now();
-        trace!(
-            "collect_render_items processing {} objects",
-            game_logic.get_objects().len()
-        );
-        // Collect all object IDs for batch visibility query
+        // Prefer presentation-frame identity when the host provided one after logic step.
         let object_ids_started = Instant::now();
-        let mut object_ids: Vec<ObjectID> = game_logic.get_objects().keys().copied().collect();
+        let mut object_ids: Vec<ObjectID> = if let Some(pres_ids) = self.presentation_object_ids.take()
+        {
+            pres_ids
+        } else {
+            game_logic.get_objects().keys().copied().collect()
+        };
+        trace!(
+            "collect_render_items processing {} objects (presentation_or_live)",
+            object_ids.len()
+        );
         if allow_sync_model_loads {
             object_ids.sort_unstable();
         } else {

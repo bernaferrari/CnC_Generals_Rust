@@ -147,6 +147,17 @@ impl PresentationFrame {
         self.objects.iter().filter(|o| !o.destroyed).count()
     }
 
+    /// Stable object-id list for the production render collect path.
+    /// Presentation is the frame identity; GameLogic is only used to resolve
+    /// mesh/transform for those IDs when still present.
+    pub fn renderable_object_ids(&self) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed)
+            .map(|o| o.id)
+            .collect()
+    }
+
     /// Apply presentation identity fields onto a HUD/UI state (production consumer path).
     /// Does not re-borrow GameLogic — uses only owned snapshot data.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
