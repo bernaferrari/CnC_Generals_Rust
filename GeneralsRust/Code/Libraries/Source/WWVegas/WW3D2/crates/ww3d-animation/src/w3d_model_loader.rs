@@ -8,7 +8,6 @@
 ///! - Animation loading and playback
 ///!
 ///! Reference: C++ mesh.cpp, htree.cpp, hmodel.cpp, meshmdl.cpp
-
 use crate::hanim::HAnimClass;
 use crate::htree::HTreeClass;
 use crate::w3d_loader::{load_w3d_animation, load_w3d_hierarchy, W3DAnimationError};
@@ -16,9 +15,9 @@ use glam::Vec3;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 use ww3d_core::{
-    w3d_string_from_bytes, W3dHModelHeaderStruct, W3dHModelNodeStruct, W3dLodModelHeaderStruct,
-    W3dLodStruct, W3dMeshHeader3Struct, W3dVectorStruct, W3dVertInfStruct, W3DChunkType,
-    W3dChunkHeader,
+    w3d_string_from_bytes, W3DChunkType, W3dChunkHeader, W3dHModelHeaderStruct,
+    W3dHModelNodeStruct, W3dLodModelHeaderStruct, W3dLodStruct, W3dMeshHeader3Struct,
+    W3dVectorStruct, W3dVertInfStruct,
 };
 
 /// Complete W3D model with all components
@@ -140,8 +139,7 @@ impl W3DModel {
     /// Load a complete W3D model from a file
     /// Automatically detects and loads hierarchies, animations, and LODs
     pub fn load_from_file(path: &str) -> Result<Self, W3DAnimationError> {
-        let mut file = std::fs::File::open(path)
-            .map_err(|e| W3DAnimationError::IoError(e))?;
+        let mut file = std::fs::File::open(path).map_err(|e| W3DAnimationError::IoError(e))?;
         Self::load_from_reader(&mut file, path)
     }
 
@@ -226,21 +224,24 @@ impl W3DModel {
                     header = Some(reader.read_le()?);
                 }
                 Some(W3DChunkType::Vertices) => {
-                    let count = sub_header.actual_size() / std::mem::size_of::<W3dVectorStruct>() as u32;
+                    let count =
+                        sub_header.actual_size() / std::mem::size_of::<W3dVectorStruct>() as u32;
                     vertices.reserve(count as usize);
                     for _ in 0..count {
                         vertices.push(reader.read_le()?);
                     }
                 }
                 Some(W3DChunkType::VertexNormals) => {
-                    let count = sub_header.actual_size() / std::mem::size_of::<W3dVectorStruct>() as u32;
+                    let count =
+                        sub_header.actual_size() / std::mem::size_of::<W3dVectorStruct>() as u32;
                     normals.reserve(count as usize);
                     for _ in 0..count {
                         normals.push(reader.read_le()?);
                     }
                 }
                 Some(W3DChunkType::Triangles) => {
-                    let count = sub_header.actual_size() / std::mem::size_of::<ww3d_core::W3dTriangleStruct>() as u32;
+                    let count = sub_header.actual_size()
+                        / std::mem::size_of::<ww3d_core::W3dTriangleStruct>() as u32;
                     indices.reserve(count as usize * 3);
                     for _ in 0..count {
                         let tri: ww3d_core::W3dTriangleStruct = reader.read_le()?;
@@ -250,7 +251,8 @@ impl W3DModel {
                     }
                 }
                 Some(W3DChunkType::StageTexcoords) => {
-                    let count = sub_header.actual_size() / std::mem::size_of::<ww3d_core::W3dTexCoordStruct>() as u32;
+                    let count = sub_header.actual_size()
+                        / std::mem::size_of::<ww3d_core::W3dTexCoordStruct>() as u32;
                     tex_coords.reserve(count as usize);
                     for _ in 0..count {
                         tex_coords.push(reader.read_le()?);
@@ -258,7 +260,8 @@ impl W3DModel {
                 }
                 Some(W3DChunkType::VertexInfluences) => {
                     // CRITICAL: Parse bone influences for skinned meshes
-                    let count = sub_header.actual_size() / std::mem::size_of::<W3dVertInfStruct>() as u32;
+                    let count =
+                        sub_header.actual_size() / std::mem::size_of::<W3dVertInfStruct>() as u32;
                     bone_influences.reserve(count as usize);
                     for _ in 0..count {
                         bone_influences.push(reader.read_le()?);
@@ -272,25 +275,15 @@ impl W3DModel {
             reader.seek(std::io::SeekFrom::Start(sub_end))?;
         }
 
-        let header = header.ok_or_else(|| {
-            W3DAnimationError::MissingChunk("Mesh header not found".to_string())
-        })?;
+        let header = header
+            .ok_or_else(|| W3DAnimationError::MissingChunk("Mesh header not found".to_string()))?;
 
         // Convert to renderable format
-        let vertices: Vec<Vec3> = vertices
-            .iter()
-            .map(|v| Vec3::new(v.x, v.y, v.z))
-            .collect();
+        let vertices: Vec<Vec3> = vertices.iter().map(|v| Vec3::new(v.x, v.y, v.z)).collect();
 
-        let normals: Vec<Vec3> = normals
-            .iter()
-            .map(|n| Vec3::new(n.x, n.y, n.z))
-            .collect();
+        let normals: Vec<Vec3> = normals.iter().map(|n| Vec3::new(n.x, n.y, n.z)).collect();
 
-        let tex_coords: Vec<[f32; 2]> = tex_coords
-            .iter()
-            .map(|tc| [tc.u, tc.v])
-            .collect();
+        let tex_coords: Vec<[f32; 2]> = tex_coords.iter().map(|tc| [tc.u, tc.v]).collect();
 
         // Convert bone influences (W3D uses single-bone-per-vertex skinning)
         let bone_influences: Vec<BoneInfluence> = bone_influences
@@ -305,7 +298,11 @@ impl W3DModel {
         let bbox = BoundingBox {
             min: Vec3::new(header.bbox_min.x, header.bbox_min.y, header.bbox_min.z),
             max: Vec3::new(header.bbox_max.x, header.bbox_max.y, header.bbox_max.z),
-            center: Vec3::new(header.sph_center.x, header.sph_center.y, header.sph_center.z),
+            center: Vec3::new(
+                header.sph_center.x,
+                header.sph_center.y,
+                header.sph_center.z,
+            ),
             radius: header.sph_radius,
         };
 
@@ -345,7 +342,9 @@ impl W3DModel {
                 Some(W3DChunkType::HmodelHeader) => {
                     header = Some(reader.read_le()?);
                 }
-                Some(W3DChunkType::Node) | Some(W3DChunkType::CollisionNode) | Some(W3DChunkType::SkinNode) => {
+                Some(W3DChunkType::Node)
+                | Some(W3DChunkType::CollisionNode)
+                | Some(W3DChunkType::SkinNode) => {
                     let node: W3dHModelNodeStruct = reader.read_le()?;
                     connections.push(HModelConnection {
                         render_obj_name: w3d_string_from_bytes(&node.render_obj_name),
@@ -410,9 +409,8 @@ impl W3DModel {
             reader.seek(std::io::SeekFrom::Start(sub_end))?;
         }
 
-        let header = header.ok_or_else(|| {
-            W3DAnimationError::MissingChunk("LOD header not found".to_string())
-        })?;
+        let header = header
+            .ok_or_else(|| W3DAnimationError::MissingChunk("LOD header not found".to_string()))?;
 
         Ok(LODModelData {
             name: w3d_string_from_bytes(&header.name),

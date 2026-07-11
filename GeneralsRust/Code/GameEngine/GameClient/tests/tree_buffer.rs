@@ -709,12 +709,8 @@ fn cull_trees_from_camera_transform_matches_cpp_negative_z_axis() {
             bounds(),
         )
         .unwrap();
-    let camera_transform = Mat4::from_cols(
-        Vec4::X,
-        Vec4::Y,
-        Vec4::new(-2.0, 3.0, 4.0, 0.0),
-        Vec4::W,
-    );
+    let camera_transform =
+        Mat4::from_cols(Vec4::X, Vec4::Y, Vec4::new(-2.0, 3.0, 4.0, 0.0), Vec4::W);
 
     buffer.cull_trees_from_camera_transform(camera_transform, |_| true);
 
@@ -866,7 +862,10 @@ fn remove_trees_for_construction_rotates_box_footprint_like_cpp_angle() {
         angle: std::f32::consts::FRAC_PI_2,
     });
 
-    assert_eq!(buffer.trees()[rotated_long_edge].tree_type, DELETED_TREE_TYPE);
+    assert_eq!(
+        buffer.trees()[rotated_long_edge].tree_type,
+        DELETED_TREE_TYPE
+    );
     assert!(buffer.trees()[outside_rotated_edge].tree_type >= 0);
 }
 

@@ -4,7 +4,6 @@
 ///! transitions between states like idle, walk, run, attack, death, etc.
 ///!
 ///! Reference: Common game animation state machine patterns used in RTS games
-
 use crate::hanim::{AnimationMode, HAnimClass};
 use crate::skeletal_animation::AnimatedModel;
 use glam::Mat4;
@@ -56,7 +55,10 @@ impl AnimationState {
     pub fn is_looping(&self) -> bool {
         matches!(
             self,
-            AnimationState::Idle | AnimationState::Walk | AnimationState::Run | AnimationState::Build
+            AnimationState::Idle
+                | AnimationState::Walk
+                | AnimationState::Run
+                | AnimationState::Build
         )
     }
 
@@ -136,7 +138,12 @@ impl AnimationStateMachine {
     }
 
     /// Register an animation for a state
-    pub fn register_animation(&mut self, state: AnimationState, name: impl Into<String>, animation: HAnimClass) {
+    pub fn register_animation(
+        &mut self,
+        state: AnimationState,
+        name: impl Into<String>,
+        animation: HAnimClass,
+    ) {
         let name = name.into();
         self.animation_map.insert(state, name.clone());
         self.animations.insert(name, animation);

@@ -183,7 +183,10 @@ pub struct AudioStreamer {
     state: Arc<RwLock<StreamState>>,
     /// Stream quality
     quality: StreamQuality,
-    ring_buffer: Option<(crossbeam_channel::Sender<f32>, crossbeam_channel::Receiver<f32>)>,
+    ring_buffer: Option<(
+        crossbeam_channel::Sender<f32>,
+        crossbeam_channel::Receiver<f32>,
+    )>,
     /// Stream buffers
     buffers: Arc<RwLock<VecDeque<StreamBuffer>>>,
     /// Current playback position in samples

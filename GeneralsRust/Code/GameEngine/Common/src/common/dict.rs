@@ -114,7 +114,10 @@ impl Dict {
         match self.pairs.get(&key) {
             Some(DictValue::Bool(value)) => *value,
             Some(other) => {
-                log::warn!("Dict::get_bool({key}) found {:?}, expected Bool", other.dict_type());
+                log::warn!(
+                    "Dict::get_bool({key}) found {:?}, expected Bool",
+                    other.dict_type()
+                );
                 false
             }
             None => false,
@@ -129,7 +132,10 @@ impl Dict {
         match self.pairs.get(&key) {
             Some(DictValue::Int(value)) => *value,
             Some(other) => {
-                log::warn!("Dict::get_int({key}) found {:?}, expected Int", other.dict_type());
+                log::warn!(
+                    "Dict::get_int({key}) found {:?}, expected Int",
+                    other.dict_type()
+                );
                 0
             }
             None => 0,
@@ -144,7 +150,10 @@ impl Dict {
         match self.pairs.get(&key) {
             Some(DictValue::Real(value)) => *value,
             Some(other) => {
-                log::warn!("Dict::get_real({key}) found {:?}, expected Real", other.dict_type());
+                log::warn!(
+                    "Dict::get_real({key}) found {:?}, expected Real",
+                    other.dict_type()
+                );
                 0.0
             }
             None => 0.0,
@@ -159,7 +168,10 @@ impl Dict {
         match self.pairs.get(&key) {
             Some(DictValue::AsciiString(value)) => value.clone(),
             Some(other) => {
-                log::warn!("Dict::get_ascii_string({key}) found {:?}, expected AsciiString", other.dict_type());
+                log::warn!(
+                    "Dict::get_ascii_string({key}) found {:?}, expected AsciiString",
+                    other.dict_type()
+                );
                 String::new()
             }
             None => String::new(),
@@ -174,7 +186,10 @@ impl Dict {
         match self.pairs.get(&key) {
             Some(DictValue::UnicodeString(value)) => value.clone(),
             Some(other) => {
-                log::warn!("Dict::get_unicode_string({key}) found {:?}, expected UnicodeString", other.dict_type());
+                log::warn!(
+                    "Dict::get_unicode_string({key}) found {:?}, expected UnicodeString",
+                    other.dict_type()
+                );
                 String::new()
             }
             None => String::new(),

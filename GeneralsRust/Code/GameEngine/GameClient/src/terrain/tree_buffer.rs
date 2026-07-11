@@ -817,9 +817,11 @@ impl W3DTreeBuffer {
                 && self.trees[index].options & W3D_TOPPLE_OPTIONS_NO_FX == 0
             {
                 if let Some(fx_name) = data.bounce_fx {
-                    let position = self.trees[index]
-                        .matrix
-                        .transform_point3(Vec3::new(0.0, 0.0, 3.0 * TREE_RADIUS_APPROX));
+                    let position = self.trees[index].matrix.transform_point3(Vec3::new(
+                        0.0,
+                        0.0,
+                        3.0 * TREE_RADIUS_APPROX,
+                    ));
                     self.pending_fx_events.push(TreeFxEvent {
                         kind: TreeFxKind::Bounce,
                         fx_name,

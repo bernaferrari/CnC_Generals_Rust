@@ -1,10 +1,10 @@
 use glam::{Mat4, Quat, Vec3};
 use ww3d_assets::prototypes::{AnimationChannelData, AnimationPrototype, HierarchyPrototype};
 
+pub mod animatable_object;
 pub mod animated_sound;
 pub mod animation_blending;
 pub mod animation_state_machine;
-pub mod animatable_object;
 pub mod combo;
 pub mod hanim;
 pub mod hcompressed_anim;
@@ -19,12 +19,12 @@ pub mod w3d_model_loader;
 #[cfg(feature = "wgpu-renderer")]
 pub mod wgpu_skinned_renderer;
 
+pub use animatable_object::Animatable3DObjClass;
 pub use animated_sound::{
     embedded_sound_bone, has_embedded_sounds, initialize as initialize_animated_sound_mgr,
     initialize_from_bytes as initialize_animated_sound_mgr_from_bytes, set_sound_library,
     shutdown as shutdown_animated_sound_mgr, trigger_sound, SoundLibraryBridge,
 };
-pub use animatable_object::Animatable3DObjClass;
 pub use animation_blending::{
     AdvancedAnimatable3DObj, AnimationController, AnimationLayer, AnimationParameter,
     AnimationState, AnimationTransition, BlendMode, TransitionCondition,
@@ -49,20 +49,20 @@ pub use w3d_loader::{
 };
 
 // Export new skeletal animation system
+pub use animation_state_machine::{
+    AnimationState as GameAnimationState, AnimationStateMachine, AnimationStateMachineBuilder,
+    StateTransition, TransitionCondition as StateTransitionCondition,
+};
 pub use skeletal_animation::{AnimatedModel, SkeletonState, MAX_BONES};
 pub use w3d_model_loader::{
     BoneInfluence, BoundingBox, HModelConnection, HModelData, LODLevel, LODModelData, W3DMeshData,
     W3DModel,
 };
-pub use animation_state_machine::{
-    AnimationState as GameAnimationState, AnimationStateMachine, AnimationStateMachineBuilder,
-    StateTransition, TransitionCondition as StateTransitionCondition,
-};
 
 #[cfg(feature = "wgpu-renderer")]
 pub use wgpu_skinned_renderer::{
-    BoneMatricesUniform, SkinnedMeshBuffer, SkinnedMeshRenderer, SkinnedVertex,
-    prepare_model_for_rendering, SKINNED_MESH_SHADER,
+    prepare_model_for_rendering, BoneMatricesUniform, SkinnedMeshBuffer, SkinnedMeshRenderer,
+    SkinnedVertex, SKINNED_MESH_SHADER,
 };
 
 /// Build a [`HAnimClass`] from an [`AnimationPrototype`] exported by the asset loader.

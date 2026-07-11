@@ -2977,9 +2977,7 @@ pub fn request_shell_menu_scheme(name: &str) {
             PENDING_SHELL_SCHEME.with(|pending| {
                 *pending.borrow_mut() = Some(name.to_string());
             });
-            log::debug!(
-                "request_shell_menu_scheme({name}) deferred: shell already borrowed"
-            );
+            log::debug!("request_shell_menu_scheme({name}) deferred: shell already borrowed");
         }
     });
 }

@@ -143,18 +143,16 @@ fn tile_blend_alpha_selection_matches_cpp_nonzero_inverted_flag() {
         Some(pixel)
     });
 
-    let get_raw_tile_data = |tile_ndx: i16, _width: i32, buffer: &mut [u8]| {
-        match tile_ndx {
-            0 => {
-                buffer[..4].copy_from_slice(&[10, 20, 30, 255]);
-                true
-            }
-            4 => {
-                buffer[..4].copy_from_slice(&[110, 120, 130, 255]);
-                true
-            }
-            _ => false,
+    let get_raw_tile_data = |tile_ndx: i16, _width: i32, buffer: &mut [u8]| match tile_ndx {
+        0 => {
+            buffer[..4].copy_from_slice(&[10, 20, 30, 255]);
+            true
         }
+        4 => {
+            buffer[..4].copy_from_slice(&[110, 120, 130, 255]);
+            true
+        }
+        _ => false,
     };
 
     let blended = heightmap

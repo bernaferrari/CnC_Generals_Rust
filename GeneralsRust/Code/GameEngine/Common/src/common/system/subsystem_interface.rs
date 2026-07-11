@@ -298,9 +298,12 @@ impl SubsystemManager {
                 .get(name)
                 .expect("initialization order references unknown subsystem");
             let subsystem = &mut self.entries[*index].subsystem;
-            subsystem
-                .post_process_load()
-                .map_err(|e| SubsystemError::OperationFailed(format!("postProcessLoad failed for '{}': {}", name, e)))?;
+            subsystem.post_process_load().map_err(|e| {
+                SubsystemError::OperationFailed(format!(
+                    "postProcessLoad failed for '{}': {}",
+                    name, e
+                ))
+            })?;
         }
         Ok(())
     }

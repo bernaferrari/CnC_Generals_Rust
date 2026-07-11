@@ -80,8 +80,8 @@ pub use production_prerequisite::{PrereqUnitFlags, PrereqUnitRec, ProductionPrer
 pub use resource_gathering_manager::{ResourceGatheringManager, ResourceWorld};
 pub use science::{
     get_science_store, get_science_store_mut, init_science_store, GeneralsExperience,
-    RankThreshold, RankThresholdStore, ScienceAccess, ScienceInfo, ScienceStore,
-    ScienceSubsystem, ScienceType, ScienceVec, LEVEL_CAP, SCIENCE_INVALID,
+    RankThreshold, RankThresholdStore, ScienceAccess, ScienceInfo, ScienceStore, ScienceSubsystem,
+    ScienceType, ScienceVec, LEVEL_CAP, SCIENCE_INVALID,
 };
 pub use score_keeper::ScoreKeeper;
 pub use special_power::{SpecialPowerStore, SpecialPowerTemplate, SpecialPowerType};

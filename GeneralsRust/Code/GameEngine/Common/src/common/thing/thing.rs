@@ -258,7 +258,10 @@ impl Thing for BaseThing {
         let old_mtx = self.transform;
 
         // Check if we need to stick to terrain slope
-        if !self.template.is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64) {
+        if !self
+            .template
+            .is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64)
+        {
             self.transform.set_translation(pos.x, pos.y, pos.z);
             self.cached_pos = *pos;
             self.cache_flags.clear(CacheFlags::VALID_ALTITUDE_TERRAIN);
@@ -279,7 +282,10 @@ impl Thing for BaseThing {
     }
 
     fn set_position_z(&mut self, z: Real) {
-        if !self.template.is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64) {
+        if !self
+            .template
+            .is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64)
+        {
             let old_angle = self.cached_angle;
             let old_pos = self.cached_pos;
             let old_mtx = self.transform;
@@ -315,9 +321,12 @@ impl Thing for BaseThing {
             self.transform.get_z_translation(),
         );
 
-        if self.template.is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64) {
-             // Align to terrain
-             // TheTerrainLogic->alignOnTerrain(angle, pos, true, self.transform);
+        if self
+            .template
+            .is_kind_of(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64)
+        {
+            // Align to terrain
+            // TheTerrainLogic->alignOnTerrain(angle, pos, true, self.transform);
         } else {
             // Standard orientation - straight up in Z axis
             let cos_angle = angle.cos();

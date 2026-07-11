@@ -765,7 +765,8 @@ impl GlobalData {
 /// Reduces boilerplate for the ~150 fields in GlobalData.
 macro_rules! xf {
     ($xfer:expr, $method:ident, $field:expr, $label:expr) => {
-        $xfer.$method(&mut $field)
+        $xfer
+            .$method(&mut $field)
             .map_err(|e| format!("GlobalData xfer '{}' failed: {}", $label, e))?
     };
 }
@@ -793,7 +794,12 @@ impl Snapshotable for GlobalData {
         let mut structure_stiffness = self.structure_stiffness;
         xf!(xfer, xfer_real, structure_stiffness, "structure_stiffness");
         let mut terrain_height_at_edge_of_map = self.terrain_height_at_edge_of_map;
-        xf!(xfer, xfer_real, terrain_height_at_edge_of_map, "terrain_height_at_edge_of_map");
+        xf!(
+            xfer,
+            xfer_real,
+            terrain_height_at_edge_of_map,
+            "terrain_height_at_edge_of_map"
+        );
 
         let mut build_speed = self.build_speed;
         xf!(xfer, xfer_real, build_speed, "build_speed");
@@ -802,25 +808,55 @@ impl Snapshotable for GlobalData {
         let mut refund_percent = self.refund_percent;
         xf!(xfer, xfer_real, refund_percent, "refund_percent");
         let mut base_value_per_supply_box = self.base_value_per_supply_box;
-        xf!(xfer, xfer_int, base_value_per_supply_box, "base_value_per_supply_box");
+        xf!(
+            xfer,
+            xfer_int,
+            base_value_per_supply_box,
+            "base_value_per_supply_box"
+        );
         let mut default_starting_cash = self.default_starting_cash;
-        xf!(xfer, xfer_int, default_starting_cash, "default_starting_cash");
+        xf!(
+            xfer,
+            xfer_int,
+            default_starting_cash,
+            "default_starting_cash"
+        );
 
         let mut unit_damaged_thresh = self.unit_damaged_thresh;
         xf!(xfer, xfer_real, unit_damaged_thresh, "unit_damaged_thresh");
         let mut unit_really_damaged_thresh = self.unit_really_damaged_thresh;
-        xf!(xfer, xfer_real, unit_really_damaged_thresh, "unit_really_damaged_thresh");
+        xf!(
+            xfer,
+            xfer_real,
+            unit_really_damaged_thresh,
+            "unit_really_damaged_thresh"
+        );
         let mut stealth_friendly_opacity = self.stealth_friendly_opacity;
-        xf!(xfer, xfer_real, stealth_friendly_opacity, "stealth_friendly_opacity");
+        xf!(
+            xfer,
+            xfer_real,
+            stealth_friendly_opacity,
+            "stealth_friendly_opacity"
+        );
         let mut default_occlusion_delay = self.default_occlusion_delay;
-        xf!(xfer, xfer_unsigned_int, default_occlusion_delay, "default_occlusion_delay");
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            default_occlusion_delay,
+            "default_occlusion_delay"
+        );
 
         let mut tod = self.time_of_day as i32;
         xf!(xfer, xfer_int, tod, "time_of_day");
         let mut num_global_lights = self.num_global_lights;
         xf!(xfer, xfer_int, num_global_lights, "num_global_lights");
         let mut script_override_infantry_light_scale = self.script_override_infantry_light_scale;
-        xf!(xfer, xfer_real, script_override_infantry_light_scale, "script_override_infantry_light_scale");
+        xf!(
+            xfer,
+            xfer_real,
+            script_override_infantry_light_scale,
+            "script_override_infantry_light_scale"
+        );
 
         for i in 0..LEVEL_COUNT {
             let mut val = self.health_bonus[i];
@@ -860,48 +896,173 @@ impl Snapshotable for GlobalData {
         // =====================================================================
         // Map and rendering settings
         // =====================================================================
-        xf!(xfer, xfer_ascii_string, self.move_hint_name, "move_hint_name");
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.move_hint_name,
+            "move_hint_name"
+        );
         xf!(xfer, xfer_bool, self.use_trees, "use_trees");
         xf!(xfer, xfer_bool, self.use_tree_sway, "use_tree_sway");
-        xf!(xfer, xfer_bool, self.use_draw_module_lod, "use_draw_module_lod");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.use_draw_module_lod,
+            "use_draw_module_lod"
+        );
         xf!(xfer, xfer_bool, self.use_heat_effects, "use_heat_effects");
         xf!(xfer, xfer_int, self.max_shell_screens, "max_shell_screens");
         xf!(xfer, xfer_bool, self.use_cloud_map, "use_cloud_map");
-        xf!(xfer, xfer_int, self.use_3way_terrain_blends, "use_3way_terrain_blends");
+        xf!(
+            xfer,
+            xfer_int,
+            self.use_3way_terrain_blends,
+            "use_3way_terrain_blends"
+        );
         xf!(xfer, xfer_bool, self.use_light_map, "use_light_map");
-        xf!(xfer, xfer_bool, self.bilinear_terrain_tex, "bilinear_terrain_tex");
-        xf!(xfer, xfer_bool, self.trilinear_terrain_tex, "trilinear_terrain_tex");
-        xf!(xfer, xfer_bool, self.multi_pass_terrain, "multi_pass_terrain");
-        xf!(xfer, xfer_bool, self.adjust_cliff_textures, "adjust_cliff_textures");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.bilinear_terrain_tex,
+            "bilinear_terrain_tex"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.trilinear_terrain_tex,
+            "trilinear_terrain_tex"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.multi_pass_terrain,
+            "multi_pass_terrain"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.adjust_cliff_textures,
+            "adjust_cliff_textures"
+        );
         xf!(xfer, xfer_bool, self.stretch_terrain, "stretch_terrain");
-        xf!(xfer, xfer_bool, self.use_half_height_map, "use_half_height_map");
-        xf!(xfer, xfer_bool, self.draw_entire_terrain, "draw_entire_terrain");
-        xf!(xfer, xfer_int, self.terrain_lod_target_time_ms, "terrain_lod_target_time_ms");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.use_half_height_map,
+            "use_half_height_map"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.draw_entire_terrain,
+            "draw_entire_terrain"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.terrain_lod_target_time_ms,
+            "terrain_lod_target_time_ms"
+        );
 
         // =====================================================================
         // Camera and mouse settings
         // =====================================================================
-        xf!(xfer, xfer_bool, self.use_alternate_mouse, "use_alternate_mouse");
-        xf!(xfer, xfer_bool, self.client_retaliation_mode_enabled, "client_retaliation_mode_enabled");
-        xf!(xfer, xfer_bool, self.double_click_attack_move, "double_click_attack_move");
-        xf!(xfer, xfer_bool, self.right_mouse_always_scrolls, "right_mouse_always_scrolls");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.use_alternate_mouse,
+            "use_alternate_mouse"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.client_retaliation_mode_enabled,
+            "client_retaliation_mode_enabled"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.double_click_attack_move,
+            "double_click_attack_move"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.right_mouse_always_scrolls,
+            "right_mouse_always_scrolls"
+        );
         xf!(xfer, xfer_real, self.camera_pitch, "camera_pitch");
         xf!(xfer, xfer_real, self.camera_yaw, "camera_yaw");
         xf!(xfer, xfer_real, self.camera_height, "camera_height");
         xf!(xfer, xfer_real, self.max_camera_height, "max_camera_height");
         xf!(xfer, xfer_real, self.min_camera_height, "min_camera_height");
-        xf!(xfer, xfer_real, self.horizontal_scroll_speed_factor, "horizontal_scroll_speed_factor");
-        xf!(xfer, xfer_real, self.vertical_scroll_speed_factor, "vertical_scroll_speed_factor");
-        xf!(xfer, xfer_real, self.scroll_amount_cutoff, "scroll_amount_cutoff");
-        xf!(xfer, xfer_real, self.camera_adjust_speed, "camera_adjust_speed");
-        xf!(xfer, xfer_bool, self.enforce_max_camera_height, "enforce_max_camera_height");
-        xf!(xfer, xfer_real, self.keyboard_scroll_factor, "keyboard_scroll_factor");
-        xf!(xfer, xfer_real, self.keyboard_default_scroll_factor, "keyboard_default_scroll_factor");
-        xf!(xfer, xfer_real, self.keyboard_camera_rotate_speed, "keyboard_camera_rotate_speed");
+        xf!(
+            xfer,
+            xfer_real,
+            self.horizontal_scroll_speed_factor,
+            "horizontal_scroll_speed_factor"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.vertical_scroll_speed_factor,
+            "vertical_scroll_speed_factor"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.scroll_amount_cutoff,
+            "scroll_amount_cutoff"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.camera_adjust_speed,
+            "camera_adjust_speed"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.enforce_max_camera_height,
+            "enforce_max_camera_height"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.keyboard_scroll_factor,
+            "keyboard_scroll_factor"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.keyboard_default_scroll_factor,
+            "keyboard_default_scroll_factor"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.keyboard_camera_rotate_speed,
+            "keyboard_camera_rotate_speed"
+        );
         xf!(xfer, xfer_int, self.play_stats, "play_stats");
-        xf!(xfer, xfer_real, self.camera_audible_radius, "camera_audible_radius");
-        xf!(xfer, xfer_bool, self.save_camera_in_replay, "save_camera_in_replay");
-        xf!(xfer, xfer_bool, self.use_camera_in_replay, "use_camera_in_replay");
+        xf!(
+            xfer,
+            xfer_real,
+            self.camera_audible_radius,
+            "camera_audible_radius"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.save_camera_in_replay,
+            "save_camera_in_replay"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.use_camera_in_replay,
+            "use_camera_in_replay"
+        );
 
         // =====================================================================
         // Water and sky settings
@@ -914,10 +1075,20 @@ impl Snapshotable for GlobalData {
         xf!(xfer, xfer_real, self.water_extent_x, "water_extent_x");
         xf!(xfer, xfer_real, self.water_extent_y, "water_extent_y");
         xf!(xfer, xfer_int, self.water_type, "water_type");
-        xf!(xfer, xfer_bool, self.show_soft_water_edge, "show_soft_water_edge");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.show_soft_water_edge,
+            "show_soft_water_edge"
+        );
         xf!(xfer, xfer_int, self.feather_water, "feather_water");
         xf!(xfer, xfer_real, self.downwind_angle, "downwind_angle");
-        xf!(xfer, xfer_real, self.sky_box_position_z, "sky_box_position_z");
+        xf!(
+            xfer,
+            xfer_real,
+            self.sky_box_position_z,
+            "sky_box_position_z"
+        );
         xf!(xfer, xfer_bool, self.draw_sky_box, "draw_sky_box");
         xf!(xfer, xfer_real, self.sky_box_scale, "sky_box_scale");
 
@@ -925,34 +1096,90 @@ impl Snapshotable for GlobalData {
         // Vertex water settings (MAX_WATER_GRID_SETTINGS = 4)
         // =====================================================================
         for i in 0..MAX_WATER_GRID_SETTINGS {
-            xf!(xfer, xfer_ascii_string, self.vertex_water_available_maps[i],
-                "vertex_water_available_maps");
-            xf!(xfer, xfer_real, self.vertex_water_height_clamp_low[i],
-                "vertex_water_height_clamp_low");
-            xf!(xfer, xfer_real, self.vertex_water_height_clamp_hi[i],
-                "vertex_water_height_clamp_hi");
-            xf!(xfer, xfer_real, self.vertex_water_angle[i],
-                "vertex_water_angle");
-            xf!(xfer, xfer_real, self.vertex_water_x_position[i],
-                "vertex_water_x_position");
-            xf!(xfer, xfer_real, self.vertex_water_y_position[i],
-                "vertex_water_y_position");
-            xf!(xfer, xfer_real, self.vertex_water_z_position[i],
-                "vertex_water_z_position");
-            xf!(xfer, xfer_int, self.vertex_water_x_grid_cells[i],
-                "vertex_water_x_grid_cells");
-            xf!(xfer, xfer_int, self.vertex_water_y_grid_cells[i],
-                "vertex_water_y_grid_cells");
-            xf!(xfer, xfer_real, self.vertex_water_grid_size[i],
-                "vertex_water_grid_size");
-            xf!(xfer, xfer_real, self.vertex_water_attenuation_a[i],
-                "vertex_water_attenuation_a");
-            xf!(xfer, xfer_real, self.vertex_water_attenuation_b[i],
-                "vertex_water_attenuation_b");
-            xf!(xfer, xfer_real, self.vertex_water_attenuation_c[i],
-                "vertex_water_attenuation_c");
-            xf!(xfer, xfer_real, self.vertex_water_attenuation_range[i],
-                "vertex_water_attenuation_range");
+            xf!(
+                xfer,
+                xfer_ascii_string,
+                self.vertex_water_available_maps[i],
+                "vertex_water_available_maps"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_height_clamp_low[i],
+                "vertex_water_height_clamp_low"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_height_clamp_hi[i],
+                "vertex_water_height_clamp_hi"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_angle[i],
+                "vertex_water_angle"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_x_position[i],
+                "vertex_water_x_position"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_y_position[i],
+                "vertex_water_y_position"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_z_position[i],
+                "vertex_water_z_position"
+            );
+            xf!(
+                xfer,
+                xfer_int,
+                self.vertex_water_x_grid_cells[i],
+                "vertex_water_x_grid_cells"
+            );
+            xf!(
+                xfer,
+                xfer_int,
+                self.vertex_water_y_grid_cells[i],
+                "vertex_water_y_grid_cells"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_grid_size[i],
+                "vertex_water_grid_size"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_attenuation_a[i],
+                "vertex_water_attenuation_a"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_attenuation_b[i],
+                "vertex_water_attenuation_b"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_attenuation_c[i],
+                "vertex_water_attenuation_c"
+            );
+            xf!(
+                xfer,
+                xfer_real,
+                self.vertex_water_attenuation_range[i],
+                "vertex_water_attenuation_range"
+            );
         }
 
         // =====================================================================
@@ -963,32 +1190,56 @@ impl Snapshotable for GlobalData {
         for tod in 0..TIME_OF_DAY_COUNT {
             for light in 0..MAX_GLOBAL_LIGHTS {
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_lighting[tod][light].ambient[c],
-                        "terrain_lighting.ambient");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_lighting[tod][light].ambient[c],
+                        "terrain_lighting.ambient"
+                    );
                 }
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_lighting[tod][light].diffuse[c],
-                        "terrain_lighting.diffuse");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_lighting[tod][light].diffuse[c],
+                        "terrain_lighting.diffuse"
+                    );
                 }
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_lighting[tod][light].light_pos[c],
-                        "terrain_lighting.light_pos");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_lighting[tod][light].light_pos[c],
+                        "terrain_lighting.light_pos"
+                    );
                 }
             }
         }
         for tod in 0..TIME_OF_DAY_COUNT {
             for light in 0..MAX_GLOBAL_LIGHTS {
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_objects_lighting[tod][light].ambient[c],
-                        "terrain_objects_lighting.ambient");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_objects_lighting[tod][light].ambient[c],
+                        "terrain_objects_lighting.ambient"
+                    );
                 }
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_objects_lighting[tod][light].diffuse[c],
-                        "terrain_objects_lighting.diffuse");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_objects_lighting[tod][light].diffuse[c],
+                        "terrain_objects_lighting.diffuse"
+                    );
                 }
                 for c in 0..3 {
-                    xf!(xfer, xfer_real, self.terrain_objects_lighting[tod][light].light_pos[c],
-                        "terrain_objects_lighting.light_pos");
+                    xf!(
+                        xfer,
+                        xfer_real,
+                        self.terrain_objects_lighting[tod][light].light_pos[c],
+                        "terrain_objects_lighting.light_pos"
+                    );
                 }
             }
         }
@@ -996,81 +1247,221 @@ impl Snapshotable for GlobalData {
         // Current terrain ambient/diffuse/light_pos [MAX_GLOBAL_LIGHTS]
         for i in 0..MAX_GLOBAL_LIGHTS {
             for c in 0..3 {
-                xf!(xfer, xfer_real, self.terrain_ambient[i][c], "terrain_ambient");
+                xf!(
+                    xfer,
+                    xfer_real,
+                    self.terrain_ambient[i][c],
+                    "terrain_ambient"
+                );
             }
         }
         for i in 0..MAX_GLOBAL_LIGHTS {
             for c in 0..3 {
-                xf!(xfer, xfer_real, self.terrain_diffuse[i][c], "terrain_diffuse");
+                xf!(
+                    xfer,
+                    xfer_real,
+                    self.terrain_diffuse[i][c],
+                    "terrain_diffuse"
+                );
             }
         }
         for i in 0..MAX_GLOBAL_LIGHTS {
             for c in 0..3 {
-                xf!(xfer, xfer_real, self.terrain_light_pos[i][c], "terrain_light_pos");
+                xf!(
+                    xfer,
+                    xfer_real,
+                    self.terrain_light_pos[i][c],
+                    "terrain_light_pos"
+                );
             }
         }
 
         // Infantry light scale [TIME_OF_DAY_COUNT]
         for i in 0..TIME_OF_DAY_COUNT {
-            xf!(xfer, xfer_real, self.infantry_light_scale[i], "infantry_light_scale");
+            xf!(
+                xfer,
+                xfer_real,
+                self.infantry_light_scale[i],
+                "infantry_light_scale"
+            );
         }
-        xf!(xfer, xfer_real, self.script_override_infantry_light_scale,
-            "script_override_infantry_light_scale");
+        xf!(
+            xfer,
+            xfer_real,
+            self.script_override_infantry_light_scale,
+            "script_override_infantry_light_scale"
+        );
         xf!(xfer, xfer_int, self.num_global_lights, "num_global_lights");
 
         // =====================================================================
         // Physics and gameplay
         // =====================================================================
-        xf!(xfer, xfer_real, self.terrain_height_at_edge_of_map, "terrain_height_at_edge_of_map");
-        xf!(xfer, xfer_real, self.unit_damaged_thresh, "unit_damaged_thresh");
-        xf!(xfer, xfer_real, self.unit_really_damaged_thresh, "unit_really_damaged_thresh");
+        xf!(
+            xfer,
+            xfer_real,
+            self.terrain_height_at_edge_of_map,
+            "terrain_height_at_edge_of_map"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.unit_damaged_thresh,
+            "unit_damaged_thresh"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.unit_really_damaged_thresh,
+            "unit_really_damaged_thresh"
+        );
         xf!(xfer, xfer_real, self.ground_stiffness, "ground_stiffness");
-        xf!(xfer, xfer_real, self.structure_stiffness, "structure_stiffness");
+        xf!(
+            xfer,
+            xfer_real,
+            self.structure_stiffness,
+            "structure_stiffness"
+        );
         xf!(xfer, xfer_real, self.gravity, "gravity");
-        xf!(xfer, xfer_real, self.stealth_friendly_opacity, "stealth_friendly_opacity");
-        xf!(xfer, xfer_unsigned_int, self.default_occlusion_delay, "default_occlusion_delay");
-        xf!(xfer, xfer_real, self.partition_cell_size, "partition_cell_size");
+        xf!(
+            xfer,
+            xfer_real,
+            self.stealth_friendly_opacity,
+            "stealth_friendly_opacity"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.default_occlusion_delay,
+            "default_occlusion_delay"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.partition_cell_size,
+            "partition_cell_size"
+        );
 
         // =====================================================================
         // Ammo and container pips
         // =====================================================================
         for c in 0..3 {
-            xf!(xfer, xfer_real, self.ammo_pip_world_offset[c], "ammo_pip_world_offset");
+            xf!(
+                xfer,
+                xfer_real,
+                self.ammo_pip_world_offset[c],
+                "ammo_pip_world_offset"
+            );
         }
         for c in 0..3 {
-            xf!(xfer, xfer_real, self.container_pip_world_offset[c], "container_pip_world_offset");
+            xf!(
+                xfer,
+                xfer_real,
+                self.container_pip_world_offset[c],
+                "container_pip_world_offset"
+            );
         }
         for c in 0..2 {
-            xf!(xfer, xfer_real, self.ammo_pip_screen_offset[c], "ammo_pip_screen_offset");
+            xf!(
+                xfer,
+                xfer_real,
+                self.ammo_pip_screen_offset[c],
+                "ammo_pip_screen_offset"
+            );
         }
         for c in 0..2 {
-            xf!(xfer, xfer_real, self.container_pip_screen_offset[c], "container_pip_screen_offset");
+            xf!(
+                xfer,
+                xfer_real,
+                self.container_pip_screen_offset[c],
+                "container_pip_screen_offset"
+            );
         }
-        xf!(xfer, xfer_real, self.ammo_pip_scale_factor, "ammo_pip_scale_factor");
-        xf!(xfer, xfer_real, self.container_pip_scale_factor, "container_pip_scale_factor");
-        xf!(xfer, xfer_unsigned_int, self.historic_damage_limit, "historic_damage_limit");
+        xf!(
+            xfer,
+            xfer_real,
+            self.ammo_pip_scale_factor,
+            "ammo_pip_scale_factor"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.container_pip_scale_factor,
+            "container_pip_scale_factor"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.historic_damage_limit,
+            "historic_damage_limit"
+        );
 
         // =====================================================================
         // Terrain tracks
         // =====================================================================
-        xf!(xfer, xfer_int, self.max_terrain_tracks, "max_terrain_tracks");
-        xf!(xfer, xfer_int, self.max_tank_track_edges, "max_tank_track_edges");
-        xf!(xfer, xfer_int, self.max_tank_track_opaque_edges, "max_tank_track_opaque_edges");
-        xf!(xfer, xfer_int, self.max_tank_track_fade_delay, "max_tank_track_fade_delay");
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_terrain_tracks,
+            "max_terrain_tracks"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_tank_track_edges,
+            "max_tank_track_edges"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_tank_track_opaque_edges,
+            "max_tank_track_opaque_edges"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_tank_track_fade_delay,
+            "max_tank_track_fade_delay"
+        );
 
         // =====================================================================
         // Animations
         // =====================================================================
-        xf!(xfer, xfer_ascii_string, self.level_gain_animation_name, "level_gain_animation_name");
-        xf!(xfer, xfer_real, self.level_gain_animation_display_time_seconds,
-            "level_gain_animation_display_time_seconds");
-        xf!(xfer, xfer_real, self.level_gain_animation_z_rise_per_second,
-            "level_gain_animation_z_rise_per_second");
-        xf!(xfer, xfer_ascii_string, self.get_healed_animation_name, "get_healed_animation_name");
-        xf!(xfer, xfer_real, self.get_healed_animation_display_time_seconds,
-            "get_healed_animation_display_time_seconds");
-        xf!(xfer, xfer_real, self.get_healed_animation_z_rise_per_second,
-            "get_healed_animation_z_rise_per_second");
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.level_gain_animation_name,
+            "level_gain_animation_name"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.level_gain_animation_display_time_seconds,
+            "level_gain_animation_display_time_seconds"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.level_gain_animation_z_rise_per_second,
+            "level_gain_animation_z_rise_per_second"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.get_healed_animation_name,
+            "get_healed_animation_name"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.get_healed_animation_display_time_seconds,
+            "get_healed_animation_display_time_seconds"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.get_healed_animation_z_rise_per_second,
+            "get_healed_animation_z_rise_per_second"
+        );
 
         // =====================================================================
         // Time and weather
@@ -1088,33 +1479,84 @@ impl Snapshotable for GlobalData {
         }
         xf!(xfer, xfer_int, self.weather, "weather");
         xf!(xfer, xfer_bool, self.make_track_marks, "make_track_marks");
-        xf!(xfer, xfer_bool, self.hide_garrison_flags, "hide_garrison_flags");
-        xf!(xfer, xfer_bool, self.force_models_to_follow_time_of_day,
-            "force_models_to_follow_time_of_day");
-        xf!(xfer, xfer_bool, self.force_models_to_follow_weather,
-            "force_models_to_follow_weather");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.hide_garrison_flags,
+            "hide_garrison_flags"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.force_models_to_follow_time_of_day,
+            "force_models_to_follow_time_of_day"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.force_models_to_follow_weather,
+            "force_models_to_follow_weather"
+        );
 
         // =====================================================================
         // Player bonuses
         // =====================================================================
         for pt in 0..PLAYERTYPE_COUNT {
             for diff in 0..DIFFICULTY_COUNT {
-                xf!(xfer, xfer_real, self.solo_player_health_bonus_for_difficulty[pt][diff],
-                    "solo_player_health_bonus_for_difficulty");
+                xf!(
+                    xfer,
+                    xfer_real,
+                    self.solo_player_health_bonus_for_difficulty[pt][diff],
+                    "solo_player_health_bonus_for_difficulty"
+                );
             }
         }
 
         // =====================================================================
         // Visibility and rendering limits
         // =====================================================================
-        xf!(xfer, xfer_int, self.max_visible_translucent_objects, "max_visible_translucent_objects");
-        xf!(xfer, xfer_int, self.max_visible_occluder_objects, "max_visible_occluder_objects");
-        xf!(xfer, xfer_int, self.max_visible_occludee_objects, "max_visible_occludee_objects");
-        xf!(xfer, xfer_int, self.max_visible_non_occluder_or_occludee_objects,
-            "max_visible_non_occluder_or_occludee_objects");
-        xf!(xfer, xfer_real, self.occluded_luminance_scale, "occluded_luminance_scale");
-        xf!(xfer, xfer_int, self.texture_reduction_factor, "texture_reduction_factor");
-        xf!(xfer, xfer_bool, self.enable_behind_building_markers, "enable_behind_building_markers");
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_visible_translucent_objects,
+            "max_visible_translucent_objects"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_visible_occluder_objects,
+            "max_visible_occluder_objects"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_visible_occludee_objects,
+            "max_visible_occludee_objects"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_visible_non_occluder_or_occludee_objects,
+            "max_visible_non_occluder_or_occludee_objects"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.occluded_luminance_scale,
+            "occluded_luminance_scale"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.texture_reduction_factor,
+            "texture_reduction_factor"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.enable_behind_building_markers,
+            "enable_behind_building_markers"
+        );
 
         // =====================================================================
         // Roads
@@ -1133,71 +1575,304 @@ impl Snapshotable for GlobalData {
         // Particles
         // =====================================================================
         xf!(xfer, xfer_real, self.particle_scale, "particle_scale");
-        xf!(xfer, xfer_int, self.max_particle_count, "max_particle_count");
-        xf!(xfer, xfer_int, self.max_field_particle_count, "max_field_particle_count");
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_particle_count,
+            "max_particle_count"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_field_particle_count,
+            "max_field_particle_count"
+        );
 
         // =====================================================================
         // Auto fire/smoke particles
         // =====================================================================
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_small_prefix, "auto_fire_particle_small_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_small_system, "auto_fire_particle_small_system");
-        xf!(xfer, xfer_int, self.auto_fire_particle_small_max, "auto_fire_particle_small_max");
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_medium_prefix, "auto_fire_particle_medium_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_medium_system, "auto_fire_particle_medium_system");
-        xf!(xfer, xfer_int, self.auto_fire_particle_medium_max, "auto_fire_particle_medium_max");
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_large_prefix, "auto_fire_particle_large_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_fire_particle_large_system, "auto_fire_particle_large_system");
-        xf!(xfer, xfer_int, self.auto_fire_particle_large_max, "auto_fire_particle_large_max");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_small_prefix, "auto_smoke_particle_small_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_small_system, "auto_smoke_particle_small_system");
-        xf!(xfer, xfer_int, self.auto_smoke_particle_small_max, "auto_smoke_particle_small_max");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_medium_prefix, "auto_smoke_particle_medium_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_medium_system, "auto_smoke_particle_medium_system");
-        xf!(xfer, xfer_int, self.auto_smoke_particle_medium_max, "auto_smoke_particle_medium_max");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_large_prefix, "auto_smoke_particle_large_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_smoke_particle_large_system, "auto_smoke_particle_large_system");
-        xf!(xfer, xfer_int, self.auto_smoke_particle_large_max, "auto_smoke_particle_large_max");
-        xf!(xfer, xfer_ascii_string, self.auto_aflame_particle_prefix, "auto_aflame_particle_prefix");
-        xf!(xfer, xfer_ascii_string, self.auto_aflame_particle_system, "auto_aflame_particle_system");
-        xf!(xfer, xfer_int, self.auto_aflame_particle_max, "auto_aflame_particle_max");
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_small_prefix,
+            "auto_fire_particle_small_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_small_system,
+            "auto_fire_particle_small_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_fire_particle_small_max,
+            "auto_fire_particle_small_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_medium_prefix,
+            "auto_fire_particle_medium_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_medium_system,
+            "auto_fire_particle_medium_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_fire_particle_medium_max,
+            "auto_fire_particle_medium_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_large_prefix,
+            "auto_fire_particle_large_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_fire_particle_large_system,
+            "auto_fire_particle_large_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_fire_particle_large_max,
+            "auto_fire_particle_large_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_small_prefix,
+            "auto_smoke_particle_small_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_small_system,
+            "auto_smoke_particle_small_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_smoke_particle_small_max,
+            "auto_smoke_particle_small_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_medium_prefix,
+            "auto_smoke_particle_medium_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_medium_system,
+            "auto_smoke_particle_medium_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_smoke_particle_medium_max,
+            "auto_smoke_particle_medium_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_large_prefix,
+            "auto_smoke_particle_large_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_smoke_particle_large_system,
+            "auto_smoke_particle_large_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_smoke_particle_large_max,
+            "auto_smoke_particle_large_max"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_aflame_particle_prefix,
+            "auto_aflame_particle_prefix"
+        );
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.auto_aflame_particle_system,
+            "auto_aflame_particle_system"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.auto_aflame_particle_max,
+            "auto_aflame_particle_max"
+        );
 
         // =====================================================================
         // Network settings
         // =====================================================================
         xf!(xfer, xfer_unsigned_int, self.default_ip, "default_ip");
-        xf!(xfer, xfer_unsigned_int, self.firewall_behavior, "firewall_behavior");
-        xf!(xfer, xfer_bool, self.firewall_send_delay, "firewall_send_delay");
-        xf!(xfer, xfer_unsigned_int, self.firewall_port_override, "firewall_port_override");
-        xf!(xfer, xfer_short, self.firewall_port_allocation_delta, "firewall_port_allocation_delta");
-        xf!(xfer, xfer_unsigned_int, self.network_fps_history_length, "network_fps_history_length");
-        xf!(xfer, xfer_unsigned_int, self.network_latency_history_length, "network_latency_history_length");
-        xf!(xfer, xfer_unsigned_int, self.network_cushion_history_length, "network_cushion_history_length");
-        xf!(xfer, xfer_unsigned_int, self.network_run_ahead_metrics_time, "network_run_ahead_metrics_time");
-        xf!(xfer, xfer_unsigned_int, self.network_keep_alive_delay, "network_keep_alive_delay");
-        xf!(xfer, xfer_unsigned_int, self.network_run_ahead_slack, "network_run_ahead_slack");
-        xf!(xfer, xfer_unsigned_int, self.network_disconnect_time, "network_disconnect_time");
-        xf!(xfer, xfer_unsigned_int, self.network_player_timeout_time, "network_player_timeout_time");
-        xf!(xfer, xfer_unsigned_int, self.network_disconnect_screen_notify_time,
-            "network_disconnect_screen_notify_time");
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.firewall_behavior,
+            "firewall_behavior"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.firewall_send_delay,
+            "firewall_send_delay"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.firewall_port_override,
+            "firewall_port_override"
+        );
+        xf!(
+            xfer,
+            xfer_short,
+            self.firewall_port_allocation_delta,
+            "firewall_port_allocation_delta"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_fps_history_length,
+            "network_fps_history_length"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_latency_history_length,
+            "network_latency_history_length"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_cushion_history_length,
+            "network_cushion_history_length"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_run_ahead_metrics_time,
+            "network_run_ahead_metrics_time"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_keep_alive_delay,
+            "network_keep_alive_delay"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_run_ahead_slack,
+            "network_run_ahead_slack"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_disconnect_time,
+            "network_disconnect_time"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_player_timeout_time,
+            "network_player_timeout_time"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.network_disconnect_screen_notify_time,
+            "network_disconnect_screen_notify_time"
+        );
 
         // =====================================================================
         // Economy and building
         // =====================================================================
-        xf!(xfer, xfer_int, self.base_value_per_supply_box, "base_value_per_supply_box");
+        xf!(
+            xfer,
+            xfer_int,
+            self.base_value_per_supply_box,
+            "base_value_per_supply_box"
+        );
         xf!(xfer, xfer_real, self.build_speed, "build_speed");
-        xf!(xfer, xfer_real, self.min_dist_from_edge_of_map_for_build, "min_dist_from_edge_of_map_for_build");
-        xf!(xfer, xfer_real, self.supply_build_border, "supply_build_border");
-        xf!(xfer, xfer_real, self.allowed_height_variation_for_building,
-            "allowed_height_variation_for_building");
-        xf!(xfer, xfer_real, self.min_low_energy_production_speed, "min_low_energy_production_speed");
-        xf!(xfer, xfer_real, self.max_low_energy_production_speed, "max_low_energy_production_speed");
-        xf!(xfer, xfer_real, self.low_energy_penalty_modifier, "low_energy_penalty_modifier");
+        xf!(
+            xfer,
+            xfer_real,
+            self.min_dist_from_edge_of_map_for_build,
+            "min_dist_from_edge_of_map_for_build"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.supply_build_border,
+            "supply_build_border"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.allowed_height_variation_for_building,
+            "allowed_height_variation_for_building"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.min_low_energy_production_speed,
+            "min_low_energy_production_speed"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.max_low_energy_production_speed,
+            "max_low_energy_production_speed"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.low_energy_penalty_modifier,
+            "low_energy_penalty_modifier"
+        );
         xf!(xfer, xfer_real, self.multiple_factory, "multiple_factory");
         xf!(xfer, xfer_real, self.refund_percent, "refund_percent");
-        xf!(xfer, xfer_real, self.command_center_heal_range, "command_center_heal_range");
-        xf!(xfer, xfer_real, self.command_center_heal_amount, "command_center_heal_amount");
-        xf!(xfer, xfer_int, self.max_line_build_objects, "max_line_build_objects");
-        xf!(xfer, xfer_int, self.max_tunnel_capacity, "max_tunnel_capacity");
+        xf!(
+            xfer,
+            xfer_real,
+            self.command_center_heal_range,
+            "command_center_heal_range"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.command_center_heal_amount,
+            "command_center_heal_amount"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_line_build_objects,
+            "max_line_build_objects"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_tunnel_capacity,
+            "max_tunnel_capacity"
+        );
 
         // =====================================================================
         // Veterancy and health
@@ -1205,19 +1880,33 @@ impl Snapshotable for GlobalData {
         for i in 0..LEVEL_COUNT {
             xf!(xfer, xfer_real, self.health_bonus[i], "health_bonus");
         }
-        xf!(xfer, xfer_real, self.default_structure_rubble_height, "default_structure_rubble_height");
+        xf!(
+            xfer,
+            xfer_real,
+            self.default_structure_rubble_height,
+            "default_structure_rubble_height"
+        );
 
         // =====================================================================
         // Special settings
         // =====================================================================
         xf!(xfer, xfer_ascii_string, self.pending_file, "pending_file");
-        xf!(xfer, xfer_ascii_string, self.special_power_view_object_name,
-            "special_power_view_object_name");
+        xf!(
+            xfer,
+            xfer_ascii_string,
+            self.special_power_view_object_name,
+            "special_power_view_object_name"
+        );
 
         // Standard public bones — versioned list of strings
         {
             let mut bone_count = self.standard_public_bones.len() as u16;
-            xf!(xfer, xfer_unsigned_short, bone_count, "standard_public_bones count");
+            xf!(
+                xfer,
+                xfer_unsigned_short,
+                bone_count,
+                "standard_public_bones count"
+            );
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
                     for bone in &self.standard_public_bones {
@@ -1237,25 +1926,65 @@ impl Snapshotable for GlobalData {
             }
         }
 
-        xf!(xfer, xfer_real, self.standard_minefield_density, "standard_minefield_density");
-        xf!(xfer, xfer_real, self.standard_minefield_distance, "standard_minefield_distance");
+        xf!(
+            xfer,
+            xfer_real,
+            self.standard_minefield_density,
+            "standard_minefield_density"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.standard_minefield_distance,
+            "standard_minefield_distance"
+        );
         xf!(xfer, xfer_bool, self.show_metrics, "show_metrics");
-        xf!(xfer, xfer_int, self.default_starting_cash, "default_starting_cash");
-        xf!(xfer, xfer_bool, self.debug_show_graphical_framerate, "debug_show_graphical_framerate");
+        xf!(
+            xfer,
+            xfer_int,
+            self.default_starting_cash,
+            "default_starting_cash"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.debug_show_graphical_framerate,
+            "debug_show_graphical_framerate"
+        );
 
         // =====================================================================
         // Power bar
         // =====================================================================
         xf!(xfer, xfer_int, self.power_bar_base, "power_bar_base");
-        xf!(xfer, xfer_real, self.power_bar_intervals, "power_bar_intervals");
-        xf!(xfer, xfer_int, self.power_bar_yellow_range, "power_bar_yellow_range");
+        xf!(
+            xfer,
+            xfer_real,
+            self.power_bar_intervals,
+            "power_bar_intervals"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.power_bar_yellow_range,
+            "power_bar_yellow_range"
+        );
         xf!(xfer, xfer_real, self.display_gamma, "display_gamma");
-        xf!(xfer, xfer_unsigned_int, self.unlook_persist_duration, "unlook_persist_duration");
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.unlook_persist_duration,
+            "unlook_persist_duration"
+        );
 
         // =====================================================================
         // Timing
         // =====================================================================
-        xf!(xfer, xfer_unsigned_int, self.double_click_time_ms, "double_click_time_ms");
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.double_click_time_ms,
+            "double_click_time_ms"
+        );
 
         // =====================================================================
         // Shroud and fog
@@ -1270,67 +1999,189 @@ impl Snapshotable for GlobalData {
         // =====================================================================
         // Selection and audio
         // =====================================================================
-        xf!(xfer, xfer_int, self.group_select_min_select_size, "group_select_min_select_size");
-        xf!(xfer, xfer_real, self.group_select_volume_base, "group_select_volume_base");
-        xf!(xfer, xfer_real, self.group_select_volume_increment, "group_select_volume_increment");
-        xf!(xfer, xfer_int, self.max_unit_select_sounds, "max_unit_select_sounds");
-        xf!(xfer, xfer_real, self.selection_flash_saturation_factor,
-            "selection_flash_saturation_factor");
-        xf!(xfer, xfer_bool, self.selection_flash_house_color, "selection_flash_house_color");
-        xf!(xfer, xfer_real, self.group_move_click_to_gather_factor,
-            "group_move_click_to_gather_factor");
+        xf!(
+            xfer,
+            xfer_int,
+            self.group_select_min_select_size,
+            "group_select_min_select_size"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.group_select_volume_base,
+            "group_select_volume_base"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.group_select_volume_increment,
+            "group_select_volume_increment"
+        );
+        xf!(
+            xfer,
+            xfer_int,
+            self.max_unit_select_sounds,
+            "max_unit_select_sounds"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.selection_flash_saturation_factor,
+            "selection_flash_saturation_factor"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.selection_flash_house_color,
+            "selection_flash_house_color"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.group_move_click_to_gather_factor,
+            "group_move_click_to_gather_factor"
+        );
 
         // =====================================================================
         // Graphics options
         // =====================================================================
-        xf!(xfer, xfer_int, self.anti_alias_box_value, "anti_alias_box_value");
-        xf!(xfer, xfer_bool, self.language_filter_pref, "language_filter_pref");
-        xf!(xfer, xfer_bool, self.load_screen_render, "load_screen_render");
+        xf!(
+            xfer,
+            xfer_int,
+            self.anti_alias_box_value,
+            "anti_alias_box_value"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.language_filter_pref,
+            "language_filter_pref"
+        );
+        xf!(
+            xfer,
+            xfer_bool,
+            self.load_screen_render,
+            "load_screen_render"
+        );
         xf!(xfer, xfer_bool, self.disable_render, "disable_render");
 
         // =====================================================================
         // Camera shake
         // =====================================================================
-        xf!(xfer, xfer_real, self.shake_subtle_intensity, "shake_subtle_intensity");
-        xf!(xfer, xfer_real, self.shake_normal_intensity, "shake_normal_intensity");
-        xf!(xfer, xfer_real, self.shake_strong_intensity, "shake_strong_intensity");
-        xf!(xfer, xfer_real, self.shake_severe_intensity, "shake_severe_intensity");
-        xf!(xfer, xfer_real, self.shake_cine_extreme_intensity, "shake_cine_extreme_intensity");
-        xf!(xfer, xfer_real, self.shake_cine_insane_intensity, "shake_cine_insane_intensity");
-        xf!(xfer, xfer_real, self.max_shake_intensity, "max_shake_intensity");
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_subtle_intensity,
+            "shake_subtle_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_normal_intensity,
+            "shake_normal_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_strong_intensity,
+            "shake_strong_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_severe_intensity,
+            "shake_severe_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_cine_extreme_intensity,
+            "shake_cine_extreme_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.shake_cine_insane_intensity,
+            "shake_cine_insane_intensity"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.max_shake_intensity,
+            "max_shake_intensity"
+        );
         xf!(xfer, xfer_real, self.max_shake_range, "max_shake_range");
 
         // =====================================================================
         // Base regeneration
         // =====================================================================
         xf!(xfer, xfer_real, self.sell_percentage, "sell_percentage");
-        xf!(xfer, xfer_real, self.base_regen_health_percent_per_second,
-            "base_regen_health_percent_per_second");
-        xf!(xfer, xfer_unsigned_int, self.base_regen_delay, "base_regen_delay");
-        xf!(xfer, xfer_real, self.prison_bounty_multiplier, "prison_bounty_multiplier");
+        xf!(
+            xfer,
+            xfer_real,
+            self.base_regen_health_percent_per_second,
+            "base_regen_health_percent_per_second"
+        );
+        xf!(
+            xfer,
+            xfer_unsigned_int,
+            self.base_regen_delay,
+            "base_regen_delay"
+        );
+        xf!(
+            xfer,
+            xfer_real,
+            self.prison_bounty_multiplier,
+            "prison_bounty_multiplier"
+        );
         for c in 0..3 {
-            xf!(xfer, xfer_real, self.prison_bounty_text_color[c], "prison_bounty_text_color");
+            xf!(
+                xfer,
+                xfer_real,
+                self.prison_bounty_text_color[c],
+                "prison_bounty_text_color"
+            );
         }
 
         // =====================================================================
         // Colors
         // =====================================================================
         for c in 0..4 {
-            xf!(xfer, xfer_real, self.hot_key_text_color[c], "hot_key_text_color");
+            xf!(
+                xfer,
+                xfer_real,
+                self.hot_key_text_color[c],
+                "hot_key_text_color"
+            );
         }
 
         // =====================================================================
         // Volume settings
         // =====================================================================
-        xf!(xfer, xfer_real, self.music_volume_factor, "music_volume_factor");
+        xf!(
+            xfer,
+            xfer_real,
+            self.music_volume_factor,
+            "music_volume_factor"
+        );
         xf!(xfer, xfer_real, self.sfx_volume_factor, "sfx_volume_factor");
-        xf!(xfer, xfer_real, self.voice_volume_factor, "voice_volume_factor");
+        xf!(
+            xfer,
+            xfer_real,
+            self.voice_volume_factor,
+            "voice_volume_factor"
+        );
         xf!(xfer, xfer_bool, self.sound_3d_pref, "sound_3d_pref");
 
         // =====================================================================
         // Movement penalties
         // =====================================================================
-        xf!(xfer, xfer_int, self.movement_penalty_damage_state, "movement_penalty_damage_state");
+        xf!(
+            xfer,
+            xfer_int,
+            self.movement_penalty_damage_state,
+            "movement_penalty_damage_state"
+        );
 
         // =====================================================================
         // CRC values
@@ -1341,9 +2192,19 @@ impl Snapshotable for GlobalData {
         // =====================================================================
         // Movies
         // =====================================================================
-        xf!(xfer, xfer_bool, self.is_breakable_movie, "is_breakable_movie");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.is_breakable_movie,
+            "is_breakable_movie"
+        );
         xf!(xfer, xfer_bool, self.break_the_movie, "break_the_movie");
-        xf!(xfer, xfer_bool, self.allow_exit_out_of_movies, "allow_exit_out_of_movies");
+        xf!(
+            xfer,
+            xfer_bool,
+            self.allow_exit_out_of_movies,
+            "allow_exit_out_of_movies"
+        );
 
         // =====================================================================
         // TiVO fast mode
