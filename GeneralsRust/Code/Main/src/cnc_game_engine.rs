@@ -1127,6 +1127,8 @@ pub struct CnCGameEngine {
 
     // Game state
     game_logic: GameLogic,
+    /// Immutable presentation feed for client/render after last logic step.
+    last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
     combat_system: CombatSystem,
     pathfinding_system: PathfindingSystem,
     resource_manager: ResourceManager,
@@ -3713,6 +3715,7 @@ impl CnCGameEngine {
                 .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?,
 
             game_logic,
+            last_presentation_frame: None,
             combat_system,
             pathfinding_system,
             resource_manager,
@@ -5600,6 +5603,17 @@ impl CnCGameEngine {
                     panic!("{e}");
                 }
             }
+
+            // Immutable presentation snapshot for client/render (borrow-first policy).
+            // Built after the authority step so GameClient need not lock live objects
+            // during a WGPU pass.
+            let local_id = self.current_player_id;
+            self.last_presentation_frame = Some(
+                crate::presentation_frame::PresentationFrame::build_from_logic(
+                    &self.game_logic,
+                    local_id,
+                ),
+            );
 
             #[cfg(feature = "game_client")]
             {
