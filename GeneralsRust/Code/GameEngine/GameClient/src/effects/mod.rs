@@ -133,10 +133,12 @@ pub enum EffectsError {
 
 /// Effects quality settings
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum EffectsQuality {
     /// Minimal effects for low-end hardware
     Low,
     /// Balanced effects for mid-range hardware
+    #[default]
     Medium,
     /// Full effects for high-end hardware
     High,
@@ -179,11 +181,6 @@ impl EffectsQuality {
     }
 }
 
-impl Default for EffectsQuality {
-    fn default() -> Self {
-        EffectsQuality::Medium
-    }
-}
 
 /// Effects configuration
 #[derive(Debug, Clone)]

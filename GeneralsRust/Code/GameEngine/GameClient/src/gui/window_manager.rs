@@ -1157,7 +1157,7 @@ impl WindowManager {
     pub fn unset_modal(&mut self, window: &Rc<RefCell<GameWindow>>) -> WindowResult<()> {
         if let Some(modal_head) = &self.modal_stack {
             if Rc::ptr_eq(&modal_head.window, window) {
-                self.modal_stack = modal_head.next.as_ref().map(|n| n.clone());
+                self.modal_stack = modal_head.next.clone();
                 return Ok(());
             }
         }
@@ -1166,7 +1166,7 @@ impl WindowManager {
 
     /// Set grab window (for drag operations)
     pub fn set_grab_window(&mut self, window: Option<&Rc<RefCell<GameWindow>>>) {
-        self.grab_window = window.map(|w| Rc::downgrade(w));
+        self.grab_window = window.map(Rc::downgrade);
     }
 
     /// Get grab window
@@ -1186,7 +1186,7 @@ impl WindowManager {
                     .send_system_message(WindowMessage::User(GGM_CLOSE), 0, 0);
             }
         }
-        self.lone_window = window.map(|w| Rc::downgrade(w));
+        self.lone_window = window.map(Rc::downgrade);
     }
 
     /// Process mouse event
@@ -1983,7 +1983,7 @@ impl WindowManager {
         };
 
         for window_def in &layout_def.windows {
-            self.create_window_from_definition(&window_def, None, &layout, &layout_def, &mut info)?;
+            self.create_window_from_definition(window_def, None, &layout, &layout_def, &mut info)?;
         }
 
         Ok((layout, info))
@@ -2017,7 +2017,7 @@ impl WindowManager {
         };
 
         for window_def in &layout_def.windows {
-            self.create_window_from_definition(&window_def, None, &layout, &layout_def, &mut info)?;
+            self.create_window_from_definition(window_def, None, &layout, &layout_def, &mut info)?;
         }
 
         Ok(info)
@@ -3378,7 +3378,7 @@ impl WindowManager {
                     window.set_draw_callback(w3d_draw_map_preview);
                 }
                 "IMECandidateMainDraw" => {
-                    window.set_draw_callback(|window, inst| ime_candidate_main_draw(window, inst));
+                    window.set_draw_callback(ime_candidate_main_draw);
                 }
                 "IMECandidateTextAreaDraw" => {
                     window.set_draw_callback(|window, inst| {
@@ -3720,7 +3720,7 @@ impl WindowManager {
     fn compute_tab_pane_rect(&self, window: &Rc<RefCell<GameWindow>>) -> (i32, i32, i32, i32) {
         let window_ref = window.borrow();
         let (win_width, win_height) = window_ref.get_size();
-        let (win_width, win_height) = (win_width as i32, win_height as i32);
+        let (win_width, win_height) = (win_width, win_height);
         let mut tab_edge = super::gadgets::tabcontrol::TP_TOP_SIDE;
         let mut tab_width = 0;
         let mut tab_height = 0;
@@ -3776,12 +3776,12 @@ impl WindowManager {
             .unwrap_or(false);
 
         let button_width = 21;
-        let button_height = height as i32;
+        let button_height = height;
 
         let drop_down_id = generate_window_id();
         let drop_down = self.create_window_with_id_internal(
             Some(window),
-            (width as i32 - button_width).max(0),
+            (width - button_width).max(0),
             0,
             button_width,
             button_height,
@@ -3802,7 +3802,7 @@ impl WindowManager {
             if let Some(font) = window.borrow().get_font().cloned() {
                 drop_mut.set_font(font);
             }
-            let _ = drop_mut.set_tooltip(window.borrow().get_tooltip());
+            drop_mut.set_tooltip(window.borrow().get_tooltip());
             drop_mut.instance_data_mut().tooltip_delay = window.borrow().get_tooltip_delay();
             self.apply_draw_data_set(
                 &mut drop_mut,
@@ -3814,13 +3814,13 @@ impl WindowManager {
         }
 
         let edit_id = generate_window_id();
-        let edit_width = (width as i32 - button_width).max(0);
+        let edit_width = (width - button_width).max(0);
         let edit = self.create_window_with_id_internal(
             Some(window),
             0,
             0,
             edit_width,
-            height as i32,
+            height,
             edit_id,
             false,
         )?;
@@ -3842,7 +3842,7 @@ impl WindowManager {
             if let Some(font) = window.borrow().get_font().cloned() {
                 edit_mut.set_font(font);
             }
-            let _ = edit_mut.set_tooltip(window.borrow().get_tooltip());
+            edit_mut.set_tooltip(window.borrow().get_tooltip());
             edit_mut.instance_data_mut().tooltip_delay = window.borrow().get_tooltip_delay();
             if let Some(WindowWidget::TextEntry(entry)) = edit_mut.widget_mut() {
                 entry.set_draw_text_from_start(!is_editable);
@@ -3875,9 +3875,9 @@ impl WindowManager {
         let list = self.create_window_with_id_internal(
             Some(window),
             0,
-            height as i32,
-            width as i32,
-            height as i32,
+            height,
+            width,
+            height,
             list_id,
             false,
         )?;
@@ -3887,7 +3887,7 @@ impl WindowManager {
             list_mut.set_widget(WindowWidget::ListBox(ListBox::new(
                 list_id as u32,
                 0,
-                height as i32,
+                height,
                 width.max(0) as u32,
                 height.max(0) as u32,
             )));
@@ -3898,7 +3898,7 @@ impl WindowManager {
             if let Some(font) = window.borrow().get_font().cloned() {
                 list_mut.set_font(font);
             }
-            let _ = list_mut.set_tooltip(window.borrow().get_tooltip());
+            list_mut.set_tooltip(window.borrow().get_tooltip());
             list_mut.instance_data_mut().tooltip_delay = window.borrow().get_tooltip_delay();
             if let Some(WindowWidget::ListBox(listbox)) = list_mut.widget_mut() {
                 listbox.set_max_length(10);
@@ -5090,16 +5090,13 @@ fn map_window_message_to_main_menu(msg: WindowMessage) -> u32 {
 fn apply_window_status_to_widget(window: &mut GameWindow) {
     let status = window.get_status();
     if let Some(widget) = window.widget_mut() {
-        match widget {
-            WindowWidget::PushButton(button) => {
-                if status.contains(WindowStatus::CHECK_LIKE) {
-                    button.set_checkbox(true, false);
-                }
-                if status.contains(WindowStatus::ON_MOUSE_DOWN) {
-                    button.set_triggers_on_mouse_down(true);
-                }
+        if let WindowWidget::PushButton(button) = widget {
+            if status.contains(WindowStatus::CHECK_LIKE) {
+                button.set_checkbox(true, false);
             }
-            _ => {}
+            if status.contains(WindowStatus::ON_MOUSE_DOWN) {
+                button.set_triggers_on_mouse_down(true);
+            }
         }
     }
 }

@@ -517,7 +517,7 @@ impl HCompressedAnimClass {
                 if self.num_frames > 0 {
                     let max_frame = self.num_frames as f32;
                     if self.current_frame >= max_frame {
-                        self.current_frame = self.current_frame % max_frame;
+                        self.current_frame %= max_frame;
                     }
                 }
             }

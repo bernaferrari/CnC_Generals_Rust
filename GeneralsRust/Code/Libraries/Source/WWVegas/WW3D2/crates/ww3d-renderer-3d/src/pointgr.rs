@@ -21,17 +21,14 @@ use ww3d_core::wwstring::StringClass;
 
 /// Point rendering mode – mirrored from the original PointGroupClass::PointModeEnum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum PointMode {
     Tris,
+    #[default]
     Quads,
     ScreenSpace,
 }
 
-impl Default for PointMode {
-    fn default() -> Self {
-        PointMode::Quads
-    }
-}
 
 /// Primary point group implementation.
 #[derive(Debug, Clone)]

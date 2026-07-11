@@ -593,10 +593,10 @@ mod tests {
 
     #[test]
     fn test_search_path_construction() {
-        let search_paths = vec!["Art/Textures/".to_string(), "Data/Art/".to_string()];
+        let search_paths = ["Art/Textures/".to_string(), "Data/Art/".to_string()];
         let filename = "grass.dds";
 
-        let expected_paths = vec!["Art/Textures/grass.dds", "Data/Art/grass.dds"];
+        let expected_paths = ["Art/Textures/grass.dds", "Data/Art/grass.dds"];
 
         for (i, search_path) in search_paths.iter().enumerate() {
             let full_path = format!("{}{}", search_path, filename);

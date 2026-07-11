@@ -145,10 +145,10 @@ impl StreamingCompressor {
         let mmap = unsafe {
             MmapOptions::new()
                 .map(&input_file)
-                .map_err(|e| EacError::Io(e))?
+                .map_err(EacError::Io)?
         };
 
-        let chunks_count = (input_size + self.config.chunk_size - 1) / self.config.chunk_size;
+        let chunks_count = input_size.div_ceil(self.config.chunk_size);
 
         let total_compressed = if self.config.parallel && chunks_count > 1 {
             // Parallel compression using memory-mapped chunks
@@ -355,7 +355,7 @@ impl StreamingDecompressor {
         let mmap = unsafe {
             MmapOptions::new()
                 .map(&input_file)
-                .map_err(|e| EacError::Io(e))?
+                .map_err(EacError::Io)?
         };
 
         let decompressed = self.decoder.decode(&mmap)?;
@@ -475,7 +475,7 @@ pub mod async_streaming {
                 let bytes_read = reader
                     .read(&mut buffer)
                     .await
-                    .map_err(|e| EacError::Io(e))?;
+                    .map_err(EacError::Io)?;
 
                 if bytes_read == 0 {
                     break;
@@ -490,16 +490,16 @@ pub mod async_streaming {
                 writer
                     .write_all(&(compressed.len() as u32).to_le_bytes())
                     .await
-                    .map_err(|e| EacError::Io(e))?;
+                    .map_err(EacError::Io)?;
                 writer
                     .write_all(&compressed)
                     .await
-                    .map_err(|e| EacError::Io(e))?;
+                    .map_err(EacError::Io)?;
 
                 total_compressed += 4 + compressed.len();
             }
 
-            writer.flush().await.map_err(|e| EacError::Io(e))?;
+            writer.flush().await.map_err(EacError::Io)?;
             Ok(total_compressed)
         }
 
@@ -515,15 +515,15 @@ pub mod async_streaming {
         {
             let mut input_file = AsyncFile::open(input_path)
                 .await
-                .map_err(|e| EacError::Io(e))?;
+                .map_err(EacError::Io)?;
             let mut output_file = AsyncFile::create(output_path)
                 .await
-                .map_err(|e| EacError::Io(e))?;
+                .map_err(EacError::Io)?;
 
             let original_size = input_file
                 .metadata()
                 .await
-                .map_err(|e| EacError::Io(e))?
+                .map_err(EacError::Io)?
                 .len() as usize;
 
             let compressed_size = self
@@ -579,19 +579,19 @@ pub mod async_streaming {
                 reader
                     .read_exact(&mut chunk_buffer)
                     .await
-                    .map_err(|e| EacError::Io(e))?;
+                    .map_err(EacError::Io)?;
 
                 // Decompress chunk
                 let decompressed = self.decompressor.decoder.decode(&chunk_buffer)?;
                 writer
                     .write_all(&decompressed)
                     .await
-                    .map_err(|e| EacError::Io(e))?;
+                    .map_err(EacError::Io)?;
 
                 total_decompressed += decompressed.len();
             }
 
-            writer.flush().await.map_err(|e| EacError::Io(e))?;
+            writer.flush().await.map_err(EacError::Io)?;
             Ok(total_decompressed)
         }
     }

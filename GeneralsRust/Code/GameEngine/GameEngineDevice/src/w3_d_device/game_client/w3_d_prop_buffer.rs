@@ -31,6 +31,7 @@ pub struct SphereClass {
 
 impl SphereClass {
     /// Construct a sphere.
+    #[must_use]
     pub const fn new(center: Vector3, radius: f32) -> Self {
         Self { center, radius }
     }
@@ -177,6 +178,7 @@ pub struct W3DPropBuffer {
 
 impl W3DPropBuffer {
     /// Construct an initialized C++ prop buffer.
+    #[must_use]
     pub fn new() -> Self {
         let mut buffer = Self {
             props: Vec::new(),
@@ -372,6 +374,7 @@ impl W3DPropBuffer {
     pub const fn crc(&self) {}
 
     /// C++ `xfer`, version one with no payload.
+    #[must_use]
     pub const fn xfer_version(&self) -> u16 {
         1
     }
@@ -380,31 +383,37 @@ impl W3DPropBuffer {
     pub const fn load_post_process(&self) {}
 
     /// Number of props, matching C++ `m_numProps`.
+    #[must_use]
     pub fn num_props(&self) -> usize {
         self.props.len()
     }
 
     /// Number of cached prop types.
+    #[must_use]
     pub fn num_prop_types(&self) -> usize {
         self.prop_types.len()
     }
 
     /// Current prop records.
+    #[must_use]
     pub fn props(&self) -> &[Prop] {
         &self.props
     }
 
     /// Current prop type records.
+    #[must_use]
     pub fn prop_types(&self) -> &[PropType] {
         &self.prop_types
     }
 
     /// Whether anything changed since construction/clear.
+    #[must_use]
     pub fn anything_changed(&self) -> bool {
         self.anything_changed
     }
 
     /// Whether the buffer initialized successfully.
+    #[must_use]
     pub fn initialized(&self) -> bool {
         self.initialized
     }

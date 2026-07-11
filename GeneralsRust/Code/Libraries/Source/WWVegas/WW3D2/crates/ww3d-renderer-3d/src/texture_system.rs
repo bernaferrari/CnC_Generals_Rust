@@ -296,17 +296,17 @@ impl TextureClass {
             // Compressed formats
             TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc4RUnorm => {
                 // 4x4 blocks, 8 bytes per block
-                ((width + 3) / 4) * 8
+                width.div_ceil(4) * 8
             }
             TextureFormat::Bc2RgbaUnorm
             | TextureFormat::Bc3RgbaUnorm
             | TextureFormat::Bc5RgUnorm => {
                 // 4x4 blocks, 16 bytes per block
-                ((width + 3) / 4) * 16
+                width.div_ceil(4) * 16
             }
             TextureFormat::Bc6hRgbUfloat | TextureFormat::Bc7RgbaUnorm => {
                 // 4x4 blocks, 16 bytes per block
-                ((width + 3) / 4) * 16
+                width.div_ceil(4) * 16
             }
             // Uncompressed formats
             TextureFormat::Rgba8Unorm
@@ -332,7 +332,7 @@ impl TextureClass {
             | TextureFormat::Bc4RUnorm
             | TextureFormat::Bc5RgUnorm
             | TextureFormat::Bc6hRgbUfloat
-            | TextureFormat::Bc7RgbaUnorm => ((height + 3) / 4).max(1),
+            | TextureFormat::Bc7RgbaUnorm => height.div_ceil(4).max(1),
         }
     }
 
@@ -594,8 +594,8 @@ impl DDSLoader {
             _ => return width * height * 4,    // Uncompressed fallback
         };
 
-        let blocks_wide = (width + 3) / 4;
-        let blocks_high = (height + 3) / 4;
+        let blocks_wide = width.div_ceil(4);
+        let blocks_high = height.div_ceil(4);
 
         blocks_wide * blocks_high * block_size
     }

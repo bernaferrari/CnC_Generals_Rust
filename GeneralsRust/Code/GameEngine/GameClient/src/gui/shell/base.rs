@@ -2921,7 +2921,7 @@ impl SubsystemInterface for Shell {
 
 thread_local! {
     static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
-    static PENDING_SHELL_SCHEME: RefCell<Option<String>> = RefCell::new(None);
+    static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Get the global shell instance.
@@ -2953,7 +2953,7 @@ where
     F: FnOnce(&mut Shell) -> R,
 {
     SHELL.with(|cell| match cell.try_borrow_mut() {
-        Ok(mut shell) => Some(f(&mut *shell)),
+        Ok(mut shell) => Some(f(&mut shell)),
         Err(_) => None,
     })
 }

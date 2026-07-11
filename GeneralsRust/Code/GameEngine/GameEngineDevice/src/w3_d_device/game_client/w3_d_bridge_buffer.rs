@@ -44,6 +44,7 @@ pub struct Vec3 {
 
 impl Vec3 {
     /// Construct a vector.
+    #[must_use]
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
@@ -110,6 +111,7 @@ pub struct Matrix3D {
 
 impl Matrix3D {
     /// Identity transform.
+    #[must_use]
     pub const fn identity() -> Self {
         Self {
             m: [
@@ -121,6 +123,7 @@ impl Matrix3D {
     }
 
     /// Translation transform.
+    #[must_use]
     pub const fn translation(x: f32, y: f32, z: f32) -> Self {
         Self {
             m: [[1.0, 0.0, 0.0, x], [0.0, 1.0, 0.0, y], [0.0, 0.0, 1.0, z]],
@@ -281,6 +284,7 @@ pub struct W3DBridge {
 
 impl W3DBridge {
     /// Construct an empty bridge record.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             start: Vec3::default(),
@@ -412,6 +416,7 @@ impl W3DBridge {
     }
 
     /// Return current bridge info for terrain logic.
+    #[must_use]
     pub fn get_bridge_info(&self) -> BridgeInfo {
         let vec = self.end - self.start;
         let vec_normal = Vec3::new(-vec.y, vec.x, 0.0).normalize();
@@ -508,6 +513,7 @@ impl W3DBridge {
     }
 
     /// Current damage state.
+    #[must_use]
     pub fn damage_state(&self) -> BridgeDamageState {
         self.cur_damage_state
     }
@@ -518,21 +524,25 @@ impl W3DBridge {
     }
 
     /// Whether bridge is enabled.
+    #[must_use]
     pub fn enabled(&self) -> bool {
         self.enabled
     }
 
     /// Whether bridge is visible.
+    #[must_use]
     pub fn visible(&self) -> bool {
         self.visible
     }
 
     /// Chosen bridge type.
+    #[must_use]
     pub fn bridge_type(&self) -> BridgeType {
         self.bridge_type
     }
 
     /// Template name.
+    #[must_use]
     pub fn template_name(&self) -> &str {
         &self.template_name
     }
@@ -634,6 +644,7 @@ pub struct W3DBridgeBuffer {
 
 impl W3DBridgeBuffer {
     /// Construct with C++ initial state.
+    #[must_use]
     pub fn new() -> Self {
         let mut buffer = Self {
             bridges: Vec::new(),
@@ -736,11 +747,13 @@ impl W3DBridgeBuffer {
     }
 
     /// Access cached render buffers.
+    #[must_use]
     pub fn render_buffers(&self) -> &BridgeRenderBuffers {
         &self.cached_buffers
     }
 
     /// Access loaded bridges.
+    #[must_use]
     pub fn bridges(&self) -> &[W3DBridge] {
         &self.bridges
     }
@@ -751,6 +764,7 @@ impl W3DBridgeBuffer {
     }
 
     /// Number of loaded bridges.
+    #[must_use]
     pub fn num_bridges(&self) -> usize {
         self.bridges.len()
     }

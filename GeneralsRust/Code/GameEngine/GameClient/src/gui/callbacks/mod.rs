@@ -145,27 +145,27 @@ pub use wolqm_score_screen::*;
 
 thread_local! {
     // LAN menu state - matches C++ LANbuttonPushed, LANisShuttingDown, s_isIniting
-    static LAN_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
-    static LAN_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
-    static LAN_IS_INITING: Cell<bool> = Cell::new(false);
-    static LAN_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = Cell::new(true);
+    static LAN_BUTTON_PUSHED: Cell<bool> = const { Cell::new(false) };
+    static LAN_IS_SHUTTING_DOWN: Cell<bool> = const { Cell::new(false) };
+    static LAN_IS_INITING: Cell<bool> = const { Cell::new(false) };
+    static LAN_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = const { Cell::new(true) };
 
     // Skirmish menu state
-    static SKIRMISH_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
-    static SKIRMISH_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
-    static SKIRMISH_IS_INITING: Cell<bool> = Cell::new(false);
-    static SKIRMISH_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = Cell::new(true);
+    static SKIRMISH_BUTTON_PUSHED: Cell<bool> = const { Cell::new(false) };
+    static SKIRMISH_IS_SHUTTING_DOWN: Cell<bool> = const { Cell::new(false) };
+    static SKIRMISH_IS_INITING: Cell<bool> = const { Cell::new(false) };
+    static SKIRMISH_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = const { Cell::new(true) };
 
     // Popup state
-    static POPUP_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
-    static POPUP_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
+    static POPUP_BUTTON_PUSHED: Cell<bool> = const { Cell::new(false) };
+    static POPUP_IS_SHUTTING_DOWN: Cell<bool> = const { Cell::new(false) };
 
     // Main menu state - matches C++ buttonPushed, isShuttingDown, startGame
-    static MAIN_MENU_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
-    static MAIN_MENU_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
-    static MAIN_MENU_START_GAME: Cell<bool> = Cell::new(false);
-    static MAIN_MENU_DONT_ALLOW_TRANSITIONS: Cell<bool> = Cell::new(false);
-    static MAIN_MENU_CAMPAIGN_SELECTED: Cell<bool> = Cell::new(false);
+    static MAIN_MENU_BUTTON_PUSHED: Cell<bool> = const { Cell::new(false) };
+    static MAIN_MENU_IS_SHUTTING_DOWN: Cell<bool> = const { Cell::new(false) };
+    static MAIN_MENU_START_GAME: Cell<bool> = const { Cell::new(false) };
+    static MAIN_MENU_DONT_ALLOW_TRANSITIONS: Cell<bool> = const { Cell::new(false) };
+    static MAIN_MENU_CAMPAIGN_SELECTED: Cell<bool> = const { Cell::new(false) };
 }
 
 // LAN state accessors

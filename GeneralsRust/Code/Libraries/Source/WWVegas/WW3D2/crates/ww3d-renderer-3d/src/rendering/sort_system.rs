@@ -169,7 +169,7 @@ impl DefaultStaticSortListClass {
         sort_level: usize,
         camera_position: Vec3,
     ) {
-        if sort_level < 1 || sort_level > MAX_SORT_LEVEL {
+        if !(1..=MAX_SORT_LEVEL).contains(&sort_level) {
             eprintln!(
                 "Sort level {} out of range [1, {}]",
                 sort_level, MAX_SORT_LEVEL

@@ -635,7 +635,7 @@ impl RenderPipeline {
     ) -> Result<()> {
         let execute_started = std::time::Instant::now();
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
-        if (self.frame_number + 1) % 300 == 0 {
+        if (self.frame_number + 1).is_multiple_of(300) {
             debug!(
                 "RenderPipeline frame {} - {} objects queued",
                 self.frame_number + 1,
@@ -757,7 +757,7 @@ impl RenderPipeline {
             // Removed excessive logging
 
             static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
-            if self.render_items.len() > 0
+            if !self.render_items.is_empty()
                 && !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed)
             {
                 let sample_items: Vec<String> = self
@@ -1960,7 +1960,7 @@ impl RenderPipeline {
             }
         }
 
-        if bridge_items_added > 0 && self.frame_number % 300 == 0 {
+        if bridge_items_added > 0 && self.frame_number.is_multiple_of(300) {
             debug!(
                 "RenderBridge drain: {} items from {} submissions",
                 bridge_items_added, submissions_count
@@ -2386,7 +2386,7 @@ impl RenderPipeline {
                 }
             }
 
-            return Ok(false);
+            Ok(false)
         }
 
         #[cfg(not(feature = "game_client"))]
@@ -3046,7 +3046,7 @@ impl ForwardPass {
     ) {
         static PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
         let frame = PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if frame % 120 != 0 {
+        if !frame.is_multiple_of(120) {
             return;
         }
 
@@ -3128,7 +3128,7 @@ impl ForwardPass {
     fn log_material_probe(render_items: &[RenderItem]) {
         static MATERIAL_PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
         let frame = MATERIAL_PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if frame % 120 != 0 {
+        if !frame.is_multiple_of(120) {
             return;
         }
 
@@ -3230,7 +3230,7 @@ impl ForwardPass {
                 if let Some(bone_transforms) = w3d_model.sample_animation(0, item.animation_frame) {
                     let matrices: Vec<Mat4> = bone_transforms
                         .iter()
-                        .map(|m| Mat4::from_cols_array(m))
+                        .map(Mat4::from_cols_array)
                         .collect();
                     mesh.set_bone_palette_slice(&matrices);
                 }
@@ -3384,7 +3384,7 @@ impl ForwardPass {
 
         model.stage_uv_sources = mesh.stage_uv_channels.clone();
 
-        model.texture_coords = if let Some(stage0) = model.stage_texture_coords.get(0) {
+        model.texture_coords = if let Some(stage0) = model.stage_texture_coords.first() {
             stage0.clone()
         } else {
             mesh.vertices
@@ -3574,7 +3574,7 @@ impl ForwardPass {
                     pass.shader = ShaderClass::from_w3d_shader(shader_struct);
                 }
             }
-        } else if let Some(shader_struct) = mesh.shaders.get(0) {
+        } else if let Some(shader_struct) = mesh.shaders.first() {
             pass.shader = ShaderClass::from_w3d_shader(shader_struct);
         } else {
             pass.set_shader(Self::shader_for_material(&mesh.material));

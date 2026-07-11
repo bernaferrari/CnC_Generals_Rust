@@ -203,7 +203,7 @@ impl RuntimeBuilder {
                 required_features,
                 required_limits: self
                     .required_limits
-                    .unwrap_or_else(|| wgpu::Limits::downlevel_defaults()),
+                    .unwrap_or_else(wgpu::Limits::downlevel_defaults),
                 ..Default::default()
             }),
         )

@@ -423,35 +423,31 @@ impl SliderBase {
 
         let mut messages = Vec::new();
 
-        match button {
-            MouseButton::Left => {
-                if self.is_point_over_thumb(x, y) {
-                    // Start dragging thumb
-                    self.thumb_dragging = true;
-                    self.thumb_state = ThumbState::Pressed;
+        if button == MouseButton::Left
+            && self.is_point_over_thumb(x, y) {
+                // Start dragging thumb
+                self.thumb_dragging = true;
+                self.thumb_state = ThumbState::Pressed;
 
-                    // Calculate drag offset
-                    let thumb_center = match self.orientation {
-                        SliderOrientation::Horizontal => {
-                            self.bounds.x
-                                + self.thumb_position
-                                + (self.config.thumb_size.0 as i32 / 2)
-                        }
-                        SliderOrientation::Vertical => {
-                            self.bounds.y
-                                + self.thumb_position
-                                + (self.config.thumb_size.1 as i32 / 2)
-                        }
-                    };
+                // Calculate drag offset
+                let thumb_center = match self.orientation {
+                    SliderOrientation::Horizontal => {
+                        self.bounds.x
+                            + self.thumb_position
+                            + (self.config.thumb_size.0 as i32 / 2)
+                    }
+                    SliderOrientation::Vertical => {
+                        self.bounds.y
+                            + self.thumb_position
+                            + (self.config.thumb_size.1 as i32 / 2)
+                    }
+                };
 
-                    self.drag_offset = match self.orientation {
-                        SliderOrientation::Horizontal => x - thumb_center,
-                        SliderOrientation::Vertical => y - thumb_center,
-                    };
-                }
+                self.drag_offset = match self.orientation {
+                    SliderOrientation::Horizontal => x - thumb_center,
+                    SliderOrientation::Vertical => y - thumb_center,
+                };
             }
-            _ => {}
-        }
 
         messages
     }
@@ -462,21 +458,18 @@ impl SliderBase {
             return Vec::new();
         }
 
-        match button {
-            MouseButton::Left => {
-                if self.thumb_dragging {
-                    self.thumb_dragging = false;
-                    self.thumb_state = if self.mouse_inside {
-                        ThumbState::Hovered
-                    } else {
-                        ThumbState::Normal
-                    };
-                    self.drag_offset = 0;
-                } else if !self.is_point_over_thumb(x, y) {
-                    self.apply_track_page_click(x, y);
-                }
+        if button == MouseButton::Left {
+            if self.thumb_dragging {
+                self.thumb_dragging = false;
+                self.thumb_state = if self.mouse_inside {
+                    ThumbState::Hovered
+                } else {
+                    ThumbState::Normal
+                };
+                self.drag_offset = 0;
+            } else if !self.is_point_over_thumb(x, y) {
+                self.apply_track_page_click(x, y);
             }
-            _ => {}
         }
 
         Vec::new()

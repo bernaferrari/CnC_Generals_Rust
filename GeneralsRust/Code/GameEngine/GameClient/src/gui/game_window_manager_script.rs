@@ -2094,6 +2094,7 @@ fn normalize_callback_name(name: &str) -> String {
 /// `defSelectedColor`, `defTextColor`, `defFont`) that get reset at
 /// the start of each `winCreateFromScript()` call via `resetWindowDefaults()`.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct WindowDefaults {
     pub enabled_color: u32,
     pub disabled_color: u32,
@@ -2104,19 +2105,6 @@ pub struct WindowDefaults {
     pub font: Option<super::game_window::GameFont>,
 }
 
-impl Default for WindowDefaults {
-    fn default() -> Self {
-        Self {
-            enabled_color: 0,
-            disabled_color: 0,
-            background_color: 0,
-            hilite_color: 0,
-            selected_color: 0,
-            text_color: 0,
-            font: None,
-        }
-    }
-}
 
 impl WindowDefaults {
     /// Create a fresh defaults state.

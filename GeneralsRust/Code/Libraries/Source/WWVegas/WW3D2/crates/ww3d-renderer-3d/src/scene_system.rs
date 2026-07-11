@@ -14,17 +14,14 @@ use std::collections::HashMap;
 
 /// Scene ID enumeration - equivalent to C++ SceneClass RTTI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum SceneId {
     Unknown = 0xFFFFFFFF,
+    #[default]
     Scene = 0,
     Simple = 1,
 }
 
-impl Default for SceneId {
-    fn default() -> Self {
-        SceneId::Scene
-    }
-}
 
 /// Polygon render type - equivalent to C++ PolyRenderType
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

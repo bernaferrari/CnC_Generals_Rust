@@ -127,6 +127,12 @@ pub struct FileSystemSubsystem {
     initialized: bool,
 }
 
+impl Default for FileSystemSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystemSubsystem {
     pub fn new() -> Self {
         Self {
@@ -259,6 +265,12 @@ impl SubsystemInterface for FileSystemSubsystem {
 /// Global Data subsystem - manages game configuration and data
 pub struct GlobalDataSubsystem {
     ini_crc: u32,
+}
+
+impl Default for GlobalDataSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GlobalDataSubsystem {
@@ -419,6 +431,12 @@ pub struct AudioManagerSubsystem {
     queued_events: Vec<crate::game_logic::AudioEventRequest>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
     gameplay_dispatch: Arc<crate::game_logic::audio_dispatch_impl::MainAudioDispatch>,
+}
+
+impl Default for AudioManagerSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AudioManagerSubsystem {
@@ -763,6 +781,12 @@ pub struct MessageStreamSubsystem {
     initialized: bool,
 }
 
+impl Default for MessageStreamSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageStreamSubsystem {
     pub fn new() -> Self {
         Self { initialized: false }
@@ -866,6 +890,12 @@ impl_bootstrap_subsystem!(GameStateMapSubsystem, "GameStateMap", { Ok(()) });
 
 pub struct GameStateSubsystem;
 
+impl Default for GameStateSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameStateSubsystem {
     pub fn new() -> Self {
         Self
@@ -903,6 +933,12 @@ impl SubsystemInterface for GameStateSubsystem {
 }
 
 pub struct GameResultsQueueSubsystem;
+
+impl Default for GameResultsQueueSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl GameResultsQueueSubsystem {
     pub fn new() -> Self {
@@ -1174,6 +1210,12 @@ pub struct InputSystemSubsystem {
     input_system: Option<InputSystem>,
 }
 
+impl Default for InputSystemSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InputSystemSubsystem {
     pub fn new() -> Self {
         Self { input_system: None }
@@ -1342,6 +1384,12 @@ pub struct SubsystemManager {
     update_order: Vec<&'static str>,
     initialized: bool,
     start_time: Option<SystemTime>,
+}
+
+impl Default for SubsystemManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SubsystemManager {

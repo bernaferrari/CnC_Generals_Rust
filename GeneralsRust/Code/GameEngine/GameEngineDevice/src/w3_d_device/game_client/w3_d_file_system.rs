@@ -44,6 +44,7 @@ pub enum GameFileType {
 
 impl GameFileType {
     /// Classify a filename using the same case-insensitive extension checks as C++.
+    #[must_use]
     pub fn from_filename(filename: &str) -> Self {
         match extension_with_dot(filename).to_ascii_lowercase().as_str() {
             ".w3d" => Self::W3d,
@@ -54,6 +55,7 @@ impl GameFileType {
     }
 
     /// Whether this file type is a C++ image file type.
+    #[must_use]
     pub fn is_image(self) -> bool {
         matches!(self, Self::Tga | Self::Dds)
     }
@@ -69,6 +71,7 @@ pub struct GameFileClass {
 
 impl GameFileClass {
     /// Create a closed file object with no filename.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             file: None,
@@ -79,6 +82,7 @@ impl GameFileClass {
     }
 
     /// Create a file object and immediately run C++ `Set_Name`.
+    #[must_use]
     pub fn with_name(filename: &str) -> Self {
         let mut file = Self::new();
         file.set_name(filename);
@@ -86,11 +90,13 @@ impl GameFileClass {
     }
 
     /// Return the original filename passed to `Set_Name`.
+    #[must_use]
     pub fn file_name(&self) -> &str {
         &self.filename
     }
 
     /// Return the currently selected relative path.
+    #[must_use]
     pub fn file_path(&self) -> &str {
         &self.file_path
     }
@@ -111,19 +117,20 @@ impl GameFileClass {
         let exists = |path: &str| {
             file_system
                 .lock()
-                .map(|fs| fs.does_file_exist(path))
-                .unwrap_or(false)
+                .is_ok_and(|fs| fs.does_file_exist(path))
         };
         self.set_name_with_context(filename, &language, user_data_dir.as_deref(), exists);
         &self.filename
     }
 
     /// C++ `Is_Available`.
+    #[must_use]
     pub fn is_available(&self, _forced: bool) -> bool {
         self.file_exists
     }
 
     /// C++ `Is_Open`.
+    #[must_use]
     pub fn is_open(&self) -> bool {
         self.file.is_some()
     }
@@ -178,11 +185,11 @@ impl GameFileClass {
     }
 
     /// C++ `Size`.
+    #[must_use]
     pub fn size(&self) -> i32 {
         self.file
             .as_ref()
-            .map(|file| file.size())
-            .unwrap_or(GAME_FILE_INVALID_RESULT)
+            .map_or(GAME_FILE_INVALID_RESULT, |file| file.size())
     }
 
     /// C++ `Write`; the W3D file factory is read-only.
@@ -198,11 +205,13 @@ impl GameFileClass {
     }
 
     /// C++ `Create` placeholder returns success after asserting in debug builds.
+    #[must_use]
     pub fn create(&self) -> bool {
         true
     }
 
     /// C++ `Delete` placeholder returns success after asserting in debug builds.
+    #[must_use]
     pub fn delete(&self) -> bool {
         true
     }
@@ -258,11 +267,13 @@ pub struct W3DFileSystem;
 
 impl W3DFileSystem {
     /// Construct the W3D file factory adapter.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
 
     /// C++ `Get_File`.
+    #[must_use]
     pub fn get_file(&self, filename: &str) -> GameFileClass {
         GameFileClass::with_name(filename)
     }
@@ -272,6 +283,7 @@ impl W3DFileSystem {
 }
 
 /// Return a process-wide W3D file factory adapter.
+#[must_use]
 pub fn get_w3d_file_system() -> &'static W3DFileSystem {
     static FILE_SYSTEM: W3DFileSystem = W3DFileSystem;
     &FILE_SYSTEM

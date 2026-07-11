@@ -583,7 +583,7 @@ impl UnitControlSystem {
 
     /// Toggle object selection (add/remove) - deprecated in favor of explicit add/remove
     fn toggle_object_selection(&mut self, object_id: ObjectId, game_logic: &mut GameLogic) {
-        if self.selected_objects.iter().any(|&id| id == object_id) {
+        if self.selected_objects.contains(&object_id) {
             self.remove_from_selection(object_id, game_logic);
         } else {
             self.add_to_selection(object_id, game_logic);
@@ -844,7 +844,8 @@ impl UnitControlSystem {
 
     /// Create a move command for selected units
     fn create_move_command(&mut self, destination: Vec3) -> GameCommand {
-        let command = GameCommand {
+        
+        GameCommand {
             command_type: CommandType::MoveTo {
                 destination,
                 waypoints: Vec::new(),
@@ -854,34 +855,33 @@ impl UnitControlSystem {
             timestamp: SystemTime::now(),
             selected_units: self.selected_objects.clone(),
             modifier_keys: ModifierKeys::default(),
-        };
-        command
+        }
     }
 
     /// Create an attack command for selected units
     fn create_attack_command(&mut self, target_id: ObjectId) -> GameCommand {
-        let command = GameCommand {
+        
+        GameCommand {
             command_type: CommandType::AttackObject { target_id },
             player_id: self.player_id,
             command_id: self.get_next_command_id(),
             timestamp: SystemTime::now(),
             selected_units: self.selected_objects.clone(),
             modifier_keys: ModifierKeys::default(),
-        };
-        command
+        }
     }
 
     /// Create a stop command for selected units
     fn create_stop_command(&mut self) -> GameCommand {
-        let command = GameCommand {
+        
+        GameCommand {
             command_type: CommandType::Stop,
             player_id: self.player_id,
             command_id: self.get_next_command_id(),
             timestamp: SystemTime::now(),
             selected_units: self.selected_objects.clone(),
             modifier_keys: ModifierKeys::default(),
-        };
-        command
+        }
     }
 
     fn log_command(&self, command: &GameCommand) {
@@ -897,7 +897,8 @@ impl UnitControlSystem {
 
     /// Create a build command
     pub fn create_build_command(&mut self, template_name: String, location: Vec3) -> GameCommand {
-        let command = GameCommand {
+        
+        GameCommand {
             command_type: CommandType::Build {
                 template_name,
                 location,
@@ -907,8 +908,7 @@ impl UnitControlSystem {
             timestamp: SystemTime::now(),
             selected_units: self.selected_objects.clone(),
             modifier_keys: ModifierKeys::default(),
-        };
-        command
+        }
     }
 
     /// Create a queue unit production command
@@ -917,7 +917,8 @@ impl UnitControlSystem {
         template_name: String,
         quantity: u32,
     ) -> GameCommand {
-        let command = GameCommand {
+        
+        GameCommand {
             command_type: CommandType::QueueUnitCreate {
                 template_name,
                 quantity,
@@ -927,8 +928,7 @@ impl UnitControlSystem {
             timestamp: SystemTime::now(),
             selected_units: self.selected_objects.clone(),
             modifier_keys: ModifierKeys::default(),
-        };
-        command
+        }
     }
 
     /// Get next command ID

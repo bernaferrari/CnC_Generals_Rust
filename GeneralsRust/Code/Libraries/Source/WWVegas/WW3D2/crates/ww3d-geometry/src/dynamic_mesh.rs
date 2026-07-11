@@ -309,8 +309,8 @@ impl Clone for DynamicMeshModel {
             current_vertex_count: self.current_vertex_count,
             material_desc: Rc::new(RefCell::new(self.material_desc.borrow().clone())),
             material_info: Rc::new(RefCell::new(self.material_info.borrow().clone())),
-            vertex_buffer: self.vertex_buffer.as_ref().map(|vb| vb.clone()),
-            index_buffer: self.index_buffer.as_ref().map(|ib| ib.clone()),
+            vertex_buffer: self.vertex_buffer.clone(),
+            index_buffer: self.index_buffer.clone(),
         }
     }
 }
@@ -491,6 +491,12 @@ impl MeshMaterialDesc {
 pub struct MaterialInfo {
     pub vertex_materials: Vec<Rc<VertexMaterial>>,
     pub textures: Vec<Rc<Texture>>,
+}
+
+impl Default for MaterialInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MaterialInfo {

@@ -60,25 +60,22 @@ impl AudioAffect {
     }
 
     pub fn has(&self, flag: AudioAffect) -> bool {
-        (self.clone() as u32) & (flag as u32) != 0
+        (*self as u32) & (flag as u32) != 0
     }
 }
 
 /// Priority of an audio event (matches C++ `AudioPriority`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum AudioPriority {
     Lowest = 0,
     Low = 1,
+    #[default]
     Normal = 2,
     High = 3,
     Critical = 4,
 }
 
-impl Default for AudioPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// Type of audio event (matches C++ `AudioType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1000,9 +997,7 @@ impl SubsystemInterface for AudioEngine {
 
         // Garbage-collect finished instances.
         let finished: Vec<AudioHandle> = self
-            .instances
-            .iter()
-            .filter_map(|(_, inst)| {
+            .instances.values().filter_map(|inst| {
                 // A very rough heuristic: if the instance has been playing
                 // longer than 10 minutes and is not looping, consider it done.
                 // In practice kira will report completion, but for now we

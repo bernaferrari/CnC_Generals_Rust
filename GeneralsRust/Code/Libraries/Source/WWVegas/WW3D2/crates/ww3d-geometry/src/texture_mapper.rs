@@ -188,7 +188,7 @@ impl TextureMapper for GridMapper {
         let mut frame_number = (time_seconds * self.fps) as u32;
 
         if self.looping {
-            frame_number = frame_number % self.frame_count;
+            frame_number %= self.frame_count;
         } else {
             frame_number = frame_number.min(self.frame_count - 1);
         }

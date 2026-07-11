@@ -585,9 +585,9 @@ impl RenderObj for HlodInstance {
             name: self.name.clone(),
             hierarchy_name: self.hierarchy_name.clone(),
             transform: self.transform,
-            lods: self.lods.iter().map(|lod| lod.clone()).collect(),
+            lods: self.lods.to_vec(),
             current_lod: self.current_lod,
-            aggregates: self.aggregates.iter().map(|agg| agg.clone()).collect(),
+            aggregates: self.aggregates.to_vec(),
             proxies: self.proxies.clone(),
         })
     }

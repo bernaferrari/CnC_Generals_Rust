@@ -947,7 +947,7 @@ impl TextureManager {
             if row_bytes > 0 {
                 for y in 0..(height as usize / 2) {
                     let top = y * row_bytes;
-                    let bottom = ((height as usize - 1 - y) * row_bytes) as usize;
+                    let bottom = (height as usize - 1 - y) * row_bytes;
                     for x in 0..row_bytes {
                         rgba.swap(top + x, bottom + x);
                     }
@@ -1319,7 +1319,7 @@ impl TextureManager {
     /// Determine terrain texture identifier at a world position.
     pub fn get_terrain_type_at(&self, _x: f32, _y: f32) -> TerrainResult<u32> {
         if let Some((&texture_id, _)) = self.textures.iter().next() {
-            Ok(texture_id as u32)
+            Ok(texture_id)
         } else {
             Ok(0)
         }

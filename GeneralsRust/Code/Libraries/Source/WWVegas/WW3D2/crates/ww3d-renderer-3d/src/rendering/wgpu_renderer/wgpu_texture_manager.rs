@@ -140,7 +140,7 @@ impl WgpuTextureManager {
         let memory_usage = Self::calculate_texture_memory_usage(
             width,
             height,
-            TextureUtils::bytes_per_pixel(format) as u32,
+            TextureUtils::bytes_per_pixel(format),
             1,
         );
 
@@ -180,7 +180,7 @@ impl WgpuTextureManager {
         let memory_usage = Self::calculate_texture_memory_usage(
             width,
             height,
-            TextureUtils::bytes_per_pixel(format) as u32,
+            TextureUtils::bytes_per_pixel(format),
             1,
         );
 
@@ -252,7 +252,7 @@ impl WgpuTextureManager {
             data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some((width * bytes_per_pixel as u32) as u32),
+                bytes_per_row: Some(width * bytes_per_pixel as u32),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {
@@ -298,7 +298,7 @@ impl WgpuTextureManager {
                 let memory_usage = Self::calculate_texture_memory_usage(
                     tracker.width,
                     tracker.height,
-                    TextureUtils::bytes_per_pixel(tracker.format) as u32,
+                    TextureUtils::bytes_per_pixel(tracker.format),
                     tracker.mip_levels,
                 );
                 self.total_memory_used = self.total_memory_used.saturating_sub(memory_usage);

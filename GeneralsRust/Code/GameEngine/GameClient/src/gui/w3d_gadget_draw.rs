@@ -1569,7 +1569,7 @@ fn should_draw_radar_check() -> bool {
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {
-                list.get_player(index as i32).cloned()
+                list.get_player(index).cloned()
             } else {
                 None
             }
@@ -1648,7 +1648,7 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         let texture = renderer.create_texture_from_rgba(
             game_engine::common::system::radar::RADAR_CELL_WIDTH,
             game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-            &terrain_texture,
+            terrain_texture,
         );
 
         let fill_color = [0.0, 0.0, 0.0, 1.0];
@@ -1958,7 +1958,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {
-                list.get_player(index as i32).cloned()
+                list.get_player(index).cloned()
             } else {
                 None
             }
@@ -2141,7 +2141,7 @@ pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {
-                list.get_player(index as i32).cloned()
+                list.get_player(index).cloned()
             } else {
                 None
             }
@@ -2549,12 +2549,12 @@ fn push_button_is_selected(state: WindowState) -> bool {
     state.contains(WindowState::SELECTED)
 }
 
-fn push_button_bank_data<'a>(
-    inst_data: &'a WindowInstanceData,
+fn push_button_bank_data(
+    inst_data: &WindowInstanceData,
     bank: PushButtonDrawBank,
 ) -> (
-    &'a [super::game_window::WindowDrawData],
-    &'a super::game_window::WindowTextColors,
+    &[super::game_window::WindowDrawData],
+    &super::game_window::WindowTextColors,
 ) {
     match bank {
         PushButtonDrawBank::Enabled => (&inst_data.enabled_draw_data, &inst_data.enabled_text),
@@ -2613,10 +2613,10 @@ fn current_push_button_draw_data<'a>(
     push_button_bank_data(inst_data, bank)
 }
 
-fn button_draw_entry_image<'a>(
-    draw_data: &'a [super::game_window::WindowDrawData],
+fn button_draw_entry_image(
+    draw_data: &[super::game_window::WindowDrawData],
     index: usize,
-) -> Option<&'a super::game_window::Image> {
+) -> Option<&super::game_window::Image> {
     draw_data.get(index).and_then(|entry| entry.image.as_ref())
 }
 
@@ -5688,8 +5688,8 @@ fn compute_tab_layout(
     tab_control: &TabControl,
 ) -> (i32, i32, i32, i32, i32, i32, usize) {
     let (win_width_u, win_height_u) = window.get_size();
-    let win_width = win_width_u as i32;
-    let win_height = win_height_u as i32;
+    let win_width = win_width_u;
+    let win_height = win_height_u;
     let tab_count = tab_control.tab_count().min(8);
     let tab_width = tab_control.tab_width_px();
     let tab_height = tab_control.tab_height_px();

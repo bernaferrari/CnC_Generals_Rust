@@ -4,12 +4,11 @@
 //! harmoniously and efficiently. It manages the initialization, update, and shutdown of all
 //! major game systems.
 
-use futures::future;
 use game_network::NetworkInstant;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 use ww3d_engine::FrameTiming;
 
 use crate::{IntegrationError, IntegrationResult};

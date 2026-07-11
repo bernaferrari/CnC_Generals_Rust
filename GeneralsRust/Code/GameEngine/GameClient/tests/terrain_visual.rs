@@ -121,16 +121,12 @@ fn tile_blend_alpha_selection_matches_cpp_nonzero_inverted_flag() {
         [Option<TileData>; game_client_rust::terrain::height_map::NUM_SOURCE_TILES],
     > = vec![None; game_client_rust::terrain::height_map::NUM_SOURCE_TILES]
         .into_boxed_slice()
-        .try_into()
-        .ok()
-        .expect("source tile array size");
+        .try_into().expect("source tile array size");
     let mut blend_tiles: Box<
         [BlendTileInfo; game_client_rust::terrain::height_map::NUM_BLEND_TILES],
     > = vec![BlendTileInfo::new(); game_client_rust::terrain::height_map::NUM_BLEND_TILES]
         .into_boxed_slice()
-        .try_into()
-        .ok()
-        .expect("blend tile array size");
+        .try_into().expect("blend tile array size");
     blend_tiles[1].blend_ndx = 4;
     blend_tiles[1].horiz = 1;
     blend_tiles[1].inverted = FLIPPED_MASK;

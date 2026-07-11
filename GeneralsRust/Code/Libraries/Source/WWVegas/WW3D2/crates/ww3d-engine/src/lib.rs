@@ -1727,7 +1727,7 @@ fn align_to(value: usize, alignment: usize) -> usize {
     if alignment == 0 {
         value
     } else {
-        ((value + alignment - 1) / alignment) * alignment
+        value.div_ceil(alignment) * alignment
     }
 }
 

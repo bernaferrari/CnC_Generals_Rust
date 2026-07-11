@@ -193,7 +193,7 @@ fn example_chat_message() {
         }),
     };
 
-    println!("Original message: {}", "Hello 世界! 🎮");
+    println!("Original message: Hello 世界! 🎮");
 
     // Serialize
     let bytes = serialize_command_cpp_compat(&chat_cmd);

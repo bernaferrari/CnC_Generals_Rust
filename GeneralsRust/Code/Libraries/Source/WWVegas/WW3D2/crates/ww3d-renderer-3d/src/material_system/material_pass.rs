@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn test_texture_stages() {
-        let mut pass = MaterialPassClass::new();
+        let pass = MaterialPassClass::new();
 
         // Initially no textures
         assert_eq!(pass.get_stage_count(), 0);

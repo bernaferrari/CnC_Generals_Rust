@@ -35,7 +35,7 @@ impl SpatialHashGrid {
                 for z in min_cell.2..=max_cell.2 {
                     self.grid
                         .entry((x, y, z))
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(object_id);
                 }
             }

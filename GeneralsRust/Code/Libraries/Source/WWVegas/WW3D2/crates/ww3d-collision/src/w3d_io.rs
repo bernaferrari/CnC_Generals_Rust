@@ -341,7 +341,7 @@ mod tests {
             CullNode {
                 min: Vec3::new(-1.0, -1.0, -1.0),
                 max: Vec3::new(1.0, 1.0, 1.0),
-                front_or_poly0: 0 | 0x8000_0000,
+                front_or_poly0: 0x8000_0000,
                 back_or_poly_count: 2,
             },
             CullNode::new(),

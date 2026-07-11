@@ -247,8 +247,8 @@ fn calculate_dxtc_surface_size(width: u32, height: u32, format: TextureFormat) -
         _ => return width * height * 4, // Fallback for uncompressed formats
     };
 
-    let blocks_x = (width + 3) / 4;
-    let blocks_y = (height + 3) / 4;
+    let blocks_x = width.div_ceil(4);
+    let blocks_y = height.div_ceil(4);
     blocks_x * blocks_y * block_size
 }
 
@@ -395,7 +395,7 @@ pub fn load_dds_from_memory(data: &[u8]) -> RendererResult<DdsData> {
         } else {
             header.pitch_or_linear_size as usize
         };
-        let row_bytes = (rgb_bit_count as usize + 7) / 8;
+        let row_bytes = (rgb_bit_count as usize).div_ceil(8);
         let raw_row_size = width as usize * row_bytes;
 
         if data_start_offset >= data.len() {

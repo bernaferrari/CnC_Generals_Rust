@@ -563,8 +563,8 @@ pub fn quit_menu_system(
                     layout.borrow_mut().bring_forward();
                 }
             } else if control_id == state.button_exit {
-                let yes: MessageBoxFunc = Box::new(|| exit_quit_menu());
-                let no: MessageBoxFunc = Box::new(|| no_exit_quit_menu());
+                let yes: MessageBoxFunc = Box::new(exit_quit_menu);
+                let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
                 state.quit_confirmation_window = quit_message_box_yes_no(
                     &GameText::fetch("GUI:QuitPopupTitle"),
                     &GameText::fetch("GUI:QuitPopupMessage"),
@@ -582,8 +582,8 @@ pub fn quit_menu_system(
                 }
             } else if control_id == state.button_restart {
                 if TheGameLogic::is_in_multiplayer_game() {
-                    let yes: MessageBoxFunc = Box::new(|| surrender_quit_menu());
-                    let no: MessageBoxFunc = Box::new(|| no_exit_quit_menu());
+                    let yes: MessageBoxFunc = Box::new(surrender_quit_menu);
+                    let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
                     state.quit_confirmation_window = message_box_yes_no(
                         &GameText::fetch("GUI:SurrenderConfirmationTitle"),
                         &GameText::fetch("GUI:SurrenderConfirmation"),
@@ -591,8 +591,8 @@ pub fn quit_menu_system(
                         Some(no),
                     );
                 } else {
-                    let yes: MessageBoxFunc = Box::new(|| restart_mission_menu());
-                    let no: MessageBoxFunc = Box::new(|| no_exit_quit_menu());
+                    let yes: MessageBoxFunc = Box::new(restart_mission_menu);
+                    let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
                     state.quit_confirmation_window = message_box_yes_no(
                         &GameText::fetch("GUI:RestartConfirmationTitle"),
                         &GameText::fetch("GUI:RestartConfirmation"),

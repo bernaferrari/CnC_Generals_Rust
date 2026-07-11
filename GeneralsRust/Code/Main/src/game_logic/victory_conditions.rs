@@ -115,6 +115,12 @@ pub struct VictoryConditions {
     winning_team: Option<Team>,
 }
 
+impl Default for VictoryConditions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VictoryConditions {
     pub fn new() -> Self {
         Self {
@@ -324,7 +330,7 @@ impl MapVictoryRules {
 
             if let Some(configured) = values
                 .get("victory")
-                .and_then(|value| parse_victory_string(value))
+                .and_then(parse_victory_string)
             {
                 rules = configured;
             }
@@ -372,7 +378,7 @@ fn parse_victory_string(value: &ConfigValue) -> Option<VictoryType> {
     match value {
         ConfigValue::String(text) => {
             let tokens = text
-                .split(|c| c == ',' || c == '|' || c == '+' || c == ';')
+                .split([',', '|', '+', ';'])
                 .map(|token| token.trim().to_lowercase())
                 .filter(|token| !token.is_empty());
 

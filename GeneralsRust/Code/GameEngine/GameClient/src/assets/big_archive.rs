@@ -406,11 +406,10 @@ impl BigArchive {
         let mut matches = Vec::new();
 
         for file_name in self.files.keys() {
-            if !self.files[file_name].is_directory {
-                if super::glob_match::glob_match(pattern, file_name) {
+            if !self.files[file_name].is_directory
+                && super::glob_match::glob_match(pattern, file_name) {
                     matches.push(PathBuf::from(file_name));
                 }
-            }
         }
 
         Ok(matches)

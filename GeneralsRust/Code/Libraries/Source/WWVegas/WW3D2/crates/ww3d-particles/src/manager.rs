@@ -190,11 +190,7 @@ impl super::ParticleSystem for ParticleSystemManager {
 
         // Remove completed emitters if they have auto-remove enabled
         self.emitters.retain(|emitter| {
-            if emitter.is_complete() && emitter.is_remove_on_complete_enabled() {
-                false
-            } else {
-                true
-            }
+            !(emitter.is_complete() && emitter.is_remove_on_complete_enabled())
         });
     }
 

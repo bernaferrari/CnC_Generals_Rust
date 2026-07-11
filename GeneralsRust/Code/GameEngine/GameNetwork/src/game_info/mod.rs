@@ -157,8 +157,10 @@ fn is_slot_local_ally(slot: &GameSlot) -> bool {
 /// Slot states (matches C++ SlotState enum)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum SlotState {
     Open = 0,
+    #[default]
     Closed = 1,
     EasyAI = 2,
     MedAI = 3,
@@ -166,17 +168,14 @@ pub enum SlotState {
     Player = 5,
 }
 
-impl Default for SlotState {
-    fn default() -> Self {
-        SlotState::Closed
-    }
-}
 
 /// Firewall/NAT behavior types (matches C++ FirewallHelperClass::FirewallBehaviorType)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum FirewallBehaviorType {
     Unknown = 0,
+    #[default]
     Simple = 1,
     DumbMangling = 2,
     SmartMangling = 4,
@@ -186,11 +185,6 @@ pub enum FirewallBehaviorType {
     DestinationPortDelta = 64,
 }
 
-impl Default for FirewallBehaviorType {
-    fn default() -> Self {
-        FirewallBehaviorType::Simple
-    }
-}
 
 /// Game slot - maintains information about the contents of a game slot
 /// Matches C++ GameSlot class exactly
@@ -759,8 +753,7 @@ impl GameInfo {
             return false;
         }
 
-        self.slots
-            .get(0)
+        self.slots.first()
             .map(|s| s.is_player_by_ip(self.local_ip))
             .unwrap_or(false)
     }

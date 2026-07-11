@@ -395,11 +395,10 @@ impl InputEventFilter {
                 | InputEvent::GamepadDisconnected { gamepad_id, .. }
                 | InputEvent::GamepadButtonPressed { gamepad_id, .. }
                 | InputEvent::GamepadButtonReleased { gamepad_id, .. }
-                | InputEvent::GamepadAxisChanged { gamepad_id, .. } => {
-                    if !gamepad_filter.contains(gamepad_id) {
+                | InputEvent::GamepadAxisChanged { gamepad_id, .. }
+                    if !gamepad_filter.contains(gamepad_id) => {
                         return false;
                     }
-                }
                 _ => {} // Non-gamepad events pass gamepad filter
             }
         }

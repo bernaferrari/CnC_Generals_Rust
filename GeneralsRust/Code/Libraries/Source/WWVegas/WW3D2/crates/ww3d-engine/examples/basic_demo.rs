@@ -32,7 +32,7 @@ impl Subsystem for GameSubsystem {
         self.frame_count = timing.frame_number;
 
         // Log status every second
-        if self.frame_count % 60 == 0 {
+        if self.frame_count.is_multiple_of(60) {
             println!(
                 "Game alive for {:.2}s, Frame: {}, FPS: {:.1}",
                 self.time_alive, self.frame_count, timing.fps

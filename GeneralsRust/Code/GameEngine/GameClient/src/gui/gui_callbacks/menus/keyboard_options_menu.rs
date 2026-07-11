@@ -118,6 +118,12 @@ pub struct KeyModifiers {
     pub alt: bool,
 }
 
+impl Default for KeyModifiers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyModifiers {
     pub fn new() -> Self {
         Self {
@@ -215,6 +221,12 @@ pub struct KeyboardOptionsState {
     category: MappableKeyCategory,
     waiting_for_key: Bool,
     pending_key: Option<MappableKeyType>,
+}
+
+impl Default for KeyboardOptionsState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeyboardOptionsState {

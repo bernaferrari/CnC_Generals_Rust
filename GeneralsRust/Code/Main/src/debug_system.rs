@@ -272,7 +272,7 @@ impl DebugSystem {
                     stats.total_log_size += formatted.len() as u64;
 
                     // Flush periodically
-                    if stats.log_entries_written % self.config.flush_frequency == 0 {
+                    if stats.log_entries_written.is_multiple_of(self.config.flush_frequency) {
                         writer_guard.flush()?;
                         stats.last_flush_time = SystemTime::now();
                     }

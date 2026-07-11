@@ -354,7 +354,7 @@ impl PhysicsWorld {
                         );
                         spatial_grid
                             .entry(key)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push((*id, body));
                     }
                 }
@@ -1861,7 +1861,8 @@ fn closest_segment_triangle_points(a: Vec3, b: Vec3, v0: Vec3, v1: Vec3, v2: Vec
     let mut best_triangle_point = closest_point_on_triangle(a, v0, v1, v2);
     let mut best_distance = best_segment_point.distance_squared(best_triangle_point);
 
-    for endpoint in [b] {
+    {
+        let endpoint = b;
         let triangle_point = closest_point_on_triangle(endpoint, v0, v1, v2);
         let distance = endpoint.distance_squared(triangle_point);
         if distance < best_distance {
@@ -3485,7 +3486,7 @@ mod tests {
         world.step();
 
         let event_types = events.lock().unwrap();
-        assert!(event_types.len() > 0);
+        assert!(!event_types.is_empty());
         assert!(event_types.contains(&CollisionEventType::Enter));
     }
 

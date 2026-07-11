@@ -178,6 +178,12 @@ pub struct DynamicScreenMesh {
     pub visible: bool,
 }
 
+impl Default for DynamicScreenMesh {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DynamicScreenMesh {
     pub fn new() -> Self {
         Self {

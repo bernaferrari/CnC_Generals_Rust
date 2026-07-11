@@ -1500,7 +1500,7 @@ impl GameLogic {
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
         #[cfg(feature = "game_client")]
         {
-            return self.terrain.as_ref().map(|t| t.height_at_world(world_pos));
+            self.terrain.as_ref().map(|t| t.height_at_world(world_pos))
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -1928,20 +1928,20 @@ impl GameLogic {
             if obj.is_kind_of(KindOf::Structure)
                 && obj.name.to_ascii_lowercase().contains("commandcenter")
             {
-                return Some(obj.get_position().clone());
+                return Some(obj.get_position());
             }
         }
         // Fallback to any structure.
         for obj in self.objects.values() {
             if obj.team == team && obj.is_kind_of(KindOf::Structure) {
-                return Some(obj.get_position().clone());
+                return Some(obj.get_position());
             }
         }
         // Finally, any object owned by the team.
         self.objects
             .values()
             .find(|o| o.team == team)
-            .map(|o| o.get_position().clone())
+            .map(|o| o.get_position())
     }
 
     /// Initialize the GameLogic singleton
@@ -2463,7 +2463,7 @@ impl GameLogic {
         for ((object_id, _), (_, x, y, z)) in spawned_object_ids
             .iter()
             .copied()
-            .zip(grounded_positions.into_iter())
+            .zip(grounded_positions)
         {
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.set_position(Vec3::new(x, y, z));
@@ -3139,7 +3139,7 @@ impl GameLogic {
         // Borrow-split: take manager out, update against &mut self, put back.
         {
             let sim_time = self.sim_time_seconds;
-            let mut ai_mgr = std::mem::replace(&mut self.ai_manager, AIManager::new());
+            let mut ai_mgr = std::mem::take(&mut self.ai_manager);
             ai_mgr.update(self, sim_time);
             self.ai_manager = ai_mgr;
         }
@@ -3711,7 +3711,7 @@ impl GameLogic {
             };
 
             // Check if should produce units (every 10 seconds).
-            if self.frame % 600 != 0 {
+            if !self.frame.is_multiple_of(600) {
                 continue;
             }
 
@@ -3925,7 +3925,7 @@ impl GameLogic {
         frame: u32,
         _dt: f32,
     ) -> Option<AICommand> {
-        let should_scan = |interval: u32| -> bool { interval > 0 && frame % interval == 0 };
+        let should_scan = |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
         let retreat_from = |threat_id: ObjectId| -> AICommand {
             let direction = self
                 .objects
@@ -6227,7 +6227,7 @@ impl GameLogic {
         // If not set, use a default based on the object type.
         let xp_val = Self::object_definition_attr(definition, "experiencevalue")
             .and_then(|s| s.split_whitespace().next()?.parse::<f32>().ok())
-            .unwrap_or_else(|| if is_structure { 100.0 } else { 50.0 });
+            .unwrap_or(if is_structure { 100.0 } else { 50.0 });
         template.experience_value = xp_val;
 
         // C++ parity: parse Armor from INI (default 0).
@@ -8592,7 +8592,7 @@ impl GameLogic {
                 } else {
                     self.script_event_pump_busy_frames =
                         self.script_event_pump_busy_frames.saturating_add(1);
-                    if self.script_event_pump_busy_frames % 90 == 0 {
+                    if self.script_event_pump_busy_frames.is_multiple_of(90) {
                         let pending_events = engine.pending_event_count();
                         log::warn!(
                             "Script event pump busy for {} frames (pending_events={})",
@@ -9633,7 +9633,7 @@ impl GameLogic {
 
         // Get build queues (from all constructing buildings)
         let mut build_queue = Vec::new();
-        for (_id, obj) in &self.objects {
+        for obj in self.objects.values() {
             if obj.status.under_construction {
                 // Estimate time remaining based on construction percent (assuming 30 second build time)
                 let estimated_total_time = 30.0;

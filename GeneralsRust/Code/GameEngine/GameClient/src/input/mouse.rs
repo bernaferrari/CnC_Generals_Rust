@@ -78,9 +78,11 @@ impl ButtonState {
 /// If you update this enum you must also update CURSOR_INI_NAMES.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[derive(Default)]
 pub enum MouseCursor {
     Invalid = -1,
     None = 0,
+    #[default]
     Normal = 1,
     Arrow = 2,
     Scroll = 3,
@@ -175,11 +177,6 @@ impl MouseCursor {
     }
 }
 
-impl Default for MouseCursor {
-    fn default() -> Self {
-        MouseCursor::Normal
-    }
-}
 
 /// Cursor tooltip animation state.
 /// Tracks still-time, animated fill progress, and display string for the tooltip.

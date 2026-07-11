@@ -703,7 +703,7 @@ impl MainMenu {
         let text_x = bx + (bw - approx_w) * 0.5;
         let text_y = by + (bh + font_size * 0.42) * 0.5;
         context.draw_text(
-            &format!("{}", button.text),
+            &button.text.to_string(),
             text_x + 1.0,
             text_y + 1.0,
             font_size,
@@ -802,7 +802,7 @@ mod tests {
         assert_eq!(menu.state, MainMenuState::Main);
 
         // Simulate clicking "New Game" button
-        if let Some(_) = menu.handle_button_click(ButtonId::NewGame) {
+        if menu.handle_button_click(ButtonId::NewGame).is_some() {
             // Button click should change state
         }
         assert_eq!(menu.state, MainMenuState::SinglePlayer);

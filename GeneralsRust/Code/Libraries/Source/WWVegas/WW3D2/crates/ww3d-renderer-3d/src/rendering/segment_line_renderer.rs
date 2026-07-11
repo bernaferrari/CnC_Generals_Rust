@@ -87,8 +87,10 @@ const PARALLEL_FACTOR: f32 = 0.9;
 /// Texture mapping modes for line rendering
 /// C++ Reference: seglinerenderer.h lines 74-78
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TextureMapMode {
     /// Entire line uses one row of texture (constant V coordinate)
+    #[default]
     UniformWidthTextureMap = 0x00000000,
     /// Entire line uses one row of texture stretched length-wise
     UniformLengthTextureMap = 0x00000001,
@@ -96,11 +98,6 @@ pub enum TextureMapMode {
     TiledTextureMap = 0x00000002,
 }
 
-impl Default for TextureMapMode {
-    fn default() -> Self {
-        Self::UniformWidthTextureMap
-    }
-}
 
 /// Flags for controlling segment line rendering behavior
 /// C++ Reference: seglinerenderer.h lines 164-176
@@ -777,9 +774,7 @@ impl SegLineRenderer {
         let mut base_tex_v = vec![0.0; point_cnt];
         let u_values = match map_mode {
             TextureMapMode::UniformWidthTextureMap => {
-                for v in &mut base_tex_v {
-                    *v = 0.0;
-                }
+                base_tex_v.fill(0.0);
                 [0.0, 1.0]
             }
             TextureMapMode::UniformLengthTextureMap => {
@@ -2076,7 +2071,7 @@ mod tests {
 
         // Render at t=500ms (0.5 seconds after reset)
         WW3D::sync(500);
-        let (vertices, _) = renderer.render(&transform, &view, &points, None);
+        let (_vertices, _) = renderer.render(&transform, &view, &points, None);
 
         // UV offset should have changed
         let uv_offset = renderer.get_current_uv_offset();

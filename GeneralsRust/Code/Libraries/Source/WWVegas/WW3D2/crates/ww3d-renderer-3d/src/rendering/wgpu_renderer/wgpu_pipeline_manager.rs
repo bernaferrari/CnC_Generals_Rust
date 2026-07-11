@@ -13,7 +13,7 @@ use ww3d_gpu::device::GpuDevice;
 pub const MAX_TEXTURE_STAGES: usize = 8;
 pub const TEXTURES_PER_GROUP: usize = 2;
 pub const MAX_TEXTURE_STAGE_GROUPS: usize =
-    (MAX_TEXTURE_STAGES + TEXTURES_PER_GROUP - 1) / TEXTURES_PER_GROUP;
+    MAX_TEXTURE_STAGES.div_ceil(TEXTURES_PER_GROUP);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VertexFormat {

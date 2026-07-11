@@ -16,12 +16,10 @@ use game_network::{
         DesyncHandler, DesyncStatus, DesyncStrategy, EntitySnapshot, GameState, GameStateCRC,
         MultiPlayerCRCValidator, ResourceState,
     },
-    DesyncManager, DesyncMetrics,
+    DesyncManager,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time::sleep;
 
 // ============================================================================
 // Test Game State Implementation
@@ -537,7 +535,7 @@ async fn test_network_packet_loss_simulation() {
     let mut desync_manager = DesyncManager::new(5);
 
     // Run frames 0-24 normally
-    for frame in 0..25 {
+    for _frame in 0..25 {
         player1_state.lock().unwrap().advance();
         player2_state.lock().unwrap().advance();
         player3_state.lock().unwrap().advance();
@@ -627,7 +625,7 @@ async fn test_multiple_desync_recovery() {
     let mut recovery_count = 0;
 
     // Desync points: frames 20, 45, 70
-    let desync_frames = vec![20, 45, 70];
+    let desync_frames = [20, 45, 70];
 
     for frame in 0..=100 {
         player1_state.lock().unwrap().advance();
@@ -641,7 +639,7 @@ async fn test_multiple_desync_recovery() {
                 &mut p2,
                 DesyncType::ExtraResources {
                     player_id: 0,
-                    amount: 100 * (recovery_count + 1) as i32,
+                    amount: 100 * ((recovery_count + 1)),
                 },
             );
         }
@@ -754,7 +752,7 @@ async fn test_multi_player_crc_validation() {
             // The validator will mark players that differ from the first CRC as desynced
             // Since 0x11111111 is the reference (first value), players 1 and 2 should be desynced
             assert!(
-                desynced_players.len() >= 1,
+                !desynced_players.is_empty(),
                 "At least one player should be desynced"
             );
             println!(

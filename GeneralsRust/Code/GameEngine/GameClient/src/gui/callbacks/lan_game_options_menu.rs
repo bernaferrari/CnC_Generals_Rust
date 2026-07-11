@@ -179,7 +179,7 @@ fn update_map_start_spots(state: &mut LanGameOptionsState, meta: Option<&MapMeta
     let Some(meta) = meta else {
         return;
     };
-    let max_players = meta.num_players.max(0) as i32;
+    let max_players = meta.num_players.max(0);
     let setup = get_lan_setup();
     let info = setup.game_info();
     for i in 0..MAX_SLOTS {
@@ -542,9 +542,7 @@ fn update_slot_selection(state: &mut LanGameOptionsState, index: usize) {
         state.combo_box_color_ids[index],
         state.combo_box_team_ids[index],
     ] {
-        with_window_manager(|manager| manager.get_window_by_id(id)).map(|window| {
-            let _ = window.borrow_mut().enable(enable);
-        });
+        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) { let _ = window.borrow_mut().enable(enable); }
     }
 
     if let Some(window) =
@@ -1120,7 +1118,6 @@ pub fn lan_game_options_menu_system(
             if handle_start_position_click(state, control_id) {
                 lan_update_slot_list(state);
                 handled = true;
-                return;
             }
         }
         WindowMessage::GadgetValueChanged => {
@@ -1128,7 +1125,6 @@ pub fn lan_game_options_menu_system(
             if handle_combo_selection(state, control_id) {
                 lan_update_slot_list(state);
                 handled = true;
-                return;
             }
         }
         WindowMessage::GadgetRightClick | WindowMessage::User(GLM_RIGHT_CLICKED) => {
@@ -1136,7 +1132,6 @@ pub fn lan_game_options_menu_system(
             if handle_start_position_right_click(state, control_id) {
                 lan_update_slot_list(state);
                 handled = true;
-                return;
             }
         }
         _ => {}

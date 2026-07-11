@@ -432,7 +432,7 @@ impl FrameGraphNode {
         let mut fallback: Vec<Arc<dyn RenderObjClass>> = Vec::new();
 
         if let Some((entries, sort_levels)) = StaticSortManager::snapshot_static_sort_list() {
-            for (entry, sort_level) in entries.into_iter().zip(sort_levels.into_iter()) {
+            for (entry, sort_level) in entries.into_iter().zip(sort_levels) {
                 if let Some(mesh_arc) = entry.mesh_arc() {
                     let traits = SubmissionMaterialTraits::analyse(mesh_arc.as_ref());
                     self.submit_mesh_with_traits(mesh_arc, traits, None, Some(sort_level));

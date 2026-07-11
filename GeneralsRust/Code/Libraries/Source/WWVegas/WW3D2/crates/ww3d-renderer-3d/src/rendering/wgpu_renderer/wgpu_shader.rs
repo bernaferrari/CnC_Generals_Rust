@@ -357,16 +357,12 @@ impl ShaderUtils {
                 }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: if let Some(frag_module) = shader.fragment_module() {
-                Some(wgpu::FragmentState {
+            fragment: shader.fragment_module().map(|frag_module| wgpu::FragmentState {
                     module: frag_module,
                     entry_point: Some("main"),
                     targets: &color_targets,
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
-                })
-            } else {
-                None
-            },
+                }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,

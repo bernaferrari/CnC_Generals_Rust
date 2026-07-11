@@ -685,7 +685,7 @@ impl CameraPath {
 }
 
 fn normalize_camera_angle(mut angle: f32) -> f32 {
-    if angle < -10.0 * PI || angle > 10.0 * PI {
+    if !(-10.0 * PI..=10.0 * PI).contains(&angle) {
         angle = 0.0;
     }
     while angle < -PI {
@@ -1270,7 +1270,7 @@ impl CinematicCameraSystem {
             shake_angles.y,
             shake_angles.z,
         );
-        state.rotation = state.rotation * shake_rotation;
+        state.rotation *= shake_rotation;
 
         // Update death camera (takes priority)
         if let Some((death_pos, death_zoom)) = self.death_camera.update() {

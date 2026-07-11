@@ -3,7 +3,6 @@
 //! Comprehensive integration tests for the complete GameEngineDevice system.
 
 use game_engine_device::*;
-use tokio;
 
 #[tokio::test]
 async fn test_device_system_initialization() {

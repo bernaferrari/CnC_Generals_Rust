@@ -203,7 +203,7 @@ mod dock_integration_tests {
 
     #[test]
     fn test_supply_warehouse_cash_value_calculation() {
-        let mut data = SupplyWarehouseDockUpdateData {
+        let data = SupplyWarehouseDockUpdateData {
             starting_boxes: 10,
             ..Default::default()
         };

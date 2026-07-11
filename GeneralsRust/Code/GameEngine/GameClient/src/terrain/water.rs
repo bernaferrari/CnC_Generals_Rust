@@ -959,8 +959,8 @@ impl WaterSegment {
         for i in 0..segments {
             let next_i = (i + 1) % segments;
             indices.push(0); // Center vertex
-            indices.push((i + 1) as u32);
-            indices.push((next_i + 1) as u32);
+            indices.push(i + 1);
+            indices.push(next_i + 1);
         }
 
         let (underwater_vertices, underwater_indices) =

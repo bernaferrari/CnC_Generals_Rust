@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod tests {
     use glam::{Mat3, Vec2, Vec3};
-    use std::f32::consts::PI;
+    
     use ww3d_geometry::{
         GridMapper, LinearOffsetMapper, NoOpMapper, RotateMapper, SineLinearOffsetMapper,
         TextureMapper, TextureMapperState, TextureMapperType,
@@ -132,7 +132,7 @@ mod tests {
 
         // At t=0.25, sine should be at peak (quarter period)
         let t_quarter = mapper.compute_transform(0.25);
-        let expected_amplitude = 0.1; // Peak of sine with amplitude 0.1
+        let _expected_amplitude = 0.1; // Peak of sine with amplitude 0.1
 
         assert!(t_quarter.z_axis.x.abs() > 0.08); // Close to amplitude
         assert!(t_quarter.z_axis.x.abs() < 0.12);
@@ -142,7 +142,7 @@ mod tests {
     fn test_sine_offset_with_linear() {
         let mapper = SineLinearOffsetMapper::new(0.1, 0.0, 0.05, 1.0);
 
-        let t0 = mapper.compute_transform(0.0);
+        let _t0 = mapper.compute_transform(0.0);
         let t1 = mapper.compute_transform(1.0);
 
         // Should have linear component: 0.1 * 1.0 = 0.1
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_fast_scroll_preset() {
         let mapper = LinearOffsetMapper::fast_scroll();
-        let t0 = mapper.compute_transform(0.0);
+        let _t0 = mapper.compute_transform(0.0);
         let t1 = mapper.compute_transform(1.0);
 
         // Fast scroll should have larger offset

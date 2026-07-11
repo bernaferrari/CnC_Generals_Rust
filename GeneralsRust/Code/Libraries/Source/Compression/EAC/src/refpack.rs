@@ -202,7 +202,7 @@ impl RefPackEncoder {
 
     /// Encode a match (length, distance) pair
     fn encode_match(&self, output: &mut Vec<u8>, length: usize, distance: usize) -> Result<()> {
-        if length < MIN_MATCH_LENGTH || length > MAX_MATCH_LENGTH {
+        if !(MIN_MATCH_LENGTH..=MAX_MATCH_LENGTH).contains(&length) {
             return Err(EacError::CompressionFailed(format!(
                 "Invalid match length: {}",
                 length

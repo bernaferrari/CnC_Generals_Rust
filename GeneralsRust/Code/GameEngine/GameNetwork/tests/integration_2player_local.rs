@@ -26,7 +26,6 @@ use game_network::integration::{
         CRCValue, EntitySnapshot, FrameNumber, GameState, GameStateCRC, PlayerId, ResourceState,
     },
 };
-use game_network::DesyncManager;
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
@@ -232,7 +231,7 @@ impl SimpleGameState {
 
     fn apply_attack_command(&mut self, command: &GameCommandData) -> NetworkResult<()> {
         if let (
-            Some(CommandParameter::ObjectId(attacker_id)),
+            Some(CommandParameter::ObjectId(_attacker_id)),
             Some(CommandParameter::ObjectId(target_id)),
         ) = (
             command.parameters.get("attacker_id"),

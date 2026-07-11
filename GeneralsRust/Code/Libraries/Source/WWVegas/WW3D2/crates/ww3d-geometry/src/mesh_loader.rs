@@ -42,6 +42,12 @@ pub trait MeshLoader {
 /// OBJ file loader
 pub struct ObjLoader;
 
+impl Default for ObjLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ObjLoader {
     pub fn new() -> Self {
         Self
@@ -127,12 +133,11 @@ impl ObjLoader {
                         }
                     }
                 }
-                "mtllib" => {
+                "mtllib"
                     // Handle material library (simplified)
-                    if parts.len() >= 2 {
+                    if parts.len() >= 2 => {
                         materials.push(MeshMaterial::new(parts[1]));
                     }
-                }
                 _ => {} // Ignore other directives
             }
         }
@@ -191,6 +196,12 @@ impl ObjLoader {
 
 /// STL file loader (binary and ASCII)
 pub struct StlLoader;
+
+impl Default for StlLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl StlLoader {
     pub fn new() -> Self {
@@ -287,7 +298,7 @@ impl StlLoader {
 
         // Create triangles
         for i in 0..triangle_count {
-            let base_index = (i * 3) as u32;
+            let base_index = i * 3;
             mesh.add_triangle(MeshTriangle::new(
                 base_index,
                 base_index + 1,
@@ -367,6 +378,12 @@ impl StlLoader {
 
 /// PLY file loader
 pub struct PlyLoader;
+
+impl Default for PlyLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl PlyLoader {
     pub fn new() -> Self {
@@ -471,6 +488,12 @@ impl PlyLoader {
 
 /// WW3D format loader
 pub struct W3dLoader;
+
+impl Default for W3dLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl W3dLoader {
     pub fn new() -> Self {
@@ -690,6 +713,12 @@ impl MeshLoader for W3dLoader {
 /// Universal mesh loader that automatically detects format
 pub struct UniversalMeshLoader {
     loaders: HashMap<MeshFormat, Box<dyn MeshLoader>>,
+}
+
+impl Default for UniversalMeshLoader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UniversalMeshLoader {

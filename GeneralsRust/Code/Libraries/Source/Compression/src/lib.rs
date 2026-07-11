@@ -581,7 +581,7 @@ impl StreamingCompressor {
             }
 
             let chunk = &buffer[..bytes_read];
-            let compressed = compress(chunk, self.compression_type.clone())?;
+            let compressed = compress(chunk, self.compression_type)?;
 
             // Write chunk size then compressed data
             writer.write_all(&(compressed.len() as u32).to_le_bytes())?;

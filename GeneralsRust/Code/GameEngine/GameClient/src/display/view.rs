@@ -1566,7 +1566,7 @@ impl View {
             let track_object = self
                 .rotate_camera_toward
                 .as_ref()
-                .map_or(false, |i| i.track_object);
+                .is_some_and(|i| i.track_object);
             let end_angle = self
                 .rotate_camera_toward
                 .as_ref()

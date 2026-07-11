@@ -39,7 +39,7 @@ impl SoundEffectsTable {
             }
 
             if let Some(rest) = line.strip_prefix("AudioEvent") {
-                if let Some(name) = rest.trim().split_whitespace().next() {
+                if let Some(name) = rest.split_whitespace().next() {
                     current_event = Some(name.to_string());
                     sounds.clear();
                 }

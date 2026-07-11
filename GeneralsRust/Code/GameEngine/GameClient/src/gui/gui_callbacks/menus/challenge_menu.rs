@@ -46,6 +46,12 @@ pub struct ChallengeMenuState {
     has_played_intro_audio: bool,
 }
 
+impl Default for ChallengeMenuState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChallengeMenuState {
     pub fn new() -> Self {
         Self {

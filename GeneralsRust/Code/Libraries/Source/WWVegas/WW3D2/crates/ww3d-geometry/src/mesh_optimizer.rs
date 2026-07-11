@@ -278,13 +278,7 @@ impl MeshOptimizer {
     /// Find the unshared vertex in a triangle given a shared edge
     /// Returns None if the triangle doesn't have exactly one unshared vertex (invalid mesh)
     fn find_unshared_vertex(triangle: &MeshTriangle, shared_edge: Edge) -> Option<u32> {
-        for &vertex in &triangle.indices {
-            if vertex as usize != shared_edge.v0 && vertex as usize != shared_edge.v1 {
-                return Some(vertex);
-            }
-        }
-        // Invalid mesh: triangle should have exactly one unshared vertex
-        None
+        triangle.indices.iter().find(|&&vertex| vertex as usize != shared_edge.v0 && vertex as usize != shared_edge.v1).copied()
     }
 
     /// Generate level-of-detail (LOD) meshes
@@ -598,6 +592,12 @@ pub struct Quadric {
     pub h: f32,
     pub i: f32,
     pub j: f32,
+}
+
+impl Default for Quadric {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Quadric {

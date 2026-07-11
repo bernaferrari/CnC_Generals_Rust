@@ -376,7 +376,7 @@ impl StaticText {
 
     /// Get the effective text color
     fn get_text_color(&self, theme: &GadgetTheme) -> Color {
-        self.text_color.unwrap_or_else(|| {
+        self.text_color.unwrap_or({
             if self.enabled {
                 theme.text_color
             } else {
@@ -1172,7 +1172,7 @@ impl TextEntry {
 
     /// Get the effective text color
     fn get_text_color(&self, theme: &GadgetTheme) -> Color {
-        self.text_color.unwrap_or_else(|| {
+        self.text_color.unwrap_or({
             if self.enabled {
                 theme.text_color
             } else {

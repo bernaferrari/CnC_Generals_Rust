@@ -585,14 +585,13 @@ impl Gadget for ComboBox {
             }
 
             InputEvent::MouseDown { x, y, button } => {
-                if *button == MouseButton::Left {
-                    if self.dropdown_open && !self.bounds.contains_point(*x, *y) {
+                if *button == MouseButton::Left
+                    && self.dropdown_open && !self.bounds.contains_point(*x, *y) {
                         let dropdown = self.dropdown_bounds_internal();
                         if !dropdown.contains_point(*x, *y) {
                             self.close();
                         }
                     }
-                }
             }
 
             InputEvent::MouseUp { x, y, button } => {
@@ -613,8 +612,8 @@ impl Gadget for ComboBox {
                 }
             }
 
-            InputEvent::KeyDown { key, .. } => {
-                if self.focused {
+            InputEvent::KeyDown { key, .. }
+                if self.focused => {
                     match key {
                         KeyCode::Enter | KeyCode::Space => {
                             self.toggle();
@@ -643,8 +642,8 @@ impl Gadget for ComboBox {
                                 }];
                             }
                         }
-                        KeyCode::Char(ch) => {
-                            if self.is_editable {
+                        KeyCode::Char(ch)
+                            if self.is_editable => {
                                 if self.max_chars > 0 && self.text.len() >= self.max_chars {
                                     return Vec::new();
                                 }
@@ -660,11 +659,9 @@ impl Gadget for ComboBox {
                                     value: GadgetValue::String(self.text.clone()),
                                 }];
                             }
-                        }
                         _ => {}
                     }
                 }
-            }
 
             _ => {}
         }

@@ -34,7 +34,9 @@ const MAX_SLOTS: i32 = 8;
 const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum ScoreScreenType {
+    #[default]
     SinglePlayer,
     Skirmish,
     Lan,
@@ -42,11 +44,6 @@ enum ScoreScreenType {
     Replay,
 }
 
-impl Default for ScoreScreenType {
-    fn default() -> Self {
-        Self::SinglePlayer
-    }
-}
 
 #[derive(Default)]
 struct ScoreGather {
@@ -717,9 +714,9 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                 if player.get_player_index() == local_player.get_player_index() {
                     continue;
                 }
-                if player.get_base_side().eq_ignore_ascii_case(side) {
-                    if TheGameLogic::get_game_mode() != GAME_SINGLE_PLAYER
-                        || player.get_list_in_score_screen()
+                if player.get_base_side().eq_ignore_ascii_case(side)
+                    && (TheGameLogic::get_game_mode() != GAME_SINGLE_PLAYER
+                        || player.get_list_in_score_screen())
                     {
                         let relationship = player
                             .get_default_team()
@@ -751,7 +748,6 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                             populate = true;
                         }
                     }
-                }
             }
         }
 
@@ -777,7 +773,7 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
 }
 
 fn hide_windows(state: &mut ScoreScreenState, pos: i32) {
-    if pos < 0 || pos >= MAX_SLOTS {
+    if !(0..MAX_SLOTS).contains(&pos) {
         return;
     }
 
@@ -806,7 +802,7 @@ fn hide_windows(state: &mut ScoreScreenState, pos: i32) {
 }
 
 fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i32) {
-    if index < 0 || index >= MAX_SLOTS {
+    if !(0..MAX_SLOTS).contains(&index) {
         return;
     }
 
@@ -843,7 +839,7 @@ fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i3
 }
 
 fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32) {
-    if pos < 0 || pos >= MAX_SLOTS {
+    if !(0..MAX_SLOTS).contains(&pos) {
         return;
     }
 
@@ -941,7 +937,7 @@ fn populate_side_info(
     pos: i32,
     color: u32,
 ) {
-    if pos < 0 || pos >= MAX_SLOTS {
+    if !(0..MAX_SLOTS).contains(&pos) {
         return;
     }
 

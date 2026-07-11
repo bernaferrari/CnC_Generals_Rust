@@ -243,7 +243,7 @@ impl ControlBarCallbacks {
         match msg {
             WindowMessage::Create => {
                 self.button_communicator =
-                    NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator") as u32;
+                    NameKeyGenerator::name_to_key("ControlBar.wnd:PopupCommunicator");
                 WindowMsgHandled::Handled
             }
             WindowMessage::GadgetMouseEntering | WindowMessage::GadgetMouseLeaving => {
@@ -271,18 +271,18 @@ impl ControlBarCallbacks {
 
     fn handle_button_selected(&mut self, control_id: u32, right_click: bool) {
         let beacon_place_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlaceBeacon");
         let beacon_delete_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonDeleteBeacon");
         let beacon_clear_text_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonClearBeaconText") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonClearBeaconText");
         let beacon_general_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral") as u32;
-        let button_large_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonGeneral");
+        let button_large_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge");
         let button_options_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonOptions");
         let button_idle_worker_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker") as u32;
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker");
 
         if control_id == self.button_communicator {
             let _ = toggle_diplomacy(false);
@@ -366,7 +366,7 @@ impl ControlBarCallbacks {
     }
 
     fn handle_edit_done(&mut self, control_id: u32) {
-        let text_id = NameKeyGenerator::name_to_key("ControlBar.wnd:EditBeaconText") as u32;
+        let text_id = NameKeyGenerator::name_to_key("ControlBar.wnd:EditBeaconText");
         if control_id != text_id {
             return;
         }
@@ -499,6 +499,12 @@ pub fn beacon_window_input(
 
 /// Left HUD input handler
 pub struct LeftHUDCallbacks {}
+
+impl Default for LeftHUDCallbacks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl LeftHUDCallbacks {
     pub fn new() -> Self {

@@ -63,7 +63,7 @@ const BOX_FACES: [[u16; 3]; NUM_BOX_FACES] = [
 /// C++ Reference: boxrobj.cpp lines 143-155
 /// WWMATH_OOSQRT3 = 1/sqrt(3) ≈ 0.57735026919
 #[allow(dead_code)] // C++ parity
-const OOSQRT3: f32 = 0.57735026919;
+const OOSQRT3: f32 = 0.577_350_26;
 #[allow(dead_code)] // C++ parity
 const BOX_VERTEX_NORMALS: [Vec3; NUM_BOX_VERTS] = [
     Vec3::new(OOSQRT3, OOSQRT3, OOSQRT3),
@@ -500,7 +500,7 @@ impl OBBoxRenderObjClass {
     /// Create from an OBBox
     pub fn from_obbox(obbox: &OBBoxClass) -> Self {
         let mut obj = Self::new();
-        obj.cached_box = obbox.clone();
+        obj.cached_box = *obbox;
         obj.cache_valid = true;
         obj
     }

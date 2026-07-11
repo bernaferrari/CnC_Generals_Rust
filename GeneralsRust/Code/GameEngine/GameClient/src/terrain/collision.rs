@@ -474,7 +474,7 @@ impl CollisionTriangle {
         let s = ray.origin - self.vertices[0];
         let u = f * s.dot(h);
 
-        if u < 0.0 || u > 1.0 {
+        if !(0.0..=1.0).contains(&u) {
             return None;
         }
 
@@ -709,18 +709,14 @@ impl TerrainCollision {
     pub fn get_height_at_position(&mut self, position: Point2<f32>) -> f32 {
         self.stats.height_queries += 1;
 
-        if let Some(height) = self.grid.query_height(position) {
-            height
-        } else {
-            0.0 // Default ground level
-        }
+        self.grid.query_height(position).unwrap_or(0.0)
     }
 
     /// Get terrain material at world position
     pub fn get_material_at_position(&self, position: Point2<f32>) -> TerrainMaterial {
         self.grid
             .query_material(position)
-            .unwrap_or_else(TerrainMaterial::default)
+            .unwrap_or_default()
     }
 
     /// Get surface properties at world position

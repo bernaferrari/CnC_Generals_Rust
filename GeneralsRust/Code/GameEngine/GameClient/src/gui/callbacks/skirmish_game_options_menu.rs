@@ -214,7 +214,7 @@ fn update_map_start_spots(state: &mut SkirmishGameOptionsState, meta: Option<&Ma
     let Some(meta) = meta else {
         return;
     };
-    let max_players = meta.num_players.max(0) as i32;
+    let max_players = meta.num_players.max(0);
     let setup = get_skirmish_setup();
     let info = setup.game_info().game_info();
     for i in 0..MAX_SLOTS {
@@ -485,9 +485,7 @@ fn update_slot_selection(state: &mut SkirmishGameOptionsState, index: usize) {
         state.combo_box_template_ids[index],
         state.combo_box_team_ids[index],
     ] {
-        with_window_manager(|manager| manager.get_window_by_id(id)).map(|window| {
-            let _ = window.borrow_mut().enable(enable);
-        });
+        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) { let _ = window.borrow_mut().enable(enable); }
     }
 }
 
@@ -1546,7 +1544,6 @@ pub fn skirmish_game_options_menu_system(
             if handle_start_position_click(state, control_id) {
                 skirmish_update_slot_list(state);
                 handled = true;
-                return;
             }
         }
         WindowMessage::GadgetValueChanged => {
@@ -1566,7 +1563,6 @@ pub fn skirmish_game_options_menu_system(
                     }
                 }
                 handled = true;
-                return;
             }
         }
         WindowMessage::GadgetEditDone => {
@@ -1581,7 +1577,6 @@ pub fn skirmish_game_options_menu_system(
                     }
                 }
                 handled = true;
-                return;
             }
         }
         WindowMessage::GadgetRightClick | WindowMessage::User(GLM_RIGHT_CLICKED) => {
@@ -1589,7 +1584,6 @@ pub fn skirmish_game_options_menu_system(
             if handle_start_position_right_click(state, control_id) {
                 skirmish_update_slot_list(state);
                 handled = true;
-                return;
             }
         }
         _ => {}

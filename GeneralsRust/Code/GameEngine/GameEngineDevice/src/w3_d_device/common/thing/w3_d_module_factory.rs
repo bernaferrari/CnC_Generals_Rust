@@ -42,6 +42,7 @@ pub struct W3DModuleFactory {
 
 impl W3DModuleFactory {
     /// Creates a W3D module factory with a fresh base `ModuleFactory`.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             base: ModuleFactory::new(),
@@ -69,6 +70,7 @@ impl W3DModuleFactory {
     }
 
     /// Returns the underlying shared module factory.
+    #[must_use]
     pub fn base(&self) -> &ModuleFactory {
         &self.base
     }
@@ -79,6 +81,7 @@ impl W3DModuleFactory {
     }
 
     /// Returns the W3D draw module names registered by the last `init()` call.
+    #[must_use]
     pub fn registered_w3d_draw_modules(&self) -> &[&'static str] {
         &self.registered_w3d_draw_modules
     }
@@ -91,6 +94,7 @@ impl Default for W3DModuleFactory {
 }
 
 /// Returns the C++ `W3DModuleFactory::init()` draw-module registration order.
+#[must_use]
 pub fn w3d_draw_modules_in_cpp_registration_order() -> &'static [&'static str] {
     &W3D_DRAW_MODULES
 }

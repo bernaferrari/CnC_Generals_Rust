@@ -54,6 +54,12 @@ pub struct MapCache {
     allowed_maps: HashSet<String>,
 }
 
+impl Default for MapCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MapCache {
     pub fn new() -> Self {
         init_global_map_cache();
@@ -173,11 +179,10 @@ impl MapCache {
             }
 
             let map_base = map_base_name(&map_path);
-            if build_map_cache && !self.allowed_maps.is_empty() {
-                if !self.allowed_maps.contains(&map_base) {
+            if build_map_cache && !self.allowed_maps.is_empty()
+                && !self.allowed_maps.contains(&map_base) {
                     continue;
                 }
-            }
 
             let file_info = {
                 let file_system_ref = get_file_system();
@@ -424,7 +429,7 @@ impl LadderMapProvider for MapCacheLadderProvider {
         cache_guard.update_cache();
         cache_guard.find_map(map_path).map(|meta| LadderMapMeta {
             display_name: meta.display_name.as_str().to_string(),
-            num_players: meta.num_players as i32,
+            num_players: meta.num_players,
         })
     }
 }
@@ -526,7 +531,7 @@ pub fn populate_map_listbox_no_reset(
             }
         }
         let column_widths = listbox.column_widths();
-        if let Some(first_width) = column_widths.get(0) {
+        if let Some(first_width) = column_widths.first() {
             image_width = image_width.min(*first_width);
             image_height = image_width;
         }
@@ -547,7 +552,7 @@ pub fn populate_map_listbox_no_reset(
                 let num_easy = honors.get_endurance_medal(&entry.2, EASY_AI);
                 let num_med = honors.get_endurance_medal(&entry.2, MED_AI);
                 let num_brutal = honors.get_endurance_medal(&entry.2, BRUTAL_AI);
-                let max_brutal_slots = entries[index].0.saturating_sub(1) as i32;
+                let max_brutal_slots = entries[index].0.saturating_sub(1);
                 if num_brutal > 0 {
                     if num_brutal == max_brutal_slots {
                         (max_brutal_image.clone(), 4)
@@ -858,7 +863,7 @@ fn compute_display_name(metadata: &MapMetaData, map_path: &str) -> UnicodeString
 }
 
 fn path_basename(path: &str) -> String {
-    path.rsplit(|c| c == '/' || c == '\\')
+    path.rsplit(['/', '\\'])
         .next()
         .unwrap_or(path)
         .to_string()

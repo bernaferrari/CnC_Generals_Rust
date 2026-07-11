@@ -777,10 +777,10 @@ impl GraphicsSystem {
         Arc::clone(&self.device)
     }
 
-    pub(crate) fn stage_texture_name<'a>(
-        material: &'a crate::assets::W3DMaterial,
+    pub(crate) fn stage_texture_name(
+        material: &crate::assets::W3DMaterial,
         stage: usize,
-    ) -> Option<&'a String> {
+    ) -> Option<&String> {
         match stage {
             0 => material
                 .stage0_mapping

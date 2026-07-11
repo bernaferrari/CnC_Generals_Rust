@@ -126,6 +126,12 @@ pub struct MultiFieldParse {
     extra_offsets: Vec<usize>,
 }
 
+impl Default for MultiFieldParse {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MultiFieldParse {
     pub const MAX_MULTI_FIELDS: usize = 16;
 
@@ -458,7 +464,7 @@ pub mod field_parsers {
     /// Parse integer field
     pub fn parse_int(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let _int_value: Int = value.parse().map_err(|_| IniError::ParseError {
@@ -473,7 +479,7 @@ pub mod field_parsers {
     /// Parse real field
     pub fn parse_real(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let _real_value: Real = value.parse().map_err(|_| IniError::ParseError {
@@ -486,7 +492,7 @@ pub mod field_parsers {
     /// Parse boolean field
     pub fn parse_bool(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let _bool_value = match value.to_lowercase().as_str() {
@@ -505,7 +511,7 @@ pub mod field_parsers {
     /// Parse string field
     pub fn parse_ascii_string(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let _string_value = AsciiString::from_str(value)?;
@@ -515,7 +521,7 @@ pub mod field_parsers {
     /// Parse coordinate 2D field
     pub fn parse_coord2d(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let parts: Vec<&str> = value.split(',').collect();
@@ -542,7 +548,7 @@ pub mod field_parsers {
     /// Parse coordinate 3D field
     pub fn parse_coord3d(
         _parser: &mut IniParser,
-        instance: &mut dyn std::any::Any,
+        _instance: &mut dyn std::any::Any,
         value: &str,
     ) -> IniResult<()> {
         let parts: Vec<&str> = value.split(',').collect();

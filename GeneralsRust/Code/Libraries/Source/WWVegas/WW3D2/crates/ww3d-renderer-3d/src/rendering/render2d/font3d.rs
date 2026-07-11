@@ -97,7 +97,7 @@ impl Font3DData {
             .char_table
             .get(&(ch as u8))
             .cloned()
-            .unwrap_or_else(|| self.char_table[&(b'?' as u8)].clone());
+            .unwrap_or_else(|| self.char_table[&{ b'?' }].clone());
         Rect::new(
             data.u_offset,
             data.v_offset,

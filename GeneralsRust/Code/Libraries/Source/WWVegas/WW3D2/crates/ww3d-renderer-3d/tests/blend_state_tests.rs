@@ -201,7 +201,7 @@ fn test_blend_state_bit_packing() {
     shader.set_src_blend_func(SrcBlendFuncType::SrcAlpha);
     shader.set_dst_blend_func(DstBlendFuncType::InvSrcAlpha);
 
-    let bits = shader.get_bits();
+    let _bits = shader.get_bits();
     let restored = ShaderClass::from_w3d_shader(&ww3d_core::W3dShaderStruct {
         depth_compare: DepthCompareType::Lequal as u8,
         depth_mask: DepthMaskType::Enable as u8,

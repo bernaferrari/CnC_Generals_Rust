@@ -57,6 +57,12 @@ pub struct W3DHierarchy {
     pub pivot_name_to_index: HashMap<String, usize>,
 }
 
+impl Default for W3DHierarchy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl W3DHierarchy {
     pub fn new() -> Self {
         Self {

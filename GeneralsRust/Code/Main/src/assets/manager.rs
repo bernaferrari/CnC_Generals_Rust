@@ -610,7 +610,7 @@ impl AssetManager {
         let ext_is_big = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map_or(false, |ext| ext.eq_ignore_ascii_case("big"));
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("big"));
 
         if !ext_is_big {
             warn!(

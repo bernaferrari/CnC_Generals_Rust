@@ -281,7 +281,7 @@ fn demo_global_registry() {
     let _unit = unit_pool.alloc(Unit::new(1, "Tank")).unwrap();
 
     // Retrieve from registry
-    let retrieved_pool = POOL_REGISTRY.get::<Unit>("Units").unwrap();
+    let _retrieved_pool = POOL_REGISTRY.get::<Unit>("Units").unwrap();
     println!("  Retrieved pool from registry ✓");
 
     // Get global stats

@@ -2721,15 +2721,14 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        if msg != WindowMessage::Destroy {
-            if self.status.contains(WindowStatus::DESTROYED)
+        if msg != WindowMessage::Destroy
+            && (self.status.contains(WindowStatus::DESTROYED)
                 || self.is_hidden()
                 || !self.is_enabled()
-                || self.status.contains(WindowStatus::NO_INPUT)
+                || self.status.contains(WindowStatus::NO_INPUT))
             {
                 return WindowMsgHandled::Ignored;
             }
-        }
         self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
@@ -2778,13 +2777,12 @@ impl GameWindow {
                     self.press_was_down = true;
                 }
             }
-            WindowMessage::LeftUp => {
-                if self.press_was_down {
+            WindowMessage::LeftUp
+                if self.press_was_down => {
                     self.press_scale_target = 1.0;
                     self.press_scale_velocity = self.release_impulse;
                     self.press_was_down = false;
                 }
-            }
             _ => {}
         }
     }
@@ -3486,7 +3484,7 @@ impl GameWindow {
                     }
                     GLM_DEL_ENTRY => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                            let _ = listbox.remove_item(data1 as usize);
+                            let _ = listbox.remove_item(data1);
                         }
                         self.update_listbox_scrollbar();
                         return WindowMsgHandled::Handled;
@@ -3586,7 +3584,7 @@ impl GameWindow {
                     }
                     GLM_SCROLL_BUFFER => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                            let _ = listbox.scroll_buffer(data1 as usize);
+                            let _ = listbox.scroll_buffer(data1);
                         }
                         self.update_listbox_scrollbar();
                         return WindowMsgHandled::Handled;
@@ -3973,7 +3971,7 @@ impl GameWindow {
         };
         let height = Self::combo_box_dropdown_height(count, max_display, font_height);
         let (width, _) = list_box.borrow().get_size();
-        let _ = list_box.borrow_mut().set_size(width as i32, height);
+        let _ = list_box.borrow_mut().set_size(width, height);
         if let Some(links) = list_box.borrow().listbox_links() {
             if let Some(up) = list_box.borrow().find_child_by_id(links.up_button) {
                 let _ = up.borrow_mut().hide(!show_scrollbar);

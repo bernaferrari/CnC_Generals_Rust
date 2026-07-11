@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn test_linear_offset_mapper() {
         let mapper = LinearOffsetMapper;
-        let mut context = TextureMappingContext {
+        let context = TextureMappingContext {
             uv: Vec2::new(0.0, 0.0),
             time: 1.0,
             ..Default::default()

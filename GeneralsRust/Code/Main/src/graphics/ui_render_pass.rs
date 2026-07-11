@@ -51,7 +51,7 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
         });
     game_client::gui::ui_globals::set_active_ui_renderer(None);
 
-    let should_log = call < 10 || call % 300 == 0;
+    let should_log = call < 10 || call.is_multiple_of(300);
     if should_log {
         info!(
             "flush_ui_to_frame #{}: root_windows={}, draw_commands={}, screen={}x{}",

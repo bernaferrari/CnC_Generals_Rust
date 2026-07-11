@@ -16,16 +16,19 @@ pub struct PlaneClass {
 
 impl PlaneClass {
     /// Create a plane from a normal and distance.
+    #[must_use]
     pub const fn new(n: Vector3, d: f32) -> Self {
         Self { n, d }
     }
 
     /// Matches C++ `PlaneClass::In_Front`.
+    #[must_use]
     pub fn in_front(&self, point: Vector3) -> bool {
         dot(point, self.n) > self.d
     }
 
     /// Matches C++ `PlaneClass::Compute_Intersection`.
+    #[must_use]
     pub fn compute_intersection(&self, p0: Vector3, p1: Vector3) -> Option<f32> {
         let den = dot(self.n, sub(p1, p0));
         if den == 0.0 {
@@ -50,6 +53,7 @@ pub struct ClipPolyClass {
 
 impl ClipPolyClass {
     /// Create an empty clipping polygon.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

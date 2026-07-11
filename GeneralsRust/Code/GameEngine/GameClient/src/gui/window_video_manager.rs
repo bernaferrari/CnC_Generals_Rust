@@ -44,6 +44,12 @@ pub struct WindowVideo {
     state: WindowVideoState,
 }
 
+impl Default for WindowVideo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowVideo {
     pub fn new() -> Self {
         Self {
@@ -126,6 +132,12 @@ pub struct WindowVideoManager {
     playing_videos: HashMap<usize, WindowVideo>,
     stop_all_movies: bool,
     pause_all_movies: bool,
+}
+
+impl Default for WindowVideoManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WindowVideoManager {

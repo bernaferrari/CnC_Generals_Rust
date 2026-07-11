@@ -211,8 +211,10 @@ pub struct AnimationPlayback {
 
 /// Animation playback modes matching W3D specification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum PlaybackMode {
     /// Loop: Restart from frame 0 when finished
+    #[default]
     Loop,
     /// Once: Play to end and stop
     Once,
@@ -220,11 +222,6 @@ pub enum PlaybackMode {
     PingPong,
 }
 
-impl Default for PlaybackMode {
-    fn default() -> Self {
-        PlaybackMode::Loop
-    }
-}
 
 impl AnimationPlayback {
     /// Create a new animation playback controller

@@ -86,10 +86,12 @@ pub type Result<T> = std::result::Result<T, LzhError>;
 /// Compression levels for LZH algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum CompressionLevel {
     /// Fastest compression, lower ratio
     Fast = 1,
     /// Balanced speed/ratio
+    #[default]
     Default = 5,
     /// Best compression ratio, slower
     High = 9,
@@ -139,11 +141,6 @@ impl CompressionLevel {
     }
 }
 
-impl Default for CompressionLevel {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl TryFrom<u8> for CompressionLevel {
     type Error = LzhError;
