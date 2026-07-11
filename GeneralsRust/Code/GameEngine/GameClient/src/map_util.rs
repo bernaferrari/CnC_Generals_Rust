@@ -179,10 +179,12 @@ impl MapCache {
             }
 
             let map_base = map_base_name(&map_path);
-            if build_map_cache && !self.allowed_maps.is_empty()
-                && !self.allowed_maps.contains(&map_base) {
-                    continue;
-                }
+            if build_map_cache
+                && !self.allowed_maps.is_empty()
+                && !self.allowed_maps.contains(&map_base)
+            {
+                continue;
+            }
 
             let file_info = {
                 let file_system_ref = get_file_system();
@@ -863,10 +865,7 @@ fn compute_display_name(metadata: &MapMetaData, map_path: &str) -> UnicodeString
 }
 
 fn path_basename(path: &str) -> String {
-    path.rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(path)
-        .to_string()
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
 fn map_string_file_for_map(map_path: &str) -> Option<String> {

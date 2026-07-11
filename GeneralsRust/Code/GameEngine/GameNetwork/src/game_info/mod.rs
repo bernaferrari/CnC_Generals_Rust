@@ -168,7 +168,6 @@ pub enum SlotState {
     Player = 5,
 }
 
-
 /// Firewall/NAT behavior types (matches C++ FirewallHelperClass::FirewallBehaviorType)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -184,7 +183,6 @@ pub enum FirewallBehaviorType {
     RelativePortAllocation = 32,
     DestinationPortDelta = 64,
 }
-
 
 /// Game slot - maintains information about the contents of a game slot
 /// Matches C++ GameSlot class exactly
@@ -753,7 +751,8 @@ impl GameInfo {
             return false;
         }
 
-        self.slots.first()
+        self.slots
+            .first()
             .map(|s| s.is_player_by_ip(self.local_ip))
             .unwrap_or(false)
     }

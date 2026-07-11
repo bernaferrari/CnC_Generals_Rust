@@ -651,10 +651,12 @@ async fn test_four_player_100_frame_sync() {
     let mut crc_validator = MultiPlayerCRCValidator::new(vec![0u8, 1u8, 2u8, 3u8]);
 
     // Create command generators with different seeds for variety
-    let mut cmd_generators = [CommandGenerator::new(0, 42),
+    let mut cmd_generators = [
+        CommandGenerator::new(0, 42),
         CommandGenerator::new(1, 43),
         CommandGenerator::new(2, 44),
-        CommandGenerator::new(3, 45)];
+        CommandGenerator::new(3, 45),
+    ];
 
     // Metrics
     let mut metrics = TestMetrics::new();
@@ -828,10 +830,12 @@ async fn test_four_player_teams() {
     // Team A: Players 0 and 1
     // Team B: Players 2 and 3
 
-    let mut cmd_generators = [CommandGenerator::new(0, 100),
+    let mut cmd_generators = [
+        CommandGenerator::new(0, 100),
         CommandGenerator::new(1, 101),
         CommandGenerator::new(2, 102),
-        CommandGenerator::new(3, 103)];
+        CommandGenerator::new(3, 103),
+    ];
 
     let mut metrics = TestMetrics::new();
 
@@ -952,10 +956,12 @@ async fn test_four_player_free_for_all() {
         SimpleGameState::new(4),
     ];
 
-    let mut cmd_generators = [CommandGenerator::new(0, 200),
+    let mut cmd_generators = [
+        CommandGenerator::new(0, 200),
         CommandGenerator::new(1, 201),
         CommandGenerator::new(2, 202),
-        CommandGenerator::new(3, 203)];
+        CommandGenerator::new(3, 203),
+    ];
 
     let mut metrics = TestMetrics::new();
 
@@ -1081,10 +1087,12 @@ async fn test_four_player_asymmetric_commands() {
         SimpleGameState::new(4),
     ];
 
-    let mut cmd_generators = [CommandGenerator::new(0, 300),
+    let mut cmd_generators = [
+        CommandGenerator::new(0, 300),
         CommandGenerator::new(1, 301),
         CommandGenerator::new(2, 302),
-        CommandGenerator::new(3, 303)];
+        CommandGenerator::new(3, 303),
+    ];
 
     let mut metrics = TestMetrics::new();
 
@@ -1238,10 +1246,7 @@ async fn test_four_player_high_frequency() {
                 position: None,
                 parameters: {
                     let mut params = HashMap::new();
-                    params.insert(
-                        "player_id".to_string(),
-                        CommandParameter::Int(player_id),
-                    );
+                    params.insert("player_id".to_string(), CommandParameter::Int(player_id));
                     params
                 },
                 checksum: 0,
@@ -1322,10 +1327,12 @@ async fn test_four_player_high_frequency() {
 async fn test_four_player_crc_validation() {
     println!("\n### Testing 4-Player CRC Validation ###\n");
 
-    let players = [SimpleGameState::new(4),
+    let players = [
         SimpleGameState::new(4),
         SimpleGameState::new(4),
-        SimpleGameState::new(4)];
+        SimpleGameState::new(4),
+        SimpleGameState::new(4),
+    ];
 
     // All should have identical CRCs
     let crcs: Vec<_> = players.iter().map(|p| p.compute_crc32()).collect();
@@ -1392,10 +1399,7 @@ async fn test_four_player_resource_distribution() {
                     position: None,
                     parameters: {
                         let mut params = HashMap::new();
-                        params.insert(
-                            "player_id".to_string(),
-                            CommandParameter::Int(player_id),
-                        );
+                        params.insert("player_id".to_string(), CommandParameter::Int(player_id));
                         params
                     },
                     checksum: 0,

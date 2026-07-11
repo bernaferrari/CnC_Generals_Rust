@@ -393,7 +393,6 @@ pub struct W3dAnimationStruct {
     pub frame_rate: u32,
 }
 
-
 // Animation channel structure
 #[derive(Debug, Clone, BinRead, BinWrite)]
 #[brw(little)]

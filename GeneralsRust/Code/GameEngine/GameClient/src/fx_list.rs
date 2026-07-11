@@ -487,14 +487,13 @@ fn parse_ray_effect_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()>
                     );
                 }
             }
-            "SECONDARYOFFSET"
-                if values.len() >= 3 => {
-                    nugget.secondary_offset = Vec3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
-                }
+            "SECONDARYOFFSET" if values.len() >= 3 => {
+                nugget.secondary_offset = Vec3::new(
+                    INI::parse_real(&values[0])?,
+                    INI::parse_real(&values[1])?,
+                    INI::parse_real(&values[2])?,
+                );
+            }
             _ => {}
         }
     }
@@ -866,8 +865,7 @@ impl FXNugget for LightPulseFXNugget {
 }
 
 /// Camera shake types matching C++ View::CameraShakeType (View.h)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum CameraShakeType {
     Subtle,
     #[default]
@@ -877,7 +875,6 @@ enum CameraShakeType {
     CineExtreme,
     CineInsane,
 }
-
 
 impl CameraShakeType {
     fn parse_shake_type(value: &str) -> Option<Self> {
@@ -938,8 +935,7 @@ impl FXNugget for ViewShakeFXNugget {
 }
 
 /// Scorch types matching C++ Scorches enum (FXList.cpp:459-472)
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 enum ScorchType {
     Scorch1 = 0,
     Scorch2 = 1,
@@ -949,7 +945,6 @@ enum ScorchType {
     #[default]
     Random = -1,
 }
-
 
 impl ScorchType {
     fn parse_scorch_type(value: &str) -> Option<i32> {

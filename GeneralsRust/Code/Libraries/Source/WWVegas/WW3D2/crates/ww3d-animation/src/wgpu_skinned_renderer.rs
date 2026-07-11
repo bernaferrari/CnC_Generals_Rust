@@ -1,9 +1,9 @@
-///! WGPU Skinned Mesh Renderer
-///!
-///! Provides GPU-accelerated rendering for W3D skinned meshes with skeletal animation.
-///! Implements vertex skinning on the GPU using bone matrices in uniform buffers.
-///!
-///! Reference: Modern GPU skinning techniques, wgpu best practices
+//! WGPU Skinned Mesh Renderer
+//!
+//! Provides GPU-accelerated rendering for W3D skinned meshes with skeletal animation.
+//! Implements vertex skinning on the GPU using bone matrices in uniform buffers.
+//!
+//! Reference: Modern GPU skinning techniques, wgpu best practices
 use crate::skeletal_animation::{AnimatedModel, SkeletonState, MAX_BONES};
 use crate::w3d_model_loader::{W3DMeshData, W3DModel};
 use glam::Vec3;

@@ -141,10 +141,7 @@ impl AABTree {
             return;
         }
 
-        let mut context = OBBoxAPTContext {
-            obbox: *obbox,
-            apt,
-        };
+        let mut context = OBBoxAPTContext { obbox: *obbox, apt };
 
         self.generate_obbox_apt_recursive(0, &mut context);
     }

@@ -603,19 +603,17 @@ pub fn get_command_availability(
         return CommandAvailability::Restricted;
     }
 
-    if (button.options & CommandOption::MustBeStopped as u32) != 0
-        && obj.is_moving() {
-            return CommandAvailability::Restricted;
-        }
+    if (button.options & CommandOption::MustBeStopped as u32) != 0 && obj.is_moving() {
+        return CommandAvailability::Restricted;
+    }
 
     if (button.options & CommandOption::NeedUpgrade as u32) != 0 {
         // Upgrade template check requires button -> template resolution
     }
 
-    if (button.options & CommandOption::NotQueueable as u32) != 0
-        && obj.has_production_in_queue() {
-            return CommandAvailability::Restricted;
-        }
+    if (button.options & CommandOption::NotQueueable as u32) != 0 && obj.has_production_in_queue() {
+        return CommandAvailability::Restricted;
+    }
 
     match button.command_type {
         CommandType::DozerConstruct => {

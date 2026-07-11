@@ -328,10 +328,7 @@ impl MapVictoryRules {
             let require_buildings = read_bool(values.get("requirebuildings"), true);
             let mut rules = VictoryType::from_requirements(require_units, require_buildings);
 
-            if let Some(configured) = values
-                .get("victory")
-                .and_then(parse_victory_string)
-            {
+            if let Some(configured) = values.get("victory").and_then(parse_victory_string) {
                 rules = configured;
             }
 

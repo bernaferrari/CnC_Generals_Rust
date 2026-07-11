@@ -141,7 +141,6 @@ impl CompressionLevel {
     }
 }
 
-
 impl TryFrom<u8> for CompressionLevel {
     type Error = LzhError;
 

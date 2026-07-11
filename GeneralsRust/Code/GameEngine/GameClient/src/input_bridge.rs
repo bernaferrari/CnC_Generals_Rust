@@ -221,8 +221,7 @@ impl GameCommand {
 
 /// Mirrors the C++ InGameUI cursor mode. Determines how right-clicks are
 /// interpreted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorMode {
     /// Default -- left-click selects, right-click issues context action.
     #[default]
@@ -244,7 +243,6 @@ pub enum CursorMode {
     /// Place beacon mode.
     PlaceBeacon,
 }
-
 
 // ---------------------------------------------------------------------------
 // GameInputHandler -- the main bridge
@@ -396,9 +394,11 @@ impl GameInputHandler {
                 _ => {}
             },
 
-            InputEvent::MouseButtonReleased { button, x, y, .. } => if button == &MouseButton::Left {
-                self.handle_left_button_up(*x, *y, modifiers, &mut commands);
-            },
+            InputEvent::MouseButtonReleased { button, x, y, .. } => {
+                if button == &MouseButton::Left {
+                    self.handle_left_button_up(*x, *y, modifiers, &mut commands);
+                }
+            }
 
             // --- Mouse drag (continuous) ----------------------------------------
             InputEvent::MouseMoved { x, y, .. } => {

@@ -51,8 +51,7 @@ const RADAR_ATTACK_GLOW_FRAMES: u32 = 150;
 const RADAR_ATTACK_GLOW_NUM_TIMES: u32 = 15;
 const LOGICFRAMES_PER_SECOND: u32 = 30;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ControlBarStage {
     #[default]
     Default,
@@ -129,7 +128,6 @@ impl Default for SciencePurchaseState {
     }
 }
 
-
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,
@@ -161,15 +159,13 @@ pub struct ControlBar {
     border_colors: CommandBarBorderColors,
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct CommandBarBorderColors {
     build: Option<u32>,
     action: Option<u32>,
     upgrade: Option<u32>,
     system: Option<u32>,
 }
-
 
 #[derive(Debug, Clone)]
 struct ButtonState {
@@ -891,24 +887,23 @@ impl ControlBar {
             }
         }
 
-        if (command.options & CommandOption::NeedUpgrade as u32) != 0
-            && !command.upgrade.is_empty() {
-                let player_arc = logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-                if let Some(player_arc) = player_arc {
-                    if let Ok(player) = player_arc.read() {
-                        let upgrade =
-                            with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
-                        if let Some(template) = upgrade {
-                            if !player.has_upgrade_complete(&template) {
-                                return Ok(CommandAvailability::Restricted);
-                            }
+        if (command.options & CommandOption::NeedUpgrade as u32) != 0 && !command.upgrade.is_empty()
+        {
+            let player_arc = logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+            if let Some(player_arc) = player_arc {
+                if let Ok(player) = player_arc.read() {
+                    let upgrade = with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
+                    if let Some(template) = upgrade {
+                        if !player.has_upgrade_complete(&template) {
+                            return Ok(CommandAvailability::Restricted);
                         }
                     }
                 }
             }
+        }
 
         let queue_count = self.build_queue_data.len();
         let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
@@ -1863,7 +1858,8 @@ impl ControlBar {
         let player_list = logic_player_list();
         let local_player_index = player_list
             .read()
-            .ok().map(|list| list.get_local_player_index())
+            .ok()
+            .map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
 
         let obj_player_id = object.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
@@ -2175,7 +2171,10 @@ impl ControlBar {
             self.radar_attack_glow_on = false;
             return;
         }
-        if self.remaining_radar_attack_glow_frames.is_multiple_of(RADAR_ATTACK_GLOW_NUM_TIMES) {
+        if self
+            .remaining_radar_attack_glow_frames
+            .is_multiple_of(RADAR_ATTACK_GLOW_NUM_TIMES)
+        {
             // C++ toggles winEnable on/off for glow effect
         }
     }
@@ -2224,7 +2223,10 @@ impl ControlBar {
     }
 
     fn update_observer_portrait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.current_frame.is_multiple_of(LOGICFRAMES_PER_SECOND / 2) {
+        if !self
+            .current_frame
+            .is_multiple_of(LOGICFRAMES_PER_SECOND / 2)
+        {
             return Ok(());
         }
         self.update_context_observer()?;

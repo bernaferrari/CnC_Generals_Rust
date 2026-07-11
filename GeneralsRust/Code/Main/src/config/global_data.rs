@@ -838,12 +838,14 @@ mod tests {
     #[test]
     fn test_command_line_parsing() {
         let mut global_data = GlobalData::new();
-        let args = ["program".to_string(),
+        let args = [
+            "program".to_string(),
             "-file".to_string(),
             "test.map".to_string(),
             "-fps".to_string(),
             "120".to_string(),
-            "-nointro".to_string()];
+            "-nointro".to_string(),
+        ];
 
         global_data.parse_command_line(&args[1..]).unwrap();
 
@@ -855,10 +857,12 @@ mod tests {
     #[test]
     fn test_command_line_normalizes_short_map_paths_and_preserves_shell_map_name() {
         let mut global_data = GlobalData::new();
-        let args = ["program".to_string(),
+        let args = [
+            "program".to_string(),
             "-file".to_string(),
             "Maps\\ShellMap1.map".to_string(),
-            "-quickstart".to_string()];
+            "-quickstart".to_string(),
+        ];
 
         global_data.parse_command_line(&args[1..]).unwrap();
 
@@ -874,9 +878,11 @@ mod tests {
     #[test]
     fn test_command_line_preserves_already_long_map_paths() {
         let mut global_data = GlobalData::new();
-        let args = ["program".to_string(),
+        let args = [
+            "program".to_string(),
             "-file".to_string(),
-            "Maps\\Tournament Desert\\Tournament Desert.map".to_string()];
+            "Maps\\Tournament Desert\\Tournament Desert.map".to_string(),
+        ];
 
         global_data.parse_command_line(&args[1..]).unwrap();
 

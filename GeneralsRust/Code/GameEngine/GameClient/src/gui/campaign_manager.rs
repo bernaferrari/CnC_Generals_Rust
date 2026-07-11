@@ -18,15 +18,13 @@ pub const MAX_OBJECTIVE_LINES: usize = 5;
 pub const MAX_DISPLAYED_UNITS: usize = 3;
 pub const INVALID_MISSION_NUMBER: i32 = -1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GameDifficulty {
     Easy,
     #[default]
     Normal,
     Hard,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Mission {

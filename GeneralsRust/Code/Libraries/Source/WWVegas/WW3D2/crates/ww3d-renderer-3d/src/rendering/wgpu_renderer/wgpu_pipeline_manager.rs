@@ -12,8 +12,7 @@ use ww3d_gpu::device::GpuDevice;
 /// packing two stages per bind group (2×2D + 2×cube + samplers).
 pub const MAX_TEXTURE_STAGES: usize = 8;
 pub const TEXTURES_PER_GROUP: usize = 2;
-pub const MAX_TEXTURE_STAGE_GROUPS: usize =
-    MAX_TEXTURE_STAGES.div_ceil(TEXTURES_PER_GROUP);
+pub const MAX_TEXTURE_STAGE_GROUPS: usize = MAX_TEXTURE_STAGES.div_ceil(TEXTURES_PER_GROUP);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VertexFormat {

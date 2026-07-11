@@ -844,7 +844,6 @@ impl UnitControlSystem {
 
     /// Create a move command for selected units
     fn create_move_command(&mut self, destination: Vec3) -> GameCommand {
-        
         GameCommand {
             command_type: CommandType::MoveTo {
                 destination,
@@ -860,7 +859,6 @@ impl UnitControlSystem {
 
     /// Create an attack command for selected units
     fn create_attack_command(&mut self, target_id: ObjectId) -> GameCommand {
-        
         GameCommand {
             command_type: CommandType::AttackObject { target_id },
             player_id: self.player_id,
@@ -873,7 +871,6 @@ impl UnitControlSystem {
 
     /// Create a stop command for selected units
     fn create_stop_command(&mut self) -> GameCommand {
-        
         GameCommand {
             command_type: CommandType::Stop,
             player_id: self.player_id,
@@ -897,7 +894,6 @@ impl UnitControlSystem {
 
     /// Create a build command
     pub fn create_build_command(&mut self, template_name: String, location: Vec3) -> GameCommand {
-        
         GameCommand {
             command_type: CommandType::Build {
                 template_name,
@@ -917,7 +913,6 @@ impl UnitControlSystem {
         template_name: String,
         quantity: u32,
     ) -> GameCommand {
-        
         GameCommand {
             command_type: CommandType::QueueUnitCreate {
                 template_name,

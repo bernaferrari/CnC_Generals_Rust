@@ -697,16 +697,15 @@ impl AssetValidator {
         }
 
         // Add fallback suggestion as last resort
-        if !issues.is_empty()
-            && self.fallback_configs.contains_key(&asset_type) {
-                suggestions.push(RepairSuggestion {
-                    issue_type: ValidationIssueType::FormatCorruption,
-                    action: RepairAction::UseFallback,
-                    description: "Use fallback asset as temporary replacement".to_string(),
-                    success_probability: 1.0,
-                    estimated_time: Duration::from_millis(100),
-                });
-            }
+        if !issues.is_empty() && self.fallback_configs.contains_key(&asset_type) {
+            suggestions.push(RepairSuggestion {
+                issue_type: ValidationIssueType::FormatCorruption,
+                action: RepairAction::UseFallback,
+                description: "Use fallback asset as temporary replacement".to_string(),
+                success_probability: 1.0,
+                estimated_time: Duration::from_millis(100),
+            });
+        }
 
         suggestions
     }

@@ -132,8 +132,7 @@ pub enum EffectsError {
 }
 
 /// Effects quality settings
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EffectsQuality {
     /// Minimal effects for low-end hardware
     Low,
@@ -180,7 +179,6 @@ impl EffectsQuality {
         }
     }
 }
-
 
 /// Effects configuration
 #[derive(Debug, Clone)]

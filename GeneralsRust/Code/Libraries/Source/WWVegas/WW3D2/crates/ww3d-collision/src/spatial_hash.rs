@@ -33,10 +33,7 @@ impl SpatialHashGrid {
         for x in min_cell.0..=max_cell.0 {
             for y in min_cell.1..=max_cell.1 {
                 for z in min_cell.2..=max_cell.2 {
-                    self.grid
-                        .entry((x, y, z))
-                        .or_default()
-                        .push(object_id);
+                    self.grid.entry((x, y, z)).or_default().push(object_id);
                 }
             }
         }

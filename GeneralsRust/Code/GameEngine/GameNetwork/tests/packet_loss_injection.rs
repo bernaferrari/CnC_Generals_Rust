@@ -10,8 +10,6 @@
 
 #[cfg(test)]
 mod packet_loss_tests {
-    
-    
 
     /// Packet loss pattern type
     #[derive(Debug, Clone, Copy)]

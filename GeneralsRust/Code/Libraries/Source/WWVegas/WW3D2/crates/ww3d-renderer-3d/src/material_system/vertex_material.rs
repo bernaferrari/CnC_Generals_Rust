@@ -572,7 +572,9 @@ impl VertexMaterialClass {
     /// C++ Reference: vertmaterial.h lines 298-305
     pub fn reset_mappers(&mut self) {
         for mapper in self.mappers.iter_mut().flatten() {
-            if let Some(m) = Arc::get_mut(mapper) { m.reset() }
+            if let Some(m) = Arc::get_mut(mapper) {
+                m.reset()
+            }
         }
     }
 
@@ -920,9 +922,7 @@ mod tests {
         material.set_flag(MaterialFlags::DepthCueToAlpha, true);
         assert!(material.get_flag(MaterialFlags::DepthCue));
         assert!(material.get_flag(MaterialFlags::DepthCueToAlpha));
-        assert!(
-            !material.get_flag(MaterialFlags::CopySpecularToDiffuse)
-        );
+        assert!(!material.get_flag(MaterialFlags::CopySpecularToDiffuse));
     }
 
     #[test]

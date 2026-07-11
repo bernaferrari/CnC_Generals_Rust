@@ -142,11 +142,7 @@ impl StreamingCompressor {
         log::debug!("Using memory-mapped compression for {} bytes", input_size);
 
         // Memory-map the input file
-        let mmap = unsafe {
-            MmapOptions::new()
-                .map(&input_file)
-                .map_err(EacError::Io)?
-        };
+        let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
 
         let chunks_count = input_size.div_ceil(self.config.chunk_size);
 
@@ -352,11 +348,7 @@ impl StreamingDecompressor {
             compressed_size
         );
 
-        let mmap = unsafe {
-            MmapOptions::new()
-                .map(&input_file)
-                .map_err(EacError::Io)?
-        };
+        let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
 
         let decompressed = self.decoder.decode(&mmap)?;
         output_file.write_all(&decompressed)?;
@@ -472,10 +464,7 @@ pub mod async_streaming {
             let mut total_compressed = 0;
 
             loop {
-                let bytes_read = reader
-                    .read(&mut buffer)
-                    .await
-                    .map_err(EacError::Io)?;
+                let bytes_read = reader.read(&mut buffer).await.map_err(EacError::Io)?;
 
                 if bytes_read == 0 {
                     break;
@@ -491,10 +480,7 @@ pub mod async_streaming {
                     .write_all(&(compressed.len() as u32).to_le_bytes())
                     .await
                     .map_err(EacError::Io)?;
-                writer
-                    .write_all(&compressed)
-                    .await
-                    .map_err(EacError::Io)?;
+                writer.write_all(&compressed).await.map_err(EacError::Io)?;
 
                 total_compressed += 4 + compressed.len();
             }
@@ -513,18 +499,10 @@ pub mod async_streaming {
             P1: AsRef<Path>,
             P2: AsRef<Path>,
         {
-            let mut input_file = AsyncFile::open(input_path)
-                .await
-                .map_err(EacError::Io)?;
-            let mut output_file = AsyncFile::create(output_path)
-                .await
-                .map_err(EacError::Io)?;
+            let mut input_file = AsyncFile::open(input_path).await.map_err(EacError::Io)?;
+            let mut output_file = AsyncFile::create(output_path).await.map_err(EacError::Io)?;
 
-            let original_size = input_file
-                .metadata()
-                .await
-                .map_err(EacError::Io)?
-                .len() as usize;
+            let original_size = input_file.metadata().await.map_err(EacError::Io)?.len() as usize;
 
             let compressed_size = self
                 .compress_async(&mut input_file, &mut output_file)

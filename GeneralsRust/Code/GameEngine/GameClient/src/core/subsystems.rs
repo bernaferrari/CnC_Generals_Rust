@@ -589,10 +589,9 @@ fn xfer_in_game_ui_state(
     xfer_pending_special_power(xfer, &mut ui.pending_special_power)?;
     xfer_pending_command(xfer, &mut ui.pending_command)?;
 
-    if xfer.get_xfer_mode() == XferMode::Load
-        && !ui.radius_cursor_active {
-            ui.radius_cursor_type.clear();
-        }
+    if xfer.get_xfer_mode() == XferMode::Load && !ui.radius_cursor_active {
+        ui.radius_cursor_type.clear();
+    }
 
     Ok(())
 }

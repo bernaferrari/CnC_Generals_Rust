@@ -1031,7 +1031,9 @@ async fn test_nat_type_behavior_validation() {
 
         // Receive response
         let mut buf = [0u8; 1024];
-        if let Ok(Ok((len, _))) = timeout(Duration::from_secs(1), client_socket.recv_from(&mut buf)).await {
+        if let Ok(Ok((len, _))) =
+            timeout(Duration::from_secs(1), client_socket.recv_from(&mut buf)).await
+        {
             let response = buf[..len].to_vec();
             responses.push(response);
         }
@@ -1107,7 +1109,9 @@ async fn test_concurrent_nat_operations() {
     // Wait for all clients to complete
     let mut successes = 0;
     for handle in handles {
-        if let Ok(Some(_)) = handle.await { successes += 1 }
+        if let Ok(Some(_)) = handle.await {
+            successes += 1
+        }
     }
     info!("Concurrent operations: {} out of 5 succeeded", successes);
 

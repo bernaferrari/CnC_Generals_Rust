@@ -2460,10 +2460,8 @@ impl GameLogic {
             ));
         }
 
-        for ((object_id, _), (_, x, y, z)) in spawned_object_ids
-            .iter()
-            .copied()
-            .zip(grounded_positions)
+        for ((object_id, _), (_, x, y, z)) in
+            spawned_object_ids.iter().copied().zip(grounded_positions)
         {
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.set_position(Vec3::new(x, y, z));
@@ -3925,7 +3923,8 @@ impl GameLogic {
         frame: u32,
         _dt: f32,
     ) -> Option<AICommand> {
-        let should_scan = |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
+        let should_scan =
+            |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
         let retreat_from = |threat_id: ObjectId| -> AICommand {
             let direction = self
                 .objects

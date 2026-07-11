@@ -542,7 +542,9 @@ fn update_slot_selection(state: &mut LanGameOptionsState, index: usize) {
         state.combo_box_color_ids[index],
         state.combo_box_team_ids[index],
     ] {
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) { let _ = window.borrow_mut().enable(enable); }
+        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+            let _ = window.borrow_mut().enable(enable);
+        }
     }
 
     if let Some(window) =

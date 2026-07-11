@@ -586,12 +586,14 @@ impl Gadget for ComboBox {
 
             InputEvent::MouseDown { x, y, button } => {
                 if *button == MouseButton::Left
-                    && self.dropdown_open && !self.bounds.contains_point(*x, *y) {
-                        let dropdown = self.dropdown_bounds_internal();
-                        if !dropdown.contains_point(*x, *y) {
-                            self.close();
-                        }
+                    && self.dropdown_open
+                    && !self.bounds.contains_point(*x, *y)
+                {
+                    let dropdown = self.dropdown_bounds_internal();
+                    if !dropdown.contains_point(*x, *y) {
+                        self.close();
                     }
+                }
             }
 
             InputEvent::MouseUp { x, y, button } => {
@@ -612,56 +614,52 @@ impl Gadget for ComboBox {
                 }
             }
 
-            InputEvent::KeyDown { key, .. }
-                if self.focused => {
-                    match key {
-                        KeyCode::Enter | KeyCode::Space => {
-                            self.toggle();
-                        }
-                        KeyCode::Escape => {
-                            self.close();
-                        }
-                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
-                            return vec![GadgetMessage::Custom {
-                                gadget_id: self.id,
-                                data: "tab_next".to_string(),
-                            }];
-                        }
-                        KeyCode::Left | KeyCode::Up => {
-                            return vec![GadgetMessage::Custom {
-                                gadget_id: self.id,
-                                data: "tab_prev".to_string(),
-                            }];
-                        }
-                        KeyCode::Backspace => {
-                            if self.is_editable && !self.text.is_empty() {
-                                self.text.pop();
-                                return vec![GadgetMessage::ValueChanged {
-                                    gadget_id: self.id,
-                                    value: GadgetValue::String(self.text.clone()),
-                                }];
-                            }
-                        }
-                        KeyCode::Char(ch)
-                            if self.is_editable => {
-                                if self.max_chars > 0 && self.text.len() >= self.max_chars {
-                                    return Vec::new();
-                                }
-                                if self.ascii_only && !ch.is_ascii() {
-                                    return Vec::new();
-                                }
-                                if self.letters_and_numbers && !ch.is_ascii_alphanumeric() {
-                                    return Vec::new();
-                                }
-                                self.text.push(*ch);
-                                return vec![GadgetMessage::ValueChanged {
-                                    gadget_id: self.id,
-                                    value: GadgetValue::String(self.text.clone()),
-                                }];
-                            }
-                        _ => {}
+            InputEvent::KeyDown { key, .. } if self.focused => match key {
+                KeyCode::Enter | KeyCode::Space => {
+                    self.toggle();
+                }
+                KeyCode::Escape => {
+                    self.close();
+                }
+                KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "tab_next".to_string(),
+                    }];
+                }
+                KeyCode::Left | KeyCode::Up => {
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "tab_prev".to_string(),
+                    }];
+                }
+                KeyCode::Backspace => {
+                    if self.is_editable && !self.text.is_empty() {
+                        self.text.pop();
+                        return vec![GadgetMessage::ValueChanged {
+                            gadget_id: self.id,
+                            value: GadgetValue::String(self.text.clone()),
+                        }];
                     }
                 }
+                KeyCode::Char(ch) if self.is_editable => {
+                    if self.max_chars > 0 && self.text.len() >= self.max_chars {
+                        return Vec::new();
+                    }
+                    if self.ascii_only && !ch.is_ascii() {
+                        return Vec::new();
+                    }
+                    if self.letters_and_numbers && !ch.is_ascii_alphanumeric() {
+                        return Vec::new();
+                    }
+                    self.text.push(*ch);
+                    return vec![GadgetMessage::ValueChanged {
+                        gadget_id: self.id,
+                        value: GadgetValue::String(self.text.clone()),
+                    }];
+                }
+                _ => {}
+            },
 
             _ => {}
         }

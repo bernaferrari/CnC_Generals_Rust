@@ -353,10 +353,7 @@ impl BatchRenderer {
         color: Vec4,
     ) -> Option<(usize, usize)> {
         // Find or create instanced batch
-        let batches = self
-            .instanced_batches
-            .entry(material.clone())
-            .or_default();
+        let batches = self.instanced_batches.entry(material.clone()).or_default();
 
         // Try to find a batch that matches this mesh
         // In production, would use mesh hash to find matching batches

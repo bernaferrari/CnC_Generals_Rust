@@ -81,9 +81,7 @@ impl StreamingCompressor {
         let mut writer = BufWriter::with_capacity(self.buffer_size, output);
 
         let mut input_data = Vec::new();
-        reader
-            .read_to_end(&mut input_data)
-            .map_err(LzhError::Io)?;
+        reader.read_to_end(&mut input_data).map_err(LzhError::Io)?;
 
         let total_input = input_data.len() as u64;
 
@@ -190,9 +188,7 @@ impl StreamingDecompressor {
         let mut input_file = File::open(input_path.as_ref()).map_err(LzhError::Io)?;
 
         let mut header = [0u8; 4];
-        input_file
-            .read_exact(&mut header)
-            .map_err(LzhError::Io)?;
+        input_file.read_exact(&mut header).map_err(LzhError::Io)?;
         let raw_size = u32::from_le_bytes(header) as usize;
 
         // Read entire compressed file
@@ -207,9 +203,7 @@ impl StreamingDecompressor {
 
         // Write output
         let mut output_file = File::create(output_path.as_ref()).map_err(LzhError::Io)?;
-        output_file
-            .write_all(&decompressed)
-            .map_err(LzhError::Io)?;
+        output_file.write_all(&decompressed).map_err(LzhError::Io)?;
 
         let elapsed = start_time.elapsed();
 
@@ -238,9 +232,7 @@ impl StreamingDecompressor {
         let mut writer = BufWriter::with_capacity(self.buffer_size, output);
 
         let mut header = [0u8; 4];
-        reader
-            .read_exact(&mut header)
-            .map_err(LzhError::Io)?;
+        reader.read_exact(&mut header).map_err(LzhError::Io)?;
         let raw_size = u32::from_le_bytes(header) as usize;
 
         // Read compressed data
@@ -253,9 +245,7 @@ impl StreamingDecompressor {
         let decompressed = decompress_raw(&compressed_data, raw_size)?;
 
         // Write output
-        writer
-            .write_all(&decompressed)
-            .map_err(LzhError::Io)?;
+        writer.write_all(&decompressed).map_err(LzhError::Io)?;
         writer.flush().map_err(LzhError::Io)?;
 
         let elapsed = start_time.elapsed();

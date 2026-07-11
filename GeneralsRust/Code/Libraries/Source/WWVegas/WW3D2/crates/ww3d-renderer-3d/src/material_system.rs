@@ -425,12 +425,7 @@ impl MaterialManager {
             }
 
             // Check texture compatibility
-            for (curr_tex, other_tex) in current
-                .textures
-                .iter()
-                .zip(other.textures.iter())
-                
-            {
+            for (curr_tex, other_tex) in current.textures.iter().zip(other.textures.iter()) {
                 match (curr_tex, other_tex) {
                     (Some(curr_tex), Some(other_tex)) => {
                         if curr_tex.get_sort_level() != other_tex.get_sort_level() {

@@ -1,13 +1,13 @@
-///! Complete W3D Model Loading System
-///!
-///! This module provides a comprehensive loader for W3D models with full support for:
-///! - Mesh loading with materials and textures
-///! - Skeletal hierarchies (HTree)
-///! - Skinned mesh animation with bone influences
-///! - LOD (Level of Detail) mesh selection
-///! - Animation loading and playback
-///!
-///! Reference: C++ mesh.cpp, htree.cpp, hmodel.cpp, meshmdl.cpp
+//! Complete W3D Model Loading System
+//!
+//! This module provides a comprehensive loader for W3D models with full support for:
+//! - Mesh loading with materials and textures
+//! - Skeletal hierarchies (HTree)
+//! - Skinned mesh animation with bone influences
+//! - LOD (Level of Detail) mesh selection
+//! - Animation loading and playback
+//!
+//! Reference: C++ mesh.cpp, htree.cpp, hmodel.cpp, meshmdl.cpp
 use crate::hanim::HAnimClass;
 use crate::htree::HTreeClass;
 use crate::w3d_loader::{load_w3d_animation, load_w3d_hierarchy, W3DAnimationError};

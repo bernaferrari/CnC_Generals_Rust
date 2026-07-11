@@ -413,7 +413,8 @@ impl SkirmishMenu {
                         )
                     );
                     let faction = self
-                        .slots.first()
+                        .slots
+                        .first()
                         .map(|slot| match slot.faction {
                             Faction::USA => "USA",
                             Faction::China => "China",

@@ -206,8 +206,7 @@ impl KeyBinding {
             return false;
         }
 
-        let key_matches =
-            key == self.primary_key || (self.secondary_key == Some(key));
+        let key_matches = key == self.primary_key || (self.secondary_key == Some(key));
 
         key_matches && modifiers == self.modifiers
     }

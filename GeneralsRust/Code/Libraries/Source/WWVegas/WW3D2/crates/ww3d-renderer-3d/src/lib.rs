@@ -594,7 +594,6 @@ impl Renderer {
                     timestamp_writes: None,
                 });
 
-            
             mesh_manager.render_pass(
                 &mut render_pass,
                 &prepared.opaque,

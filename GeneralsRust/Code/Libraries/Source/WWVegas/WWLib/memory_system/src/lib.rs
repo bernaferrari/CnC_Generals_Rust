@@ -361,17 +361,17 @@ impl MemoryPool {
         while let Some(blob) = current_blob {
             if blob.memory <= block_ptr
                 && block_ptr < unsafe { blob.memory.add(blob.block_size * blob.block_count) }
-                && blob.free_block(block_ptr) {
-                    self.used_blocks_in_pool -= 1;
+                && blob.free_block(block_ptr)
+            {
+                self.used_blocks_in_pool -= 1;
 
-                    // Update first_blob_with_free_blocks if needed
-                    if self.first_blob_with_free_blocks.is_none() || blob.free_block_count() > 0 {
-                        self.first_blob_with_free_blocks =
-                            Some(blob.as_mut() as *mut MemoryPoolBlob);
-                    }
-
-                    return true;
+                // Update first_blob_with_free_blocks if needed
+                if self.first_blob_with_free_blocks.is_none() || blob.free_block_count() > 0 {
+                    self.first_blob_with_free_blocks = Some(blob.as_mut() as *mut MemoryPoolBlob);
                 }
+
+                return true;
+            }
             current_blob = blob.next_blob.as_mut();
         }
 

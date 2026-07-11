@@ -1,9 +1,9 @@
-///! Animation State Machine
-///!
-///! Provides a state machine for managing character animations with automatic
-///! transitions between states like idle, walk, run, attack, death, etc.
-///!
-///! Reference: Common game animation state machine patterns used in RTS games
+//! Animation State Machine
+//!
+//! Provides a state machine for managing character animations with automatic
+//! transitions between states like idle, walk, run, attack, death, etc.
+//!
+//! Reference: Common game animation state machine patterns used in RTS games
 use crate::hanim::{AnimationMode, HAnimClass};
 use crate::skeletal_animation::AnimatedModel;
 use glam::Mat4;

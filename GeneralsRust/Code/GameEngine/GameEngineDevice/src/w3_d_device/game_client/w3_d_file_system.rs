@@ -114,11 +114,7 @@ impl GameFileClass {
         };
 
         let file_system = get_file_system();
-        let exists = |path: &str| {
-            file_system
-                .lock()
-                .is_ok_and(|fs| fs.does_file_exist(path))
-        };
+        let exists = |path: &str| file_system.lock().is_ok_and(|fs| fs.does_file_exist(path));
         self.set_name_with_context(filename, &language, user_data_dir.as_deref(), exists);
         &self.filename
     }

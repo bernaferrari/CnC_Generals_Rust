@@ -1,12 +1,12 @@
-///! Skeletal Animation System with Bone Transforms
-///!
-///! This module implements the complete skeletal animation system including:
-///! - Bone transformation hierarchies
-///! - Skinned mesh rendering with GPU bone matrices
-///! - Animation playback with frame interpolation
-///! - Multiple animation layers and blending
-///!
-///! Reference: C++ htree.cpp, hanim.cpp, mesh.cpp skinning code
+//! Skeletal Animation System with Bone Transforms
+//!
+//! This module implements the complete skeletal animation system including:
+//! - Bone transformation hierarchies
+//! - Skinned mesh rendering with GPU bone matrices
+//! - Animation playback with frame interpolation
+//! - Multiple animation layers and blending
+//!
+//! Reference: C++ htree.cpp, hanim.cpp, mesh.cpp skinning code
 use crate::hanim::{AnimationMode, HAnimClass};
 use crate::htree::HTreeClass;
 use glam::{Mat4, Quat, Vec3};

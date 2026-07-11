@@ -20,15 +20,13 @@ use ww3d_core::w3d_format::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruc
 use ww3d_core::wwstring::StringClass;
 
 /// Point rendering mode – mirrored from the original PointGroupClass::PointModeEnum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PointMode {
     Tris,
     #[default]
     Quads,
     ScreenSpace,
 }
-
 
 /// Primary point group implementation.
 #[derive(Debug, Clone)]

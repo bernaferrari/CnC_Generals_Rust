@@ -419,16 +419,15 @@ impl WgpuMainRenderer {
                         RendererError::InvalidOperation("renderer mutex poisoned".into())
                     })?;
 
-                    renderer_guard
-                        .render_frame(
-                            &mut frame,
-                            if had_pre_scene_callbacks {
-                                None
-                            } else {
-                                Some(clear_color)
-                            },
-                            None,
-                        )?;
+                    renderer_guard.render_frame(
+                        &mut frame,
+                        if had_pre_scene_callbacks {
+                            None
+                        } else {
+                            Some(clear_color)
+                        },
+                        None,
+                    )?;
                     (
                         renderer_guard.mesh_stats().clone(),
                         renderer_guard.take_pending_shadow_caster_submissions(),
@@ -470,14 +469,13 @@ impl WgpuMainRenderer {
 
             let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
             backend.set_msaa_samples(msaa_samples);
-            renderer_guard
-                .synchronize_swapchain(
-                    surface_handle,
-                    &surface_config,
-                    Some(TextureFormat::Depth24PlusStencil8),
-                    msaa_samples,
-                    false,
-                )?;
+            renderer_guard.synchronize_swapchain(
+                surface_handle,
+                &surface_config,
+                Some(TextureFormat::Depth24PlusStencil8),
+                msaa_samples,
+                false,
+            )?;
 
             let animation_input = self.legacy_frame_clock.advance();
             let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)

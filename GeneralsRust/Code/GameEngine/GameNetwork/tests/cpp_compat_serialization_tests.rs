@@ -8,7 +8,8 @@ use game_network::commands::cpp_compat_serialization::{
 };
 use game_network::commands::{
     ChatData, CommandPayload, DisconnectVoteData, DisconnectVoteType, FileAnnouncementData,
-    FileProgressData, FrameInfoData, GameCommandData, NetCommandType, PlayerLeaveData, ProgressData, ProgressType, RunAheadMetricsData,
+    FileProgressData, FrameInfoData, GameCommandData, NetCommandType, PlayerLeaveData,
+    ProgressData, ProgressType, RunAheadMetricsData,
 };
 use game_network::file_transfer::FileMetadata;
 use std::collections::HashMap;

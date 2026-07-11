@@ -965,8 +965,7 @@ struct DrawableTOCEntry {
 // ==================================================================================
 
 /// Shadow projection type — mirrors C++ `ShadowType` (Shadow.h).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShadowType {
     /// No shadow rendered.
     None,
@@ -978,7 +977,6 @@ pub enum ShadowType {
     /// Shadow rendered as a decal on the terrain.
     Decal,
 }
-
 
 /// Shadow instance projected onto terrain beneath an object.
 ///
@@ -1052,8 +1050,7 @@ impl Default for Shadow {
 /// collapses the status into three discrete states for rendering decisions:
 /// `Clear` (fully visible), `Fogged` (previously seen, now dimmed),
 /// `Shrouded` (never explored or fully obscured).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShroudStatus {
     /// Position is fully visible — no shroud or fog.
     Clear,
@@ -1063,7 +1060,6 @@ pub enum ShroudStatus {
     #[default]
     Shrouded,
 }
-
 
 impl From<gamelogic::common::types::ObjectShroudStatus> for ShroudStatus {
     fn from(status: gamelogic::common::types::ObjectShroudStatus) -> Self {
