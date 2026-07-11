@@ -898,8 +898,7 @@ impl W3DModelLoader {
                             while cursor.position() < vm_end_inner {
                                 let inner_header = self.read_struct::<W3DChunkHeader>(cursor)?;
                                 let inner_type = W3DChunkType::from(inner_header.chunk_type);
-                                let inner_end =
-                                    cursor.position() + inner_header.chunk_size as u64;
+                                let inner_end = cursor.position() + inner_header.chunk_size as u64;
 
                                 match inner_type {
                                     W3DChunkType::VertexMaterialName => {
@@ -929,9 +928,7 @@ impl W3DModelLoader {
                                     }
                                     _ => {
                                         cursor
-                                            .seek(SeekFrom::Current(
-                                                inner_header.chunk_size as i64,
-                                            ))
+                                            .seek(SeekFrom::Current(inner_header.chunk_size as i64))
                                             .map_err(|e| {
                                                 W3DError::ModelLoadingFailed(format!(
                                                     "Failed to skip inner vm chunk: {}",
@@ -975,12 +972,10 @@ impl W3DModelLoader {
                             while cursor.position() < tex_end_inner {
                                 let inner_header = self.read_struct::<W3DChunkHeader>(cursor)?;
                                 let inner_type = W3DChunkType::from(inner_header.chunk_type);
-                                let inner_end =
-                                    cursor.position() + inner_header.chunk_size as u64;
+                                let inner_end = cursor.position() + inner_header.chunk_size as u64;
 
                                 if inner_type == W3DChunkType::TextureName {
-                                    let mut name_buf =
-                                        vec![0u8; inner_header.chunk_size as usize];
+                                    let mut name_buf = vec![0u8; inner_header.chunk_size as usize];
                                     cursor.read_exact(&mut name_buf).map_err(|e| {
                                         W3DError::ModelLoadingFailed(format!(
                                             "Failed to read texture name: {}",
@@ -991,9 +986,7 @@ impl W3DModelLoader {
                                         .push(Self::read_null_terminated_from_slice(&name_buf));
                                 } else {
                                     cursor
-                                        .seek(SeekFrom::Current(
-                                            inner_header.chunk_size as i64,
-                                        ))
+                                        .seek(SeekFrom::Current(inner_header.chunk_size as i64))
                                         .map_err(|e| {
                                             W3DError::ModelLoadingFailed(format!(
                                                 "Failed to skip tex sub-chunk: {}",
@@ -1067,9 +1060,7 @@ impl W3DModelLoader {
                                         }
                                     } else {
                                         cursor
-                                            .seek(SeekFrom::Current(
-                                                ts_header.chunk_size as i64,
-                                            ))
+                                            .seek(SeekFrom::Current(ts_header.chunk_size as i64))
                                             .map_err(|e| {
                                                 W3DError::ModelLoadingFailed(format!(
                                                     "Failed to skip tex stage: {}",
@@ -1107,10 +1098,7 @@ impl W3DModelLoader {
                         .get(vm_idx)
                         .cloned()
                         .unwrap_or_else(|| format!("Material{}", materials.len()));
-                    let vm_info = vert_material_infos
-                        .get(vm_idx)
-                        .copied()
-                        .unwrap_or_default();
+                    let vm_info = vert_material_infos.get(vm_idx).copied().unwrap_or_default();
 
                     let diff_tex = if tex_idx < texture_names.len() {
                         Some(texture_names[tex_idx].clone())
@@ -1416,10 +1404,7 @@ impl W3DModelLoader {
 
                     let mut name_buf = [0u8; W3D_NAME_LEN];
                     cursor.read_exact(&mut name_buf).map_err(|e| {
-                        W3DError::ModelLoadingFailed(format!(
-                            "Failed to read anim name: {}",
-                            e
-                        ))
+                        W3DError::ModelLoadingFailed(format!("Failed to read anim name: {}", e))
                     })?;
                     let raw_name = Self::read_null_terminated(&name_buf);
 
@@ -1481,21 +1466,25 @@ impl W3DModelLoader {
                     let is_pre30 = version < ((3u32) << 16);
                     let bone_idx = if is_pre30 { pivot + 1 } else { pivot };
 
-                    let ch = bone_channels.entry(bone_idx).or_insert_with(|| {
-                        W3DAnimationChannel {
+                    let ch = bone_channels
+                        .entry(bone_idx)
+                        .or_insert_with(|| W3DAnimationChannel {
                             bone_index: bone_idx,
                             position_keys: Vec::new(),
                             rotation_keys: Vec::new(),
                             scale_keys: Vec::new(),
-                        }
-                    });
+                        });
 
                     // flags 0=X, 1=Y, 2=Z, 6=Q (quaternion)
                     match channel_type {
                         0 | 1 | 2 => {
                             for (fi, &val) in channel_data.iter().enumerate() {
                                 let time = (first_frame as usize + fi) as f32
-                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+                                    / if frame_rate > 0 {
+                                        frame_rate as f32
+                                    } else {
+                                        30.0
+                                    };
 
                                 let existing = ch
                                     .position_keys
@@ -1531,7 +1520,11 @@ impl W3DModelLoader {
                             let axis = channel_type - 3;
                             for (fi, &val) in channel_data.iter().enumerate() {
                                 let time = (first_frame as usize + fi) as f32
-                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+                                    / if frame_rate > 0 {
+                                        frame_rate as f32
+                                    } else {
+                                        30.0
+                                    };
 
                                 let euler = match axis {
                                     0 => Vec3::new(val, 0.0, 0.0),
@@ -1569,7 +1562,11 @@ impl W3DModelLoader {
                             // Quaternion rotation: each frame is 4 floats
                             for (fi, chunk) in channel_data.chunks_exact(4).enumerate() {
                                 let time = (first_frame as usize + fi) as f32
-                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+                                    / if frame_rate > 0 {
+                                        frame_rate as f32
+                                    } else {
+                                        30.0
+                                    };
                                 let q = Quat::from_xyzw(chunk[0], chunk[1], chunk[2], chunk[3])
                                     .normalize();
                                 ch.rotation_keys.push(W3DKeyframe {
@@ -1645,15 +1642,18 @@ impl W3DModelLoader {
             cursor.set_position(end_pos);
         }
 
-        let fps = if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+        let fps = if frame_rate > 0 {
+            frame_rate as f32
+        } else {
+            30.0
+        };
         let duration = if num_frames > 0 && fps > 0.0 {
             (num_frames - 1) as f32 / fps
         } else {
             0.0
         };
 
-        let mut channels: Vec<W3DAnimationChannel> =
-            bone_channels.into_values().collect();
+        let mut channels: Vec<W3DAnimationChannel> = bone_channels.into_values().collect();
         channels.sort_by_key(|c| c.bone_index);
 
         tracing::debug!(
@@ -1788,8 +1788,7 @@ impl W3DModelLoader {
 
             match sub_type {
                 W3DChunkType::Hierarchy => {
-                    let skeleton =
-                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    let skeleton = self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
                     model.skeleton = Some(skeleton);
                 }
                 W3DChunkType::Mesh => {
@@ -1802,9 +1801,14 @@ impl W3DModelLoader {
                         sub_header.chunk_type,
                         sub_header.chunk_size
                     );
-                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
-                        W3DError::ModelLoadingFailed(format!("Failed to skip HModel sub-chunk: {}", e))
-                    })?;
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip HModel sub-chunk: {}",
+                                e
+                            ))
+                        })?;
                 }
             }
 
@@ -1858,8 +1862,7 @@ impl W3DModelLoader {
 
             match sub_type {
                 W3DChunkType::Hierarchy => {
-                    let skeleton =
-                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    let skeleton = self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
                     model.skeleton = Some(skeleton);
                 }
                 W3DChunkType::Mesh => {
@@ -1876,9 +1879,14 @@ impl W3DModelLoader {
                         sub_header.chunk_type,
                         sub_header.chunk_size
                     );
-                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
-                        W3DError::ModelLoadingFailed(format!("Failed to skip HLod sub-chunk: {}", e))
-                    })?;
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip HLod sub-chunk: {}",
+                                e
+                            ))
+                        })?;
                 }
             }
 
@@ -1932,7 +1940,10 @@ impl W3DModelLoader {
                 let distance = self.read_f32(cursor)?;
                 let mut obj_name_buf = [0u8; W3D_NAME_LEN];
                 cursor.read_exact(&mut obj_name_buf).map_err(|e| {
-                    W3DError::ModelLoadingFailed(format!("Failed to read LOD sub-object name: {}", e))
+                    W3DError::ModelLoadingFailed(format!(
+                        "Failed to read LOD sub-object name: {}",
+                        e
+                    ))
                 })?;
                 let _obj_name = Self::read_null_terminated(&obj_name_buf);
 
@@ -1940,9 +1951,11 @@ impl W3DModelLoader {
                     model.lod_distances[i] = distance;
                 }
             } else {
-                cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
-                    W3DError::ModelLoadingFailed(format!("Failed to skip LOD entry: {}", e))
-                })?;
+                cursor
+                    .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                    .map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!("Failed to skip LOD entry: {}", e))
+                    })?;
             }
 
             if cursor.position() < sub_end {
@@ -1995,8 +2008,7 @@ impl W3DModelLoader {
                     model.meshes.push(mesh);
                 }
                 W3DChunkType::Hierarchy => {
-                    let skeleton =
-                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    let skeleton = self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
                     model.skeleton = Some(skeleton);
                 }
                 _ => {
@@ -2005,9 +2017,14 @@ impl W3DModelLoader {
                         sub_header.chunk_type,
                         sub_header.chunk_size
                     );
-                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
-                        W3DError::ModelLoadingFailed(format!("Failed to skip LOD model sub-chunk: {}", e))
-                    })?;
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip LOD model sub-chunk: {}",
+                                e
+                            ))
+                        })?;
                 }
             }
 
@@ -2045,9 +2062,11 @@ impl W3DModelLoader {
         // Skip the transform data (each transform is ~68 bytes: Mat4 + name)
         let remaining = end_pos.saturating_sub(cursor.position());
         if remaining > 0 {
-            cursor.seek(SeekFrom::Current(remaining as i64)).map_err(|e| {
-                W3DError::ModelLoadingFailed(format!("Failed to skip collection data: {}", e))
-            })?;
+            cursor
+                .seek(SeekFrom::Current(remaining as i64))
+                .map_err(|e| {
+                    W3DError::ModelLoadingFailed(format!("Failed to skip collection data: {}", e))
+                })?;
         }
 
         log::warn!(
@@ -2063,11 +2082,7 @@ impl W3DModelLoader {
     }
 
     /// Skip an emitter chunk with a descriptive log.
-    fn skip_emitter_chunk(
-        &mut self,
-        cursor: &mut Cursor<&[u8]>,
-        chunk_size: u32,
-    ) -> Result<()> {
+    fn skip_emitter_chunk(&mut self, cursor: &mut Cursor<&[u8]>, chunk_size: u32) -> Result<()> {
         let start_pos = cursor.position();
         let end_pos = start_pos + chunk_size as u64;
 
@@ -2081,9 +2096,11 @@ impl W3DModelLoader {
 
         let remaining = end_pos.saturating_sub(cursor.position());
         if remaining > 0 {
-            cursor.seek(SeekFrom::Current(remaining as i64)).map_err(|e| {
-                W3DError::ModelLoadingFailed(format!("Failed to skip emitter data: {}", e))
-            })?;
+            cursor
+                .seek(SeekFrom::Current(remaining as i64))
+                .map_err(|e| {
+                    W3DError::ModelLoadingFailed(format!("Failed to skip emitter data: {}", e))
+                })?;
         }
 
         log::warn!(
@@ -2335,7 +2352,10 @@ mod tests {
         material_info_payload.extend(chunk(0x0000002A, vertex_materials));
 
         let mut textures = Vec::new();
-        textures.extend(chunk(0x00000031, chunk(0x00000032, null_string("first.tga"))));
+        textures.extend(chunk(
+            0x00000031,
+            chunk(0x00000032, null_string("first.tga")),
+        ));
         textures.extend(chunk(
             0x00000031,
             chunk(0x00000032, null_string("second.tga")),

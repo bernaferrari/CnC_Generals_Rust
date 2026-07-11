@@ -4,7 +4,7 @@
 //! retransmission, duplicate detection, and ordered delivery.
 
 use crate::commands::sequence_validator::{SequenceValidationResult, SequenceValidator};
-use crate::commands::{NetCommand, NetCommandType, GameCommandData};
+use crate::commands::{GameCommandData, NetCommand, NetCommandType};
 use crate::error::{NetworkError, NetworkResult};
 use crate::network_metrics::packet_loss_metrics::{
     CongestionLevel, PacketLossMetrics, PacketLossStats,
@@ -840,13 +840,17 @@ mod tests {
         let layer = ReliabilityLayer::new();
         // keep_alive creates nil-UUID commands which bypass duplicate detection,
         // so use game_command which always generates a real UUID
-        let command = NetCommand::game_command(0, 1, GameCommandData {
-            command_type: 0,
-            target_id: None,
-            position: None,
-            parameters: HashMap::new(),
-            checksum: 0,
-        });
+        let command = NetCommand::game_command(
+            0,
+            1,
+            GameCommandData {
+                command_type: 0,
+                target_id: None,
+                position: None,
+                parameters: HashMap::new(),
+                checksum: 0,
+            },
+        );
 
         // Process message first time
         let result1 = layer.process_incoming(command.clone()).await.unwrap();

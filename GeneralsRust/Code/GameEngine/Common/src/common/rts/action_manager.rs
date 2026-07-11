@@ -170,7 +170,11 @@ pub trait ObjectDataProvider: Send + Sync {
     fn get_controlling_player_type(&self, id: ObjectHandle) -> PlayerType;
 
     /// Shroud status of `target` as seen by `viewer_player_id`.
-    fn get_shrouded_status(&self, target: ObjectHandle, viewer_player_id: u32) -> ObjectShroudStatus;
+    fn get_shrouded_status(
+        &self,
+        target: ObjectHandle,
+        viewer_player_id: u32,
+    ) -> ObjectShroudStatus;
 
     /// Whether the object has a SupplyTruckAI interface.
     fn has_supply_truck_ai(&self, id: ObjectHandle) -> bool;
@@ -210,7 +214,11 @@ pub trait ObjectDataProvider: Send + Sync {
 
     /// The apparent controlling player as seen by `viewer_player_id`.
     /// Used for stealth / disguise logic.
-    fn get_apparent_controlling_player(&self, id: ObjectHandle, viewer_player_id: u32) -> Option<u32>;
+    fn get_apparent_controlling_player(
+        &self,
+        id: ObjectHandle,
+        viewer_player_id: u32,
+    ) -> Option<u32>;
 }
 
 // ================================================================================================
@@ -976,10 +984,7 @@ impl Object {
 
     #[inline]
     fn test_status_sold(&self) -> bool {
-        self.with_provider(
-            |p| p.test_status(self.handle, status_bit::SOLD),
-            false,
-        )
+        self.with_provider(|p| p.test_status(self.handle, status_bit::SOLD), false)
     }
 
     #[inline]
@@ -1014,12 +1019,18 @@ impl Object {
 
     #[inline]
     fn is_kind_of_repair_pad(&self) -> bool {
-        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::REPAIR_PAD), false)
+        self.with_provider(
+            |p| p.is_kind_of(self.handle, kind_of_bit::REPAIR_PAD),
+            false,
+        )
     }
 
     #[inline]
     fn is_kind_of_airfield(&self) -> bool {
-        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::FS_AIRFIELD), false)
+        self.with_provider(
+            |p| p.is_kind_of(self.handle, kind_of_bit::FS_AIRFIELD),
+            false,
+        )
     }
 
     #[inline]
@@ -1034,12 +1045,18 @@ impl Object {
 
     #[inline]
     fn is_kind_of_bridge_tower(&self) -> bool {
-        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::BRIDGE_TOWER), false)
+        self.with_provider(
+            |p| p.is_kind_of(self.handle, kind_of_bit::BRIDGE_TOWER),
+            false,
+        )
     }
 
     #[inline]
     fn is_kind_of_rebuild_hole(&self) -> bool {
-        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::REBUILD_HOLE), false)
+        self.with_provider(
+            |p| p.is_kind_of(self.handle, kind_of_bit::REBUILD_HOLE),
+            false,
+        )
     }
 
     #[inline]
@@ -1059,10 +1076,7 @@ impl Object {
 
     #[inline]
     fn get_controlling_player_id(&self) -> u32 {
-        self.with_provider(
-            |p| p.get_controlling_player_id(self.handle).unwrap_or(0),
-            0,
-        )
+        self.with_provider(|p| p.get_controlling_player_id(self.handle).unwrap_or(0), 0)
     }
 
     #[inline]
@@ -1133,10 +1147,7 @@ impl Object {
 
     #[inline]
     fn get_surrendered_player_index(&self) -> Option<u32> {
-        self.with_provider(
-            |p| p.get_surrendered_player_index(self.handle),
-            None,
-        )
+        self.with_provider(|p| p.get_surrendered_player_index(self.handle), None)
     }
 
     #[inline]

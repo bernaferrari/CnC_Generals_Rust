@@ -53,7 +53,9 @@ impl StackDump {
                         if idx_part.trim().parse::<usize>().is_ok() {
                             let rest = trimmed[colon_pos + 1..].trim();
                             if rest.starts_with("0x") {
-                                if let Ok(addr) = usize::from_str_radix(rest.trim_start_matches("0x"), 16) {
+                                if let Ok(addr) =
+                                    usize::from_str_radix(rest.trim_start_matches("0x"), 16)
+                                {
                                     frames.push(StackFrame {
                                         function_name: None,
                                         file_name: None,

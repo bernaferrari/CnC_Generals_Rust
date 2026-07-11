@@ -312,13 +312,32 @@ mod tests {
         let fx_list = parse_fx_list_definition("AllTypesFX", &props).unwrap();
         assert_eq!(fx_list.nuggets.len(), 8);
 
-        assert!(matches!(&fx_list.nuggets[0], FXNugget::Sound { name } if name.to_str() == "BoomSound"));
+        assert!(
+            matches!(&fx_list.nuggets[0], FXNugget::Sound { name } if name.to_str() == "BoomSound")
+        );
         assert!(matches!(&fx_list.nuggets[1], FXNugget::Tracer { .. }));
         assert!(matches!(&fx_list.nuggets[2], FXNugget::RayEffect { .. }));
         assert!(matches!(&fx_list.nuggets[3], FXNugget::LightPulse { .. }));
-        assert!(matches!(&fx_list.nuggets[4], FXNugget::ViewShake { shake_type: CameraShakeType::Strong }));
-        assert!(matches!(&fx_list.nuggets[5], FXNugget::TerrainScorch { scorch_type: ScorchType::Random, .. }));
-        assert!(matches!(&fx_list.nuggets[6], FXNugget::ParticleSystem { .. }));
-        assert!(matches!(&fx_list.nuggets[7], FXNugget::FXListAtBonePos { .. }));
+        assert!(matches!(
+            &fx_list.nuggets[4],
+            FXNugget::ViewShake {
+                shake_type: CameraShakeType::Strong
+            }
+        ));
+        assert!(matches!(
+            &fx_list.nuggets[5],
+            FXNugget::TerrainScorch {
+                scorch_type: ScorchType::Random,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &fx_list.nuggets[6],
+            FXNugget::ParticleSystem { .. }
+        ));
+        assert!(matches!(
+            &fx_list.nuggets[7],
+            FXNugget::FXListAtBonePos { .. }
+        ));
     }
 }

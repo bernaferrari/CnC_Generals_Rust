@@ -1190,9 +1190,7 @@ pub struct RankThresholdStore {
 
 impl RankThresholdStore {
     pub fn new() -> Self {
-        Self {
-            ranks: Vec::new(),
-        }
+        Self { ranks: Vec::new() }
     }
 
     /// Number of defined rank levels.
@@ -1570,10 +1568,7 @@ impl GeneralsExperience {
     ///
     /// Utility for external callers that need to know the rank without
     /// modifying state.
-    pub fn calculate_rank_for_points(
-        skill_points: i32,
-        rank_store: &RankThresholdStore,
-    ) -> i32 {
+    pub fn calculate_rank_for_points(skill_points: i32, rank_store: &RankThresholdStore) -> i32 {
         rank_store.get_rank_level_for_skill_points(skill_points)
     }
 }
@@ -2239,21 +2234,9 @@ mod tests {
         let disabled = HashSet::new();
         let hidden = HashSet::new();
 
-        assert!(exp.is_capable_of_purchasing_science(
-            200,
-            &owned,
-            &disabled,
-            &hidden,
-            &sci_store,
-        ));
+        assert!(exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,));
 
-        let cost = exp.attempt_purchase_science(
-            200,
-            &owned,
-            &disabled,
-            &hidden,
-            &sci_store,
-        );
+        let cost = exp.attempt_purchase_science(200, &owned, &disabled, &hidden, &sci_store);
         assert_eq!(cost, Some(1));
         assert_eq!(exp.science_purchase_points, 0);
     }
@@ -2279,13 +2262,7 @@ mod tests {
         let disabled = HashSet::new();
         let hidden = HashSet::new();
 
-        assert!(!exp.is_capable_of_purchasing_science(
-            200,
-            &owned,
-            &disabled,
-            &hidden,
-            &sci_store,
-        ));
+        assert!(!exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,));
     }
 
     #[test]
@@ -2308,12 +2285,6 @@ mod tests {
         let disabled = HashSet::new();
         let hidden = HashSet::new();
 
-        assert!(!exp.is_capable_of_purchasing_science(
-            200,
-            &owned,
-            &disabled,
-            &hidden,
-            &sci_store,
-        ));
+        assert!(!exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,));
     }
 }

@@ -193,9 +193,7 @@ impl TunnelTracker {
             let objects_to_destroy: Vec<ObjectID> = self.contain_list.drain(..).collect();
             self.contain_list_size = 0;
 
-            TunnelDestroyResult::CaveIn {
-                objects_to_destroy,
-            }
+            TunnelDestroyResult::CaveIn { objects_to_destroy }
         } else {
             // Otherwise, make sure nobody inside remembers the dead tunnel as the one they entered
             // (scripts need to use so there must be something valid here)
@@ -203,11 +201,7 @@ impl TunnelTracker {
             let valid_tunnel_id = self.tunnel_ids.first().copied();
 
             // Collect object IDs that need reassignment (those contained by the dead tunnel)
-            let objects_to_reassign: Vec<ObjectID> = self
-                .contain_list
-                .iter()
-                .copied()
-                .collect();
+            let objects_to_reassign: Vec<ObjectID> = self.contain_list.iter().copied().collect();
 
             TunnelDestroyResult::Reassign {
                 dead_tunnel_id,
@@ -245,7 +239,10 @@ impl TunnelTracker {
             // C++ line 90: if (target)
             if let Some(tid) = target_id {
                 // C++ lines 91-93: kindof checks
-                if target_is_vehicle || target_is_structure || target_is_infantry || target_is_aircraft
+                if target_is_vehicle
+                    || target_is_structure
+                    || target_is_infantry
+                    || target_is_aircraft
                 {
                     self.cur_nemesis_id = tid;
                     self.nemesis_timestamp = current_frame;
@@ -372,9 +369,7 @@ impl Default for TunnelTracker {
 #[derive(Debug, Clone)]
 pub enum TunnelDestroyResult {
     /// Last tunnel destroyed - cave in! All contained objects must be destroyed.
-    CaveIn {
-        objects_to_destroy: Vec<ObjectID>,
-    },
+    CaveIn { objects_to_destroy: Vec<ObjectID> },
     /// A tunnel was destroyed but others remain. Objects referencing the dead tunnel
     /// need to be reassigned to a valid one.
     Reassign {
@@ -433,8 +428,9 @@ impl Snapshotable for TunnelTracker {
             XferMode::Save | XferMode::Crc => {
                 for &obj_id in &self.contain_list {
                     let mut id = obj_id;
-                    xfer.xfer_object_id(&mut id)
-                        .map_err(|e| format!("TunnelTracker::xfer contain object ID error: {}", e))?;
+                    xfer.xfer_object_id(&mut id).map_err(|e| {
+                        format!("TunnelTracker::xfer contain object ID error: {}", e)
+                    })?;
                 }
             }
             XferMode::Load => {
@@ -551,9 +547,7 @@ mod tests {
 
         let result = tracker.on_tunnel_destroyed(200);
         match result {
-            TunnelDestroyResult::CaveIn {
-                objects_to_destroy,
-            } => {
+            TunnelDestroyResult::CaveIn { objects_to_destroy } => {
                 assert_eq!(objects_to_destroy.len(), 2);
                 assert!(objects_to_destroy.contains(&50));
                 assert!(objects_to_destroy.contains(&51));
