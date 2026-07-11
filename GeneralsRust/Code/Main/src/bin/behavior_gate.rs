@@ -31,8 +31,8 @@ fn main() {
         failed.push(format!("map_frame status={:?}", map.status));
     }
 
-    // 2) Golden skirmish vertical slice.
-    let golden = run_golden_skirmish(None, 12);
+    // 2) Golden skirmish vertical slice (enough end frames; combat has its own budget).
+    let golden = run_golden_skirmish(None, 30);
     println!("golden: {}", format_golden_report(&golden));
     if golden.status != "success" || !golden.victory || !golden.save_load_ok || !golden.fought {
         failed.push(format!(
@@ -86,11 +86,10 @@ fn main() {
     }
 
     if failed.is_empty() {
-        // Honest reading: headless host APIs cooperate. Golden combat is synthetic
-        // (no retail map army, AI disabled). Shell has no window/WND/GPU.
-        // playable_claim remains false on those paths — do not read as retail playable.
+        // Shell remains headless (no window/WND). Golden may set playable_claim when
+        // AI-on host combat/victory holds; still not multiplayer/campaign/windowed retail.
         println!(
-            "behavior_gate: PASS (headless host systems; golden synthetic_combat=true playable_claim=false; shell playable_claim=false; not windowed retail match)"
+            "behavior_gate: PASS (headless host skirmish path; golden playable_claim may be true for non-network host only; shell playable_claim=false; not windowed retail product)"
         );
         std::process::exit(0);
     }
