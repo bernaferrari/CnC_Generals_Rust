@@ -139,12 +139,8 @@ impl RefPackEncoder {
         }
 
         // Handle remaining bytes
-        for i in matched..len {
-            if data1[i] == data2[i] {
-                matched += 1;
-            } else {
-                break;
-            }
+        while matched < len && data1[matched] == data2[matched] {
+            matched += 1;
         }
 
         matched

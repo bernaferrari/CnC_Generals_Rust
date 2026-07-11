@@ -193,9 +193,8 @@ impl BTreeEncoder {
         if let Some(symbol) = single_symbol {
             // Special case: single symbol gets code "0"
             self.code_table[symbol as usize] = Some(vec![false]);
-        } else if self.tree_root.is_some() {
+        } else if let Some(root) = self.tree_root.as_ref() {
             let mut code = Vec::new();
-            let root = self.tree_root.as_ref().unwrap();
             Self::generate_codes_recursive_impl(root, &mut code, &mut self.code_table);
         }
     }
