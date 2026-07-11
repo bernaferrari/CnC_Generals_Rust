@@ -507,7 +507,7 @@ impl ShaderApplyResources {
 
     /// Apply these resources to a render pass
     pub fn apply_to_render_pass<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        render_pass.set_pipeline(&*self.pipeline);
+        render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &*self.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &*self.model_bind_group, &[]);
         render_pass.set_bind_group(2, &*self.uv_transform_bind_group, &[]);

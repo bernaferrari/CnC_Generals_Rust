@@ -277,7 +277,9 @@ impl Default for EmissionVelocity {
 
 /// Emission volume configuration
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub enum EmissionVolume {
+    #[default]
     Point,
     Line {
         start: Point3<f32>,
@@ -295,11 +297,6 @@ pub enum EmissionVolume {
     },
 }
 
-impl Default for EmissionVolume {
-    fn default() -> Self {
-        EmissionVolume::Point
-    }
-}
 
 /// Particle system information (matches C++ ParticleSystemInfo)
 #[derive(Debug, Clone)]
@@ -1098,7 +1095,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         };
         let manager = manager_guard.as_ref()?;
         let template = manager.find_template(name)?;
-        let id = NameKeyGenerator::name_to_key(template.name()) as u32;
+        let id = NameKeyGenerator::name_to_key(template.name());
         if let Ok(mut map) = template_id_map().write() {
             map.insert(id, template.name().to_string());
         }
@@ -1249,7 +1246,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    system.set_emission_volume_sphere_radius(radius as f32);
+                    system.set_emission_volume_sphere_radius(radius);
                 }
             }
         }
@@ -1263,7 +1260,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    system.set_emission_volume_cylinder_radius(radius as f32);
+                    system.set_emission_volume_cylinder_radius(radius);
                 }
             }
         }

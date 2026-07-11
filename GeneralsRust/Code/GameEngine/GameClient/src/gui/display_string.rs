@@ -95,6 +95,12 @@ impl DisplayFontSource for &LegacyGameFont {
     }
 }
 
+impl Default for DisplayString {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DisplayString {
     pub fn new() -> Self {
         Self {

@@ -37,6 +37,12 @@ pub struct NamedPivotMap {
     resolved: PivotWeightMap,
 }
 
+impl Default for NamedPivotMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NamedPivotMap {
     pub fn new() -> Self {
         Self {
@@ -337,16 +343,14 @@ impl HAnimCombo {
 
                 if total.abs() > f32::EPSILON && (total - 1.0).abs() > f32::EPSILON {
                     let inv_total = 1.0 / total;
-                    for map_opt in resolved_maps.iter_mut() {
-                        if let Some(map) = map_opt {
-                            let new_weight = map.element(pivot) * inv_total;
-                            *map.element_mut(pivot) = new_weight;
-                        }
+                    for map in resolved_maps.iter_mut().flatten() {
+                        let new_weight = map.element(pivot) * inv_total;
+                        *map.element_mut(pivot) = new_weight;
                     }
                 }
             }
 
-            for (entry, map_opt) in self.entries.iter_mut().zip(resolved_maps.into_iter()) {
+            for (entry, map_opt) in self.entries.iter_mut().zip(resolved_maps) {
                 if let Some(map) = map_opt {
                     entry.set_resolved_pivot_map(map);
                 }

@@ -24,6 +24,12 @@ pub struct RadarNotifications {
     queue: Mutex<VecDeque<RadarEntry>>,
 }
 
+impl Default for RadarNotifications {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RadarNotifications {
     pub fn new() -> Self {
         Self {

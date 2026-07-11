@@ -519,7 +519,7 @@ mod tests {
         let generator = MipmapGenerator::new_default();
 
         // 4x4 red image
-        let base_data = vec![255u8, 0, 0, 255].repeat(16); // 4x4 red pixels
+        let base_data = [255u8, 0, 0, 255].repeat(16); // 4x4 red pixels
 
         let mipmaps = generator.generate_mipmaps(&base_data, 4, 4).unwrap();
 

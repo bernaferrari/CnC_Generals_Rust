@@ -291,7 +291,7 @@ impl CreditsManager {
                 let needs_new = self
                     .credit_lines
                     .last()
-                    .map_or(true, |line| line.style != CreditStyle::Column || line.done);
+                    .is_none_or(|line| line.style != CreditStyle::Column || line.done);
                 if needs_new {
                     let mut line = CreditsLine::new(CreditStyle::Column);
                     line.text = self.to_display_text(text);

@@ -577,42 +577,42 @@ impl ParticleSystemINIParser {
         self.shader_type_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     fn parse_particle_type(&self, value: &str) -> Result<ParticleType, INIError> {
         self.particle_type_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     fn parse_emission_velocity_type(&self, value: &str) -> Result<EmissionVelocityType, INIError> {
         self.emission_velocity_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     fn parse_emission_volume_type(&self, value: &str) -> Result<EmissionVolumeType, INIError> {
         self.emission_volume_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     fn parse_priority(&self, value: &str) -> Result<ParticlePriorityType, INIError> {
         self.priority_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     fn parse_wind_motion(&self, value: &str) -> Result<WindMotion, INIError> {
         self.wind_motion_names
             .get(value)
             .copied()
-            .ok_or_else(|| INIError::InvalidValue)
+            .ok_or(INIError::InvalidValue)
     }
 
     // Initialize name mappings (matches C++ arrays exactly)

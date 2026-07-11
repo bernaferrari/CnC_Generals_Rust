@@ -253,7 +253,6 @@ impl SkeletalAnimationSynchronizer {
         // 3. Ensure material animations stay synchronized
 
         if !context.is_playing {
-            return;
         }
 
         // This would integrate with HAnim/HCompressedAnim playback
@@ -427,7 +426,7 @@ mod tests {
         let elapsed = clock.elapsed_seconds();
         // Allow looser tolerance for sleep timing
         assert!(
-            elapsed >= 0.03 && elapsed <= 0.2,
+            (0.03..=0.2).contains(&elapsed),
             "Timing should be ~50ms (got {}s)",
             elapsed
         );
@@ -472,7 +471,7 @@ mod tests {
     fn test_animation_speed_multiplier() {
         let mut clock = AnimationClock::new();
         clock.set_speed(2.0);
-        assert_eq!(clock.is_playing(), true);
+        assert!(clock.is_playing());
 
         clock.reset();
         assert_eq!(clock.elapsed_seconds(), 0.0);

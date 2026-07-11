@@ -24,19 +24,16 @@ pub enum DeliveryMode {
 
 /// Message priority levels for routing and processing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum MessagePriority {
     Critical = 0,   // Must be processed immediately
     High = 1,       // Process before normal messages
+    #[default]
     Normal = 2,     // Standard priority
     Low = 3,        // Can be delayed if needed
     Background = 4, // Process when idle
 }
 
-impl Default for MessagePriority {
-    fn default() -> Self {
-        MessagePriority::Normal
-    }
-}
 
 /// Message filter criteria
 #[derive(Debug, Clone)]

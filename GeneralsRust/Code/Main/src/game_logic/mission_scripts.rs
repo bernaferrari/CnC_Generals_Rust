@@ -2204,7 +2204,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         snap_to_unit: bool,
     ) -> GameLogicResult<()> {
         self.hooks.push_camera_follow(CameraFollowRequest {
-            object_id: object_id as u32,
+            object_id,
             snap_to_unit,
         });
         Ok(())
@@ -2479,7 +2479,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     ) -> GameLogicResult<()> {
         self.hooks.push_superweapon_object_display_mutation(
             SuperweaponObjectDisplayMutation::Hide {
-                object_id: object_id as u32,
+                object_id,
             },
         );
         Ok(())
@@ -2491,7 +2491,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     ) -> GameLogicResult<()> {
         self.hooks.push_superweapon_object_display_mutation(
             SuperweaponObjectDisplayMutation::Show {
-                object_id: object_id as u32,
+                object_id,
             },
         );
         Ok(())
@@ -2527,7 +2527,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     ) -> GameLogicResult<()> {
         self.hooks
             .push_camera_look_toward_object(CameraLookTowardObjectRequest {
-                object_id: object_id as u32,
+                object_id,
                 duration_seconds: seconds,
                 hold_seconds,
                 ease_in_seconds,

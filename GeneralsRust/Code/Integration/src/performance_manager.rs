@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::time::interval;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 use ww3d_engine::FrameTiming;
 
 use crate::event_system::{EventPriority, EventSystem, SystemEvent};
@@ -451,8 +451,8 @@ impl PerformanceManager {
         #[cfg(target_os = "macos")]
         {
             // macOS implementation using host_processor_info
-            use std::mem;
-            use std::ptr;
+            
+            
 
             // Simplified CPU usage estimation for macOS
             // In a real implementation, you'd use mach/host_info.h functions

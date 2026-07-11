@@ -135,7 +135,7 @@ impl WindowManager {
         percent: i32,
         color: Color,
     ) {
-        if percent < 1 || percent > 100 {
+        if !(1..=100).contains(&percent) {
             return;
         }
         let color = color_to_rgba(color);
@@ -284,7 +284,7 @@ impl WindowManager {
         percent: i32,
         color: Color,
     ) {
-        if percent < 0 || percent > 99 {
+        if !(0..=99).contains(&percent) {
             return;
         }
         let color = color_to_rgba(color);

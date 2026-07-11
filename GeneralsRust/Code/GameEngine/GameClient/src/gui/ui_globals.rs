@@ -26,7 +26,7 @@ where
 }
 
 thread_local! {
-    static ACTIVE_UI_RENDERER_PTR: std::cell::Cell<Option<*mut UIRenderer>> = std::cell::Cell::new(None);
+    static ACTIVE_UI_RENDERER_PTR: std::cell::Cell<Option<*mut UIRenderer>> = const { std::cell::Cell::new(None) };
 }
 
 /// Set the active UI renderer pointer during draw traversal.
@@ -54,6 +54,6 @@ where
 
     with_ui_renderer(|arc| {
         let mut guard = arc.write().ok()?;
-        Some(f(&mut *guard))
+        Some(f(&mut guard))
     })?
 }

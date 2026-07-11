@@ -198,7 +198,7 @@ pub fn ray_triangle_intersection(
     let s = ray.origin - triangle.v0;
     let u = f * s.dot(h);
 
-    if u < 0.0 || u > 1.0 {
+    if !(0.0..=1.0).contains(&u) {
         return None;
     }
 
@@ -251,15 +251,7 @@ pub fn line_segment_triangle_intersection(
     let length = direction.length();
     let ray = Ray::new(segment.start, direction.normalize());
 
-    if let Some(result) = ray_triangle_intersection(&ray, triangle, false) {
-        if result.distance <= length {
-            Some(result)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    ray_triangle_intersection(&ray, triangle, false).filter(|&result| result.distance <= length)
 }
 
 /// Test sphere-sphere intersection
@@ -412,15 +404,7 @@ pub fn line_segment_aabb_intersection(
     let ray = Ray::new(segment.start, (segment.end - segment.start).normalize());
     let length = (segment.end - segment.start).length();
 
-    if let Some(result) = ray_aabb_intersection(&ray, aabb) {
-        if result.distance <= length {
-            Some(result)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    ray_aabb_intersection(&ray, aabb).filter(|&result| result.distance <= length)
 }
 
 /// Test point-in-triangle

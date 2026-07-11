@@ -161,7 +161,7 @@ pub fn in_game_popup_message_input(
 
     let state_handle = popup_ui_state();
     let state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let button_ok_id = state_guard.button_ok_id.unwrap_or(0) as u32;
+    let button_ok_id = state_guard.button_ok_id.unwrap_or(0);
 
     with_window_manager(|manager| {
         if let Some(handle) = manager.get_window_by_id(window.get_id()) {

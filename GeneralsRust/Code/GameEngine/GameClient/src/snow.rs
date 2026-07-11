@@ -121,7 +121,7 @@ fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
             if key.eq_ignore_ascii_case("End") {
                 break;
             }
-            let args: Vec<&str> = tokens[1..].iter().copied().collect();
+            let args: Vec<&str> = tokens[1..].to_vec();
             guard.apply_field(key, &args)?;
         }
     }
@@ -151,6 +151,12 @@ pub struct SnowManager {
     min_point_size: f32,
     full_time_period: f32,
     is_visible: bool,
+}
+
+impl Default for SnowManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SnowManager {

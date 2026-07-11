@@ -229,7 +229,7 @@ fn test_frame_graph_prepared_queues_creation() {
 
 #[test]
 fn test_frame_graph_prepared_queues_combined_translucent() {
-    let mut queues = FrameGraphPreparedQueues::default();
+    let queues = FrameGraphPreparedQueues::default();
 
     // Prepare some alpha meshes (would normally be Arc<MeshClass>)
     // For testing, we just verify the method works with empty queues
@@ -352,7 +352,7 @@ fn test_pipeline_hint_clone() {
 
 #[test]
 fn test_frame_graph_multiple_shadow_passes() {
-    let passes: Vec<FrameGraphPass> = (0..8).map(|i| FrameGraphPass::Shadow(i)).collect();
+    let passes: Vec<FrameGraphPass> = (0..8).map(FrameGraphPass::Shadow).collect();
 
     // Should create 8 distinct shadow passes
     assert_eq!(passes.len(), 8);

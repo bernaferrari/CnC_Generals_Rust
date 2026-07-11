@@ -90,6 +90,12 @@ pub struct AABTree {
     pub poly_count: usize,
 }
 
+impl Default for AABTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AABTree {
     /// Leaf flag constant
     pub const LEAF_FLAG: u32 = 0x80000000;
@@ -136,7 +142,7 @@ impl AABTree {
         }
 
         let mut context = OBBoxAPTContext {
-            obbox: obbox.clone(),
+            obbox: *obbox,
             apt,
         };
 
@@ -157,7 +163,7 @@ impl AABTree {
         }
 
         let mut context = OBBoxRayAPTContext {
-            obbox: obbox.clone(),
+            obbox: *obbox,
             view_vector: view_dir,
             apt,
             mesh,
@@ -570,7 +576,7 @@ impl AABTree {
         let s = ray.origin - v0;
         let u = f * s.dot(h);
 
-        if u < 0.0 || u > 1.0 {
+        if !(0.0..=1.0).contains(&u) {
             return false;
         }
 
@@ -792,6 +798,12 @@ pub struct AABTreeBuilder {
     rng_state: u64,
 }
 
+impl Default for AABTreeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AABTreeBuilder {
     pub fn new() -> Self {
         Self {
@@ -908,7 +920,7 @@ impl AABTreeBuilder {
                     {
                         if best
                             .as_ref()
-                            .map_or(true, |current| choice.cost < current.cost)
+                            .is_none_or(|current| choice.cost < current.cost)
                         {
                             best = Some(choice);
                         }
@@ -926,7 +938,7 @@ impl AABTreeBuilder {
                     {
                         if best
                             .as_ref()
-                            .map_or(true, |current| choice.cost < current.cost)
+                            .is_none_or(|current| choice.cost < current.cost)
                         {
                             best = Some(choice);
                         }

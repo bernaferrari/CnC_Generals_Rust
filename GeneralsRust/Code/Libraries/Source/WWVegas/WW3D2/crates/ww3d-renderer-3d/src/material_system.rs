@@ -316,6 +316,12 @@ impl Clone for MaterialPass {
     }
 }
 
+impl Default for MaterialPass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MaterialPass {
     pub fn new() -> Self {
         let mut shader = ShaderClass::new();
@@ -419,11 +425,11 @@ impl MaterialManager {
             }
 
             // Check texture compatibility
-            for (_i, (curr_tex, other_tex)) in current
+            for (curr_tex, other_tex) in current
                 .textures
                 .iter()
                 .zip(other.textures.iter())
-                .enumerate()
+                
             {
                 match (curr_tex, other_tex) {
                     (Some(curr_tex), Some(other_tex)) => {

@@ -105,21 +105,25 @@ impl DeviceInterface {
     }
 
     /// Get platform capabilities
+    #[must_use]
     pub fn get_capabilities(&self) -> &PlatformCapabilities {
         &self.capabilities
     }
 
     /// Get system information
+    #[must_use]
     pub fn get_system_info(&self) -> &SystemInfo {
         &self.system_info
     }
 
     /// Check if a feature is supported
+    #[must_use]
     pub fn supports_feature(&self, feature: PlatformFeature) -> bool {
         self.capabilities.supported_features.contains(&feature)
     }
 
     /// Get feature-specific capabilities
+    #[must_use]
     pub fn get_feature_capabilities(&self, feature: &str) -> Option<&serde_json::Value> {
         self.capabilities.feature_capabilities.get(feature)
     }
@@ -325,8 +329,7 @@ impl DeviceInterface {
     async fn detect_performance_profile() -> PerformanceProfile {
         // Simplified performance detection - real implementation would benchmark
         let cpu_cores = std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1) as u32;
+            .map_or(1, std::num::NonZero::get) as u32;
 
         let cpu_tier = match cpu_cores {
             1..=2 => 3,
@@ -394,6 +397,7 @@ pub struct MemoryUsage {
 
 impl MemoryUsage {
     /// Get physical memory usage percentage
+    #[must_use]
     pub fn physical_usage_percent(&self) -> f32 {
         if self.physical_total > 0 {
             (self.physical_used as f64 / self.physical_total as f64 * 100.0) as f32
@@ -403,6 +407,7 @@ impl MemoryUsage {
     }
 
     /// Get virtual memory usage percentage
+    #[must_use]
     pub fn virtual_usage_percent(&self) -> f32 {
         if self.virtual_total > 0 {
             (self.virtual_used as f64 / self.virtual_total as f64 * 100.0) as f32

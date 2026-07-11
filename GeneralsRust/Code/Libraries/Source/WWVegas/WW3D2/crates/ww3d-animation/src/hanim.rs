@@ -13,10 +13,12 @@ const FRAME_EPS: f32 = 1e-5;
 /// Animation playback modes matching C++ RenderObjClass::AnimMode
 /// Reference: rendobj.h:331-339
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum AnimationMode {
     /// ANIM_MODE_MANUAL - Application controls frame manually
     Manual,
     /// ANIM_MODE_LOOP - Loop continuously
+    #[default]
     Loop,
     /// ANIM_MODE_ONCE - Play once and stop at last frame
     Once,
@@ -28,11 +30,6 @@ pub enum AnimationMode {
     OnceBackwards,
 }
 
-impl Default for AnimationMode {
-    fn default() -> Self {
-        AnimationMode::Loop
-    }
-}
 
 /// Animation event for triggering game logic at specific frames
 #[derive(Debug, Clone)]
@@ -641,7 +638,7 @@ impl HAnimClass {
                 if self.num_frames > 0 {
                     let max_frame = self.num_frames as f32;
                     if self.current_frame >= max_frame {
-                        self.current_frame = self.current_frame % max_frame;
+                        self.current_frame %= max_frame;
                     }
                 }
             }
@@ -829,7 +826,7 @@ mod tests {
         anim.update(0.4); // 12 frames - should be at frame 6 going backward (9 - 3)
         let frame = anim.get_current_frame();
         assert!(
-            frame >= 0.0 && frame <= 9.0,
+            (0.0..=9.0).contains(&frame),
             "Frame should be within valid range during pingpong, got {}",
             frame
         );
@@ -967,7 +964,7 @@ mod tests {
         let events = anim.get_events_since_last_frame();
         // Should trigger the late event (25) and early event (5) due to wrap
         assert!(
-            events.len() >= 1,
+            !events.is_empty(),
             "Should trigger events across wrap boundary"
         );
     }

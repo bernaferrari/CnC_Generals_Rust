@@ -647,8 +647,8 @@ impl Gadget for TabControl {
                 self.hovered_tab = self.tab_at_position(*x, *y).map(|idx| idx as u32);
             }
 
-            InputEvent::MouseDown { x, y, button } => {
-                if *button == MouseButton::Left {
+            InputEvent::MouseDown { x, y, button }
+                if *button == MouseButton::Left => {
                     if let Some(tab_index) = self.tab_at_position(*x, *y) {
                         if tab_index == self.active_tab_index() {
                             return vec![GadgetMessage::Custom {
@@ -668,7 +668,6 @@ impl Gadget for TabControl {
                         data: "input_handled".to_string(),
                     }];
                 }
-            }
 
             _ => {}
         }

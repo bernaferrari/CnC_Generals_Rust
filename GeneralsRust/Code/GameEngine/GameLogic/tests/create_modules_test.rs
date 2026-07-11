@@ -6,49 +6,49 @@ mod create_module_tests {
 
     #[test]
     fn test_preorder_create_module_exists() {
-        let data = PreorderCreateData::default();
+        let _data = PreorderCreateData::default();
         assert!(true); // Module compiles and can be instantiated
     }
 
     #[test]
     fn test_special_power_create_module_exists() {
-        let data = SpecialPowerCreateData::default();
+        let _data = SpecialPowerCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_veterancy_gain_create_module_exists() {
-        let data = VeterancyGainCreateData::default();
+        let _data = VeterancyGainCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_grant_upgrade_create_module_exists() {
-        let data = GrantUpgradeCreateData::default();
+        let _data = GrantUpgradeCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_supply_warehouse_create_module_exists() {
-        let data = SupplyWarehouseCreateData::default();
+        let _data = SupplyWarehouseCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_supply_center_create_module_exists() {
-        let data = SupplyCenterCreateData::default();
+        let _data = SupplyCenterCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_lock_weapon_create_module_exists() {
-        let data = LockWeaponCreateData::default();
+        let _data = LockWeaponCreateData::default();
         assert!(true);
     }
 
     #[test]
     fn test_eva_announce_client_create_module_exists() {
-        let data = EvaAnnounceClientCreateData::default();
+        let _data = EvaAnnounceClientCreateData::default();
         assert!(true);
     }
 

@@ -355,12 +355,12 @@ pub fn lan_map_select_menu_system(
                 return WindowMsgHandled::Handled;
             }
         }
-        WindowMessage::User(0x8000) => {
-            if data1 as i32 == state.listbox_map_id {
+        WindowMessage::User(0x8000)
+            if data1 as i32 == state.listbox_map_id => {
                 if (data2 as i32) >= 0 {
                     if let Some(listbox) = state.listbox_map.as_ref() {
                         if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-                            let _ = widget.select_index(data2 as usize, KeyModifiers::none());
+                            let _ = widget.select_index(data2, KeyModifiers::none());
                         }
                     }
                 }
@@ -375,7 +375,6 @@ pub fn lan_map_select_menu_system(
                 }
                 return WindowMsgHandled::Handled;
             }
-        }
         _ => {}
     }
 

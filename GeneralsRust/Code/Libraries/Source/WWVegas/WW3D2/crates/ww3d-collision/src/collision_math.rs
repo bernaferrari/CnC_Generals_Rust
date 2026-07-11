@@ -146,7 +146,7 @@ impl CollisionMath {
 
         // Calculate intersection fraction
         let t = start_dist / (start_dist - end_dist);
-        if t < 0.0 || t > 1.0 || t >= result.fraction {
+        if !(0.0..=1.0).contains(&t) || t >= result.fraction {
             return false;
         }
 

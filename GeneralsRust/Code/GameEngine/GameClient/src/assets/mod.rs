@@ -142,19 +142,16 @@ impl AssetType {
 
 /// Asset priority levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum AssetPriority {
     Critical = 0, // UI, core game assets
     High = 1,     // Currently visible/audible
+    #[default]
     Normal = 2,   // Near player, likely to be used soon
     Low = 3,      // Background preloading
     Lowest = 4,   // Optional assets
 }
 
-impl Default for AssetPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// Asset handle for efficient referencing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

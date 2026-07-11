@@ -34,6 +34,12 @@ pub struct VictorySummary {
     pub player_results: Vec<PlayerResult>,
 }
 
+impl Default for VictorySummary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VictorySummary {
     pub fn new() -> Self {
         Self {

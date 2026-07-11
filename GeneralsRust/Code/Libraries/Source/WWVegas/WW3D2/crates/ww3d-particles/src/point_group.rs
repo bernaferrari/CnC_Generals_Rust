@@ -201,9 +201,9 @@ impl PointGroup {
             .zip(&self.sizes)
             .zip(&self.orientations)
             .zip(&self.frames)
-            .enumerate()
+            
             .map(
-                |(_i, (((((view_pos, pos), color), size), orientation), frame))| {
+                |(((((view_pos, pos), color), size), orientation), frame)| {
                     let depth = view_pos.z;
                     SortableParticle {
                         instance_data: ParticleInstanceData {

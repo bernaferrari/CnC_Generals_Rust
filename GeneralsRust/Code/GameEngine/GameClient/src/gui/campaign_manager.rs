@@ -19,17 +19,14 @@ pub const MAX_DISPLAYED_UNITS: usize = 3;
 pub const INVALID_MISSION_NUMBER: i32 = -1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum GameDifficulty {
     Easy,
+    #[default]
     Normal,
     Hard,
 }
 
-impl Default for GameDifficulty {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Mission {
@@ -43,6 +40,12 @@ pub struct Mission {
     pub unit_names: [String; MAX_DISPLAYED_UNITS],
     pub voice_length: i32,
     pub general_name: String,
+}
+
+impl Default for Mission {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Mission {
@@ -77,6 +80,12 @@ pub struct Campaign {
     pub final_movie_name: String,
     pub is_challenge_campaign: bool,
     pub player_faction_name: String,
+}
+
+impl Default for Campaign {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Campaign {
@@ -146,7 +155,7 @@ impl From<&IniCampaign> for Campaign {
             name: c.name.clone(),
             first_mission: c.first_mission.clone(),
             campaign_name_label: c.campaign_name_label.clone(),
-            missions: c.missions.iter().map(|m| Mission::from(m)).collect(),
+            missions: c.missions.iter().map(Mission::from).collect(),
             final_movie_name: c.final_movie_name.clone(),
             is_challenge_campaign: c.is_challenge_campaign,
             player_faction_name: c.player_faction_name.clone(),
@@ -181,6 +190,12 @@ pub struct CampaignManager {
     current_rank_points: i32,
     difficulty: GameDifficulty,
     xfer_challenge_generals_player_template_num: i32,
+}
+
+impl Default for CampaignManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CampaignManager {
@@ -237,7 +252,7 @@ impl CampaignManager {
         self.campaign_list = store
             .campaign_names()
             .iter()
-            .filter_map(|name| store.get_campaign(name).map(|c| Campaign::from(c)))
+            .filter_map(|name| store.get_campaign(name).map(Campaign::from))
             .collect();
     }
 

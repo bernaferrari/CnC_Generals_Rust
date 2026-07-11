@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_read_fixed_string() {
-        let mut data = b"Hello\0\0\0\0\0\0\0\0\0\0\0".to_vec(); // 16 bytes
+        let data = b"Hello\0\0\0\0\0\0\0\0\0\0\0".to_vec(); // 16 bytes
         let chunk_data = create_chunk(0x00000002, false, &data);
         let mut reader = ChunkReaderSlice::from_slice(&chunk_data);
 

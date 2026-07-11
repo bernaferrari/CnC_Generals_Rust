@@ -80,12 +80,10 @@ fn test_gpu_skinning_set_multiple_bones() {
     // Test setting matrices for multiple bones
     let mut skinning = GPUSkinningData::new(64, 256);
 
-    let matrices = vec![
-        Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+    let matrices = [Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0)),
         Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)),
         Mat4::from_translation(Vec3::new(3.0, 0.0, 0.0)),
-        Mat4::from_translation(Vec3::new(4.0, 0.0, 0.0)),
-    ];
+        Mat4::from_translation(Vec3::new(4.0, 0.0, 0.0))];
 
     for (idx, matrix) in matrices.iter().enumerate() {
         skinning.set_bone_matrix(idx as u32, *matrix).unwrap();

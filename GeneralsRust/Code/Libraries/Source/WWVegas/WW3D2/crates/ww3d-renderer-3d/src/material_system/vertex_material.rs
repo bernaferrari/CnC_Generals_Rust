@@ -572,7 +572,7 @@ impl VertexMaterialClass {
     /// C++ Reference: vertmaterial.h lines 298-305
     pub fn reset_mappers(&mut self) {
         for mapper in self.mappers.iter_mut().flatten() {
-            Arc::get_mut(mapper).map(|m| m.reset());
+            if let Some(m) = Arc::get_mut(mapper) { m.reset() }
         }
     }
 
@@ -808,7 +808,7 @@ mod tests {
     fn test_vertex_material_creation() {
         let material = VertexMaterialClass::new();
         assert_eq!(material.get_name(), "");
-        assert_eq!(material.get_lighting(), true);
+        assert!(material.get_lighting());
         assert_eq!(material.get_opacity(), 1.0);
     }
 
@@ -863,9 +863,9 @@ mod tests {
     fn test_lighting_control() {
         let mut material = VertexMaterialClass::new();
 
-        assert_eq!(material.get_lighting(), true);
+        assert!(material.get_lighting());
         material.set_lighting(false);
-        assert_eq!(material.get_lighting(), false);
+        assert!(!material.get_lighting());
     }
 
     #[test]
@@ -912,17 +912,16 @@ mod tests {
         let mut material = VertexMaterialClass::new();
 
         // Test depth cue flag
-        assert_eq!(material.get_flag(MaterialFlags::DepthCue), false);
+        assert!(!material.get_flag(MaterialFlags::DepthCue));
         material.set_flag(MaterialFlags::DepthCue, true);
-        assert_eq!(material.get_flag(MaterialFlags::DepthCue), true);
+        assert!(material.get_flag(MaterialFlags::DepthCue));
 
         // Test multiple flags
         material.set_flag(MaterialFlags::DepthCueToAlpha, true);
-        assert_eq!(material.get_flag(MaterialFlags::DepthCue), true);
-        assert_eq!(material.get_flag(MaterialFlags::DepthCueToAlpha), true);
-        assert_eq!(
-            material.get_flag(MaterialFlags::CopySpecularToDiffuse),
-            false
+        assert!(material.get_flag(MaterialFlags::DepthCue));
+        assert!(material.get_flag(MaterialFlags::DepthCueToAlpha));
+        assert!(
+            !material.get_flag(MaterialFlags::CopySpecularToDiffuse)
         );
     }
 
@@ -947,12 +946,12 @@ mod tests {
         // Test needs normals
         let env_mapper = Arc::new(TextureMapperClass::new(TextureMapperType::Environment));
         material.set_mapper(Some(env_mapper), 1);
-        assert_eq!(material.do_mappers_need_normals(), true);
+        assert!(material.do_mappers_need_normals());
 
         // Test time variant
         let linear_mapper = Arc::new(TextureMapperClass::new(TextureMapperType::LinearOffset));
         material.set_mapper(Some(linear_mapper), 0);
-        assert_eq!(material.are_mappers_time_variant(), true);
+        assert!(material.are_mappers_time_variant());
     }
 
     #[test]
@@ -967,7 +966,7 @@ mod tests {
             prelit_diffuse.get_diffuse_color_source(),
             ColorSourceType::Color1
         );
-        assert_eq!(prelit_diffuse.get_lighting(), false);
+        assert!(!prelit_diffuse.get_lighting());
 
         // Test PRELIT_NODIFFUSE
         let prelit_no_diffuse = get_preset(PresetType::PrelitNoDiffuse).unwrap();
@@ -976,7 +975,7 @@ mod tests {
             prelit_no_diffuse.get_diffuse_color_source(),
             ColorSourceType::Material
         );
-        assert_eq!(prelit_no_diffuse.get_lighting(), false);
+        assert!(!prelit_no_diffuse.get_lighting());
     }
 
     #[test]
@@ -1039,7 +1038,7 @@ mod tests {
 
         // Setting properties should mark CRC as dirty
         material.set_shininess(32.0);
-        assert_eq!(material.crc_dirty, true);
+        assert!(material.crc_dirty);
 
         // Getting CRC should use the dirty flag
         let _crc = material.get_crc();

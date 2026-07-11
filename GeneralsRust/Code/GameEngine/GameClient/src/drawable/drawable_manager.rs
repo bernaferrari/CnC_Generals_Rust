@@ -553,7 +553,7 @@ impl DrawableManager {
 
         let all_ids: Vec<DrawableId> = self.drawables.keys().copied().collect();
         for id in all_ids {
-            let needs_second = self.drawables.get(&id).map_or(false, |e| {
+            let needs_second = self.drawables.get(&id).is_some_and(|e| {
                 let look = e.drawable.get_stealth_look();
                 look == StealthLook::VisibleDetected || look == StealthLook::VisibleFriendlyDetected
             });
@@ -566,7 +566,7 @@ impl DrawableManager {
 
         // Phase 2+3: Flush the bridge and record wgpu draw calls
         if let Some(pipeline_arc) =
-            super::drawable_draw_pipeline::with_drawable_pipeline(|p| Arc::clone(p))
+            super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
         {
             let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
@@ -703,7 +703,7 @@ impl DrawableManager {
         // Submit collected shadow geometry through the draw pipeline.
         if shadow_casters_visible > 0 {
             if let Some(pipeline_arc) =
-                super::drawable_draw_pipeline::with_drawable_pipeline(|p| Arc::clone(p))
+                super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
             {
                 let view = glam::Mat4::from_cols_slice(&{
                     let mut v = [0.0f32; 16];

@@ -31,6 +31,12 @@ pub struct GameMessageHandler {
     window: Option<Weak<Window>>,
 }
 
+impl Default for GameMessageHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameMessageHandler {
     pub fn new() -> Self {
         Self {

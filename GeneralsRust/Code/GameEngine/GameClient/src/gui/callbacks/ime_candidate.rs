@@ -138,11 +138,7 @@ pub fn ime_candidate_text_area_draw(window: &GameWindow, inst_data: &WindowInsta
         count = total - first;
     }
 
-    let selected = if selected_index >= first {
-        selected_index - first
-    } else {
-        0
-    };
+    let selected = selected_index.saturating_sub(first);
 
     display.set_text("00:");
     let width = display.get_width(-1);

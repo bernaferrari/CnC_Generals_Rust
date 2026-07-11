@@ -179,9 +179,9 @@ fn w3d_to_mu_vec3(source: &W3dVectorStruct) -> MuVec3 {
     MuVec3::new(source.x, source.y, source.z)
 }
 
-fn triangle_vertices<'a>(
+fn triangle_vertices(
     triangle: &W3dTriangleStruct,
-    vertices: &'a [W3dVectorStruct],
+    vertices: &[W3dVectorStruct],
 ) -> Option<[Vec3; 3]> {
     let idx0 = triangle.vindex[0] as usize;
     let idx1 = triangle.vindex[1] as usize;
@@ -828,7 +828,7 @@ impl MeshModelClass {
         model.stage_texture_coords = uv_sets;
         model.stage_uv_sources = stage_channels;
         model.per_stage_face_texcoord_ids = prototype.per_face_texcoord_ids.clone();
-        if let Some(stage0) = model.stage_texture_coords.get(0) {
+        if let Some(stage0) = model.stage_texture_coords.first() {
             model.texture_coords = stage0.clone();
         }
         if let Some(header) = &prototype.header {
@@ -1000,18 +1000,15 @@ impl MeshModelClass {
         if self.stage_texture_coords.is_empty() && !self.texture_coords.is_empty() {
             self.stage_texture_coords.push(self.texture_coords.clone());
         } else if self
-            .stage_texture_coords
-            .get(0)
-            .map_or(true, |layer| layer.is_empty())
-        {
-            if !self.texture_coords.is_empty() {
+            .stage_texture_coords.first()
+            .is_none_or(|layer| layer.is_empty())
+            && !self.texture_coords.is_empty() {
                 if self.stage_texture_coords.is_empty() {
                     self.stage_texture_coords.push(self.texture_coords.clone());
                 } else {
                     self.stage_texture_coords[0] = self.texture_coords.clone();
                 }
             }
-        }
     }
 
     /// Get mesh name - equivalent to C++ Get_Name
@@ -1353,6 +1350,12 @@ pub struct DX8PolygonRendererClass {
     pub vertex_material: Option<Arc<VertexMaterialClass>>,
 }
 
+impl Default for DX8PolygonRendererClass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DX8PolygonRendererClass {
     pub fn new() -> Self {
         Self {
@@ -1468,6 +1471,12 @@ pub struct DX8FVFCategoryContainer {
     pub texture_categories: HashMap<(u32, String), Arc<DX8TextureCategoryClass>>,
 }
 
+impl Default for DX8FVFCategoryContainer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DX8FVFCategoryContainer {
     pub fn new() -> Self {
         Self {
@@ -1560,6 +1569,12 @@ pub struct MeshClass {
 /// C++ Reference: Original code used static mut for mesh_debug_id assignment
 /// Rust Implementation: Uses AtomicU32 with SeqCst ordering for thread safety
 static MESH_DEBUG_ID_COUNT: AtomicU32 = AtomicU32::new(0);
+
+impl Default for MeshClass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MeshClass {
     pub fn new() -> Self {
@@ -2441,7 +2456,7 @@ impl MeshClass {
         // Copy basic properties
         new_mesh.name = self.name.clone();
         new_mesh.transform = self.transform;
-        new_mesh.bounding_box = self.bounding_box.clone();
+        new_mesh.bounding_box = self.bounding_box;
         new_mesh.bounding_sphere = self.bounding_sphere;
         new_mesh.sort_level = self.sort_level;
         new_mesh.is_hidden = self.is_hidden;
@@ -2770,7 +2785,7 @@ impl MeshClass {
 
         // Transform to world space
         // C++ Reference: Matrix3D::Transform_Center_Extent_AABox (matrix3d.cpp:1052-1078)
-        self.bounding_box = self.transform_aabox(&obj_box);
+        self.bounding_box = self.transform_aabox(obj_box);
     }
 
     /// Replace texture - equivalent to C++ MeshClass::Replace_Texture
@@ -4280,7 +4295,7 @@ impl MeshRenderManager {
     ) -> W3dResult<()> {
         if let Some((entries, sort_levels)) = StaticSortManager::snapshot_static_sort_list() {
             let mut buckets: BTreeMap<u32, Vec<StaticSortEntry>> = BTreeMap::new();
-            for (entry, sort_level) in entries.into_iter().zip(sort_levels.into_iter()) {
+            for (entry, sort_level) in entries.into_iter().zip(sort_levels) {
                 buckets.entry(sort_level).or_default().push(entry);
             }
 
@@ -4382,7 +4397,7 @@ fn compute_stage_masks(pass: &MaterialPassClass) -> StageMasks {
     for stage in 0..MAX_TEXTURE_STAGES {
         if let Some(texture) = pass.get_texture(stage) {
             mask |= 1 << stage;
-            let hint_bits = (texture.stage_settings.hint.to_bits() & 0x0F) as u32;
+            let hint_bits = texture.stage_settings.hint.to_bits() & 0x0F;
             hints |= hint_bits << (stage * 4);
             if texture.stage_settings.alpha_is_bitmap {
                 alpha_mask |= 1 << stage;
@@ -4766,7 +4781,7 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
 
             let start_hit =
                 model.intersect_obbox(&crate::render_object_system::OBBoxIntersectionTestClass {
-                    box_obj: local_test.box_obj.clone(),
+                    box_obj: local_test.box_obj,
                     collision_type: local_test.collision_type,
                 });
             let end_center = local_test.box_obj.center + local_test.move_vector;

@@ -3,7 +3,7 @@
 //! This example shows how to use the DesyncManager to detect and recover from
 //! game state desynchronization in a multiplayer game.
 
-use game_network::{DesyncInfo, DesyncManager};
+use game_network::DesyncManager;
 
 fn main() {
     println!("=== Desync Manager Demo ===\n");

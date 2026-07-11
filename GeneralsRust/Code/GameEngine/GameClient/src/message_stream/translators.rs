@@ -2062,8 +2062,8 @@ impl CommandTranslator {
                     }
                 }
             }
-        } else if pending_command_accepts_position(pending.options) {
-            if pending_command_position_valid(
+        } else if pending_command_accepts_position(pending.options)
+            && pending_command_position_valid(
                 &pending,
                 local_player_u32,
                 &self.current_selection,
@@ -2081,7 +2081,6 @@ impl CommandTranslator {
                     return messages;
                 }
             }
-        }
 
         if pending_command_accepts_object(pending.options)
             || pending_command_accepts_position(pending.options)
@@ -3453,8 +3452,8 @@ impl GUICommandTranslator {
                     }
                 }
             }
-        } else if pending_command_accepts_position(pending.options) {
-            if pending_command_position_valid(
+        } else if pending_command_accepts_position(pending.options)
+            && pending_command_position_valid(
                 &pending,
                 local_player_u32,
                 &selection_ids,
@@ -3464,7 +3463,6 @@ impl GUICommandTranslator {
                 translated =
                     pending_command_messages_for_position(&pending, world, &selection_ids, None);
             }
-        }
 
         for message in &translated {
             dispatch_translated_message(message);

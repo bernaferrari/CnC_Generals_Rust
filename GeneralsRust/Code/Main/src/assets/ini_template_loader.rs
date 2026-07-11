@@ -315,7 +315,7 @@ fn discover_upgrade_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String>
         })
         .collect();
 
-    discovered.sort_by(|a, b| a.cmp(b));
+    discovered.sort();
     discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     discovered
 }
@@ -336,7 +336,7 @@ fn discover_science_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String>
         })
         .collect();
 
-    discovered.sort_by(|a, b| a.cmp(b));
+    discovered.sort();
     discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     discovered
 }
@@ -392,11 +392,10 @@ pub async fn load_weapon_templates(
         let mut file_weapon_count = 0usize;
 
         for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Weapon") {
-                if register_weapon_template(block_name, properties) {
+            if block_type.eq_ignore_ascii_case("Weapon")
+                && register_weapon_template(block_name, properties) {
                     file_weapon_count += 1;
                 }
-            }
         }
 
         total_weapons += file_weapon_count;
@@ -455,11 +454,10 @@ pub async fn load_upgrade_templates(
         let mut file_upgrade_count = 0usize;
 
         for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Upgrade") {
-                if register_upgrade_template(block_name, properties) {
+            if block_type.eq_ignore_ascii_case("Upgrade")
+                && register_upgrade_template(block_name, properties) {
                     file_upgrade_count += 1;
                 }
-            }
         }
 
         total_upgrades += file_upgrade_count;
@@ -518,11 +516,10 @@ pub async fn load_science_templates(
         let mut file_science_count = 0usize;
 
         for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Science") {
-                if register_science_template(block_name, properties) {
+            if block_type.eq_ignore_ascii_case("Science")
+                && register_science_template(block_name, properties) {
                     file_science_count += 1;
                 }
-            }
         }
 
         total_sciences += file_science_count;

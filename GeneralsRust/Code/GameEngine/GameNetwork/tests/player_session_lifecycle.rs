@@ -9,13 +9,9 @@
 //! - Disconnection handling
 
 use game_network::connection::{
-    BandwidthMonitor, Connection, ConnectionConfig, ConnectionManager, ConnectionMonitor,
-    ConnectionState, TimeoutConfig, User, UserState,
+    BandwidthMonitor, ConnectionMonitor, TimeoutConfig, User, UserState,
 };
-use game_network::error::NetworkResult;
-use game_network::transport::{Transport, TransportProtocol};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 

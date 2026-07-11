@@ -367,7 +367,7 @@ impl SelectionTranslator {
                 .and_then(|contain| contain.lock().ok().map(|guard| guard.is_garrisonable()))
                 .unwrap_or(false);
             drawables.push(SelectableDrawable {
-                id: obj.get_id() as u32,
+                id: obj.get_id(),
                 object_id: obj.get_id(),
                 position: Coord3D::new(pos.x, pos.y, pos.z),
                 is_structure: obj.is_structure(),
@@ -540,8 +540,8 @@ impl SelectionTranslator {
 
             // If mouse has moved while left button is down, begin drag selection
             // Matches C++ SelectionXlat.cpp:399-408
-            if delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE {
-                if !self.drag_selecting {
+            if (delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE)
+                && !self.drag_selecting {
                     self.drag_selecting = true;
                     TheInGameUI::set_selecting(true);
                     debug!(
@@ -549,7 +549,6 @@ impl SelectionTranslator {
                         self.select_feedback_anchor
                     );
                 }
-            }
 
             // Create "hint" messages defining selection region under construction
             // Matches C++ SelectionXlat.cpp:410-420
@@ -757,12 +756,11 @@ impl SelectionTranslator {
             let use_alternate_mouse = is_alternate_mouse_enabled();
             let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
 
-            if !use_alternate_mouse || pending_place_source_object_id != 0 {
-                if !self.current_selection.is_empty() {
+            if (!use_alternate_mouse || pending_place_source_object_id != 0)
+                && !self.current_selection.is_empty() {
                     self.deselect_all();
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
                 }
-            }
         }
 
         messages

@@ -235,7 +235,7 @@ impl PlaceEventTranslator {
             BuildCanMakeType::Ok => {}
         }
 
-        let player_id = builder_guard.get_controlling_player_id().unwrap_or(0) as u32;
+        let player_id = builder_guard.get_controlling_player_id().unwrap_or(0);
         let validator = FoundationValidator::new_strict();
         let logic_world = LogicCoord3D::new(world.x, world.y, world.z);
         if let Err(err) =

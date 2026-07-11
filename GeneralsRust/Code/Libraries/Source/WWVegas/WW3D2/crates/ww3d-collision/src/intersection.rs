@@ -69,6 +69,12 @@ pub struct IntersectionClass {
     pub convex_test: bool,
 }
 
+impl Default for IntersectionClass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IntersectionClass {
     pub fn new() -> Self {
         Self {
@@ -182,7 +188,7 @@ impl IntersectionClass {
         let s = self.ray_location - triangle.vertices[0];
         let u = f * s.dot(h);
 
-        if u < 0.0 || u > 1.0 {
+        if !(0.0..=1.0).contains(&u) {
             return result;
         }
 

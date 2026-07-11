@@ -13,6 +13,7 @@ pub struct W3DThingFactory {
 
 impl W3DThingFactory {
     /// Creates a W3D thing factory with a fresh base `ThingFactory`.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             base: ThingFactory::new(),
@@ -20,6 +21,7 @@ impl W3DThingFactory {
     }
 
     /// Returns the underlying shared thing factory.
+    #[must_use]
     pub fn base(&self) -> &ThingFactory {
         &self.base
     }

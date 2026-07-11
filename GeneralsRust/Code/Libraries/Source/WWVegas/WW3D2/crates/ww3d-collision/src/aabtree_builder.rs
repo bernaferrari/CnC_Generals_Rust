@@ -137,6 +137,12 @@ pub struct AABTreeBuilder {
     verts: Vec<Vec3>,
 }
 
+impl Default for AABTreeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AABTreeBuilder {
     pub fn new() -> Self {
         Self {

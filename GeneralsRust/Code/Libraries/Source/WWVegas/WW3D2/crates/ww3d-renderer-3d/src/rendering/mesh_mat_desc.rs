@@ -639,7 +639,7 @@ impl MeshMatDesc {
     /// C++: Get_Single_Shader (meshmatdesc.h lines 125, 462-465)
     pub fn get_single_shader(&self, pass: usize) -> ShaderClass {
         if pass < MAX_PASSES {
-            self.shader[pass].clone()
+            self.shader[pass]
         } else {
             ShaderClass::default()
         }
@@ -754,7 +754,7 @@ impl MeshMatDesc {
                 .cloned()
                 .unwrap_or_default()
         } else {
-            self.shader[pass].clone()
+            self.shader[pass]
         }
     }
 
@@ -920,7 +920,7 @@ mod tests {
 
     #[test]
     fn test_mat_buffer() {
-        let mut buffer = MatBuffer::new(10);
+        let buffer = MatBuffer::new(10);
         assert_eq!(buffer.count(), 10);
 
         // All should be None initially
@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_tex_buffer() {
-        let mut buffer = TexBuffer::new(10);
+        let buffer = TexBuffer::new(10);
         assert_eq!(buffer.count(), 10);
 
         // All should be None initially

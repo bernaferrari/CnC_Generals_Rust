@@ -119,7 +119,7 @@ impl MockStunServer {
             StunNatType::Symmetric => {
                 // Different mapping per destination - use peer port to vary
                 let mut addr = self.xor_address;
-                addr.set_port(self.xor_address.port() + (peer.port() % 100) as u16);
+                addr.set_port(self.xor_address.port() + (peer.port() % 100));
                 addr
             }
             _ => self.xor_address,
@@ -1031,12 +1031,9 @@ async fn test_nat_type_behavior_validation() {
 
         // Receive response
         let mut buf = [0u8; 1024];
-        match timeout(Duration::from_secs(1), client_socket.recv_from(&mut buf)).await {
-            Ok(Ok((len, _))) => {
-                let response = buf[..len].to_vec();
-                responses.push(response);
-            }
-            _ => {}
+        if let Ok(Ok((len, _))) = timeout(Duration::from_secs(1), client_socket.recv_from(&mut buf)).await {
+            let response = buf[..len].to_vec();
+            responses.push(response);
         }
     }
 
@@ -1045,7 +1042,7 @@ async fn test_nat_type_behavior_validation() {
         "Received {} responses for Symmetric NAT test",
         responses.len()
     );
-    assert!(responses.len() > 0);
+    assert!(!responses.is_empty());
 }
 
 // Helper function to build a test STUN request
@@ -1110,10 +1107,7 @@ async fn test_concurrent_nat_operations() {
     // Wait for all clients to complete
     let mut successes = 0;
     for handle in handles {
-        match handle.await {
-            Ok(Some(_)) => successes += 1,
-            _ => {}
-        }
+        if let Ok(Some(_)) = handle.await { successes += 1 }
     }
     info!("Concurrent operations: {} out of 5 succeeded", successes);
 

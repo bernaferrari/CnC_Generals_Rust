@@ -52,7 +52,9 @@ const RADAR_ATTACK_GLOW_NUM_TIMES: u32 = 15;
 const LOGICFRAMES_PER_SECOND: u32 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ControlBarStage {
+    #[default]
     Default,
     Low,
     Hidden,
@@ -127,11 +129,6 @@ impl Default for SciencePurchaseState {
     }
 }
 
-impl Default for ControlBarStage {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
@@ -165,6 +162,7 @@ pub struct ControlBar {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 struct CommandBarBorderColors {
     build: Option<u32>,
     action: Option<u32>,
@@ -172,16 +170,6 @@ struct CommandBarBorderColors {
     system: Option<u32>,
 }
 
-impl Default for CommandBarBorderColors {
-    fn default() -> Self {
-        Self {
-            build: None,
-            action: None,
-            upgrade: None,
-            system: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 struct ButtonState {
@@ -903,8 +891,8 @@ impl ControlBar {
             }
         }
 
-        if (command.options & CommandOption::NeedUpgrade as u32) != 0 {
-            if !command.upgrade.is_empty() {
+        if (command.options & CommandOption::NeedUpgrade as u32) != 0
+            && !command.upgrade.is_empty() {
                 let player_arc = logic_player_list()
                     .read()
                     .ok()
@@ -921,7 +909,6 @@ impl ControlBar {
                     }
                 }
             }
-        }
 
         let queue_count = self.build_queue_data.len();
         let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
@@ -975,7 +962,7 @@ impl ControlBar {
                                 return Ok(CommandAvailability::CantAfford);
                             }
                             if !with_upgrade_center(|c| {
-                                c.can_afford_upgrade(&*player, &template, false)
+                                c.can_afford_upgrade(&player, &template, false)
                             }) {
                                 return Ok(CommandAvailability::Restricted);
                             }
@@ -1272,7 +1259,7 @@ impl ControlBar {
 
         let mut command = Command::new(CommandType::PurchaseScience);
         command.set_player_index(context.player_id as i32);
-        command.append_integer_argument(selected_science as i32);
+        command.append_integer_argument(selected_science);
         self.queue_command(context.player_id as i32, command)?;
         Ok(())
     }
@@ -1789,7 +1776,7 @@ impl ControlBar {
     /// C++ ControlBarObserver.cpp:271 populateObserverInfoWindow: units, buildings, kills, losses.
     fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let frame = TheGameLogic::get_frame();
-        if frame % 15 != 0 {
+        if !frame.is_multiple_of(15) {
             return Ok(());
         }
 
@@ -1876,8 +1863,7 @@ impl ControlBar {
         let player_list = logic_player_list();
         let local_player_index = player_list
             .read()
-            .ok()
-            .and_then(|list| Some(list.get_local_player_index()))
+            .ok().map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
 
         let obj_player_id = object.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
@@ -1895,7 +1881,7 @@ impl ControlBar {
                 if let (Ok(local_guard), Ok(obj_guard)) = (local_arc.read(), obj_arc.read()) {
                     let rel = local_guard.get_relationship(&obj_guard);
                     if rel != gamelogic::common::Relationship::Neutral {
-                        let _ = TheInGameUI::deselect_all();
+                        TheInGameUI::deselect_all();
                         return Ok(());
                     }
                 }
@@ -2154,7 +2140,7 @@ impl ControlBar {
             return;
         }
 
-        if self.current_frame % 10 != 0 {
+        if !self.current_frame.is_multiple_of(10) {
             return;
         }
 
@@ -2189,7 +2175,7 @@ impl ControlBar {
             self.radar_attack_glow_on = false;
             return;
         }
-        if self.remaining_radar_attack_glow_frames % RADAR_ATTACK_GLOW_NUM_TIMES == 0 {
+        if self.remaining_radar_attack_glow_frames.is_multiple_of(RADAR_ATTACK_GLOW_NUM_TIMES) {
             // C++ toggles winEnable on/off for glow effect
         }
     }
@@ -2238,7 +2224,7 @@ impl ControlBar {
     }
 
     fn update_observer_portrait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.current_frame % (LOGICFRAMES_PER_SECOND / 2) != 0 {
+        if !self.current_frame.is_multiple_of(LOGICFRAMES_PER_SECOND / 2) {
             return Ok(());
         }
         self.update_context_observer()?;
@@ -2308,7 +2294,7 @@ impl ControlBar {
         };
 
         self.science_state.available_points = player.get_science_purchase_points();
-        self.science_state.rank_level = player.get_rank_level() as i32;
+        self.science_state.rank_level = player.get_rank_level();
         self.science_state.experience_progress = 0.0;
         self.science_state.rank_title_label = format!("SCIENCE:Rank{}", player.get_rank_level());
 

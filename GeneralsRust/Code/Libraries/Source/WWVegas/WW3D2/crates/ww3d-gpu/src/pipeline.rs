@@ -36,7 +36,6 @@ impl RenderPipeline {
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             blend: compiled_shader
                 .blend_state
-                .clone()
                 .or(Some(wgpu::BlendState::REPLACE)),
             write_mask: wgpu::ColorWrites::ALL,
         })];

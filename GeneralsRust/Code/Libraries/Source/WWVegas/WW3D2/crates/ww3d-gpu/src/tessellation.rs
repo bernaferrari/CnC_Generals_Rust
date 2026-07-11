@@ -611,7 +611,7 @@ impl TessellationDispatcher {
 
             // Dispatch with enough threads for all output vertices
             let workgroup_size = 64u32; // Must match shader
-            let num_workgroups = (vertex_count as u32 + workgroup_size - 1) / workgroup_size;
+            let num_workgroups = (vertex_count as u32).div_ceil(workgroup_size);
             compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
         }
 

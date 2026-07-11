@@ -253,7 +253,7 @@ impl Transition for FlashTransition {
                     self.draw_state = frame;
                 }
             }
-            4 | 5 | 6 => {
+            4..=6 => {
                 if let Some(win_rc) = self.with_window() {
                     let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                     self.draw_state = frame;
@@ -931,7 +931,7 @@ impl Transition for ScaleUpTransition {
                 }
                 self.draw_state = frame;
             }
-            2 | 3 | 4 | 5 => {
+            2..=5 => {
                 if let Some(win_rc) = self.with_window() {
                     let _ = win_rc.borrow_mut().hide(true);
                 }
@@ -967,7 +967,6 @@ impl Transition for ScaleUpTransition {
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
             if draw_window_image(&win_ref, rect, 255) {
-                return;
             }
         }
     }
@@ -1027,7 +1026,7 @@ impl Transition for ScoreScaleUpTransition {
                 }
                 self.inner.draw_state = frame;
             }
-            2 | 3 | 4 | 5 => {
+            2..=5 => {
                 if let Some(win_rc) = self.inner.with_window() {
                     let _ = win_rc.borrow_mut().hide(true);
                 }
@@ -1220,7 +1219,6 @@ impl Transition for MainMenuScaleUpTransition {
         if let Some(grow_rc) = self.with_grow_window() {
             let grow_ref = grow_rc.borrow();
             if draw_window_image(&grow_ref, rect, 255) {
-                return;
             }
         }
     }
@@ -1386,7 +1384,6 @@ impl Transition for MainMenuMediumScaleUpTransition {
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
             if draw_window_image(&win_ref, rect, 255) {
-                return;
             }
         }
     }
@@ -1532,7 +1529,6 @@ impl Transition for MainMenuSmallScaleDownTransition {
         if let Some(win_rc) = self.with_window() {
             let win_ref = win_rc.borrow();
             if draw_window_image(&win_ref, rect, 255) {
-                return;
             }
         }
     }
@@ -2557,6 +2553,12 @@ pub struct GameWindowTransitionsHandler {
     pending_group: Option<usize>,
     draw_group: Option<usize>,
     secondary_draw_group: Option<usize>,
+}
+
+impl Default for GameWindowTransitionsHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GameWindowTransitionsHandler {

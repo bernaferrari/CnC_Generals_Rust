@@ -2053,6 +2053,12 @@ impl TheControlBar {
 
 pub struct TacticalViewBridge;
 
+impl Default for TacticalViewBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TacticalViewBridge {
     pub fn new() -> Self {
         Self

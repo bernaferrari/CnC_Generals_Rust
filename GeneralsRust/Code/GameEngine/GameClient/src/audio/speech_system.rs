@@ -24,8 +24,10 @@ use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 
 /// Priority level for a speech line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum SpeechPriority {
     /// Normal unit voice response.
+    #[default]
     Normal = 0,
     /// Elevated priority (unit under attack, etc.).
     High = 1,
@@ -35,11 +37,6 @@ pub enum SpeechPriority {
     Critical = 3,
 }
 
-impl Default for SpeechPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 // ---------------------------------------------------------------------------
 // SpeechLine

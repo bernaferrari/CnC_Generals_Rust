@@ -299,6 +299,7 @@ impl RuntimeRoadIntersectionCandidate {
 
 /// Terrain LOD levels matching C++ implementation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TerrainVisualLOD {
     Invalid = 0,
     Min = 1,
@@ -308,15 +309,11 @@ pub enum TerrainVisualLOD {
     StretchClouds = 5,
     NoWater = 6,
     Max = 7,
+    #[default]
     Automatic = 8,
     Disable = 9,
 }
 
-impl Default for TerrainVisualLOD {
-    fn default() -> Self {
-        TerrainVisualLOD::Automatic
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerrainSourceTileClass {
@@ -587,7 +584,9 @@ fn positive_usize(value: i32) -> Option<usize> {
 
 impl TerrainVisualImpl {
     pub fn new() -> Self {
-        let mut instance = Self {
+        
+
+        Self {
             config: TerrainConfig::default(),
             stats: TerrainStats::default(),
             enabled: true,
@@ -649,9 +648,7 @@ impl TerrainVisualImpl {
             draw_height: NORMAL_DRAW_HEIGHT,
             draw_origin_x: 0,
             draw_origin_y: 0,
-        };
-
-        instance
+        }
     }
 
     fn terrain_tracks_config() -> TerrainTracksConfig {
@@ -4409,8 +4406,7 @@ impl TerrainVisualImpl {
         let mut replacements = Vec::new();
         for (i, new_name) in new_names.iter().enumerate() {
             let should_replace = self.current_skybox_texture_names[i]
-                .as_deref()
-                .map_or(true, |current| current != *new_name);
+                .as_deref() != Some(*new_name);
             if should_replace {
                 replacements.push((i, (*new_name).to_string()));
             }

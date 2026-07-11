@@ -241,6 +241,12 @@ impl FormatValue {
     }
 }
 
+impl Default for FormatParams {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FormatParams {
     pub fn new() -> Self {
         Self {
@@ -405,7 +411,7 @@ impl LocalizationManager {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
 
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
                 if let Some(lang_code) = path.file_stem().and_then(|s| s.to_str()) {
                     // Try to load language metadata
                     if let Ok(language_info) = self.load_language_metadata(&path).await {
@@ -867,7 +873,7 @@ impl LocalizationManager {
                 }
             }
             PluralizationRule::Custom(_expr) => Self::evaluate_plural_expression(_expr, count)
-                .unwrap_or_else(|| if count == 1 { 0 } else { 1 }),
+                .unwrap_or(if count == 1 { 0 } else { 1 }),
         }
     }
 
@@ -907,7 +913,7 @@ impl LocalizationManager {
     /// Check if language is RTL (right-to-left)
     pub fn is_rtl(&self) -> bool {
         self.get_current_language()
-            .map_or(false, |lang| lang.is_rtl)
+            .is_some_and(|lang| lang.is_rtl)
     }
 
     /// Get language completion percentage

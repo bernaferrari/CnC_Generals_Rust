@@ -487,15 +487,14 @@ fn parse_ray_effect_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()>
                     );
                 }
             }
-            "SECONDARYOFFSET" => {
-                if values.len() >= 3 {
+            "SECONDARYOFFSET"
+                if values.len() >= 3 => {
                     nugget.secondary_offset = Vec3::new(
                         INI::parse_real(&values[0])?,
                         INI::parse_real(&values[1])?,
                         INI::parse_real(&values[2])?,
                     );
                 }
-            }
             _ => {}
         }
     }
@@ -557,13 +556,10 @@ fn parse_view_shake_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()>
         let Some(value) = values.first() else {
             continue;
         };
-        match key.to_ascii_uppercase().as_str() {
-            "TYPE" => {
-                if let Some(shake_type) = CameraShakeType::parse_shake_type(value) {
-                    nugget.shake_type = shake_type;
-                }
+        if key.to_ascii_uppercase().as_str() == "TYPE" {
+            if let Some(shake_type) = CameraShakeType::parse_shake_type(value) {
+                nugget.shake_type = shake_type;
             }
-            _ => {}
         }
     }
     fx_list.add_fx_nugget(Box::new(nugget));
@@ -871,8 +867,10 @@ impl FXNugget for LightPulseFXNugget {
 
 /// Camera shake types matching C++ View::CameraShakeType (View.h)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum CameraShakeType {
     Subtle,
+    #[default]
     Normal,
     Strong,
     Severe,
@@ -880,11 +878,6 @@ enum CameraShakeType {
     CineInsane,
 }
 
-impl Default for CameraShakeType {
-    fn default() -> Self {
-        CameraShakeType::Normal
-    }
-}
 
 impl CameraShakeType {
     fn parse_shake_type(value: &str) -> Option<Self> {
@@ -946,20 +939,17 @@ impl FXNugget for ViewShakeFXNugget {
 
 /// Scorch types matching C++ Scorches enum (FXList.cpp:459-472)
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 enum ScorchType {
     Scorch1 = 0,
     Scorch2 = 1,
     Scorch3 = 2,
     Scorch4 = 3,
     ShadowScorch = 4,
+    #[default]
     Random = -1,
 }
 
-impl Default for ScorchType {
-    fn default() -> Self {
-        ScorchType::Random
-    }
-}
 
 impl ScorchType {
     fn parse_scorch_type(value: &str) -> Option<i32> {

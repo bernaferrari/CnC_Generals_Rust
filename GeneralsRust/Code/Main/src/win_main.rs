@@ -429,6 +429,71 @@ fn startup_window_attributes(
     attributes
 }
 
+fn centered_startup_position_from_monitor(
+    monitor_position: PhysicalPosition<i32>,
+    monitor_size: winit::dpi::PhysicalSize<u32>,
+    width: u32,
+    height: u32,
+) -> PhysicalPosition<i32> {
+    PhysicalPosition::new(
+        monitor_position.x + ((monitor_size.width as i32 - width as i32) / 2),
+        monitor_position.y + ((monitor_size.height as i32 - height as i32) / 2),
+    )
+}
+
+fn parse_u32_option(cmd_args: &command_line::CommandLineArgs, option: &str) -> Option<u32> {
+    let Some(value) = cmd_args.get_option_value(option) else {
+        return None;
+    };
+
+    match value.parse::<u32>() {
+        Ok(0) => None,
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!("Ignoring invalid {} value '{}': {err}", option, value);
+            None
+        }
+    }
+}
+
+fn resolve_startup_resolution(cmd_args: &command_line::CommandLineArgs) -> (u32, u32) {
+    const DEFAULT_XRESOLUTION: u32 = 800;
+    const DEFAULT_YRESOLUTION: u32 = 600;
+
+    let explicit_width = cmd_args
+        .width
+        .or_else(|| parse_u32_option(cmd_args, "xres"));
+    let explicit_height = cmd_args
+        .height
+        .or_else(|| parse_u32_option(cmd_args, "yres"));
+
+    match (explicit_width, explicit_height) {
+        (Some(width), Some(height)) => (width, height),
+        (Some(width), None) => (width, DEFAULT_YRESOLUTION),
+        (None, Some(height)) => (DEFAULT_XRESOLUTION, height),
+        (None, None) => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
+    }
+}
+
+fn initialize_logger(cmd_args: &command_line::CommandLineArgs) {
+    let level = parse_level(&cmd_args.get_log_level());
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .filter_level(level)
+        .filter_module("generals_main::graphics", log::LevelFilter::Warn)
+        .filter_module("generals_main::assets::models", log::LevelFilter::Debug)
+        .try_init();
+}
+
+fn parse_level(level: &str) -> log::LevelFilter {
+    match level.to_lowercase().as_str() {
+        "error" => log::LevelFilter::Error,
+        "warn" | "warning" => log::LevelFilter::Warn,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Info,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -537,70 +602,5 @@ mod tests {
             fullscreen_attributes.fullscreen,
             Some(Fullscreen::Borderless(None))
         ));
-    }
-}
-
-fn centered_startup_position_from_monitor(
-    monitor_position: PhysicalPosition<i32>,
-    monitor_size: winit::dpi::PhysicalSize<u32>,
-    width: u32,
-    height: u32,
-) -> PhysicalPosition<i32> {
-    PhysicalPosition::new(
-        monitor_position.x + ((monitor_size.width as i32 - width as i32) / 2),
-        monitor_position.y + ((monitor_size.height as i32 - height as i32) / 2),
-    )
-}
-
-fn parse_u32_option(cmd_args: &command_line::CommandLineArgs, option: &str) -> Option<u32> {
-    let Some(value) = cmd_args.get_option_value(option) else {
-        return None;
-    };
-
-    match value.parse::<u32>() {
-        Ok(0) => None,
-        Ok(value) => Some(value),
-        Err(err) => {
-            warn!("Ignoring invalid {} value '{}': {err}", option, value);
-            None
-        }
-    }
-}
-
-fn resolve_startup_resolution(cmd_args: &command_line::CommandLineArgs) -> (u32, u32) {
-    const DEFAULT_XRESOLUTION: u32 = 800;
-    const DEFAULT_YRESOLUTION: u32 = 600;
-
-    let explicit_width = cmd_args
-        .width
-        .or_else(|| parse_u32_option(cmd_args, "xres"));
-    let explicit_height = cmd_args
-        .height
-        .or_else(|| parse_u32_option(cmd_args, "yres"));
-
-    match (explicit_width, explicit_height) {
-        (Some(width), Some(height)) => (width, height),
-        (Some(width), None) => (width, DEFAULT_YRESOLUTION),
-        (None, Some(height)) => (DEFAULT_XRESOLUTION, height),
-        (None, None) => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
-    }
-}
-
-fn initialize_logger(cmd_args: &command_line::CommandLineArgs) {
-    let level = parse_level(&cmd_args.get_log_level());
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .filter_level(level)
-        .filter_module("generals_main::graphics", log::LevelFilter::Warn)
-        .filter_module("generals_main::assets::models", log::LevelFilter::Debug)
-        .try_init();
-}
-
-fn parse_level(level: &str) -> log::LevelFilter {
-    match level.to_lowercase().as_str() {
-        "error" => log::LevelFilter::Error,
-        "warn" | "warning" => log::LevelFilter::Warn,
-        "debug" => log::LevelFilter::Debug,
-        "trace" => log::LevelFilter::Trace,
-        _ => log::LevelFilter::Info,
     }
 }

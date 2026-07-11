@@ -553,14 +553,14 @@ impl RGBColor {
     pub fn get_as_int(&self) -> Int {
         ((self.red * 255.0) as Int) << 16
             | ((self.green * 255.0) as Int) << 8
-            | ((self.blue * 255.0) as Int) << 0
+            | ((self.blue * 255.0) as Int)
     }
 
     /// Set from 32-bit integer representation
     pub fn set_from_int(&mut self, c: Int) {
         self.red = ((c >> 16) & 0xff) as Real / 255.0;
         self.green = ((c >> 8) & 0xff) as Real / 255.0;
-        self.blue = ((c >> 0) & 0xff) as Real / 255.0;
+        self.blue = (c & 0xff) as Real / 255.0;
     }
 
     /// Create from 32-bit integer representation

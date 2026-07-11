@@ -65,7 +65,7 @@ impl TextureFormat {
 
     /// Returns bytes per pixel for uncompressed formats
     pub fn bytes_per_pixel(&self) -> Option<u32> {
-        self.bits_per_pixel().map(|bpp| (bpp + 7) / 8)
+        self.bits_per_pixel().map(|bpp| bpp.div_ceil(8))
     }
 }
 
@@ -434,8 +434,8 @@ impl TextureLoader {
         for level in &mut texture.mip_levels {
             let size = if format.is_compressed() {
                 // DXT compressed size calculation (matches C++ formconv.cpp)
-                let blocks_wide = (level.width + 3) / 4;
-                let blocks_high = (level.height + 3) / 4;
+                let blocks_wide = level.width.div_ceil(4);
+                let blocks_high = level.height.div_ceil(4);
                 let bytes_per_block = match format {
                     TextureFormat::DXT1 => 8, // 64 bits per 4x4 block
                     _ => 16,                  // 128 bits per 4x4 block (DXT2/3/4/5)
@@ -448,7 +448,7 @@ impl TextureLoader {
             if offset + size as usize <= data.len() {
                 level.data = data[offset..offset + size as usize].to_vec();
                 level.pitch = if format.is_compressed() {
-                    ((level.width + 3) / 4)
+                    level.width.div_ceil(4)
                         * match format {
                             TextureFormat::DXT1 => 8,
                             _ => 16,
@@ -661,8 +661,8 @@ impl TextureLoader {
 
         // Parse BMP header
         let data_offset = u32::from_le_bytes([data[10], data[11], data[12], data[13]]) as usize;
-        let width = i32::from_le_bytes([data[18], data[19], data[20], data[21]]).abs() as u32;
-        let height = i32::from_le_bytes([data[22], data[23], data[24], data[25]]).abs() as u32;
+        let width = i32::from_le_bytes([data[18], data[19], data[20], data[21]]).unsigned_abs();
+        let height = i32::from_le_bytes([data[22], data[23], data[24], data[25]]).unsigned_abs();
         let bpp = u16::from_le_bytes([data[28], data[29]]);
 
         let format = match bpp {
@@ -695,7 +695,7 @@ impl TextureLoader {
 
         // Load image data
         let bytes_per_pixel = (bpp / 8) as u32;
-        let row_size = ((width * bytes_per_pixel + 3) / 4) * 4; // BMP rows are 4-byte aligned
+        let row_size = (width * bytes_per_pixel).div_ceil(4) * 4; // BMP rows are 4-byte aligned
         let image_size = (row_size * height) as usize;
 
         if data_offset + image_size <= data.len() {

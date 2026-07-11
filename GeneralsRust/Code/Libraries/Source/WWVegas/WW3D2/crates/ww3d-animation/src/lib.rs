@@ -70,7 +70,7 @@ pub fn hanim_from_prototype(proto: &AnimationPrototype) -> HAnimClass {
     let channels = proto
         .channels
         .iter()
-        .filter_map(|channel| motion_channel_from_data(channel))
+        .filter_map(motion_channel_from_data)
         .collect::<Vec<_>>();
 
     HAnimClass::with_channels(
@@ -151,6 +151,12 @@ impl Pivot {
 #[derive(Debug)]
 pub struct HTree {
     pub pivots: Vec<Pivot>,
+}
+
+impl Default for HTree {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HTree {

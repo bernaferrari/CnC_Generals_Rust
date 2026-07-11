@@ -110,7 +110,9 @@ pub const MAX_BUILD_QUEUE_BUTTONS: usize = 9;
 
 /// Control bar state - mirrors C++ ControlBarContext enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ControlBarState {
+    #[default]
     None,
     Command,
     MultiSelect,
@@ -196,11 +198,6 @@ pub struct ProductionItem {
     pub build_time: f32,
 }
 
-impl Default for ControlBarState {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl Default for ControlBarContext {
     fn default() -> Self {

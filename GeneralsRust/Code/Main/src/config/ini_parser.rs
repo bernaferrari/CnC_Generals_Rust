@@ -568,8 +568,8 @@ StartPos = 100.0 200.0 0.0
         assert_eq!(parser.get_int("Graphics", "Width", 0), 1920);
 
         // Test boolean values
-        assert_eq!(parser.get_bool("General", "Debug", false), true);
-        assert_eq!(parser.get_bool("Graphics", "Fullscreen", false), true);
+        assert!(parser.get_bool("General", "Debug", false));
+        assert!(parser.get_bool("Graphics", "Fullscreen", false));
 
         // Test float values
         assert_eq!(parser.get_float("Audio", "MasterVolume", 0.0), 0.8);
@@ -639,7 +639,7 @@ End
 
         assert_eq!(result.errors.len(), 0);
         assert!(parser.has_section("GameData"));
-        assert_eq!(parser.get_bool("GameData", "UseFPSLimit", false), true);
+        assert!(parser.get_bool("GameData", "UseFPSLimit", false));
         assert_eq!(parser.get_int("GameData", "FramesPerSecondLimit", 0), 30);
         assert_eq!(
             parser.get_string("GameData", "TextureReductionFactor", None),

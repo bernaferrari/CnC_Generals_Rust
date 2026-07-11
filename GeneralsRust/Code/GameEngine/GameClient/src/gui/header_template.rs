@@ -32,17 +32,11 @@ impl HeaderTemplate {
     }
 }
 
+#[derive(Default)]
 pub struct HeaderTemplateManager {
     templates: Vec<HeaderTemplate>,
 }
 
-impl Default for HeaderTemplateManager {
-    fn default() -> Self {
-        Self {
-            templates: Vec::new(),
-        }
-    }
-}
 
 impl HeaderTemplateManager {
     pub fn new() -> Self {

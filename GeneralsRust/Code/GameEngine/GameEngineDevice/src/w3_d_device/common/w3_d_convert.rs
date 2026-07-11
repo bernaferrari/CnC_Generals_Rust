@@ -3,7 +3,8 @@
 
 /// Convert W3D logical screen coordinates (-1..1, origin at center) to pixel screen coords.
 ///
-/// C++: W3DLogicalScreenToPixelScreen
+/// C++: `W3DLogicalScreenToPixelScreen`
+#[must_use]
 pub fn w3d_logical_screen_to_pixel_screen(
     log_x: f32,
     log_y: f32,
@@ -31,7 +32,8 @@ pub fn w3d_logical_screen_to_pixel_screen_out(
 
 /// Convert pixel screen coordinates to W3D logical screen coords (-1..1).
 ///
-/// C++: PixelScreenToW3DLogicalScreen
+/// C++: `PixelScreenToW3DLogicalScreen`
+#[must_use]
 pub fn pixel_screen_to_w3d_logical_screen(
     screen_x: i32,
     screen_y: i32,

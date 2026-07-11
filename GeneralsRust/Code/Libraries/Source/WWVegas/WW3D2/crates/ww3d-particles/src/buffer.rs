@@ -711,7 +711,7 @@ impl ParticleBuffer {
         let mut current_group_id: Option<u8> = None;
 
         for i in 0..self.active_count {
-            let perm_index = (i & 0xF) as usize;
+            let perm_index = i & 0xF;
             if (PERMUTATION_ARRAY[perm_index] as usize) < self.decimation_threshold {
                 continue;
             }
@@ -760,7 +760,7 @@ impl ParticleBuffer {
 
             for i in 0..active_count {
                 // Apply LOD decimation - inline the logic to avoid borrowing self
-                let perm_index = (i & 0xF) as usize;
+                let perm_index = i & 0xF;
                 if (PERMUTATION_ARRAY[perm_index] as usize) < decimation_threshold {
                     continue;
                 }
@@ -814,7 +814,7 @@ impl ParticleBuffer {
 
             for i in 0..active_count {
                 // Apply LOD decimation - inline the logic to avoid borrowing self
-                let perm_index = (i & 0xF) as usize;
+                let perm_index = i & 0xF;
                 if (PERMUTATION_ARRAY[perm_index] as usize) < decimation_threshold {
                     continue;
                 }
@@ -1172,7 +1172,7 @@ impl ParticleBuffer {
     /// Check if particle should be rendered based on LOD decimation
     #[allow(dead_code)] // C++ parity
     fn should_render_particle(&self, particle_index: usize) -> bool {
-        let perm_index = (particle_index & 0xF) as usize;
+        let perm_index = particle_index & 0xF;
         PERMUTATION_ARRAY[perm_index] as usize >= self.decimation_threshold
     }
 

@@ -22,6 +22,12 @@ pub struct CullNode {
 
 const LEAF_FLAG: u32 = 0x8000_0000;
 
+impl Default for CullNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CullNode {
     pub fn new() -> Self {
         Self {
@@ -82,6 +88,12 @@ pub struct OBBoxAPTContext {
     pub apt: Vec<u32>,
 }
 
+impl Default for OBBoxAPTContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OBBoxAPTContext {
     pub fn new() -> Self {
         Self { apt: Vec::new() }
@@ -89,6 +101,12 @@ impl OBBoxAPTContext {
 
     pub fn add(&mut self, poly_index: u32) {
         self.apt.push(poly_index);
+    }
+}
+
+impl Default for AABTree {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -122,7 +140,7 @@ impl AABTree {
         }
 
         if node.is_leaf() {
-            return self.cast_ray_to_polys(node, ray_test, mesh);
+            self.cast_ray_to_polys(node, ray_test, mesh)
         } else {
             let mut result = false;
             if let Some(child) = self.nodes.get(node.get_front_child()) {
@@ -202,7 +220,7 @@ impl AABTree {
         let s = ray_test.ray_origin - triangle.vertices[0];
         let u = f * s.dot(h);
 
-        if u < 0.0 || u > 1.0 {
+        if !(0.0..=1.0).contains(&u) {
             return false;
         }
 
@@ -244,7 +262,7 @@ impl AABTree {
         }
 
         if node.is_leaf() {
-            return self.cast_aabox_to_polys(node, box_test, mesh);
+            self.cast_aabox_to_polys(node, box_test, mesh)
         } else {
             let mut result = false;
             if let Some(child) = self.nodes.get(node.get_front_child()) {

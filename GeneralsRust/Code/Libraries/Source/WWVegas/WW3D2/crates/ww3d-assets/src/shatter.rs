@@ -221,7 +221,7 @@ impl Vertex {
     /// Interpolates all properties: position, normal, colors, and UVs.
     /// Normal is renormalized after interpolation.
     pub fn lerp(v0: &Vertex, v1: &Vertex, t: f32) -> Vertex {
-        debug_assert!(t >= -BPT_EPSILON && t <= 1.0 + BPT_EPSILON);
+        debug_assert!((-BPT_EPSILON..=1.0 + BPT_EPSILON).contains(&t));
         debug_assert_eq!(v0.pass_count, v1.pass_count);
 
         let mut result = Vertex::new();
@@ -391,8 +391,8 @@ impl Polygon {
             nz /= len;
         }
 
-        let normal = Vec3::new(nx as f32, ny as f32, nz as f32);
-        let point = Vec3::new(ax as f32, ay as f32, az as f32);
+        let normal = Vec3::new(nx, ny, nz);
+        let point = Vec3::new(ax, ay, az);
 
         self.plane = Plane::from_point_normal(point, normal);
     }

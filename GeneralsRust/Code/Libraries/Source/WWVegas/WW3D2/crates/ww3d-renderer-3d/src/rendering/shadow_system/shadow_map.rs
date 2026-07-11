@@ -544,8 +544,8 @@ mod tests {
         let hard = approximate_shadow_visibility(0.56, 0.5, ShadowFilterMode::Pcf2x2);
         let soft = approximate_shadow_visibility(0.56, 0.5, ShadowFilterMode::Soft);
         assert!(soft > hard);
-        assert!(hard >= 0.0 && hard <= 1.0);
-        assert!(soft >= 0.0 && soft <= 1.0);
+        assert!((0.0..=1.0).contains(&hard));
+        assert!((0.0..=1.0).contains(&soft));
     }
 
     #[test]

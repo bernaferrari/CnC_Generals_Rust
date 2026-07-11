@@ -399,13 +399,13 @@ fn row_pitch_for(format: TextureFormat, width: u32) -> Option<usize> {
             (width as usize) * 2
         }
         TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc4RUnorm => {
-            ((width + 3) / 4).max(1) as usize * 8
+            width.div_ceil(4).max(1) as usize * 8
         }
         TextureFormat::Bc2RgbaUnorm
         | TextureFormat::Bc3RgbaUnorm
         | TextureFormat::Bc5RgUnorm
         | TextureFormat::Bc6hRgbUfloat
-        | TextureFormat::Bc7RgbaUnorm => ((width + 3) / 4).max(1) as usize * 16,
+        | TextureFormat::Bc7RgbaUnorm => width.div_ceil(4).max(1) as usize * 16,
     })
 }
 
@@ -424,7 +424,7 @@ fn effective_rows(format: TextureFormat, height: u32) -> usize {
         | TextureFormat::Bc4RUnorm
         | TextureFormat::Bc5RgUnorm
         | TextureFormat::Bc6hRgbUfloat
-        | TextureFormat::Bc7RgbaUnorm => ((height + 3) / 4).max(1) as usize,
+        | TextureFormat::Bc7RgbaUnorm => height.div_ceil(4).max(1) as usize,
     }
 }
 
@@ -630,7 +630,7 @@ mod tests {
         let surface = SurfaceClass::new(4, 4, TextureFormat::Rgba8Unorm).unwrap();
         surface.draw_pixel(1, 1, [255, 0, 0, 255]).unwrap();
         let lock = surface.lock();
-        assert_eq!(lock.pixels()[1 * lock.pitch() + 1 * 4], 255);
+        assert_eq!(lock.pixels()[lock.pitch() + 4], 255);
     }
 
     #[test]

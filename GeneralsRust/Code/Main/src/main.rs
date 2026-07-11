@@ -495,31 +495,6 @@ fn resolve_window_mode(cmd_args: &CommandLineArgs) -> (bool, bool) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{resolve_window_mode, CommandLineArgs};
-
-    #[test]
-    fn last_explicit_window_mode_wins_for_startup_mode() {
-        let args = vec![
-            "generals".to_string(),
-            "-fullscreen".to_string(),
-            "-win".to_string(),
-        ];
-
-        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
-        assert_eq!(resolve_window_mode(&parsed), (true, false));
-
-        let reverse = vec![
-            "generals".to_string(),
-            "-win".to_string(),
-            "-fullscreen".to_string(),
-        ];
-        let parsed_reverse = CommandLineArgs::parse_from_args(reverse).unwrap();
-        assert_eq!(resolve_window_mode(&parsed_reverse), (false, true));
-    }
-}
-
 fn parse_u32_option(cmd_args: &CommandLineArgs, option: &str) -> Option<u32> {
     let Some(value) = cmd_args.get_option_value(option) else {
         return None;
@@ -551,5 +526,30 @@ fn resolve_startup_resolution(cmd_args: &CommandLineArgs) -> (u32, u32) {
         (Some(width), None) => (width, DEFAULT_YRESOLUTION),
         (None, Some(height)) => (DEFAULT_XRESOLUTION, height),
         (None, None) => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_window_mode, CommandLineArgs};
+
+    #[test]
+    fn last_explicit_window_mode_wins_for_startup_mode() {
+        let args = vec![
+            "generals".to_string(),
+            "-fullscreen".to_string(),
+            "-win".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(resolve_window_mode(&parsed), (true, false));
+
+        let reverse = vec![
+            "generals".to_string(),
+            "-win".to_string(),
+            "-fullscreen".to_string(),
+        ];
+        let parsed_reverse = CommandLineArgs::parse_from_args(reverse).unwrap();
+        assert_eq!(resolve_window_mode(&parsed_reverse), (false, true));
     }
 }

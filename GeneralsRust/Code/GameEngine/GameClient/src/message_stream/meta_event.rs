@@ -1216,7 +1216,7 @@ fn dump_player_object_counts(include_all_objects: bool) {
                 object_lines.push(format!(
                     "Object {} ({})",
                     object_guard.get_id(),
-                    object_guard.get_template().get_name().to_string()
+                    object_guard.get_template().get_name()
                 ));
             }
             Ok(())

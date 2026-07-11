@@ -133,7 +133,7 @@ impl EvaMessage {
         EVA_MESSAGE_NAMES
             .iter()
             .position(|entry| entry.eq_ignore_ascii_case(name))
-            .and_then(|index| Self::from_index(index))
+            .and_then(Self::from_index)
     }
 
     pub fn to_name(self) -> &'static str {
@@ -470,6 +470,12 @@ pub struct Eva {
     message_being_tested: EvaMessage,
     enabled: bool,
     eva_speech: AudioEventRts,
+}
+
+impl Default for Eva {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Eva {
@@ -889,7 +895,7 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
 static THE_EVA: OnceLock<Mutex<Eva>> = OnceLock::new();
 
 thread_local! {
-    static ACTIVE_EVA_MANAGER: Cell<*mut Eva> = Cell::new(std::ptr::null_mut());
+    static ACTIVE_EVA_MANAGER: Cell<*mut Eva> = const { Cell::new(std::ptr::null_mut()) };
 }
 
 /// Set the active EVA manager pointer for INI parser callbacks.

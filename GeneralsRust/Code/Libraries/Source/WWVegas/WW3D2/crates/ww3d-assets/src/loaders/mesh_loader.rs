@@ -105,6 +105,12 @@ pub struct W3DMaterialPass {
     pub texture_stages: Vec<W3DTextureStage>,
 }
 
+impl Default for W3DMaterialPass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl W3DMaterialPass {
     pub fn new() -> Self {
         Self {
@@ -125,6 +131,12 @@ pub struct W3DTextureStage {
     pub texture_ids: Vec<u32>,
     pub tex_coords: Vec<Vec2>,
     pub per_face_texcoord_ids: Vec<[u32; 3]>,
+}
+
+impl Default for W3DTextureStage {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl W3DTextureStage {
@@ -154,6 +166,12 @@ pub struct W3DMesh {
     pub textures: Vec<W3DTexture>,
     pub material_passes: Vec<W3DMaterialPass>,
     pub user_text: Option<String>,
+}
+
+impl Default for W3DMesh {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl W3DMesh {

@@ -280,7 +280,7 @@ impl SphereMeshClass {
         // Generate strips for middle stacks
         // C++ Reference: sphereobj.cpp lines 1607-1633
         self.strip_size = (slices + 1) * 2;
-        self.strip_ct = if stacks > 1 { stacks - 1 } else { 0 };
+        self.strip_ct = stacks.saturating_sub(1);
 
         if self.strip_ct > 0 {
             self.strips = vec![0; self.strip_size * self.strip_ct];
@@ -1115,7 +1115,7 @@ impl SphereRenderObjClass {
         // For alpha blend: Set opacity to alpha, emissive to color
         if is_additive {
             let emissive = self.current_color * self.current_alpha;
-            Arc::get_mut(&mut self.sphere_material).map(|m| m.set_emissive(emissive));
+            if let Some(m) = Arc::get_mut(&mut self.sphere_material) { m.set_emissive(emissive) }
         } else {
             Arc::get_mut(&mut self.sphere_material).map(|m| {
                 m.set_opacity(self.current_alpha);
@@ -1162,7 +1162,7 @@ impl SphereRenderObjClass {
             orientation: self.orientation,
             flags: self.flags,
             sphere_material: self.sphere_material.clone(),
-            sphere_shader: self.sphere_shader.clone(),
+            sphere_shader: self.sphere_shader,
             sphere_texture: self.sphere_texture.clone(),
             current_lod: self.current_lod,
             lod_bias: self.lod_bias,

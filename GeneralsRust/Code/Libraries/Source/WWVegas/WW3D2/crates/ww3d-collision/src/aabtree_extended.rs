@@ -126,7 +126,7 @@ impl AABTree {
         }
 
         if node.is_leaf() {
-            return self.cast_obbox_to_polys(node, test, mesh);
+            self.cast_obbox_to_polys(node, test, mesh)
         } else {
             let mut result = false;
             if let Some(child) = self.nodes.get(node.get_front_child()) {
@@ -220,7 +220,7 @@ impl AABTree {
         }
 
         if node.is_leaf() {
-            return self.intersect_obbox_with_polys(node, test, mesh);
+            self.intersect_obbox_with_polys(node, test, mesh)
         } else {
             let mut result = false;
             if let Some(child) = self.nodes.get(node.get_front_child()) {
@@ -309,7 +309,7 @@ impl AABTree {
         view_dir: Option<Vec3>,
     ) {
         // Quick cull test against node bounds
-        let test = OBBoxIntersectionTest::new(obbox.clone(), 0);
+        let test = OBBoxIntersectionTest::new(*obbox, 0);
         if test.cull(node.min, node.max) {
             return;
         }
@@ -411,7 +411,7 @@ mod tests {
         tree.nodes = vec![CullNode {
             min: Vec3::splat(-1.0),
             max: Vec3::splat(1.0),
-            front_or_poly0: 0 | 0x8000_0000, // Leaf node
+            front_or_poly0: 0x8000_0000, // Leaf node
             back_or_poly_count: 1,
         }];
         tree.poly_indices = vec![0];

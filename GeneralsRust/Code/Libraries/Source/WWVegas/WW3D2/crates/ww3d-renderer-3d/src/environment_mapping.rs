@@ -577,7 +577,7 @@ impl EnvironmentMapCache {
 
     /// Get cube map from cache
     pub fn get_cube_map(&self, name: &str) -> Option<Arc<CubeMap>> {
-        self.cube_maps.get(name).map(|cm| Arc::clone(cm))
+        self.cube_maps.get(name).map(Arc::clone)
     }
 
     /// Check if cube map exists
@@ -909,7 +909,7 @@ mod tests {
         assert!(reflection.length() > 0.0);
 
         let fresnel = ReflectionCalculator::calculate_fresnel(incident, normal, 5.0);
-        assert!(fresnel >= 0.0 && fresnel <= 1.0);
+        assert!((0.0..=1.0).contains(&fresnel));
     }
 
     #[test]

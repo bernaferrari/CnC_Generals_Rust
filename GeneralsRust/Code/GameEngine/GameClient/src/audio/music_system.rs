@@ -22,8 +22,10 @@ use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 /// The current mood determines which playlist the music system draws from.
 /// Matches the C++ concept of mood-driven music selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum MusicMood {
     /// Default / ambient exploration music.
+    #[default]
     Peaceful,
     /// Active combat music.
     Combat,
@@ -35,11 +37,6 @@ pub enum MusicMood {
     Defeat,
 }
 
-impl Default for MusicMood {
-    fn default() -> Self {
-        Self::Peaceful
-    }
-}
 
 impl MusicMood {
     pub fn from_name(name: &str) -> Option<Self> {

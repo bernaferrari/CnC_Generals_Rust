@@ -40,6 +40,12 @@ pub struct ImeManager {
     candidates: Vec<String>,
 }
 
+impl Default for ImeManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImeManager {
     pub fn new() -> Self {
         Self {

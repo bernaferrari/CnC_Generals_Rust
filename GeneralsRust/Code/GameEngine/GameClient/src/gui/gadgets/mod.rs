@@ -169,9 +169,9 @@ impl Color {
     /// Create a lighter version of this color
     pub fn lighten(&self, amount: u8) -> Self {
         Self {
-            r: self.r.saturating_add(amount).min(255),
-            g: self.g.saturating_add(amount).min(255),
-            b: self.b.saturating_add(amount).min(255),
+            r: self.r.saturating_add(amount),
+            g: self.g.saturating_add(amount),
+            b: self.b.saturating_add(amount),
             a: self.a,
         }
     }
@@ -593,11 +593,10 @@ impl GadgetManager {
             | InputEvent::MouseUp { x, y, .. } => {
                 // Find gadget under mouse
                 for gadget in self.gadgets.values_mut() {
-                    if gadget.is_visible() && gadget.is_enabled() {
-                        if gadget.bounds().contains_point(*x, *y) {
+                    if gadget.is_visible() && gadget.is_enabled()
+                        && gadget.bounds().contains_point(*x, *y) {
                             messages.extend(gadget.handle_input(event));
                         }
-                    }
                 }
             }
 
@@ -612,7 +611,7 @@ impl GadgetManager {
                 }
 
                 let (tab_direction, key_handled) = Self::take_control_messages(&mut messages);
-                if let Some(direction) = tab_direction.or_else(|| match key {
+                if let Some(direction) = tab_direction.or(match key {
                     KeyCode::Tab | KeyCode::Right | KeyCode::Down
                         if messages.is_empty() && !key_handled =>
                     {

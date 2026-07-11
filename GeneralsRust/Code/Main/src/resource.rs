@@ -680,9 +680,9 @@ mod tests {
 
     #[test]
     fn test_asset_metadata_creation() {
-        let manager = setup_test_manager();
-        let test_data = b"test data";
-        let test_path = Path::new("test.tga");
+        let _manager = setup_test_manager();
+        let _test_data = b"test data";
+        let _test_path = Path::new("test.tga");
 
         // This test would need an actual file to work properly
         // In a real test environment, you'd create a temporary file

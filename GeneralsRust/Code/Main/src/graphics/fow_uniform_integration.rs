@@ -172,7 +172,7 @@ mod tests {
         let results = process_render_batch_with_fow(0, &object_ids);
 
         assert_eq!(results.len(), 3);
-        for (id, visibility) in results {
+        for (_id, visibility) in results {
             // Verify all visibility values are valid
             assert!(visibility.visibility_alpha >= 0.0 && visibility.visibility_alpha <= 1.0);
             assert!(visibility.is_explored >= 0.0 && visibility.is_explored <= 1.0);

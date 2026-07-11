@@ -176,7 +176,7 @@ impl GameMessageTranslator for WindowTranslator {
                     return_code = WindowInputReturnCode::Used;
                 }
 
-                if TheInGameUI::get_input_enabled() == false {
+                if !TheInGameUI::get_input_enabled() {
                     return_code = WindowInputReturnCode::Used;
                 }
             }
@@ -210,7 +210,7 @@ impl GameMessageTranslator for WindowTranslator {
                 if return_code != WindowInputReturnCode::Used
                     && *key == KEY_ESC
                     && (state & KEY_STATE_UP) != 0
-                    && TheInGameUI::get_input_enabled() == false
+                    && !TheInGameUI::get_input_enabled()
                 {
                     return_code = WindowInputReturnCode::Used;
                 }

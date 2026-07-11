@@ -363,7 +363,7 @@ impl AISkirmishPlayer {
     /// Update intelligence gathering and enemy assessment
     fn update_intelligence_gathering(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         // Update enemy intelligence every 10 seconds
-        if (current_time * 10.0) as u32 % 100 != 0 {
+        if !((current_time * 10.0) as u32).is_multiple_of(100) {
             return;
         }
 

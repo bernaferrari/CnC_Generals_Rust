@@ -8,7 +8,7 @@ fn create_test_big_file(path: &str, entries: &[(&str, &[u8])]) -> Result<(), io:
     let mut file = fs::File::create(path)?;
     let directory_size: usize = entries
         .iter()
-        .map(|(name, _)| 8usize + name.as_bytes().len() + 1)
+        .map(|(name, _)| 8usize + name.len() + 1)
         .sum();
     let first_file_offset = 0x10usize + directory_size;
     let archive_size =

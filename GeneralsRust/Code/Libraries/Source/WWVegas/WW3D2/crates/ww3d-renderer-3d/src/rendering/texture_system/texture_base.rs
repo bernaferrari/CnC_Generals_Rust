@@ -92,7 +92,7 @@ pub struct SystemMipLevel {
 }
 
 fn align_to(value: usize, alignment: usize) -> usize {
-    ((value + alignment - 1) / alignment) * alignment
+    value.div_ceil(alignment) * alignment
 }
 
 fn wgpu_bytes_per_pixel(format: wgpu::TextureFormat) -> Option<usize> {
@@ -1003,8 +1003,8 @@ impl TextureBaseClass {
 
         match self.format {
             Tf::Bc1RgbaUnorm | Tf::Bc1RgbaUnormSrgb => {
-                let blocks_w = (w + 3) / 4;
-                let blocks_h = (h + 3) / 4;
+                let blocks_w = w.div_ceil(4);
+                let blocks_h = h.div_ceil(4);
                 blocks_w * blocks_h * 8
             }
             Tf::Bc2RgbaUnorm
@@ -1013,8 +1013,8 @@ impl TextureBaseClass {
             | Tf::Bc3RgbaUnormSrgb
             | Tf::Bc7RgbaUnorm
             | Tf::Bc7RgbaUnormSrgb => {
-                let blocks_w = (w + 3) / 4;
-                let blocks_h = (h + 3) / 4;
+                let blocks_w = w.div_ceil(4);
+                let blocks_h = h.div_ceil(4);
                 blocks_w * blocks_h * 16
             }
             _ => w * h * Self::bytes_per_pixel(self.format) as u64,
@@ -1058,7 +1058,7 @@ impl TextureClass {
             base: TextureBaseClass::new(
                 width,
                 height,
-                mip_level_count as u32,
+                mip_level_count,
                 pool,
                 TexAssetType::Regular,
             ),
@@ -1181,7 +1181,7 @@ impl CubeTextureClass {
             base: TextureBaseClass::new(
                 width,
                 height,
-                mip_level_count as u32,
+                mip_level_count,
                 pool,
                 TexAssetType::Cubemap,
             ),
@@ -1259,7 +1259,7 @@ impl VolumeTextureClass {
         let mut base = TextureBaseClass::new(
             width,
             height,
-            mip_level_count as u32,
+            mip_level_count,
             pool,
             TexAssetType::Volume,
         );

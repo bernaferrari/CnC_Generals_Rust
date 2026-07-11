@@ -4,12 +4,12 @@
 //! to ensure they work correctly with the main rendering pipeline.
 
 use ww3d_renderer_3d::rendering::{
-    debug_render_modes::{DebugRenderMode, DebugRenderer, PerformanceHud, PerformanceStats},
+    debug_render_modes::{DebugRenderMode, PerformanceHud, PerformanceStats},
     post_process::{
         rgb_to_luminance, tone_map_reinhard, BloomSettings, ColorGradingSettings, FxaaSettings,
-        GaussianBlur, PostProcessPipeline,
+        GaussianBlur,
     },
-    reflection_system::{ReflectionPlane, ReflectionSystem, WaterRenderer},
+    reflection_system::ReflectionPlane,
 };
 
 #[test]
@@ -46,19 +46,19 @@ fn test_fresnel_calculation() {
     let fresnel_down = plane.calculate_fresnel(view_dir_down);
 
     // Fresnel should be minimal when looking perpendicular
-    assert!(fresnel_down >= 0.0 && fresnel_down <= 0.1);
+    assert!((0.0..=0.1).contains(&fresnel_down));
 
     // Looking at grazing angle (parallel to plane)
     let view_dir_grazing = Vec3::new(1.0, 0.0, 0.0);
     let fresnel_grazing = plane.calculate_fresnel(view_dir_grazing);
 
     // Fresnel should be maximal when looking parallel
-    assert!(fresnel_grazing >= 0.9 && fresnel_grazing <= 1.0);
+    assert!((0.9..=1.0).contains(&fresnel_grazing));
 }
 
 #[test]
 fn test_reflection_matrix_correctness() {
-    use glam::{Mat4, Vec3};
+    use glam::Vec3;
 
     // Test horizontal plane at Y = 0
     let normal = Vec3::new(0.0, 1.0, 0.0);

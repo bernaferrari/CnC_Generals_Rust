@@ -28,6 +28,7 @@ pub const MAX_STARTUP_ARGS: usize = 20;
 
 /// Command line arguments parsed from the application startup
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct CommandLineArgs {
     /// Raw command line arguments
     pub raw_args: Vec<String>,
@@ -71,43 +72,6 @@ pub struct CommandLineArgs {
     window_mode_override: Option<bool>,
 }
 
-impl Default for CommandLineArgs {
-    fn default() -> Self {
-        Self {
-            raw_args: Vec::new(),
-            options: HashMap::new(),
-            positional_args: Vec::new(),
-            windowed: false,
-            fullscreen: false,
-            width: None,
-            height: None,
-            map_name: None,
-            mod_name: None,
-            mod_dir: None,
-            mod_big: None,
-            player_name: None,
-            language: None,
-            replay_file: None,
-            config_file: None,
-            log_level: None,
-            no_audio: false,
-            no_video: false,
-            developer_mode: false,
-            quick_start: false,
-            auto_replay: false,
-            benchmark_mode: false,
-            server_mode: false,
-            client_mode: false,
-            network_port: None,
-            network_host: None,
-            display_debug_overlay: false,
-            integration_diagnostics: false,
-            dx_stack_dump: false,
-            smoke_test: false,
-            window_mode_override: None,
-        }
-    }
-}
 
 impl CommandLineArgs {
     /// Parse command line arguments from environment

@@ -784,8 +784,8 @@ const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
 
 #[cfg(feature = "game_client")]
 thread_local! {
-    static LOADING_PROGRESS: std::cell::Cell<f32> = std::cell::Cell::new(0.0);
-    static LOADING_PHASE: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
+    static LOADING_PROGRESS: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+    static LOADING_PHASE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
 // Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
@@ -4386,8 +4386,8 @@ impl CnCGameEngine {
                         writable.play_stats = Self::parse_startup_i32_like_atoi(&value);
                     }
                 }
-                "benchmark" => {
-                    if allow_debug_flags {
+                "benchmark"
+                    if allow_debug_flags => {
                         if let Some(value) =
                             Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
                         {
@@ -4396,7 +4396,6 @@ impl CnCGameEngine {
                             writable.play_stats = parsed;
                         }
                     }
-                }
                 _ => {}
             }
 
@@ -5642,7 +5641,7 @@ impl CnCGameEngine {
                     let objects = self.game_logic.get_objects();
                     crate::game_logic::combat::drain_pending_projectiles(
                         &mut self.combat_system,
-                        &objects,
+                        objects,
                     );
                 }
 
@@ -5842,7 +5841,7 @@ impl CnCGameEngine {
         static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
             std::sync::atomic::AtomicU32::new(0);
         let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if render_call < 30 || render_call % 300 == 0 {
+        if render_call < 30 || render_call.is_multiple_of(300) {
             info!(
                 "render() called #{}, state={:?}",
                 render_call, self.current_state

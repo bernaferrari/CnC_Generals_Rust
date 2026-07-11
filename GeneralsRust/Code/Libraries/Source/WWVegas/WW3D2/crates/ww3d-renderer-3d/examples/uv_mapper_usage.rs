@@ -3,7 +3,6 @@
 //! This example demonstrates how to use the UV texture mapper system with game assets.
 //! It shows practical integration patterns for different mapper types and use cases.
 
-use std::sync::Arc;
 
 // Note: These examples show the API and concepts. To run with real assets,
 // you would need actual W3D files from C&C Generals.

@@ -206,12 +206,11 @@ impl HTreeClass {
                 if i < translations.len() && i < rotations.len() {
                     // Apply translation with scale factor
                     let scaled_translation = translations[i] * self.scale_factor;
-                    self.pivots[i].transform =
-                        self.pivots[i].transform * Mat4::from_translation(scaled_translation);
+                    self.pivots[i].transform *= Mat4::from_translation(scaled_translation);
 
                     // Apply rotation
                     let rotation_matrix = Mat4::from_quat(rotations[i]);
-                    self.pivots[i].transform = self.pivots[i].transform * rotation_matrix;
+                    self.pivots[i].transform *= rotation_matrix;
                 }
 
                 // Handle captured bones
@@ -314,7 +313,7 @@ impl HTreeClass {
 
     /// Check if bone is captured
     pub fn is_bone_captured(&self, bone_index: usize) -> bool {
-        self.pivots.get(bone_index).map_or(false, |p| p.is_captured)
+        self.pivots.get(bone_index).is_some_and(|p| p.is_captured)
     }
 
     /// Control a captured bone with custom transform
@@ -358,7 +357,7 @@ impl HTreeClass {
 
     /// Get root transform
     pub fn get_root_transform(&self) -> Mat4 {
-        self.pivots.get(0).map_or(Mat4::IDENTITY, |p| p.transform)
+        self.pivots.first().map_or(Mat4::IDENTITY, |p| p.transform)
     }
 
     /// Update visibility flags for pivots.

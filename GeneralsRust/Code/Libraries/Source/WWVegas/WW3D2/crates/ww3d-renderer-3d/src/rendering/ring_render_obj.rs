@@ -329,7 +329,7 @@ impl RingMeshArray {
 // Thread-local storage for shared mesh arrays
 // C++ used global static arrays, we use thread-local for safety
 thread_local! {
-    static RING_MESH_ARRAY: std::cell::RefCell<Option<RingMeshArray>> = std::cell::RefCell::new(None);
+    static RING_MESH_ARRAY: std::cell::RefCell<Option<RingMeshArray>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Initialize shared ring mesh arrays
@@ -1401,7 +1401,7 @@ mod tests {
 
     #[test]
     fn test_ring_lod_costs() {
-        let ring = RingRenderObj::new();
+        let _ring = RingRenderObj::new();
 
         // Test that higher LODs have higher costs
         let mut prev_cost = 0.0;
@@ -1426,7 +1426,7 @@ mod tests {
 
         if let Some((vertices, normals, uvs, triangles)) = test_ring.get_vertex_data() {
             // Verify vertex count
-            assert!(vertices.len() > 0);
+            assert!(!vertices.is_empty());
             assert_eq!(vertices.len(), normals.len());
             assert_eq!(vertices.len(), uvs.len());
 

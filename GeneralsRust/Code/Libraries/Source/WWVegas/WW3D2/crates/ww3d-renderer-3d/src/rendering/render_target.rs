@@ -380,6 +380,6 @@ mod tests {
         let size = (1024, 1024);
         let format = RenderTargetFormat::Rgba8Unorm;
         let expected = 1024 * 1024 * 4;
-        assert_eq!(size.0 * size.1 * format.bytes_per_pixel() as u32, expected);
+        assert_eq!(size.0 * size.1 * format.bytes_per_pixel(), expected);
     }
 }

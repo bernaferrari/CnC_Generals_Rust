@@ -251,7 +251,7 @@ impl ParticleEmitter {
                 let buffer_size = buffer.get_max_particles().max(1);
                 let gcd = gcd_u32(buffer_size as u32, self.burst_size as u32).max(1);
                 let bursts = (buffer_size as u32) / gcd;
-                let cycle_time = emit_rate_ms.saturating_mul(bursts as u32);
+                let cycle_time = emit_rate_ms.saturating_mul(bursts);
                 frame_time = if cycle_time > 1 {
                     frame_time % cycle_time
                 } else {

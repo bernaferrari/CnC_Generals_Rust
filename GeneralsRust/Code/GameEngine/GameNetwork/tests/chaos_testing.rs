@@ -11,7 +11,7 @@
 
 #[cfg(test)]
 mod chaos_tests {
-    use std::sync::Arc;
+    
     use std::time::{Duration, Instant};
     use tokio::time::sleep;
 
@@ -389,17 +389,17 @@ mod chaos_tests {
             }
 
             // Count successful deliveries (simplified)
-            if (tick % 10) == 0 {
+            if tick.is_multiple_of(10) {
                 metrics.successful_deliveries += 1;
             }
 
             // Small delay to simulate processing
-            if tick % 100 == 0 {
+            if tick.is_multiple_of(100) {
                 sleep(Duration::from_millis(10)).await;
             }
 
             // Progress update every 30 seconds
-            if test_start.elapsed().as_secs() % 30 == 0 && tick % 3000 == 0 {
+            if test_start.elapsed().as_secs().is_multiple_of(30) && tick.is_multiple_of(3000) {
                 let elapsed = test_start.elapsed().as_secs_f64();
                 let progress = (elapsed / config.test_duration.as_secs_f64()) * 100.0;
                 println!(

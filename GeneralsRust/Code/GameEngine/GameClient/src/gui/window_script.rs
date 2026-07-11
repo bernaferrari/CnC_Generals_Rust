@@ -643,7 +643,7 @@ fn parse_listbox_data(value: &str) -> ListBoxData {
         .collect();
 
     let mut idx = 0;
-    while idx + 1 <= tokens.len() {
+    while idx < tokens.len() {
         let key = tokens[idx].to_ascii_uppercase();
         idx += 1;
         if idx >= tokens.len() {

@@ -147,7 +147,7 @@ impl ArchiveFileSystem {
                 // probe one directory level for sibling install bundles.
                 let should_scan_siblings = home_dir
                     .as_ref()
-                    .map_or(false, |home| ancestor.starts_with(home))
+                    .is_some_and(|home| ancestor.starts_with(home))
                     || ancestor.starts_with("/Users/Shared");
                 if !should_scan_siblings {
                     continue;
@@ -559,8 +559,7 @@ impl AsyncRead for BlockingAsyncReader {
                         Poll::Ready(Ok(()))
                     }
                     Ok(Err(err)) => Poll::Ready(Err(err)),
-                    Err(err) => Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::Other,
+                    Err(err) => Poll::Ready(Err(io::Error::other(
                         format!("blocking reader task failed: {err}"),
                     ))),
                 }

@@ -299,7 +299,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             WindowEvent::RedrawRequested => {
                 frame += 1;
-                if frame % 60 == 0 {
+                if frame.is_multiple_of(60) {
                     let fps = frame as f32 / start.elapsed().as_secs_f32();
                     println!("FPS: {:.1}, Frame: {}", fps, frame);
                 }

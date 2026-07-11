@@ -6,7 +6,6 @@
 //! Run with: `cargo run --example gui_demo`
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 const WINDOW_TITLE: &str = "C&C Generals Zero Hour - GUI Demo";
 const DEFAULT_WIDTH: u32 = 1280;
@@ -404,7 +403,7 @@ impl GUIDemo {
         );
 
         // Create control bar at bottom
-        let control_bar = self.window_manager.create_window(
+        let _control_bar = self.window_manager.create_window(
             Some(root),
             "ControlBar.wnd",
             0,

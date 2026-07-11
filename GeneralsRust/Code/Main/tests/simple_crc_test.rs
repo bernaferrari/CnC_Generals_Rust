@@ -175,7 +175,7 @@ fn test_multiplayer_sync_scenario() {
     );
 
     // Simulate desync - player 3 has slightly different state
-    let mut desync_objects = objects.clone();
+    let mut desync_objects = objects;
     desync_objects[0].0 += 0.1; // Tiny position difference
     let player3_desync_crc = calculate_multiplayer_crc(&desync_objects, frame);
 

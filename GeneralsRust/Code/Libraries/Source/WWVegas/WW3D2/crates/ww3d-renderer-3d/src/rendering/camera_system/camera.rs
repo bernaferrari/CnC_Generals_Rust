@@ -708,7 +708,7 @@ impl Clone for CameraClass {
             hfov: self.hfov,
             vfov: self.vfov,
             aspect_ratio: self.aspect_ratio,
-            viewport: self.viewport.clone(),
+            viewport: self.viewport,
             depth_start: self.depth_start,
             depth_end: self.depth_end,
             view_matrix: self.view_matrix,

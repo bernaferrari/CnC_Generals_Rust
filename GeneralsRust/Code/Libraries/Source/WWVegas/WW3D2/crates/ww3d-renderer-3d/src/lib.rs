@@ -594,14 +594,14 @@ impl Renderer {
                     timestamp_writes: None,
                 });
 
-            let result = mesh_manager.render_pass(
+            
+            mesh_manager.render_pass(
                 &mut render_pass,
                 &prepared.opaque,
                 &blended_and_decals,
                 info,
                 arena,
-            );
-            result
+            )
         };
         render_result?;
         for render_obj in non_mesh_static.drain(..) {
@@ -807,7 +807,7 @@ impl Renderer {
             ww3d_core::errors::W3DError::NotInitialized("Renderer camera not set".to_string())
         })?;
         let mut render_info = RendererRenderInfoClass::new(Arc::new(camera.clone()));
-        render_info.viewport = camera.get_viewport().clone();
+        render_info.viewport = *camera.get_viewport();
         if let Some(environment) = self.light_environment.clone() {
             render_info.set_lighting_environment(environment);
         }

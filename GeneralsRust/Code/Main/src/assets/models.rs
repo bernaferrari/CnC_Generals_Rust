@@ -545,7 +545,7 @@ impl W3DModel {
         let mut local_transforms: Vec<[f32; 16]> = hierarchy
             .pivots
             .iter()
-            .map(|p| mat4_from_pivot(p))
+            .map(mat4_from_pivot)
             .collect();
 
         for channel in &anim.channels {
@@ -572,15 +572,14 @@ impl W3DModel {
                         local_transforms[pivot_idx][14] = *v;
                     }
                 }
-                6 => {
-                    if values.len() >= 4 {
+                6
+                    if values.len() >= 4 => {
                         let qx = values[0];
                         let qy = values[1];
                         let qz = values[2];
                         let qw = values[3];
                         apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
                     }
-                }
                 _ => {}
             }
         }
@@ -716,8 +715,8 @@ fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut r = [0.0; 16];
     for i in 0..4 {
         for j in 0..4 {
-            r[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j]
-                + a[i * 4 + 1] * b[1 * 4 + j]
+            r[i * 4 + j] = a[i * 4] * b[j]
+                + a[i * 4 + 1] * b[4 + j]
                 + a[i * 4 + 2] * b[2 * 4 + j]
                 + a[i * 4 + 3] * b[3 * 4 + j];
         }
@@ -821,11 +820,11 @@ impl W3DLoader {
         }
     }
 
-    fn stage_mapping_mut<'a>(
-        material: &'a mut W3DMaterial,
+    fn stage_mapping_mut(
+        material: &mut W3DMaterial,
         stage: usize,
         create: bool,
-    ) -> Option<&'a mut TextureStageMapping> {
+    ) -> Option<&mut TextureStageMapping> {
         match stage {
             0 => Some(&mut material.stage0_mapping),
             1 => {
@@ -1799,7 +1798,7 @@ impl W3DLoader {
             return Vec::new();
         }
 
-        let blocks = (num_frames + 15) / 16;
+        let blocks = num_frames.div_ceil(16);
         let packet_count = blocks * vector_len;
         let bytes_needed = 8 + packet_count * 9;
         if chunk_data.len() < bytes_needed {
@@ -1979,8 +1978,8 @@ impl W3DLoader {
         let mut r = [0.0; 16];
         for i in 0..4 {
             for j in 0..4 {
-                r[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j]
-                    + a[i * 4 + 1] * b[1 * 4 + j]
+                r[i * 4 + j] = a[i * 4] * b[j]
+                    + a[i * 4 + 1] * b[4 + j]
                     + a[i * 4 + 2] * b[2 * 4 + j]
                     + a[i * 4 + 3] * b[3 * 4 + j];
             }
@@ -2021,12 +2020,11 @@ impl W3DLoader {
                 // Some materials might point to actual filenames (from DC_MAP chunks)
                 if let Some(ref tex_name) = material.texture_name {
                     // Only add non-numeric filenames - these are actual texture names
-                    if tex_name.parse::<usize>().is_err() {
-                        if !collected_textures.contains(tex_name) {
+                    if tex_name.parse::<usize>().is_err()
+                        && !collected_textures.contains(tex_name) {
                             debug!("  Added texture from material: {}", tex_name);
                             collected_textures.push(tex_name.clone());
                         }
-                    }
                 }
             }
 
@@ -2133,7 +2131,7 @@ impl W3DLoader {
     }
 
     fn parse_u32_array(&self, data: &[u8]) -> Result<Vec<u32>> {
-        if data.len() % 4 != 0 {
+        if !data.len().is_multiple_of(4) {
             return Err(anyhow!("invalid u32 array length {}", data.len()));
         }
         let mut values = Vec::with_capacity(data.len() / 4);
@@ -2151,7 +2149,7 @@ impl W3DLoader {
     }
 
     fn parse_rgba_colors(&self, data: &[u8]) -> Result<Vec<W3dRGBAStruct>> {
-        if data.len() % 4 != 0 {
+        if !data.len().is_multiple_of(4) {
             return Err(anyhow!("invalid RGBA array length {}", data.len()));
         }
         let mut colors = Vec::with_capacity(data.len() / 4);
@@ -2169,7 +2167,7 @@ impl W3DLoader {
     }
 
     fn parse_per_face_texcoord_ids(&self, data: &[u8]) -> Result<Vec<[u32; 3]>> {
-        if data.len() % 12 != 0 {
+        if !data.len().is_multiple_of(12) {
             return Err(anyhow!(
                 "invalid per-face texcoord id array length {}",
                 data.len()
@@ -2299,7 +2297,7 @@ impl W3DLoader {
 
     fn parse_shaders_chunk(&self, data: &[u8]) -> Result<Vec<W3dShaderStruct>> {
         // C++ W3dShaderStruct is 16 bytes (15 data bytes + 1 pad byte).
-        if data.len() % 16 != 0 {
+        if !data.len().is_multiple_of(16) {
             return Err(anyhow!("invalid shader chunk length {}", data.len()));
         }
 
@@ -3005,7 +3003,7 @@ impl W3DLoader {
 
     /// Parse normals array
     fn parse_normals(&self, data: &[u8]) -> Result<Vec<[f32; 3]>> {
-        if data.len() % 12 != 0 {
+        if !data.len().is_multiple_of(12) {
             return Err(anyhow!("Invalid normals data size: {}", data.len()));
         }
 
@@ -3040,7 +3038,7 @@ impl W3DLoader {
 
     /// Parse texture coordinates array
     fn parse_texcoords(&self, data: &[u8]) -> Result<Vec<[f32; 2]>> {
-        if data.len() % 8 != 0 {
+        if !data.len().is_multiple_of(8) {
             return Err(anyhow!("Invalid texcoords data size: {}", data.len()));
         }
 
@@ -3072,7 +3070,7 @@ impl W3DLoader {
     fn parse_vertex_colors(&self, data: &[u8]) -> Result<Vec<[f32; 4]>> {
         let mut colors = Vec::new();
 
-        if data.len() % 3 == 0 {
+        if data.len().is_multiple_of(3) {
             let color_count = data.len() / 3;
             colors.reserve(color_count);
             for i in 0..color_count {
@@ -3087,7 +3085,7 @@ impl W3DLoader {
             return Ok(colors);
         }
 
-        if data.len() % 4 == 0 {
+        if data.len().is_multiple_of(4) {
             let color_count = data.len() / 4;
             colors.reserve(color_count);
             for i in 0..color_count {
@@ -3635,7 +3633,7 @@ impl W3DLoader {
         // Total size: 3*4 + 4 + 3*4 + 4 = 32 bytes per triangle
         const TRI_STRUCT_SIZE: usize = 32;
 
-        if data.len() % TRI_STRUCT_SIZE != 0 {
+        if !data.len().is_multiple_of(TRI_STRUCT_SIZE) {
             return Err(anyhow!(
                 "Invalid triangles data size: {} (expected multiple of {})",
                 data.len(),

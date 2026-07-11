@@ -338,7 +338,7 @@ impl AdvancedAnimatable3DObj {
         match condition {
             TransitionCondition::TimeElapsed(duration) => {
                 // Check if enough time has passed in current state
-                if let Some(layer) = self.layers.get(0) {
+                if let Some(layer) = self.layers.first() {
                     layer.current_time >= *duration
                 } else {
                     false
@@ -353,11 +353,10 @@ impl AdvancedAnimatable3DObj {
             }
             TransitionCondition::AnimationEnd => {
                 // Check if current animation has ended
-                self.layers
-                    .get(0)
+                self.layers.first()
                     .and_then(|layer| layer.animation.as_ref())
                     .map(|anim| {
-                        let current_time = self.layers.get(0).unwrap().current_time;
+                        let current_time = self.layers.first().unwrap().current_time;
                         current_time >= anim.num_frames as f32 / anim.frame_rate
                     })
                     .unwrap_or(false)
@@ -404,7 +403,7 @@ impl AdvancedAnimatable3DObj {
             if layer.loop_animation {
                 let duration = animation.num_frames as f32 / animation.frame_rate;
                 if layer.current_time >= duration {
-                    layer.current_time = layer.current_time % duration;
+                    layer.current_time %= duration;
                 }
             } else {
                 let duration = animation.num_frames as f32 / animation.frame_rate;

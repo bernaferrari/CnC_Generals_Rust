@@ -25,16 +25,19 @@ pub struct W3DGameLogic;
 
 impl W3DGameLogic {
     /// Construct a W3D game-logic adapter.
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
 
     /// C++ `createTerrainLogic`.
+    #[must_use]
     pub const fn create_terrain_logic(&self) -> TerrainLogicFactory {
         TerrainLogicFactory::W3DTerrainLogic
     }
 
     /// C++ `createGhostObjectManager`.
+    #[must_use]
     pub const fn create_ghost_object_manager(&self) -> GhostObjectManagerFactory {
         GhostObjectManagerFactory::W3DGhostObjectManager
     }

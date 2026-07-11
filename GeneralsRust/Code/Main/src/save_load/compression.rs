@@ -285,7 +285,7 @@ mod tests {
         let uniform_ratio = estimate_compression_ratio(&uniform_data);
 
         assert!(random_ratio > uniform_ratio);
-        assert!(random_ratio >= 0.3 && random_ratio <= 0.9);
-        assert!(uniform_ratio >= 0.3 && uniform_ratio <= 0.9);
+        assert!((0.3..=0.9).contains(&random_ratio));
+        assert!((0.3..=0.9).contains(&uniform_ratio));
     }
 }
