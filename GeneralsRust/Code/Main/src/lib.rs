@@ -118,6 +118,7 @@ pub mod golden_skirmish;
 pub mod map_frame_scenario;
 pub mod playability_integration;
 pub mod release_candidate;
+pub mod shell_smoke;
 pub mod skirmish_config;
 
 // New factory pattern modules
