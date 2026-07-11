@@ -1157,7 +1157,18 @@ impl RenderPipeline {
     }
 
     /// Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
-    /// Integrates FOW visibility filtering
+    /// Integrates FOW visibility filtering.
+    ///
+    /// # Presentation boundary (host path)
+    /// When `presentation_frame` is set, **identity / transform / model key / aliveness**
+    /// come from the immutable snapshot first. Remaining live `GameLogic` borrows are
+    /// intentional residuals only:
+    /// - mesh asset resolve / template model load
+    /// - FOW visibility batch
+    /// - `engine_object_id` skip for RenderBridge drawables
+    /// - selection radius / cull sphere fallback when snapshot lacks bounds
+    /// Do **not** re-read live position/orientation/health/team/selected/model_key when
+    /// presentation owns those fields.
     fn collect_render_items(
         &mut self,
         graphics_system: &mut GraphicsSystem,
