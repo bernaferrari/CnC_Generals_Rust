@@ -86,7 +86,12 @@ fn main() {
     }
 
     if failed.is_empty() {
-        println!("behavior_gate: PASS (map+golden+breadth+ai+shell+rc)");
+        // Honest reading: headless host APIs cooperate. Golden combat is synthetic
+        // (no retail map army, AI disabled). Shell has no window/WND/GPU.
+        // playable_claim remains false on those paths — do not read as retail playable.
+        println!(
+            "behavior_gate: PASS (headless host systems; golden synthetic_combat=true playable_claim=false; shell playable_claim=false; not windowed retail match)"
+        );
         std::process::exit(0);
     }
     eprintln!("behavior_gate: FAIL");
