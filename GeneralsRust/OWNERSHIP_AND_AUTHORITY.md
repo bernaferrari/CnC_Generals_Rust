@@ -59,3 +59,12 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
 - **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, presentation-only renderer with zero GameLogic borrow for mesh assets.
 
+Gate honesty labels:
+
+| Gate field | Meaning |
+|------------|---------|
+| `playable_claim=false` | Must not be read as “retail match is playable end-to-end” |
+| `synthetic_combat=true` (golden) | Combat/victory on synthetic host world, not Lone Eagle armies |
+| `ai_disabled_for_slice=true` (golden) | Opponent AI off so rebuilds do not mask combat failure |
+| shell `host_constructed` | True only after `apply_skirmish_config` succeeds (not a constant) |
+
