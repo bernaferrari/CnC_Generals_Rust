@@ -1112,7 +1112,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_vertices(&mut self, vertices: &[W3dVectorStruct]) -> W3DResult<()> {
-        let size = (vertices.len() * std::mem::size_of::<W3dVectorStruct>()) as u32;
+        let size = std::mem::size_of_val(vertices) as u32;
         self.write_chunk_header(W3DChunkType::Vertices, size)?;
         for vertex in vertices {
             vertex
@@ -1123,7 +1123,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_normals(&mut self, normals: &[W3dVectorStruct]) -> W3DResult<()> {
-        let size = (normals.len() * std::mem::size_of::<W3dVectorStruct>()) as u32;
+        let size = std::mem::size_of_val(normals) as u32;
         self.write_chunk_header(W3DChunkType::VertexNormals, size)?;
         for normal in normals {
             normal
@@ -1134,7 +1134,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_triangles(&mut self, triangles: &[W3dTriangleStruct]) -> W3DResult<()> {
-        let size = (triangles.len() * std::mem::size_of::<W3dTriangleStruct>()) as u32;
+        let size = std::mem::size_of_val(triangles) as u32;
         self.write_chunk_header(W3DChunkType::Triangles, size)?;
         for triangle in triangles {
             triangle
@@ -1145,7 +1145,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_texcoords(&mut self, coords: &[W3dTexCoordStruct]) -> W3DResult<()> {
-        let size = (coords.len() * std::mem::size_of::<W3dTexCoordStruct>()) as u32;
+        let size = std::mem::size_of_val(coords) as u32;
         self.write_chunk_header(W3DChunkType::StageTexcoords, size)?;
         for coord in coords {
             coord
@@ -1156,7 +1156,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_vertex_influences(&mut self, influences: &[W3dVertInfStruct]) -> W3DResult<()> {
-        let size = (influences.len() * std::mem::size_of::<W3dVertInfStruct>()) as u32;
+        let size = std::mem::size_of_val(influences) as u32;
         self.write_chunk_header(W3DChunkType::VertexInfluences, size)?;
         for influence in influences {
             influence
@@ -1175,7 +1175,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_shaders(&mut self, shaders: &[W3dShaderStruct]) -> W3DResult<()> {
-        let size = (shaders.len() * std::mem::size_of::<W3dShaderStruct>()) as u32;
+        let size = std::mem::size_of_val(shaders) as u32;
         self.write_chunk_header(W3DChunkType::Shaders, size)?;
         for shader in shaders {
             shader
@@ -1186,7 +1186,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_vertex_materials(&mut self, materials: &[W3dVertexMaterialStruct]) -> W3DResult<()> {
-        let size = (materials.len() * std::mem::size_of::<W3dVertexMaterialStruct>()) as u32;
+        let size = std::mem::size_of_val(materials) as u32;
         self.write_chunk_header(W3DChunkType::VertexMaterials, size)?;
         for material in materials {
             material
@@ -1197,7 +1197,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_textures(&mut self, textures: &[W3dTextureStruct]) -> W3DResult<()> {
-        let size = (textures.len() * std::mem::size_of::<W3dTextureStruct>()) as u32;
+        let size = std::mem::size_of_val(textures) as u32;
         self.write_chunk_header(W3DChunkType::Textures, size)?;
         for texture in textures {
             texture
@@ -1236,7 +1236,7 @@ impl<W: Write + Seek> W3DWriter<W> {
     }
 
     fn write_pivots(&mut self, pivots: &[W3dPivotStruct]) -> W3DResult<()> {
-        let size = (pivots.len() * std::mem::size_of::<W3dPivotStruct>()) as u32;
+        let size = std::mem::size_of_val(pivots) as u32;
         self.write_chunk_header(W3DChunkType::Pivots, size)?;
         for pivot in pivots {
             pivot

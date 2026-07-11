@@ -198,10 +198,9 @@ impl MeshGeometry {
         }
 
         // Normalize accumulated normals
-        for i in 0..self.vertices.len() {
-            let normal = vertex_normals[i];
+        for (vertex, normal) in self.vertices.iter_mut().zip(vertex_normals.iter()) {
             if normal.length_squared() > 0.0001 {
-                self.vertices[i].normal = normal.normalize();
+                vertex.normal = normal.normalize();
             }
         }
     }
@@ -441,7 +440,7 @@ impl RenderObject for Mesh {
             let s = local_ray.origin - v0;
             let u = f * s.dot(h);
 
-            if u < 0.0 || u > 1.0 {
+            if !(0.0..=1.0).contains(&u) {
                 continue;
             }
 

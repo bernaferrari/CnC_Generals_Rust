@@ -263,12 +263,10 @@ impl WW3D {
         state.is_sorting_enabled = enable;
         drop(state);
 
-        if let Some(result) = WW3D::with_renderer(|backend| backend.set_sorting_enabled(enable)) {
-            if let Err(err) = result {
-                let mut state = ww3d_state().lock().expect("WW3D state poisoned");
-                state.is_sorting_enabled = !enable;
-                return Err(err);
-            }
+        if let Some(Err(err)) = WW3D::with_renderer(|backend| backend.set_sorting_enabled(enable)) {
+            let mut state = ww3d_state().lock().expect("WW3D state poisoned");
+            state.is_sorting_enabled = !enable;
+            return Err(err);
         }
         Ok(())
     }
@@ -290,14 +288,12 @@ impl WW3D {
         state.static_sort_lists_enabled = enable;
         drop(state);
 
-        if let Some(result) =
+        if let Some(Err(err)) =
             WW3D::with_renderer(|backend| backend.set_static_sort_lists_enabled(enable))
         {
-            if let Err(err) = result {
-                let mut state = ww3d_state().lock().expect("WW3D state poisoned");
-                state.static_sort_lists_enabled = !enable;
-                return Err(err);
-            }
+            let mut state = ww3d_state().lock().expect("WW3D state poisoned");
+            state.static_sort_lists_enabled = !enable;
+            return Err(err);
         }
         Ok(())
     }
@@ -319,12 +315,10 @@ impl WW3D {
         state.decals_enabled = enable;
         drop(state);
 
-        if let Some(result) = WW3D::with_renderer(|backend| backend.set_decals_enabled(enable)) {
-            if let Err(err) = result {
-                let mut state = ww3d_state().lock().expect("WW3D state poisoned");
-                state.decals_enabled = !enable;
-                return Err(err);
-            }
+        if let Some(Err(err)) = WW3D::with_renderer(|backend| backend.set_decals_enabled(enable)) {
+            let mut state = ww3d_state().lock().expect("WW3D state poisoned");
+            state.decals_enabled = !enable;
+            return Err(err);
         }
         Ok(())
     }

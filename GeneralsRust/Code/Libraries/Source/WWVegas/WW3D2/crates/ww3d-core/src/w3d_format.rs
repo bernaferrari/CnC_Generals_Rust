@@ -384,6 +384,7 @@ pub struct W3dPivotStruct {
 #[derive(Debug, Clone, BinRead, BinWrite)]
 #[brw(little)]
 #[repr(C)]
+#[derive(Default)]
 pub struct W3dAnimationStruct {
     pub version: u32,
     pub name: [u8; 16],
@@ -392,17 +393,6 @@ pub struct W3dAnimationStruct {
     pub frame_rate: u32,
 }
 
-impl Default for W3dAnimationStruct {
-    fn default() -> Self {
-        Self {
-            version: 0,
-            name: [0; 16],
-            hiera_name: [0; 16],
-            num_frames: 0,
-            frame_rate: 0,
-        }
-    }
-}
 
 // Animation channel structure
 #[derive(Debug, Clone, BinRead, BinWrite)]
@@ -952,6 +942,12 @@ pub struct W3dMesh {
     pub material_pass: Option<W3dMaterialPassStruct>,
 }
 
+impl Default for W3dMesh {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl W3dMesh {
     pub fn new() -> Self {
         Self {
@@ -978,6 +974,12 @@ pub struct W3dHierarchy {
     pub pivots: Vec<W3dPivotStruct>,
 }
 
+impl Default for W3dHierarchy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl W3dHierarchy {
     pub fn new() -> Self {
         Self {
@@ -993,6 +995,12 @@ impl W3dHierarchy {
 pub struct W3dAnimation {
     pub header: W3dAnimationStruct,
     pub channels: Vec<W3dAnimChannelStruct>,
+}
+
+impl Default for W3dAnimation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl W3dAnimation {
