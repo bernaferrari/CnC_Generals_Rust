@@ -282,7 +282,7 @@ impl TextureAnimation {
             }
             TextureAnimationType::PingPong => {
                 let cycle = self.frame_count as f32 * 2.0;
-                self.current_frame = self.current_frame % cycle;
+                self.current_frame %= cycle;
                 if self.current_frame >= self.frame_count as f32 {
                     self.current_frame = cycle - self.current_frame;
                 }
@@ -498,7 +498,7 @@ pub fn create_checkerboard_texture(name: String, size: u32, checker_size: u32) -
         for x in 0..size {
             let checker_x = (x / checker_size) % 2;
             let checker_y = (y / checker_size) % 2;
-            let is_white = (checker_x + checker_y) % 2 == 0;
+            let is_white = (checker_x + checker_y).is_multiple_of(2);
 
             let color = if is_white {
                 [255, 255, 255, 255]

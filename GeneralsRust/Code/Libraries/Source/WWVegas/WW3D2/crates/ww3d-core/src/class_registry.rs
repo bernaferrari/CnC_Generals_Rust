@@ -164,12 +164,11 @@ pub fn register_class<T: 'static>(id: u32, name: &'static str) -> Result<(), Cla
         .write()
         .expect("class registry poisoned (type)");
     if let Some(existing_id) = by_type.get(&type_id) {
-        let existing = REGISTRY_BY_ID
+        let existing = *REGISTRY_BY_ID
             .read()
             .expect("class registry poisoned (id)")
             .get(existing_id)
-            .expect("type map and id map out of sync")
-            .clone();
+            .expect("type map and id map out of sync");
         return Err(ClassRegistryError::TypeAlreadyRegistered {
             id: existing.id,
             name: existing.name,
@@ -252,7 +251,7 @@ pub fn type_id_from_class(id: u32) -> Option<TypeId> {
 pub fn is_class_registered(id: u32) -> bool {
     REGISTRY_BY_ID
         .read()
-        .map_or(false, |map| map.contains_key(&id))
+        .is_ok_and(|map| map.contains_key(&id))
 }
 
 #[cfg(test)]
