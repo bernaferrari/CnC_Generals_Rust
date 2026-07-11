@@ -5823,6 +5823,22 @@ impl CnCGameEngine {
         }
     }
 
+    /// Last immutable presentation snapshot after the most recent logic step.
+    pub fn last_presentation_frame(
+        &self,
+    ) -> Option<&crate::presentation_frame::PresentationFrame> {
+        self.last_presentation_frame.as_ref()
+    }
+
+    /// Production HUD consumer: apply last presentation to GameHUD without re-reading live objects.
+    pub fn apply_presentation_to_hud(&mut self) -> bool {
+        let Some(pres) = self.last_presentation_frame.clone() else {
+            return false;
+        };
+        pres.apply_to_game_hud(&mut self.game_hud);
+        true
+    }
+
     pub fn render(&mut self) -> Result<()> {
         let render_started = Instant::now();
         static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
@@ -5837,6 +5853,13 @@ impl CnCGameEngine {
 
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
+            // Production presentation consumer: when a post-logic snapshot exists,
+            // HUD/UI frame identity for credits/selection comes from that owned
+            // feed rather than a second parallel sim authority.
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                pres.apply_to_ui_state(&mut ui_state);
+                pres.apply_to_game_hud(&mut self.game_hud);
+            }
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
                     self.game_hud

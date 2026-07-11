@@ -46,19 +46,17 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
     let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
     let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
 
-    // Seed a constructed GLA barracks so unit production can run once build phase advances.
-    // (AI still must enqueue production itself via process_team_queue.)
+    // Seed constructed GLA factories so production can run once AI queues teams.
+    // AI still must start additional builds via process_building_queue.
     logic.ensure_ai_faction_templates(Team::GLA);
-    if let Some(id) = logic.create_object(
-        "GLA_Barracks",
-        Team::GLA,
-        Vec3::new(200.0, 0.0, 200.0),
-    ) {
-        if let Some(obj) = logic.get_object_mut(id) {
-            obj.status.under_construction = false;
-            // Ensure building_data for production queue.
-            if obj.building_data.is_none() {
-                // Object::new for structure templates should set building_data; force complete.
+    for (name, pos) in [
+        ("GLA_Barracks", Vec3::new(200.0, 0.0, 200.0)),
+        ("GLA_ArmsDealer", Vec3::new(230.0, 0.0, 200.0)),
+    ] {
+        if let Some(id) = logic.create_object(name, Team::GLA, pos) {
+            if let Some(obj) = logic.get_object_mut(id) {
+                obj.status.under_construction = false;
+                obj.construction_percent = 1.0;
             }
         }
     }
@@ -95,10 +93,14 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
         })
         .count();
 
+    // Multi-interval depth: require more than a single one-shot action.
+    let multi_action = activity_count >= 2
+        || ai_structures >= 3
+        || (activity_count >= 1 && ai_units_or_queue >= 1);
     let status = if config_applied
         && ai_players >= 1
         && frames_advanced > 0
-        && (activity_count > 0 || ai_structures > 1 || ai_units_or_queue > 0)
+        && multi_action
     {
         "success".into()
     } else {
@@ -138,7 +140,7 @@ mod tests {
 
     #[test]
     fn medium_ai_is_non_idle_on_host_update_path() {
-        let result = run_medium_ai_skirmish_activity(90);
+        let result = run_medium_ai_skirmish_activity(120);
         assert!(result.config_applied, "skirmish config must apply");
         assert!(
             result.ai_players >= 1,
@@ -147,8 +149,10 @@ mod tests {
         );
         assert!(result.frames_advanced > 0);
         assert!(
-            result.activity_count > 0 || result.ai_structures > 1,
-            "AI must take production-linked action: {}",
+            result.activity_count >= 2
+                || result.ai_structures >= 3
+                || (result.activity_count >= 1 && result.ai_units_or_queue >= 1),
+            "AI must show multi-interval activity: {}",
             format_ai_activity_report(&result)
         );
         assert_eq!(
@@ -156,6 +160,40 @@ mod tests {
             "success",
             "{}",
             format_ai_activity_report(&result)
+        );
+    }
+
+    #[test]
+    fn medium_ai_activity_grows_across_update_windows() {
+        let config = golden_skirmish_config("AIGrowthMap");
+        let mut logic = GameLogic::new();
+        assert!(apply_skirmish_config(&mut logic, &config).is_ok());
+        ensure_human_templates(&mut logic);
+        let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
+        logic.ensure_ai_faction_templates(Team::GLA);
+        for _ in 0..30 {
+            logic.update();
+        }
+        let after_first = logic.host_ai_activity_count();
+        let structs_first = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure))
+            .count();
+        assert!(after_first >= 1, "first AI build interval must fire");
+        // Continue host updates across more AI intervals (next_building_time reopens).
+        for _ in 0..90 {
+            logic.update();
+        }
+        let after_more = logic.host_ai_activity_count();
+        let structs_more = logic
+            .get_objects()
+            .values()
+            .filter(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure))
+            .count();
+        assert!(
+            after_more >= 2 || structs_more > structs_first,
+            "multi-interval AI must deepen: act {after_first}->{after_more} structs {structs_first}->{structs_more}"
         );
     }
 }

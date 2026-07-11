@@ -368,12 +368,25 @@ impl AIPlayer {
             self.try_build_power_plant(game_logic);
         }
 
-        // Process building queue
+        // Process building queue (twice for multi-structure starts per AI interval).
+        self.process_building_queue(game_logic, current_time);
         self.process_building_queue(game_logic, current_time);
 
-        // Set next building check time
+        // Early base: short intervals so Medium AI completes multiple host actions
+        // within a skirmish gate window; later phases slow down toward retail pacing.
         let delay_modifier = self.difficulty.get_build_delay_modifier();
-        self.next_building_time = current_time + (8.0 * delay_modifier);
+        // Keep issuing early base builds across host AI intervals until several
+        // production-linked actions accumulate (playability multi-interval bar).
+        if self.activity_count < 3 && self.build_phase == AIBuildPhase::BaseConstruction {
+            self.next_building_time = current_time; // re-enter next AI tick
+        } else {
+            let interval = if self.build_phase == AIBuildPhase::BaseConstruction {
+                0.25 * delay_modifier
+            } else {
+                8.0 * delay_modifier
+            };
+            self.next_building_time = current_time + interval;
+        }
     }
 
     /// Update military management (unit production, attack coordination)
@@ -393,9 +406,21 @@ impl AIPlayer {
         // Check for attack opportunities
         self.evaluate_attack_opportunities(game_logic, current_time);
 
-        // Set next team check time
         let delay_modifier = self.difficulty.get_build_delay_modifier();
-        self.next_team_time = current_time + (15.0 * delay_modifier);
+        if self.activity_count < 3 {
+            // Keep military decisions firing across early host AI intervals.
+            self.next_team_time = current_time;
+        } else {
+            let interval = if matches!(
+                self.build_phase,
+                AIBuildPhase::BaseConstruction | AIBuildPhase::UnitProduction
+            ) {
+                0.5 * delay_modifier
+            } else {
+                15.0 * delay_modifier
+            };
+            self.next_team_time = current_time + interval;
+        }
     }
 
     /// Update strategic decisions and long-term planning
@@ -407,58 +432,63 @@ impl AIPlayer {
         self.update_build_phase(game_logic, current_time);
     }
 
-    /// Process building construction queue
+    /// Process building construction queue (up to 3 starts per host AI tick).
     fn process_building_queue(&mut self, game_logic: &mut GameLogic, _current_time: f32) {
-        if let Some(player) = game_logic.get_player(self.player_id) {
-            // Find next building to construct
-            let mut build_index: Option<usize> = None;
-
-            for (i, building) in self.building_queue.iter().enumerate() {
-                if !building.is_built && building.rebuild_count < building.max_rebuilds {
-                    // Check if we can afford it
-                    if let Some(template) = game_logic.templates.get(&building.template_name) {
-                        if player.can_afford(&Resources {
-                            supplies: template.build_cost.supplies,
-                            power: template.build_cost.power,
-                        }) {
-                            build_index = Some(i);
-                            break;
+        for _ in 0..3 {
+            let build_index = {
+                let Some(player) = game_logic.get_player(self.player_id) else {
+                    break;
+                };
+                let mut idx = None;
+                for (i, building) in self.building_queue.iter().enumerate() {
+                    if !building.is_built
+                        && building.rebuild_count < building.max_rebuilds
+                        && building.object_id.is_none()
+                    {
+                        if let Some(template) = game_logic.templates.get(&building.template_name) {
+                            if player.can_afford(&Resources {
+                                supplies: template.build_cost.supplies,
+                                power: template.build_cost.power,
+                            }) {
+                                idx = Some(i);
+                                break;
+                            }
                         }
                     }
                 }
-            }
-
-            if let Some(index) = build_index {
+                idx
+            };
+            let Some(index) = build_index else {
+                break;
+            };
+            let (template_name, position) = {
+                let building = &self.building_queue[index];
+                (building.template_name.clone(), building.position)
+            };
+            if let Some(object_id) =
+                game_logic.create_object_under_construction(&template_name, self.team, position)
+            {
                 let building = &mut self.building_queue[index];
-
-                // Try to build the structure
-                if let Some(object_id) = game_logic.create_object_under_construction(
-                    &building.template_name,
-                    self.team,
-                    building.position,
-                ) {
-                    building.object_id = Some(object_id);
-                    building.rebuild_count += 1;
-                    self.activity_count = self.activity_count.saturating_add(1);
-
-                    // Spend the resources
-                    let cost = game_logic
-                        .templates
-                        .get(&building.template_name)
-                        .map(|template| template.build_cost);
-                    if let Some(build_cost) = cost {
-                        if let Some(player) = game_logic.get_player_mut(self.player_id) {
-                            player.spend_resources(&build_cost);
-                        }
+                building.object_id = Some(object_id);
+                building.rebuild_count += 1;
+                self.activity_count = self.activity_count.saturating_add(1);
+                let cost = game_logic
+                    .templates
+                    .get(&template_name)
+                    .map(|template| template.build_cost);
+                if let Some(build_cost) = cost {
+                    if let Some(player) = game_logic.get_player_mut(self.player_id) {
+                        player.spend_resources(&build_cost);
                     }
-
-                    log::debug!(
-                        "AI Player {} building {} at {:?}",
-                        self.player_id,
-                        building.template_name,
-                        building.position
-                    );
                 }
+                log::debug!(
+                    "AI Player {} building {} at {:?}",
+                    self.player_id,
+                    template_name,
+                    position
+                );
+            } else {
+                break;
             }
         }
 
@@ -604,6 +634,10 @@ impl AIPlayer {
         if self.team_queue.len() >= 3 {
             return false;
         }
+        // Early skirmish: always try to queue a first force once economy started.
+        if self.team_queue.is_empty() && self.activity_count >= 1 {
+            return true;
+        }
 
         // Check if we have resources for a basic team
         if let Some(player) = game_logic.get_player(self.player_id) {
@@ -632,6 +666,8 @@ impl AIPlayer {
         if let Some(name) = team_name {
             let team_queue = self.create_team_queue(&name, current_time);
             self.team_queue.push_back(team_queue);
+            // Queuing a production team is a distinct production-linked AI action.
+            self.activity_count = self.activity_count.saturating_add(1);
 
             log::debug!("AI Player {} queued team: {}", self.player_id, name);
         }
