@@ -36,7 +36,7 @@ fn host_templates(logic: &mut GameLogic) {
         (
             "HostEnemy",
             &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
-            50.0,
+            200.0,
         ),
     ] {
         let mut t = ThingTemplate::new(name);
@@ -56,7 +56,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HostOnlyBridge");
     let _ = apply_skirmish_config(&mut logic, &cfg);
-    // Low-HP enemy template so default Weapon combat can finish honestly.
+    // Structure-scale enemy HP (200); default Weapon combat must finish via update_combat.
     for (name, kinds, hp) in [
         (
             "HostCC",
@@ -71,7 +71,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         (
             "HostEnemy",
             &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
-            50.0,
+            200.0,
         ),
     ] {
         let mut t = ThingTemplate::new(name);
@@ -135,8 +135,9 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         .get_object(enemy)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
+    // 200 HP / 25 dmg ≈ 8 shots at 1s reload → need ~240+ logic frames.
     let mut combat_killed = false;
-    for round in 0..120u32 {
+    for round in 0..400u32 {
         logic.queue_command(cmd(
             2 + round,
             CommandType::AttackObject { target_id: enemy },
@@ -234,7 +235,7 @@ mod tests {
         ranger_t.add_kind_of(KindOf::Attackable);
         logic.templates.insert("R".into(), ranger_t);
         let mut enemy_t = ThingTemplate::new("E");
-        enemy_t.set_health(50.0);
+        enemy_t.set_health(200.0);
         enemy_t.add_kind_of(KindOf::Structure);
         enemy_t.add_kind_of(KindOf::CommandCenter);
         logic.templates.insert("E".into(), enemy_t);
@@ -250,7 +251,8 @@ mod tests {
             CommandType::AttackObject { target_id: enemy },
             vec![ranger],
         ));
-        for _ in 0..200 {
+        // 200 HP structure; default weapon needs multi-second fight.
+        for _ in 0..400 {
             logic.update();
             if !logic
                 .get_object(enemy)
