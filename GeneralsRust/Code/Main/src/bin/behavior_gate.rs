@@ -3,14 +3,16 @@
 //! Runs production-linked map/golden/breadth/RC checks. Matrix audit is reported
 //! separately and never alone proves playability.
 
-use generals_main::ai_skirmish_activity::{format_ai_activity_report, run_medium_ai_skirmish_activity};
-use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
+use generals_main::ai_skirmish_activity::{
+    format_ai_activity_report, run_medium_ai_skirmish_activity,
+};
 use generals_main::breadth_scenarios::{format_breadth_report, run_all_breadth};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
     format_map_frame_report, run_map_frame_scenario, MapFrameStatus,
 };
 use generals_main::release_candidate::{format_rc_report, run_release_candidate_package};
+use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 
 fn main() {
     let mut failed = Vec::new();
@@ -32,11 +34,7 @@ fn main() {
     // 2) Golden skirmish vertical slice.
     let golden = run_golden_skirmish(None, 12);
     println!("golden: {}", format_golden_report(&golden));
-    if golden.status != "success"
-        || !golden.victory
-        || !golden.save_load_ok
-        || !golden.fought
-    {
+    if golden.status != "success" || !golden.victory || !golden.save_load_ok || !golden.fought {
         failed.push(format!(
             "golden status={} victory={} save={} fight={}",
             golden.status, golden.victory, golden.save_load_ok, golden.fought

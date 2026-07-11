@@ -249,9 +249,8 @@ pub struct RenderPipeline {
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
     animation_states: HashMap<u32, ObjectAnimationState>,
     last_frame_time: f32,
-    /// When set, collect_render_items uses this presentation-derived ID list
-    /// as frame identity instead of iterating the live object map alone.
-    presentation_object_ids: Option<Vec<ObjectID>>,
+    /// When set, collect_render_items prefers presentation-owned transforms/model keys.
+    presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -600,13 +599,25 @@ impl RenderPipeline {
             model_cull_bounds_cache: HashMap::new(),
             animation_states: HashMap::new(),
             last_frame_time: 0.0,
-            presentation_object_ids: None,
+            presentation_frame: None,
         })
     }
 
-    /// Provide presentation-derived object IDs for the next collect_render_items pass.
+    /// Provide full presentation snapshot for the next collect_render_items pass.
+    pub fn set_presentation_frame(
+        &mut self,
+        frame: Option<crate::presentation_frame::PresentationFrame>,
+    ) {
+        self.presentation_frame = frame;
+    }
+
+    /// Backward-compatible: store IDs-only by building a minimal frame is not needed;
+    /// prefer set_presentation_frame. Kept as thin alias for call sites.
     pub fn set_presentation_object_ids(&mut self, ids: Option<Vec<ObjectID>>) {
-        self.presentation_object_ids = ids;
+        if ids.is_none() {
+            self.presentation_frame = None;
+        }
+        // IDs-only path no longer used; clear frame when None.
     }
 
     /// Execute complete rendering pipeline - equivalent to C++ RenderPipeline::Execute()
@@ -1159,35 +1170,51 @@ impl RenderPipeline {
         delta_time: f32,
     ) -> Result<()> {
         let collect_started = Instant::now();
-        // Prefer presentation-frame identity when the host provided one after logic step.
         let object_ids_started = Instant::now();
-        let mut object_ids: Vec<ObjectID> = if let Some(pres_ids) = self.presentation_object_ids.take()
-        {
-            pres_ids
+        // Snapshot ownership: when presentation is present, iterate its IDs and use
+        // presentation transforms/model keys rather than re-querying live object state
+        // for those fields.
+        let presentation = self.presentation_frame.take();
+        let mut object_ids: Vec<ObjectID> = if let Some(ref pres) = presentation {
+            pres.renderable_object_ids()
         } else {
             game_logic.get_objects().keys().copied().collect()
         };
+        let pres_by_id: std::collections::HashMap<
+            ObjectID,
+            &crate::presentation_frame::RenderableObject,
+        > = presentation
+            .as_ref()
+            .map(|p| p.objects.iter().map(|o| (o.id, o)).collect())
+            .unwrap_or_default();
         trace!(
-            "collect_render_items processing {} objects (presentation_or_live)",
-            object_ids.len()
+            "collect_render_items processing {} objects (presentation={})",
+            object_ids.len(),
+            !pres_by_id.is_empty()
         );
         if allow_sync_model_loads {
             object_ids.sort_unstable();
         } else {
+            // Prefer presentation-owned positions for distance sort so the client
+            // does not re-borrow live transforms when a snapshot is available.
             let mut object_ids_with_distance: Vec<(ObjectID, f32)> = object_ids
                 .iter()
                 .copied()
                 .map(|object_id| {
-                    let distance_squared = game_logic
-                        .get_objects()
-                        .get(&object_id)
-                        .map(|obj| {
-                            gameplay_to_render_transform(obj.get_transform_matrix())
-                                .w_axis
-                                .truncate()
-                                .distance_squared(camera_position)
-                        })
-                        .unwrap_or(f32::INFINITY);
+                    let distance_squared = if let Some(ro) = pres_by_id.get(&object_id) {
+                        ro.position.distance_squared(camera_position)
+                    } else {
+                        game_logic
+                            .get_objects()
+                            .get(&object_id)
+                            .map(|obj| {
+                                gameplay_to_render_transform(obj.get_transform_matrix())
+                                    .w_axis
+                                    .truncate()
+                                    .distance_squared(camera_position)
+                            })
+                            .unwrap_or(f32::INFINITY)
+                    };
                     (object_id, distance_squared)
                 })
                 .collect();
@@ -1252,9 +1279,22 @@ impl RenderPipeline {
                 continue;
             }
 
-            let world_matrix = gameplay_to_render_transform(object.get_transform_matrix());
+            // Prefer presentation-owned transform/model when available (immutable client feed).
+            let (world_matrix, model_name_owned) = if let Some(ro) = pres_by_id.get(&object_id) {
+                let m = Mat4::from_translation(ro.position) * Mat4::from_rotation_y(ro.orientation);
+                let name = ro
+                    .model_key
+                    .clone()
+                    .unwrap_or_else(|| ro.template_name.clone());
+                (gameplay_to_render_transform(m), name)
+            } else {
+                (
+                    gameplay_to_render_transform(object.get_transform_matrix()),
+                    object.get_template().get_model_name().to_string(),
+                )
+            };
             let world_position = world_matrix.w_axis.truncate();
-            let model_name = object.get_template().get_model_name();
+            let model_name = model_name_owned.as_str();
             let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
                 graphics_system,
                 model_name,
@@ -1271,11 +1311,15 @@ impl RenderPipeline {
                 continue;
             }
 
-            let model_hint = object
-                .get_template()
-                .model_name
-                .as_deref()
-                .or(Some(model_name));
+            let model_hint = if pres_by_id.contains_key(&object_id) {
+                Some(model_name)
+            } else {
+                object
+                    .get_template()
+                    .model_name
+                    .as_deref()
+                    .or(Some(model_name))
+            };
 
             let model_load_started = Instant::now();
             let render_model_load_result = Self::ensure_render_model_loaded(
@@ -2279,14 +2323,14 @@ impl RenderPipeline {
                     > = game_logic
                         .terrain_texture_classes_snapshot()
                         .into_iter()
-                        .map(|class| {
-                            game_client::terrain::terrain_visual::TerrainSourceTileClass {
+                        .map(
+                            |class| game_client::terrain::terrain_visual::TerrainSourceTileClass {
                                 first_tile: class.first_tile,
                                 num_tiles: class.num_tiles,
                                 width: class.width,
                                 name: class.name,
-                            }
-                        })
+                            },
+                        )
                         .collect();
                     if !source_tile_classes.is_empty() {
                         match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {

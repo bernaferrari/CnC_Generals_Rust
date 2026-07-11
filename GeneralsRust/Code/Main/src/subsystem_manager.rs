@@ -8,8 +8,7 @@ use game_engine::common::message_stream::{
 use game_engine::common::system::{
     big_file_system::BigArchiveBackend, file_system::get_file_system,
     local_file_system::LocalFileSystem,
-    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
-    Xfer,
+    subsystem_interface::SubsystemInterface as CommonSubsystemInterface, Xfer,
 };
 use game_engine::get_game_state;
 use log::{debug, error, info, warn};
@@ -310,7 +309,7 @@ impl SubsystemInterface for GlobalDataSubsystem {
     }
 
     fn calculate_xfer_crc(&self) -> Option<u32> {
-        use game_engine::common::ini::{INI, INILoadType};
+        use game_engine::common::ini::{INILoadType, INI};
         use game_engine::common::system::xfer_crc::XferCRC;
         use game_engine::common::system::xfer_load::XferLoad;
         use std::io::Cursor;

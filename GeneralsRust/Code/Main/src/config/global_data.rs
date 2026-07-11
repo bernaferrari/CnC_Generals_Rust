@@ -2,7 +2,7 @@ use super::{ConfigValue, IniParser, LoadMode};
 use anyhow::Result;
 use crc32fast::Hasher;
 use game_engine::common::global_data as runtime_global_data;
-use game_engine::common::ini::{INI, INILoadType};
+use game_engine::common::ini::{INILoadType, INI};
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::xfer_crc::XferCRC;
@@ -784,8 +784,7 @@ impl ConfigurationSystem {
         ];
 
         for path in &ini_paths {
-            if Path::new(path).exists() || GlobalData::resolve_ini_path(Path::new(path)).is_some()
-            {
+            if Path::new(path).exists() || GlobalData::resolve_ini_path(Path::new(path)).is_some() {
                 match ini.load(path, INILoadType::Overwrite) {
                     Ok(()) => debug!("XferCRC INI loaded: {}", path),
                     Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),
