@@ -285,4 +285,56 @@ mod tests {
                 || next.objects.iter().any(|o| o.id == id && o.destroyed)
         );
     }
+
+    #[test]
+    fn shipped_hud_consumer_uses_snapshot_owned_fields() {
+        // Criterion: after logic update, HUD/minimap consumers use snapshot-owned
+        // id/transform/health/team/selection/model — not a live re-borrow.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HudFields");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("HudUnit");
+        t.set_health(75.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("HudUnit".into(), t);
+        let id = logic
+            .create_object("HudUnit", Team::USA, glam::Vec3::new(9.0, 0.0, -4.0))
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        logic.update();
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let obj = snap
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .expect("object in snapshot");
+        assert!((obj.position.x - 9.0).abs() < 0.01);
+        assert!((obj.position.z + 4.0).abs() < 0.01);
+        assert_eq!(obj.health_current, 75.0);
+        assert_eq!(obj.health_max, 75.0);
+        assert_eq!(obj.team, Team::USA);
+        assert!(obj.selected);
+        assert_eq!(obj.model_key.as_deref(), Some("HudUnit"));
+
+        let mut ui = crate::ui::GameUIState::default();
+        snap.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.credits, snap.local_supplies as i32);
+        assert!(ui.selected_units.contains(&id));
+
+        let mut hud = crate::ui::GameHUD::new();
+        snap.apply_to_game_hud(&mut hud);
+        let mini = snap.hud_minimap_units();
+        assert!(
+            mini.iter().any(|(oid, x, z, _)| {
+                *oid == id && (*x - 9.0).abs() < 0.01 && (*z + 4.0).abs() < 0.01
+            }),
+            "minimap units must come from snapshot positions"
+        );
+    }
 }
