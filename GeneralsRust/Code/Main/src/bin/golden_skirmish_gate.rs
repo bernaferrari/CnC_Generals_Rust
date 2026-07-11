@@ -38,14 +38,20 @@ fn main() {
         && result.fought
         && result.victory
         && result.save_load_ok
-        && result.status == "success";
+        && result.status == "success"
+        && !result.ai_disabled_for_slice
+        && result.playable_claim;
     if pass {
-        println!("golden_skirmish_gate: PASS");
+        println!("golden_skirmish_gate: PASS (natural host path; AI on; playable_claim=true; not windowed retail)");
         std::process::exit(0);
     }
     eprintln!(
-        "golden_skirmish_gate: FAIL victory={} save_load={} status={}",
-        result.victory, result.save_load_ok, result.status
+        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} playable_claim={}",
+        result.victory,
+        result.save_load_ok,
+        result.status,
+        result.ai_disabled_for_slice,
+        result.playable_claim
     );
     std::process::exit(1);
 }
