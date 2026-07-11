@@ -831,9 +831,20 @@ impl AIPlayer {
         None
     }
 
-    /// Evaluate opportunities to attack enemies (strength-threshold based; 60s spacing).
+    /// Minimum seconds between host AI attack launches.
+    ///
+    /// C++ reference (`GeneralsMD/.../AI/AIPlayer.cpp` `checkReadyTeams`):
+    /// ready teams force-start after `60 * LOGICFRAMES_PER_SECOND` if still gathering
+    /// (`// If 60 seconds passed, start anyway.`). The Main host AI is not a full
+    /// `AIPlayer` port; we keep this 60s spacing so gate-only early-attack hacks
+    /// (e.g. 2s intervals / strength bypass) are not reintroduced.
+    pub const ATTACK_RECHECK_SECONDS: f32 = 60.0;
+
+    /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if self.attack_in_progress || current_time - self.last_attack_time < 60.0 {
+        if self.attack_in_progress
+            || current_time - self.last_attack_time < Self::ATTACK_RECHECK_SECONDS
+        {
             return;
         }
 
@@ -841,6 +852,8 @@ impl AIPlayer {
             let our_strength = self.calculate_military_strength(game_logic);
             let enemy_strength = self.estimate_enemy_strength(game_logic, enemy_id);
 
+            // Host personality scales how far we must out-strength the enemy before
+            // launching — rough stand-in for scripted team production conditions in C++.
             let aggression = self.difficulty.get_aggression_factor();
             let attack_threshold = match self.personality {
                 AIPersonality::Aggressive | AIPersonality::Rush => 0.8 * aggression,
@@ -1187,5 +1200,21 @@ impl AIManager {
         }
 
         log::info!("AI Manager: All pending commands cleared");
+    }
+}
+
+#[cfg(test)]
+mod cpp_parity_tests {
+    use super::AIPlayer;
+
+    /// Gate-only 2s attack intervals must not reappear; keep C++ checkReadyTeams 60s.
+    #[test]
+    fn host_attack_recheck_matches_cpp_ready_team_timeout_seconds() {
+        // C++ AIPlayer::checkReadyTeams: team->m_frameStarted + 60*LOGICFRAMES_PER_SECOND
+        assert_eq!(AIPlayer::ATTACK_RECHECK_SECONDS, 60.0);
+        assert!(
+            AIPlayer::ATTACK_RECHECK_SECONDS >= 30.0,
+            "must not use gate-only early-attack shortcut (<30s)"
+        );
     }
 }
