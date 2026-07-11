@@ -832,8 +832,10 @@ impl AIPlayer {
 
     /// Evaluate opportunities to attack enemies
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if self.attack_in_progress || current_time - self.last_attack_time < 60.0 {
-            return; // Don't attack too frequently
+        // Early skirmish: allow attack/move soon after first military units exist.
+        let min_gap = if self.activity_count < 5 { 2.0 } else { 60.0 };
+        if self.attack_in_progress || current_time - self.last_attack_time < min_gap {
+            return;
         }
 
         if let Some(enemy_id) = self.enemy_player_id {
@@ -848,7 +850,12 @@ impl AIPlayer {
                 AIPersonality::Economic => 2.0 * aggression,
             };
 
-            if our_strength > enemy_strength * attack_threshold {
+            // Host skirmish vertical slice: if we have any attack-capable unit and an
+            // enemy, issue attack-move even when strength math is conservative.
+            let has_attackers = our_strength > 0.0;
+            if (our_strength > enemy_strength * attack_threshold)
+                || (has_attackers && self.activity_count >= 1)
+            {
                 self.launch_attack(game_logic, current_time);
             }
         }

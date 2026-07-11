@@ -400,3 +400,7 @@ tempfile = "3.23"
 [[bin]]
 name = "ai_skirmish_gate"
 path = "src/bin/ai_skirmish_gate.rs"
+
+[[bin]]
+name = "shell_smoke_gate"
+path = "src/bin/shell_smoke_gate.rs"

@@ -4,6 +4,7 @@
 //! separately and never alone proves playability.
 
 use generals_main::ai_skirmish_activity::{format_ai_activity_report, run_medium_ai_skirmish_activity};
+use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 use generals_main::breadth_scenarios::{format_breadth_report, run_all_breadth};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
@@ -65,7 +66,14 @@ fn main() {
         ));
     }
 
-    // 5) RC package.
+    // 5) Shell/boot smoke (headless production types + skirmish start).
+    let shell = run_shell_smoke(8);
+    println!("{}", format_shell_smoke_report(&shell));
+    if shell.status != "success" {
+        failed.push(format!("shell {}", shell.detail));
+    }
+
+    // 6) RC package.
     let rc = run_release_candidate_package(2, 5);
     println!("rc: {}", format_rc_report(&rc));
     if !(rc.soak_ok
@@ -80,7 +88,7 @@ fn main() {
     }
 
     if failed.is_empty() {
-        println!("behavior_gate: PASS (map+golden+breadth+ai+rc)");
+        println!("behavior_gate: PASS (map+golden+breadth+ai+shell+rc)");
         std::process::exit(0);
     }
     eprintln!("behavior_gate: FAIL");
