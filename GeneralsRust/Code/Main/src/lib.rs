@@ -110,6 +110,7 @@ pub mod win32_game_engine;
 
 // Playability integration
 pub mod authoritative_world;
+pub mod presentation_frame;
 pub mod breadth_scenarios;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;

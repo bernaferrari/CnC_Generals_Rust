@@ -314,6 +314,11 @@ impl World {
         self.entities.get(id)
     }
 
+    /// Mutable access to an entity (borrow-first phase code).
+    pub fn entity_mut(&mut self, id: EntityId) -> Option<&mut entities::Entity> {
+        self.entities.get_mut(id)
+    }
+
     /// Iterate over all active entities.
     pub fn entities(&self) -> impl Iterator<Item = &entities::Entity> {
         self.entities.iter()
@@ -337,6 +342,140 @@ impl World {
             orientation: entity.transform.orientation,
             health: entity.health,
         }
+    }
+}
+
+
+/// Deferred world mutation collected during a phase, applied at phase end.
+/// Borrow-checker friendly and deterministic when sorted by apply order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorldMutation {
+    /// Apply damage to an entity by id.
+    Damage { target: EntityId, amount: f32 },
+    /// Remove an entity (destroy).
+    Destroy(EntityId),
+    /// Set absolute health.
+    SetHealth { target: EntityId, health: f32 },
+    /// Transfer ownership.
+    TransferOwner {
+        object: EntityId,
+        player: Option<PlayerId>,
+    },
+}
+
+/// Borrow-first façade over [`World`] — the target API shape for simulation code.
+///
+/// Policy: subsystems take `&mut GameWorld` (or `&GameWorld`) for one explicit phase.
+/// Cross-object references use [`EntityId`] / [`PlayerId`], never long-lived borrows.
+/// `Arc` is not part of this API surface.
+#[derive(Debug)]
+pub struct GameWorld {
+    inner: World,
+    pending: Vec<WorldMutation>,
+}
+
+impl GameWorld {
+    /// Create a world with the given player-slot capacity.
+    pub fn new(max_players: usize) -> Self {
+        Self {
+            inner: World::new(max_players),
+            pending: Vec::new(),
+        }
+    }
+
+    /// Immutable access to the underlying world.
+    pub fn world(&self) -> &World {
+        &self.inner
+    }
+
+    /// Mutable access for phase code that still needs full World APIs.
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.inner
+    }
+
+    pub fn frame(&self) -> u64 {
+        self.inner.snapshot().frame
+    }
+
+    pub fn entity(&self, id: EntityId) -> Option<&entities::Entity> {
+        self.inner.entity(id)
+    }
+
+    pub fn player(&self, id: PlayerId) -> Option<&PlayerData> {
+        self.inner.player(id)
+    }
+
+    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut PlayerData> {
+        self.inner.player_mut(id)
+    }
+
+    /// Queue a mutation for end-of-phase apply (does not mutate entities yet).
+    pub fn queue_mutation(&mut self, m: WorldMutation) {
+        self.pending.push(m);
+    }
+
+    /// Apply all pending mutations in queue order. Returns how many succeeded.
+    pub fn apply_pending_mutations(&mut self) -> usize {
+        let pending = std::mem::take(&mut self.pending);
+        let mut applied = 0;
+        for m in pending {
+            match m {
+                WorldMutation::Damage { target, amount } => {
+                    let kill = if let Some(e) = self.inner.entity_mut(target) {
+                        e.health = (e.health - amount).max(0.0);
+                        applied += 1;
+                        e.health <= 0.0
+                    } else {
+                        false
+                    };
+                    if kill {
+                        let _ = self.inner.remove_entity(target);
+                    }
+                }
+                WorldMutation::Destroy(id) => {
+                    if self.inner.remove_entity(id) {
+                        applied += 1;
+                    }
+                }
+                WorldMutation::SetHealth { target, health } => {
+                    if let Some(e) = self.inner.entity_mut(target) {
+                        e.health = health.max(0.0);
+                        applied += 1;
+                    }
+                }
+                WorldMutation::TransferOwner { object, player } => {
+                    if let Some(e) = self.inner.entity_mut(object) {
+                        e.owner = player;
+                        applied += 1;
+                    }
+                }
+            }
+        }
+        applied
+    }
+
+    /// Produce an immutable presentation/world snapshot (no live borrows retained).
+    pub fn snapshot(&self) -> WorldSnapshot {
+        self.inner.snapshot()
+    }
+
+    pub fn spawn_entity(
+        &mut self,
+        template: TemplateRef,
+        owner: Option<PlayerId>,
+        transform: Transform,
+        health: f32,
+    ) -> EntityId {
+        self.inner.spawn_entity(template, owner, transform, health)
+    }
+
+    pub fn allocate_player_with_name(
+        &mut self,
+        name: Option<String>,
+        team: Option<u8>,
+        is_human: bool,
+    ) -> Option<PlayerId> {
+        self.inner.allocate_player_with_name(name, team, is_human)
     }
 }
 
@@ -414,4 +553,32 @@ mod tests {
         let snapshot = world.snapshot();
         assert!(snapshot.entities.is_empty());
     }
+    #[test]
+    fn game_world_deferred_mutations_apply_deterministically() {
+        let mut gw = GameWorld::new(4);
+        let owner = gw
+            .allocate_player_with_name(Some("A".into()), Some(0), true)
+            .expect("player");
+        let id = gw.spawn_entity(
+            TemplateRef::new("Unit"),
+            Some(owner),
+            Transform::new([0.0, 0.0, 0.0], 0.0),
+            100.0,
+        );
+        gw.queue_mutation(WorldMutation::Damage {
+            target: id,
+            amount: 40.0,
+        });
+        // Not applied yet
+        assert!((gw.entity(id).unwrap().health - 100.0).abs() < f32::EPSILON);
+        assert_eq!(gw.apply_pending_mutations(), 1);
+        assert!((gw.entity(id).unwrap().health - 60.0).abs() < f32::EPSILON);
+        gw.queue_mutation(WorldMutation::Destroy(id));
+        assert_eq!(gw.apply_pending_mutations(), 1);
+        assert!(gw.entity(id).is_none());
+        let snap = gw.snapshot();
+        assert_eq!(snap.entities.len(), 0);
+    }
+
+
 }
