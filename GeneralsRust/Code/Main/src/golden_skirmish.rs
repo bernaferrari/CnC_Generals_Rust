@@ -308,8 +308,11 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             },
             vec![bid],
         );
+        // Prefer CommandSystem production path; enqueue_production is the same
+        // host production queue used when the factory UI queues units.
         let queue_ok = system.execute_command(&queue_cmd, &mut logic) == CommandResult::Success
             || logic.enqueue_production(bid, "GoldenRanger".into());
+        // Fail-closed: unit must actually appear — queue alone is not success.
         produced = queue_ok
             && run_until(&mut logic, 180, |g| {
                 g.get_objects()
