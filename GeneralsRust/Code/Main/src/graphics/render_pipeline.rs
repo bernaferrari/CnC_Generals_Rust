@@ -1248,13 +1248,22 @@ impl RenderPipeline {
         let frustum_planes = extract_frustum_planes(&view_proj);
 
         // Process each object with FOW filtering in stable ID order.
+        // When a PresentationFrame is set, aliveness/transform/model_key come from the
+        // immutable snapshot first; GameLogic is only used for mesh resolve, FOW bridge
+        // skips, and fallback when presentation is absent.
         let mut render_model_load_elapsed = Duration::ZERO;
         let mut render_item_build_elapsed = Duration::ZERO;
         for object_id in object_ids {
-            let Some(object) = game_logic.get_objects().get(&object_id) else {
-                continue;
+            let object = game_logic.get_objects().get(&object_id);
+            let pres_obj = pres_by_id.get(&object_id).copied();
+
+            // Presentation owns aliveness when present; otherwise live object.
+            let is_alive = if let Some(ro) = pres_obj {
+                !ro.destroyed
+            } else {
+                object.map(|o| o.is_alive()).unwrap_or(false)
             };
-            if !object.is_alive() {
+            if !is_alive {
                 continue;
             }
 
@@ -1262,9 +1271,17 @@ impl RenderPipeline {
             // RenderBridge (drain_render_bridge_submissions). Skipping them here
             // prevents double-rendering and ensures drawables drive their visuals.
             #[cfg(feature = "game_client")]
-            if object.engine_object_id.is_some() {
+            if object
+                .map(|o| o.engine_object_id.is_some())
+                .unwrap_or(false)
+            {
                 continue;
             }
+
+            // Without presentation and without a live object, nothing to draw.
+            let Some(object) = object else {
+                continue;
+            };
 
             alive_objects += 1;
 
@@ -1280,7 +1297,7 @@ impl RenderPipeline {
             }
 
             // Prefer presentation-owned transform/model when available (immutable client feed).
-            let (world_matrix, model_name_owned) = if let Some(ro) = pres_by_id.get(&object_id) {
+            let (world_matrix, model_name_owned) = if let Some(ro) = pres_obj {
                 let m = Mat4::from_translation(ro.position) * Mat4::from_rotation_y(ro.orientation);
                 let name = ro
                     .model_key
@@ -1295,10 +1312,13 @@ impl RenderPipeline {
             };
             let world_position = world_matrix.w_axis.truncate();
             let model_name = model_name_owned.as_str();
+            let template_name_for_cull = pres_obj
+                .map(|ro| ro.template_name.as_str())
+                .unwrap_or(object.template_name.as_str());
             let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
                 graphics_system,
                 model_name,
-                &object.template_name,
+                template_name_for_cull,
                 object.selection_radius,
                 world_matrix,
             );
@@ -1311,7 +1331,7 @@ impl RenderPipeline {
                 continue;
             }
 
-            let model_hint = if pres_by_id.contains_key(&object_id) {
+            let model_hint = if pres_obj.is_some() {
                 Some(model_name)
             } else {
                 object
@@ -1324,7 +1344,7 @@ impl RenderPipeline {
             let model_load_started = Instant::now();
             let render_model_load_result = Self::ensure_render_model_loaded(
                 graphics_system,
-                &object.template_name,
+                template_name_for_cull,
                 model_name,
                 allow_sync_model_loads,
                 deferred_model_load_budget,
