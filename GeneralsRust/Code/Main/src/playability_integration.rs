@@ -91,11 +91,7 @@ pub struct FileMappingCounts {
 
 impl FileMappingCounts {
     pub fn total_entries(&self) -> u32 {
-        self.found
-            + self.found_by_basename
-            + self.missing
-            + self.unknown
-            + self.stale_mapped
+        self.found + self.found_by_basename + self.missing + self.unknown + self.stale_mapped
     }
 
     /// Covered entries exclude stale mapped paths (claimed found but file missing).
@@ -566,11 +562,7 @@ impl fmt::Display for PlayabilityAuditSummary {
             writeln!(f, "  stale: {path}")?;
         }
         if self.stale_mapped_path_count() > 20 {
-            writeln!(
-                f,
-                "  ... and {} more",
-                self.stale_mapped_path_count() - 20
-            )?;
+            writeln!(f, "  ... and {} more", self.stale_mapped_path_count() - 20)?;
         }
         writeln!(
             f,
@@ -818,13 +810,7 @@ pub fn build_playability_audit(
                     }
                 }
             }
-            increment_counts(
-                &mut map,
-                row.subsystem,
-                row.kind,
-                row.status,
-                is_stale,
-            );
+            increment_counts(&mut map, row.subsystem, row.kind, row.status, is_stale);
         }
     }
     stale_mapped_paths.sort();
@@ -1104,7 +1090,9 @@ Source | Source/GameLogic/E.cpp | - | MISSING\n\
             .evaluate_strict_gate()
             .expect_err("strict gate must fail on 40% matrix parity");
         assert!(
-            strict_err.contains("strict") || strict_err.contains("parity") || strict_err.contains("phase5"),
+            strict_err.contains("strict")
+                || strict_err.contains("parity")
+                || strict_err.contains("phase5"),
             "error should describe parity failure: {strict_err}"
         );
     }

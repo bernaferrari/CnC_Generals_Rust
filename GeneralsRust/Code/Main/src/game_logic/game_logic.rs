@@ -7461,7 +7461,6 @@ impl GameLogic {
         &self.skirmish_rules
     }
 
-
     pub fn world_dimensions(&self) -> (f32, f32) {
         (self.world_width, self.world_height)
     }
@@ -7931,8 +7930,7 @@ impl GameLogic {
     /// Add one AI opponent with an explicit difficulty (skirmish config path).
     pub fn add_ai_opponent(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
         self.ensure_ai_faction_templates(team);
-        self.ai_manager
-            .add_ai_player(player_id, team, difficulty);
+        self.ai_manager.add_ai_player(player_id, team, difficulty);
     }
 
     /// Ensure faction templates the host AI build/produce paths require are registered.
@@ -8074,9 +8072,7 @@ impl GameLogic {
             Team::Neutral => vec![],
         };
         for t in entries {
-            self.templates
-                .entry(t.name.clone())
-                .or_insert_with(|| t);
+            self.templates.entry(t.name.clone()).or_insert_with(|| t);
         }
     }
 

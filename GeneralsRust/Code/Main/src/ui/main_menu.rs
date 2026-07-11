@@ -628,13 +628,24 @@ impl MainMenu {
         let font_size = 28.0 * pulse_scale;
         let approx_w = title.len() as f32 * font_size * 0.65;
         let text_x = (sw - approx_w) * 0.5;
-        context.draw_text(&title, text_x, logo_y + logo_h * 0.7, font_size, [0.9, 0.85, 0.5, 1.0]);
+        context.draw_text(
+            &title,
+            text_x,
+            logo_y + logo_h * 0.7,
+            font_size,
+            [0.9, 0.85, 0.5, 1.0],
+        );
     }
 
     fn render_button(&self, button: &MenuButton, context: &mut UIRenderContext) {
         let scale = button.click_scale();
         let (bx, by, bw, bh) = utils::scale_rect_center(
-            (button.position.0, button.position.1, button.size.0, button.size.1),
+            (
+                button.position.0,
+                button.position.1,
+                button.size.0,
+                button.size.1,
+            ),
             scale,
         );
 
@@ -646,7 +657,12 @@ impl MainMenu {
             let p = button.get_hover_progress();
             let base = 0.12;
             let hover = 0.25;
-            [base + (hover - base) * p, base + (hover - base) * p, base * 0.5, 0.95]
+            [
+                base + (hover - base) * p,
+                base + (hover - base) * p,
+                base * 0.5,
+                0.95,
+            ]
         } else {
             [0.12, 0.12, 0.18, 0.9]
         };
@@ -657,9 +673,21 @@ impl MainMenu {
             let border_alpha = 0.3 + 0.7 * p;
             let thickness = 2.0;
             context.draw_rect(bx, by, bw, thickness, [0.75, 0.7, 0.2, border_alpha]);
-            context.draw_rect(bx, by + bh - thickness, bw, thickness, [0.75, 0.7, 0.2, border_alpha]);
+            context.draw_rect(
+                bx,
+                by + bh - thickness,
+                bw,
+                thickness,
+                [0.75, 0.7, 0.2, border_alpha],
+            );
             context.draw_rect(bx, by, thickness, bh, [0.75, 0.7, 0.2, border_alpha]);
-            context.draw_rect(bx + bw - thickness, by, thickness, bh, [0.75, 0.7, 0.2, border_alpha]);
+            context.draw_rect(
+                bx + bw - thickness,
+                by,
+                thickness,
+                bh,
+                [0.75, 0.7, 0.2, border_alpha],
+            );
         }
 
         let text_color = if !button.enabled {
@@ -694,7 +722,13 @@ impl MainMenu {
             12.0,
             [0.0, 0.0, 0.0, 0.5],
         );
-        context.draw_text(&self.version_text, version_x, version_y, 12.0, [0.6, 0.6, 0.65, 0.8]);
+        context.draw_text(
+            &self.version_text,
+            version_x,
+            version_y,
+            12.0,
+            [0.6, 0.6, 0.65, 0.8],
+        );
     }
 
     fn render_credits(&self, context: &mut UIRenderContext) {
@@ -725,13 +759,7 @@ impl MainMenu {
             } else {
                 [0.8, 0.8, 0.85, 1.0]
             };
-            context.draw_text(
-                line,
-                x + 1.0,
-                y + 1.0,
-                font_size,
-                [0.0, 0.0, 0.0, 0.5],
-            );
+            context.draw_text(line, x + 1.0, y + 1.0, font_size, [0.0, 0.0, 0.0, 0.5]);
             context.draw_text(line, x, y, font_size, color);
         }
     }

@@ -112,9 +112,8 @@ pub fn apply_post_authority_crate_tick(
             }
             Ok(())
         }
-        DualTickPolicy::DualVerificationFatal => tick_crate().map_err(|e| {
-            format!("verification build: dual-world crate tick failed fatally: {e}")
-        }),
+        DualTickPolicy::DualVerificationFatal => tick_crate()
+            .map_err(|e| format!("verification build: dual-world crate tick failed fatally: {e}")),
     }
 }
 

@@ -2178,7 +2178,8 @@ mod tests {
             // Re-assert sell percentage immediately before sell so the production
             // path is proven to consume the live GlobalData value under isolation.
             assert!(
-                (game_engine::common::global_data::read().sell_percentage - 0.25).abs() < f32::EPSILON,
+                (game_engine::common::global_data::read().sell_percentage - 0.25).abs()
+                    < f32::EPSILON,
                 "test isolation must preserve configured SellPercentage"
             );
 

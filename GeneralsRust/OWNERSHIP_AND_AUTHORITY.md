@@ -48,8 +48,14 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 |------|--------|
 | `playability_audit` | File mapping only — **not** playability |
 | `map_frame_gate` | Logic frames advance (map optional unless assets present) |
-| `golden_skirmish_gate` | Host vertical slice commands→victory→save |
+| `shell_smoke_gate` | SkirmishMenu→config→apply→map→frames→PresentationFrame (headless host path; not windowed WND) |
+| `golden_skirmish_gate` | Host vertical slice via AttackObject/update_combat only — no take_damage fallback, no HP caps after spawn |
 | `breadth_gate` | Category API smokes |
 | `release_candidate_gate` | Soak + presentation smoke + campaign hooks |
-| `behavior_gate` | Composite of map+golden+breadth+RC — use this for behavior CI |
+| `behavior_gate` | Composite of map+golden+breadth+ai+shell+RC — use this for behavior CI |
+
+### Honest reading (do not overclaim)
+
+- **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
+- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, presentation-only renderer with zero GameLogic borrow for mesh assets.
 

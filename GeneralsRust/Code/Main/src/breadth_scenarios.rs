@@ -51,11 +51,7 @@ fn faction_slot(index: usize, faction: &str, human: bool) -> SkirmishSlotConfig 
         team: index as i32,
         start_position: index as i32,
         player_name: format!("{faction}-{index}"),
-        ai_difficulty: if human {
-            None
-        } else {
-            Some("Medium".into())
-        },
+        ai_difficulty: if human { None } else { Some("Medium".into()) },
     }
 }
 
@@ -125,7 +121,9 @@ pub fn breadth_modules() -> BreadthCategoryResult {
     ];
     let mut n = 0;
     for (name, kind) in kinds {
-        logic.templates.insert(name.into(), tpl(name, &[kind], 100.0));
+        logic
+            .templates
+            .insert(name.into(), tpl(name, &[kind], 100.0));
         if logic
             .create_object(name, Team::USA, Vec3::new(n as f32 * 5.0, 0.0, 0.0))
             .is_some()
@@ -192,7 +190,10 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let mut transport_ok = false;
     if let (Some(tid), Some(iid)) = (transport, infantry) {
         assert!(
-            logic.get_object(tid).map(|o| o.can_contain()).unwrap_or(false),
+            logic
+                .get_object(tid)
+                .map(|o| o.can_contain())
+                .unwrap_or(false),
             "transport template must support contain"
         );
         let enter_cmd = command(1, 0, CommandType::Enter { target_id: tid }, vec![iid]);
@@ -288,20 +289,24 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .get_object(bldg)
             .map(|o| o.thing.template.build_cost.supplies)
             .unwrap_or(0);
-        let before = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+        let before = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
         let sell_cmd = command(4, 0, CommandType::Sell { object_id: bldg }, vec![]);
         let sell_result = system.execute_command(&sell_cmd, &mut logic);
         // destroy_object defers removal to the destroy list; advance logic so it applies.
         logic.update();
-        let after = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+        let after = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
         let destroyed = logic
             .get_object(bldg)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true);
-        salvage_ok = sell_result == CommandResult::Success
-            && cost > 0
-            && after > before
-            && destroyed;
+        salvage_ok =
+            sell_result == CommandResult::Success && cost > 0 && after > before && destroyed;
         if !salvage_ok {
             log::warn!(
                 "salvage fail: result={sell_result:?} cost={cost} before={before} after={after} destroyed={destroyed}"
@@ -520,10 +525,8 @@ pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
         ) || mgr.get_campaign_completion(CampaignId::USAGeneral) > 0.0;
     }
 
-    let ok = started.is_ok()
-        && campaign_progressed
-        && challenge_started.is_ok()
-        && challenge_progressed;
+    let ok =
+        started.is_ok() && campaign_progressed && challenge_started.is_ok() && challenge_progressed;
     BreadthCategoryResult {
         category: "campaign_hooks".into(),
         ok,
@@ -541,7 +544,11 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     logic.start_new_game(GameMode::Skirmish);
     logic.templates.insert(
         "BreadthSnapUnit".into(),
-        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+        tpl(
+            "BreadthSnapUnit",
+            &[KindOf::Infantry, KindOf::Selectable],
+            100.0,
+        ),
     );
     let unit_id = logic
         .create_object("BreadthSnapUnit", Team::USA, Vec3::new(1.0, 0.0, 1.0))
@@ -574,15 +581,23 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     let mut r1 = GameLogic::new();
     r1.templates.insert(
         "BreadthSnapUnit".into(),
-        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+        tpl(
+            "BreadthSnapUnit",
+            &[KindOf::Infantry, KindOf::Selectable],
+            100.0,
+        ),
     );
-    let restore1_ok = builder.restore_from_snapshot(&snap1, &mut r1).is_ok()
-        && r1.get_object(unit_id).is_some();
+    let restore1_ok =
+        builder.restore_from_snapshot(&snap1, &mut r1).is_ok() && r1.get_object(unit_id).is_some();
 
     let mut r2 = GameLogic::new();
     r2.templates.insert(
         "BreadthSnapUnit".into(),
-        tpl("BreadthSnapUnit", &[KindOf::Infantry, KindOf::Selectable], 100.0),
+        tpl(
+            "BreadthSnapUnit",
+            &[KindOf::Infantry, KindOf::Selectable],
+            100.0,
+        ),
     );
     let restore2_ok = builder.restore_from_snapshot(&snap2, &mut r2).is_ok()
         && r2.get_object(unit_id).is_some()

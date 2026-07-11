@@ -5,8 +5,8 @@
 //! GameState. When retail maps are absent, callers can still exercise the pure
 //! frame-advance path with a synthetic world.
 
-use crate::game_logic::{GameLogic, GameMode};
 use crate::game_logic::script_loader::find_map_file;
+use crate::game_logic::{GameLogic, GameMode};
 use std::path::{Path, PathBuf};
 
 /// Default number of logic frames to advance for the gate scenario.
@@ -106,10 +106,7 @@ pub fn resolve_first_map(candidates: &[&str]) -> Option<(String, PathBuf)> {
 /// When `map_name` is `None`, tries [`DEFAULT_MAP_CANDIDATES`]. If no map is found,
 /// still advances frames on a skirmish world so the update path is covered and the
 /// status reports `AssetsUnavailable` honestly.
-pub fn run_map_frame_scenario(
-    map_name: Option<&str>,
-    frames: u32,
-) -> MapFrameScenarioResult {
+pub fn run_map_frame_scenario(map_name: Option<&str>, frames: u32) -> MapFrameScenarioResult {
     let frames = frames.max(1);
     let mut logic = GameLogic::new();
     logic.start_new_game(GameMode::Skirmish);
@@ -209,7 +206,10 @@ mod tests {
             "logic frames must advance: {:?}",
             result
         );
-        assert_eq!(result.frame_after, result.frame_before + result.frames_advanced);
+        assert_eq!(
+            result.frame_after,
+            result.frame_before + result.frames_advanced
+        );
         assert!(
             matches!(
                 result.status,

@@ -77,10 +77,7 @@ fn main() -> ExitCode {
                         summary.matrix_missing_entry_count(),
                         summary.total_parity_percent()
                     );
-                    println!(
-                        "{} unresolved blocker events",
-                        unresolved_events(&summary)
-                    );
+                    println!("{} unresolved blocker events", unresolved_events(&summary));
                     return ExitCode::from(1);
                 }
             } else if unresolved {
