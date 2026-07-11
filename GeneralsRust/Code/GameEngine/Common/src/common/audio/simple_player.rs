@@ -126,8 +126,7 @@ const E_UNEXPECTED: HResult = -4;
 impl SimplePlayer {
     /// Create a new SimplePlayer instance
     pub fn new() -> Result<Self, HResult> {
-        let engine =
-            AudioEngine::with_config(AudioEngineConfig::default()).map_err(|_| E_FAIL)?;
+        let engine = AudioEngine::with_config(AudioEngineConfig::default()).map_err(|_| E_FAIL)?;
 
         Ok(SimplePlayer {
             ref_count: AtomicUsize::new(1),
@@ -250,7 +249,10 @@ impl SimplePlayer {
 
     /// Start the playback thread
     fn start_playback_thread(&mut self, file_path: PathBuf, duration: Duration) -> HResult {
-        let handle = match self.audio_engine.play(&file_path.to_string_lossy(), 1.0, false, None) {
+        let handle = match self
+            .audio_engine
+            .play(&file_path.to_string_lossy(), 1.0, false, None)
+        {
             Ok(h) => h,
             Err(_) => return E_FAIL,
         };

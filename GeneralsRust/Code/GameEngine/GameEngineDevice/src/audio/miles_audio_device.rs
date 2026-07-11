@@ -798,7 +798,11 @@ impl MilesAudioDevice {
 
             #[cfg(feature = "audio")]
             if let Some(kira_handle) = &playing.kira_handle {
-                log::debug!("Miles: stop requested for handle {} (Kira sound '{}')", handle.0, kira_handle);
+                log::debug!(
+                    "Miles: stop requested for handle {} (Kira sound '{}')",
+                    handle.0,
+                    kira_handle
+                );
             }
         }
 
@@ -826,7 +830,9 @@ impl MilesAudioDevice {
                 if let Err(e) = kira_driver.pause_sound(kira_handle).await {
                     log::warn!(
                         "Miles: Kira pause failed for handle {} ('{}'): {}",
-                        handle.0, kira_handle, e
+                        handle.0,
+                        kira_handle,
+                        e
                     );
                 }
             }
@@ -852,7 +858,9 @@ impl MilesAudioDevice {
                 if let Err(e) = kira_driver.resume_sound(kira_handle).await {
                     log::warn!(
                         "Miles: Kira resume failed for handle {} ('{}'): {}",
-                        handle.0, kira_handle, e
+                        handle.0,
+                        kira_handle,
+                        e
                     );
                 }
             }
@@ -879,7 +887,9 @@ impl MilesAudioDevice {
             if let Some(kira_handle) = &playing.kira_handle {
                 log::debug!(
                     "Miles: volume update for handle {} (Kira '{}') -> {:.2}",
-                    handle.0, kira_handle, volume
+                    handle.0,
+                    kira_handle,
+                    volume
                 );
             }
         }
@@ -918,7 +928,8 @@ impl MilesAudioDevice {
             if let Some(kira_handle) = &playing.kira_handle {
                 log::debug!(
                     "Miles: shutdown stopping handle {} (Kira '{}')",
-                    playing.handle.0, kira_handle
+                    playing.handle.0,
+                    kira_handle
                 );
             }
         }

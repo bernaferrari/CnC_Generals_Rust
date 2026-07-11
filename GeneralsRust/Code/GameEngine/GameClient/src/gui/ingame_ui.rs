@@ -2230,8 +2230,7 @@ impl InGameUI {
 
     pub fn expire_hints(&mut self) {
         let current_frame = self.current_frame;
-        self.hints
-            .retain(|h| Self::hint_is_alive(h, current_frame));
+        self.hints.retain(|h| Self::hint_is_alive(h, current_frame));
     }
 
     pub fn clear_hints(&mut self) {

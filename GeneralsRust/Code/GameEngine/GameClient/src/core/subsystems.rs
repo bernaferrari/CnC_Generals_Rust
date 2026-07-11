@@ -2293,10 +2293,7 @@ impl TerrainVisualStub {
         self.tree_buffer.clear_all_trees();
     }
 
-    fn drain_tree_fx_events_with(
-        &mut self,
-        mut dispatch: impl FnMut(&str, &Vec3),
-    ) -> usize {
+    fn drain_tree_fx_events_with(&mut self, mut dispatch: impl FnMut(&str, &Vec3)) -> usize {
         let events = self.tree_buffer.take_pending_fx_events();
         let count = events.len();
         for event in events {

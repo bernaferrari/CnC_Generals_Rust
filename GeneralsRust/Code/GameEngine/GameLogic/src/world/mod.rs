@@ -345,7 +345,6 @@ impl World {
     }
 }
 
-
 /// Deferred world mutation collected during a phase, applied at phase end.
 /// Borrow-checker friendly and deterministic when sorted by apply order.
 #[derive(Debug, Clone, PartialEq)]
@@ -579,6 +578,4 @@ mod tests {
         let snap = gw.snapshot();
         assert_eq!(snap.entities.len(), 0);
     }
-
-
 }

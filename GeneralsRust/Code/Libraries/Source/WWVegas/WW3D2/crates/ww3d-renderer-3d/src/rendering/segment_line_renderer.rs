@@ -40,16 +40,16 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec2, Vec3, Vec4};
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, FragmentState,
-    PipelineLayout, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Texture,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout,
-    VertexFormat, VertexState, VertexStepMode,
+    PipelineLayout, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue, RenderPass,
+    RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
+    ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat,
+    VertexState, VertexStepMode,
 };
-use wgpu::util::DeviceExt;
 use ww3d_core::ww3d::WW3D;
 
 /// Maximum subdivision levels allowed (must be ≤ 7 to avoid excessive chunk sizes)
@@ -1567,11 +1567,7 @@ impl SegLineGpuPipeline {
     ///
     /// The `surface_format` determines the render target pixel format for the
     /// fragment shader output.
-    pub fn new(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        surface_format: TextureFormat,
-    ) -> Self {
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, surface_format: TextureFormat) -> Self {
         let shader_module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("SegLine Shader"),
             source: ShaderSource::Wgsl(SEGLINE_SHADER_SOURCE.into()),
@@ -1728,10 +1724,7 @@ impl SegLineGpuPipeline {
     }
 
     /// Create a uniform buffer + bind group for a view-projection matrix.
-    pub fn create_view_proj_bind_group(
-        &self,
-        view_proj: &Mat4,
-    ) -> (Buffer, wgpu::BindGroup) {
+    pub fn create_view_proj_bind_group(&self, view_proj: &Mat4) -> (Buffer, wgpu::BindGroup) {
         let bytes: [[f32; 4]; 4] = (*view_proj).to_cols_array_2d();
         let uniform_buffer = self
             .device
@@ -1819,16 +1812,10 @@ impl SegLineGpuPipeline {
         }
 
         // Upload geometry
-        self.queue.write_buffer(
-            &self.vertex_buffer,
-            0,
-            bytemuck::cast_slice(vertices),
-        );
-        self.queue.write_buffer(
-            &self.index_buffer,
-            0,
-            bytemuck::cast_slice(indices),
-        );
+        self.queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+        self.queue
+            .write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(indices));
 
         // Draw
         render_pass.set_pipeline(&self.pipeline);

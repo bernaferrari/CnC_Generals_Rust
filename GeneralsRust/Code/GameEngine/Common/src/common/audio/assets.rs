@@ -641,9 +641,11 @@ impl AudioAssetManager {
 
                     let samples_count = reader.len();
                     if samples_count > 0 {
-                        audio_metadata.frame_count = Some(samples_count as u64 / spec.channels as u64);
+                        audio_metadata.frame_count =
+                            Some(samples_count as u64 / spec.channels as u64);
                         audio_metadata.duration = Some(
-                            (samples_count as f64) / (spec.sample_rate as f64 * spec.channels as f64),
+                            (samples_count as f64)
+                                / (spec.sample_rate as f64 * spec.channels as f64),
                         );
                     }
                 }

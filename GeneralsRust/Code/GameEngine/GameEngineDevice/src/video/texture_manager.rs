@@ -875,10 +875,7 @@ impl TextureManager {
             let callback = request.callback.clone();
             let file_path = request.file_path.clone();
 
-            tracing::debug!(
-                "Processing streaming request for texture: {}",
-                texture_id
-            );
+            tracing::debug!("Processing streaming request for texture: {}", texture_id);
 
             if self.texture_cache.contains_key(&texture_id) {
                 tracing::debug!("Texture '{}' already cached, skipping load", texture_id);
@@ -906,42 +903,40 @@ impl TextureManager {
             let load_id = texture_id.clone();
             let loading_state_clone = loading_state.clone();
 
-            let result = tokio::task::spawn_blocking(move || {
-                match file_path {
-                    Some(path) => Self::load_texture_from_file_sync(
-                        &render_device,
-                        &config,
-                        load_id.clone(),
-                        path,
-                        StreamingPriority::Normal,
-                        &texture_cache,
-                        &metadata_cache,
-                        &gpu_memory_used,
-                        &statistics,
-                        &content_hash_map,
-                    ),
-                    None => {
-                        let path = metadata_cache
-                            .get(&load_id)
-                            .and_then(|m| m.file_path.clone());
-                        match path {
-                            Some(path) => Self::load_texture_from_file_sync(
-                                &render_device,
-                                &config,
-                                load_id.clone(),
-                                path,
-                                StreamingPriority::Normal,
-                                &texture_cache,
-                                &metadata_cache,
-                                &gpu_memory_used,
-                                &statistics,
-                                &content_hash_map,
-                            ),
-                            None => Err(VideoDeviceError::ResourceError(format!(
-                                "No file path for streaming texture '{}'",
-                                load_id
-                            ))),
-                        }
+            let result = tokio::task::spawn_blocking(move || match file_path {
+                Some(path) => Self::load_texture_from_file_sync(
+                    &render_device,
+                    &config,
+                    load_id.clone(),
+                    path,
+                    StreamingPriority::Normal,
+                    &texture_cache,
+                    &metadata_cache,
+                    &gpu_memory_used,
+                    &statistics,
+                    &content_hash_map,
+                ),
+                None => {
+                    let path = metadata_cache
+                        .get(&load_id)
+                        .and_then(|m| m.file_path.clone());
+                    match path {
+                        Some(path) => Self::load_texture_from_file_sync(
+                            &render_device,
+                            &config,
+                            load_id.clone(),
+                            path,
+                            StreamingPriority::Normal,
+                            &texture_cache,
+                            &metadata_cache,
+                            &gpu_memory_used,
+                            &statistics,
+                            &content_hash_map,
+                        ),
+                        None => Err(VideoDeviceError::ResourceError(format!(
+                            "No file path for streaming texture '{}'",
+                            load_id
+                        ))),
                     }
                 }
             })
@@ -959,7 +954,11 @@ impl TextureManager {
                     let err_msg = err.to_string();
                     *loading_state_clone.lock() = TextureLoadingState::Failed(err_msg.clone());
                     self.loading_textures.remove(&texture_id);
-                    tracing::warn!("Failed to load streaming texture '{}': {}", texture_id, err_msg);
+                    tracing::warn!(
+                        "Failed to load streaming texture '{}': {}",
+                        texture_id,
+                        err_msg
+                    );
                     if let Some(cb) = callback {
                         cb(Err(err));
                     }

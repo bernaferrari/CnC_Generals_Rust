@@ -156,13 +156,14 @@ pub fn initialize_from_bytes(bytes: &[u8], source_name: &str) -> W3DResult<()> {
         return Ok(());
     }
 
-    let map = load_animation_map_from_text(String::from_utf8_lossy(bytes).into_owned())
-        .map_err(|err| {
+    let map = load_animation_map_from_text(String::from_utf8_lossy(bytes).into_owned()).map_err(
+        |err| {
             W3DError::InvalidParameter(format!(
                 "failed to parse animated sound metadata from {}: {}",
                 source_name, err
             ))
-        })?;
+        },
+    )?;
 
     parse_animation_map(&mut state, map);
     Ok(())
@@ -262,7 +263,9 @@ Entry2 = 20, TankLoop, STOP
 
         initialize_from_bytes(ini, "inline").expect("animated sound bytes should parse");
 
-        let state = manager_state().lock().expect("animated sound state poisoned");
+        let state = manager_state()
+            .lock()
+            .expect("animated sound state poisoned");
         let list = state
             .animation_map
             .get("TESTANIM")

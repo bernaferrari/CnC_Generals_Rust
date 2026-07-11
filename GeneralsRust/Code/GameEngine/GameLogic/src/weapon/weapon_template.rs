@@ -2920,11 +2920,8 @@ mod tests {
     fn projectile_collision_uses_ballistic_missile_kindof_not_name() {
         with_collision_isolation(|| {
             let projectile = registered_collision_object(98_011, "PlainProjectile", "PROJECTILE");
-            let target = registered_collision_object(
-                98_012,
-                "PlainTarget",
-                "PROJECTILE BALLISTIC_MISSILE",
-            );
+            let target =
+                registered_collision_object(98_012, "PlainTarget", "PROJECTILE BALLISTIC_MISSILE");
 
             let mut weapon = WeaponTemplate::new("BallisticMissileCollision".to_string());
             weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::BALLISTIC_MISSILES);

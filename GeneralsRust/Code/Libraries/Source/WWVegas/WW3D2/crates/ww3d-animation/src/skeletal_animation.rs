@@ -7,8 +7,7 @@
 ///! - Multiple animation layers and blending
 ///!
 ///! Reference: C++ htree.cpp, hanim.cpp, mesh.cpp skinning code
-
-use crate::hanim::{HAnimClass, AnimationMode};
+use crate::hanim::{AnimationMode, HAnimClass};
 use crate::htree::HTreeClass;
 use glam::{Mat4, Quat, Vec3};
 
@@ -78,7 +77,8 @@ impl SkeletonState {
         }
 
         // Update hierarchy with animation data
-        self.htree.anim_update(root_transform, &translations, &rotations);
+        self.htree
+            .anim_update(root_transform, &translations, &rotations);
         self.update_bone_transforms();
     }
 
@@ -115,7 +115,8 @@ impl SkeletonState {
             };
         }
 
-        self.htree.anim_update(root_transform, &translations, &rotations);
+        self.htree
+            .anim_update(root_transform, &translations, &rotations);
         self.update_bone_transforms();
     }
 

@@ -415,13 +415,7 @@ impl Animatable3DObjClass {
                 let prev_frame1 = self.mode_interp.prev_frame1;
 
                 if let (Some(motion0), Some(motion1)) = (motion0_opt, motion1_opt) {
-                    self.blend_update(
-                        motion0.clone(),
-                        frame0,
-                        motion1.clone(),
-                        frame1,
-                        percentage,
-                    );
+                    self.blend_update(motion0.clone(), frame0, motion1.clone(), frame1, percentage);
 
                     // Trigger embedded sounds for both animations
                     // Reference: animobj.cpp:758-766
@@ -513,7 +507,8 @@ impl Animatable3DObjClass {
             rotations[pivot_idx] = motion.get_orientation(pivot_idx, frame);
         }
 
-        self.htree.anim_update(self.transform, &translations, &rotations);
+        self.htree
+            .anim_update(self.transform, &translations, &rotations);
     }
 
     /// Blend two animations
@@ -540,7 +535,8 @@ impl Animatable3DObjClass {
             rotations[pivot_idx] = rot0.slerp(rot1, percentage);
         }
 
-        self.htree.anim_update(self.transform, &translations, &rotations);
+        self.htree
+            .anim_update(self.transform, &translations, &rotations);
     }
 
     /// Compute current frame based on sync time and animation mode
@@ -656,9 +652,7 @@ impl Animatable3DObjClass {
         if self.cur_motion_mode == MotionMode::SingleAnim {
             if let Some(ref motion) = self.mode_anim.motion {
                 match self.mode_anim.anim_mode {
-                    AnimationMode::Once => {
-                        self.mode_anim.frame >= (motion.num_frames as f32 - 1.0)
-                    }
+                    AnimationMode::Once => self.mode_anim.frame >= (motion.num_frames as f32 - 1.0),
                     AnimationMode::OnceBackwards => self.mode_anim.frame <= 0.0,
                     _ => false,
                 }
@@ -672,7 +666,9 @@ impl Animatable3DObjClass {
 
     /// Peek at animation and info
     /// Reference: animobj.cpp:1047-1058 (Animatable3DObjClass::Peek_Animation_And_Info)
-    pub fn peek_animation_and_info(&self) -> Option<(Arc<HAnimClass>, f32, u32, AnimationMode, f32)> {
+    pub fn peek_animation_and_info(
+        &self,
+    ) -> Option<(Arc<HAnimClass>, f32, u32, AnimationMode, f32)> {
         if self.cur_motion_mode == MotionMode::SingleAnim {
             if let Some(ref motion) = self.mode_anim.motion {
                 Some((

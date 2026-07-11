@@ -299,8 +299,7 @@ impl AnimationPlayback {
     /// Get current frame number (clamped to valid range)
     pub fn get_current_frame(&self) -> u32 {
         let max_frame = self.animation.frame_count.saturating_sub(1) as f32;
-        self.current_frame
-            .clamp(0.0, max_frame) as u32
+        self.current_frame.clamp(0.0, max_frame) as u32
     }
 
     /// Set playback position to specific frame
