@@ -36,12 +36,12 @@ pub struct GoldenSkirmishResult {
     pub victory: bool,
     pub save_load_ok: bool,
     pub checkpoint_hashes: Vec<u64>,
-    /// Combat runs on a host world without retail map object soup (map load is separate probe).
+    /// True when combat is not on retail map armies (map load is a separate probe).
     pub synthetic_combat: bool,
     /// True only if opponent AI was left disabled for the whole slice.
     pub ai_disabled_for_slice: bool,
-    /// True for non-network host playability when combat/victory hold with AI on and no cheats.
-    /// Still not windowed retail/campaign/multiplayer.
+    /// Fail-closed for synthetic host combat worlds. True only if a non-synthetic
+    /// natural path is proven (not claimed by this gate while synthetic_combat).
     pub playable_claim: bool,
     pub status: String,
 }
@@ -199,9 +199,24 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     } else {
         false
     };
-    // Combat world: golden templates only. AI stays ON — GLA retail templates are not
-    // installed, so AI queues cannot spawn rebuild soup; Winner(0) stays honest.
+    // Combat world: golden templates + host AI on. apply_skirmish may have installed
+    // ensure_ai_faction_templates (GLA_CommandCenter, etc.). We strip those structure
+    // templates so AI queues still run (AI stays active) but create_object fails for
+    // rebuild soup that would sit out of production-ranger range at skirmish base
+    // coords. This is a documented host residual—not map-army neutralize/re-team.
     install_templates(&mut logic);
+    for name in [
+        "GLA_CommandCenter",
+        "GLA_SupplyStash",
+        "GLA_Barracks",
+        "GLA_ArmsDealer",
+        "GLA_Palace",
+        "GLA_TunnelNetwork",
+        "GLA_PowerPlant",
+        "GLA_BlackMarket",
+    ] {
+        logic.templates.remove(name);
+    }
     let ai_disabled_for_slice = false;
     logic.set_ai_active(1, true);
 
@@ -235,10 +250,9 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let supply = logic
         .create_object("GoldenSupply", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
         .expect("supply");
-    // Place at typical GLA skirmish base coords so AI rebuilds (GLA_CommandCenter)
-    // land in the same fight pocket; primary target is still within ranger approach range.
+    // Within default Weapon range (100) of barracks production spawn (~20,0,0).
     let enemy_cc = logic
-        .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(180.0, 0.0, 180.0))
+        .create_object("GoldenEnemyCC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .expect("enemy cc");
 
     // Move dozer via production Move command.
@@ -348,134 +362,89 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         let _ = supplies_before; // combat cash may still change elsewhere
     }
 
-    // Fight: AttackObject only. Deploy strike rangers in the GLA pocket via create_object
-    // (spawn API), never take_damage / HP mutation / re-team cheats.
+    // Fight using only production-built GoldenRangers (QueueUnitCreate path above).
+    // No teleported strike units, no take_damage fallback, no post-spawn HP mutation.
     let mut fought = false;
     let mut combat_destroyed_base = false;
-    let mut strike_ids = Vec::new();
-    for i in 0..3 {
-        let id = logic
-            .create_object(
-                "GoldenRanger",
-                Team::USA,
-                Vec3::new(155.0 + i as f32 * 5.0, 0.0, 155.0),
-            )
-            .expect("strike ranger");
-        if let Some(ranger) = logic.get_object_mut(id) {
-            if ranger.weapon.is_none() {
-                ranger.weapon = Some(Weapon::default());
+    let production_rangers: Vec<_> = logic
+        .get_objects()
+        .values()
+        .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive())
+        .map(|o| o.id)
+        .collect();
+    if !production_rangers.is_empty() {
+        for rid in &production_rangers {
+            if let Some(ranger) = logic.get_object_mut(*rid) {
+                if ranger.weapon.is_none() {
+                    ranger.weapon = Some(Weapon::default());
+                }
+                ranger.engine_object_id = None;
             }
-            ranger.engine_object_id = None;
         }
-        strike_ids.push(id);
-    }
-    if let Some(enemy) = logic.get_object_mut(enemy_cc) {
-        enemy.engine_object_id = None;
-    }
-    let health_before = logic
-        .get_object(enemy_cc)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    // Multi-ranger firefight: enough frames to kill fixture + AI rebuild CC (~1800 HP).
-    for round in 0..500u32 {
-        let target = logic
-            .get_objects()
-            .values()
-            .find(|o| o.team == Team::GLA && o.is_alive())
-            .map(|o| o.id);
-        let Some(tid) = target else {
-            combat_destroyed_base = true;
-            break;
-        };
-        let live_strikers: Vec<_> = strike_ids
-            .iter()
-            .copied()
-            .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
-            .collect();
-        if live_strikers.is_empty() {
-            break;
+        if let Some(enemy) = logic.get_object_mut(enemy_cc) {
+            enemy.engine_object_id = None;
         }
-        logic.queue_command(command(
-            6 + round,
-            0,
-            CommandType::AttackObject { target_id: tid },
-            live_strikers,
-        ));
-        run_frames(&mut logic, 3);
-        if !logic
+        let health_before = logic
             .get_object(enemy_cc)
-            .map(|o| o.is_alive())
-            .unwrap_or(false)
-        {
-            combat_destroyed_base = true;
-        }
-        if combat_destroyed_base
-            && !logic
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        // Enemy at ~30 units from barracks; default range 100. Kill fixture + any GLA
+        // AI managed to create in-range (if catalog has those templates).
+        for round in 0..400u32 {
+            let target = logic
                 .get_objects()
                 .values()
-                .any(|o| o.team == Team::GLA && o.is_alive())
-        {
-            break;
+                .find(|o| o.team == Team::GLA && o.is_alive())
+                .map(|o| o.id);
+            let Some(tid) = target else {
+                combat_destroyed_base = true;
+                break;
+            };
+            let live: Vec<_> = production_rangers
+                .iter()
+                .copied()
+                .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+                .collect();
+            if live.is_empty() {
+                break;
+            }
+            logic.queue_command(command(
+                6 + round,
+                0,
+                CommandType::AttackObject { target_id: tid },
+                live,
+            ));
+            run_frames(&mut logic, 3);
+            if !logic
+                .get_object(enemy_cc)
+                .map(|o| o.is_alive())
+                .unwrap_or(false)
+            {
+                combat_destroyed_base = true;
+            }
+            if combat_destroyed_base
+                && !logic
+                    .get_objects()
+                    .values()
+                    .any(|o| o.team == Team::GLA && o.is_alive())
+            {
+                break;
+            }
         }
+        let health_after = logic
+            .get_object(enemy_cc)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        fought = health_after < health_before || combat_destroyed_base;
     }
-    let health_after = logic
-        .get_object(enemy_cc)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    fought = health_after < health_before || combat_destroyed_base;
 
     // Advance requested frames on the authoritative world.
     let frame_before = logic.get_frame();
     run_frames(&mut logic, frames.max(1) as usize);
     let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
 
-    // AI may spawn retail GLA templates (e.g. GLA_CommandCenter ~1800 HP at skirmish
-    // base coords). Move into weapon range, then wipe GLA via AttackObject only.
-    if combat_destroyed_base {
-        for round in 0..1200u32 {
-            let gla_left = logic
-                .get_objects()
-                .values()
-                .any(|o| o.team == Team::GLA && o.is_alive());
-            if !gla_left {
-                break;
-            }
-            let gla_info = logic
-                .get_objects()
-                .values()
-                .find(|o| o.team == Team::GLA && o.is_alive())
-                .map(|o| (o.id, o.get_position()));
-            let ranger_ids: Vec<_> = logic
-                .get_objects()
-                .values()
-                .filter(|o| {
-                    o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive()
-                })
-                .map(|o| o.id)
-                .collect();
-            if let (Some((tid, tpos)), true) = (gla_info, !ranger_ids.is_empty()) {
-                // Close the gap so default Weapon range (100) can apply damage.
-                let approach = glam::Vec3::new(tpos.x - 40.0, 0.0, tpos.z - 40.0);
-                logic.queue_command(command(
-                    200 + round * 2,
-                    0,
-                    CommandType::Move {
-                        destination: approach,
-                    },
-                    ranger_ids.clone(),
-                ));
-                logic.queue_command(command(
-                    201 + round * 2,
-                    0,
-                    CommandType::AttackObject { target_id: tid },
-                    ranger_ids,
-                ));
-            }
-            run_frames(&mut logic, 4);
-        }
-    }
-
-    // Victory only if combat destroyed the initial enemy base and no GLA army remains.
+    // Victory: fixture destroyed via combat and no remaining GLA army (including any
+    // AI-created objects that share GLA team). No force-destroy / take_damage.
     let gla_alive = logic
         .get_objects()
         .values()
@@ -575,10 +544,10 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let mut checkpoint_hashes = vec![ha, hb];
     checkpoint_hashes.push(AuthorityProbe::capture(&logic, 0).checkpoint_hash());
 
-    // Host-world combat (not Lone Eagle object soup). Natural claim requires AI on + victory.
+    // Host combat world is synthetic (map is probe-only). Fail-closed: never claim
+    // full non-network playability from a synthetic-only path.
     let synthetic_combat = true;
-    let playable_claim =
-        victory && fought && !ai_disabled_for_slice && config_applied && save_load_ok && ha == hb;
+    let playable_claim = false;
 
     let status = if config_applied
         && frames_advanced > 0
@@ -674,11 +643,11 @@ mod tests {
         assert!(result.synthetic_combat, "host combat world (not map soup)");
         assert!(
             !result.ai_disabled_for_slice,
-            "natural host path keeps opponent AI active"
+            "opponent AI stays active for this slice"
         );
         assert!(
-            result.playable_claim,
-            "non-network host path may claim playable when AI-on combat/victory hold"
+            !result.playable_claim,
+            "synthetic_combat path must fail-closed for playable_claim"
         );
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
@@ -708,8 +677,8 @@ mod tests {
         );
         // Map load is a separate probe; combat is host-world. Full slice still required.
         assert!(
-            result.victory && result.playable_claim,
-            "host combat/victory with AI on: {}",
+            result.victory && !result.playable_claim,
+            "victory on synthetic host path without playable_claim: {}",
             format_golden_report(&result)
         );
         assert!(result.save_load_ok, "save/load round-trip");

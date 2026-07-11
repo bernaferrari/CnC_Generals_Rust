@@ -28,6 +28,8 @@ fn main() {
     let result = run_golden_skirmish(map.as_deref(), frames);
     println!("{}", format_golden_report(&result));
     // Full vertical-slice gate: config, frames, all gameplay steps, victory, save/load.
+    // Success proves host combat APIs with AI on. synthetic_combat + playable_claim=false
+    // is required fail-closed (not a finished retail/natural map match claim).
     let pass = result.config_applied
         && result.frames_advanced > 0
         && result.moved_units
@@ -40,17 +42,21 @@ fn main() {
         && result.save_load_ok
         && result.status == "success"
         && !result.ai_disabled_for_slice
-        && result.playable_claim;
+        && result.synthetic_combat
+        && !result.playable_claim;
     if pass {
-        println!("golden_skirmish_gate: PASS (natural host path; AI on; playable_claim=true; not windowed retail)");
+        println!(
+            "golden_skirmish_gate: PASS (host combat APIs; AI on; synthetic_combat=true playable_claim=false; not retail playable)"
+        );
         std::process::exit(0);
     }
     eprintln!(
-        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} playable_claim={}",
+        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={}",
         result.victory,
         result.save_load_ok,
         result.status,
         result.ai_disabled_for_slice,
+        result.synthetic_combat,
         result.playable_claim
     );
     std::process::exit(1);
