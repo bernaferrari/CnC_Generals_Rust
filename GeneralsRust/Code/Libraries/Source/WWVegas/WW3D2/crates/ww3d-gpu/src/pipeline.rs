@@ -202,10 +202,8 @@ impl PipelineManager {
     ) -> Result<Arc<RenderPipeline>, GpuError> {
         // Check cache first
         if let Some(label) = label {
-            if let Some(cached) = self.cache.get(label) {
-                if let PipelineCacheEntry::Render(pipeline) = cached {
-                    return Ok(pipeline.clone());
-                }
+            if let Some(PipelineCacheEntry::Render(pipeline)) = self.cache.get(label) {
+                return Ok(pipeline.clone());
             }
         }
 

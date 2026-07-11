@@ -411,6 +411,12 @@ pub struct SynchronizationManager {
     stats: SyncStats,
 }
 
+impl Default for SynchronizationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SynchronizationManager {
     /// Create a new synchronization manager
     pub fn new() -> Self {
