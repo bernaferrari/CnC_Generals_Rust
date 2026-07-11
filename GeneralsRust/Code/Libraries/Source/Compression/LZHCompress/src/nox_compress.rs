@@ -2,12 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::{
-    CompressionLevel,
-    calc_max_compressed_size_raw,
-    compress_raw,
-    decompress_raw,
-};
+use crate::{calc_max_compressed_size_raw, compress_raw, decompress_raw, CompressionLevel};
 
 pub type Bool = bool;
 pub type Int = i32;
@@ -65,7 +60,10 @@ pub fn compress_file<P: AsRef<Path>>(infile: P, outfile: P) -> Bool {
         Err(_) => return false,
     };
 
-    if output_file.write_all(&(input_data.len() as UnsignedInt).to_le_bytes()).is_err() {
+    if output_file
+        .write_all(&(input_data.len() as UnsignedInt).to_le_bytes())
+        .is_err()
+    {
         return false;
     }
     output_file.write_all(&compressed).is_ok()

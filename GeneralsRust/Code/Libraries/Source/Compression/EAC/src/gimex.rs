@@ -155,13 +155,34 @@ pub struct GFUNCTIONS {
     pub gimex_about: Option<extern "C" fn() -> *mut GABOUT>,
     pub gimex_is: Option<extern "C" fn(g: *mut GSTREAM) -> i32>,
     pub gimex_open: Option<
-        extern "C" fn(gx: *mut *mut GINSTANCE, g: *mut GSTREAM, pathname: *const i8, framecountflag: bool) -> i32,
+        extern "C" fn(
+            gx: *mut *mut GINSTANCE,
+            g: *mut GSTREAM,
+            pathname: *const i8,
+            framecountflag: bool,
+        ) -> i32,
     >,
     pub gimex_info: Option<extern "C" fn(gx: *mut GINSTANCE, framenum: i32) -> *mut GINFO>,
-    pub gimex_read: Option<extern "C" fn(gx: *mut GINSTANCE, ginfo: *const GINFO, dest: *mut i8, rowbytes: i32) -> i32>,
+    pub gimex_read: Option<
+        extern "C" fn(gx: *mut GINSTANCE, ginfo: *const GINFO, dest: *mut i8, rowbytes: i32) -> i32,
+    >,
     pub gimex_close: Option<extern "C" fn(gx: *mut GINSTANCE) -> i32>,
-    pub gimex_wopen: Option<extern "C" fn(gx: *mut *mut GINSTANCE, g: *mut GSTREAM, pathname: *const i8, numframes: i32) -> i32>,
-    pub gimex_write: Option<extern "C" fn(gx: *mut GINSTANCE, ginfo: *const GINFO, source: *const i8, rowbytes: i32) -> i32>,
+    pub gimex_wopen: Option<
+        extern "C" fn(
+            gx: *mut *mut GINSTANCE,
+            g: *mut GSTREAM,
+            pathname: *const i8,
+            numframes: i32,
+        ) -> i32,
+    >,
+    pub gimex_write: Option<
+        extern "C" fn(
+            gx: *mut GINSTANCE,
+            ginfo: *const GINFO,
+            source: *const i8,
+            rowbytes: i32,
+        ) -> i32,
+    >,
     pub gimex_wclose: Option<extern "C" fn(gx: *mut GINSTANCE) -> i32>,
 }
 
@@ -175,10 +196,12 @@ pub fn ggetm(src: *const u8, bytes: usize) -> u32 {
             1 => *src as u32,
             2 => ((*src as u32) << 8) | (*src.add(1) as u32),
             3 => ((*src as u32) << 16) | ((*src.add(1) as u32) << 8) | (*src.add(2) as u32),
-            4 => ((*src as u32) << 24)
-                | ((*src.add(1) as u32) << 16)
-                | ((*src.add(2) as u32) << 8)
-                | (*src.add(3) as u32),
+            4 => {
+                ((*src as u32) << 24)
+                    | ((*src.add(1) as u32) << 16)
+                    | ((*src.add(2) as u32) << 8)
+                    | (*src.add(3) as u32)
+            }
             _ => 0,
         }
     }
@@ -190,13 +213,13 @@ pub fn ggeti(src: *const u8, bytes: usize) -> u32 {
         match bytes {
             1 => *src as u32,
             2 => (*src as u32) | ((*src.add(1) as u32) << 8),
-            3 => (*src as u32)
-                | ((*src.add(1) as u32) << 8)
-                | ((*src.add(2) as u32) << 16),
-            4 => (*src as u32)
-                | ((*src.add(1) as u32) << 8)
-                | ((*src.add(2) as u32) << 16)
-                | ((*src.add(3) as u32) << 24),
+            3 => (*src as u32) | ((*src.add(1) as u32) << 8) | ((*src.add(2) as u32) << 16),
+            4 => {
+                (*src as u32)
+                    | ((*src.add(1) as u32) << 8)
+                    | ((*src.add(2) as u32) << 16)
+                    | ((*src.add(3) as u32) << 24)
+            }
             _ => 0,
         }
     }

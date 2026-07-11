@@ -61,22 +61,22 @@ pub mod gpu;
 pub enum LzhError {
     #[error("Compression failed: {0}")]
     CompressionFailed(String),
-    
+
     #[error("Decompression failed: {0}")]
     DecompressionFailed(String),
-    
+
     #[error("Invalid header: {0}")]
     InvalidHeader(String),
-    
+
     #[error("Buffer too small: need {needed}, got {available}")]
     BufferTooSmall { needed: usize, available: usize },
-    
+
     #[error("Dictionary error: {0}")]
     DictionaryError(String),
-    
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Invalid compression level: {0}")]
     InvalidCompressionLevel(u8),
 }
@@ -101,13 +101,13 @@ impl CompressionLevel {
     /// Get window size for compression level
     pub fn window_size(&self) -> usize {
         match self {
-            Self::Fast => 4096,      // 4KB
-            Self::Default => 8192,   // 8KB
-            Self::High => 16384,     // 16KB
-            Self::Maximum => 32768,  // 32KB
+            Self::Fast => 4096,     // 4KB
+            Self::Default => 8192,  // 8KB
+            Self::High => 16384,    // 16KB
+            Self::Maximum => 32768, // 32KB
         }
     }
-    
+
     /// Get maximum match length
     pub fn max_match_length(&self) -> usize {
         match self {
@@ -117,7 +117,7 @@ impl CompressionLevel {
             Self::Maximum => 256,
         }
     }
-    
+
     /// Get hash table size
     pub fn hash_table_size(&self) -> usize {
         match self {
@@ -127,7 +127,7 @@ impl CompressionLevel {
             Self::Maximum => 32768,
         }
     }
-    
+
     /// Get number of hash chains to search
     pub fn search_depth(&self) -> usize {
         match self {
@@ -147,7 +147,7 @@ impl Default for CompressionLevel {
 
 impl TryFrom<u8> for CompressionLevel {
     type Error = LzhError;
-    
+
     fn try_from(value: u8) -> Result<Self> {
         match value {
             1 => Ok(Self::Fast),
@@ -162,20 +162,20 @@ impl TryFrom<u8> for CompressionLevel {
 /// LZH file header format
 #[derive(Debug, Clone)]
 pub struct LzhHeader {
-    pub signature: [u8; 4],           // "LZH\0"
-    pub version: u16,                 // Format version
+    pub signature: [u8; 4], // "LZH\0"
+    pub version: u16,       // Format version
     pub compression_level: CompressionLevel,
-    pub uncompressed_size: u64,       // Original data size
-    pub compressed_size: u64,         // Compressed data size
-    pub crc32: u32,                   // CRC32 of original data
-    pub flags: u32,                   // Compression flags
+    pub uncompressed_size: u64, // Original data size
+    pub compressed_size: u64,   // Compressed data size
+    pub crc32: u32,             // CRC32 of original data
+    pub flags: u32,             // Compression flags
 }
 
 impl LzhHeader {
     pub const SIZE: usize = 32;
     pub const SIGNATURE: [u8; 4] = *b"LZH\0";
     pub const VERSION: u16 = 2;
-    
+
     /// Create new header
     pub fn new(
         compression_level: CompressionLevel,
@@ -193,7 +193,7 @@ impl LzhHeader {
             flags: 0,
         }
     }
-    
+
     /// Parse header from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         if data.len() < Self::SIZE {
@@ -202,35 +202,36 @@ impl LzhHeader {
                 available: data.len(),
             });
         }
-        
+
         let mut signature = [0u8; 4];
         signature.copy_from_slice(&data[0..4]);
-        
+
         if signature != Self::SIGNATURE {
-            return Err(LzhError::InvalidHeader(
-                format!("Invalid signature: expected {:?}, got {:?}", Self::SIGNATURE, signature)
-            ));
+            return Err(LzhError::InvalidHeader(format!(
+                "Invalid signature: expected {:?}, got {:?}",
+                Self::SIGNATURE,
+                signature
+            )));
         }
-        
+
         let version = u16::from_le_bytes([data[4], data[5]]);
         if version != Self::VERSION {
-            return Err(LzhError::InvalidHeader(
-                format!("Unsupported version: {}", version)
-            ));
+            return Err(LzhError::InvalidHeader(format!(
+                "Unsupported version: {}",
+                version
+            )));
         }
-        
+
         let compression_level = CompressionLevel::try_from(data[6])?;
         let uncompressed_size = u64::from_le_bytes([
-            data[8], data[9], data[10], data[11],
-            data[12], data[13], data[14], data[15]
+            data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
         ]);
         let compressed_size = u64::from_le_bytes([
-            data[16], data[17], data[18], data[19],
-            data[20], data[21], data[22], data[23]
+            data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],
         ]);
         let crc32 = u32::from_le_bytes([data[24], data[25], data[26], data[27]]);
         let flags = u32::from_le_bytes([data[28], data[29], data[30], data[31]]);
-        
+
         Ok(Self {
             signature,
             version,
@@ -241,11 +242,11 @@ impl LzhHeader {
             flags,
         })
     }
-    
+
     /// Convert header to bytes
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
         let mut bytes = [0u8; Self::SIZE];
-        
+
         bytes[0..4].copy_from_slice(&self.signature);
         bytes[4..6].copy_from_slice(&self.version.to_le_bytes());
         bytes[6] = self.compression_level as u8;
@@ -254,7 +255,7 @@ impl LzhHeader {
         bytes[16..24].copy_from_slice(&self.compressed_size.to_le_bytes());
         bytes[24..28].copy_from_slice(&self.crc32.to_le_bytes());
         bytes[28..32].copy_from_slice(&self.flags.to_le_bytes());
-        
+
         bytes
     }
 }
@@ -262,15 +263,15 @@ impl LzhHeader {
 /// LZH match structure for dictionary coding
 #[derive(Debug, Clone, Copy)]
 pub struct LzhMatch {
-    pub length: usize,    // Length of match
-    pub distance: usize,  // Distance back in buffer
+    pub length: usize,   // Length of match
+    pub distance: usize, // Distance back in buffer
 }
 
 impl LzhMatch {
     pub fn new(length: usize, distance: usize) -> Self {
         Self { length, distance }
     }
-    
+
     pub fn is_valid(&self) -> bool {
         self.length >= 3 && self.distance > 0
     }
@@ -291,15 +292,19 @@ impl CompressionStats {
     pub fn compression_percentage(&self) -> f64 {
         self.compression_ratio * 100.0
     }
-    
+
     pub fn space_saving(&self) -> f64 {
         1.0 - self.compression_ratio
     }
-    
+
     pub fn throughput_mb_s(&self) -> f64 {
         let mb = self.original_size as f64 / (1024.0 * 1024.0);
         let seconds = self.compression_time.as_secs_f64();
-        if seconds > 0.0 { mb / seconds } else { 0.0 }
+        if seconds > 0.0 {
+            mb / seconds
+        } else {
+            0.0
+        }
     }
 }
 
@@ -332,12 +337,15 @@ pub fn calc_max_compressed_size_raw(uncompressed_size: usize) -> usize {
 }
 
 /// Compress with detailed statistics
-pub fn compress_with_stats(data: &[u8], level: CompressionLevel) -> Result<(Vec<u8>, CompressionStats)> {
+pub fn compress_with_stats(
+    data: &[u8],
+    level: CompressionLevel,
+) -> Result<(Vec<u8>, CompressionStats)> {
     let start_time = std::time::Instant::now();
     let mut compressor = compress::LzhCompressor::new(level);
     let compressed = compressor.compress(data)?;
     let compression_time = start_time.elapsed();
-    
+
     let stats = CompressionStats {
         original_size: data.len(),
         compressed_size: compressed.len(),
@@ -346,20 +354,24 @@ pub fn compress_with_stats(data: &[u8], level: CompressionLevel) -> Result<(Vec<
         matches_found: compressor.matches_found(),
         literals_encoded: compressor.literals_encoded(),
     };
-    
+
     Ok((compressed, stats))
 }
 
 /// Parallel compression for large data
 #[cfg(feature = "parallel")]
-pub fn compress_parallel(data: &[u8], level: CompressionLevel, chunk_size: usize) -> Result<Vec<u8>> {
+pub fn compress_parallel(
+    data: &[u8],
+    level: CompressionLevel,
+    chunk_size: usize,
+) -> Result<Vec<u8>> {
     if data.len() <= chunk_size {
         return compress(data, level);
     }
-    
+
     // Split data into overlapping chunks for better compression
     let overlap_size = level.window_size() / 2;
-    
+
     let chunks: Vec<_> = data
         .par_chunks(chunk_size)
         .enumerate()
@@ -368,11 +380,15 @@ pub fn compress_parallel(data: &[u8], level: CompressionLevel, chunk_size: usize
             let overlap_start = start.saturating_sub(overlap_size);
             let end = std::cmp::min(start + chunk.len(), data.len());
             let overlap_end = std::cmp::min(end + overlap_size, data.len());
-            
-            (&data[overlap_start..overlap_end], start - overlap_start, chunk.len())
+
+            (
+                &data[overlap_start..overlap_end],
+                start - overlap_start,
+                chunk.len(),
+            )
         })
         .collect();
-    
+
     let compressed_chunks: Result<Vec<_>> = chunks
         .par_iter()
         .map(|(chunk_data, offset, original_len)| {
@@ -381,9 +397,9 @@ pub fn compress_parallel(data: &[u8], level: CompressionLevel, chunk_size: usize
             Ok(compressed)
         })
         .collect();
-    
+
     let compressed_chunks = compressed_chunks?;
-    
+
     // Combine chunks with metadata
     combine_compressed_chunks(&compressed_chunks, data.len(), level)
 }
@@ -395,25 +411,25 @@ fn combine_compressed_chunks(
     level: CompressionLevel,
 ) -> Result<Vec<u8>> {
     let mut result = Vec::new();
-    
+
     // Calculate total compressed size
     let total_compressed: usize = chunks.iter().map(|c| c.len()).sum();
     let crc32 = crc32fast::hash(&[]); // TODO: Calculate actual CRC32
-    
+
     // Create header for multi-chunk format
     let header = LzhHeader::new(level, original_size as u64, total_compressed as u64, crc32);
     result.extend_from_slice(&header.to_bytes());
-    
+
     // Add multi-chunk marker
     result.extend_from_slice(b"MCHT"); // Multi-CHunk Token
     result.extend_from_slice(&(chunks.len() as u32).to_le_bytes());
-    
+
     // Add chunk data
     for chunk in chunks {
         result.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
         result.extend_from_slice(chunk);
     }
-    
+
     Ok(result)
 }
 
@@ -422,17 +438,19 @@ pub fn analyze_data(data: &[u8]) -> CompressionLevel {
     if data.len() < 1024 {
         return CompressionLevel::Fast;
     }
-    
+
     // Analyze data characteristics
     let entropy = calculate_entropy(data);
     let repetition_ratio = calculate_repetition_ratio(data);
     let compressibility = estimate_compressibility(data);
-    
+
     log::debug!(
         "Data analysis: entropy={:.3}, repetition={:.3}, compressibility={:.3}",
-        entropy, repetition_ratio, compressibility
+        entropy,
+        repetition_ratio,
+        compressibility
     );
-    
+
     // Choose level based on analysis
     if compressibility > 0.8 && repetition_ratio > 0.4 {
         CompressionLevel::Maximum
@@ -451,17 +469,17 @@ fn calculate_entropy(data: &[u8]) -> f64 {
     for &byte in data {
         counts[byte as usize] += 1;
     }
-    
+
     let len = data.len() as f64;
     let mut entropy = 0.0;
-    
+
     for &count in &counts {
         if count > 0 {
             let p = count as f64 / len;
             entropy -= p * p.log2();
         }
     }
-    
+
     entropy / 8.0 // Normalize to 0-1 range
 }
 
@@ -470,31 +488,31 @@ fn calculate_repetition_ratio(data: &[u8]) -> f64 {
     if data.len() < 8 {
         return 0.0;
     }
-    
+
     let mut repetitions = 0;
     let pattern_size = 4;
     let max_search = std::cmp::min(data.len() / 4, 256);
-    
+
     for i in 0..max_search {
         let start = i * pattern_size;
         if start + pattern_size > data.len() {
             break;
         }
-        
+
         let pattern = &data[start..start + pattern_size];
-        
+
         // Search for pattern in subsequent data
         for j in (start + pattern_size..data.len()).step_by(pattern_size) {
             if j + pattern_size > data.len() {
                 break;
             }
-            
+
             if &data[j..j + pattern_size] == pattern {
                 repetitions += 1;
             }
         }
     }
-    
+
     repetitions as f64 / max_search as f64
 }
 
@@ -503,12 +521,12 @@ fn estimate_compressibility(data: &[u8]) -> f64 {
     let entropy = calculate_entropy(data);
     let repetition = calculate_repetition_ratio(data);
     let pattern_diversity = calculate_pattern_diversity(data);
-    
+
     // Combine factors (lower entropy + higher repetition = more compressible)
     let entropy_score = 1.0 - entropy;
     let repetition_score = repetition;
     let diversity_score = 1.0 - pattern_diversity;
-    
+
     (entropy_score * 0.4 + repetition_score * 0.4 + diversity_score * 0.2).clamp(0.0, 1.0)
 }
 
@@ -517,12 +535,12 @@ fn calculate_pattern_diversity(data: &[u8]) -> f64 {
     if data.len() < 4 {
         return 0.0;
     }
-    
+
     let mut patterns = std::collections::HashSet::new();
     for window in data.windows(4) {
         patterns.insert([window[0], window[1], window[2], window[3]]);
     }
-    
+
     patterns.len() as f64 / (data.len() - 3) as f64
 }
 
@@ -530,7 +548,7 @@ fn calculate_pattern_diversity(data: &[u8]) -> f64 {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    
+
     #[test]
     fn test_compression_levels() {
         let levels = [
@@ -539,25 +557,25 @@ mod tests {
             CompressionLevel::High,
             CompressionLevel::Maximum,
         ];
-        
+
         for level in &levels {
             assert!(level.window_size() >= 4096);
             assert!(level.max_match_length() >= 32);
             assert!(level.hash_table_size() >= 4096);
             assert!(level.search_depth() >= 4);
         }
-        
+
         // Higher levels should have larger parameters
         assert!(CompressionLevel::Maximum.window_size() > CompressionLevel::Fast.window_size());
         assert!(CompressionLevel::High.search_depth() > CompressionLevel::Default.search_depth());
     }
-    
+
     #[test]
     fn test_lzh_header() {
         let header = LzhHeader::new(CompressionLevel::High, 12345, 8765, 0xDEADBEEF);
         let bytes = header.to_bytes();
         let parsed = LzhHeader::from_bytes(&bytes).unwrap();
-        
+
         assert_eq!(header.signature, parsed.signature);
         assert_eq!(header.version, parsed.version);
         assert_eq!(header.compression_level, parsed.compression_level);
@@ -565,68 +583,86 @@ mod tests {
         assert_eq!(header.compressed_size, parsed.compressed_size);
         assert_eq!(header.crc32, parsed.crc32);
     }
-    
+
     #[test]
     fn test_lzh_match() {
         let valid_match = LzhMatch::new(10, 5);
         assert!(valid_match.is_valid());
-        
+
         let invalid_match = LzhMatch::new(2, 5); // Too short
         assert!(!invalid_match.is_valid());
-        
+
         let zero_distance = LzhMatch::new(10, 0); // Zero distance
         assert!(!zero_distance.is_valid());
     }
-    
+
     #[test]
     fn test_entropy_calculation() {
         // All same bytes = low entropy
         let uniform_data = vec![42u8; 1000];
         let entropy = calculate_entropy(&uniform_data);
         assert!(entropy < 0.1);
-        
+
         // Random-like data = high entropy
         let diverse_data: Vec<u8> = (0..1000).map(|i| (i * 37 % 256) as u8).collect();
         let entropy = calculate_entropy(&diverse_data);
         assert!(entropy > 0.8);
     }
-    
+
     #[test]
     fn test_repetition_ratio() {
         // Highly repetitive data
         let repetitive = b"abcdabcdabcdabcd".repeat(10);
         let ratio = calculate_repetition_ratio(&repetitive);
         assert!(ratio > 0.5);
-        
+
         // Non-repetitive data
         let unique: Vec<u8> = (0..255).collect();
         let ratio = calculate_repetition_ratio(&unique);
         assert!(ratio < 0.1);
     }
-    
+
     #[test]
     fn test_compression_level_conversion() {
-        assert_eq!(CompressionLevel::try_from(1).unwrap(), CompressionLevel::Fast);
-        assert_eq!(CompressionLevel::try_from(5).unwrap(), CompressionLevel::Default);
-        assert_eq!(CompressionLevel::try_from(9).unwrap(), CompressionLevel::High);
-        assert_eq!(CompressionLevel::try_from(15).unwrap(), CompressionLevel::Maximum);
-        
+        assert_eq!(
+            CompressionLevel::try_from(1).unwrap(),
+            CompressionLevel::Fast
+        );
+        assert_eq!(
+            CompressionLevel::try_from(5).unwrap(),
+            CompressionLevel::Default
+        );
+        assert_eq!(
+            CompressionLevel::try_from(9).unwrap(),
+            CompressionLevel::High
+        );
+        assert_eq!(
+            CompressionLevel::try_from(15).unwrap(),
+            CompressionLevel::Maximum
+        );
+
         assert!(CompressionLevel::try_from(99).is_err());
     }
-    
+
     #[test]
     fn test_analyze_data() {
         // Highly compressible data
         let compressible = vec![0u8; 1000];
         let level = analyze_data(&compressible);
-        assert!(matches!(level, CompressionLevel::Maximum | CompressionLevel::High));
-        
+        assert!(matches!(
+            level,
+            CompressionLevel::Maximum | CompressionLevel::High
+        ));
+
         // Less compressible data
         let random: Vec<u8> = (0..1000).map(|i| (i * 17 + 13) as u8).collect();
         let level = analyze_data(&random);
-        assert!(matches!(level, CompressionLevel::Fast | CompressionLevel::Default));
+        assert!(matches!(
+            level,
+            CompressionLevel::Fast | CompressionLevel::Default
+        ));
     }
-    
+
     proptest! {
         #[test]
         fn test_header_roundtrip(
@@ -637,12 +673,12 @@ mod tests {
             let header = LzhHeader::new(CompressionLevel::Default, uncompressed_size, compressed_size, crc32);
             let bytes = header.to_bytes();
             let parsed = LzhHeader::from_bytes(&bytes).unwrap();
-            
+
             assert_eq!(header.uncompressed_size, parsed.uncompressed_size);
             assert_eq!(header.compressed_size, parsed.compressed_size);
             assert_eq!(header.crc32, parsed.crc32);
         }
-        
+
         #[test]
         fn test_entropy_bounds(data in any::<Vec<u8>>()) {
             if !data.is_empty() {
@@ -650,7 +686,7 @@ mod tests {
                 assert!(entropy >= 0.0 && entropy <= 1.0);
             }
         }
-        
+
         #[test]
         fn test_repetition_ratio_bounds(data in any::<Vec<u8>>()) {
             let ratio = calculate_repetition_ratio(&data);

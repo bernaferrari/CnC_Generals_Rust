@@ -85,10 +85,10 @@ impl LzhDecompressor {
         // Verify CRC32
         let calculated_crc = crc32fast::hash(&decompressed);
         if calculated_crc != header.crc32 {
-            return Err(LzhError::DecompressionFailed(
-                format!("CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
-                    header.crc32, calculated_crc)
-            ));
+            return Err(LzhError::DecompressionFailed(format!(
+                "CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
+                header.crc32, calculated_crc
+            )));
         }
 
         Ok(decompressed)
@@ -124,16 +124,18 @@ impl LzhDecompressor {
 
                 // Validate match parameters
                 if distance == 0 || distance > output.len() {
-                    return Err(LzhError::DecompressionFailed(
-                        format!("Invalid match distance: {} (output size: {})",
-                            distance, output.len())
-                    ));
+                    return Err(LzhError::DecompressionFailed(format!(
+                        "Invalid match distance: {} (output size: {})",
+                        distance,
+                        output.len()
+                    )));
                 }
 
                 if length < 3 {
-                    return Err(LzhError::DecompressionFailed(
-                        format!("Invalid match length: {}", length)
-                    ));
+                    return Err(LzhError::DecompressionFailed(format!(
+                        "Invalid match length: {}",
+                        length
+                    )));
                 }
 
                 // Copy from history
@@ -163,9 +165,11 @@ impl LzhDecompressor {
 
         // Verify we got the expected size
         if output.len() != output_size {
-            return Err(LzhError::DecompressionFailed(
-                format!("Size mismatch: expected {}, got {}", output_size, output.len())
-            ));
+            return Err(LzhError::DecompressionFailed(format!(
+                "Size mismatch: expected {}, got {}",
+                output_size,
+                output.len()
+            )));
         }
 
         Ok(output)
@@ -176,7 +180,7 @@ impl LzhDecompressor {
         // Check for tree header marker
         if self.input_pos >= input.len() {
             return Err(LzhError::DecompressionFailed(
-                "Unexpected end of input reading tree headers".to_string()
+                "Unexpected end of input reading tree headers".to_string(),
             ));
         }
 
@@ -190,9 +194,10 @@ impl LzhDecompressor {
             self.length_decoder.build_canonical();
             self.distance_decoder.build_canonical();
         } else {
-            return Err(LzhError::DecompressionFailed(
-                format!("Invalid tree header marker: 0x{:02X}", marker)
-            ));
+            return Err(LzhError::DecompressionFailed(format!(
+                "Invalid tree header marker: 0x{:02X}",
+                marker
+            )));
         }
 
         Ok(())
@@ -232,7 +237,7 @@ impl LzhDecompressor {
         if self.bit_count == 0 {
             if self.input_pos >= input.len() {
                 return Err(LzhError::DecompressionFailed(
-                    "Unexpected end of input".to_string()
+                    "Unexpected end of input".to_string(),
                 ));
             }
 
@@ -284,7 +289,10 @@ struct DecoderEntry {
 
 impl Default for DecoderEntry {
     fn default() -> Self {
-        Self { symbol: 0, length: 0 }
+        Self {
+            symbol: 0,
+            length: 0,
+        }
     }
 }
 
@@ -343,10 +351,7 @@ impl HuffmanDecoder {
 /// Decompress memory buffer (C++ API compatibility)
 ///
 /// Matches C++ function: DecompressMemory
-pub fn decompress_memory(
-    input: &[u8],
-    output: &mut [u8],
-) -> Result<usize> {
+pub fn decompress_memory(input: &[u8], output: &mut [u8]) -> Result<usize> {
     let mut decompressor = LzhDecompressor::new();
     let decompressed = decompressor.decompress(input)?;
 
@@ -362,10 +367,7 @@ pub fn decompress_memory(
 }
 
 /// Decompress raw data without header
-pub fn decompress_raw(
-    input: &[u8],
-    output_size: usize,
-) -> Result<Vec<u8>> {
+pub fn decompress_raw(input: &[u8], output_size: usize) -> Result<Vec<u8>> {
     let mut decompressor = LzhDecompressor::new();
     decompressor.decompress_raw(input, output_size)
 }
@@ -373,7 +375,7 @@ pub fn decompress_raw(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CompressionLevel, compress::LzhCompressor};
+    use crate::{compress::LzhCompressor, CompressionLevel};
 
     #[test]
     fn test_decompressor_creation() {
