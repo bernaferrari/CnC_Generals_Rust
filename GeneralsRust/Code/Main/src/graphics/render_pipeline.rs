@@ -1289,10 +1289,11 @@ impl RenderPipeline {
                 continue;
             }
 
-            // Without presentation and without a live object, nothing to draw.
-            let Some(object) = object else {
+            // Presentation-only draw is allowed: snapshot owns identity when live
+            // object is missing (e.g. same-frame destroy race, or mesh-only path).
+            if object.is_none() && pres_obj.is_none() {
                 continue;
-            };
+            }
 
             alive_objects += 1;
 
@@ -1315,22 +1316,29 @@ impl RenderPipeline {
                     .clone()
                     .unwrap_or_else(|| ro.template_name.clone());
                 (gameplay_to_render_transform(m), name)
-            } else {
+            } else if let Some(object) = object {
                 (
                     gameplay_to_render_transform(object.get_transform_matrix()),
                     object.get_template().get_model_name().to_string(),
                 )
+            } else {
+                continue;
             };
             let world_position = world_matrix.w_axis.truncate();
             let model_name = model_name_owned.as_str();
             let template_name_for_cull = pres_obj
                 .map(|ro| ro.template_name.as_str())
-                .unwrap_or(object.template_name.as_str());
+                .or_else(|| object.map(|o| o.template_name.as_str()))
+                .unwrap_or(model_name);
+            let selection_radius = pres_obj
+                .map(|ro| ro.selection_radius)
+                .or_else(|| object.map(|o| o.selection_radius))
+                .unwrap_or(10.0);
             let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
                 graphics_system,
                 model_name,
                 template_name_for_cull,
-                object.selection_radius,
+                selection_radius,
                 world_matrix,
             );
             if !world_sphere_in_expanded_frustum(
@@ -1342,14 +1350,20 @@ impl RenderPipeline {
                 continue;
             }
 
+            let template_name_owned: String = pres_obj
+                .map(|ro| ro.template_name.clone())
+                .or_else(|| object.map(|o| o.template_name.clone()))
+                .unwrap_or_else(|| model_name_owned.clone());
             let model_hint = if pres_obj.is_some() {
                 Some(model_name)
-            } else {
+            } else if let Some(object) = object {
                 object
                     .get_template()
                     .model_name
                     .as_deref()
                     .or(Some(model_name))
+            } else {
+                Some(model_name)
             };
 
             let model_load_started = Instant::now();
@@ -1410,7 +1424,7 @@ impl RenderPipeline {
                                     if let Ok(asset_manager) = asset_manager_arc.lock() {
                                         if let Some(obj_def) = asset_manager
                                             .resolve_object_definition(
-                                                &object.template_name,
+                                                &template_name_owned,
                                                 model_hint,
                                             )
                                         {
@@ -1422,25 +1436,25 @@ impl RenderPipeline {
                                                 trace!(
                                                     "WW3D material fallback: object {} ('{}') -> texture {}",
                                                     object_id,
-                                                    object.template_name,
+                                                    template_name_owned,
                                                     texture_from_ini
                                                 );
-                                            } else if self.missing_ini_objects.insert(format!(
-                                                "{}::texture",
-                                                object.template_name
-                                            )) {
+                                            } else if self
+                                                .missing_ini_objects
+                                                .insert(format!("{}::texture", template_name_owned))
+                                            {
                                                 debug!(
                                                     "WW3D assets: INI definition for '{}' defines no textures",
-                                                    object.template_name
+                                                    template_name_owned
                                                 );
                                             }
                                         } else if self
                                             .missing_ini_objects
-                                            .insert(object.template_name.clone())
+                                            .insert(template_name_owned.clone())
                                         {
                                             debug!(
                                                 "WW3D assets: no INI definition for '{}' (model hint: {:?})",
-                                                object.template_name,
+                                                template_name_owned,
                                                 model_hint
                                             );
                                         }
@@ -1464,12 +1478,12 @@ impl RenderPipeline {
                             } else {
                                 let key = format!(
                                     "{}::{}::{}",
-                                    object.template_name, model_name, mesh.name
+                                    template_name_owned, model_name, mesh.name
                                 );
                                 if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
                                     warn!(
                                         "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
-                                        key, object.template_name, model_name, mesh.name
+                                        key, template_name_owned, model_name, mesh.name
                                     );
                                 }
                                 Mat4::IDENTITY
@@ -1533,21 +1547,23 @@ impl RenderPipeline {
                     self.debug_last_model_budget_skips += 1;
                     if self.debug_last_missing_model_samples.len() < 16 {
                         self.debug_last_missing_model_samples
-                            .push(format!("{}:{} [budget]", object.template_name, model_name));
+                            .push(format!("{}:{} [budget]", template_name_owned, model_name));
                     }
                     model_missing += 1;
                 }
                 RenderModelLoadResult::Failed => {
                     if self.debug_last_missing_model_samples.len() < 16 {
-                        let explicit = object.get_template().model_name.as_deref().unwrap_or("");
+                        let explicit = object
+                            .and_then(|o| o.get_template().model_name.clone())
+                            .unwrap_or_default();
                         self.debug_last_missing_model_samples.push(format!(
                             "{}:{} explicit_model={}",
-                            object.template_name,
+                            template_name_owned,
                             model_name,
                             if explicit.is_empty() {
                                 "<none>"
                             } else {
-                                explicit
+                                explicit.as_str()
                             }
                         ));
                     }
