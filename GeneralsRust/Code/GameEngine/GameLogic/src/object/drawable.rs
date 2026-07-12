@@ -2780,6 +2780,44 @@ impl Drawable {
         self.propagate_model_condition_state_to_draw_modules();
     }
 
+    /// Current model-condition bitset (C++ `getModelConditionFlags` / condition query path).
+    pub fn get_model_conditions(&self) -> ModelConditionFlags {
+        self.model_conditions
+    }
+
+    /// C++ parity: `Drawable::reactToBodyDamageStateChange` (Drawable.cpp:1077-1101).
+    ///
+    /// Maps body damage state onto model condition bits used by W3D draw modules
+    /// (DAMAGED / REALLYDAMAGED / RUBBLE). Pristine clears all three.
+    ///
+    /// Fail-closed residual: this does **not** claim full animation/mesh swap parity —
+    /// only the condition bit update (+ ambient restart when not loading a map).
+    pub fn react_to_body_damage_state_change(&mut self, new_state: BodyDamageType) {
+        // C++ TheDamageMap[BODYDAMAGETYPE_COUNT]: INVALID, DAMAGED, REALLY_DAMAGED, RUBBLE
+        let clear = ModelConditionFlags::DAMAGED
+            | ModelConditionFlags::REALLYDAMAGED
+            | ModelConditionFlags::RUBBLE;
+        let set = match new_state {
+            BodyDamageType::Pristine => ModelConditionFlags::empty(),
+            BodyDamageType::Damaged => ModelConditionFlags::DAMAGED,
+            BodyDamageType::ReallyDamaged => ModelConditionFlags::REALLYDAMAGED,
+            BodyDamageType::Rubble => ModelConditionFlags::RUBBLE,
+        };
+        self.clear_and_set_model_condition_state(clear, set);
+
+        // C++: when loading map, ambient sound is deferred to onLevelStart so customizations apply.
+        if !TheGameLogic::is_loading_map() {
+            if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
+                if let Ok(obj_guard) = object.read() {
+                    let time_of_day = TheGlobalData::get()
+                        .map(|data| data.get_time_of_day())
+                        .unwrap_or(TimeOfDay::Day);
+                    self.start_ambient_sound(&obj_guard, time_of_day);
+                }
+            }
+        }
+    }
+
     /// Set effective stealth opacity using C++ pulse semantics.
     /// `pulse_factor` is clamped [0..1], and `explicit_opacity` updates the stealth floor when set.
     pub fn set_effective_opacity(&mut self, pulse_factor: Real, explicit_opacity: Option<Real>) {
@@ -3974,6 +4012,107 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
             guard.modules()
         } else {
             Vec::new()
+        }
+    }
+}
+
+#[cfg(test)]
+mod react_to_body_damage_tests {
+    use super::*;
+    use crate::object::body::body_module::BodyDamageType;
+
+    fn damage_bits(state: BodyDamageType) -> ModelConditionFlags {
+        match state {
+            BodyDamageType::Pristine => ModelConditionFlags::empty(),
+            BodyDamageType::Damaged => ModelConditionFlags::DAMAGED,
+            BodyDamageType::ReallyDamaged => ModelConditionFlags::REALLYDAMAGED,
+            BodyDamageType::Rubble => ModelConditionFlags::RUBBLE,
+        }
+    }
+
+    #[test]
+    fn react_to_body_damage_sets_and_clears_condition_bits() {
+        let mut drawable = Drawable::new(
+            1,
+            INVALID_ID,
+            "TestUnit".to_string(),
+            DrawableType::Animated,
+        );
+
+        // Seed an unrelated flag that must survive damage transitions.
+        drawable.set_model_condition_state(ModelConditionFlags::MOVING);
+        // Seed a stale damage bit that must be cleared when state changes.
+        drawable.set_model_condition_state(ModelConditionFlags::DAMAGED);
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::ReallyDamaged);
+        let flags = drawable.get_model_conditions();
+        assert!(
+            flags.contains(ModelConditionFlags::REALLYDAMAGED),
+            "ReallyDamaged must set REALLYDAMAGED"
+        );
+        assert!(
+            !flags.contains(ModelConditionFlags::DAMAGED),
+            "ReallyDamaged must clear DAMAGED"
+        );
+        assert!(
+            !flags.contains(ModelConditionFlags::RUBBLE),
+            "ReallyDamaged must clear RUBBLE"
+        );
+        assert!(
+            flags.contains(ModelConditionFlags::MOVING),
+            "non-damage flags must survive clear-and-set"
+        );
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::Rubble);
+        let flags = drawable.get_model_conditions();
+        assert!(flags.contains(ModelConditionFlags::RUBBLE));
+        assert!(!flags.contains(ModelConditionFlags::REALLYDAMAGED));
+        assert!(flags.contains(ModelConditionFlags::MOVING));
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::Pristine);
+        let flags = drawable.get_model_conditions();
+        assert_eq!(
+            flags & (ModelConditionFlags::DAMAGED
+                | ModelConditionFlags::REALLYDAMAGED
+                | ModelConditionFlags::RUBBLE),
+            ModelConditionFlags::empty(),
+            "Pristine clears all three damage condition bits"
+        );
+        assert!(flags.contains(ModelConditionFlags::MOVING));
+    }
+
+    #[test]
+    fn react_to_body_damage_map_matches_cpp_damage_map() {
+        for state in [
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
+            BodyDamageType::ReallyDamaged,
+            BodyDamageType::Rubble,
+        ] {
+            let mut drawable = Drawable::new(
+                2,
+                INVALID_ID,
+                "DamageMap".to_string(),
+                DrawableType::Static,
+            );
+            // Pre-set all three so we can observe exclusive set.
+            drawable.set_model_condition_state(
+                ModelConditionFlags::DAMAGED
+                    | ModelConditionFlags::REALLYDAMAGED
+                    | ModelConditionFlags::RUBBLE,
+            );
+            drawable.react_to_body_damage_state_change(state);
+            let flags = drawable.get_model_conditions();
+            let expected = damage_bits(state);
+            let damage_mask = ModelConditionFlags::DAMAGED
+                | ModelConditionFlags::REALLYDAMAGED
+                | ModelConditionFlags::RUBBLE;
+            assert_eq!(
+                flags & damage_mask,
+                expected,
+                "damage map mismatch for {:?}",
+                state
+            );
         }
     }
 }

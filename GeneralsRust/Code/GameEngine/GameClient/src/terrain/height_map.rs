@@ -889,9 +889,9 @@ mod tests {
             data[3] = index as u8;
             Some(data)
         });
-        let mut blend = super::textures::BlendTileInfo::new();
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
         blend.horiz = 1;
-        blend.inverted = super::textures::FLIPPED_MASK;
+        blend.inverted = crate::terrain::textures::FLIPPED_MASK;
 
         let alpha = HeightMap::get_rgb_alpha_data_for_width(1, &blend, &alpha_tiles);
 
