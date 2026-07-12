@@ -63,7 +63,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(50.0)
         .set_cost(60, 0)
         .set_model("githrpf") // GLA Infantry model
-        .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON);
+        .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     templates.insert("GLA_Soldier".to_string(), gla_soldier);
 
     let mut gla_worker = ThingTemplate::new("GLA_Worker");
@@ -82,7 +83,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_cost(400, 0)
-        .set_model("gvtchncl"); // GLA Technical vehicle
+        .set_model("gvtchncl") // GLA Technical vehicle
+        .set_locomotor_name(super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
     templates.insert("GLA_Technical".to_string(), gla_technical);
 
     let mut gla_scorpion = ThingTemplate::new("GLA_Scorpion");
@@ -92,7 +94,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(400.0)
         .set_cost(800, 0)
-        .set_model("gvscorpion"); // GLA Scorpion tank
+        .set_model("gvscorpion") // GLA Scorpion tank
+        .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
     templates.insert("GLA_Scorpion".to_string(), gla_scorpion);
 
     // USA Units
@@ -105,7 +108,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_cost(80, 0)
         .set_model("airanger") // USA Ranger infantry
         .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
+        .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     templates.insert("USA_Ranger".to_string(), usa_ranger);
 
     let mut usa_dozer = ThingTemplate::new("USA_Dozer");
@@ -126,7 +130,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_cost(600, 0)
         .set_model("avhummer") // USA Humvee
         .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
+        .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::HUMVEE_LOCOMOTOR);
     templates.insert("USA_Humvee".to_string(), usa_humvee);
 
     let mut usa_crusader = ThingTemplate::new("USA_Crusader");
@@ -136,7 +141,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(600.0)
         .set_cost(1200, 0)
-        .set_model("avcrusader"); // USA Crusader tank
+        .set_model("avcrusader") // USA Crusader tank
+        .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     templates.insert("USA_Crusader".to_string(), usa_crusader);
 
     // China Units
@@ -148,7 +154,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(55.0)
         .set_cost(75, 0)
         .set_model("cirifle") // China Red Guard infantry
-        .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON);
+        .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::REDGUARD_LOCOMOTOR);
     templates.insert("China_Soldier".to_string(), china_soldier);
 
     let mut china_dozer = ThingTemplate::new("China_Dozer");
@@ -167,7 +174,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(500.0)
         .set_cost(1000, 0)
-        .set_model("cvbattlemaster"); // China Battle Master tank
+        .set_model("cvbattlemaster") // China Battle Master tank
+        .set_locomotor_name(super::locomotor_bootstrap::BATTLE_MASTER_LOCOMOTOR);
     templates.insert("China_BattleTank".to_string(), china_battletank);
 
     templates

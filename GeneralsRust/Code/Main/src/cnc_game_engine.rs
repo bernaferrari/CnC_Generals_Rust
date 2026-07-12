@@ -3531,6 +3531,15 @@ impl CnCGameEngine {
                 seeded
             );
         }
+        // Host movement LocomotorStore: seed BasicHumanLocomotor (~20) etc. so
+        // create_object binds retail-ish max_speed without golden_skirmish boost.
+        let loco_seeded = crate::game_logic::ensure_host_locomotor_store();
+        if loco_seeded > 0 {
+            info!(
+                "Early host LocomotorStore bootstrap registered {} templates (archive load may add more)",
+                loco_seeded
+            );
+        }
 
         // C++ parity: initialize the asset manager during engine setup so startup loading
         // can reuse the live archive/definition caches immediately.
