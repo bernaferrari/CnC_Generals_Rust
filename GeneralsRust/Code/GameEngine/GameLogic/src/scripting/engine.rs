@@ -21,6 +21,7 @@ use game_engine::common::rts::ScienceType;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -1494,7 +1495,14 @@ impl ScriptEngine {
     ///
     /// Matches C++ `ScriptEngine::callSubroutine`: group lookup by name takes precedence over
     /// direct script lookup by name.
+    ///
+    /// Installs the TLS active-engine pointer so nested CALL_SUBROUTINE / flag /
+    /// timer mutations can re-enter without deadlocking on the global RwLock.
     pub fn execute_subroutine_by_name(&mut self, name: &str) -> GameLogicResult<bool> {
+        let Some(_depth_guard) = SubroutineDepthGuard::enter() else {
+            return Ok(false);
+        };
+        let _active = self.enter_active();
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
             game_logic_id: 0,
@@ -4575,6 +4583,127 @@ lazy_static::lazy_static! {
     static ref AREA_TRACKER: Arc<AreaTracker> = Arc::new(AreaTracker::new());
     static ref VTUNE_ENABLED_STATE: RwLock<bool> = RwLock::new(false);
     static ref SKATE_DISTANCE_OVERRIDE_STATE: RwLock<f32> = RwLock::new(0.0);
+}
+
+// Re-entrancy for nested CALL_SUBROUTINE / timer / flag mutations.
+// std::sync::RwLock is not re-entrant: holding write while nested code
+// calls get_script_engine().write()/read() deadlocks the host thread.
+// Campaign maps (MD_USA01) hang on frame-0 "SUB-Generate Random Number"
+// which CALL_SUBROUTINEs while the outer execute still holds the lock.
+thread_local! {
+    static ACTIVE_SCRIPT_ENGINE: Cell<*mut ScriptEngine> = const { Cell::new(std::ptr::null_mut()) };
+    /// Depth of nested CALL_SUBROUTINE / execute_subroutine_by_name on this thread.
+    /// Campaign random-number scripts can re-enter; unbounded nesting hangs the host.
+    static SUBROUTINE_CALL_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Hard cap on nested CALL_SUBROUTINE depth (C++ is stack-bound; we fail closed).
+const MAX_SUBROUTINE_CALL_DEPTH: u32 = 32;
+
+struct SubroutineDepthGuard;
+
+impl SubroutineDepthGuard {
+    fn enter() -> Option<Self> {
+        SUBROUTINE_CALL_DEPTH.with(|depth| {
+            let current = depth.get();
+            if current >= MAX_SUBROUTINE_CALL_DEPTH {
+                log::warn!(
+                    "CALL_SUBROUTINE depth limit ({}) exceeded; aborting nested call",
+                    MAX_SUBROUTINE_CALL_DEPTH
+                );
+                None
+            } else {
+                depth.set(current + 1);
+                Some(SubroutineDepthGuard)
+            }
+        })
+    }
+}
+
+impl Drop for SubroutineDepthGuard {
+    fn drop(&mut self) {
+        SUBROUTINE_CALL_DEPTH.with(|depth| {
+            depth.set(depth.get().saturating_sub(1));
+        });
+    }
+}
+
+/// RAII token that installs (and restores) the TLS active ScriptEngine pointer.
+pub struct ActiveScriptEngineGuard {
+    prev: *mut ScriptEngine,
+}
+
+impl Drop for ActiveScriptEngineGuard {
+    fn drop(&mut self) {
+        ACTIVE_SCRIPT_ENGINE.with(|cell| cell.set(self.prev));
+    }
+}
+
+impl ScriptEngine {
+    /// Mark this engine as the active nested target for the current thread.
+    pub fn enter_active(&mut self) -> ActiveScriptEngineGuard {
+        let ptr = self as *mut ScriptEngine;
+        ACTIVE_SCRIPT_ENGINE.with(|cell| {
+            let prev = cell.get();
+            cell.set(ptr);
+            ActiveScriptEngineGuard { prev }
+        })
+    }
+}
+
+/// Run `f` against the currently executing ScriptEngine (nested path), if any.
+pub fn with_active_script_engine_mut<R>(f: impl FnOnce(&mut ScriptEngine) -> R) -> Option<R> {
+    ACTIVE_SCRIPT_ENGINE.with(|cell| {
+        let ptr = cell.get();
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: pointer is set only for the duration of enter_active() on this thread.
+            Some(f(unsafe { &mut *ptr }))
+        }
+    })
+}
+
+/// Run `f` against the currently executing ScriptEngine (shared view), if any.
+pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
+    ACTIVE_SCRIPT_ENGINE.with(|cell| {
+        let ptr = cell.get();
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: same as with_active_script_engine_mut.
+            Some(f(unsafe { &*ptr }))
+        }
+    })
+}
+
+/// Mutate the global ScriptEngine with re-entrant nesting support.
+///
+/// Prefers the TLS active engine (no lock). Otherwise acquires the global
+/// write lock, installs TLS for the duration of `f`, and runs `f`.
+pub fn with_script_engine_mut<R>(f: impl FnOnce(&mut ScriptEngine) -> R) -> Option<R> {
+    // Manual branch so we do not consume `f` when the active path is empty.
+    let has_active = ACTIVE_SCRIPT_ENGINE.with(|cell| !cell.get().is_null());
+    if has_active {
+        return with_active_script_engine_mut(f);
+    }
+    let arc = get_script_engine();
+    let mut guard = arc.write().ok()?;
+    let engine = guard.as_mut()?;
+    let _active = engine.enter_active();
+    Some(f(engine))
+}
+
+/// Read the global ScriptEngine with re-entrant nesting support.
+pub fn with_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
+    let has_active = ACTIVE_SCRIPT_ENGINE.with(|cell| !cell.get().is_null());
+    if has_active {
+        return with_active_script_engine_ref(f);
+    }
+    let arc = get_script_engine();
+    let guard = arc.read().ok()?;
+    let engine = guard.as_ref()?;
+    Some(f(engine))
 }
 
 /// Initialize the global script engine

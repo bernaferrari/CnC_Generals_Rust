@@ -3,7 +3,7 @@
 //! Proves campaign start, mission scripts tick, frames advance, victory path,
 //! without panicking. Fail-closed honesty:
 //! - campaign_playable_claim — SP path advanced with scripts/victory
-//! - retail_campaign_map_loaded — full MD_*/GC_* load_map (expected residual false)
+//! - retail_campaign_map_loaded — full MD_*/GC_* load_map (true with GEN_CAMPAIGN_FULL_LOAD=1)
 //!
 //! Usage:
 //!   golden_campaign_gate [--map NAME] [--frames N]
@@ -61,7 +61,7 @@ fn main() {
         );
         if !result.retail_campaign_map_loaded {
             eprintln!(
-                "golden_campaign_gate: residual retail_campaign_map_loaded=false (full MD_*/GC_* load_map deferred; scripts-only path proven)"
+                "golden_campaign_gate: residual retail_campaign_map_loaded=false (default host-safe map; set GEN_CAMPAIGN_FULL_LOAD=1 for MD_*/GC_* full load)"
             );
         }
         if !result.victory_rule_applied {

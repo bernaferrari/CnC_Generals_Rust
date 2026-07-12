@@ -7,7 +7,10 @@
 //! Functions: executeAction(), evaluateCondition()
 
 use super::core::*;
-use super::engine::{get_area_tracker, get_named_object_tracker, get_script_engine, TFade};
+use super::engine::{
+    get_area_tracker, get_named_object_tracker, get_script_engine, with_script_engine_mut,
+    with_script_engine_ref, TFade,
+};
 use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
 use crate::ai::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
@@ -2611,11 +2614,8 @@ impl ScriptActionDispatcher {
         let value = self.get_int_param(action, 1)? != 0;
         log::debug!("Setting flag '{}' to {}", flag_name, value);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_flag(&flag_name, value);
-            }
-        }
+        // Re-entrant: may run nested under CALL_SUBROUTINE.
+        let _ = with_script_engine_mut(|engine| engine.set_flag(&flag_name, value));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2625,11 +2625,7 @@ impl ScriptActionDispatcher {
         let value = self.get_int_param(action, 1)?;
         log::debug!("Setting counter '{}' to {}", counter_name, value);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_counter(&counter_name, value);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.set_counter(&counter_name, value));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2641,11 +2637,7 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 0)?;
         log::debug!("Incrementing counter '{}'", counter_name);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.increment_counter(&counter_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.increment_counter(&counter_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2657,11 +2649,7 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 0)?;
         log::debug!("Decrementing counter '{}'", counter_name);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.decrement_counter(&counter_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.decrement_counter(&counter_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2671,11 +2659,7 @@ impl ScriptActionDispatcher {
         let seconds = self.get_real_param(action, 1)?;
         log::debug!("Setting timer '{}' to {} seconds", timer_name, seconds);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_timer_seconds(&timer_name, seconds);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.set_timer_seconds(&timer_name, seconds));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2692,11 +2676,9 @@ impl ScriptActionDispatcher {
             seconds
         );
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_timer_millisecond_script_seconds(&timer_name, seconds);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.set_timer_millisecond_script_seconds(&timer_name, seconds)
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -2717,11 +2699,7 @@ impl ScriptActionDispatcher {
 
         let random_frames = get_game_logic_random_value(min_seconds, max_seconds);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_timer(&timer_name, random_frames);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.set_timer(&timer_name, random_frames));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2742,11 +2720,9 @@ impl ScriptActionDispatcher {
 
         let random_seconds = get_game_logic_random_value_real(min_seconds, max_seconds);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.set_timer_millisecond_script_seconds(&timer_name, random_seconds);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.set_timer_millisecond_script_seconds(&timer_name, random_seconds)
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -2755,11 +2731,7 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Stopping timer '{}'", timer_name);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.stop_timer(&timer_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.stop_timer(&timer_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2771,11 +2743,7 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Restarting timer '{}'", timer_name);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.restart_timer(&timer_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.restart_timer(&timer_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -2792,11 +2760,9 @@ impl ScriptActionDispatcher {
             timer_name
         );
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.add_to_timer_millisecond_script_seconds(&timer_name, seconds);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.add_to_timer_millisecond_script_seconds(&timer_name, seconds)
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -2813,11 +2779,9 @@ impl ScriptActionDispatcher {
             timer_name
         );
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                let _ = engine.subtract_from_timer_millisecond_script_seconds(&timer_name, seconds);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.subtract_from_timer_millisecond_script_seconds(&timer_name, seconds)
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -2831,12 +2795,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Enabling script '{}'", script_name);
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                if !engine.set_script_active_by_name(&script_name, true) {
-                    log::warn!("ENABLE_SCRIPT: script '{}' not found", script_name);
-                }
-            }
+        let found = with_script_engine_mut(|engine| {
+            engine.set_script_active_by_name(&script_name, true)
+        })
+        .unwrap_or(false);
+        if !found {
+            log::warn!("ENABLE_SCRIPT: script '{}' not found", script_name);
         }
         Ok(ScriptActionResult::Success)
     }
@@ -2847,12 +2811,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Disabling script '{}'", script_name);
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                if !engine.set_script_active_by_name(&script_name, false) {
-                    log::warn!("DISABLE_SCRIPT: script '{}' not found", script_name);
-                }
-            }
+        let found = with_script_engine_mut(|engine| {
+            engine.set_script_active_by_name(&script_name, false)
+        })
+        .unwrap_or(false);
+        if !found {
+            log::warn!("DISABLE_SCRIPT: script '{}' not found", script_name);
         }
         Ok(ScriptActionResult::Success)
     }
@@ -2864,16 +2828,16 @@ impl ScriptActionDispatcher {
         let subroutine_name = self.get_string_param(action, 0)?;
         log::debug!("Calling subroutine '{}'", subroutine_name);
 
-        let found = if let Ok(mut guard) = get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine
-                    .execute_subroutine_by_name(&subroutine_name)
-                    .map_err(|e| ScriptError::ExecutionFailed(e.to_string()))?
-            } else {
-                false
-            }
-        } else {
-            false
+        // CRITICAL: never hold get_script_engine().write() across execute_subroutine_by_name.
+        // Nested CALL_SUBROUTINE / set_flag / set_timer re-enter the same std RwLock and
+        // deadlocked campaign maps (MD_USA01 SUB-Generate Random Number).
+        let found = match with_script_engine_mut(|engine| {
+            engine
+                .execute_subroutine_by_name(&subroutine_name)
+                .map_err(|e| ScriptError::ExecutionFailed(e.to_string()))
+        }) {
+            Some(result) => result?,
+            None => false,
         };
 
         if !found {
@@ -14336,19 +14300,14 @@ impl ScriptConditionEvaluator {
         let expected = self.get_condition_bool_param(condition, 1)?;
         log::debug!("Evaluating flag '{}' == {}", flag_name, expected);
 
-        // Get flag value from script engine
-        let flag_value = if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                engine
-                    .get_flag(&flag_name)
-                    .map(|f| f.value)
-                    .unwrap_or(false)
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
+        let flag_value = with_script_engine_ref(|engine| {
+            engine
+                .get_flag(&flag_name)
+                .map(|f| f.value)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
 
         // Compare flag value with expected (C++ compares boolFlag == value)
         Ok(if flag_value == expected {
@@ -14367,22 +14326,15 @@ impl ScriptConditionEvaluator {
         let timer_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if timer '{}' expired", timer_name);
 
-        // Get counter (timers are counters with is_countdown_timer flag)
-        let is_expired = if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(counter) = engine.get_counter(&timer_name) {
-                    // C++: If not a countdown timer, return false
-                    // Timer is expired when is_countdown_timer && value <= 0
-                    counter.is_countdown_timer && counter.value <= 0
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
+        // Timers are counters with is_countdown_timer; expired when value <= 0.
+        let is_expired = with_script_engine_ref(|engine| {
+            engine
+                .get_counter(&timer_name)
+                .map(|counter| counter.is_countdown_timer && counter.value <= 0)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
 
         Ok(if is_expired {
             ScriptConditionResult::True

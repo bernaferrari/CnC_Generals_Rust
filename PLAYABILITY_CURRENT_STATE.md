@@ -168,15 +168,26 @@
 3. Sample mission seeds use retail map identities (`MD_USA01`, `GC_ChemGeneral`)
    instead of placeholder `usa_mission_01`.
 4. Wired into `release_candidate` (`campaign_runtime_ok`) and `behavior_gate`.
-5. Honesty flags:
+5. **Full retail map load hang fixed (2026-07-12 residual):**
+   - Root cause: `CALL_SUBROUTINE` held `ScriptEngine` global `RwLock` write while
+     nested flag/timer/subroutine paths re-acquired the same lock (MD_USA01
+     `SUB-Generate Random Number [1-2]` → deadlock). TLS active-engine re-entry
+     (`with_script_engine_mut` / `with_script_engine_ref`) + dense-script budget
+     + decorative AI skip on large worlds.
+   - Object spawn was already fine (~0.6s for 2846 placements / ~2429 spawned).
+   - `GEN_CAMPAIGN_FULL_LOAD=1` loads MD_USA01 and flips
+     `retail_campaign_map_loaded=true`; default gate stays host-safe (fast).
+6. Honesty flags:
    - `campaign_playable_claim=true` — SP path advances with scripts/victory (not full
      retail mission playthrough)
-   - `retail_campaign_map_loaded=false` — fail-closed; full MD_*/GC_* `load_map`
-     object-spawn still hangs / deferred (`GEN_CAMPAIGN_FULL_LOAD=1` opt-in)
+   - `retail_campaign_map_loaded` — true under `GEN_CAMPAIGN_FULL_LOAD=1` when
+     retail MD_*/GC_* `load_map` succeeds; false by default (host-safe map)
 
 **Still residual (fail-closed, not claimed):**
-- Full retail campaign map object load (MD_USA01 ~2846 placements hang host load)
-- Dense campaign `initialize_scripts` install of 200–300+ scripts on SP world
+- Default gate still uses host-safe map (Lone Eagle) for speed; full retail load is
+  opt-in (`GEN_CAMPAIGN_FULL_LOAD=1`) rather than always-on
+- Dense campaign script evaluation is budgeted (24/frame when ≥48 scripts), not
+  full same-frame C++ parity for all 291 scripts
 - End-to-end mission objective completion / cinematic / score-screen campaign flow
 - Campaign.ini → Main `CampaignManager` mission table (GameClient manager already
   loads INI; Main save_load manager still uses seeded definitions)

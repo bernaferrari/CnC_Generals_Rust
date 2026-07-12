@@ -2620,6 +2620,18 @@ impl ScriptEvaluator {
         let flag_name = flag_param.get_string();
         let target_value = value_param.get_int() != 0;
 
+        // Prefer re-entrant global helper so nested CALL_SUBROUTINE paths don't
+        // deadlock on std::sync::RwLock when the engine write lock is held.
+        if let Some(result) = super::engine::with_script_engine_ref(|engine| {
+            if let Some(flag) = engine.get_flag(flag_name) {
+                flag.value == target_value
+            } else {
+                false
+            }
+        }) {
+            return Ok(result);
+        }
+
         let engine = self.engine.read().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
         })?;
@@ -2641,6 +2653,16 @@ impl ScriptEvaluator {
         })?;
 
         let counter_name = counter_param.get_string();
+
+        if let Some(result) = super::engine::with_script_engine_ref(|engine| {
+            if let Some(counter) = engine.get_counter(counter_name) {
+                counter.is_countdown_timer && counter.value < 1
+            } else {
+                false
+            }
+        }) {
+            return Ok(result);
+        }
 
         let engine = self.engine.read().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
@@ -4473,6 +4495,14 @@ impl ScriptEvaluator {
 
         let flag_name = flag_param.get_string();
         let flag_value = value_param.get_int() != 0;
+
+        if let Some(result) = super::engine::with_script_engine_mut(|engine| {
+            engine.set_flag(flag_name, flag_value)
+        }) {
+            result?;
+            log::debug!("Set flag '{}' to {}", flag_name, flag_value);
+            return Ok(());
+        }
 
         let mut engine = self.engine.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
