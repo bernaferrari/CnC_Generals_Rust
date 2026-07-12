@@ -13,6 +13,30 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Save/Load Secondary Weapon Xfer (2026-07-12)
+**Closed (host-testable object secondary survives snapshot + file save/load):**
+1. Gap: `SnapshotBuilder::snapshot_object` only stored `object.weapon` in
+   `ObjectSnapshot.weapons[0]`; `restore_object` set primary only →
+   `Object.secondary_weapon` always `None` after load (FlashBang/TOW/combat dual-slot
+   desync). `active_weapon_slot` was also dropped.
+2. Fix (fail-closed residual layout, not full C++ WeaponSet Xfer table):
+   - Capture: `weapons[0]=primary`, `weapons[1]=secondary` when present
+   - Secondary-only: zero-damage primary pad so secondary restores at index 1
+   - `ObjectStatusSnapshot.active_weapon_slot` Xfer + capture/restore
+3. Tests:
+   - `snapshot_restore_preserves_secondary_weapon_and_active_slot`
+   - `snapshot_restore_preserves_secondary_only_weapon_slot`
+   - `snapshot_weapon_layout_helpers_round_trip`
+   - `save_file_roundtrip_preserves_secondary_weapon` (SaveFileManager path)
+
+**Still residual (fail-closed, not claimed):**
+- Host `CombatParticleRegistry` systems not serialized in `WorldSnapshot`
+- Host `HostSpecialPowerStrikeRegistry` pending strikes not serialized
+- Host `HostUpgradeRegistry` in-flight research queue not serialized
+  (completed unlocks already applied to objects/players do survive via object fields)
+- Full C++ per-module WeaponSet / SpecialPowerModule / particle Xfer tables
+- Network save/load (network deferred)
+
 ## Residual Host Playability — Upgrade Queue/Complete Host Path (2026-07-12)
 **Closed (host-testable QueueUpgrade → complete → observable unlock):**
 1. Host `HostUpgradeRegistry` on Main `GameLogic` records queue/complete for residual
