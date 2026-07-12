@@ -61,6 +61,11 @@ pub struct GoldenSkirmishResult {
     pub same_world_victory_ok: bool,
     /// Host skirmish players/AI preserved across load_map (no player wipe).
     pub players_preserved_on_load: bool,
+    /// True when map-world path built/produced via retail USA_* templates
+    /// (PowerPlant/Barracks/Ranger) rather than golden host fixtures alone.
+    /// Fail-closed: synthetic host always false; map path false when retail
+    /// templates missing or construction/production fell back to golden.
+    pub retail_production_chain_ok: bool,
     pub status: String,
 }
 
@@ -79,6 +84,8 @@ struct VerticalSliceOutcome {
     map_combat_ok: bool,
     same_world_production_ok: bool,
     same_world_victory_ok: bool,
+    /// Map-world retail USA production chain succeeded (not golden-only).
+    retail_production_chain_ok: bool,
 }
 
 fn command(
@@ -302,12 +309,115 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
         })
         .map(|o| o.id)
         .or_else(|| {
-            logic.create_object(
-                "GoldenDozer",
-                Team::USA,
-                clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0)),
-            )
+            let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 0.0));
+            // Prefer retail USA_Dozer when the catalog has it.
+            if logic.templates.contains_key("USA_Dozer") {
+                logic
+                    .create_object("USA_Dozer", Team::USA, pos)
+                    .or_else(|| logic.create_object("GoldenDozer", Team::USA, pos))
+            } else {
+                logic.create_object("GoldenDozer", Team::USA, pos)
+            }
         })
+}
+
+/// First catalog template name that exists, in preference order.
+fn first_present_template(logic: &GameLogic, candidates: &[&str]) -> Option<String> {
+    candidates
+        .iter()
+        .find(|name| logic.templates.contains_key(**name))
+        .map(|s| (*s).to_string())
+}
+
+fn is_retail_power_name(name: &str) -> bool {
+    name == "USA_PowerPlant"
+        || name == "AmericaPowerPlant"
+        || name.contains("ColdFusion")
+        || (name.starts_with("USA_") && name.contains("Power"))
+        || (name.starts_with("America") && name.contains("Power"))
+}
+
+fn is_retail_barracks_name(name: &str) -> bool {
+    name == "USA_Barracks" || name == "AmericaBarracks"
+}
+
+fn is_retail_ranger_name(name: &str) -> bool {
+    name == "USA_Ranger" || name == "AmericaInfantryRanger"
+}
+
+fn is_produced_ranger(name: &str) -> bool {
+    is_retail_ranger_name(name) || name == "GoldenRanger" || name.contains("Ranger")
+}
+
+fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
+    o.team == Team::USA
+        && o.is_alive()
+        && o.is_constructed()
+        && (is_retail_barracks_name(&o.template_name)
+            || o.template_name == "Barracks"
+            || o.template_name.contains("Barracks")
+            || o.is_kind_of(KindOf::FSBarracks))
+}
+
+/// Ensure USA retail templates are buildable on the host slice:
+/// short build times, power plant does not cost power to place, barracks
+/// power draw cannot fail spend_resources when economy is seeded.
+fn prepare_retail_usa_host_templates(logic: &mut GameLogic) {
+    logic.ensure_ai_faction_templates(Team::USA);
+    // Host-safe aliases sometimes synthesized from map/asset defs.
+    const NAMES: &[&str] = &[
+        "USA_PowerPlant",
+        "USA_Barracks",
+        "USA_SupplyCenter",
+        "USA_Dozer",
+        "USA_Ranger",
+        "AmericaPowerPlant",
+        "AmericaBarracks",
+        "AmericaSupplyCenter",
+        "AmericaInfantryRanger",
+        "ColdFusionReactor",
+        "AmericaColdFusionReactor",
+    ];
+    for name in NAMES {
+        let Some(t) = logic.templates.get_mut(*name) else {
+            continue;
+        };
+        // Power plants must not require power headroom to place.
+        if is_retail_power_name(name) && t.build_cost.power < 0 {
+            t.build_cost.power = 0;
+        }
+        // Cap extreme power draw so ensure_human_economy headroom covers spend.
+        if t.build_cost.power < -200 {
+            t.build_cost.power = 0;
+        }
+        // Vertical-slice timing: keep construct/produce deterministic & fast.
+        if t.build_time > 0.2 {
+            t.build_time = 0.05;
+        }
+        // Barracks must produce infantry.
+        if is_retail_barracks_name(name) {
+            t.add_kind_of(KindOf::Structure);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::FSBarracks);
+        }
+        // Rangers must be infantry for BuildingData::can_produce.
+        if is_retail_ranger_name(name) {
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Attackable);
+            if t.primary_weapon.is_none() && t.primary_weapon_name.is_none() {
+                if let Some(wname) = crate::game_logic::primary_weapon_name_for_unit(name) {
+                    t.set_primary_weapon_name(wname);
+                }
+            }
+        }
+        // Dozer must construct.
+        if *name == "USA_Dozer" {
+            t.add_kind_of(KindOf::Vehicle);
+            t.add_kind_of(KindOf::Worker);
+            t.add_kind_of(KindOf::Selectable);
+        }
+    }
 }
 
 fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
@@ -674,10 +784,15 @@ fn run_synthetic_host_skirmish(
         map_combat_ok: false,
         same_world_production_ok: false,
         same_world_victory_ok: false,
+        retail_production_chain_ok: false,
     }
 }
 
 /// Map-loaded main combat world: build/produce/fight map-spawned enemies (not GoldenEnemyCC).
+///
+/// Prefers retail USA production chain (PowerPlant → Barracks → Ranger) when
+/// templates exist; falls back to golden host fixtures fail-closed. Victory is
+/// always against map GLA structures via AttackObject (no take_damage/re-team).
 fn run_map_world_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
@@ -686,22 +801,62 @@ fn run_map_world_skirmish(
     logic.set_ai_active(1, true);
     // Prefer fighting at map enemy range rather than relocating AI base soup into
     // a synthetic corner. AI stays active and may rebuild near the map base.
+    prepare_retail_usa_host_templates(logic);
     ensure_human_economy(logic, 25_000, 500);
 
     let base = usa_base_position(logic);
     let map_enemy = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
 
-    // Power plant so production is not energy-throttled (zero-power Barracks also OK).
-    let _power = logic.create_object(
-        "GoldenPower",
-        Team::USA,
-        clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0)),
-    );
-    let supply_center = logic.create_object(
-        "GoldenSupplyCenter",
-        Team::USA,
-        clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
-    );
+    // --- Power first (retail USA_PowerPlant / ColdFusion preferred) ---
+    let power_name = first_present_template(
+        logic,
+        &[
+            "USA_PowerPlant",
+            "AmericaPowerPlant",
+            "AmericaColdFusionReactor",
+            "ColdFusionReactor",
+            "GoldenPower",
+        ],
+    )
+    .unwrap_or_else(|| "GoldenPower".into());
+    let power_ok = logic
+        .create_object(
+            &power_name,
+            Team::USA,
+            clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0)),
+        )
+        .is_some();
+    // If retail power placement failed, fall back to golden fixture.
+    let power_name = if power_ok {
+        power_name
+    } else {
+        let _ = logic.create_object(
+            "GoldenPower",
+            Team::USA,
+            clamp_build_site(logic, base + Vec3::new(-24.0, 0.0, 0.0)),
+        );
+        "GoldenPower".into()
+    };
+
+    // --- Supply center for QueueUpgrade path ---
+    let supply_name = first_present_template(
+        logic,
+        &["USA_SupplyCenter", "AmericaSupplyCenter", "GoldenSupplyCenter"],
+    )
+    .unwrap_or_else(|| "GoldenSupplyCenter".into());
+    let supply_center = logic
+        .create_object(
+            &supply_name,
+            Team::USA,
+            clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
+        )
+        .or_else(|| {
+            logic.create_object(
+                "GoldenSupplyCenter",
+                Team::USA,
+                clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
+            )
+        });
 
     // Seed GoldenSupply near base for the Gather command path. Map SupplyDock
     // placements are Neutral tech props and may not implement Harvestable/Gather.
@@ -710,7 +865,6 @@ fn run_map_world_skirmish(
         Team::Neutral,
         clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0)),
     );
-
 
     let Some(dozer) = ensure_dozer(logic, base) else {
         return VerticalSliceOutcome {
@@ -726,10 +880,14 @@ fn run_map_world_skirmish(
             map_combat_ok: false,
             same_world_production_ok: false,
             same_world_victory_ok: false,
+            retail_production_chain_ok: false,
         };
     };
+    let dozer_is_retail = logic
+        .get_object(dozer)
+        .map(|o| o.template_name == "USA_Dozer" || o.template_name.starts_with("America"))
+        .unwrap_or(false);
 
-    // Host golden Barracks: zero power cost (asset USA_Barracks may drain power).
     let barracks_pos = clamp_build_site(logic, base + Vec3::new(40.0, 0.0, 0.0));
     // Place dozer at build site so pathfinding on large maps does not stall Constructing.
     if let Some(d) = logic.get_object_mut(dozer) {
@@ -754,46 +912,65 @@ fn run_map_world_skirmish(
         })
         .unwrap_or(false);
 
-    // Construct barracks via DozerConstruct on the loaded map world.
-    logic.queue_command(command(
-        2,
-        0,
-        CommandType::DozerConstruct {
-            template_name: "Barracks".into(),
-            location: barracks_pos,
-        },
-        vec![dozer],
-    ));
-    logic.process_commands();
-    let constructed = run_until(logic, 300, |g| {
-        g.get_objects().values().any(|o| {
-            o.team == Team::USA
-                && o.is_alive()
-                && o.is_constructed()
-                && (o.template_name == "Barracks"
-                    || o.template_name.contains("Barracks")
-                    || o.is_kind_of(KindOf::FSBarracks))
-        })
-    });
+    // Prefer retail USA_Barracks; fall back to golden Barracks if construct fails.
+    let retail_barracks = first_present_template(logic, &["USA_Barracks", "AmericaBarracks"]);
+    let barracks_candidates: Vec<String> = match retail_barracks {
+        Some(name) => vec![name, "Barracks".into()],
+        None => vec!["Barracks".into()],
+    };
+
+    let mut constructed = false;
+    let mut barracks_built_name = String::new();
+    for (attempt, bname) in barracks_candidates.iter().enumerate() {
+        // Refresh economy so power-cost templates can spend after prior attempts.
+        ensure_human_economy(logic, 25_000, 500);
+        if let Some(d) = logic.get_object_mut(dozer) {
+            d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
+        }
+        logic.queue_command(command(
+            2 + attempt as u32,
+            0,
+            CommandType::DozerConstruct {
+                template_name: bname.clone(),
+                location: barracks_pos + Vec3::new(attempt as f32 * 2.0, 0.0, 0.0),
+            },
+            vec![dozer],
+        ));
+        logic.process_commands();
+        constructed = run_until(logic, 300, |g| {
+            g.get_objects().values().any(|o| {
+                is_barracks_object(o)
+                    && (o.template_name == *bname
+                        || o.template_name.contains("Barracks")
+                        || o.is_kind_of(KindOf::FSBarracks))
+            })
+        });
+        if constructed {
+            barracks_built_name = bname.clone();
+            break;
+        }
+    }
 
     let barracks_id = logic
         .get_objects()
         .values()
-        .find(|o| {
-            o.team == Team::USA
-                && o.is_alive()
-                && o.is_constructed()
-                && (o.template_name == "Barracks"
-                    || o.template_name.contains("Barracks")
-                    || o.is_kind_of(KindOf::FSBarracks))
-        })
+        .find(|o| is_barracks_object(o))
         .map(|o| o.id);
+    if barracks_built_name.is_empty() {
+        if let Some(bid) = barracks_id {
+            barracks_built_name = logic
+                .get_object(bid)
+                .map(|o| o.template_name.clone())
+                .unwrap_or_default();
+            constructed = true;
+        }
+    }
 
-    // Gather via production Gather command (map SupplyDock or seeded GoldenSupply).
+    // Gather via production Gather command (seeded GoldenSupply harvestable).
     let mut gathered = false;
     if let Some(sid) = supply {
         logic.queue_command(command(
-            3,
+            10,
             0,
             CommandType::Gather { target_id: sid },
             vec![dozer],
@@ -807,43 +984,75 @@ fn run_map_world_skirmish(
 
     let system = CommandSystem::new();
     let mut produced = false;
+    let mut ranger_name_used = String::new();
     if let Some(bid) = barracks_id {
         ensure_human_economy(logic, 10_000, 500);
-        let queue_cmd = command(
-            4,
-            0,
-            CommandType::QueueUnitCreate {
-                template_name: "GoldenRanger".into(),
-                quantity: 8,
-            },
-            vec![bid],
-        );
-        let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
-            || {
-                let mut any = false;
-                for _ in 0..8 {
-                    any |= logic.enqueue_production(bid, "GoldenRanger".into());
-                }
-                any
-            };
-        produced = queue_ok
-            && run_until(logic, 480, |g| {
+        let ranger_candidates: Vec<String> = match first_present_template(
+            logic,
+            &["USA_Ranger", "AmericaInfantryRanger"],
+        ) {
+            Some(name) => vec![name, "GoldenRanger".into()],
+            None => vec!["GoldenRanger".into()],
+        };
+        for rname in &ranger_candidates {
+            ensure_human_economy(logic, 10_000, 500);
+            let queue_cmd = command(
+                4,
+                0,
+                CommandType::QueueUnitCreate {
+                    template_name: rname.clone(),
+                    quantity: 8,
+                },
+                vec![bid],
+            );
+            let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
+                || {
+                    let mut any = false;
+                    for _ in 0..8 {
+                        any |= logic.enqueue_production(bid, rname.clone());
+                    }
+                    any
+                };
+            if !queue_ok {
+                continue;
+            }
+            let got_two = run_until(logic, 480, |g| {
                 g.get_objects()
                     .values()
-                    .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+                    .filter(|o| {
+                        o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
+                    })
                     .count()
                     >= 2
             });
-        let _ = run_until(logic, 480, |g| {
-            g.get_objects()
-                .values()
-                .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
-                .count()
-                >= 4
-        });
+            if got_two {
+                produced = true;
+                ranger_name_used = rname.clone();
+                let _ = run_until(logic, 480, |g| {
+                    g.get_objects()
+                        .values()
+                        .filter(|o| {
+                            o.team == Team::USA
+                                && o.is_alive()
+                                && is_produced_ranger(&o.template_name)
+                        })
+                        .count()
+                        >= 4
+                });
+                break;
+            }
+        }
     }
 
     let same_world_production_ok = constructed && produced;
+
+    let retail_production_chain_ok = power_ok
+        && is_retail_power_name(&power_name)
+        && dozer_is_retail
+        && is_retail_barracks_name(&barracks_built_name)
+        && is_retail_ranger_name(&ranger_name_used)
+        && constructed
+        && produced;
 
     let mut upgraded = false;
     if let Some(sc) = supply_center {
@@ -877,7 +1086,7 @@ fn run_map_world_skirmish(
     let production_rangers: Vec<_> = logic
         .get_objects()
         .values()
-        .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA && o.is_alive())
+        .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
         .map(|o| o.id)
         .collect();
     debug_assert!(
@@ -893,8 +1102,14 @@ fn run_map_world_skirmish(
     let primary_alive_before = primary_enemy
         .map(|id| logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
         .unwrap_or(false);
+    // Retail rangers may use lower store damage (5) vs golden (25); allow more rounds.
+    let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
+        1200
+    } else {
+        800
+    };
     let (fought, all_cleared) =
-        fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, 800);
+        fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
 
     let map_enemy_dead = primary_enemy
         .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
@@ -935,6 +1150,7 @@ fn run_map_world_skirmish(
         map_combat_ok,
         same_world_production_ok,
         same_world_victory_ok,
+        retail_production_chain_ok,
     }
 }
 
@@ -974,8 +1190,10 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             logic.set_ai_active(1, true);
             // Re-install host build/combat templates: load_map synthesizes asset
             // definitions (e.g. USA_Barracks with non-zero power cost). Golden host
-            // templates keep zero-power build costs for deterministic construction.
+            // templates keep zero-power build costs for deterministic construction;
+            // prepare_retail_usa_host_templates re-normalizes USA_* power costs.
             install_templates(&mut logic);
+            prepare_retail_usa_host_templates(&mut logic);
             ensure_human_economy(&mut logic, 25_000, 500);
         }
     }
@@ -983,6 +1201,9 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     // Combat world: golden templates + host AI on. Keep AI structure catalog
     // (no mid-scenario strip residual).
     install_templates(&mut logic);
+    if map_loaded {
+        prepare_retail_usa_host_templates(&mut logic);
+    }
     debug_assert!(
         logic.templates.contains_key("GLA_CommandCenter"),
         "AI faction structure templates must remain installed (no catalog strip)"
@@ -1100,13 +1321,15 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         same_world_production_ok: outcome.same_world_production_ok,
         same_world_victory_ok: outcome.same_world_victory_ok,
         players_preserved_on_load,
+        // Only map-world can claim retail chain; synthetic host is golden soup.
+        retail_production_chain_ok: map_loaded && outcome.retail_production_chain_ok,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -1132,7 +1355,8 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.map_combat_ok,
         r.same_world_production_ok,
         r.same_world_victory_ok,
-        r.players_preserved_on_load
+        r.players_preserved_on_load,
+        r.retail_production_chain_ok
     )
 }
 
@@ -1195,6 +1419,14 @@ mod tests {
                 "map-loaded path must kill map enemy via produced rangers: {}",
                 format_golden_report(&result)
             );
+            // Prefer retail USA chain when templates exist; do not fail the slice
+            // if golden fallback was required — honesty is the retail_prod flag.
+            if !result.retail_production_chain_ok {
+                eprintln!(
+                    "retail_production_chain_ok=false (golden fixture fallback used): {}",
+                    format_golden_report(&result)
+                );
+            }
         } else {
             assert!(
                 result.synthetic_combat,
@@ -1203,6 +1435,10 @@ mod tests {
             assert!(
                 !result.playable_claim,
                 "synthetic_combat path must fail-closed for playable_claim"
+            );
+            assert!(
+                !result.retail_production_chain_ok,
+                "synthetic host must not claim retail production chain"
             );
         }
         assert_eq!(
@@ -1253,6 +1489,14 @@ mod tests {
             "{}",
             format_golden_report(&result)
         );
+        // Host USA catalog is installed before the map path; retail chain should
+        // succeed (PowerPlant + Barracks + Ranger). Soft residual if it does not.
+        if !result.retail_production_chain_ok {
+            eprintln!(
+                "WARNING: retail USA production chain did not complete; golden fallback kept playable_claim: {}",
+                format_golden_report(&result)
+            );
+        }
     }
 
     #[test]
@@ -1265,6 +1509,10 @@ mod tests {
         );
         assert!(result.synthetic_combat, "absent map => synthetic host combat");
         assert!(!result.playable_claim, "absent map => no playable_claim");
+        assert!(
+            !result.retail_production_chain_ok,
+            "absent map => no retail production claim"
+        );
         assert_eq!(result.status, "success", "{}", format_golden_report(&result));
         assert!(result.victory);
     }
