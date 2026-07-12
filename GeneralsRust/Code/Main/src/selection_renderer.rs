@@ -7,7 +7,8 @@
 //! - Health bars and status indicators
 //! - Drag selection box rendering
 
-use crate::game_logic::{GameLogic, Object, Team};
+use crate::game_logic::{GameLogic, ObjectId, Team};
+use crate::presentation_frame::PresentationFrame;
 use crate::ui::{UIRenderCommand, Vertex};
 use crate::unit_control::UnitControlSystem;
 use glam::{Vec2, Vec3, Vec4};
@@ -86,7 +87,11 @@ impl SelectionRenderer {
         }
     }
 
-    /// Generate UI render commands for selection visualization
+    /// Generate UI render commands for selection visualization.
+    ///
+    /// When `presentation` is provided, **identity** (position/team/health/selected/
+    /// aliveness) is taken from the immutable snapshot — not a live re-read of
+    /// `GameLogic` objects. Live logic is only used as fallback when no frame is set.
     pub async fn render_selection(
         &self,
         unit_control: &UnitControlSystem,
@@ -94,14 +99,25 @@ impl SelectionRenderer {
         camera_view_matrix: &glam::Mat4,
         camera_proj_matrix: &glam::Mat4,
         window_size: (f32, f32),
+        presentation: Option<&PresentationFrame>,
     ) -> Vec<UIRenderCommand> {
+        if let Some(frame) = presentation {
+            return self.render_selection_from_presentation(
+                unit_control,
+                frame,
+                camera_view_matrix,
+                camera_proj_matrix,
+                window_size,
+            );
+        }
+
         let mut commands = Vec::new();
         let Ok(logic) = game_logic.lock() else {
             log::warn!("Skipping render_selection: game logic lock poisoned");
             return commands;
         };
 
-        // Render selection circles for selected objects
+        // Fallback: live GameLogic identity when no presentation frame is available.
         for &object_id in unit_control.get_selected_objects() {
             if let Some(object) = logic.get_object(object_id) {
                 if let Some(screen_pos) = self.world_to_screen(
@@ -113,15 +129,17 @@ impl SelectionRenderer {
                     let color = self.get_selection_color_animated();
                     commands.push(self.create_selection_circle(screen_pos, color));
 
-                    // Add health bar
                     if object.is_alive() {
-                        commands.push(self.create_health_bar(screen_pos, object));
+                        commands.push(self.create_health_bar(
+                            screen_pos,
+                            object.health.current,
+                            object.health.maximum,
+                        ));
                     }
                 }
             }
         }
 
-        // Render hover highlight
         if let Some(hovered_id) = unit_control.get_hovered_object() {
             if let Some(object) = logic.get_object(hovered_id) {
                 if let Some(screen_pos) = self.world_to_screen(
@@ -136,9 +154,7 @@ impl SelectionRenderer {
             }
         }
 
-        // Render team indicators for all visible objects
         for (object_id, object) in logic.get_objects().iter() {
-            // Skip selected objects (already have selection circles)
             if unit_control.is_object_selected(*object_id) {
                 continue;
             }
@@ -150,6 +166,101 @@ impl SelectionRenderer {
                 window_size,
             ) {
                 let team_color = self.get_team_color(object.team, unit_control.local_player_team);
+                commands.push(self.create_team_indicator(screen_pos, team_color));
+            }
+        }
+
+        commands
+    }
+
+    /// Production presentation path: selection/health/team identity from snapshot only.
+    pub fn render_selection_from_presentation(
+        &self,
+        unit_control: &UnitControlSystem,
+        frame: &PresentationFrame,
+        camera_view_matrix: &glam::Mat4,
+        camera_proj_matrix: &glam::Mat4,
+        window_size: (f32, f32),
+    ) -> Vec<UIRenderCommand> {
+        let mut commands = Vec::new();
+        let by_id: std::collections::HashMap<
+            ObjectId,
+            &crate::presentation_frame::RenderableObject,
+        > = frame.objects.iter().map(|o| (o.id, o)).collect();
+
+        // Selected units: prefer unit_control list, then frame.selected, then
+        // snapshot object.selected flags (presentation-owned identity).
+        let selected_ids: Vec<ObjectId> = {
+            let from_control: Vec<_> = unit_control.get_selected_objects().to_vec();
+            if !from_control.is_empty() {
+                from_control
+            } else if !frame.selected.is_empty() {
+                frame.selected.clone()
+            } else {
+                frame
+                    .objects
+                    .iter()
+                    .filter(|o| o.selected && !o.destroyed)
+                    .map(|o| o.id)
+                    .collect()
+            }
+        };
+
+        for object_id in &selected_ids {
+            let Some(ro) = by_id.get(object_id) else {
+                continue;
+            };
+            if ro.destroyed {
+                continue;
+            }
+            if let Some(screen_pos) = self.world_to_screen(
+                ro.position,
+                camera_view_matrix,
+                camera_proj_matrix,
+                window_size,
+            ) {
+                let color = self.get_selection_color_animated();
+                commands.push(self.create_selection_circle(screen_pos, color));
+                if ro.health_current > 0.0 {
+                    commands.push(self.create_health_bar(
+                        screen_pos,
+                        ro.health_current,
+                        ro.health_max.max(1.0),
+                    ));
+                }
+            }
+        }
+
+        if let Some(hovered_id) = unit_control.get_hovered_object() {
+            if let Some(ro) = by_id.get(&hovered_id) {
+                if !ro.destroyed {
+                    if let Some(screen_pos) = self.world_to_screen(
+                        ro.position,
+                        camera_view_matrix,
+                        camera_proj_matrix,
+                        window_size,
+                    ) {
+                        let color = self.get_hover_color_animated();
+                        commands.push(self.create_hover_highlight(screen_pos, color));
+                    }
+                }
+            }
+        }
+
+        for ro in &frame.objects {
+            if ro.destroyed {
+                continue;
+            }
+            if unit_control.is_object_selected(ro.id) || selected_ids.contains(&ro.id) {
+                continue;
+            }
+            if let Some(screen_pos) = self.world_to_screen(
+                ro.position,
+                camera_view_matrix,
+                camera_proj_matrix,
+                window_size,
+            ) {
+                let team_color = self.get_team_color(ro.team, unit_control.local_player_team);
                 commands.push(self.create_team_indicator(screen_pos, team_color));
             }
         }
@@ -276,9 +387,18 @@ impl SelectionRenderer {
         }
     }
 
-    /// Create health bar render command
-    fn create_health_bar(&self, center: Vec2, object: &Object) -> UIRenderCommand {
-        let health_percent = object.health.current / object.health.maximum;
+    /// Create health bar render command from snapshot or live health values.
+    fn create_health_bar(
+        &self,
+        center: Vec2,
+        health_current: f32,
+        health_maximum: f32,
+    ) -> UIRenderCommand {
+        let health_percent = if health_maximum > 0.0 {
+            (health_current / health_maximum).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         let bar_y = center.y - self.health_bar_offset;
         let half_width = self.health_bar_width * 0.5;
         let half_height = self.health_bar_height * 0.5;
@@ -587,5 +707,99 @@ impl SelectionRenderer {
             9 => [0.5, 1.0, 0.5, 1.0], // Light green
             _ => [0.7, 0.7, 0.7, 1.0], // Gray (fallback)
         }
+    }
+}
+
+#[cfg(test)]
+mod presentation_identity_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use glam::{Mat4, Vec3};
+
+    #[test]
+    fn legacy_selection_renderer_uses_presentation_identity_not_live_reread() {
+        // Criterion 2: shipped legacy SelectionRenderer path prefers PresentationFrame.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("LegacySelPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("LegacySelUnit");
+        t.set_health(80.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("LegacySelUnit".into(), t);
+        // Near origin so identity matrices project into NDC frustum.
+        let id = logic
+            .create_object("LegacySelUnit", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            snap.objects.iter().any(|o| o.id == id && !o.destroyed),
+            "snapshot must contain unit"
+        );
+        assert!(
+            snap.selected.contains(&id) || snap.objects.iter().any(|o| o.id == id && o.selected),
+            "snapshot must record selection identity"
+        );
+
+        // Mutate live world after snapshot: position leaves NDC frustum under identity matrices.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(Vec3::new(999.0, 0.0, 999.0));
+            o.health.current = 1.0;
+            o.selected = false;
+        }
+
+        // Empty unit_control selection → consumer falls back to frame.selected / object.selected.
+        let unit_control = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
+        let identity = Mat4::IDENTITY;
+        let renderer = SelectionRenderer::new();
+        let cmds = renderer.render_selection_from_presentation(
+            &unit_control,
+            &snap,
+            &identity,
+            &identity,
+            (800.0, 600.0),
+        );
+        assert!(
+            !cmds.is_empty(),
+            "presentation path must draw selection/health from snapshot at origin"
+        );
+
+        // If consumer re-read live position (999), world_to_screen would cull — empty.
+        // Snapshot at ZERO projects with identity matrices → non-empty commands.
+        let triangle_cmds = cmds
+            .iter()
+            .filter(|c| c.primitive_type == crate::ui::PrimitiveType::Triangles)
+            .count();
+        assert!(
+            triangle_cmds > 0,
+            "health/team triangles expected from snapshot health"
+        );
+    }
+
+    #[test]
+    fn golden_skirmish_source_has_no_engine_object_id_force_clear() {
+        let src = include_str!("golden_skirmish.rs");
+        // Match assignment residual only (comments may still mention the field).
+        let force_clear = src.lines().any(|line| {
+            let t = line.trim();
+            !t.starts_with("//")
+                && (t.contains("engine_object_id = None")
+                    || t.contains("engine_object_id=None")
+                    || t.contains(".engine_object_id = None"))
+        });
+        assert!(
+            !force_clear,
+            "golden success path must not mid-scenario force-clear engine_object_id"
+        );
     }
 }
