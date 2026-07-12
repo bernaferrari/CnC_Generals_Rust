@@ -4350,9 +4350,15 @@ impl GameLogic {
             }
         };
 
+        // When skirmish AI is paused for a player (non-local), do not open new
+        // auto-engage / patrol scans. Existing explicit AttackObject orders still
+        // fire via update_combat. Used by golden clear so paused AI does not
+        // counterfire production rangers mid-march.
+        let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(team);
+
         match ai_state {
             AIState::Idle => {
-                if can_attack && should_scan(30) {
+                if can_attack && !ai_auto_engage_paused && should_scan(30) {
                     let search_radius = 200.0;
                     if let Some((enemy_id, _)) =
                         crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
@@ -4365,7 +4371,7 @@ impl GameLogic {
                         return evaluate_enemy(enemy_id, search_radius);
                     }
                 }
-                if frame % 300 == object_id.0 % 300 {
+                if !ai_auto_engage_paused && frame % 300 == object_id.0 % 300 {
                     Some(AICommand::SetAIState {
                         object_id,
                         state: AIState::Patrolling,
@@ -4381,6 +4387,11 @@ impl GameLogic {
                 let Some(current_target_id) = target_id else {
                     return Some(AICommand::StopAttack { object_id });
                 };
+
+                // Paused skirmish AI: do not chase new targets; drop combat.
+                if ai_auto_engage_paused {
+                    return Some(AICommand::StopAttack { object_id });
+                }
 
                 match AIDecisionSystem::should_attack(self, object_id, current_target_id) {
                     AttackDecision::Attack | AttackDecision::Hold => None,
@@ -4402,7 +4413,7 @@ impl GameLogic {
             }
 
             AIState::AttackMoving => {
-                if can_attack && should_scan(20) {
+                if can_attack && !ai_auto_engage_paused && should_scan(20) {
                     let search_radius = 220.0;
                     if let Some((enemy_id, _)) =
                         crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
@@ -4425,7 +4436,7 @@ impl GameLogic {
             }
 
             AIState::Patrolling => {
-                if can_attack && should_scan(25) {
+                if can_attack && !ai_auto_engage_paused && should_scan(25) {
                     let search_radius = 200.0;
                     if let Some((enemy_id, _)) =
                         crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
@@ -9687,6 +9698,45 @@ impl GameLogic {
     /// Enable/disable AI for specific player
     pub fn set_ai_active(&mut self, player_id: u32, active: bool) {
         self.ai_manager.set_ai_active(player_id, active);
+    }
+
+    /// True when this team's skirmish AI player is non-local and currently paused.
+    /// Human/local teams always return false (auto-engage remains available).
+    pub fn skirmish_ai_auto_engage_paused(&self, team: Team) -> bool {
+        self.players.iter().any(|(&pid, player)| {
+            player.team == team && !player.is_local && !self.is_host_ai_active(pid)
+        })
+    }
+
+    /// Pause skirmish AI for `player_id` and clear that team's combat targets so
+    /// residual unit AI does not keep counterfiring after the manager pause.
+    /// Used by golden map clear (AI rebuild off + no structure auto-engage).
+    pub fn pause_skirmish_ai_and_clear_combat(&mut self, player_id: u32) {
+        self.set_ai_active(player_id, false);
+        let team = self.players.get(&player_id).map(|p| p.team);
+        let Some(team) = team else {
+            return;
+        };
+        let ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|o| o.team == team && o.is_alive())
+            .map(|o| o.id)
+            .collect();
+        for id in ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.stop_attack();
+                obj.target = None;
+                obj.target_location = None;
+                obj.force_attack = false;
+                if matches!(
+                    obj.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                ) {
+                    obj.ai_state = AIState::Idle;
+                }
+            }
+        }
     }
 
     /// Set AI difficulty for a player
