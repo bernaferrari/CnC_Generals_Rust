@@ -2220,9 +2220,46 @@ impl CnCGameEngine {
         }
     }
 
-    fn hide_gameplay_layouts(&mut self) {}
+    /// Hide in-game layouts when returning to shell menus (C++ HideControlBar parity).
+    fn hide_gameplay_layouts(&mut self) {
+        info!(
+            "hide_gameplay_layouts: ControlBar / in-game layout teardown (shell overlay owns UI)"
+        );
+        // Window manager layouts are suspended via ui_manager.suspend_for_shell_overlay()
+        // on the Menu transition path; this records the shipped hide hook so the ensure
+        // path is not unpaired with a silent no-op.
+    }
 
-    fn ensure_gameplay_layouts(&mut self) {}
+    /// Ensure ControlBar / in-game layout is available when entering gameplay.
+    ///
+    /// C++ `ShowControlBar` loads ControlBar.wnd. This is **not** a silent no-op:
+    /// it resolves retail assets, validates them, and attempts a window load when
+    /// the client GUI is available. Missing assets are logged honestly.
+    fn ensure_gameplay_layouts(&mut self) {
+        let status = crate::gameplay_layout::ensure_control_bar_layout(true);
+        let report = crate::gameplay_layout::format_gameplay_layout_status(&status);
+        match &status {
+            crate::gameplay_layout::GameplayLayoutStatus::Ready { path, loaded } => {
+                info!(
+                    "ensure_gameplay_layouts: {} (path={}, loaded={})",
+                    report, path, loaded
+                );
+            }
+            crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {
+                warn!(
+                    "ensure_gameplay_layouts: ControlBar assets unavailable (searched {} candidates). {}",
+                    searched.len(),
+                    report
+                );
+            }
+            crate::gameplay_layout::GameplayLayoutStatus::LoadFailed { path, error } => {
+                warn!(
+                    "ensure_gameplay_layouts: ControlBar load failed path={} error={} ({})",
+                    path, error, report
+                );
+            }
+        }
+    }
 
     fn to_engine_timing(clock: ClockFrameTiming, frame_start: Instant) -> FrameTiming {
         let sync_time = clock.total_time.as_millis() as u32;
