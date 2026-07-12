@@ -8,6 +8,8 @@
 //! - During rendering, query `get_object_visibility()` to get FOW state
 //! - Pass `visibility_alpha` and `is_explored` to shader uniforms
 //! - Supports per-player and per-object visibility queries
+//! - `PresentationFowGrid` freezes cell-grid state for terrain / minimap overlay
+//!   so GPU upload does not re-lock the shroud manager mid-render
 //!
 //! ## Architecture:
 //! ```text
@@ -18,10 +20,19 @@
 //! Shader uniform (visibility_alpha, is_explored)
 //!    ↓
 //! Fragment shader applies FOW effects
+//!
+//! ShroudManager::snapshot_grid_for_player(local)
+//!    ↓
+//! PresentationFowGrid (owned cells)
+//!    ↓
+//! FowTerrainOverlay::update_texture / minimap R8-RGBA
 //! ```
+//!
+//! Fail-closed claim: unit FOW + compact cell-grid snapshot for local player.
+//! Not full SAGE dirty-rect streaming / multi-player simultaneous grid parity.
 
 use crate::game_logic::ObjectId as ObjectID;
-use gamelogic::system::shroud_manager::get_shroud_manager;
+use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 use log::{trace, warn};
 
 fn shroud_runtime_active(
@@ -54,6 +65,169 @@ impl Default for ObjectVisibility {
             is_explored: 1.0,        // Default: explored
             visibility_falloff: 1.0, // Default: sharp transition
         }
+    }
+}
+
+/// Compact presentation-owned FOW cell grid for the local player.
+///
+/// Built once per logic frame into `PresentationFrame` so terrain overlay /
+/// minimap texture update can consume frozen cells without mid-render shroud
+/// re-queries. Values are SAGE-style buckets matching [`ShroudState`].
+///
+/// Fail-closed: full grid copy (not dirty rects); not full SAGE multi-layer
+/// shroud texture streaming parity.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PresentationFowGrid {
+    pub width: u32,
+    pub height: u32,
+    /// World units per cell (matches shroud partition cell size, typically 50).
+    pub cell_size: f32,
+    /// Row-major `y * width + x`: 0=Hidden, 1=Explored/Fogged, 2=Visible.
+    pub cells: Vec<u8>,
+    /// True when `cells` came from an initialized shroud grid.
+    /// When false, consumers should fail-open (fully visible / no overlay).
+    pub active: bool,
+}
+
+impl Default for PresentationFowGrid {
+    fn default() -> Self {
+        Self::inactive()
+    }
+}
+
+impl PresentationFowGrid {
+    pub const CELL_HIDDEN: u8 = 0;
+    pub const CELL_EXPLORED: u8 = 1;
+    pub const CELL_VISIBLE: u8 = 2;
+
+    /// Terrain overlay R8: shrouded.
+    pub const R8_SHROUDED: u8 = 0;
+    /// Terrain overlay R8: fogged / explored.
+    pub const R8_FOGGED: u8 = 128;
+    /// Terrain overlay R8: clear / visible.
+    pub const R8_VISIBLE: u8 = 255;
+
+    /// Empty inactive grid — fail-open for consumers (no texture upload).
+    pub fn inactive() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            cell_size: 50.0,
+            cells: Vec::new(),
+            active: false,
+        }
+    }
+
+    /// Fully visible grid of the given size (shell-map bypass / observer).
+    pub fn fully_visible(width: u32, height: u32, cell_size: f32) -> Self {
+        let len = (width as usize).saturating_mul(height as usize);
+        Self {
+            width,
+            height,
+            cell_size: cell_size.max(1.0),
+            cells: vec![Self::CELL_VISIBLE; len],
+            active: true,
+        }
+    }
+
+    /// Build from shroud manager snapshot bytes (0/1/2 per cell).
+    pub fn from_snapshot(
+        width: u32,
+        height: u32,
+        cell_size: f32,
+        cells: Vec<u8>,
+    ) -> Self {
+        let expected = (width as usize).saturating_mul(height as usize);
+        let mut cells = cells;
+        if cells.len() != expected {
+            // Fail-closed sizing: pad/truncate rather than panic at snapshot time.
+            cells.resize(expected, Self::CELL_HIDDEN);
+        }
+        Self {
+            width,
+            height,
+            cell_size: cell_size.max(1.0),
+            cells,
+            active: expected > 0,
+        }
+    }
+
+    #[inline]
+    pub fn cell_count(&self) -> usize {
+        self.cells.len()
+    }
+
+    /// Cell state at grid coords, or Hidden when OOB / inactive.
+    #[inline]
+    pub fn cell_at(&self, x: u32, y: u32) -> u8 {
+        if !self.active || x >= self.width || y >= self.height {
+            return if self.active {
+                Self::CELL_HIDDEN
+            } else {
+                Self::CELL_VISIBLE
+            };
+        }
+        let idx = (y as usize) * (self.width as usize) + (x as usize);
+        self.cells.get(idx).copied().unwrap_or(Self::CELL_HIDDEN)
+    }
+
+    /// Sample cell using shroud world axes (X,Y) — matches `ShroudGrid::world_to_grid`.
+    pub fn state_at_world_xy(&self, world_x: f32, world_y: f32) -> u8 {
+        if !self.active || self.cell_size <= 0.0 {
+            return Self::CELL_VISIBLE;
+        }
+        let gx = (world_x / self.cell_size).floor() as i32;
+        let gy = (world_y / self.cell_size).floor() as i32;
+        if gx < 0 || gy < 0 {
+            return Self::CELL_HIDDEN;
+        }
+        self.cell_at(gx as u32, gy as u32)
+    }
+
+    /// Encode one cell to R8 for `FowTerrainOverlay::update_texture`.
+    #[inline]
+    pub fn cell_to_r8(cell: u8) -> u8 {
+        match cell {
+            Self::CELL_VISIBLE => Self::R8_VISIBLE,
+            Self::CELL_EXPLORED => Self::R8_FOGGED,
+            _ => Self::R8_SHROUDED,
+        }
+    }
+
+    /// Full R8 texture payload (length = width * height) for terrain FOW overlay.
+    ///
+    /// Inactive grids return empty — callers should skip upload / fail-open.
+    pub fn to_r8_texture(&self) -> Vec<u8> {
+        if !self.active || self.cells.is_empty() {
+            return Vec::new();
+        }
+        self.cells.iter().map(|&c| Self::cell_to_r8(c)).collect()
+    }
+
+    /// Map cell state to object-style visibility (for tests / shared encoding).
+    pub fn cell_to_object_visibility(cell: u8) -> ObjectVisibility {
+        match cell {
+            Self::CELL_VISIBLE => ObjectVisibility::VISIBLE,
+            Self::CELL_EXPLORED => ObjectVisibility::FOGGED,
+            _ => ObjectVisibility::HIDDEN,
+        }
+    }
+
+    /// Lightweight fingerprint for dual-run presentation determinism.
+    pub fn content_fingerprint(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        self.width.hash(&mut h);
+        self.height.hash(&mut h);
+        self.active.hash(&mut h);
+        self.cell_size.to_bits().hash(&mut h);
+        self.cells.len().hash(&mut h);
+        // Hash all cells for strict grid consistency (compact maps stay cheap).
+        for c in &self.cells {
+            c.hash(&mut h);
+        }
+        h.finish()
     }
 }
 
@@ -277,6 +451,54 @@ impl FOWRenderingBridge {
             trace!("FOW visibility recalculation forced");
         }
     }
+
+    /// Snapshot the partition cell grid for `player_id` into a presentation-owned buffer.
+    ///
+    /// Returns an inactive empty grid when the shroud manager is unavailable or the
+    /// grid is not initialized (fail-open for terrain overlay). Shell-map callers
+    /// should pass `shell_bypass=true` to force fully-visible cells when dimensions
+    /// are known.
+    pub fn snapshot_terrain_grid(player_id: u32, shell_bypass: bool) -> PresentationFowGrid {
+        let Ok(shroud_mgr) = get_shroud_manager().lock() else {
+            return PresentationFowGrid::inactive();
+        };
+
+        let Some((width, height, cell_size)) = shroud_mgr.grid_dimensions() else {
+            return PresentationFowGrid::inactive();
+        };
+        let width_u = width as u32;
+        let height_u = height as u32;
+
+        if shell_bypass {
+            return PresentationFowGrid::fully_visible(width_u, height_u, cell_size);
+        }
+
+        // When shroud has never updated, fail-open (match unit FOW startup safeguard)
+        // so terrain is not painted fully black during boot.
+        if !shroud_runtime_active(&shroud_mgr, player_id) {
+            return PresentationFowGrid::fully_visible(width_u, height_u, cell_size);
+        }
+
+        match shroud_mgr.snapshot_grid_for_player(player_id) {
+            Some(cells) => {
+                trace!(
+                    "FOW terrain grid snapshot player={} {}x{} cells={}",
+                    player_id,
+                    width_u,
+                    height_u,
+                    cells.len()
+                );
+                PresentationFowGrid::from_snapshot(width_u, height_u, cell_size, cells)
+            }
+            None => PresentationFowGrid::inactive(),
+        }
+    }
+
+    /// Encode a live [`ShroudState`] into the compact presentation cell value.
+    #[inline]
+    pub fn shroud_state_to_cell(state: ShroudState) -> u8 {
+        state as u8
+    }
 }
 
 /// Reveal the entire map for the specified player (used on defeat/observer transitions).
@@ -330,5 +552,65 @@ mod tests {
         assert!(ObjectVisibility::HIDDEN.never_explored());
         assert!(!ObjectVisibility::HIDDEN.should_render());
         assert!(ObjectVisibility::FOGGED.should_render());
+    }
+
+    #[test]
+    fn presentation_fow_grid_r8_encoding_and_sample() {
+        let mut cells = vec![PresentationFowGrid::CELL_HIDDEN; 4];
+        cells[0] = PresentationFowGrid::CELL_VISIBLE; // (0,0)
+        cells[1] = PresentationFowGrid::CELL_EXPLORED; // (1,0)
+        cells[2] = PresentationFowGrid::CELL_HIDDEN; // (0,1)
+        cells[3] = PresentationFowGrid::CELL_VISIBLE; // (1,1)
+        let grid = PresentationFowGrid::from_snapshot(2, 2, 50.0, cells);
+        assert!(grid.active);
+        assert_eq!(grid.cell_at(0, 0), PresentationFowGrid::CELL_VISIBLE);
+        assert_eq!(grid.cell_at(1, 0), PresentationFowGrid::CELL_EXPLORED);
+        assert_eq!(
+            grid.state_at_world_xy(10.0, 10.0),
+            PresentationFowGrid::CELL_VISIBLE
+        );
+        assert_eq!(
+            grid.state_at_world_xy(60.0, 10.0),
+            PresentationFowGrid::CELL_EXPLORED
+        );
+
+        let r8 = grid.to_r8_texture();
+        assert_eq!(
+            r8,
+            vec![
+                PresentationFowGrid::R8_VISIBLE,
+                PresentationFowGrid::R8_FOGGED,
+                PresentationFowGrid::R8_SHROUDED,
+                PresentationFowGrid::R8_VISIBLE,
+            ]
+        );
+        assert_eq!(
+            PresentationFowGrid::cell_to_object_visibility(PresentationFowGrid::CELL_EXPLORED),
+            ObjectVisibility::FOGGED
+        );
+        assert_eq!(
+            FOWRenderingBridge::shroud_state_to_cell(ShroudState::Visible),
+            PresentationFowGrid::CELL_VISIBLE
+        );
+        assert_eq!(
+            FOWRenderingBridge::shroud_state_to_cell(ShroudState::Explored),
+            PresentationFowGrid::CELL_EXPLORED
+        );
+        assert_eq!(
+            FOWRenderingBridge::shroud_state_to_cell(ShroudState::Hidden),
+            PresentationFowGrid::CELL_HIDDEN
+        );
+    }
+
+    #[test]
+    fn presentation_fow_grid_inactive_fail_open() {
+        let g = PresentationFowGrid::inactive();
+        assert!(!g.active);
+        assert!(g.to_r8_texture().is_empty());
+        assert_eq!(g.cell_at(0, 0), PresentationFowGrid::CELL_VISIBLE);
+        assert_eq!(
+            g.state_at_world_xy(999.0, 999.0),
+            PresentationFowGrid::CELL_VISIBLE
+        );
     }
 }

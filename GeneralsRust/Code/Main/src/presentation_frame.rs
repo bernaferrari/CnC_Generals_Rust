@@ -6,7 +6,7 @@
 //! Ownership: borrow-first on the authority during `build_*`; then the snapshot
 //! is owned values with no live borrows into the world.
 
-use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::{
     CombatParticleKind, CombatParticleSystemEntry, GameLogic, KindOf, ObjectId, Team,
 };
@@ -171,6 +171,10 @@ pub struct PresentationFrame {
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
+    /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
+    /// Frozen at build so GPU upload does not re-query shroud mid-render.
+    /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.
+    pub fow_grid: PresentationFowGrid,
     /// Active combat particle systems from host registry (observe path for client).
     pub particle_systems: Vec<PresentationParticleSystem>,
 }
@@ -180,10 +184,14 @@ impl PresentationFrame {
     ///
     /// FOW for `local_player_id` is frozen here via the FOW bridge so the unit mesh
     /// pass can apply alpha / never-explored skip without mid-render shroud locks.
-    /// Not full SAGE cell-grid FOW parity — unit-level visibility only (fail-closed claim).
+    /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
+    /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
     pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
+        // Freeze terrain FOW grid once for this presentation frame (local player only).
+        let fow_grid =
+            FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
         let mut objects = Vec::with_capacity(logic.get_objects().len());
         for obj in logic.get_objects().values() {
             let is_structure = obj.is_kind_of(KindOf::Structure);
@@ -267,6 +275,7 @@ impl PresentationFrame {
             match_over: false,
             victory_label: None,
             fow_shell_bypass,
+            fow_grid,
             particle_systems,
         }
     }
@@ -308,6 +317,7 @@ impl PresentationFrame {
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);
         self.fow_shell_bypass.hash(&mut h);
+        self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
         h.finish()
     }
@@ -345,6 +355,36 @@ impl PresentationFrame {
             .iter()
             .find(|o| o.id == id)
             .map(|o| o.fow_visibility)
+    }
+
+    /// Local-player cell-grid FOW frozen on this frame (terrain / minimap).
+    #[inline]
+    pub fn fow_grid(&self) -> &PresentationFowGrid {
+        &self.fow_grid
+    }
+
+    /// R8 terrain FOW texture from the snapshot only (no live shroud lock).
+    ///
+    /// Returns `None` when the grid is inactive (fail-open: skip overlay upload)
+    /// or when shell bypass already forces fully visible cells that need no darkening.
+    /// Callers that always want bytes can use `fow_grid().to_r8_texture()` directly.
+    pub fn terrain_fow_r8(&self) -> Option<Vec<u8>> {
+        if !self.fow_grid.active {
+            return None;
+        }
+        let r8 = self.fow_grid.to_r8_texture();
+        if r8.is_empty() {
+            None
+        } else {
+            Some(r8)
+        }
+    }
+
+    /// True when terrain FOW overlay should darken from the presentation grid.
+    ///
+    /// Shell bypass and inactive grids are fail-open (no overlay).
+    pub fn terrain_fow_overlay_active(&self) -> bool {
+        self.fow_grid.active && !self.fow_shell_bypass
     }
 
     /// All alive presentation objects including engine-bridged (for FOW/id lists).
@@ -939,6 +979,120 @@ mod tests {
         let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
         assert_eq!(ro.fow_visibility, ObjectVisibility::FULLY_VISIBLE);
         assert!(snap.unit_render_inputs()[0].fow_should_render());
+        // Terrain overlay inactive under shell bypass (fail-open / no darkening).
+        assert!(!snap.terrain_fow_overlay_active());
+    }
+
+    #[test]
+    fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
+        use crate::fow_rendering::{FOWRenderingBridge, PresentationFowGrid};
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Isolate global shroud manager for this test.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(500.0, 500.0); // 10x10 cells at 50 wu
+            shroud.force_update();
+            // Mark as updated so snapshot does not fail-open to fully visible.
+            let _ = shroud.update(1);
+            // Leave most cells Hidden; reveal whole map for player 0 after first snap? 
+            // First: capture hidden baseline.
+        }
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FowGridSnap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+
+        // Build with active hidden grid (last_update_frame > 0 after update above).
+        let bridge_grid = FOWRenderingBridge::snapshot_terrain_grid(0, false);
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+
+        assert_eq!(
+            snap.fow_grid.content_fingerprint(),
+            bridge_grid.content_fingerprint(),
+            "presentation fow_grid must match FOW bridge grid at build time"
+        );
+        assert_eq!(snap.fow_grid(), &bridge_grid);
+        assert!(snap.fow_grid.active, "grid should be active after init");
+        assert_eq!(snap.fow_grid.width, 10);
+        assert_eq!(snap.fow_grid.height, 10);
+        assert_eq!(
+            snap.fow_grid.cell_count(),
+            100,
+            "10x10 compact grid"
+        );
+
+        // R8 payload length matches grid; encoding is deterministic.
+        let r8 = snap.terrain_fow_r8().expect("active grid has r8");
+        assert_eq!(r8.len(), 100);
+        assert_eq!(r8, snap.fow_grid.to_r8_texture());
+
+        // Dual-build consistency.
+        let snap2 = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(
+            snap.fow_grid.content_fingerprint(),
+            snap2.fow_grid.content_fingerprint()
+        );
+        assert_eq!(snap.presentation_hash(), snap2.presentation_hash());
+
+        // Freeze: mutate live shroud after snapshot — presentation cells must not change.
+        let frozen_fp = snap.fow_grid.content_fingerprint();
+        let frozen_r8 = snap.fow_grid.to_r8_texture();
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            // Permanent reveal → all cells Visible on the live manager.
+            shroud
+                .reveal_map_for_player_permanently(0)
+                .expect("reveal");
+        }
+        assert_eq!(
+            snap.fow_grid.content_fingerprint(),
+            frozen_fp,
+            "owned grid must stay frozen after live shroud mutation"
+        );
+        assert_eq!(snap.fow_grid.to_r8_texture(), frozen_r8);
+
+        // New build sees the reveal.
+        let snap_after = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            snap_after
+                .fow_grid
+                .cells
+                .iter()
+                .all(|&c| c == PresentationFowGrid::CELL_VISIBLE),
+            "fresh snapshot after permanent reveal must be fully visible"
+        );
+        assert_ne!(
+            snap_after.fow_grid.content_fingerprint(),
+            frozen_fp,
+            "new frame must differ after live reveal"
+        );
+
+        // Shell bypass forces fully visible cells when grid dims exist.
+        {
+            use crate::game_logic::GameMode;
+            let mut shell_logic = GameLogic::new();
+            shell_logic.start_new_game(GameMode::Shell);
+            let shell_snap = PresentationFrame::build_from_logic(&shell_logic, 0);
+            assert!(shell_snap.fow_shell_bypass);
+            if shell_snap.fow_grid.active {
+                assert!(shell_snap
+                    .fow_grid
+                    .cells
+                    .iter()
+                    .all(|&c| c == PresentationFowGrid::CELL_VISIBLE));
+            }
+            assert!(!shell_snap.terrain_fow_overlay_active());
+        }
+
+        // Cleanup global shroud so other tests fail-open cleanly.
+        // Permanent reveal leaves lookers; re-init grid + clear_all resets counters.
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1.0, 1.0);
+            shroud.clear_all();
+        }
     }
 
     #[test]
