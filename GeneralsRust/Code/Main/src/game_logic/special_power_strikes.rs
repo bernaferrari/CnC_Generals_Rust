@@ -450,6 +450,14 @@ mod tests {
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::SpySatellite),
+            None
+        );
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::CiaIntelligence),
+            None
+        );
     }
 
     #[test]

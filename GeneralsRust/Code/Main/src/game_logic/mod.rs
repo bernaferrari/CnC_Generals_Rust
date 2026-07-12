@@ -15,9 +15,11 @@ pub mod special_power_strikes;
 pub mod host_upgrades;
 pub mod host_mines;
 pub mod host_radar_scan;
+pub mod host_spy_satellite;
 pub mod host_hero_abilities;
 pub mod host_repair;
 pub mod host_paradrop;
+pub mod host_firewall;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -46,12 +48,21 @@ pub use host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
     RADAR_SCAN_RADIUS,
 };
+pub use host_spy_satellite::{
+    HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
+    SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+};
 pub use host_hero_abilities::{
     HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
 };
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
     AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
+};
+pub use host_firewall::{
+    HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,
+    FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_RADIUS,
+    FIREWALL_TICK_INTERVAL_FRAMES,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
