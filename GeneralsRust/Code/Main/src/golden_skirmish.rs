@@ -11,8 +11,9 @@
 //! Combat honesty residuals (do **not** gate `playable_claim` when victory still works):
 //! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
 //!   no `set_position` range pull. Pull remains a narrow per-focus stall fallback only.
-//! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s),
-//!   not the old slice-only 80 u/s assist.
+//! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s).
+//!   Prefer host `locomotor_bootstrap` / Locomotor.ini bind at create_object; slice
+//!   lift remains only if create still used Movement::default (10).
 //! - `combat_store_damage_ok`: weapons keep WeaponStore/template damage (retail ranger ~5);
 //!   no slice-only damage floor (was 40).
 
@@ -681,26 +682,29 @@ fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_po
     })
 }
 
-/// Retail BasicHumanLocomotor Speed (AmericaInfantryRanger). Host Movement
-/// default is 10; lift toward retail so pure-march budgets use real infantry pace.
+/// Retail BasicHumanLocomotor Speed (AmericaInfantryRanger). Host path should
+/// already bind ~20 via locomotor_bootstrap at create_object; this residual
+/// only lifts Movement::default (10) when a ranger lacks catalog bind.
 const RETAIL_INFANTRY_SPEED: f32 = 20.0;
 /// Retail BasicHumanLocomotor Acceleration (dist/sec²).
 const RETAIL_INFANTRY_ACCEL: f32 = 100.0;
-/// Slice march speed cap. Prefer retail (20); only raise above retail if pure
-/// march still stalls on large maps (honesty residual — see flags).
+/// Slice march speed cap = retail. Do not raise above 20 without clearing
+/// `combat_realistic_speed_ok` (honesty residual — see flags).
 const SLICE_MARCH_SPEED: f32 = RETAIL_INFANTRY_SPEED;
 /// Slice damage floor. 0 = keep WeaponStore/template damage (retail ranger ~5).
 /// Non-zero reintroduces the old clear assist and clears `combat_store_damage_ok`.
 const SLICE_DAMAGE_FLOOR: f32 = 0.0;
 
-/// Apply locomotor/weapon assists for the golden fight. Prefer retail-honest
-/// values (speed ≤ 20, no damage floor). Returns
+/// Residual safety net: if create_object did not bind Locomotor catalog speed,
+/// lift host default (10) toward retail BasicHuman (20). No-op when catalog
+/// already set ~20. Also records damage-floor honesty. Returns
 /// `(combat_realistic_speed_ok, combat_store_damage_ok)`.
 fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) -> (bool, bool) {
     let mut max_applied_speed = 0.0_f32;
     let mut raised_damage = false;
     for &rid in rangers {
         if let Some(r) = logic.get_object_mut(rid) {
+            // Prefer create_object Locomotor.ini/seed bind; only fill gaps.
             if r.movement.max_speed < SLICE_MARCH_SPEED {
                 r.movement.max_speed = SLICE_MARCH_SPEED;
                 r.movement.acceleration = r.movement.acceleration.max(RETAIL_INFANTRY_ACCEL);

@@ -40,10 +40,15 @@
 `combat_realistic_speed_ok=true`, `combat_store_damage_ok=true`, `victory=true`, `map_combat=true`.
 
 **Residual (honest, non-blocking):**
-- Slice still lifts host default Movement (10) toward retail infantry (20) + accel 100 — not a full
-  Locomotor.ini bind. Reintroduce SLICE_MARCH_SPEED > 20 or SLICE_DAMAGE_FLOOR > 0 only if
-  pure-march budgets fail; that would clear the matching honesty flag without flipping claim off.
-- Full Weapon.ini / locomotor parity and SAGE passability remain open for real-time play.
+- Host `locomotor_bootstrap` binds SET_NORMAL speeds at create_object (BasicHumanLocomotor ~20 u/s
+  for USA_Ranger / GLA infantry; Humvee 60; tanks 30; Redguard 25) from Locomotor.ini on disk or
+  seed. Golden slice lift is residual only when catalog bind is missing (still ≤ 20 →
+  `combat_realistic_speed_ok`).
+- Fail-closed: not full multi-locomotor set / surface-type matrix / SET_PANIC upgrades —
+  single primary SET_NORMAL name → max_speed/accel/turn only.
+- Reintroduce SLICE_MARCH_SPEED > 20 or SLICE_DAMAGE_FLOOR > 0 only if pure-march budgets fail;
+  that would clear the matching honesty flag without flipping claim off.
+- Full Weapon.ini / multi-locomotor parity and SAGE passability remain open for real-time play.
 - `set_position` stall fallback code remains for pathological maps; currently unused on Lone Eagle
   when pure march succeeds.
 - Network still deferred.

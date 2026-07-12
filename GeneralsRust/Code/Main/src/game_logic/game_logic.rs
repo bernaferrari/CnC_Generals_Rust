@@ -2059,10 +2059,17 @@ impl GameLogic {
         log::info!("Starting new game: {:?}", mode);
         self.reset();
         self.game_mode = mode;
-        // Host combat: ensure GameLogic WeaponStore has templates before units resolve weapons.
+        // Host combat/movement: ensure WeaponStore + LocomotorStore before units resolve.
         let seeded = super::weapon_bootstrap::ensure_host_weapon_store();
         if seeded > 0 {
             log::info!("Host WeaponStore bootstrap registered {} templates", seeded);
+        }
+        let loco_seeded = super::locomotor_bootstrap::ensure_host_locomotor_store();
+        if loco_seeded > 0 {
+            log::info!(
+                "Host LocomotorStore bootstrap registered {} templates",
+                loco_seeded
+            );
         }
         self.setup_templates();
         self.create_default_players();
@@ -5689,9 +5696,10 @@ impl GameLogic {
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
-            // Resolve weapons before move into Object.
+            // Resolve weapons / locomotor before move into Object.
             let weapon = template.resolve_primary_weapon();
             let secondary_weapon = template.resolve_secondary_weapon();
+            let movement_stats = template.resolve_movement();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
             let starts_under_construction = object.status.under_construction;
@@ -5703,6 +5711,16 @@ impl GameLogic {
             // Secondary slot: fail-closed (only when template names/stats resolve).
             if let Some(secondary) = secondary_weapon {
                 object.secondary_weapon = Some(secondary);
+            }
+
+            // Locomotor catalog → host Movement (retail BasicHumanLocomotor ~20 u/s).
+            // Fail-closed: only when template sets locomotor_name and store resolves.
+            // Prefer catalog over Movement::default() (10) so golden skirmish does not
+            // need a march-speed boost when the host seed/INI path is present.
+            if let Some(stats) = movement_stats {
+                object.movement.max_speed = stats.max_speed;
+                object.movement.acceleration = stats.acceleration;
+                object.movement.turn_rate = stats.turn_rate;
             }
 
             self.objects.insert(id, object);
@@ -6522,6 +6540,33 @@ impl GameLogic {
             template.set_secondary_weapon_name(wname);
         }
 
+        // SET_NORMAL Locomotor name from Object INI when present; else known host map.
+        // Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
+        if let Some(raw) = Self::object_definition_attr(definition, "locomotor") {
+            // Formats: "SET_NORMAL BasicHumanLocomotor" or "SET_NORMAL A B" (take first).
+            let mut parts = raw.split_whitespace();
+            let first = parts.next().unwrap_or("");
+            let loco = if first.eq_ignore_ascii_case("SET_NORMAL")
+                || first.eq_ignore_ascii_case("SET_NORMAL_UPGRADED")
+                || first.eq_ignore_ascii_case("SET_PANIC")
+                || first.eq_ignore_ascii_case("SET_TAXIING")
+                || first.eq_ignore_ascii_case("SET_FREEFALL")
+            {
+                parts.next()
+            } else if !first.is_empty() {
+                Some(first)
+            } else {
+                None
+            };
+            if let Some(lname) = loco {
+                template.set_locomotor_name(lname);
+            }
+        } else if let Some(lname) =
+            super::locomotor_bootstrap::locomotor_name_for_unit(template_name)
+        {
+            template.set_locomotor_name(lname);
+        }
+
         // Combat unit KindOf from object type / kindof string so store weapons can attach.
         let otype = definition.object_type.to_ascii_lowercase();
         if otype.contains("infantry") || kind_of.contains("infantry") {
@@ -7235,7 +7280,8 @@ impl GameLogic {
             .set_cost(80, 0)
             .set_model("airanger_s") // USA Ranger infantry model
             .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
-            .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
+            .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON)
+            .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
         self.templates.insert("USA_Ranger".to_string(), usa_ranger);
 
         let mut usa_missile_defender = ThingTemplate::new("USA_MissileDefender");
@@ -7259,7 +7305,8 @@ impl GameLogic {
             .set_cost(600, 0)
             .set_model("avhummer") // USA Humvee vehicle model
             .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
-            .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
+            .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON)
+            .set_locomotor_name(super::locomotor_bootstrap::HUMVEE_LOCOMOTOR);
         self.templates.insert("USA_Humvee".to_string(), usa_humvee);
 
         let mut usa_crusader = ThingTemplate::new("USA_CrusaderTank");
@@ -7269,7 +7316,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(400.0)
             .set_cost(1200, 0)
-            .set_model("avcrusader"); // USA Crusader tank
+            .set_model("avcrusader") // USA Crusader tank
+            .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
         self.templates
             .insert("USA_CrusaderTank".to_string(), usa_crusader);
 
@@ -7306,7 +7354,8 @@ impl GameLogic {
             .set_health(50.0)
             .set_cost(60, 0)
             .set_model("uirebel") // GLA Rebel infantry model
-            .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON)
+            .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
         self.templates
             .insert("GLA_Soldier".to_string(), gla_soldier);
 
@@ -7328,7 +7377,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0)
             .set_cost(400, 0)
-            .set_model("uvtechvan_d1"); // GLA Technical vehicle model
+            .set_model("uvtechvan_d1") // GLA Technical vehicle model
+            .set_locomotor_name(super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
         self.templates
             .insert("GLA_Technical".to_string(), gla_technical);
 
@@ -7339,7 +7389,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(300.0)
             .set_cost(900, 0)
-            .set_model("uvscorpion"); // GLA Scorpion tank
+            .set_model("uvscorpion") // GLA Scorpion tank
+            .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
         self.templates
             .insert("GLA_ScorpionTank".to_string(), gla_scorpion);
 
@@ -7390,7 +7441,8 @@ impl GameLogic {
             .set_health(55.0)
             .set_cost(70, 0)
             .set_model("uirebel") // China Red Guard (using rebel model since ciredgrd doesn't exist)
-            .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON)
+            .set_locomotor_name(super::locomotor_bootstrap::REDGUARD_LOCOMOTOR);
         self.templates
             .insert("China_RedGuard".to_string(), china_infantry);
 
@@ -8300,8 +8352,9 @@ impl GameLogic {
 
     /// Ensure faction templates the host AI build/produce paths require are registered.
     pub fn ensure_ai_faction_templates(&mut self, team: Team) {
-        // Prefer real WeaponStore stats (seeded/INI) over hard-coded Weapon::default().
+        // Prefer real WeaponStore / LocomotorStore stats (seeded/INI).
         let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+        let _ = super::locomotor_bootstrap::ensure_host_locomotor_store();
         fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
             let mut t = ThingTemplate::new(name);
             t.set_health(hp);
@@ -8322,6 +8375,11 @@ impl GameLogic {
             }
             if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(name) {
                 t.set_secondary_weapon_name(wname);
+            }
+            // Host movement: bind SET_NORMAL Locomotor.ini name when known so
+            // create_object applies retail-ish max_speed (e.g. BasicHuman 20).
+            if let Some(lname) = super::locomotor_bootstrap::locomotor_name_for_unit(name) {
+                t.set_locomotor_name(lname);
             }
             t
         }

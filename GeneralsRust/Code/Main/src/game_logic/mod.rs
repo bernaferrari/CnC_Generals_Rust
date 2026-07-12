@@ -15,6 +15,7 @@ pub mod thing;
 pub mod units;
 pub mod victory;
 pub mod victory_conditions;
+pub mod locomotor_bootstrap;
 pub mod weapon_bootstrap;
 
 pub use buildings::*;
@@ -33,6 +34,11 @@ pub use thing::*;
 pub use units::*;
 pub use victory::*;
 pub use victory_conditions::*;
+pub use locomotor_bootstrap::{
+    ensure_host_locomotor_store, locomotor_name_for_unit, resolve_host_movement,
+    BASIC_HUMAN_LOCOMOTOR, BATTLE_MASTER_LOCOMOTOR, CRUSADER_LOCOMOTOR, HUMVEE_LOCOMOTOR,
+    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR,
+};
 pub use weapon_bootstrap::{
     ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
     GLA_REBEL_PRIMARY_WEAPON, HUMVEE_PRIMARY_WEAPON, HUMVEE_SECONDARY_WEAPON, RANGER_PRIMARY_WEAPON,
