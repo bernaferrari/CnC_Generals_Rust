@@ -4124,6 +4124,16 @@ impl GameLogic {
                     fire_target,
                 );
 
+                // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest
+                // (not silent no-op). process_audio_events routes to AudioManager;
+                // fail-closed vs full Miles retail handles.
+                self.queue_audio_event(
+                    AudioEventRequest::new("WeaponFire")
+                        .with_object(attacker_id)
+                        .with_position(muzzle_pos)
+                        .with_priority(160),
+                );
+
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         weapon.last_fire_time = current_time;
@@ -6204,6 +6214,20 @@ impl GameLogic {
                     event.id,
                     is_structure,
                     victim_team,
+                );
+
+                // Audio residual (hq-7zxm slice): unit/structure death → AudioEventRequest.
+                // Fail-closed: request path observable by AudioManager, not full Miles.
+                let death_event = if is_structure {
+                    "BuildingDie"
+                } else {
+                    "UnitDie"
+                };
+                self.queue_audio_event(
+                    AudioEventRequest::new(death_event)
+                        .with_object(event.id)
+                        .with_position(death_pos)
+                        .with_priority(200),
                 );
 
                 // Phase 1: Destroy the corresponding GameEngine ObjectFactory object.
@@ -14783,5 +14807,132 @@ mod tests {
             .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)[0];
         assert_eq!(muzzle.template_name, "MuzzleFlash");
         assert_eq!(muzzle.source_object, Some(attacker_id));
+    }
+
+    /// Residual (hq-7zxm): host combat fire/kill must enqueue real audio events
+    /// (not silent no-op). Fail-closed: request path, not full Miles retail.
+    #[test]
+    fn combat_fire_queues_weapon_fire_audio_event() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 1.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.frame = 30;
+        game_logic.queued_audio_events.clear();
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+        let fire_events: Vec<_> = game_logic
+            .queued_audio_events
+            .iter()
+            .filter(|e| e.event_type == "WeaponFire")
+            .collect();
+        assert!(
+            !fire_events.is_empty(),
+            "weapon fire must queue WeaponFire audio request, got {:?}",
+            game_logic
+                .queued_audio_events
+                .iter()
+                .map(|e| e.event_type.as_str())
+                .collect::<Vec<_>>()
+        );
+        let fire = fire_events[0];
+        assert_eq!(fire.object_id, Some(attacker_id));
+        assert!(
+            fire.position.is_some(),
+            "weapon fire audio must be positional"
+        );
+        assert!(
+            fire.priority > 0,
+            "weapon fire audio priority must be non-zero"
+        );
+    }
+
+    #[test]
+    fn combat_kill_queues_unit_die_audio_event() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 9999.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            target.health.current = 10.0;
+            target.health.maximum = 10.0;
+        }
+
+        game_logic.frame = 60;
+        game_logic.queued_audio_events.clear();
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+        // Fire request present before destroy list processing.
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "WeaponFire"),
+            "kill path still fires WeaponFire first"
+        );
+
+        game_logic.process_destroy_list();
+
+        let die_events: Vec<_> = game_logic
+            .queued_audio_events
+            .iter()
+            .filter(|e| e.event_type == "UnitDie")
+            .collect();
+        assert!(
+            !die_events.is_empty(),
+            "kill must queue UnitDie audio request, got {:?}",
+            game_logic
+                .queued_audio_events
+                .iter()
+                .map(|e| e.event_type.as_str())
+                .collect::<Vec<_>>()
+        );
+        let die = die_events[0];
+        assert_eq!(die.object_id, Some(target_id));
+        assert!(die.position.is_some(), "death audio must be positional");
+        assert!(
+            game_logic.find_object(target_id).is_none(),
+            "target must be removed after kill"
+        );
     }
 }

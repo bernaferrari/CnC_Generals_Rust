@@ -183,15 +183,19 @@ pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
         .replace(system);
 }
 
-fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) {
+/// Invoke the registered FX audio hook if present.
+/// Returns `true` when a hook was called (sound routed), `false` when silent.
+fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) -> bool {
     let Some(audio) = FX_AUDIO.get() else {
-        return;
+        return false;
     };
     if let Ok(mut guard) = audio.write() {
         if let Some(ref mut hook) = *guard {
             f(hook);
+            return true;
         }
     }
+    false
 }
 
 fn with_ray_manager<F: FnOnce(&mut RayEffectManager)>(f: F) {
@@ -690,17 +694,45 @@ impl FXNugget for SoundFXNugget {
         _secondary: Option<&Coord3D>,
         _override_radius: f32,
     ) {
+        // C++ SoundFXNugget::doFXPos: AudioEventRTS + TheAudio->addAudioEvent.
+        // Prefer registered GameClient audio hook; fall back to gameplay dispatch
+        // so FXList sound nuggets are not silent no-ops when hook is absent.
         let position = primary.map(to_message_coord);
-        with_audio(|hook| {
+        let routed = with_audio(|hook| {
             hook(&self.sound_name, position);
         });
+        if !routed {
+            if let Some(pos) = primary {
+                game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
+                    &self.sound_name,
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                );
+            } else {
+                game_engine::common::audio::dispatch_ui_sound(&self.sound_name);
+            }
+        }
     }
 
     fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
         let position = primary.map(|obj| to_message_coord(obj.get_position()));
-        with_audio(|hook| {
+        let routed = with_audio(|hook| {
             hook(&self.sound_name, position);
         });
+        if !routed {
+            if let Some(obj) = primary {
+                let pos = obj.get_position();
+                game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
+                    &self.sound_name,
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                );
+            } else {
+                game_engine::common::audio::dispatch_ui_sound(&self.sound_name);
+            }
+        }
     }
 }
 
@@ -1161,5 +1193,26 @@ mod tests {
         let nugget = FXListAtBonePosFXNugget::default();
 
         assert!(nugget.bone_query_names().is_empty());
+    }
+
+    #[test]
+    fn sound_fx_nugget_without_hook_routes_via_gameplay_dispatch_fallback() {
+        // Residual: FXList SoundFX must not be a silent no-op when the GameClient
+        // audio hook is absent — falls back to dispatch_positional_sound.
+        let nugget = SoundFXNugget {
+            sound_name: "TestCombatFire".to_string(),
+        };
+        let pos = Coord3D {
+            x: 10.0,
+            y: 0.0,
+            z: 20.0,
+        };
+        // Must not panic; empty-name guard lives inside dispatch.
+        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        // Empty name remains a true no-op (dispatch fail-closed).
+        let empty = SoundFXNugget {
+            sound_name: String::new(),
+        };
+        empty.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
     }
 }

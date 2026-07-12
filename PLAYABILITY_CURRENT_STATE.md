@@ -92,6 +92,10 @@
 - Audio suspend/resume parity:
   - `hq-dxxk` closed.
   - Script suspend/resume now pauses and resumes active handles instead of only toggling audio enable state.
+- Host combat audio residual (fire/death request path):
+  - Weapon fire queues `AudioEventRequest("WeaponFire")`; death queues `UnitDie`/`BuildingDie`.
+  - FXList SoundFX falls back to gameplay dispatch when the client audio hook is absent.
+  - Validation: `cargo test -q -p generals_main --lib combat_fire_queues` and `combat_kill_queues` passed; FXList fallback: `cargo test -q -p game-client-rust --features internal --lib sound_fx_nugget`
 - Shell/flow parity:
   - `hq-dwel`, `hq-c8a0`, `hq-b53m`, and `hq-afm` are closed.
   - That means map-select legacy keying, underlying-options visibility, shell scheme ordering, and command translator context routing are all improved on the gameplay-flow side.
@@ -103,7 +107,7 @@
 ## Current Subsystem Status
 - Rendering: improved, but not complete. Real mesh/material submission is now in place, yet the deeper W3D/material/state parity backlog still exists.
 - Terrain: improved materially. Bridge runtime and water-related slices are closer to C++ behavior, but the broader terrain visuals/water/snow work remains open.
-- Audio: improved materially. Core resolver and suspend/resume parity are in place, but the broader audio system and edge-case routing work remain open.
+- Audio: improved materially. Core resolver, suspend/resume, and host combat fire/death audio requests are in place; broader Miles device/handle and per-weapon INI FireSound residual remain open.
 - UI/flow: better than before, especially shell and map-select behavior, but bootstrap/menu/game-start parity still has open work.
 - AI: still a major blocker. The system remains far from the breadth of the C++ implementation.
 - Drawable: still a major blocker. Icon management, model conditions, shadows, and animation-state parity are incomplete.
