@@ -516,6 +516,11 @@ pub struct GameLogic {
     garrison_residual_exits: u32,
     garrison_residual_fires: u32,
 
+    /// Host transport residual honesty counters (load / unload-all / evacuate).
+    /// Fail-closed: not multi-door or Chinook air-transport path parity.
+    transport_residual_loads: u32,
+    transport_residual_unloads: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1307,6 +1312,8 @@ impl GameLogic {
             garrison_residual_enters: 0,
             garrison_residual_exits: 0,
             garrison_residual_fires: 0,
+            transport_residual_loads: 0,
+            transport_residual_unloads: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1433,6 +1440,8 @@ impl GameLogic {
         self.garrison_residual_enters = 0;
         self.garrison_residual_exits = 0;
         self.garrison_residual_fires = 0;
+        self.transport_residual_loads = 0;
+        self.transport_residual_unloads = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -5002,6 +5011,9 @@ impl GameLogic {
                     }
                     if container_is_structure {
                         self.record_garrison_residual_enter();
+                    } else {
+                        // Vehicle transport residual load (Humvee / generic transport).
+                        self.record_transport_residual_load();
                     }
                 }
                 AIState::Capturing => {
@@ -8200,6 +8212,16 @@ impl GameLogic {
         self.garrison_residual_fires
     }
 
+    /// Residual transport honesty: successful vehicle load count.
+    pub fn transport_residual_loads(&self) -> u32 {
+        self.transport_residual_loads
+    }
+
+    /// Residual transport honesty: successful unload/evacuate count.
+    pub fn transport_residual_unloads(&self) -> u32 {
+        self.transport_residual_unloads
+    }
+
     /// Record a residual structure-garrison enter (tests / host path).
     pub fn record_garrison_residual_enter(&mut self) {
         self.garrison_residual_enters = self.garrison_residual_enters.saturating_add(1);
@@ -8208,6 +8230,16 @@ impl GameLogic {
     /// Record a residual garrison exit (tests / host path).
     pub fn record_garrison_residual_exit(&mut self) {
         self.garrison_residual_exits = self.garrison_residual_exits.saturating_add(1);
+    }
+
+    /// Record a residual transport load (tests / host path).
+    pub fn record_transport_residual_load(&mut self) {
+        self.transport_residual_loads = self.transport_residual_loads.saturating_add(1);
+    }
+
+    /// Record a residual transport unload/evacuate (tests / host path).
+    pub fn record_transport_residual_unload(&mut self) {
+        self.transport_residual_unloads = self.transport_residual_unloads.saturating_add(1);
     }
 
     /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
@@ -8297,6 +8329,11 @@ impl GameLogic {
     /// Residual honesty: at least one fire-from-garrison residual shot.
     pub fn honesty_garrison_fire_ok(&self) -> bool {
         self.garrison_residual_fires > 0
+    }
+
+    /// Residual honesty: load → docked → unload path was exercised.
+    pub fn honesty_transport_load_unload_ok(&self) -> bool {
+        self.transport_residual_loads > 0 && self.transport_residual_unloads > 0
     }
 
     /// Queue a host residual superweapon strike from DoSpecialPower.
@@ -11807,6 +11844,41 @@ mod tests {
         game_logic
             .templates
             .insert("TestBunker".to_string(), garrison);
+    }
+
+    /// Residual Humvee-style transport (vehicle container with explicit slot capacity).
+    /// Fail-closed: not Chinook multi-door / air path parity.
+    fn ensure_test_transport_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("TestTransport") {
+            return;
+        }
+
+        let mut transport = ThingTemplate::new("TestTransport");
+        transport
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("TestTransport".to_string(), transport);
+    }
+
+    /// Spawn a residual transport with explicit infantry capacity.
+    fn create_test_transport(
+        game_logic: &mut GameLogic,
+        pos: Vec3,
+        capacity: usize,
+    ) -> ObjectId {
+        ensure_test_transport_template(game_logic);
+        let id = game_logic
+            .create_object("TestTransport", Team::USA, pos)
+            .expect("TestTransport");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            obj.max_transport = capacity;
+        }
+        id
     }
 
     fn ensure_test_repair_pad_template(game_logic: &mut GameLogic) {
@@ -16642,5 +16714,262 @@ mod tests {
             "faction barracks must not accept residual garrison"
         );
         assert_eq!(barracks.garrison_capacity(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Transport residual (infantry enter vehicle capacity; unload all; evacuate)
+    // Fail-closed: not multi-door / Chinook air-transport path parity.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Enter vehicle transport → Docked + capacity bookkeeping.
+    #[test]
+    fn transport_residual_enter_sets_docked_state_and_capacity() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 5);
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+
+        let transport = game_logic.find_object(transport_id).expect("transport");
+        assert!(
+            transport.can_contain() && transport.transport_capacity() == 5,
+            "TestTransport must expose residual capacity"
+        );
+        assert_eq!(transport.transport_count(), 0);
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: transport_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Entering,
+            "Enter command must start residual transport enter"
+        );
+        assert_eq!(infantry.target, Some(transport_id));
+
+        game_logic.update_ai(&[infantry_id, transport_id], 1.0 / 30.0);
+
+        let transport = game_logic.find_object(transport_id).expect("transport after");
+        assert!(
+            transport.contained_units().contains(&infantry_id),
+            "transport must list loaded infantry"
+        );
+        assert_eq!(transport.transport_count(), 1);
+        assert!(transport.transport_count() <= transport.transport_capacity());
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Docked,
+            "infantry must be Docked after transport residual load"
+        );
+        assert_eq!(infantry.contained_by, Some(transport_id));
+        assert!(!infantry.can_move(), "loaded units cannot move freely");
+        assert_eq!(game_logic.transport_residual_loads(), 1);
+        assert_eq!(
+            game_logic.garrison_residual_enters(),
+            0,
+            "vehicle load must not count as structure garrison"
+        );
+    }
+
+    /// Residual acceptance test: load 2 infantry → unload all → both free.
+    #[test]
+    fn transport_residual_load_two_unload_both_free() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 5);
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        // Load both via Enter residual (walk-into-range completes same frame).
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.target = Some(transport_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
+        }
+
+        let transport = game_logic.find_object(transport_id).expect("transport loaded");
+        assert!(
+            transport.contained_units().contains(&unit_a)
+                && transport.contained_units().contains(&unit_b),
+            "both infantry must be loaded"
+        );
+        assert_eq!(transport.transport_count(), 2);
+        assert_eq!(game_logic.transport_residual_loads(), 2);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            assert_eq!(unit.ai_state, AIState::Docked);
+            assert_eq!(unit.contained_by, Some(transport_id));
+            assert!(!unit.can_move());
+        }
+
+        // Unload all (selected transport Evacuate / Exit residual).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![transport_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let transport = game_logic.find_object(transport_id).expect("transport empty");
+        assert!(
+            transport.contained_units().is_empty(),
+            "evacuate must clear all transport occupants"
+        );
+        assert_eq!(transport.transport_count(), 0);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+            assert!(unit.contained_by.is_none(), "contained_by must clear");
+            assert!(unit.target.is_none());
+            assert!(unit.can_move(), "unloaded unit must be free to move");
+        }
+
+        assert_eq!(game_logic.transport_residual_unloads(), 2);
+        assert!(
+            game_logic.honesty_transport_load_unload_ok(),
+            "load+unload residual honesty"
+        );
+        assert_eq!(
+            game_logic.garrison_residual_exits(),
+            0,
+            "transport unload must not count as garrison exit"
+        );
+    }
+
+    /// Residual: Exit command on selected transport also unloads all (same as Evacuate).
+    #[test]
+    fn transport_residual_exit_command_unloads_all() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 4);
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).unwrap();
+                unit.target = Some(transport_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
+        }
+        assert_eq!(
+            game_logic
+                .find_object(transport_id)
+                .unwrap()
+                .transport_count(),
+            2
+        );
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Exit,
+            player_id: 0,
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![transport_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(game_logic
+            .find_object(transport_id)
+            .unwrap()
+            .contained_units()
+            .is_empty());
+        assert!(game_logic.find_object(unit_a).unwrap().can_move());
+        assert!(game_logic.find_object(unit_b).unwrap().can_move());
+        assert_eq!(game_logic.transport_residual_unloads(), 2);
+    }
+
+    /// Residual: full capacity rejects further Enter.
+    #[test]
+    fn transport_residual_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 1);
+
+        let first_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("first");
+        {
+            let unit = game_logic.find_object_mut(first_id).unwrap();
+            unit.target = Some(transport_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[first_id, transport_id], 1.0 / 30.0);
+        assert!(game_logic
+            .find_object(transport_id)
+            .unwrap()
+            .contained_units()
+            .contains(&first_id));
+
+        let second_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("second");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: transport_id,
+            },
+            player_id: 0,
+            command_id: 4,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![second_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let second = game_logic.find_object(second_id).expect("second after");
+        assert_ne!(
+            second.ai_state,
+            AIState::Entering,
+            "full transport must reject Enter"
+        );
+        assert_ne!(second.target, Some(transport_id));
+        assert_eq!(
+            game_logic
+                .find_object(transport_id)
+                .unwrap()
+                .transport_count(),
+            1
+        );
     }
 }
