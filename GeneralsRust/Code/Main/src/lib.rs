@@ -113,6 +113,7 @@ pub mod ai_skirmish_activity;
 pub mod authoritative_world;
 pub mod authority_bridge;
 pub mod breadth_scenarios;
+pub mod gameplay_layout;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;
 pub mod playability_integration;
