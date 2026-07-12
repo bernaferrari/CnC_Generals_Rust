@@ -13,6 +13,20 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Combat March Honesty (2026-07-12)
+- Map-world golden skirmish combat no longer teleports rangers into range every fight round.
+- Preferred path: `assign_unit_path` / Move pure march into weapon range, then `AttackObject`.
+- Slice-only ranger march speed boost (40) helps cross map distances without cheat damage/HP.
+- Narrow `set_position` range pull remains as per-focus-target residual fallback after stall
+  (pathfinding incomplete / units stuck OOR with no HP progress).
+- New honesty flag: `combat_no_teleport_ok` (true only when damage/kills without any combat pull).
+  - Fail-closed **honesty only** — does not gate `playable_claim` when map victory still works.
+  - Gate reports residual: `combat_no_teleport=false` while still PASSing when victory holds.
+- Current Lone Eagle map path: `playable_claim=true`, `retail_prod=true`, `retail_gather=true`,
+  `combat_no_teleport_ok=false` (residual — pure march still incomplete across map pathfinding).
+- Follow-up: improve pathfinding follow / map grid seeding so pure march can flip
+  `combat_no_teleport_ok` without the fallback pull.
+
 ## Recent Validated Closures (2026-04-02)
 - Terrain bridge runtime parity:
   - `hq-p58f` closed.

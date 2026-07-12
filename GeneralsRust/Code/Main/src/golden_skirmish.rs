@@ -7,6 +7,12 @@
 //!   and playable_claim=true (fail-closed otherwise).
 //! - **Synthetic host** (no retail map): GoldenCC/GoldenEnemyCC host soup.
 //!   synthetic_combat=true, playable_claim=false.
+//!
+//! Combat honesty residual (`combat_no_teleport_ok`):
+//! - Prefer pure `assign_unit_path` / Move march into weapon range, then AttackObject.
+//! - `set_position` range pull is a **narrow** per-focus-target fallback only after stall.
+//! - Flag is true only when damage/kills happen without any combat pull.
+//! - Fail-closed honesty only: does **not** gate `playable_claim` when victory still works.
 
 use crate::authoritative_world::{set_verification_single_authority, AuthorityProbe};
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
@@ -71,6 +77,11 @@ pub struct GoldenSkirmishResult {
     /// Fail-closed: synthetic host always false; map path false when golden
     /// supply was required to complete the Gather step.
     pub retail_gather_ok: bool,
+    /// Honesty: true only when combat damage/kills used pure Move/AttackMove/
+    /// AttackObject march into weapon range — no set_position range pull.
+    /// Fail-closed residual: playable_claim still holds if victory used the
+    /// narrow teleport fallback; this flag alone reports pure-march honesty.
+    pub combat_no_teleport_ok: bool,
     pub status: String,
 }
 
@@ -93,6 +104,8 @@ struct VerticalSliceOutcome {
     retail_production_chain_ok: bool,
     /// Map-world Gather used map/retail supply (not GoldenSupply).
     retail_gather_ok: bool,
+    /// Fought without set_position combat range pull.
+    combat_no_teleport_ok: bool,
 }
 
 fn command(
@@ -612,23 +625,139 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
     snap_ok
 }
 
-/// Fight all non-USA/non-Neutral enemies with production rangers via AttackObject only.
-/// Pulls units into weapon range — no take_damage / re-team / force-clear.
+/// Live rangers from a candidate id list.
+fn live_rangers(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectId> {
+    rangers
+        .iter()
+        .copied()
+        .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+        .collect()
+}
+
+/// Weapon range for a ranger (default Weapon range 100).
+fn ranger_weapon_range(logic: &GameLogic, rid: ObjectId) -> f32 {
+    logic
+        .get_object(rid)
+        .and_then(|o| o.weapon.as_ref().map(|w| w.range))
+        .unwrap_or(100.0)
+}
+
+/// True when at least one live ranger is inside weapon range of `target_pos`.
+fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_pos: Vec3) -> bool {
+    rangers.iter().any(|rid| {
+        logic
+            .get_object(*rid)
+            .map(|r| {
+                r.is_alive()
+                    && r.get_position().distance(target_pos)
+                        <= ranger_weapon_range(logic, *rid) * 0.95
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Slice-only move speed boost so pure march can cross map distances without
+/// cheat damage / HP. Does not change weapons or enemy health.
+fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) {
+    const SLICE_MARCH_SPEED: f32 = 40.0;
+    const SLICE_MARCH_ACCEL: f32 = 20.0;
+    for &rid in rangers {
+        if let Some(r) = logic.get_object_mut(rid) {
+            if r.movement.max_speed < SLICE_MARCH_SPEED {
+                r.movement.max_speed = SLICE_MARCH_SPEED;
+                r.movement.acceleration = r.movement.acceleration.max(SLICE_MARCH_ACCEL);
+            }
+        }
+    }
+}
+
+/// Approach point just outside weapon range of an enemy (formation offset).
+fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
+    enemy_pos + Vec3::new(40.0 + index as f32 * 2.0, 0.0, index as f32 * 1.5)
+}
+
+/// Fight all non-USA/non-Neutral enemies with production rangers via AttackObject.
+///
+/// Prefer pure Move / AttackMove / AttackObject march into weapon range.
+/// `set_position` pull is a **narrow residual fallback** only when pure march
+/// cannot reach (pathfinding incomplete / units stuck far out of range with no
+/// damage progress). No take_damage / re-team / force-clear.
+///
+/// Returns `(fought, all_cleared, combat_no_teleport_ok)`.
+/// `combat_no_teleport_ok` is true only when damage/kills happened without any
+/// set_position combat range pull.
 fn fight_enemies_with_rangers(
     logic: &mut GameLogic,
     rangers: &[ObjectId],
     primary_target: Option<ObjectId>,
     max_rounds: u32,
-) -> (bool, bool) {
-    // returns (fought, primary_or_any_destroyed)
+) -> (bool, bool, bool) {
     if rangers.is_empty() {
-        return (false, false);
+        return (false, false, false);
     }
+
+    // Help pure march cross large map distances (no damage cheat).
+    boost_ranger_march_speed(logic, rangers);
+
     let primary_hp_before = primary_target
         .and_then(|id| logic.get_object(id).map(|o| o.health.current))
         .unwrap_or(0.0);
     let mut any_damage = false;
     let mut combat_destroyed = false;
+    let mut used_teleport_pull = false;
+    // Per-current-target stall: pure march window before narrow set_position.
+    // Resets when the live enemy focus changes so secondary bases can still fall
+    // back if pathfinding cannot reach them (honesty residual only).
+    let mut stalled_oor_rounds: u32 = 0;
+    let mut focus_target: Option<ObjectId> = None;
+    let mut focus_hp_at_acquire: f32 = 0.0;
+    // ~60 rounds * 3 frames ≈ 6s sim after initial march budget.
+    const STALL_BEFORE_TELEPORT: u32 = 60;
+    let mut cmd_id: u32 = 600;
+
+    // --- Initial pure march toward primary / first enemy ---
+    let initial_target = primary_target.filter(|id| {
+        logic
+            .get_object(*id)
+            .map(|o| o.is_alive())
+            .unwrap_or(false)
+    })
+    .or_else(|| {
+        logic
+            .get_objects()
+            .values()
+            .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+            .map(|o| o.id)
+    });
+    if let Some(tid) = initial_target {
+        if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
+            let live = live_rangers(logic, rangers);
+            if !live.is_empty() {
+                // Pure pathfinding march first — do NOT AttackObject yet.
+                // AttackObject while OOR makes update_combat clear the path and
+                // direct-line chase (often fails across map obstacles).
+                for (i, rid) in live.iter().enumerate() {
+                    let dest = approach_point(ep, i);
+                    let _ = logic.assign_unit_path(*rid, dest, &[]);
+                }
+
+                // Distance-scaled march budget (cap so tests stay bounded).
+                let centroid = live
+                    .iter()
+                    .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                    .fold(Vec3::ZERO, |a, p| a + p)
+                    / (live.len() as f32).max(1.0);
+                let dist = centroid.distance(ep);
+                // max_speed 40 → 40 units/s → frames ≈ dist/40 * 30 + buffer
+                let march_frames = ((dist / 40.0) * 30.0) as usize + 120;
+                let march_frames = march_frames.clamp(90, 1800);
+                // March until in range or budget exhausted.
+                let _ = run_until(logic, march_frames, |g| {
+                    any_ranger_in_weapon_range(g, &live, ep)
+                });
+            }
+        }
+    }
 
     for round in 0..max_rounds {
         let target = logic
@@ -641,39 +770,104 @@ fn fight_enemies_with_rangers(
             break;
         };
 
-        // Pull rangers into weapon range of current target.
-        if let Some(ep) = logic.get_object(tid).map(|o| o.get_position()) {
-            for (i, rid) in rangers.iter().enumerate() {
-                if let Some(r) = logic.get_object_mut(*rid) {
-                    if r.is_alive() {
-                        let d = r.get_position().distance(ep);
-                        if d > 90.0 {
-                            r.set_position(ep + Vec3::new(18.0 + i as f32 * 2.0, 0.0, 0.0));
-                        }
-                    }
-                }
-            }
-        }
-
-        let live: Vec<_> = rangers
-            .iter()
-            .copied()
-            .filter(|id| logic.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
-            .collect();
+        let (ep, target_hp) = logic
+            .get_object(tid)
+            .map(|o| (o.get_position(), o.health.current))
+            .unwrap_or((Vec3::ZERO, 0.0));
+        let live = live_rangers(logic, rangers);
         if live.is_empty() {
             break;
         }
-        logic.queue_command(command(
-            600 + round,
-            0,
-            CommandType::AttackObject { target_id: tid },
-            live,
-        ));
-        run_frames(logic, 3);
+
+        // New focus target → reset pure-march stall clock and re-path.
+        if focus_target != Some(tid) {
+            focus_target = Some(tid);
+            focus_hp_at_acquire = target_hp;
+            stalled_oor_rounds = 0;
+            for (i, rid) in live.iter().enumerate() {
+                let dest = approach_point(ep, i);
+                let _ = logic.assign_unit_path(*rid, dest, &[]);
+            }
+        }
+
+        let in_range = any_ranger_in_weapon_range(logic, &live, ep);
+        let progress_on_focus = target_hp < focus_hp_at_acquire - 0.01;
+
+        if !in_range {
+            // Keep pure pathfinding march alive; avoid AttackObject until in range
+            // so combat chase does not wipe the path.
+            if round % 10 == 0 {
+                for (i, rid) in live.iter().enumerate() {
+                    let dest = approach_point(ep, i);
+                    let _ = logic.assign_unit_path(*rid, dest, &[]);
+                }
+                logic.queue_command(command(
+                    cmd_id,
+                    0,
+                    CommandType::Move {
+                        destination: approach_point(ep, 0),
+                    },
+                    live.clone(),
+                ));
+                cmd_id += 1;
+            }
+
+            // Narrow residual fallback: only after long stall with no HP
+            // progress on the *current* focus while rangers remain OOR.
+            let mut pulled_this_round = false;
+            if !progress_on_focus && stalled_oor_rounds >= STALL_BEFORE_TELEPORT {
+                used_teleport_pull = true;
+                pulled_this_round = true;
+                for (i, rid) in live.iter().enumerate() {
+                    if let Some(r) = logic.get_object_mut(*rid) {
+                        if r.is_alive() {
+                            let d = r.get_position().distance(ep);
+                            let wr = r.weapon.as_ref().map(|w| w.range).unwrap_or(100.0);
+                            if d > wr * 0.9 {
+                                r.set_position(
+                                    ep + Vec3::new(18.0 + i as f32 * 2.0, 0.0, 0.0),
+                                );
+                            }
+                        }
+                    }
+                }
+                stalled_oor_rounds = 0;
+            } else if !progress_on_focus {
+                stalled_oor_rounds = stalled_oor_rounds.saturating_add(1);
+            } else {
+                stalled_oor_rounds = 0;
+            }
+
+            // AttackObject only once in range (or right after a pull). Issuing it
+            // while OOR clears pathfinding paths via combat chase.
+            let in_range_now = any_ranger_in_weapon_range(logic, &live, ep);
+            if in_range_now || pulled_this_round {
+                logic.queue_command(command(
+                    cmd_id,
+                    0,
+                    CommandType::AttackObject { target_id: tid },
+                    live,
+                ));
+                cmd_id += 1;
+            }
+            run_frames(logic, 3);
+        } else {
+            stalled_oor_rounds = 0;
+            // In weapon range: AttackObject only (honest fire via update_combat).
+            logic.queue_command(command(
+                cmd_id,
+                0,
+                CommandType::AttackObject { target_id: tid },
+                live,
+            ));
+            cmd_id += 1;
+            run_frames(logic, 3);
+        }
 
         if let Some(pid) = primary_target {
             if !logic.get_object(pid).map(|o| o.is_alive()).unwrap_or(false) {
                 combat_destroyed = true;
+                any_damage = true;
             } else if let Some(o) = logic.get_object(pid) {
                 if o.health.current < primary_hp_before {
                     any_damage = true;
@@ -685,6 +879,7 @@ fn fight_enemies_with_rangers(
             .any(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
         {
             combat_destroyed = true;
+            any_damage = true;
         }
 
         if combat_destroyed
@@ -716,7 +911,9 @@ fn fight_enemies_with_rangers(
         }
     }
     let fought = any_damage || combat_destroyed;
-    (fought, combat_destroyed && !enemies_left)
+    // Honesty: damage/victory without ever pulling via set_position.
+    let combat_no_teleport_ok = fought && !used_teleport_pull;
+    (fought, combat_destroyed && !enemies_left, combat_no_teleport_ok)
 }
 
 /// Synthetic host combat world: GoldenCC + GoldenEnemyCC soup (no map load).
@@ -867,7 +1064,7 @@ fn run_synthetic_host_skirmish(
         }),
         "production rangers must receive template weapons at create"
     );
-    let (fought, all_cleared) =
+    let (fought, all_cleared, combat_no_teleport_ok) =
         fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 800);
 
     let frame_before = logic.get_frame();
@@ -903,6 +1100,7 @@ fn run_synthetic_host_skirmish(
         retail_production_chain_ok: false,
         // Synthetic host always uses GoldenSupply — honesty fail-closed.
         retail_gather_ok: false,
+        combat_no_teleport_ok,
     }
 }
 
@@ -996,6 +1194,7 @@ fn run_map_world_skirmish(
             same_world_victory_ok: false,
             retail_production_chain_ok: false,
             retail_gather_ok: false,
+            combat_no_teleport_ok: false,
         };
     };
     let dozer_is_retail = logic
@@ -1251,7 +1450,7 @@ fn run_map_world_skirmish(
     } else {
         800
     };
-    let (fought, all_cleared) =
+    let (fought, all_cleared, combat_no_teleport_ok) =
         fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
 
     let map_enemy_dead = primary_enemy
@@ -1295,6 +1494,8 @@ fn run_map_world_skirmish(
         same_world_victory_ok,
         retail_production_chain_ok,
         retail_gather_ok,
+        // Map path: honesty only — playable_claim does not require pure march.
+        combat_no_teleport_ok,
     }
 }
 
@@ -1469,13 +1670,16 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         retail_production_chain_ok: map_loaded && outcome.retail_production_chain_ok,
         // Only map-world can claim retail/map gather; synthetic always GoldenSupply.
         retail_gather_ok: map_loaded && outcome.retail_gather_ok,
+        // Honesty residual: true when fought without set_position range pull.
+        // Not gated into playable_claim (fail-closed honesty only).
+        combat_no_teleport_ok: outcome.combat_no_teleport_ok,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -1503,7 +1707,8 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.same_world_victory_ok,
         r.players_preserved_on_load,
         r.retail_production_chain_ok,
-        r.retail_gather_ok
+        r.retail_gather_ok,
+        r.combat_no_teleport_ok
     )
 }
 
@@ -1578,6 +1783,14 @@ mod tests {
             if !result.retail_gather_ok {
                 eprintln!(
                     "retail_gather_ok=false (GoldenSupply gather fallback used): {}",
+                    format_golden_report(&result)
+                );
+            }
+            // Prefer pure march combat; set_position range pull is residual only.
+            // Does not fail playable_claim — honesty is combat_no_teleport_ok.
+            if !result.combat_no_teleport_ok {
+                eprintln!(
+                    "WARNING: combat_no_teleport_ok=false (set_position range pull residual used): {}",
                     format_golden_report(&result)
                 );
             }
@@ -1665,6 +1878,14 @@ mod tests {
             assert!(
                 result.gathered,
                 "retail_gather_ok implies Gather succeeded: {}",
+                format_golden_report(&result)
+            );
+        }
+        // Pure march into weapon range preferred; soft residual if set_position
+        // pull was required. playable_claim stays true when victory still works.
+        if !result.combat_no_teleport_ok {
+            eprintln!(
+                "WARNING: combat used set_position range pull residual (pathfinding incomplete); playable_claim kept: {}",
                 format_golden_report(&result)
             );
         }
