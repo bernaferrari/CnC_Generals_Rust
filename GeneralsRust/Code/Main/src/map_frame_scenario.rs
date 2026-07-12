@@ -56,32 +56,39 @@ impl MapFrameStatus {
     }
 }
 
-/// Resolve a candidate against cwd and a few parent dirs (repo root layouts).
+/// Resolve a candidate against cwd and parent dirs (repo root layouts).
+///
+/// Walks up to 5 parents so gates run from `Code/Main`, `GeneralsRust/`, or
+/// the monorepo root can all see `windows_game/...` at the repo root.
 fn resolve_path_candidate(candidate: &str) -> Option<PathBuf> {
     let direct = Path::new(candidate);
     if direct.is_file() {
         return Some(direct.to_path_buf());
     }
     if let Ok(cwd) = std::env::current_dir() {
-        let relatives = [
-            cwd.join(candidate),
-            cwd.join("..").join(candidate),
-            cwd.join("..").join("..").join(candidate),
-            cwd.join("windows_game")
-                .join("extracted_big_files")
-                .join("MapsZH")
-                .join("Maps")
-                .join(candidate),
-            cwd.join("..")
-                .join("windows_game")
-                .join("extracted_big_files")
-                .join("MapsZH")
-                .join("Maps")
-                .join(candidate),
-        ];
-        for path in relatives {
-            if path.is_file() {
-                return Some(path);
+        let mut base = cwd.clone();
+        for _ in 0..6 {
+            let candidates = [
+                base.join(candidate),
+                base.join("windows_game")
+                    .join("extracted_big_files")
+                    .join("MapsZH")
+                    .join("Maps")
+                    .join(candidate),
+                base.join("windows_game")
+                    .join("extracted_big_files_v2")
+                    .join("MapsZH")
+                    .join("Maps")
+                    .join(candidate),
+            ];
+            for path in candidates {
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+            match base.parent() {
+                Some(parent) => base = parent.to_path_buf(),
+                None => break,
             }
         }
     }
