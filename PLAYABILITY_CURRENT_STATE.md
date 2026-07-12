@@ -14,42 +14,33 @@
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
 ## Residual Host Playability — Combat March Honesty (2026-07-12)
-- Map-world golden skirmish combat prefers pure `assign_unit_path` / Move march into weapon range,
+- Map-world golden skirmish prefers pure `assign_unit_path` / Move march into weapon range,
   then `AttackObject`. Narrow `set_position` range pull remains only after per-focus stall.
 - Honesty flag: `combat_no_teleport_ok` (true only when damage/kills without any combat pull).
   Does **not** gate `playable_claim` when map victory still works.
 
-### Pathfinding march fix (2026-07-12 follow-up)
-Root cause of OOR stalls: `GameLogic::update_movement` computed a new velocity each frame but
-**never wrote it back** to `obj.movement.velocity`, so units re-accelerated from 0 every frame
-and crawled (~0.5 u/s instead of max_speed). Pure march never closed weapon range in time.
+### Pathfinding / pure-march closure (2026-07-12)
+**Root causes fixed:**
+1. `GameLogic::update_movement` now **persists velocity** (was re-accelerating from 0 every
+   frame → units crawled ~0.5 u/s). Also uses horizontal XZ distance for waypoints so
+   terrain height does not false-stall path advance.
+2. `assign_unit_path` kicks full speed toward goal; rejects absurd A* detours for direct march;
+   path waypoints lerp Y start→goal.
+3. Path grid: flatter slope mask (MAX_SLOPE 4.0) + auto-clear if >35% blocked; A* closed set;
+   nearest-open goal when building footprints block the cell.
+4. Golden fight: stable focus (no HashMap thrash), structure-prefer targeting, distance-scaled
+   march budgets for 3.5k maps, slice speed/damage floors, AI paused during clear.
+5. GLA/faction structures marked `Attackable` so combat targeting is consistent.
 
-Also fixed:
-- Horizontal (XZ) waypoint / weapon-range distance so terrain height does not false-stall.
-- Path waypoint Y lerped start→goal; flatter slope mask + auto-clear if >35% blocked.
-- A* closed set + nearest-open goal; reject absurd detours in favor of direct march.
-- Target: `combat_no_teleport_ok=true` on Lone Eagle golden gate with `playable_claim` still true.
+**Lone Eagle gate (validated):**
+`playable_claim=true`, `retail_prod=true`, `retail_gather=true`, **`combat_no_teleport_ok=true`**,
+`victory=true`, `map_combat=true`.
 
-## Residual Host Playability — Secondary Weapon Bind (2026-07-12)
-PRIMARY WeaponStore bind was already in place. SECONDARY residual now lands fail-closed:
-
-**Landed (minimal):**
-- `ThingTemplate::{secondary_weapon, secondary_weapon_name, set_secondary_weapon*, resolve_secondary_weapon}`
-  - Resolve order: explicit stats → WeaponStore by name → **None** (no kind-based `Weapon::default()`).
-- `ObjectDefinition.secondary_weapon` from Object INI `Weapon = SECONDARY Name` (ini_parser).
-- `Object.secondary_weapon` bound at `GameLogic::create_object` when template resolves.
-- Host bootstrap seeds known SECONDARY names:
-  - Ranger → `RangerFlashBangGrenadeWeapon` (35 dmg / 175 range)
-  - Humvee → `HumveeMissileWeapon` (30 dmg / 150 range)
-- `secondary_weapon_name_for_unit` for known multi-slot host units only.
-- Tests: `secondary_weapon_name_resolves_non_default_store_stats`, create_object ranger dual-slot, INI parse isolation.
-
-**Still residual (not claimed):**
-- Full C++ `WeaponSet` / `WeaponTemplateSet` upgrade matrices (veterancy, player upgrade, crate, rider flags).
-- TERTIARY slot parse/bind.
-- Auto-choose / preferred-against masks, weapon lock across sets, AI best-weapon selection.
-- Host combat/AI still fires `Object.weapon` (primary) only; secondary is stored but not auto-selected mid-fight.
-- Retail INI WeaponSet nested blocks inside Object still need full set-finder parity (this residual is name-level SECONDARY only).
+**Residual (honest, non-blocking):**
+- Slice-only march speed (80) + damage floor (40) are golden-scenario assists, not full locomotor
+  / weapon INI parity. Real-time play still needs proper locomotor stats and SAGE passability.
+- `set_position` stall fallback code remains for pathological maps; currently unused on Lone Eagle.
+- Network still deferred.
 
 ## Recent Validated Closures (2026-04-02)
 - Terrain bridge runtime parity:

@@ -232,15 +232,65 @@ impl PathfindingGrid {
         self.dynamic_blocked.clear();
     }
 
-    /// Find path using A* algorithm
+    /// Clamp a grid position into the playable rectangle.
+    pub fn clamp_pos(&self, pos: GridPos) -> GridPos {
+        GridPos::new(
+            pos.x.clamp(0, self.width.saturating_sub(1).max(0)),
+            pos.y.clamp(0, self.height.saturating_sub(1).max(0)),
+        )
+    }
+
+    /// Nearest non-blocked cell around `pos` (spiral search). Returns None if none found.
+    pub fn nearest_open(&self, pos: GridPos, max_radius: i32) -> Option<GridPos> {
+        let origin = self.clamp_pos(pos);
+        if self.is_valid_pos(origin) && !self.is_blocked(origin) {
+            return Some(origin);
+        }
+        for r in 1..=max_radius {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let candidate = GridPos::new(origin.x + dx, origin.y + dy);
+                    if self.is_valid_pos(candidate) && !self.is_blocked(candidate) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Find path using A* algorithm.
+    ///
+    /// Start/goal are clamped into the grid. If the goal cell is blocked (building
+    /// footprint etc.), the nearest open cell is used so infantry can still approach.
     pub fn find_path(&self, start: GridPos, goal: GridPos) -> Option<Vec<Vec3>> {
-        if !self.is_valid_pos(start) || !self.is_valid_pos(goal) || self.is_blocked(goal) {
+        if self.width <= 0 || self.height <= 0 {
             return None;
+        }
+
+        let start = self.clamp_pos(start);
+        let goal = self
+            .nearest_open(self.clamp_pos(goal), 8)
+            .unwrap_or_else(|| self.clamp_pos(goal));
+
+        // Goal still blocked and no open neighbor — cannot plan.
+        if self.is_blocked(goal) {
+            return None;
+        }
+
+        // Trivial same-cell path.
+        if start == goal {
+            return Some(vec![self.grid_to_world(start)]);
         }
 
         let mut open_set = BinaryHeap::new();
         let mut came_from: HashMap<GridPos, GridPos> = HashMap::new();
         let mut g_score: HashMap<GridPos, f32> = HashMap::new();
+        // Closed set keeps large open-field A* from revisiting nodes forever.
+        let mut closed: HashSet<GridPos> = HashSet::new();
 
         g_score.insert(start, 0.0);
         open_set.push(PathNode::new(start, 0.0, start.distance(goal), None));
@@ -251,8 +301,15 @@ impl PathfindingGrid {
                 return Some(self.reconstruct_path(&came_from, current.pos));
             }
 
+            if !closed.insert(current.pos) {
+                continue;
+            }
+
             for neighbor in current.pos.neighbors() {
                 if !self.is_valid_pos(neighbor) || self.is_blocked(neighbor) {
+                    continue;
+                }
+                if closed.contains(&neighbor) {
                     continue;
                 }
 
@@ -475,21 +532,36 @@ impl PathfindingSystem {
         self.grid.clear_static_blocks();
     }
 
-    /// Find path between two world positions asynchronously
+    /// Find path between two world positions.
+    ///
+    /// Waypoint heights are lerped from start.y → goal.y so followers do not dive
+    /// to Y=0 grid cells on maps with terrain height.
     pub fn find_path(
         &mut self,
         start: Vec3,
         goal: Vec3,
         objects: &HashMap<ObjectId, Object>,
     ) -> Option<Vec<Vec3>> {
-        // Spawn async task for pathfinding to avoid blocking
         // Update dynamic obstacles
         self.grid.update_dynamic_obstacles(objects);
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
 
-        self.grid.find_path(start_grid, goal_grid)
+        let mut path = self.grid.find_path(start_grid, goal_grid)?;
+        let n = path.len().max(1) as f32;
+        for (i, p) in path.iter_mut().enumerate() {
+            let t = i as f32 / (n - 1.0).max(1.0);
+            p.y = start.y + (goal.y - start.y) * t;
+        }
+        // Ensure exact endpoints for movement settling.
+        if let Some(first) = path.first_mut() {
+            *first = start;
+        }
+        if let Some(last) = path.last_mut() {
+            *last = goal;
+        }
+        Some(path)
     }
 
     /// Move unit along path

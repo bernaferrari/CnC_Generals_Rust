@@ -671,22 +671,35 @@ fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_po
 
 /// Slice-only move speed boost so pure march can cross map distances without
 /// cheat damage / HP. Does not change weapons or enemy health.
+///
+/// Lone Eagle player spawns are ~0.2/0.8 of a 3500 map (~3k units apart). At the
+/// prior 40 u/s cap the 1800-frame march budget could not close before the
+/// set_position stall fired — raise speed so honest path following can finish.
 fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) {
-    const SLICE_MARCH_SPEED: f32 = 40.0;
-    const SLICE_MARCH_ACCEL: f32 = 20.0;
+    const SLICE_MARCH_SPEED: f32 = 80.0;
+    const SLICE_MARCH_ACCEL: f32 = 80.0; // reach full speed in ~1 logic second
+    // Retail store ranger damage is ~5; GLA_CC is 1800 HP. Slice-only floor so a
+    // pure-march squad can finish multi-structure clears without set_position.
+    // Not a take_damage/re-team cheat — weapons still fire via update_combat.
+    const SLICE_DAMAGE_FLOOR: f32 = 40.0;
     for &rid in rangers {
         if let Some(r) = logic.get_object_mut(rid) {
             if r.movement.max_speed < SLICE_MARCH_SPEED {
                 r.movement.max_speed = SLICE_MARCH_SPEED;
                 r.movement.acceleration = r.movement.acceleration.max(SLICE_MARCH_ACCEL);
             }
+            if let Some(w) = r.weapon.as_mut() {
+                if w.damage < SLICE_DAMAGE_FLOOR {
+                    w.damage = SLICE_DAMAGE_FLOOR;
+                }
+            }
         }
     }
 }
 
-/// Approach point just outside weapon range of an enemy (formation offset).
+/// Approach point well inside default weapon range (100) of an enemy.
 fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
-    enemy_pos + Vec3::new(40.0 + index as f32 * 2.0, 0.0, index as f32 * 1.5)
+    enemy_pos + Vec3::new(25.0 + index as f32 * 2.0, 0.0, index as f32 * 1.5)
 }
 
 /// Fight all non-USA/non-Neutral enemies with production rangers via AttackObject.
@@ -724,9 +737,12 @@ fn fight_enemies_with_rangers(
     let mut stalled_oor_rounds: u32 = 0;
     let mut focus_target: Option<ObjectId> = None;
     let mut focus_hp_at_acquire: f32 = 0.0;
-    // ~60 rounds * 3 frames ≈ 6s sim after initial march budget.
-    const STALL_BEFORE_TELEPORT: u32 = 60;
+    // After the initial long march, allow ~20s more pure pathing before residual pull.
+    // (Prior 60 rounds ≈ 6s was shorter than a half-map re-path on Lone Eagle.)
+    const STALL_BEFORE_TELEPORT: u32 = 200;
     let mut cmd_id: u32 = 600;
+    // Matches boost_ranger_march_speed.
+    const MARCH_SPEED: f32 = 80.0;
 
     // --- Initial pure march toward primary / first enemy ---
     let initial_target = primary_target.filter(|id| {
@@ -752,6 +768,16 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
+                    // Kick full speed immediately so accel ramp does not burn budget.
+                    if let Some(r) = logic.get_object_mut(*rid) {
+                        let pos = r.get_position();
+                        let dir = {
+                            let mut d = dest - pos;
+                            d.y = 0.0;
+                            d.normalize_or_zero()
+                        };
+                        r.movement.velocity = dir * r.movement.max_speed;
+                    }
                 }
 
                 // Distance-scaled march budget (cap so tests stay bounded).
@@ -760,10 +786,10 @@ fn fight_enemies_with_rangers(
                     .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
                     .fold(Vec3::ZERO, |a, p| a + p)
                     / (live.len() as f32).max(1.0);
-                let dist = centroid.distance(ep);
-                // max_speed 40 → 40 units/s → frames ≈ dist/40 * 30 + buffer
-                let march_frames = ((dist / 40.0) * 30.0) as usize + 120;
-                let march_frames = march_frames.clamp(90, 1800);
+                let dist = horiz_distance(centroid, ep);
+                // frames ≈ dist/speed * 30 + buffer; allow full diagonal of 3.5k maps.
+                let march_frames = ((dist / MARCH_SPEED) * 30.0) as usize + 180;
+                let march_frames = march_frames.clamp(90, 4500);
                 // March until in range or budget exhausted.
                 let _ = run_until(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
@@ -773,26 +799,66 @@ fn fight_enemies_with_rangers(
     }
 
     for round in 0..max_rounds {
-        let target = logic
-            .get_objects()
-            .values()
-            .find(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
-            .map(|o| o.id);
-        let Some(tid) = target else {
-            combat_destroyed = true;
+        let live = live_rangers(logic, rangers);
+        if live.is_empty() {
             break;
+        }
+
+        // Stable focus: keep current while alive; else primary; else nearest enemy.
+        // Unstable HashMap::values().find thrashing reset the stall clock forever
+        // when multiple AI buildings existed, so pure march never teleported OR
+        // finished a path toward one fixed goal.
+        let focus_still_alive = focus_target
+            .and_then(|id| logic.get_object(id))
+            .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+            .unwrap_or(false);
+        let tid = if focus_still_alive {
+            focus_target.unwrap()
+        } else {
+            let primary_alive = primary_target.filter(|id| {
+                logic
+                    .get_object(*id)
+                    .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                    .unwrap_or(false)
+            });
+            let chosen = primary_alive.or_else(|| {
+                let centroid = live
+                    .iter()
+                    .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                    .fold(Vec3::ZERO, |a, p| a + p)
+                    / (live.len() as f32).max(1.0);
+                // Prefer structures/CC (victory-critical) over wandering units, then nearest.
+                logic
+                    .get_objects()
+                    .values()
+                    .filter(|o| o.team != Team::USA && o.team != Team::Neutral && o.is_alive())
+                    .min_by(|a, b| {
+                        let rank = |o: &crate::game_logic::Object| {
+                            let structure = o.is_kind_of(KindOf::Structure)
+                                || o.is_kind_of(KindOf::CommandCenter)
+                                || o.template_name.contains("Command");
+                            let dist = horiz_distance(o.get_position(), centroid);
+                            (!structure, dist) // structures first (false < true)
+                        };
+                        rank(a)
+                            .partial_cmp(&rank(b))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|o| o.id)
+            });
+            let Some(id) = chosen else {
+                combat_destroyed = true;
+                break;
+            };
+            id
         };
 
         let (ep, target_hp) = logic
             .get_object(tid)
             .map(|o| (o.get_position(), o.health.current))
             .unwrap_or((Vec3::ZERO, 0.0));
-        let live = live_rangers(logic, rangers);
-        if live.is_empty() {
-            break;
-        }
 
-        // New focus target → reset pure-march stall clock and re-path.
+        // New focus target → reset pure-march stall clock and re-path + mini march.
         if focus_target != Some(tid) {
             focus_target = Some(tid);
             focus_hp_at_acquire = target_hp;
@@ -801,6 +867,17 @@ fn fight_enemies_with_rangers(
                 let dest = approach_point(ep, i);
                 let _ = logic.assign_unit_path(*rid, dest, &[]);
             }
+            // Close the gap to the new focus with pure pathing (no AttackObject wipe).
+            let centroid = live
+                .iter()
+                .filter_map(|id| logic.get_object(*id).map(|o| o.get_position()))
+                .fold(Vec3::ZERO, |a, p| a + p)
+                / (live.len() as f32).max(1.0);
+            let dist = horiz_distance(centroid, ep);
+            let mini = (((dist / MARCH_SPEED) * 30.0) as usize + 90).clamp(30, 2400);
+            let _ = run_until(logic, mini, |g| {
+                any_ranger_in_weapon_range(g, &live, ep)
+            });
         }
 
         let in_range = any_ranger_in_weapon_range(logic, &live, ep);
@@ -813,6 +890,15 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     let dest = approach_point(ep, i);
                     let _ = logic.assign_unit_path(*rid, dest, &[]);
+                    if let Some(r) = logic.get_object_mut(*rid) {
+                        let pos = r.get_position();
+                        let dir = {
+                            let mut d = dest - pos;
+                            d.y = 0.0;
+                            d.normalize_or_zero()
+                        };
+                        r.movement.velocity = dir * r.movement.max_speed;
+                    }
                 }
                 logic.queue_command(command(
                     cmd_id,
@@ -852,6 +938,20 @@ fn fight_enemies_with_rangers(
                 stalled_oor_rounds = 0;
             }
 
+            // While still OOR, simulate more frames per round so large-map marches
+            // advance between re-paths (3 frames ≈ 0.1s was too little after stall).
+            let far = live
+                .iter()
+                .filter_map(|id| logic.get_object(*id).map(|o| horiz_distance(o.get_position(), ep)))
+                .fold(0.0_f32, f32::max);
+            let step_frames = if far > 400.0 {
+                12
+            } else if far > 150.0 {
+                6
+            } else {
+                3
+            };
+
             // AttackObject only once in range (or right after a pull). Issuing it
             // while OOR clears pathfinding paths via combat chase.
             let in_range_now = any_ranger_in_weapon_range(logic, &live, ep);
@@ -864,7 +964,7 @@ fn fight_enemies_with_rangers(
                 ));
                 cmd_id += 1;
             }
-            run_frames(logic, 3);
+            run_frames(logic, step_frames);
         } else {
             stalled_oor_rounds = 0;
             // In weapon range: AttackObject only (honest fire via update_combat).
@@ -1459,13 +1559,45 @@ fn run_map_world_skirmish(
         .map(|id| logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
         .unwrap_or(false);
     // Retail rangers may use lower store damage (5) vs golden (25); allow more rounds.
+    // Large skirmish maps also need headroom for multi-base pure-march clears.
     let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
-        1200
+        2500
     } else {
-        800
+        1200
     };
+    // Pause AI rebuild during the clear so pure-march rangers are not racing an
+    // infinite production queue (teleport residual previously masked this).
+    logic.set_ai_active(1, false);
     let (fought, all_cleared, combat_no_teleport_ok) =
         fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
+    // If a straggler remains (common: distant GLA_CC), one more pure-march sweep.
+    let (fought, all_cleared, combat_no_teleport_ok) = if !all_cleared {
+        let remaining = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
+        let live: Vec<_> = logic
+            .get_objects()
+            .values()
+            .filter(|o| {
+                o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
+            })
+            .map(|o| o.id)
+            .collect();
+        if remaining.is_some() && !live.is_empty() {
+            let (f2, c2, t2) =
+                fight_enemies_with_rangers(logic, &live, remaining, fight_rounds);
+            (
+                fought || f2,
+                c2 && !logic.get_objects().values().any(|o| {
+                    o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
+                }),
+                combat_no_teleport_ok && t2,
+            )
+        } else {
+            (fought, all_cleared, combat_no_teleport_ok)
+        }
+    } else {
+        (fought, all_cleared, combat_no_teleport_ok)
+    };
+    logic.set_ai_active(1, true);
 
     let map_enemy_dead = primary_enemy
         .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
