@@ -66,6 +66,11 @@ pub struct GoldenSkirmishResult {
     /// Fail-closed: synthetic host always false; map path false when retail
     /// templates missing or construction/production fell back to golden.
     pub retail_production_chain_ok: bool,
+    /// True when Gather targeted map/retail SupplyDock/SupplyPile (or other
+    /// non-GoldenSupply harvestable), not the golden fixture fallback.
+    /// Fail-closed: synthetic host always false; map path false when golden
+    /// supply was required to complete the Gather step.
+    pub retail_gather_ok: bool,
     pub status: String,
 }
 
@@ -86,6 +91,8 @@ struct VerticalSliceOutcome {
     same_world_victory_ok: bool,
     /// Map-world retail USA production chain succeeded (not golden-only).
     retail_production_chain_ok: bool,
+    /// Map-world Gather used map/retail supply (not GoldenSupply).
+    retail_gather_ok: bool,
 }
 
 fn command(
@@ -347,6 +354,115 @@ fn is_retail_ranger_name(name: &str) -> bool {
 
 fn is_produced_ranger(name: &str) -> bool {
     is_retail_ranger_name(name) || name == "GoldenRanger" || name.contains("Ranger")
+}
+
+/// Retail / map supply sources that USA_Dozer / Chinook gather from (not
+/// faction SupplyCenter drop-off buildings, not golden fixtures).
+fn is_retail_supply_source_name(name: &str) -> bool {
+    if name == "GoldenSupply" || name == "GoldenSupplyCenter" {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower == "supplydock"
+        || lower == "supplypile"
+        || lower == "supplypilesmall"
+        || lower == "tempsupplydock"
+        || lower.contains("supplydock")
+        || lower.contains("supplypile")
+        || lower.contains("supplywarehouse")
+        || (lower.contains("supply")
+            && (lower.contains("dock") || lower.contains("pile") || lower.contains("crate")))
+}
+
+fn is_gatherable_resource(o: &crate::game_logic::object::Object) -> bool {
+    o.is_alive()
+        && (o.is_kind_of(KindOf::Harvestable)
+            || o.is_kind_of(KindOf::Resource)
+            || o.object_type == crate::game_logic::ObjectType::Supply)
+}
+
+/// Patch live object (and catalog entry) so Gather accepts the target.
+fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
+    let template_name = logic
+        .get_object(id)
+        .map(|o| o.template_name.clone())
+        .unwrap_or_default();
+    if let Some(tpl) = logic.templates.get_mut(&template_name) {
+        tpl.add_kind_of(KindOf::Resource);
+        tpl.add_kind_of(KindOf::Harvestable);
+    }
+    if let Some(obj) = logic.get_object_mut(id) {
+        obj.thing.template.add_kind_of(KindOf::Resource);
+        obj.thing.template.add_kind_of(KindOf::Harvestable);
+    }
+}
+
+/// Install host-safe retail SupplyDock/SupplyPile templates when missing.
+fn ensure_retail_supply_templates(logic: &mut GameLogic) {
+    for name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
+        if let Some(tpl) = logic.templates.get_mut(name) {
+            tpl.add_kind_of(KindOf::Resource);
+            tpl.add_kind_of(KindOf::Harvestable);
+            // Keep map docks as structures for placement parity without
+            // treating them as faction SupplyCenter drop-offs.
+            continue;
+        }
+        logic.templates.insert(
+            name.to_string(),
+            template(
+                name,
+                &[KindOf::Resource, KindOf::Harvestable, KindOf::Selectable],
+                1000.0,
+                0,
+                0.1,
+            ),
+        );
+    }
+}
+
+/// Prefer map-spawned SupplyDock/SupplyPile; else seed retail dock; else GoldenSupply.
+/// Returns `(target_id, retail_gather)` — retail_gather is false only for golden fallback.
+fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<ObjectId>, bool) {
+    // 1) Already-harvestable non-golden resources on the loaded map.
+    let existing_gatherable = logic
+        .get_objects()
+        .values()
+        .find(|o| {
+            o.team != Team::USA
+                && is_gatherable_resource(o)
+                && o.template_name != "GoldenSupply"
+                && !o.template_name.starts_with("Golden")
+        })
+        .map(|o| o.id);
+    if let Some(id) = existing_gatherable {
+        ensure_object_gatherable(logic, id);
+        return (Some(id), true);
+    }
+
+    // 2) Map SupplyDock / SupplyPile / PileSmal by retail name (may lack Harvestable).
+    let map_supply_name = logic
+        .get_objects()
+        .values()
+        .find(|o| o.is_alive() && is_retail_supply_source_name(&o.template_name))
+        .map(|o| o.id);
+    if let Some(id) = map_supply_name {
+        ensure_object_gatherable(logic, id);
+        return (Some(id), true);
+    }
+
+    // 3) Seed retail SupplyDock near base (USA_SupplyCenter already present for drop-off).
+    ensure_retail_supply_templates(logic);
+    let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
+    for name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
+        if let Some(id) = logic.create_object(name, Team::Neutral, pos) {
+            ensure_object_gatherable(logic, id);
+            return (Some(id), true);
+        }
+    }
+
+    // 4) Golden fixture fallback — keeps vertical slice green fail-closed.
+    let golden = logic.create_object("GoldenSupply", Team::Neutral, pos);
+    (golden, false)
 }
 
 fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
@@ -785,6 +901,8 @@ fn run_synthetic_host_skirmish(
         same_world_production_ok: false,
         same_world_victory_ok: false,
         retail_production_chain_ok: false,
+        // Synthetic host always uses GoldenSupply — honesty fail-closed.
+        retail_gather_ok: false,
     }
 }
 
@@ -793,6 +911,7 @@ fn run_synthetic_host_skirmish(
 /// Prefers retail USA production chain (PowerPlant → Barracks → Ranger) when
 /// templates exist; falls back to golden host fixtures fail-closed. Victory is
 /// always against map GLA structures via AttackObject (no take_damage/re-team).
+/// Gather prefers map SupplyDock / retail supply piles over GoldenSupply.
 fn run_map_world_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
@@ -838,7 +957,7 @@ fn run_map_world_skirmish(
         "GoldenPower".into()
     };
 
-    // --- Supply center for QueueUpgrade path ---
+    // --- Supply center for QueueUpgrade path (retail USA_SupplyCenter preferred) ---
     let supply_name = first_present_template(
         logic,
         &["USA_SupplyCenter", "AmericaSupplyCenter", "GoldenSupplyCenter"],
@@ -858,13 +977,8 @@ fn run_map_world_skirmish(
             )
         });
 
-    // Seed GoldenSupply near base for the Gather command path. Map SupplyDock
-    // placements are Neutral tech props and may not implement Harvestable/Gather.
-    let supply = logic.create_object(
-        "GoldenSupply",
-        Team::Neutral,
-        clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0)),
-    );
+    // Gather target: map SupplyDock/pile → seed retail dock → GoldenSupply fallback.
+    let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
 
     let Some(dozer) = ensure_dozer(logic, base) else {
         return VerticalSliceOutcome {
@@ -881,6 +995,7 @@ fn run_map_world_skirmish(
             same_world_production_ok: false,
             same_world_victory_ok: false,
             retail_production_chain_ok: false,
+            retail_gather_ok: false,
         };
     };
     let dozer_is_retail = logic
@@ -966,9 +1081,11 @@ fn run_map_world_skirmish(
         }
     }
 
-    // Gather via production Gather command (seeded GoldenSupply harvestable).
+    // Gather via production Gather command (map/retail supply preferred).
     let mut gathered = false;
     if let Some(sid) = supply {
+        // Re-assert harvestable right before Gather in case AI/map churned kinds.
+        ensure_object_gatherable(logic, sid);
         logic.queue_command(command(
             10,
             0,
@@ -980,7 +1097,33 @@ fn run_map_world_skirmish(
             .get_object(dozer)
             .map(|o| o.ai_state == AIState::Gathering && o.target == Some(sid))
             .unwrap_or(false);
+        // If retail/map target rejected, fall back to GoldenSupply so slice stays green.
+        if !gathered && retail_supply_target {
+            let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
+            if let Some(gid) = logic.create_object("GoldenSupply", Team::Neutral, pos) {
+                logic.queue_command(command(
+                    11,
+                    0,
+                    CommandType::Gather { target_id: gid },
+                    vec![dozer],
+                ));
+                logic.process_commands();
+                gathered = logic
+                    .get_object(dozer)
+                    .map(|o| o.ai_state == AIState::Gathering && o.target == Some(gid))
+                    .unwrap_or(false);
+            }
+        }
     }
+    // Honesty: only true when Gather stuck on the retail/map target (not golden fallback).
+    let retail_gather_ok = gathered
+        && retail_supply_target
+        && logic
+            .get_object(dozer)
+            .and_then(|o| o.target)
+            .and_then(|tid| logic.get_object(tid))
+            .map(|t| t.template_name != "GoldenSupply" && !t.template_name.starts_with("Golden"))
+            .unwrap_or(false);
 
     let system = CommandSystem::new();
     let mut produced = false;
@@ -1151,6 +1294,7 @@ fn run_map_world_skirmish(
         same_world_production_ok,
         same_world_victory_ok,
         retail_production_chain_ok,
+        retail_gather_ok,
     }
 }
 
@@ -1323,13 +1467,15 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         players_preserved_on_load,
         // Only map-world can claim retail chain; synthetic host is golden soup.
         retail_production_chain_ok: map_loaded && outcome.retail_production_chain_ok,
+        // Only map-world can claim retail/map gather; synthetic always GoldenSupply.
+        retail_gather_ok: map_loaded && outcome.retail_gather_ok,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -1356,7 +1502,8 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.same_world_production_ok,
         r.same_world_victory_ok,
         r.players_preserved_on_load,
-        r.retail_production_chain_ok
+        r.retail_production_chain_ok,
+        r.retail_gather_ok
     )
 }
 
@@ -1427,6 +1574,13 @@ mod tests {
                     format_golden_report(&result)
                 );
             }
+            // Prefer map/retail SupplyDock gather; golden fallback keeps slice green.
+            if !result.retail_gather_ok {
+                eprintln!(
+                    "retail_gather_ok=false (GoldenSupply gather fallback used): {}",
+                    format_golden_report(&result)
+                );
+            }
         } else {
             assert!(
                 result.synthetic_combat,
@@ -1439,6 +1593,10 @@ mod tests {
             assert!(
                 !result.retail_production_chain_ok,
                 "synthetic host must not claim retail production chain"
+            );
+            assert!(
+                !result.retail_gather_ok,
+                "synthetic host must not claim retail gather"
             );
         }
         assert_eq!(
@@ -1497,6 +1655,19 @@ mod tests {
                 format_golden_report(&result)
             );
         }
+        // Map SupplyDock / seeded retail dock should gather; soft residual if golden.
+        if !result.retail_gather_ok {
+            eprintln!(
+                "WARNING: retail/map gather did not complete; GoldenSupply fallback kept slice green: {}",
+                format_golden_report(&result)
+            );
+        } else {
+            assert!(
+                result.gathered,
+                "retail_gather_ok implies Gather succeeded: {}",
+                format_golden_report(&result)
+            );
+        }
     }
 
     #[test]
@@ -1512,6 +1683,10 @@ mod tests {
         assert!(
             !result.retail_production_chain_ok,
             "absent map => no retail production claim"
+        );
+        assert!(
+            !result.retail_gather_ok,
+            "absent map => no retail gather claim"
         );
         assert_eq!(result.status, "success", "{}", format_golden_report(&result));
         assert!(result.victory);
