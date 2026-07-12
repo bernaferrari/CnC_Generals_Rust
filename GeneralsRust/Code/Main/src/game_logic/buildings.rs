@@ -89,9 +89,12 @@ pub struct ProductionItem {
 
 impl BuildingData {
     pub fn new(building_type: BuildingType) -> Self {
+        // Fail-closed residual: only bunker-style garrisonable structures accept
+        // infantry. Faction producers (barracks/factories/CC) are not garrison
+        // containers in retail — capacity stays 0 so Enter rejects them.
         let (power_output, power_requirement, max_garrison) = match building_type {
             BuildingType::CommandCenter => (0, -3, 0),
-            BuildingType::Barracks => (0, -1, 10),
+            BuildingType::Barracks => (0, -1, 0),
             BuildingType::WarFactory => (0, -2, 0),
             BuildingType::Airfield => (0, -3, 0),
             BuildingType::RepairPad => (0, -1, 0),
@@ -102,7 +105,9 @@ impl BuildingData {
             BuildingType::SupplyDropZone => (0, 0, 0),
             BuildingType::Palace => (0, -5, 0),
             BuildingType::Propaganda => (0, -1, 0),
-            BuildingType::Bunker => (0, 0, 20),
+            // Civilian bunkers / garrison buildings — residual capacity (not full
+            // C++ GarrisonContain max or fire-point matrix).
+            BuildingType::Bunker => (0, 0, 5),
         };
 
         Self {
@@ -473,6 +478,8 @@ impl BuildingBehavior {
         if let Some(unit) = objects.get_mut(&unit_id) {
             unit.deselect();
             unit.stop();
+            unit.target = Some(building_id);
+            unit.contained_by = Some(building_id);
             unit.ai_state = AIState::Garrisoned;
             unit.status.moving = false;
             unit.status.attacking = false;
@@ -513,6 +520,8 @@ impl BuildingBehavior {
         if let Some(unit) = objects.get_mut(&unit_id) {
             let exit_offset = forward * (unit.selection_radius + 6.0);
             unit.set_position(building_pos + exit_offset);
+            unit.target = None;
+            unit.contained_by = None;
             unit.ai_state = AIState::Idle;
             unit.status.moving = false;
             unit.status.attacking = false;
@@ -643,3 +652,4 @@ mod tests {
         );
     }
 }
+
