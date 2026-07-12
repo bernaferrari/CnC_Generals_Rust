@@ -3918,32 +3918,44 @@ impl GameLogic {
         self.update_support_states(object_ids, dt);
     }
 
-    /// Update combat for all objects
-    fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
+    /// Update combat for all objects.
+    ///
+    /// Fail-closed residual: uses secondary when present and selected by
+    /// `Object::select_combat_weapon_slot` (prefer secondary vs structures when
+    /// secondary damage is better; alternate secondary when primary not ready).
+    /// Not full C++ AutoChoose / PreferredAgainst matrices.
+    ///
+    /// `pub(crate)` so residual/unit tests can exercise the fire path directly.
+    pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
         for &attacker_id in object_ids {
             let Some(attacker) = self.objects.get(&attacker_id) else {
                 continue;
             };
-            let Some(weapon) = attacker.weapon.as_ref() else {
+            // Need at least one weapon slot bound.
+            if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
                 continue;
-            };
+            }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-            if current_time - weapon.last_fire_time < weapon.reload_time {
+
+            // Any slot ready on reload timer? If all reloading, skip (no chase).
+            let any_ready = attacker
+                .weapon
+                .as_ref()
+                .is_some_and(|w| Object::weapon_ready(w, current_time))
+                || attacker
+                    .secondary_weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time));
+            if !any_ready {
                 continue;
             }
 
             let attacker_team = attacker.team;
             let target_id = attacker.target;
             let target_location = attacker.target_location;
-            let mut weapon_damage = weapon.damage;
-            if attacker.overcharge_enabled {
-                weapon_damage *= 1.1;
-            }
-            if attacker.active_weapon_slot == 1 {
-                weapon_damage *= 1.15;
-            }
+            let overcharge = attacker.overcharge_enabled;
 
-            let mut fired = false;
+            let mut fired_slot: Option<u8> = None;
 
             // Standard object-to-object attack.
             if let Some(target_id) = target_id {
@@ -3966,19 +3978,36 @@ impl GameLogic {
                     continue;
                 }
 
-                let can_target = {
+                // Choose primary/secondary, then fire if legal target.
+                let (selected_slot, enemy_or_forced) = {
                     if let (Some(attacker), Some(target)) =
                         (self.objects.get(&attacker_id), self.objects.get(&target_id))
                     {
-                        let enemy_or_forced = attacker.force_attack || attacker.team != target.team;
-                        attacker.can_target(target) && enemy_or_forced
+                        let enemy_or_forced =
+                            attacker.force_attack || attacker.team != target.team;
+                        let slot = if enemy_or_forced {
+                            attacker.select_combat_weapon_slot(target, current_time)
+                        } else {
+                            None
+                        };
+                        (slot, enemy_or_forced)
                     } else {
-                        false
+                        (None, false)
                     }
                 };
 
-                if can_target {
-                    fired = true;
+                if let Some(slot) = selected_slot {
+                    let mut weapon_damage = self
+                        .objects
+                        .get(&attacker_id)
+                        .and_then(|a| a.weapon_slot(slot))
+                        .map(|w| w.damage)
+                        .unwrap_or(0.0);
+                    if overcharge {
+                        weapon_damage *= 1.1;
+                    }
+
+                    fired_slot = Some(slot);
                     if let Some(target) = self.objects.get_mut(&target_id) {
                         let destroyed = target.take_damage(weapon_damage);
                         if destroyed {
@@ -3992,28 +4021,35 @@ impl GameLogic {
                             }
                         }
                     }
-                } else if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    // Match classic behavior: an attack order should chase a valid target until
-                    // the weapon can fire (unless the unit is immobile).
-                    if attacker.can_move() {
-                        attacker.movement.path.clear();
-                        attacker.movement.current_path_index = 0;
-                        attacker.movement.target_position = Some(target_position);
-                        attacker.status.moving = true;
-                        attacker.ai_state = AIState::Attacking;
-                        attacker.status.attacking = true;
+                } else if enemy_or_forced {
+                    // Ready weapons but out of range / cannot hit: chase.
+                    // (Matches prior host residual: chase whenever engagement is legal
+                    // but no ready weapon is currently in range.)
+                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        // Match classic behavior: an attack order should chase a valid target until
+                        // the weapon can fire (unless the unit is immobile).
+                        if attacker.can_move() {
+                            attacker.movement.path.clear();
+                            attacker.movement.current_path_index = 0;
+                            attacker.movement.target_position = Some(target_position);
+                            attacker.status.moving = true;
+                            attacker.ai_state = AIState::Attacking;
+                            attacker.status.attacking = true;
+                        }
                     }
                 }
             } else if let Some(target_location) = target_location {
                 // Force-attack-ground: consume a shot when the location is in range and apply damage
                 // to the nearest hittable object around the designated impact point.
+                // Fail-closed residual: ground fire still uses primary (secondary ground AOE deferred).
                 let can_fire_at_location = {
                     if let Some(attacker) = self.objects.get(&attacker_id) {
                         attacker
                             .weapon
                             .as_ref()
                             .map(|w| {
-                                w.can_target_ground
+                                Object::weapon_ready(w, current_time)
+                                    && w.can_target_ground
                                     && attacker.position.distance(target_location) <= w.range
                             })
                             .unwrap_or(false)
@@ -4023,7 +4059,17 @@ impl GameLogic {
                 };
 
                 if can_fire_at_location {
-                    fired = true;
+                    let mut weapon_damage = self
+                        .objects
+                        .get(&attacker_id)
+                        .and_then(|a| a.weapon.as_ref())
+                        .map(|w| w.damage)
+                        .unwrap_or(0.0);
+                    if overcharge {
+                        weapon_damage *= 1.1;
+                    }
+
+                    fired_slot = Some(0);
                     if let Some(ground_target_id) =
                         self.find_ground_attack_victim(attacker_id, target_location)
                     {
@@ -4045,9 +4091,9 @@ impl GameLogic {
                 }
             }
 
-            if fired {
+            if let Some(slot) = fired_slot {
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    if let Some(weapon) = &mut attacker.weapon {
+                    if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         weapon.last_fire_time = current_time;
                     }
                 }

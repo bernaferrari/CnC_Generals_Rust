@@ -535,82 +535,186 @@ impl Object {
         }
     }
 
+    /// Whether `weapon` can legally hit `target` (air/ground + range).
+    pub fn can_target_with(&self, target: &Object, weapon: &Weapon) -> bool {
+        let target_is_air =
+            target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
+
+        if target_is_air && !weapon.can_target_air {
+            return false;
+        }
+
+        if !target_is_air && !weapon.can_target_ground {
+            return false;
+        }
+
+        // C++ parity (Weapon::isWithinAttackRange): check both minimum
+        // and maximum attack range. Ground targets use horizontal (XZ)
+        // distance so terrain height does not permanently block fire after
+        // a successful march into range.
+        let distance = if target_is_air {
+            self.thing.get_distance_to(&target.thing)
+        } else {
+            let a = self.get_position();
+            let b = target.get_position();
+            let dx = a.x - b.x;
+            let dz = a.z - b.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+        if weapon.min_range > 0.0 && distance < weapon.min_range {
+            return false;
+        }
+        distance <= weapon.range
+    }
+
+    /// True if primary **or** secondary can currently hit the target.
     pub fn can_target(&self, target: &Object) -> bool {
         if let Some(weapon) = &self.weapon {
-            let target_is_air =
-                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
-
-            if target_is_air && !weapon.can_target_air {
-                return false;
+            if self.can_target_with(target, weapon) {
+                return true;
             }
-
-            if !target_is_air && !weapon.can_target_ground {
-                return false;
-            }
-
-            // C++ parity (Weapon::isWithinAttackRange): check both minimum
-            // and maximum attack range. Ground targets use horizontal (XZ)
-            // distance so terrain height does not permanently block fire after
-            // a successful march into range.
-            let distance = if target_is_air {
-                self.thing.get_distance_to(&target.thing)
-            } else {
-                let a = self.get_position();
-                let b = target.get_position();
-                let dx = a.x - b.x;
-                let dz = a.z - b.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if weapon.min_range > 0.0 && distance < weapon.min_range {
-                return false;
-            }
-            distance <= weapon.range
-        } else {
-            false
         }
+        if let Some(weapon) = &self.secondary_weapon {
+            if self.can_target_with(target, weapon) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Weapon ready on reload timer (not range).
+    pub fn weapon_ready(weapon: &Weapon, current_time: f32) -> bool {
+        current_time - weapon.last_fire_time >= weapon.reload_time
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
         if let Some(weapon) = &self.weapon {
-            current_time - weapon.last_fire_time >= weapon.reload_time
+            if Self::weapon_ready(weapon, current_time) {
+                return true;
+            }
+        }
+        if let Some(weapon) = &self.secondary_weapon {
+            if Self::weapon_ready(weapon, current_time) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Fail-closed residual combat weapon choice (not full AutoChoose/PreferredAgainst).
+    ///
+    /// Slot: `0` = primary, `1` = secondary.
+    /// Rules:
+    /// - Player lock (`active_weapon_slot == 1`): prefer secondary when ready + in range.
+    /// - Structures: prefer secondary when its damage is better (or primary cannot fire).
+    /// - Else primary when ready + in range; else secondary (alternate fire residual).
+    pub fn select_combat_weapon_slot(
+        &self,
+        target: &Object,
+        current_time: f32,
+    ) -> Option<u8> {
+        let primary_ok = self.weapon.as_ref().is_some_and(|w| {
+            Self::weapon_ready(w, current_time) && self.can_target_with(target, w)
+        });
+        let secondary_ok = self.secondary_weapon.as_ref().is_some_and(|w| {
+            Self::weapon_ready(w, current_time) && self.can_target_with(target, w)
+        });
+
+        if !primary_ok && !secondary_ok {
+            return None;
+        }
+
+        // Manual weapon-slot toggle (command residual).
+        if self.active_weapon_slot == 1 {
+            if secondary_ok {
+                return Some(1);
+            }
+            if primary_ok {
+                return Some(0);
+            }
+            return None;
+        }
+
+        let target_is_structure = target.object_type == ObjectType::Building
+            || target.is_kind_of(KindOf::Structure);
+
+        if target_is_structure && secondary_ok {
+            let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
+            let secondary_damage = self
+                .secondary_weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .unwrap_or(0.0);
+            // Prefer secondary vs structures when damage is better, or primary cannot fire.
+            if secondary_damage >= primary_damage || !primary_ok {
+                return Some(1);
+            }
+        }
+
+        // Default / alternate: primary first, then secondary if only it is ready.
+        if primary_ok {
+            Some(0)
+        } else if secondary_ok {
+            Some(1)
         } else {
-            false
+            None
+        }
+    }
+
+    pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
+        match slot {
+            1 => self.secondary_weapon.as_ref(),
+            _ => self.weapon.as_ref(),
+        }
+    }
+
+    pub fn weapon_slot_mut(&mut self, slot: u8) -> Option<&mut Weapon> {
+        match slot {
+            1 => self.secondary_weapon.as_mut(),
+            _ => self.weapon.as_mut(),
         }
     }
 
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
-        let can_fire = if let Some(weapon) = &self.weapon {
-            current_time - weapon.last_fire_time >= weapon.reload_time
-        } else {
-            false
+        // Prefer the locked/active slot when ready; else primary; else secondary.
+        let slot = {
+            let prefer_secondary = self.active_weapon_slot == 1;
+            let primary_ready = self
+                .weapon
+                .as_ref()
+                .is_some_and(|w| Self::weapon_ready(w, current_time));
+            let secondary_ready = self
+                .secondary_weapon
+                .as_ref()
+                .is_some_and(|w| Self::weapon_ready(w, current_time));
+            if prefer_secondary && secondary_ready {
+                1u8
+            } else if primary_ready {
+                0u8
+            } else if secondary_ready {
+                1u8
+            } else {
+                return false;
+            }
         };
 
-        if can_fire {
-            if let Some(weapon) = &mut self.weapon {
-                weapon.last_fire_time = current_time;
-                self.target = Some(target_id);
+        if let Some(weapon) = self.weapon_slot_mut(slot) {
+            weapon.last_fire_time = current_time;
+            let weapon_damage = weapon.damage;
+            let weapon_speed = weapon.projectile_speed;
+            let shooter_id = self.id;
+            let shooter_pos = self.get_position();
+            self.target = Some(target_id);
 
-                // Extract data before calling self.get_position() to satisfy
-                // the borrow checker (self.weapon is mutably borrowed here).
-                let weapon_damage = weapon.damage;
-                let weapon_speed = weapon.projectile_speed;
-                let shooter_id = self.id;
-                let shooter_pos = self.get_position();
-
-                // Queue a projectile for the combat system to spawn this frame.
-                super::combat::queue_projectile(super::combat::PendingProjectile {
-                    shooter_id,
-                    shooter_pos,
-                    target_id: Some(target_id),
-                    target_pos: None,
-                    damage: weapon_damage,
-                    speed: weapon_speed,
-                });
-
-                true
-            } else {
-                false
-            }
+            super::combat::queue_projectile(super::combat::PendingProjectile {
+                shooter_id,
+                shooter_pos,
+                target_id: Some(target_id),
+                target_pos: None,
+                damage: weapon_damage,
+                speed: weapon_speed,
+            });
+            true
         } else {
             false
         }
