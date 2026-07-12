@@ -57,7 +57,7 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 ### Honest reading (do not overclaim)
 
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
-- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, presentation-only renderer with zero GameLogic borrow for mesh assets.
+- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, zero GameLogic borrow for FOW/shell bypass, or full W3D mesh-asset retail (unit *identity* for the main mesh pass is presentation-owned; FOW/terrain/asset load remain residual).
 
 Gate honesty labels:
 
@@ -85,5 +85,30 @@ Still residual (not claimed by shell_smoke):
 
 - Windowed shell/WND navigation and GPU match playthrough
 - Full ControlBar.wnd parse via WindowManager without GUI init (loaded=true)
-- Presentation-only renderer with zero GameLogic borrow for mesh assets
+- Full W3D retail match playthrough (GPU present, mesh assets, drawables)
+
+### Presentation unit-render residual notes (2026-07)
+
+**Closed (unit identity for main mesh pass):**
+
+1. `PresentationFrame` / `RenderableObject` owns position, orientation, team,
+   `team_color`, template/model key, selected, aliveness (`destroyed`),
+   `selection_radius`, and `engine_bridged` (RenderBridge skip without live re-read).
+2. Production `RenderPipeline::collect_render_items` prefers
+   `PresentationFrame::unit_render_inputs()` for the main unit mesh pass when a
+   frame is set — no live `GameLogic` object transform/model/selected re-read.
+3. Selection overlay (`collect_selected_units_from_presentation`) and HUD/ControlBar
+   already consume snapshot identity.
+4. Tests: presentation build includes positions/model/team; render collection helper
+   builds unit inputs from frame after live world mutation (no logic re-read).
+
+**Still residual (not claimed as full presentation-only renderer):**
+
+| Residual | Why still live / other system |
+|----------|-------------------------------|
+| FOW visibility alpha / never-explored skip | Pipeline FOW bridge + shell `isInShellGame()` |
+| Terrain / heightmap / skybox / roads | Map/environment systems, not unit identity |
+| W3D mesh asset resolve / deferred model load | `GraphicsSystem` / `AssetManager` (immutable assets, not sim) |
+| RenderBridge drawable path | engine-bridged units drawn outside main mesh pass |
+| Full retail W3D GPU match | Fail-closed: not claimed by unit-identity residual close |
 
