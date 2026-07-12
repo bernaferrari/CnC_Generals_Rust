@@ -8130,6 +8130,12 @@ impl GameLogic {
         println!("✅ AI opponents configured for challenging gameplay!");
     }
 
+    /// Relocate host AI base layout (building queue positions) without mutating
+    /// the template catalog. Keeps AI active while placing rebuild sites in range.
+    pub fn relocate_host_ai_base(&mut self, player_id: u32, base_position: glam::Vec3) {
+        self.ai_manager.relocate_ai_base(player_id, base_position);
+    }
+
     /// Enable/disable AI for specific player
     pub fn set_ai_active(&mut self, player_id: u32, active: bool) {
         self.ai_manager.set_ai_active(player_id, active);

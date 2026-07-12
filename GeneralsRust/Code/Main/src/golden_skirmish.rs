@@ -43,6 +43,9 @@ pub struct GoldenSkirmishResult {
     /// Fail-closed for synthetic host combat worlds. True only if a non-synthetic
     /// natural path is proven (not claimed by this gate while synthetic_combat).
     pub playable_claim: bool,
+    /// True when AI faction structure templates remain in the host catalog through
+    /// the success path (no mid-scenario `templates.remove` residual).
+    pub ai_structure_templates_retained: bool,
     pub status: String,
 }
 
@@ -199,24 +202,18 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     } else {
         false
     };
-    // Combat world: golden templates + host AI on. apply_skirmish may have installed
-    // ensure_ai_faction_templates (GLA_CommandCenter, etc.). We strip those structure
-    // templates so AI queues still run (AI stays active) but create_object fails for
-    // rebuild soup that would sit out of production-ranger range at skirmish base
-    // coords. This is a documented host residual—not map-army neutralize/re-team.
+    // Combat world: golden templates + host AI on. apply_skirmish installs
+    // ensure_ai_faction_templates (GLA_CommandCenter, etc.). Keep those templates
+    // in the catalog (no mid-scenario strip residual). Instead relocate the host
+    // AI base layout into default Weapon range of production rangers so AttackObject
+    // / update_combat can clear rebuild soup without take_damage or re-team cheats.
     install_templates(&mut logic);
-    for name in [
-        "GLA_CommandCenter",
-        "GLA_SupplyStash",
-        "GLA_Barracks",
-        "GLA_ArmsDealer",
-        "GLA_Palace",
-        "GLA_TunnelNetwork",
-        "GLA_PowerPlant",
-        "GLA_BlackMarket",
-    ] {
-        logic.templates.remove(name);
-    }
+    debug_assert!(
+        logic.templates.contains_key("GLA_CommandCenter"),
+        "AI faction structure templates must remain installed (no catalog strip)"
+    );
+    // Near GoldenEnemyCC (30,0,0) and barracks spawn (~20,0,0); default range 100.
+    logic.relocate_host_ai_base(1, Vec3::new(45.0, 0.0, 0.0));
     let ai_disabled_for_slice = false;
     logic.set_ai_active(1, true);
 
@@ -315,26 +312,45 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         if let Some(p) = logic.get_player_mut(0) {
             p.resources.supplies = p.resources.supplies.max(5_000);
         }
+        // Multiple production rangers so AttackObject DPS can clear fixture + any
+        // in-range AI rebuild structures (templates stay installed).
         let queue_cmd = command(
             4,
             0,
             CommandType::QueueUnitCreate {
                 template_name: "GoldenRanger".into(),
-                quantity: 1,
+                quantity: 8,
             },
             vec![bid],
         );
         // Prefer CommandSystem production path; enqueue_production is the same
         // host production queue used when the factory UI queues units.
         let queue_ok = system.execute_command(&queue_cmd, &mut logic) == CommandResult::Success
-            || logic.enqueue_production(bid, "GoldenRanger".into());
+            || {
+                // Fallback: enqueue enough single units for combat DPS budget.
+                let mut any = false;
+                for _ in 0..8 {
+                    any |= logic.enqueue_production(bid, "GoldenRanger".into());
+                }
+                any
+            };
         // Fail-closed: unit must actually appear — queue alone is not success.
         produced = queue_ok
-            && run_until(&mut logic, 180, |g| {
+            && run_until(&mut logic, 360, |g| {
                 g.get_objects()
                     .values()
-                    .any(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+                    .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+                    .count()
+                    >= 1
             });
+        // Drain remaining production frames so the multi-ranger wave finishes.
+        run_until(&mut logic, 360, |g| {
+            g.get_objects()
+                .values()
+                .filter(|o| o.template_name == "GoldenRanger" && o.team == Team::USA)
+                .count()
+                >= 4
+        });
     }
 
     // Upgrade via QueueUpgrade on supply center (structure with building_data).
@@ -388,9 +404,9 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             .get_object(enemy_cc)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        // Enemy at ~30 units from barracks; default range 100. Kill fixture + any GLA
-        // AI managed to create in-range (if catalog has those templates).
-        for round in 0..400u32 {
+        // Enemy fixture + AI rebuilds are co-located in-range (relocate_host_ai_base).
+        // Kill all GLA via AttackObject/update_combat only — templates stay installed.
+        for round in 0..800u32 {
             let target = logic
                 .get_objects()
                 .values()
@@ -548,6 +564,10 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     // full non-network playability from a synthetic-only path.
     let synthetic_combat = true;
     let playable_claim = false;
+    let ai_structure_templates_retained = logic.templates.contains_key("GLA_CommandCenter")
+        && logic.templates.contains_key("GLA_Barracks")
+        && logic.templates.contains_key("GLA_SupplyStash")
+        && logic.templates.contains_key("GLA_ArmsDealer");
 
     let status = if config_applied
         && frames_advanced > 0
@@ -560,6 +580,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && victory
         && save_load_ok
         && ha == hb
+        && ai_structure_templates_retained
     {
         "success".into()
     } else {
@@ -589,13 +610,14 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         synthetic_combat,
         ai_disabled_for_slice,
         playable_claim,
+        ai_structure_templates_retained,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -616,7 +638,8 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.checkpoint_hashes.len(),
         r.synthetic_combat,
         r.ai_disabled_for_slice,
-        r.playable_claim
+        r.playable_claim,
+        r.ai_structure_templates_retained
     )
 }
 
@@ -648,6 +671,10 @@ mod tests {
         assert!(
             !result.playable_claim,
             "synthetic_combat path must fail-closed for playable_claim"
+        );
+        assert!(
+            result.ai_structure_templates_retained,
+            "AI structure templates must remain in catalog (no mid-scenario strip)"
         );
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
