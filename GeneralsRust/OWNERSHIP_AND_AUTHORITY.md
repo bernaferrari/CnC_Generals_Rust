@@ -87,6 +87,27 @@ Still residual (not claimed by shell_smoke):
 - Full ControlBar.wnd parse via WindowManager without GUI init (loaded=true)
 - Full W3D retail match playthrough (GPU present, mesh assets, drawables)
 
+### Combat particle residual notes (2026-07)
+
+**Closed (host combat feedback registry — not full W3D GPU particles):**
+
+1. Main `GameLogic` owns `CombatParticleRegistry`. Weapon fire and death create
+   registry entries (template/position/id) that are not log-only.
+2. `PresentationFrame.particle_systems` + `PresentationEvent::ParticleSystemSpawned`
+   are the observe path for client/HUD after a logic step.
+3. Optional mirror into GameClient `ParticleSystemManager` via combat presets
+   (`MediumExplosion`, `SmokePlume`, `MuzzleFlash`, `BulletImpact`).
+4. Tests prove kill/fire produce registry entries and presentation snapshot.
+
+**Still residual (fail-closed):**
+
+| Residual | Why still live |
+|----------|----------------|
+| Full W3D particle GPU / compute | Main effects GPU manager + WW3D particle crates |
+| Full FXList.ini / ParticleSystems.ini retail set | INI load + nugget coverage |
+| Bone attach / slave cascade for combat residual | Drawable bone query + ParticleSystem slaves |
+| Network particle replication | Network deferred |
+
 ### Presentation unit-render residual notes (2026-07)
 
 **Closed (unit identity for main mesh pass):**
@@ -123,4 +144,27 @@ Still residual (not claimed by shell_smoke):
 | W3D mesh asset resolve / deferred model load | `GraphicsSystem` / `AssetManager` (immutable assets, not sim) |
 | RenderBridge drawable path | engine-bridged units drawn outside main mesh pass |
 | Full retail W3D GPU match / full SAGE FOW | Fail-closed: not claimed by this residual close |
+
+### Drawable residual notes (2026-07)
+
+**Closed (model condition bits from body damage):**
+
+1. `Drawable::react_to_body_damage_state_change` (GameLogic + GameClient) matches C++
+   `Drawable::reactToBodyDamageStateChange`: clear DAMAGED/REALLYDAMAGED/RUBBLE,
+   set the bit for the new `BodyDamageType` (Pristine clears all three).
+2. `ActiveBody::evaluate_visual_condition` now calls `react_to_body_damage_state_change`
+   with `m_curDamageState` instead of the non-parity `update_damage_state_for_health` tint path.
+3. GameClient `compute_health_region` projects object health-box through the tactical view
+   (C++ `computeHealthRegion`); falls back to a seeded region for offline/tests.
+4. Tests: exclusive damage bits set/cleared; non-damage flags survive; icon UI region/caption
+   remain observable after `draw_icon_ui`.
+
+**Still residual (fail-closed — not claimed as full drawable/animation parity):**
+
+| Residual | Notes |
+|----------|-------|
+| Full W3D mesh/animation swap on condition change | Draw modules still partial; bits are authoritative input only |
+| Anim2D retail icon assets for heal/bomb/etc. | Overlay flags computed; asset binding incomplete |
+| Shadow mesh allocation beyond status bit toggle | `allocate_shadows`/`release_shadows` toggle status only |
+| Full dual Drawable (GameLogic vs GameClient) unification | Two ports still co-exist; condition bits mirrored via body path |
 

@@ -2038,13 +2038,16 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn evaluate_visual_condition(&mut self) -> BodyResult<()> {
+        // C++ ActiveBody::evaluateVisualCondition:
+        //   Drawable* draw = getObject()->getDrawable();
+        //   if (draw) draw->reactToBodyDamageStateChange(m_curDamageState);
+        //   updateBodyParticleSystems();
+        let damage_state = self.get_damage_state();
         if let Some(owner) = self.get_owner() {
             if let Ok(owner_guard) = owner.try_read() {
                 if let Some(drawable) = owner_guard.get_drawable() {
                     if let Ok(mut draw_guard) = drawable.write() {
-                        let max_health = self.get_max_health().max(f32::EPSILON);
-                        let health_pct = self.get_health() / max_health;
-                        draw_guard.update_damage_state_for_health(health_pct);
+                        draw_guard.react_to_body_damage_state_change(damage_state);
                     }
                 }
             }

@@ -1797,6 +1797,32 @@ impl BasicDrawable {
         self.model_condition_flags.clear_and_set(clr, set);
     }
 
+    /// C++ parity: `Drawable::reactToBodyDamageStateChange` (Drawable.cpp:1077-1101).
+    ///
+    /// Clears DAMAGED / REALLYDAMAGED / RUBBLE and sets the bit for `new_state`.
+    /// Fail-closed residual: condition bits only — not full mesh/animation swap.
+    pub fn react_to_body_damage_state_change(
+        &mut self,
+        new_state: gamelogic::common::types::BodyDamageType,
+    ) {
+        use gamelogic::common::types::BodyDamageType;
+
+        let mut clear = create_model_condition_flags();
+        clear.set(ModelConditionFlags::DAMAGED, true);
+        clear.set(ModelConditionFlags::REALLYDAMAGED, true);
+        clear.set(ModelConditionFlags::RUBBLE, true);
+
+        let mut set = create_model_condition_flags();
+        match new_state {
+            BodyDamageType::Pristine => {}
+            BodyDamageType::Damaged => set.set(ModelConditionFlags::DAMAGED, true),
+            BodyDamageType::ReallyDamaged => set.set(ModelConditionFlags::REALLYDAMAGED, true),
+            BodyDamageType::Rubble => set.set(ModelConditionFlags::RUBBLE, true),
+        }
+
+        self.clear_and_set_model_condition_flags(&clear, &set);
+    }
+
     /// Replace full model-condition flags.
     pub fn replace_model_condition_flags(
         &mut self,
@@ -2567,8 +2593,60 @@ impl BasicDrawable {
     // The actual GPU rendering is handled by the render pipeline later.
     // ---------------------------------------------------------------------------
 
+    /// C++ parity: free function `computeHealthRegion` (Drawable.cpp:2661-2704).
+    ///
+    /// Projects the object's health-box anchor through the tactical view and
+    /// scales width by 1/zoom. Returns `None` when the drawable has no object,
+    /// the object is IgnoredInGui (zero dimensions), or world→screen fails.
+    ///
+    /// Fail-closed residual: uses live object + tactical view when available;
+    /// falls back to a previously cached region only when projection is unavailable
+    /// but a region was seeded (test / offline icon UI path).
     pub fn compute_health_region(&self) -> Option<IRegion2D> {
+        if let Some(region) = self.compute_health_region_from_object() {
+            return Some(region);
+        }
+        // Offline / test path: honor an explicitly seeded region (matches prior stub).
         self.overlay_data.health_region
+    }
+
+    fn compute_health_region_from_object(&self) -> Option<IRegion2D> {
+        let obj_id = self.object_id?;
+        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
+        let obj_guard = obj_arc.read().ok()?;
+
+        let (health_box_height, mut health_box_width) = obj_guard.get_health_box_dimensions();
+        // C++: if (!obj->getHealthBoxDimensions(...)) return FALSE;
+        if health_box_width <= 0.0 || health_box_height <= 0.0 {
+            return None;
+        }
+
+        let world = obj_guard.get_health_box_position();
+        let world_pt = Point3::new(world.x, world.y, world.z);
+        let (screen_center, zoom) = with_tactical_view_ref(|view| {
+            let screen = view.world_to_screen(&world_pt)?;
+            Some((screen, view.zoom()))
+        })?;
+
+        // C++: widthScale = 1.0f / zoom; height forced to 3.0 after scale.
+        let zoom = if zoom.abs() < f32::EPSILON {
+            1.0
+        } else {
+            zoom
+        };
+        let width_scale = 1.0 / zoom;
+        health_box_width *= width_scale;
+        let health_box_height = 3.0_f32;
+
+        let lo_x = (screen_center.x as f32 - health_box_width * 0.45).round() as i32;
+        let lo_y = (screen_center.y as f32 - health_box_height * 0.5).round() as i32;
+        let hi_x = lo_x + health_box_width.round() as i32;
+        let hi_y = lo_y + health_box_height.round() as i32;
+
+        Some(IRegion2D::new(
+            ICoord2D::new(lo_x, lo_y),
+            ICoord2D::new(hi_x, hi_y),
+        ))
     }
 
     pub fn draw_health_bar(&mut self, health_region: &IRegion2D) {
@@ -5709,6 +5787,54 @@ mod tests {
         assert!(render_flags.contains(RenderConditionFlags::SNOW));
         assert!(render_flags.contains(RenderConditionFlags::AFLAME));
         assert!(render_flags.contains(RenderConditionFlags::TOPPLED));
+    }
+
+    #[test]
+    fn react_to_body_damage_sets_exclusive_damage_condition_bits() {
+        use gamelogic::common::types::BodyDamageType;
+
+        let mut drawable = BasicDrawable::new(DrawableId(42));
+        // Seed a non-damage flag that must survive.
+        drawable.set_model_condition_state(ModelConditionFlags::MOVING);
+        // Seed a stale damage bit that must clear on transition.
+        drawable.set_model_condition_state(ModelConditionFlags::DAMAGED);
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::ReallyDamaged);
+        let flags = drawable.get_model_condition_flags();
+        assert!(flags.test(ModelConditionFlags::REALLYDAMAGED));
+        assert!(!flags.test(ModelConditionFlags::DAMAGED));
+        assert!(!flags.test(ModelConditionFlags::RUBBLE));
+        assert!(
+            flags.test(ModelConditionFlags::MOVING),
+            "non-damage flags survive clear-and-set"
+        );
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::Pristine);
+        let flags = drawable.get_model_condition_flags();
+        assert!(!flags.test(ModelConditionFlags::DAMAGED));
+        assert!(!flags.test(ModelConditionFlags::REALLYDAMAGED));
+        assert!(!flags.test(ModelConditionFlags::RUBBLE));
+        assert!(flags.test(ModelConditionFlags::MOVING));
+    }
+
+    #[test]
+    fn compute_health_region_falls_back_to_seeded_region_without_object() {
+        let mut drawable = BasicDrawable::new(DrawableId(7));
+        assert!(drawable.compute_health_region().is_none());
+
+        let seeded = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+        drawable.overlay_data.health_region = Some(seeded);
+        assert_eq!(drawable.compute_health_region(), Some(seeded));
+
+        // draw_icon_ui must leave overlay visible when a region is present + caption set.
+        drawable.set_caption_text("UnitHealth");
+        drawable.draw_icon_ui();
+        assert!(drawable.overlay_data.visible);
+        assert_eq!(drawable.overlay_data.caption.as_deref(), Some("UnitHealth"));
+        assert!(
+            drawable.overlay_data.health_region.is_some(),
+            "health bar region remains observable after icon UI"
+        );
     }
 
     #[test]
