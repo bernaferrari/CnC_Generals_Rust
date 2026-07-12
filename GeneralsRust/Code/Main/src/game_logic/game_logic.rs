@@ -493,6 +493,10 @@ pub struct GameLogic {
     /// Objects to destroy at end of frame
     objects_to_destroy: VecDeque<DestructionEvent>,
 
+    /// Host combat particle registry (kill/fire → observably registered systems).
+    /// Residual hq-gq7n: not full W3D GPU parity; PresentationFrame can observe entries.
+    combat_particles: CombatParticleRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1277,6 +1281,7 @@ impl GameLogic {
             world_max,
             victory_conditions: VictoryConditions::new(),
             objects_to_destroy: VecDeque::new(),
+            combat_particles: CombatParticleRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1397,6 +1402,7 @@ impl GameLogic {
         self.next_object_id = ObjectId(1);
         self.frame = 0;
         self.objects_to_destroy.clear();
+        self.combat_particles.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -4099,6 +4105,25 @@ impl GameLogic {
             }
 
             if let Some(slot) = fired_slot {
+                // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
+                let muzzle_pos = self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| a.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let fire_target = target_id.filter(|id| self.objects.contains_key(id));
+                let impact_pos = fire_target
+                    .and_then(|id| self.objects.get(&id).map(|t| t.get_position()))
+                    .or(target_location);
+                let fire_frame = self.frame;
+                let _ = self.combat_particles.spawn_weapon_fire_fx(
+                    muzzle_pos,
+                    impact_pos,
+                    fire_frame,
+                    attacker_id,
+                    fire_target,
+                );
+
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         weapon.last_fire_time = current_time;
@@ -6167,6 +6192,20 @@ impl GameLogic {
             self.cancel_all_production(event.id);
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                // Combat particle residual: death → registry entry (explosion + smoke).
+                // PresentationFrame / client can observe systems after the kill.
+                let death_pos = obj.get_position();
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                let victim_team = obj.team;
+                let frame = self.frame;
+                let _ = self.combat_particles.spawn_death_fx(
+                    death_pos,
+                    frame,
+                    event.id,
+                    is_structure,
+                    victim_team,
+                );
+
                 // Phase 1: Destroy the corresponding GameEngine ObjectFactory object.
                 if let Some(engine_id) = obj.engine_object_id {
                     if let Ok(mut factory) = get_object_factory().write() {
@@ -7790,6 +7829,16 @@ impl GameLogic {
     pub fn set_paused(&mut self, paused: bool) {
         self.is_paused = paused;
         log::debug!("Game {}", if paused { "paused" } else { "unpaused" });
+    }
+
+    /// Host combat particle registry (kill/fire feedback). Fail-closed residual.
+    pub fn combat_particles(&self) -> &CombatParticleRegistry {
+        &self.combat_particles
+    }
+
+    /// Mutable access for tests / presentation drain of frame events.
+    pub fn combat_particles_mut(&mut self) -> &mut CombatParticleRegistry {
+        &mut self.combat_particles
     }
 
     pub fn get_frame(&self) -> u32 {
@@ -14580,5 +14629,159 @@ mod tests {
                 .contains(&ObjectId(123)),
             "show mutation should undo prior hide mutation for the same object"
         );
+    }
+
+    /// Residual (hq-gq7n): combat kill must register real particle-system entries
+    /// (not log-only). Host registry + presentation observe path.
+    #[test]
+    fn combat_kill_spawns_particle_system_registry_entries() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 9999.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            target.health.current = 10.0;
+            target.health.maximum = 10.0;
+        }
+
+        game_logic.frame = 60;
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+        // Fire path: muzzle + impact registry entries exist before destroy cleanup.
+        assert!(
+            game_logic.combat_particles().active_count() >= 2,
+            "weapon fire must register muzzle/impact particle systems, got {}",
+            game_logic.combat_particles().active_count()
+        );
+        assert_eq!(
+            game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .len(),
+            1,
+            "muzzle flash entry required"
+        );
+
+        // Process destroy list (same end-of-step path as step_simulation).
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.find_object(target_id).is_none(),
+            "target must be removed after kill"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "kill must register DeathExplosion particle system entry"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathSmoke)
+                .is_empty(),
+            "kill must register DeathSmoke particle system entry"
+        );
+        assert!(
+            game_logic.combat_particles().active_count() >= 4,
+            "fire + death systems must remain registered (not log-only); count={}",
+            game_logic.combat_particles().active_count()
+        );
+
+        // Every entry has a non-empty template name and stable id.
+        for entry in game_logic.combat_particles().active_systems() {
+            assert!(!entry.template_name.is_empty(), "template name required");
+            assert!(entry.id > 0, "stable host system id required");
+            assert!(entry.active);
+        }
+
+        #[cfg(feature = "game_client")]
+        {
+            // Client mirror path: at least one spawn should land in ParticleSystemManager.
+            let mirrored = game_logic
+                .combat_particles()
+                .active_systems()
+                .filter(|e| e.client_system_id.is_some())
+                .count();
+            assert!(
+                mirrored > 0,
+                "with game_client, host entries should mirror into client manager"
+            );
+            let guard = game_client::effects::get_particle_system_manager()
+                .expect("particle manager readable");
+            let manager = guard.as_ref().expect("manager initialized");
+            assert!(
+                manager.active_system_count() > 0,
+                "client ParticleSystemManager must hold systems after combat kill/fire"
+            );
+        }
+    }
+
+    #[test]
+    fn combat_fire_without_kill_still_spawns_muzzle_particle() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 1.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.frame = 30;
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.find_object(target_id).is_some(),
+            "target should survive low damage"
+        );
+        assert_eq!(
+            game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .len(),
+            1
+        );
+        let muzzle = game_logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)[0];
+        assert_eq!(muzzle.template_name, "MuzzleFlash");
+        assert_eq!(muzzle.source_object, Some(attacker_id));
     }
 }
