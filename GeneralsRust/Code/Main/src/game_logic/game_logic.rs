@@ -517,6 +517,11 @@ pub struct GameLogic {
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
     host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
 
+    /// Supply Lines economy residual: total bonus cash credited on drop-off deposits.
+    /// Matches C++ SupplyCenterDockUpdate + Chinook `getUpgradedSupplyBoost` path.
+    /// Fail-closed: not per-template INI boost matrix / WorkerShoes / multiplayer.
+    supply_lines_bonus_cash_total: u32,
+
     /// Host garrison residual honesty counters (enter / exit / fire-from-garrison).
     /// Fail-closed: not C++ GarrisonContain fire-point bones or full weapon matrix.
     garrison_residual_enters: u32,
@@ -1333,6 +1338,7 @@ impl GameLogic {
             special_power_strikes:
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
+            supply_lines_bonus_cash_total: 0,
             garrison_residual_enters: 0,
             garrison_residual_exits: 0,
             garrison_residual_fires: 0,
@@ -1468,6 +1474,7 @@ impl GameLogic {
         self.combat_particles.clear();
         self.special_power_strikes.clear();
         self.host_upgrades.clear();
+        self.supply_lines_bonus_cash_total = 0;
         self.garrison_residual_enters = 0;
         self.garrison_residual_exits = 0;
         self.garrison_residual_fires = 0;
@@ -5520,6 +5527,9 @@ impl GameLogic {
 
                     if at_refinery {
                         // Deposit.
+                        // C++ SupplyCenterDockUpdate::action: base box value +
+                        // supplyTruckAI->getUpgradedSupplyBoost() when player has
+                        // Upgrade_AmericaSupplyLines (Chinook residual).
                         let deposit_amount = self
                             .objects
                             .get(&object_id)
@@ -5531,10 +5541,28 @@ impl GameLogic {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stored_resources.supplies = 0;
                             }
-                            // Credit the player.
+                            // Player-level Supply Lines residual boost (flat per drop-off).
+                            let has_supply_lines = self
+                                .players
+                                .values()
+                                .any(|p| {
+                                    p.team == team
+                                        && p.has_unlocked_upgrade(
+                                            crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES,
+                                        )
+                                });
+                            let boost = crate::game_logic::host_upgrades::residual_supply_lines_drop_off_boost(
+                                has_supply_lines,
+                            );
+                            let credited = deposit_amount.saturating_add(boost);
+                            // Credit the player (carried supplies + optional economy boost).
                             if let Some(player) = self.get_player_mut_by_team(team) {
                                 player.resources.supplies =
-                                    player.resources.supplies.saturating_add(deposit_amount);
+                                    player.resources.supplies.saturating_add(credited);
+                            }
+                            if boost > 0 {
+                                self.supply_lines_bonus_cash_total =
+                                    self.supply_lines_bonus_cash_total.saturating_add(boost);
                             }
                             // Head back to gather more from the original source.
                             let source_dest = target_id.and_then(|sid| {
@@ -8362,6 +8390,20 @@ impl GameLogic {
         &mut self,
     ) -> &mut crate::game_logic::host_upgrades::HostUpgradeRegistry {
         &mut self.host_upgrades
+    }
+
+    /// Residual Supply Lines economy honesty: at least one boosted drop-off credited.
+    /// Fail-closed: does not claim full Chinook/Worker INI boost matrix parity.
+    pub fn honesty_supply_lines_economy_ok(&self) -> bool {
+        self.supply_lines_bonus_cash_total > 0
+            && self
+                .host_upgrades
+                .honesty_supply_lines_complete_ok()
+    }
+
+    /// Total residual cash credited from Supply Lines drop-off boost (observability).
+    pub fn supply_lines_bonus_cash_total(&self) -> u32 {
+        self.supply_lines_bonus_cash_total
     }
 
     /// Residual garrison honesty: successful structure enter count.
@@ -17751,6 +17793,139 @@ mod tests {
         assert!(
             sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
             "Supply Lines must tag the supply center"
+        );
+    }
+
+    /// Residual: with SupplyLines unlocked, drop-off credits more cash than without.
+    ///
+    /// Matches C++ SupplyCenterDockUpdate::action + Chinook getUpgradedSupplyBoost
+    /// (+60 flat per deposit when Upgrade_AmericaSupplyLines is complete).
+    /// Fail-closed: not full per-unit INI boost matrix / WorkerShoes path.
+    #[test]
+    fn supply_lines_drop_off_yields_more_cash_than_without() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            residual_supply_lines_drop_off_boost, HostUpgradeKind,
+            SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST, UPGRADE_AMERICA_SUPPLY_LINES,
+        };
+        use crate::game_logic::object::AIState;
+
+        fn run_one_drop_off(with_supply_lines: bool) -> (u32, u32, u32, bool) {
+            let mut game_logic = GameLogic::new();
+            let mut player = Player::new(0, Team::USA, "USA", true);
+            player.resources.supplies = 1000;
+            game_logic.add_player(player);
+            ensure_test_dozer_template(&mut game_logic);
+
+            let mut supply = ThingTemplate::new("AmericaSupplyCenter");
+            supply
+                .add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::SupplyCenter)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0);
+            game_logic
+                .templates
+                .insert("AmericaSupplyCenter".to_string(), supply);
+
+            let sc_id = game_logic
+                .create_object(
+                    "AmericaSupplyCenter",
+                    Team::USA,
+                    Vec3::new(0.0, 0.0, 0.0),
+                )
+                .expect("supply center");
+
+            if with_supply_lines {
+                game_logic.queue_command(GameCommand {
+                    command_type: CommandType::QueueUpgrade {
+                        upgrade_name: UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
+                    },
+                    player_id: 0,
+                    command_id: 1,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![sc_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                game_logic.process_commands();
+                // Research residual completes on next update.
+                game_logic.update();
+                assert!(
+                    game_logic
+                        .get_player(0)
+                        .unwrap()
+                        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES),
+                    "Supply Lines must unlock before boosted deposit"
+                );
+                assert!(
+                    game_logic
+                        .host_upgrades()
+                        .honesty_complete_ok(HostUpgradeKind::SupplyLines)
+                );
+            }
+
+            // Place gatherer at supply center with a full residual cargo.
+            const CARGO: u32 = 400;
+            let dozer_id = game_logic
+                .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+                .expect("dozer");
+            {
+                let dozer = game_logic.find_object_mut(dozer_id).expect("dozer mut");
+                dozer.stored_resources.supplies = CARGO;
+                dozer.set_ai_state(AIState::ReturningResources);
+            }
+
+            let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
+            // One logic frame: ReturningResources deposits when in INTERACT_RANGE.
+            game_logic.update();
+            let cash_after = game_logic.get_player(0).unwrap().resources.supplies;
+            let gained = cash_after.saturating_sub(cash_before);
+            let bonus = game_logic.supply_lines_bonus_cash_total();
+            let honesty = game_logic.honesty_supply_lines_economy_ok();
+
+            // Carried cargo must be cleared after deposit.
+            let remaining = game_logic
+                .find_object(dozer_id)
+                .map(|o| o.stored_resources.supplies)
+                .unwrap_or(u32::MAX);
+            assert_eq!(remaining, 0, "cargo must clear on drop-off");
+
+            let expected_boost = residual_supply_lines_drop_off_boost(with_supply_lines);
+            // Passive residual income ($5 base + $25/supply-center per sec) may add a
+            // few whole dollars per frame — require at least cargo + boost.
+            assert!(
+                gained >= CARGO.saturating_add(expected_boost),
+                "drop-off cash too low (gained={gained}, cargo={CARGO}, boost={expected_boost}, with_supply_lines={with_supply_lines})"
+            );
+            assert_eq!(bonus, expected_boost);
+
+            // Pure deposit yield excluding passive noise (observability residual).
+            let pure_deposit = CARGO.saturating_add(bonus);
+            (gained, pure_deposit, bonus, honesty)
+        }
+
+        let (without_gained, without_pure, without_bonus, without_honesty) =
+            run_one_drop_off(false);
+        let (with_gained, with_pure, with_bonus, with_honesty) = run_one_drop_off(true);
+
+        assert_eq!(without_bonus, 0, "no economy boost without Supply Lines");
+        assert!(!without_honesty, "economy honesty fail-closed without upgrade");
+        assert_eq!(with_bonus, SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST);
+        assert!(
+            with_honesty,
+            "Supply Lines economy residual honesty after boosted drop-off"
+        );
+        assert!(
+            with_pure > without_pure,
+            "with SupplyLines pure deposit ({with_pure}) must exceed without ({without_pure})"
+        );
+        assert_eq!(
+            with_pure - without_pure,
+            SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST,
+            "delta must equal residual drop-off boost"
+        );
+        assert!(
+            with_gained > without_gained,
+            "with SupplyLines frame gain ({with_gained}) must exceed without ({without_gained})"
         );
     }
 
