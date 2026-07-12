@@ -13,6 +13,36 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Special Power Superweapon Host Path (2026-07-12)
+**Closed (host-testable DoSpecialPower → queue → impact complete path):**
+1. Host `HostSpecialPowerStrikeRegistry` on Main `GameLogic` queues real strikes for
+   DaisyCutter / FuelAirBomb, A10 (`Airstrike`), ScudStorm, and ParticleCannon.
+2. `CommandExecutor::execute_special_power` still consumes charge + `AIState::SpecialAbility`,
+   then enqueues residual strikes with retail-ish impact delay frames (90 / 60 / 150 / 120).
+3. `GameLogic::update_special_power_strikes` (logic update phase) applies two-stage area
+   damage to host objects, skips friendlies, marks kills for destroy list, and records
+   completion stats (`objects_hit`, `total_damage_applied`).
+4. Activation + impact queue `AudioEventRequest`s; impact also registers a
+   `DeathExplosion` combat particle residual entry.
+5. Honesty flags (registry API; do **not** claim full retail superweapon parity):
+   - `honesty_queue_ok(kind)` — strike pending after command
+   - `honesty_complete_ok(kind)` / `honesty_host_path_ok(kind)` — impact resolved
+6. Tests (not log-only):
+   - `daisy_cutter_host_path_queues_and_completes_area_damage`
+   - `a10_strike_host_path_queues_and_completes`
+   - `scud_storm_host_path_queues_and_completes`
+   - `particle_cannon_host_path_queues_and_completes`
+   - `radar_scan_does_not_queue_superweapon_strike`
+   - module unit tests in `special_power_strikes.rs` (map, falloff, friendly exclusion)
+
+**Still residual (fail-closed, not claimed):**
+- Full retail OCL aircraft spawn / flight / bomber AI for DaisyCutter and A10
+- Multi-missile SCUD barrage timing, particle-cannon continuous beam / uplink sequence
+- SharedSyncedTimer / science / public timer UI / EVA superweapon ready lines on host path
+- Weapon.ini / SpecialPower.ini damage tables beyond residual constants
+- Network superweapon replication (network deferred)
+- Non-superweapon special abilities beyond existing PendingSpecialAbility (hijack/etc.)
+
 ## Residual Host Playability — Combat Particle Feedback (2026-07-12)
 **Closed (host-testable kill/fire → particle registry observe path):**
 1. Host `CombatParticleRegistry` on Main `GameLogic` registers real particle-system

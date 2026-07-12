@@ -11,6 +11,7 @@ pub mod radar_notifications;
 pub mod resources;
 pub mod script_events;
 pub mod script_loader;
+pub mod special_power_strikes;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -23,6 +24,9 @@ pub use buildings::*;
 pub use combat::*;
 pub use combat_particles::{
     CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry,
+};
+pub use special_power_strikes::{
+    HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase, HostSuperweaponKind,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
