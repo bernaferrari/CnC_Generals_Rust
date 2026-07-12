@@ -106,7 +106,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(60.0)
         .set_cost(80, 0)
-        .set_model("airanger") // USA Ranger infantry
+        .set_model("airanger_s") // USA Ranger infantry (AIRanger_S.W3D)
         .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
         .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
