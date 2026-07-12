@@ -206,6 +206,9 @@ pub struct ObjectStatusSnapshot {
     pub poisoned: bool,
     pub radar_jammed: bool,
     pub disabled_underpowered: bool,
+    /// C++ DISABLED_UNMANNED residual (Jarmen Kell kill-pilot). Serde default for older snaps.
+    #[serde(default)]
+    pub disabled_unmanned: bool,
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
@@ -233,6 +236,7 @@ impl Default for ObjectStatusSnapshot {
             poisoned: false,
             radar_jammed: false,
             disabled_underpowered: false,
+            disabled_unmanned: false,
             special_power_ready: true,
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
@@ -1330,6 +1334,8 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.radar_jammed)?;
         xfer.xfer_marker_label("DisabledUnderpowered")?;
         xfer.xfer_bool(&mut self.disabled_underpowered)?;
+        xfer.xfer_marker_label("DisabledUnmanned")?;
+        xfer.xfer_bool(&mut self.disabled_unmanned)?;
         xfer.xfer_marker_label("SpecialPowerReady")?;
         xfer.xfer_bool(&mut self.special_power_ready)?;
         xfer.xfer_marker_label("SpecialPowerCooldown")?;
@@ -2992,6 +2998,7 @@ impl SnapshotBuilder {
             poisoned: false,
             radar_jammed: false,
             disabled_underpowered: object.status.disabled_underpowered,
+            disabled_unmanned: object.status.disabled_unmanned,
             special_power_ready: object.special_power_ready,
             special_power_cooldown: object.special_power_cooldown,
             special_power_cooldown_remaining: object.special_power_cooldown_remaining,
@@ -3610,6 +3617,7 @@ impl SnapshotBuilder {
         object.status.detected = status.detected;
         object.status.selected = status.selected;
         object.status.disabled_underpowered = status.disabled_underpowered;
+        object.status.disabled_unmanned = status.disabled_unmanned;
 
         object.ai_state = if status.destroyed {
             AIState::Idle
