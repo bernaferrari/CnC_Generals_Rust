@@ -6242,10 +6242,16 @@ impl GameLogic {
             }
         }
 
+        // Retail SupplyDock/SupplyPile carry SUPPLY_SOURCE (not "resource"/"harvest")
+        // KindOf bits; map props must still be gatherable by dozer/chinook paths.
+        let kind_compact = kind_of.replace('_', "");
         let is_resource = lower.contains("supplypile")
+            || lower.contains("supplydock")
+            || lower.contains("tempsupplydock")
             || lower.contains("crate")
             || kind_of.contains("resource")
-            || kind_of.contains("harvest");
+            || kind_of.contains("harvest")
+            || kind_compact.contains("supplysource");
         let is_structure = kind_of.contains("structure")
             || kind_of.contains("immobile")
             || (Self::should_spawn_fallback_template(template_name) && !is_resource);
@@ -6273,7 +6279,14 @@ impl GameLogic {
                 .add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::CommandCenter);
         }
-        if lower.contains("supply") && is_structure {
+        // Faction drop-off buildings only — not map SupplyDock/SupplyPile sources.
+        if is_structure
+            && !is_resource
+            && (lower.contains("supplycenter")
+                || lower.contains("supplystash")
+                || lower.contains("supplydropzone")
+                || lower == "supplycenter")
+        {
             template.add_kind_of(KindOf::SupplyCenter);
         }
 
@@ -6790,7 +6803,10 @@ impl GameLogic {
             }
         }
 
-        let is_resource = lower.contains("supplypile") || lower.contains("crate");
+        let is_resource = lower.contains("supplypile")
+            || lower.contains("supplydock")
+            || lower.contains("tempsupplydock")
+            || lower.contains("crate");
         let is_structure = Self::should_spawn_fallback_template(template_name) && !is_resource;
 
         if is_resource {
@@ -6808,7 +6824,14 @@ impl GameLogic {
                 .add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::CommandCenter);
         }
-        if lower.contains("supply") && is_structure {
+        // Faction drop-off buildings only — not map SupplyDock/SupplyPile sources.
+        if is_structure
+            && !is_resource
+            && (lower.contains("supplycenter")
+                || lower.contains("supplystash")
+                || lower.contains("supplydropzone")
+                || lower == "supplycenter")
+        {
             template.add_kind_of(KindOf::SupplyCenter);
         }
 
