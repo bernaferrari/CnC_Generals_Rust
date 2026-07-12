@@ -390,10 +390,49 @@ impl SelectionRenderer {
 // Public integration helpers
 // ---------------------------------------------------------------------------
 
+/// Collect selection circles from a `PresentationFrame` snapshot (preferred production path).
+///
+/// Identity fields (position/team/selected/aliveness) come only from the immutable
+/// snapshot — not a live re-read of `GameLogic` objects.
+pub fn collect_selected_units_from_presentation(
+    frame: &crate::presentation_frame::PresentationFrame,
+) -> Vec<SelectedUnit> {
+    let mut units = Vec::new();
+    for object in frame.objects.iter().filter(|o| o.selected && !o.destroyed) {
+        let player_index = match object.team {
+            crate::game_logic::Team::China => 0,
+            crate::game_logic::Team::USA => 1,
+            crate::game_logic::Team::GLA => 4,
+            crate::game_logic::Team::Neutral => 7,
+        };
+        let c = crate::ui::color_for_player(player_index);
+        let radius = if object.is_structure { 12.0 } else { 8.0 };
+        units.push(SelectedUnit {
+            position: object.position,
+            radius,
+            team_color: [
+                c.r as f32 / 255.0,
+                c.g as f32 / 255.0,
+                c.b as f32 / 255.0,
+                CIRCLE_ALPHA,
+            ],
+        });
+    }
+    units
+}
+
+/// Collect selection circles. When `presentation` is present, identity fields are
+/// snapshot-owned (position/team/selected/aliveness). Live `GameLogic` is only used
+/// as a fallback when no frame is available (boot/loading residuals).
 pub fn collect_selected_units(
     game_logic: &crate::game_logic::GameLogic,
     _local_player_id: u32,
+    presentation: Option<&crate::presentation_frame::PresentationFrame>,
 ) -> Vec<SelectedUnit> {
+    if let Some(frame) = presentation {
+        return collect_selected_units_from_presentation(frame);
+    }
+
     let mut units = Vec::new();
 
     for object in game_logic.get_objects().values() {
@@ -446,6 +485,7 @@ pub fn enqueue_selection_render(
     game_logic: &crate::game_logic::GameLogic,
     drag_rect: Option<DragSelectRect>,
     local_player_id: u32,
+    presentation: Option<&crate::presentation_frame::PresentationFrame>,
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -455,7 +495,7 @@ pub fn enqueue_selection_render(
     let view_proj = *projection_matrix * *view_matrix;
     let inv_view_proj = view_proj.inverse();
 
-    let selected_units = collect_selected_units(game_logic, local_player_id);
+    let selected_units = collect_selected_units(game_logic, local_player_id, presentation);
 
     if drag_rect.is_none() && selected_units.is_empty() {
         return;
@@ -506,4 +546,72 @@ pub fn enqueue_selection_render(
         drop(render_pass);
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod presentation_selection_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::presentation_frame::PresentationFrame;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use glam::Vec3;
+
+    #[test]
+    fn shipped_selection_collect_uses_presentation_snapshot_not_live_reread() {
+        // Criterion 2: production consumer identity from PresentationFrame.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelPresMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("SelUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SelUnit".into(), t);
+        let id = logic
+            .create_object("SelUnit", Team::USA, Vec3::new(12.0, 0.0, -7.0))
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+            o.selection_radius = 9.0;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        // Mutate live world after snapshot — consumer must keep snapshot identity.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(Vec3::new(999.0, 0.0, 999.0));
+            o.selected = false;
+            o.status.selected = false;
+            o.health.current = 1.0;
+        }
+
+        // Shipped path with presentation prefers snapshot.
+        let units = collect_selected_units(&logic, 0, Some(&snap));
+        assert_eq!(units.len(), 1, "snapshot still has selected unit");
+        assert!(
+            (units[0].position.x - 12.0).abs() < 0.01,
+            "position must come from snapshot, not live 999: {:?}",
+            units[0].position
+        );
+        assert!(
+            (units[0].position.z + 7.0).abs() < 0.01,
+            "z from snapshot: {:?}",
+            units[0].position
+        );
+
+        // Direct presentation helper is the same source of truth.
+        let direct = collect_selected_units_from_presentation(&snap);
+        assert_eq!(direct.len(), 1);
+        assert!((direct[0].position.x - 12.0).abs() < 0.01);
+
+        // Without presentation, live re-read would see deselected unit (empty).
+        let live_fallback = collect_selected_units(&logic, 0, None);
+        assert!(
+            live_fallback.is_empty(),
+            "live path reflects post-snapshot mutation (deselected)"
+        );
+    }
 }

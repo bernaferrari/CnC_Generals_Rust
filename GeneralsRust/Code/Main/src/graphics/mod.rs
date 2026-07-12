@@ -10,6 +10,7 @@ pub mod graphics_system;
 pub mod minimap_renderer;
 pub mod render_item;
 pub mod render_pipeline;
+pub mod selection_renderer;
 pub mod ui_render_pass;
 pub use graphics_system::{GlobalUniforms, GraphicsStatistics, GraphicsSystem};
 pub use minimap_renderer::{MinimapCoordinates, MinimapTextureRenderer, UiTextureRegistrar};

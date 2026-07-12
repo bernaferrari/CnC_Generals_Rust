@@ -227,6 +227,16 @@ impl AIPlayer {
         self.last_attack_time = 0.0;
     }
 
+    /// Relocate base center and re-seed the structure build queue at the new site.
+    ///
+    /// Used by host golden combat so AI rebuild soup stays within production-weapon
+    /// range without stripping faction templates from the catalog.
+    pub fn relocate_base(&mut self, base_position: Vec3) {
+        self.base_center = base_position;
+        self.building_queue.clear();
+        self.setup_base_layout();
+    }
+
     /// Main AI update method - called every frame
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         if !self.is_active {
@@ -1087,6 +1097,18 @@ impl AIManager {
     pub fn set_difficulty(&mut self, player_id: u32, difficulty: AIDifficulty) {
         if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
             ai_player.difficulty = difficulty;
+        }
+    }
+
+    /// Relocate one AI player's base/layout without removing templates.
+    pub fn relocate_ai_base(&mut self, player_id: u32, base_position: Vec3) {
+        if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
+            ai_player.relocate_base(base_position);
+            log::info!(
+                "AI Manager: relocated player {} base to {:?}",
+                player_id,
+                base_position
+            );
         }
     }
 
