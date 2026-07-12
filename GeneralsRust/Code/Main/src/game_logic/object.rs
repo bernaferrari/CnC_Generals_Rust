@@ -423,13 +423,31 @@ impl Object {
     }
 
     pub fn can_attack(&self) -> bool {
+        // Garrisoned units may still fire from the structure (residual
+        // fire-from-garrison). Docked transport cargo and units mid-enter cannot.
         self.is_alive()
             && self.weapon.is_some()
             && !self.is_disabled()
-            && !matches!(
-                self.ai_state,
-                AIState::Docked | AIState::Garrisoned | AIState::Entering
-            )
+            && !matches!(self.ai_state, AIState::Docked | AIState::Entering)
+    }
+
+    /// Authoritative container for docked/garrisoned units.
+    /// Prefer `contained_by`; fall back to `target` for legacy enter paths.
+    pub fn container_id(&self) -> Option<ObjectId> {
+        if let Some(id) = self.contained_by {
+            return Some(id);
+        }
+        if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
+            self.target
+        } else {
+            None
+        }
+    }
+
+    /// True when this unit is currently inside a transport or garrison.
+    pub fn is_contained(&self) -> bool {
+        matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
+            || self.contained_by.is_some()
     }
 
     pub fn is_attackable(&self) -> bool {
@@ -873,12 +891,30 @@ impl Object {
     }
 
     pub fn can_contain(&self) -> bool {
-        // Check if this object can contain other units (transport, garrison)
-        self.is_alive() && (self.is_kind_of(KindOf::Structure) || self.is_kind_of(KindOf::Vehicle))
+        if !self.is_alive() {
+            return false;
+        }
+        // Transports: any vehicle may act as a container (host residual).
+        if self.is_kind_of(KindOf::Vehicle) {
+            return true;
+        }
+        // Structures: only garrisonable buildings with residual capacity > 0.
+        // Fail-closed: faction producers / non-bunker structures reject Enter.
+        if self.is_kind_of(KindOf::Structure) {
+            return self
+                .building_data
+                .as_ref()
+                .map(|b| b.max_garrison > 0)
+                .unwrap_or(false);
+        }
+        false
     }
 
     pub fn has_capacity_for(&self, count: usize) -> bool {
         if let Some(building) = &self.building_data {
+            if building.max_garrison == 0 {
+                return false;
+            }
             building.garrisoned_units.len() + count <= building.max_garrison
         } else {
             // Transport heuristic based on footprint: larger selection radius holds more
@@ -886,6 +922,19 @@ impl Object {
             let max_cap = base_cap.clamp(2, 12);
             self.occupants.len() + count <= max_cap
         }
+    }
+
+    /// Residual garrison capacity (structures only). 0 = not garrisonable.
+    pub fn garrison_capacity(&self) -> usize {
+        self.building_data
+            .as_ref()
+            .map(|b| b.max_garrison)
+            .unwrap_or(0)
+    }
+
+    /// Current garrison/transport occupant count.
+    pub fn garrison_count(&self) -> usize {
+        self.contained_units().len()
     }
 
     pub fn add_occupant(&mut self, unit_id: ObjectId) -> bool {
@@ -1263,3 +1312,4 @@ mod tests {
         assert!(object.status.attacking);
     }
 }
+
