@@ -106,14 +106,12 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     }
 
     // Default infantry weapon from create_object — only ensure present, no custom DPS.
+    // engine_object_id stays None from create_object on the default host path; no
+    // mid-scenario force-clear residual (matches golden combat policy).
     if let Some(r) = logic.get_object_mut(ranger) {
         if r.weapon.is_none() {
             r.weapon = Some(Weapon::default());
         }
-        r.engine_object_id = None;
-    }
-    if let Some(e) = logic.get_object_mut(enemy) {
-        e.engine_object_id = None;
     }
 
     logic.queue_command(cmd(
