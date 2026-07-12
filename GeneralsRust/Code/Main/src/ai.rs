@@ -831,13 +831,14 @@ impl AIPlayer {
         None
     }
 
-    /// Minimum seconds between host AI attack launches.
+    /// Minimum seconds between host AI **attack re-evaluations**.
     ///
-    /// C++ reference (`GeneralsMD/.../AI/AIPlayer.cpp` `checkReadyTeams`):
-    /// ready teams force-start after `60 * LOGICFRAMES_PER_SECOND` if still gathering
-    /// (`// If 60 seconds passed, start anyway.`). The Main host AI is not a full
-    /// `AIPlayer` port; we keep this 60s spacing so gate-only early-attack hacks
-    /// (e.g. 2s intervals / strength bypass) are not reintroduced.
+    /// Shares the **numeric** 60s value from C++ `AIPlayer::checkReadyTeams`
+    /// (`GeneralsMD/.../AI/AIPlayer.cpp`: force-start ready team after
+    /// `60 * LOGICFRAMES_PER_SECOND`), but this is **not** a port of that function.
+    /// C++ uses 60s for team activation at rally; this host AI uses 60s only as
+    /// spacing between strength-threshold attack decisions. Full checkReadyTeams
+    /// (idle/anyIdle, production-condition scripts, setActive) remains unported.
     pub const ATTACK_RECHECK_SECONDS: f32 = 60.0;
 
     /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
@@ -1207,10 +1208,10 @@ impl AIManager {
 mod cpp_parity_tests {
     use super::AIPlayer;
 
-    /// Gate-only 2s attack intervals must not reappear; keep C++ checkReadyTeams 60s.
+    /// Gate-only early-attack intervals must not reappear; keep 60s spacing number.
     #[test]
-    fn host_attack_recheck_matches_cpp_ready_team_timeout_seconds() {
-        // C++ AIPlayer::checkReadyTeams: team->m_frameStarted + 60*LOGICFRAMES_PER_SECOND
+    fn host_attack_recheck_uses_sixty_second_spacing_not_gate_hack() {
+        // Same NUMBER as C++ ready-team force-start (60s), not full checkReadyTeams semantics.
         assert_eq!(AIPlayer::ATTACK_RECHECK_SECONDS, 60.0);
         assert!(
             AIPlayer::ATTACK_RECHECK_SECONDS >= 30.0,
