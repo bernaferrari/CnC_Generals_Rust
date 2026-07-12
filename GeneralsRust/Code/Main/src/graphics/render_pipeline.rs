@@ -1176,9 +1176,10 @@ impl RenderPipeline {
     /// aliveness / engine_bridged / **fow_visibility** / shell FOW bypass —
     /// all snapshot-owned.
     ///
-    /// Remaining live `GameLogic` / shroud borrows are intentional residuals only:
+    /// Remaining residuals (not unit identity; see mesh_asset_resolve residual notes):
     /// - live fallback when no presentation frame is set (boot/loading)
-    /// - mesh asset resolve still uses GraphicsSystem / AssetManager (not object state)
+    /// - mesh asset resolve: GraphicsSystem cache + AssetManager + filesystem residual
+    ///   (`assets::mesh_asset_resolve`); deferred load budget still incremental
     /// - terrain / cell-grid FOW overlay (not unit mesh identity)
     ///
     /// Do **not** re-read live position/orientation/health/team/selected/model_key/FOW
@@ -1750,6 +1751,11 @@ impl RenderPipeline {
         allow_sync_model_loads: bool,
         deferred_model_load_budget: &mut usize,
     ) -> RenderModelLoadResult {
+        use crate::assets::mesh_asset_resolve::{
+            remap_model_key_alias, resolve_mesh_for_model_key, MeshResolveResult,
+            PLACEHOLDER_MODEL_KEY,
+        };
+
         static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
         let trace_this_attempt = !allow_sync_model_loads
             && STARTUP_MODEL_TRACE_COUNT
@@ -1758,23 +1764,32 @@ impl RenderPipeline {
                 })
                 .is_ok();
 
-        if let Some(model) = graphics_system.get_model(model_name).cloned() {
+        // Canonical key from presentation model_key / get_model_name (airanger → airanger_s).
+        let resolved_key = remap_model_key_alias(model_name);
+
+        if let Some(model) = graphics_system.get_model(&resolved_key).cloned() {
             if trace_this_attempt {
                 info!(
                     "Startup model load: cache hit template='{}' model='{}'",
-                    template_name, model_name
+                    template_name, resolved_key
                 );
             }
             return RenderModelLoadResult::Ready(model);
         }
+        if resolved_key != model_name {
+            if let Some(model) = graphics_system.get_model(model_name).cloned() {
+                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
+                return RenderModelLoadResult::Ready(model);
+            }
+        }
         if let Some(model) = graphics_system.get_model(template_name).cloned() {
-            if model_name != template_name {
-                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            if resolved_key != template_name {
+                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
             }
             if trace_this_attempt {
                 info!(
                     "Startup model load: cache hit template='{}' model='{}' (aliased from template cache)",
-                    template_name, model_name
+                    template_name, resolved_key
                 );
             }
             return RenderModelLoadResult::Ready(model);
@@ -1784,7 +1799,7 @@ impl RenderPipeline {
             if trace_this_attempt {
                 info!(
                     "Startup model load: skipped by budget template='{}' model='{}'",
-                    template_name, model_name
+                    template_name, resolved_key
                 );
             }
             return RenderModelLoadResult::SkippedByBudget;
@@ -1794,12 +1809,12 @@ impl RenderPipeline {
             *deferred_model_load_budget -= 1;
         }
 
-        let mut requested_model_name = model_name.to_string();
+        let mut requested_model_name = resolved_key.clone();
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             let loaded_model = match asset_manager_arc.lock() {
                 Ok(mut asset_manager) => {
                     if let Some(mapped_name) = asset_manager.get_model_for_object(template_name) {
-                        requested_model_name = mapped_name;
+                        requested_model_name = remap_model_key_alias(&mapped_name);
                     }
                     if trace_this_attempt {
                         info!(
@@ -1832,10 +1847,16 @@ impl RenderPipeline {
 
             if let Some(model) = loaded_model {
                 graphics_system.cache_model(requested_model_name.clone(), model.clone());
+                if requested_model_name != resolved_key {
+                    graphics_system.cache_model(resolved_key.clone(), model.clone());
+                }
                 if requested_model_name != model_name {
                     graphics_system.cache_model(model_name.to_string(), model.clone());
                 }
-                if template_name != requested_model_name && template_name != model_name {
+                if template_name != requested_model_name
+                    && template_name != model_name
+                    && template_name != resolved_key
+                {
                     graphics_system.cache_model(template_name.to_string(), model);
                 }
                 if trace_this_attempt {
@@ -1847,23 +1868,65 @@ impl RenderPipeline {
             }
         }
 
-        let resolved = if let Some(model) = graphics_system.get_model(model_name).cloned() {
+        let resolved = if let Some(model) = graphics_system.get_model(&resolved_key).cloned() {
+            Some(model)
+        } else if let Some(model) = graphics_system.get_model(model_name).cloned() {
+            if model_name != resolved_key {
+                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
+            }
             Some(model)
         } else if let Some(model) = graphics_system.get_model(template_name).cloned() {
-            if model_name != template_name {
-                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            if resolved_key != template_name {
+                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
             }
             Some(model)
         } else if let Some(model) = graphics_system.get_model(&requested_model_name).cloned() {
-            if requested_model_name != model_name {
-                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            if requested_model_name != resolved_key {
+                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
             }
             if requested_model_name != template_name {
                 graphics_system.cache_model(template_name.to_string(), model.as_ref().clone());
             }
             Some(model)
         } else {
-            None
+            // Mesh residual path: filesystem W3D (extracted/sample) or honesty placeholder.
+            // use_placeholder only when debug cubes are enabled (production remains fail-closed
+            // for missing retail meshes unless opt-in).
+            let use_placeholder = Self::missing_model_debug_cubes_enabled();
+            match resolve_mesh_for_model_key(&resolved_key, use_placeholder) {
+                MeshResolveResult::Loaded {
+                    model_key,
+                    model,
+                    source_path,
+                } => {
+                    if trace_this_attempt {
+                        info!(
+                            "Startup model load: residual resolve template='{}' key='{}' path={:?}",
+                            template_name, model_key, source_path
+                        );
+                    }
+                    graphics_system.cache_model(model_key.clone(), model.clone());
+                    if model_key != model_name {
+                        graphics_system.cache_model(model_name.to_string(), model.clone());
+                    }
+                    if model_key != template_name {
+                        graphics_system.cache_model(template_name.to_string(), model.clone());
+                    }
+                    Some(std::sync::Arc::new(model))
+                }
+                MeshResolveResult::Placeholder { model, .. } => {
+                    // Cache under both placeholder sentinel and requested key for draw.
+                    graphics_system.cache_model(PLACEHOLDER_MODEL_KEY.to_string(), model.clone());
+                    if use_placeholder {
+                        // Return Ready so the unit pass can draw the honest placeholder mesh.
+                        graphics_system.cache_model(resolved_key.clone(), model.clone());
+                        Some(std::sync::Arc::new(model))
+                    } else {
+                        None
+                    }
+                }
+                MeshResolveResult::Missing { .. } => None,
+            }
         };
         if trace_this_attempt && resolved.is_none() {
             warn!(
