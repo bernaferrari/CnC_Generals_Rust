@@ -527,6 +527,8 @@ pub struct GameLogic {
     mine_residual_proximity_detonations: u32,
     mine_residual_timed_detonations: u32,
     mine_residual_manual_detonations: u32,
+    /// Dozer/Worker safe mine-clear residual (DAMAGE_DISARM destroy without detonation).
+    mine_residual_clears: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
@@ -1329,6 +1331,7 @@ impl GameLogic {
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
             mine_residual_manual_detonations: 0,
+            mine_residual_clears: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
@@ -1462,6 +1465,7 @@ impl GameLogic {
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
         self.mine_residual_manual_detonations = 0;
+        self.mine_residual_clears = 0;
         self.radar_scans.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
@@ -8427,6 +8431,11 @@ impl GameLogic {
         self.mine_residual_manual_detonations
     }
 
+    /// Residual honesty: dozer/worker safe mine clears (disarm without detonation).
+    pub fn mine_residual_clears(&self) -> u32 {
+        self.mine_residual_clears
+    }
+
     /// Residual honesty: place → enemy trigger → damage path exercised.
     pub fn honesty_mine_place_trigger_ok(&self) -> bool {
         self.mine_residual_places > 0 && self.mine_residual_proximity_detonations > 0
@@ -8435,6 +8444,11 @@ impl GameLogic {
     /// Residual honesty: place timed charge → detonation path exercised.
     pub fn honesty_timed_demo_charge_ok(&self) -> bool {
         self.mine_residual_places > 0 && self.mine_residual_timed_detonations > 0
+    }
+
+    /// Residual honesty: place enemy mine → dozer clear → mine gone, dozer lives.
+    pub fn honesty_mine_clear_ok(&self) -> bool {
+        self.mine_residual_places > 0 && self.mine_residual_clears > 0
     }
 
     // -----------------------------------------------------------------------
@@ -8809,15 +8823,34 @@ impl GameLogic {
         self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual)
     }
 
-    /// Advance residual mines: proximity scan + timed detonation.
+    /// Advance residual mines: dozer clear + proximity scan + timed detonation.
+    ///
+    /// Clear residual (C++ DozerMineDisarmingWeapon DAMAGE_DISARM / MinefieldBehavior
+    /// clearer immunity): Workers/Dozers do not proximity-detonate mines; when within
+    /// clear range of an enemy/neutral mine they disarm it without area damage.
+    /// Fail-closed: not full weapon-set flag / PreAttack scoop delay / AcademyStats.
     pub fn update_mines_and_demo_traps(&mut self) {
-        use crate::game_logic::host_mines::HostMineDetonateReason;
+        use crate::game_logic::host_mines::{
+            can_clear_mine_kind, is_mine_clearer, HostMineDetonateReason, HostMineKind,
+            DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+        };
 
         let frame = self.frame;
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
+        let mut clear_due: Vec<(ObjectId, ObjectId)> = Vec::new(); // (mine_id, clearer_id)
+        let mut approach: Vec<(ObjectId, Vec3)> = Vec::new(); // clearer moves toward mine
 
         // Collect active mine positions + params first (avoid borrow issues).
-        let mines: Vec<(ObjectId, Team, Vec3, f32, bool, Option<u32>, bool)> = self
+        let mines: Vec<(
+            ObjectId,
+            Team,
+            Vec3,
+            f32,
+            bool,
+            Option<u32>,
+            bool,
+            HostMineKind,
+        )> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -8833,16 +8866,48 @@ impl GameLogic {
                     data.proximity_enabled,
                     data.detonate_at_frame,
                     obj.status.under_construction,
+                    data.kind,
                 ))
             })
             .collect();
 
-        // Potential victims snapshot.
-        let victims: Vec<(ObjectId, Team, Vec3, bool)> = self
+        // Mine clearers: Worker / Dozer residual (C++ KINDOF_DOZER + DISARM weapon).
+        let clearers: Vec<(ObjectId, Team, Vec3, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.mine_data.is_some() {
+                    return None;
+                }
+                if !is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name) {
+                    return None;
+                }
+                // Busy construction/economy jobs do not auto-clear (Dozer primary task residual).
+                let busy = matches!(
+                    obj.ai_state,
+                    AIState::Constructing
+                        | AIState::Repairing
+                        | AIState::Gathering
+                        | AIState::ReturningResources
+                        | AIState::Entering
+                        | AIState::Docking
+                        | AIState::Capturing
+                        | AIState::SpecialAbility
+                );
+                Some((*id, obj.team, obj.get_position(), busy))
+            })
+            .collect();
+
+        // Potential victims snapshot (mine clearers never proximity-trigger residual).
+        let victims: Vec<(ObjectId, Team, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.mine_data.is_some() {
+                    return None;
+                }
+                // C++: mine-clearers with DISARM / isClearingMines are immune to detonation.
+                if is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name) {
                     return None;
                 }
                 // Only ground combatants / structures trigger residual mines.
@@ -8857,39 +8922,102 @@ impl GameLogic {
                 if obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target {
                     return None;
                 }
-                Some((*id, obj.team, obj.get_position(), true))
+                Some((*id, obj.team, obj.get_position()))
             })
             .collect();
 
-        for (mine_id, mine_team, mine_pos, trigger_range, proximity, detonate_at, under_construction)
-            in mines
+        // Dozer/Worker clear + approach residual before proximity (so clear wins).
+        // C++: only enemy/neutral mines (not ally/own) — residual uses team inequality.
+        let clear_range_sqr = DOZER_MINE_CLEAR_RANGE * DOZER_MINE_CLEAR_RANGE;
+        let scan_range_sqr = DOZER_MINE_CLEAR_SCAN_RANGE * DOZER_MINE_CLEAR_SCAN_RANGE;
+        for (cid, cteam, cpos, busy) in &clearers {
+            if *busy {
+                continue;
+            }
+            let mut best: Option<(ObjectId, f32, Vec3)> = None;
+            for (mine_id, mine_team, mine_pos, _, _, _, under_construction, kind) in &mines {
+                if *under_construction || !can_clear_mine_kind(*kind) {
+                    continue;
+                }
+                // srj: only clear enemy or neutral mines (not ours / allies).
+                if *mine_team == *cteam {
+                    continue;
+                }
+                let dx = cpos.x - mine_pos.x;
+                let dz = cpos.z - mine_pos.z;
+                let dist_sqr = dx * dx + dz * dz;
+                if dist_sqr > scan_range_sqr {
+                    continue;
+                }
+                if best.map(|(_, d, _)| dist_sqr < d).unwrap_or(true) {
+                    best = Some((*mine_id, dist_sqr, *mine_pos));
+                }
+            }
+            if let Some((mine_id, dist_sqr, mine_pos)) = best {
+                if dist_sqr <= clear_range_sqr {
+                    // Prefer first clearer to claim a mine this frame.
+                    if !clear_due.iter().any(|(m, _)| *m == mine_id) {
+                        clear_due.push((mine_id, *cid));
+                    }
+                } else {
+                    // Approach residual: move idle clearer toward nearest mine.
+                    approach.push((*cid, mine_pos));
+                }
+            }
+        }
+
+        for (mine_id, mine_team, mine_pos, trigger_range, proximity, detonate_at, under_construction, _)
+            in &mines
         {
-            if under_construction {
+            if *under_construction {
+                continue;
+            }
+            // Already scheduled for safe clear this frame — do not also detonate.
+            if clear_due.iter().any(|(m, _)| *m == *mine_id) {
                 continue;
             }
             if let Some(at) = detonate_at {
-                if frame >= at {
-                    due.push((mine_id, HostMineDetonateReason::Timed));
+                if frame >= *at {
+                    due.push((*mine_id, HostMineDetonateReason::Timed));
                     continue;
                 }
             }
-            if !proximity || trigger_range <= 0.0 {
+            if !proximity || *trigger_range <= 0.0 {
                 continue;
             }
             let range_sqr = trigger_range * trigger_range;
-            for (vid, vteam, vpos, _) in &victims {
-                if *vid == mine_id {
+            for (vid, vteam, vpos) in &victims {
+                if *vid == *mine_id {
                     continue;
                 }
                 // Enemies (and neutrals as residual default for mines) trigger.
-                if *vteam == mine_team {
+                if *vteam == *mine_team {
                     continue;
                 }
                 let dx = vpos.x - mine_pos.x;
                 let dz = vpos.z - mine_pos.z;
                 if dx * dx + dz * dz <= range_sqr {
-                    due.push((mine_id, HostMineDetonateReason::Proximity));
+                    due.push((*mine_id, HostMineDetonateReason::Proximity));
                     break;
+                }
+            }
+        }
+
+        // Safe clears first (mine gone, no splash).
+        for (mine_id, clearer_id) in clear_due {
+            let _ = self.clear_mine_internal(mine_id, clearer_id);
+        }
+
+        // Idle clearer approach: set move toward nearest enemy mine.
+        for (clearer_id, mine_pos) in approach {
+            if let Some(obj) = self.objects.get_mut(&clearer_id) {
+                // Don't clobber an explicit non-idle order already in flight.
+                if matches!(obj.ai_state, AIState::Idle | AIState::Moving | AIState::Attacking)
+                    || obj.target.is_none()
+                {
+                    obj.ai_state = AIState::Moving;
+                    obj.movement.target_position = Some(mine_pos);
+                    obj.status.moving = true;
                 }
             }
         }
@@ -8897,6 +9025,67 @@ impl GameLogic {
         for (mine_id, reason) in due {
             let _ = self.detonate_mine_internal(mine_id, reason);
         }
+    }
+
+    /// Safely disarm/clear a residual mine without detonation or area damage.
+    /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
+    pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
+        use crate::game_logic::host_mines::{can_clear_mine_kind, MINE_CLEARED_AUDIO};
+
+        let Some(mine) = self.objects.get(&mine_id) else {
+            return false;
+        };
+        if !mine.is_alive() {
+            return false;
+        }
+        let Some(data) = mine.mine_data.as_ref() else {
+            return false;
+        };
+        if data.detonated || !can_clear_mine_kind(data.kind) {
+            return false;
+        }
+        let clearer_team = self.objects.get(&clearer_id).map(|o| o.team);
+        if clearer_team == Some(mine.team) {
+            // Never clear own/ally residual mines.
+            return false;
+        }
+        let mine_pos = mine.get_position();
+
+        // Mark disarmed (detonated flag reuses "no longer active" residual bookkeeping).
+        if let Some(obj) = self.objects.get_mut(&mine_id) {
+            if let Some(md) = obj.mine_data.as_mut() {
+                md.detonated = true;
+                md.proximity_enabled = false;
+                md.detonate_at_frame = None;
+            }
+        }
+
+        self.mine_residual_clears = self.mine_residual_clears.saturating_add(1);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(MINE_CLEARED_AUDIO)
+                .with_object(mine_id)
+                .with_position(mine_pos)
+                .with_priority(160),
+        );
+
+        // Destroy mine without splash damage (DAMAGE_DISARM residual).
+        self.mark_object_for_destruction(mine_id, None);
+
+        // Clearer stays alive — no damage applied.
+        if let Some(clearer) = self.objects.get_mut(&clearer_id) {
+            if clearer.target == Some(mine_id) {
+                clearer.target = None;
+            }
+            if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
+                clearer.ai_state = AIState::Idle;
+                clearer.movement.target_position = None;
+                clearer.status.moving = false;
+                clearer.status.attacking = false;
+            }
+        }
+
+        true
     }
 
     fn detonate_mine_internal(
@@ -18073,6 +18262,193 @@ mod tests {
             enemy.health.current < enemy.max_health || enemy.status.destroyed,
             "manual detonate must damage nearby enemy"
         );
+    }
+
+    /// Residual: enemy mine + dozer in clear range → mine disarmed, dozer survives.
+    /// Fail-closed: not full WEAPONSET_MINE_CLEARING_DETAIL / PreAttack scoop delay.
+    #[test]
+    fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
+        use crate::game_logic::host_mines::DOZER_MINE_CLEAR_RANGE;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_dozer_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("enemy mine");
+        assert_eq!(game_logic.mine_residual_places(), 1);
+
+        // Place dozer inside clear range (and inside trigger range — immunity residual).
+        let dozer_id = game_logic
+            .create_object(
+                "TestDozer",
+                Team::USA,
+                Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("dozer");
+        let health_before = game_logic.find_object(dozer_id).unwrap().health.current;
+        assert!(
+            game_logic
+                .find_object(dozer_id)
+                .unwrap()
+                .is_kind_of(KindOf::Worker),
+            "TestDozer must be Worker residual for mine clear"
+        );
+
+        game_logic.update_mines_and_demo_traps();
+
+        assert_eq!(
+            game_logic.mine_residual_clears(),
+            1,
+            "dozer must clear enemy mine"
+        );
+        assert_eq!(
+            game_logic.mine_residual_proximity_detonations(),
+            0,
+            "clear must not detonate"
+        );
+        assert!(
+            game_logic.honesty_mine_clear_ok(),
+            "place+clear honesty path"
+        );
+
+        // Mine disarmed / inactive residual.
+        if let Some(mine) = game_logic.find_object(mine_id) {
+            assert!(
+                mine.mine_data
+                    .as_ref()
+                    .map(|d| d.detonated || !d.is_active())
+                    .unwrap_or(true)
+                    || mine.status.destroyed,
+                "cleared mine must be inactive"
+            );
+        }
+
+        let dozer = game_logic.find_object(dozer_id).expect("dozer after clear");
+        assert!(dozer.is_alive(), "dozer must survive clear");
+        assert!(
+            !dozer.status.destroyed,
+            "dozer must not be marked destroyed"
+        );
+        assert_eq!(
+            dozer.health.current, health_before,
+            "dozer must take no damage from safe clear"
+        );
+    }
+
+    /// Residual: dozer outside clear range approaches nearest enemy mine (auto-acquire).
+    #[test]
+    fn dozer_mine_clear_residual_approaches_then_clears() {
+        use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_dozer_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("mine");
+
+        // Outside clear range, inside scan range.
+        let approach_dist = (DOZER_MINE_CLEAR_RANGE + DOZER_MINE_CLEAR_SCAN_RANGE) * 0.5;
+        assert!(approach_dist > DOZER_MINE_CLEAR_RANGE);
+        assert!(approach_dist < DOZER_MINE_CLEAR_SCAN_RANGE);
+
+        let dozer_id = game_logic
+            .create_object("TestDozer", Team::USA, Vec3::new(approach_dist, 0.0, 0.0))
+            .expect("dozer");
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(
+            game_logic.mine_residual_clears(),
+            0,
+            "not in clear range yet"
+        );
+        {
+            let dozer = game_logic.find_object(dozer_id).unwrap();
+            assert_eq!(dozer.ai_state, AIState::Moving, "must approach mine");
+            assert!(
+                dozer.movement.target_position.is_some(),
+                "must have move target toward mine"
+            );
+        }
+
+        // Move into clear range (host residual does not sim path here).
+        {
+            let dozer = game_logic.find_object_mut(dozer_id).unwrap();
+            dozer.set_position(Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.25, 0.0, 0.0));
+            dozer.ai_state = AIState::Idle;
+        }
+        game_logic.update_mines_and_demo_traps();
+
+        assert_eq!(game_logic.mine_residual_clears(), 1);
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
+        assert!(game_logic.find_object(dozer_id).unwrap().is_alive());
+        if let Some(mine) = game_logic.find_object(mine_id) {
+            assert!(
+                mine.mine_data
+                    .as_ref()
+                    .map(|d| d.detonated)
+                    .unwrap_or(true)
+            );
+        }
+    }
+
+    /// Residual: ally mine is not auto-cleared by friendly dozer.
+    #[test]
+    fn dozer_mine_clear_residual_skips_ally_mine() {
+        use crate::game_logic::host_mines::DOZER_MINE_CLEAR_RANGE;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_dozer_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("ally mine");
+        let _dozer_id = game_logic
+            .create_object(
+                "TestDozer",
+                Team::USA,
+                Vec3::new(DOZER_MINE_CLEAR_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("dozer");
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_clears(), 0);
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
+        let mine = game_logic.find_object(mine_id).unwrap();
+        assert!(
+            mine.mine_data.as_ref().map(|d| d.is_active()).unwrap_or(false),
+            "ally mine must remain active"
+        );
+    }
+
+    /// Residual: ordinary infantry still triggers mine (clearer immunity is Worker/Dozer only).
+    #[test]
+    fn dozer_mine_clear_residual_infantry_still_triggers() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("mine");
+        let trigger = game_logic
+            .find_object(mine_id)
+            .unwrap()
+            .mine_data
+            .as_ref()
+            .unwrap()
+            .trigger_range;
+        let _enemy = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(trigger * 0.25, 0.0, 0.0),
+            )
+            .expect("infantry");
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_clears(), 0);
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
     }
 
     // -----------------------------------------------------------------------

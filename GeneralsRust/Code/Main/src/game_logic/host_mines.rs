@@ -6,10 +6,12 @@
 //! - Place timed demo charges (Burton / Tank Hunter sticky residual)
 //! - Enemy/neutral proximity trigger → area damage + destroy mine/trap
 //! - Timed charges detonate at absolute frame
+//! - Dozer / Worker mine-clear: approach enemy/neutral mine → disarm without detonation
 //!
 //! Fail-closed honesty:
 //! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
-//! - Not full DemoTrapUpdate weapon-slot mode matrix / dozer-disarm scan
+//! - Not full DemoTrapUpdate weapon-slot mode matrix / PreAttack scoop animation
+//! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
 //! - Not full StickyBombUpdate attach bones / geometry-based splash
 //! - Not full OCL ClusterMinesBomb aircraft path
 
@@ -208,6 +210,33 @@ pub enum HostMineDetonateReason {
 pub const CLUSTER_MINE_COUNT: usize = 6;
 pub const CLUSTER_MINE_RING_RADIUS: f32 = 40.0;
 
+/// DozerMineDisarmingWeapon / WorkerMineDisarmingWeapon AttackRange residual.
+pub const DOZER_MINE_CLEAR_RANGE: f32 = 5.0;
+
+/// ContinueAttackRange residual: after/while clearing, look for mines this far.
+/// Also used as idle dozer auto-acquire scan radius residual (not full BoredRange).
+pub const DOZER_MINE_CLEAR_SCAN_RANGE: f32 = 100.0;
+
+/// Audio residual when a dozer/worker safely disarms a mine (FXList MineClearedByDozer).
+pub const MINE_CLEARED_AUDIO: &str = "MineClearedByDozer";
+
+/// Whether residual unit can clear mines (C++ KINDOF_DOZER / Worker + DISARM weapon residual).
+/// Fail-closed: not full weapon-set / AntiMine bit matrix.
+pub fn is_mine_clearer(is_worker: bool, template_name: &str) -> bool {
+    if is_worker {
+        return true;
+    }
+    let n = template_name.to_ascii_lowercase();
+    n.contains("dozer") || n.contains("worker")
+}
+
+/// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
+pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
+    match kind {
+        HostMineKind::LandMine | HostMineKind::DemoTrap | HostMineKind::TimedDemoCharge => true,
+    }
+}
+
 /// Template names recognized as residual land mines.
 pub fn is_land_mine_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
@@ -339,5 +368,17 @@ mod tests {
         assert!((damage_at_distance(100.0, 10.0, 0.0) - 100.0).abs() < 0.01);
         assert!((damage_at_distance(100.0, 10.0, 4.0) - 100.0).abs() < 0.01);
         assert_eq!(damage_at_distance(100.0, 10.0, 11.0), 0.0);
+    }
+
+    #[test]
+    fn mine_clearer_helpers() {
+        assert!(is_mine_clearer(true, "TestInfantry"));
+        assert!(is_mine_clearer(false, "USA_Dozer"));
+        assert!(is_mine_clearer(false, "GLA_Worker"));
+        assert!(!is_mine_clearer(false, "USA_Ranger"));
+        assert!(can_clear_mine_kind(HostMineKind::LandMine));
+        assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
+        assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
+        assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
     }
 }
