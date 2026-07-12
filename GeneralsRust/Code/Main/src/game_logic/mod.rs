@@ -16,6 +16,8 @@ pub mod host_upgrades;
 pub mod host_mines;
 pub mod host_radar_scan;
 pub mod host_hero_abilities;
+pub mod host_repair;
+pub mod host_paradrop;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -46,6 +48,10 @@ pub use host_radar_scan::{
 };
 pub use host_hero_abilities::{
     HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
+};
+pub use host_paradrop::{
+    HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
+    AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
