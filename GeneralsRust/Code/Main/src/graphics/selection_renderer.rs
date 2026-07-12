@@ -614,4 +614,23 @@ mod presentation_selection_tests {
             "live path reflects post-snapshot mutation (deselected)"
         );
     }
+
+    #[test]
+    fn production_cnc_render_path_enqueues_selection_with_presentation() {
+        // Structural proof: CncGameEngine::render ships enqueue_selection_render with
+        // last_presentation_frame (not a dead helper).
+        let src = include_str!("../cnc_game_engine.rs");
+        assert!(
+            src.contains("enqueue_selection_render"),
+            "InGame render must call enqueue_selection_render"
+        );
+        assert!(
+            src.contains("last_presentation_frame.as_ref()"),
+            "selection enqueue must pass presentation snapshot"
+        );
+        assert!(
+            src.contains("selection_renderer::enqueue_selection_render"),
+            "must use graphics selection_renderer production path"
+        );
+    }
 }
