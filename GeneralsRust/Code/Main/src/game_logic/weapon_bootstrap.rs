@@ -16,6 +16,8 @@
 //! - Always seed a small set of golden-unit weapons if still missing
 //!
 //! Fail-closed: seeding known host weapons is not full Weapon.ini parity.
+//! Secondary slots (`Weapon = SECONDARY Name`) are seeded for known units only;
+//! full WeaponSet upgrade matrices are deferred.
 
 use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut, WeaponAntiMask, WeaponTemplate};
 use std::path::{Path, PathBuf};
@@ -26,6 +28,11 @@ pub const RANGER_PRIMARY_WEAPON: &str = "RangerAdvancedCombatRifle";
 pub const GLA_REBEL_PRIMARY_WEAPON: &str = "GLARebelMachineGun";
 pub const REDGUARD_PRIMARY_WEAPON: &str = "RedguardMachineGun";
 pub const HUMVEE_PRIMARY_WEAPON: &str = "HumveeGun";
+
+/// Retail secondary weapon names used by host golden / skirmish unit templates.
+/// Fail-closed residual: only units that need SECONDARY in host combat probes.
+pub const RANGER_SECONDARY_WEAPON: &str = "RangerFlashBangGrenadeWeapon";
+pub const HUMVEE_SECONDARY_WEAPON: &str = "HumveeMissileWeapon";
 
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
@@ -66,6 +73,16 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             Some(REDGUARD_PRIMARY_WEAPON)
         }
         "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_PRIMARY_WEAPON),
+        _ => None,
+    }
+}
+
+/// Look up the retail secondary weapon template name for a host unit template.
+/// Fail-closed: only known multi-slot units; not full WeaponSet upgrade matrices.
+pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
+    match template_name {
+        "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(RANGER_SECONDARY_WEAPON),
+        "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_SECONDARY_WEAPON),
         _ => None,
     }
 }
@@ -180,6 +197,26 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 600.0,
         },
+        // AmericaInfantryRanger SECONDARY — RangerFlashBangGrenadeWeapon
+        // PrimaryDamage 35, AttackRange 175, ClipReload 2000ms → 60 frames
+        SeedWeapon {
+            name: RANGER_SECONDARY_WEAPON,
+            primary_damage: 35.0,
+            attack_range: 175.0,
+            delay_frames: 60,
+            clip_size: 1,
+            weapon_speed: 120.0,
+        },
+        // AmericaVehicleHumvee SECONDARY — HumveeMissileWeapon
+        // PrimaryDamage 30, AttackRange 150, Delay 1000ms → 30 frames
+        SeedWeapon {
+            name: HUMVEE_SECONDARY_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 1,
+            weapon_speed: 600.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -266,9 +303,11 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .add_kind_of(KindOf::Selectable)
             .set_health(120.0)
-            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
+            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(RANGER_SECONDARY_WEAPON);
         // Explicit host stats must NOT be set — prove store path.
         assert!(ranger.primary_weapon.is_none());
+        assert!(ranger.secondary_weapon.is_none());
         logic.templates.insert("USA_Ranger".to_string(), ranger);
 
         let id = logic
@@ -287,5 +326,35 @@ mod tests {
             weapon.damage
         );
         assert!((weapon.range - 100.0).abs() < 0.01);
+
+        let secondary = obj
+            .secondary_weapon
+            .as_ref()
+            .expect("secondary weapon bound at create_object");
+        assert!(
+            (secondary.damage - Weapon::default().damage).abs() > 0.01,
+            "expected store secondary damage, got default-like {}",
+            secondary.damage
+        );
+        assert!(
+            (secondary.damage - 35.0).abs() < 0.01,
+            "expected RangerFlashBangGrenadeWeapon damage 35.0, got {}",
+            secondary.damage
+        );
+        assert!((secondary.range - 175.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn secondary_weapon_name_for_known_units() {
+        assert_eq!(
+            secondary_weapon_name_for_unit("USA_Ranger"),
+            Some(RANGER_SECONDARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("USA_Humvee"),
+            Some(HUMVEE_SECONDARY_WEAPON)
+        );
+        assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
+        assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);
     }
 }

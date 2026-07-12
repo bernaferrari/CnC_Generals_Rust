@@ -51,6 +51,9 @@ pub struct Object {
     /// Primary weapon
     pub weapon: Option<Weapon>,
 
+    /// Secondary weapon slot (C++ WeaponSet SECONDARY). Optional residual bind.
+    pub secondary_weapon: Option<Weapon>,
+
     /// Current target
     pub target: Option<ObjectId>,
 
@@ -208,6 +211,7 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             weapon: None,
+            secondary_weapon: None,
             target: None,
             construction_percent: 1.0, // Fully constructed by default
             building_data,
@@ -264,6 +268,7 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             weapon: None,
+            secondary_weapon: None,
             target: None,
             construction_percent: 1.0,
             building_data: None,
@@ -544,8 +549,18 @@ impl Object {
             }
 
             // C++ parity (Weapon::isWithinAttackRange): check both minimum
-            // and maximum attack range.
-            let distance = self.thing.get_distance_to(&target.thing);
+            // and maximum attack range. Ground targets use horizontal (XZ)
+            // distance so terrain height does not permanently block fire after
+            // a successful march into range.
+            let distance = if target_is_air {
+                self.thing.get_distance_to(&target.thing)
+            } else {
+                let a = self.get_position();
+                let b = target.get_position();
+                let dx = a.x - b.x;
+                let dz = a.z - b.z;
+                (dx * dx + dz * dz).sqrt()
+            };
             if weapon.min_range > 0.0 && distance < weapon.min_range {
                 return false;
             }
