@@ -116,6 +116,8 @@ pub struct GameUIState {
     pub player_name: String,
     pub selected_units: Vec<ObjectId>,
     pub selected_unit_infos: Vec<UnitDisplayInfo>,
+    /// ControlBar/WND selection panel (health/name) from PresentationFrame when available.
+    pub selection_panel: ControlBarSelectionPanelState,
     pub build_queue: Vec<BuildQueueEntry>,
     pub is_game_paused: bool,
     pub current_game_time: f32,
@@ -161,6 +163,7 @@ impl Default for GameUIState {
             player_name: localization::localize("hud.commander", "Commander"),
             selected_units: Vec::new(),
             selected_unit_infos: Vec::new(),
+            selection_panel: ControlBarSelectionPanelState::default(),
             build_queue: Vec::new(),
             is_game_paused: false,
             current_game_time: 0.0,
@@ -264,7 +267,7 @@ impl DiagnosticsOverlayStats {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnitDisplayInfo {
     pub object_id: ObjectId,
     pub name: String,
@@ -272,6 +275,54 @@ pub struct UnitDisplayInfo {
     pub health_maximum: f32,
     pub unit_type: String,
     pub current_order: String,
+}
+
+/// ControlBar / WND selection panel display (portrait + health strip).
+///
+/// Filled from `PresentationFrame` only — never re-reads live GameLogic.
+/// Maps to the retail right-HUD selection region (`WinUnitSelected` / cameo + health).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ControlBarSelectionPanelState {
+    pub visible: bool,
+    /// Primary (first) selected unit template / display name.
+    pub primary_name: String,
+    pub health_current: f32,
+    pub health_maximum: f32,
+    pub selected_count: usize,
+    pub primary_object_id: Option<ObjectId>,
+    pub unit_infos: Vec<UnitDisplayInfo>,
+}
+
+impl ControlBarSelectionPanelState {
+    /// Build selection panel state from presentation-owned unit infos.
+    pub fn from_unit_infos(infos: &[UnitDisplayInfo]) -> Self {
+        if infos.is_empty() {
+            return Self::default();
+        }
+        let primary = &infos[0];
+        Self {
+            visible: true,
+            primary_name: primary.name.clone(),
+            health_current: primary.health_current,
+            health_maximum: primary.health_maximum.max(1.0),
+            selected_count: infos.len(),
+            primary_object_id: Some(primary.object_id),
+            unit_infos: infos.to_vec(),
+        }
+    }
+
+    pub fn health_ratio(&self) -> f32 {
+        if self.health_maximum <= 0.0 {
+            0.0
+        } else {
+            (self.health_current / self.health_maximum).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Non-zero positive health suitable for "panel is showing real selection HP".
+    pub fn has_positive_health(&self) -> bool {
+        self.visible && self.health_current > 0.0 && self.health_maximum >= self.health_current
+    }
 }
 
 #[derive(Debug, Clone)]

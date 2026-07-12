@@ -5,8 +5,8 @@
 //! RTS interface elements that appear during gameplay.
 
 use super::{
-    color_for_player, layout, utils, BeaconDot, Interactive, KeyCode, MinimapUIState, MouseButton,
-    Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
+    color_for_player, layout, utils, BeaconDot, ControlBarSelectionPanelState, Interactive, KeyCode,
+    MinimapUIState, MouseButton, Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
 };
 use crate::game_logic::ObjectId;
 use crate::localization;
@@ -413,6 +413,8 @@ pub struct GameHUD {
     selected_units: Vec<ObjectId>,
     /// Selected unit identity (health/name) from PresentationFrame when available.
     selected_unit_infos: Vec<UnitDisplayInfo>,
+    /// ControlBar/WND selection panel display (portrait + health) from presentation.
+    selection_panel: ControlBarSelectionPanelState,
     /// Screen dimensions
     screen_size: (u32, u32),
     /// HUD visibility
@@ -486,6 +488,7 @@ impl GameHUD {
             minimap_panel: MinimapUIState::default(),
             selected_units: Vec::new(),
             selected_unit_infos: Vec::new(),
+            selection_panel: ControlBarSelectionPanelState::default(),
             screen_size,
             visible: true,
             command_buttons: Vec::new(),
@@ -621,6 +624,7 @@ impl GameHUD {
     pub fn select_units(&mut self, unit_ids: Vec<ObjectId>) {
         self.selected_units = unit_ids;
         self.selected_unit_infos.clear();
+        self.selection_panel = ControlBarSelectionPanelState::default();
         self.update_command_buttons();
 
         if self.selected_units.len() == 1 {
@@ -641,7 +645,8 @@ impl GameHUD {
     ///
     /// Production path: `PresentationFrame::apply_to_game_hud` overwrites IDs +
     /// health/name identity from the immutable snapshot after each logic step
-    /// (and after map load / skirmish start seed).
+    /// (and after map load / skirmish start seed). Also refreshes the ControlBar
+    /// selection panel (health strip) from the same snapshot-owned infos.
     pub fn sync_selection_from_presentation(
         &mut self,
         unit_ids: Vec<ObjectId>,
@@ -650,6 +655,8 @@ impl GameHUD {
         let selection_changed = self.selected_units != unit_ids;
         self.selected_units = unit_ids;
         self.selected_unit_infos = unit_infos;
+        self.selection_panel =
+            ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
         if selection_changed {
             self.update_command_buttons();
         }
@@ -663,6 +670,11 @@ impl GameHUD {
     /// Selected unit identity (health/name) from presentation when available.
     pub fn selected_unit_infos(&self) -> &[UnitDisplayInfo] {
         &self.selected_unit_infos
+    }
+
+    /// ControlBar/WND selection panel state (health/name) from presentation.
+    pub fn selection_panel(&self) -> &ControlBarSelectionPanelState {
+        &self.selection_panel
     }
 
     /// Select building
@@ -1093,6 +1105,29 @@ impl Renderable for GameHUD {
                     }
                 }
             }
+        }
+
+        // ControlBar selection panel (portrait + health) from presentation snapshot.
+        if self.selection_panel.visible {
+            let name = if self.selection_panel.primary_name.is_empty() {
+                localization::localize("hud.panel.selected_unit", "Selected unit")
+            } else {
+                self.selection_panel.primary_name.clone()
+            };
+            let hp = self.selection_panel.health_current;
+            let hp_max = self.selection_panel.health_maximum;
+            let count = self.selection_panel.selected_count.to_string();
+            let panel_label = localization::localize_with_args(
+                "hud.panel.selection_panel",
+                "Selection Panel: {name} HP {hp}/{max} ({count} selected)",
+                &[
+                    ("name", name.as_str()),
+                    ("hp", &format!("{hp:.0}")),
+                    ("max", &format!("{hp_max:.0}")),
+                    ("count", count.as_str()),
+                ],
+            );
+            println!("{panel_label}");
         }
 
         // Render selected unit commands

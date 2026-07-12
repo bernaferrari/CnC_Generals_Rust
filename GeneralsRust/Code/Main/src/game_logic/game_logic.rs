@@ -9881,6 +9881,9 @@ impl GameLogic {
         ui_state.player_name = player_name;
         ui_state.selected_units = selected_units;
         ui_state.selected_unit_infos = selected_unit_infos;
+        // Live path fills panel; production overlay replaces with PresentationFrame.
+        ui_state.selection_panel =
+            crate::ui::ControlBarSelectionPanelState::from_unit_infos(&ui_state.selected_unit_infos);
         ui_state.build_queue = build_queue;
         ui_state.is_game_paused = self.is_paused;
         ui_state.current_game_time = game_time;

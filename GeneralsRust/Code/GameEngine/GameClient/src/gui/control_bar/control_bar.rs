@@ -74,6 +74,11 @@ pub struct PortraitDisplayState {
     pub veterancy_overlay: Option<String>,
     pub upgrade_cameos: Vec<UpgradeCameoState>,
     pub is_visible: bool,
+    /// Selection health from PresentationFrame snapshot (not live OBJECT_REGISTRY).
+    pub health_current: f32,
+    pub health_maximum: f32,
+    /// Number of selected objects reflected on the selection panel.
+    pub selected_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -2214,11 +2219,16 @@ impl ControlBar {
             _ => None,
         };
 
+        // Live-registry portrait path: health stays 0 here; presentation overlay
+        // (`sync_selection_display_from_presentation`) supplies snapshot HP.
         self.portrait_state = PortraitDisplayState {
             portrait_image: template_name,
             veterancy_overlay,
             upgrade_cameos: Vec::new(),
             is_visible: true,
+            health_current: 0.0,
+            health_maximum: 0.0,
+            selected_count: 1,
         };
     }
 
@@ -2256,6 +2266,48 @@ impl ControlBar {
 
     pub fn get_portrait_state(&self) -> &PortraitDisplayState {
         &self.portrait_state
+    }
+
+    /// Sync selection panel (portrait + health) from presentation snapshot fields.
+    ///
+    /// Prefer this over `update_portrait_for_object` for production dual-tick /
+    /// headless host paths: no OBJECT_REGISTRY re-read, health is snapshot-owned.
+    /// Does not require WindowManager / ControlBar.wnd load (fail-closed for WND).
+    pub fn sync_selection_display_from_presentation(
+        &mut self,
+        primary_template_name: Option<&str>,
+        health_current: f32,
+        health_maximum: f32,
+        selected_count: usize,
+    ) {
+        match primary_template_name {
+            Some(name) if !name.is_empty() && selected_count > 0 => {
+                self.portrait_state = PortraitDisplayState {
+                    portrait_image: name.to_string(),
+                    veterancy_overlay: self.portrait_state.veterancy_overlay.clone(),
+                    upgrade_cameos: std::mem::take(&mut self.portrait_state.upgrade_cameos),
+                    is_visible: true,
+                    health_current,
+                    health_maximum: health_maximum.max(1.0),
+                    selected_count,
+                };
+            }
+            _ => {
+                self.portrait_state = PortraitDisplayState::default();
+            }
+        }
+    }
+
+    /// Selection panel health currently shown (presentation-fed when available).
+    pub fn selection_panel_health(&self) -> Option<(f32, f32)> {
+        if self.portrait_state.is_visible && self.portrait_state.health_maximum > 0.0 {
+            Some((
+                self.portrait_state.health_current,
+                self.portrait_state.health_maximum,
+            ))
+        } else {
+            None
+        }
     }
 
     // ---------------------------------------------------------------------------

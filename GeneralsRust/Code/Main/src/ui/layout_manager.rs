@@ -716,10 +716,29 @@ impl UILayoutManager {
             minimap.z_order = 110;
         }
 
+        // Selection panel / right HUD (C++ WinUnitSelected / cameo + health).
+        // Health values are presentation-fed via GameHUD/ControlBar, not layout text.
+        let selection_panel_w = 140.0;
+        let selection_panel_h = control_bar_height - 20.0;
+        let selection_panel_x = command_panel_x - selection_panel_w - 10.0;
+        let selection_panel_id = self.create_element("SelectionPanel");
+        if let Some(panel) = self.get_element_mut(selection_panel_id) {
+            panel.rect = Rect::new(
+                selection_panel_x,
+                control_bar_y + 10.0,
+                selection_panel_w,
+                selection_panel_h,
+            );
+            panel.background_color = Vec4::new(0.15, 0.15, 0.18, 0.9);
+            panel.border_color = Vec4::new(0.55, 0.55, 0.6, 1.0);
+            panel.z_order = 110;
+        }
+
         elements.insert("ControlBar".to_string(), background_id);
         elements.insert("ResourcePanel".to_string(), resource_panel_id);
         elements.insert("CommandPanel".to_string(), command_panel_id);
         elements.insert("Minimap".to_string(), minimap_id);
+        elements.insert("SelectionPanel".to_string(), selection_panel_id);
         elements
     }
 }

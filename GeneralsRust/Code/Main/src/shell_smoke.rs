@@ -126,7 +126,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             .iter()
             .any(|o| o.model_key.is_none() && !o.destroyed);
 
-    // HUD selection health from presentation after dual-tick (not live re-read).
+    // HUD + ControlBar selection panel health from presentation after dual-tick.
     let hud_selection_ok = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
         let snap_infos = pres.selected_unit_display_infos();
@@ -138,10 +138,27 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             .any(|u| u.object_id == id && u.health_current > 0.0);
         let ids_ok = hud.selected_unit_ids().contains(&id);
         let minimap_ok = !pres.hud_minimap_units().is_empty() || !map_loaded;
-        hud_hit && snap_hit && ids_ok && minimap_ok
+        let panel = hud.selection_panel();
+        let panel_ok = panel.visible
+            && panel.has_positive_health()
+            && panel.primary_object_id == Some(id);
+        // Optional ControlBar path (headless, no WND claim).
+        #[cfg(feature = "game_client")]
+        let control_bar_ok = {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            pres.apply_to_control_bar(&mut bar);
+            bar.selection_panel_health()
+                .map(|(hp, max)| hp > 0.0 && max >= hp)
+                .unwrap_or(false)
+        };
+        #[cfg(not(feature = "game_client"))]
+        let control_bar_ok = true;
+        hud_hit && snap_hit && ids_ok && minimap_ok && panel_ok && control_bar_ok
     } else {
         // No objects (absent-map synthetic host): still require resource apply path.
-        hud.selected_unit_ids().is_empty() && (pres.local_supplies > 0 || skirmish_config_ok)
+        hud.selected_unit_ids().is_empty()
+            && !hud.selection_panel().visible
+            && (pres.local_supplies > 0 || skirmish_config_ok)
     };
 
     // Real screen ownership semantics (not tautological discriminants).
@@ -286,7 +303,26 @@ mod tests {
             "health from presentation after dual-tick: {}",
             info.health_current
         );
+        assert!(
+            hud.selection_panel().has_positive_health(),
+            "ControlBar selection panel health after dual-tick"
+        );
+        assert!(
+            (hud.selection_panel().health_current - 64.0).abs() < 0.01,
+            "selection panel HP from presentation: {}",
+            hud.selection_panel().health_current
+        );
         assert_eq!(post.frame.0, logic.get_frame());
         assert!(!post.hud_minimap_units().is_empty());
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            post.apply_to_control_bar(&mut bar);
+            let (hp, _) = bar
+                .selection_panel_health()
+                .expect("ControlBar health from dual-tick presentation");
+            assert!((hp - 64.0).abs() < 0.01, "ControlBar HP {hp}");
+        }
     }
 }

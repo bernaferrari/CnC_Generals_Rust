@@ -223,6 +223,9 @@ impl PresentationFrame {
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
         ui.selected_unit_infos = self.selected_unit_display_infos();
+        // ControlBar/WND selection panel health must come from snapshot, not live re-read.
+        ui.selection_panel =
+            crate::ui::ControlBarSelectionPanelState::from_unit_infos(&ui.selected_unit_infos);
 
         // Minimap dots from snapshot positions/teams (normalized into frame bounds).
         let alive: Vec<&RenderableObject> = self.objects.iter().filter(|o| !o.destroyed).collect();
@@ -296,6 +299,7 @@ impl PresentationFrame {
     ///
     /// Selection identity (IDs + health/name) is snapshot-owned so the production HUD
     /// does not re-read live GameLogic after a skirmish start / dual-tick.
+    /// Also fills the ControlBar selection panel health strip via GameHUD.
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
@@ -309,6 +313,40 @@ impl PresentationFrame {
             ids = infos.iter().map(|i| i.object_id).collect();
         }
         hud.sync_selection_from_presentation(ids, infos);
+    }
+
+    /// Snapshot-owned ControlBar / WND selection panel (health + name).
+    pub fn control_bar_selection_panel(&self) -> crate::ui::ControlBarSelectionPanelState {
+        crate::ui::ControlBarSelectionPanelState::from_unit_infos(
+            &self.selected_unit_display_infos(),
+        )
+    }
+
+    /// Apply selection health/name to GameClient ControlBar without OBJECT_REGISTRY.
+    ///
+    /// Headless-safe: uses only presentation fields. Does not claim full WND shell.
+    #[cfg(feature = "game_client")]
+    pub fn apply_to_control_bar(
+        &self,
+        control_bar: &mut game_client::gui::control_bar::ControlBar,
+    ) {
+        let panel = self.control_bar_selection_panel();
+        let ids: Vec<u32> = if !self.selected.is_empty() {
+            self.selected.iter().map(|id| id.0).collect()
+        } else {
+            panel
+                .unit_infos
+                .iter()
+                .map(|u| u.object_id.0)
+                .collect()
+        };
+        let _ = control_bar.update_for_selection(ids);
+        control_bar.sync_selection_display_from_presentation(
+            panel.visible.then_some(panel.primary_name.as_str()),
+            panel.health_current,
+            panel.health_maximum,
+            panel.selected_count,
+        );
     }
 
     /// Dual-tick presentation consumer after map load / logic step:
@@ -614,5 +652,95 @@ mod tests {
             ui.minimap_unit_dots.len(),
             snap.objects.iter().filter(|o| !o.destroyed).count()
         );
+        assert!(
+            ui.selection_panel.has_positive_health(),
+            "last_ui_state selection panel must carry snapshot health"
+        );
+        assert!(
+            (ui.selection_panel.health_current - 100.0).abs() < 0.01,
+            "selection panel HP from presentation: {}",
+            ui.selection_panel.health_current
+        );
+    }
+
+    #[test]
+    fn presentation_feeds_control_bar_selection_panel_health() {
+        // Residual: ControlBar/WND selection panel health from PresentationFrame
+        // (not stale/zero). Headless path — no WND window load required.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("CbSelPanel");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("CbPanelUnit");
+        t.set_health(77.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("CbPanelUnit".into(), t);
+        let id = logic
+            .create_object("CbPanelUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 5.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+        logic.update();
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let panel = snap.control_bar_selection_panel();
+        assert!(panel.visible, "selection panel visible with selection");
+        assert_eq!(panel.primary_name, "CbPanelUnit");
+        assert!(
+            (panel.health_current - 77.0).abs() < 0.01,
+            "panel health from presentation: {}",
+            panel.health_current
+        );
+        assert!((panel.health_maximum - 77.0).abs() < 0.01);
+        assert_eq!(panel.selected_count, 1);
+        assert_eq!(panel.primary_object_id, Some(id));
+
+        // GameHUD selection panel (production host display state).
+        let mut hud = crate::ui::GameHUD::new();
+        snap.apply_to_game_hud(&mut hud);
+        assert!(
+            hud.selection_panel().has_positive_health(),
+            "GameHUD selection panel must show presentation health"
+        );
+        assert!(
+            (hud.selection_panel().health_current - 77.0).abs() < 0.01,
+            "HUD panel HP {}",
+            hud.selection_panel().health_current
+        );
+
+        // last_ui_state path used by engine consumers.
+        let mut ui = crate::ui::GameUIState::default();
+        snap.apply_to_ui_state(&mut ui);
+        assert!(
+            (ui.selection_panel.health_current - 77.0).abs() < 0.01,
+            "last_ui_state selection panel health"
+        );
+
+        // GameClient ControlBar portrait/health strip (no OBJECT_REGISTRY).
+        #[cfg(feature = "game_client")]
+        {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            // Poison live world after snapshot so a re-read would be wrong.
+            if let Some(o) = logic.get_object_mut(id) {
+                o.health.current = 1.0;
+            }
+            snap.apply_to_control_bar(&mut bar);
+            let (hp, max) = bar
+                .selection_panel_health()
+                .expect("ControlBar selection panel health from presentation");
+            assert!(
+                (hp - 77.0).abs() < 0.01,
+                "ControlBar must keep snapshot HP 77, not live 1: {hp}"
+            );
+            assert!((max - 77.0).abs() < 0.01);
+            assert_eq!(bar.get_portrait_state().portrait_image, "CbPanelUnit");
+            assert!(bar.get_portrait_state().is_visible);
+            assert_eq!(bar.get_portrait_state().selected_count, 1);
+        }
     }
 }
