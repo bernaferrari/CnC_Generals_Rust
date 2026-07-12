@@ -43,7 +43,13 @@ impl BuildingType {
         let lower = name.to_ascii_lowercase();
         if lower.contains("barracks") {
             BuildingType::Barracks
-        } else if lower.contains("warfactory") || lower.contains("war factory") {
+        } else if lower.contains("warfactory")
+            || lower.contains("war factory")
+            // GLA vehicle factory — must not fall through to CommandCenter.
+            || lower.contains("armsdealer")
+            || lower.contains("arms_dealer")
+            || lower.contains("arms dealer")
+        {
             BuildingType::WarFactory
         } else if lower.contains("airfield") || lower.contains("air field") {
             BuildingType::Airfield
@@ -51,7 +57,7 @@ impl BuildingType {
             BuildingType::RepairPad
         } else if lower.contains("hospital") || lower.contains("heal") || lower.contains("medic") {
             BuildingType::HealPad
-        } else if lower.contains("supply") {
+        } else if lower.contains("supply") || lower.contains("stash") {
             BuildingType::SupplyCenter
         } else if lower.contains("power") {
             BuildingType::PowerPlant
@@ -616,5 +622,24 @@ mod tests {
         });
 
         assert_eq!(building.get_production_progress(), Some(1.0));
+    }
+
+    #[test]
+    fn gla_arms_dealer_is_war_factory_for_vehicle_production() {
+        assert_eq!(
+            BuildingType::from_template_name("GLA_ArmsDealer"),
+            BuildingType::WarFactory
+        );
+        assert_eq!(
+            BuildingType::from_template_name("GLA Arms Dealer"),
+            BuildingType::WarFactory
+        );
+        let bd = BuildingData::new(BuildingType::from_template_name("GLA_ArmsDealer"));
+        let mut technical = ThingTemplate::new("GLA_Technical");
+        technical.add_kind_of(KindOf::Vehicle);
+        assert!(
+            bd.can_produce(&technical),
+            "ArmsDealer must produce vehicles"
+        );
     }
 }
