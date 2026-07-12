@@ -1867,11 +1867,17 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        // Reset velocity so a fresh order can accelerate cleanly toward the new goal.
-        unit.movement.velocity = Vec3::ZERO;
         unit.movement.path = full_path;
         unit.movement.current_path_index = 0;
         unit.movement.target_position = Some(destination);
+        // Kick toward destination at full speed so large-map marches do not
+        // burn seconds on the acceleration ramp (was a combat_no_teleport residual).
+        {
+            let mut dir = destination - start;
+            dir.y = 0.0;
+            let dir = dir.normalize_or_zero();
+            unit.movement.velocity = dir * unit.movement.max_speed;
+        }
         unit.ai_state = AIState::Moving;
         unit.status.moving = true;
         true
@@ -8283,7 +8289,7 @@ impl GameLogic {
                 ),
                 structure(
                     "USA_SupplyCenter",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
                     1000.0,
                     1500,
                 ),
@@ -8301,7 +8307,7 @@ impl GameLogic {
                 ),
                 structure(
                     "USA_WarFactory",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
                     1200.0,
                     1500,
                 ),
@@ -8341,7 +8347,7 @@ impl GameLogic {
                 ),
                 structure(
                     "China_SupplyCenter",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
                     1000.0,
                     1500,
                 ),
@@ -8359,7 +8365,7 @@ impl GameLogic {
                 ),
                 structure(
                     "China_WarFactory",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
                     1200.0,
                     1500,
                 ),
@@ -8373,19 +8379,19 @@ impl GameLogic {
             Team::GLA => vec![
                 structure(
                     "GLA_CommandCenter",
-                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::Attackable],
                     1800.0,
                     500,
                 ),
                 structure(
                     "GLA_SupplyStash",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
                     900.0,
                     300,
                 ),
                 structure(
                     "GLA_ArmsDealer",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable],
+                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
                     1100.0,
                     400,
                 ),
