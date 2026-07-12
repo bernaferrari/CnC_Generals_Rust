@@ -48,7 +48,7 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 |------|--------|
 | `playability_audit` | File mapping only — **not** playability |
 | `map_frame_gate` | Logic frames advance (map optional unless assets present) |
-| `shell_smoke_gate` | SkirmishMenu→config→apply→map→frames→PresentationFrame (headless host path; not windowed WND) |
+| `shell_smoke_gate` | SkirmishMenu→config→apply→map→dual-tick PresentationFrame→HUD selection/minimap→ControlBar.wnd ensure→shell→InGame screen (headless host path; not windowed WND/GPU) |
 | `golden_skirmish_gate` | Host vertical slice via AttackObject/update_combat only — no take_damage fallback, no HP caps after spawn |
 | `breadth_gate` | Category API smokes |
 | `release_candidate_gate` | Soak + presentation smoke + campaign hooks |
@@ -64,7 +64,26 @@ Gate honesty labels:
 | Gate field | Meaning |
 |------------|---------|
 | `playable_claim=false` | Must not be read as “retail match is playable end-to-end” |
+| shell `playable_claim` | **Always false** — headless APIs ≠ retail W3D/windowed playthrough (fail-closed pending GPU/WND) |
+| shell `shell_host_playable_ok` | Limited claim: headless shell→config→map→dual-tick presentation→HUD selection/minimap→ControlBar.wnd ensure→InGame screen is operational. **Not** full retail play |
+| shell `control_bar_layout_ok` | ControlBar.wnd resolve/validate ran (Ready, or honest AssetsUnavailable when WindowZH missing) |
 | `synthetic_combat=true` (golden) | Combat/victory on synthetic host world, not Lone Eagle armies |
 | `ai_disabled_for_slice=true` (golden) | Opponent AI off so rebuilds do not mask combat failure |
 | shell `host_constructed` | True only after `apply_skirmish_config` succeeds (not a constant) |
+
+### Shell residual notes (2026-07)
+
+Closed toward shell_smoke honesty without overclaiming retail W3D:
+
+1. **Dual-tick after StartGame** — map load seeds PresentationFrame; each smoke frame does logic update then `build_and_apply_for_hud` (parity with `start_game_from_ui` / engine dual-tick order).
+2. **HUD selection + minimap from presentation** — selection panel health and minimap unit identity come from the snapshot, not live object re-read in the HUD apply path.
+3. **ControlBar.wnd ensure** — shell_smoke calls `ensure_control_bar_layout(false)` on the shell→Loading→GameHUD transition (dry-run validate; in-engine `ensure_gameplay_layouts` still attempts window load).
+4. **Screen ownership** — UIManager exercises Skirmish → Loading → GameHUD; pregame shell ownership flags are checked for real screen values.
+5. **`shell_host_playable_ok` vs `playable_claim`** — success sets the limited host flag; `playable_claim` stays false so gates cannot be misread as “windowed retail match is playable.”
+
+Still residual (not claimed by shell_smoke):
+
+- Windowed shell/WND navigation and GPU match playthrough
+- Full ControlBar.wnd parse via WindowManager without GUI init (loaded=true)
+- Presentation-only renderer with zero GameLogic borrow for mesh assets
 

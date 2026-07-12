@@ -120,8 +120,20 @@ fn main() {
     }
     if shell.playable_claim {
         failed.push(format!(
-            "shell playable_claim={} (headless smoke must fail-closed)",
+            "shell playable_claim={} (headless smoke must fail-closed for retail W3D)",
             shell.playable_claim
+        ));
+    }
+    if !shell.shell_host_playable_ok {
+        failed.push(format!(
+            "shell shell_host_playable_ok={} (expected true when status=success)",
+            shell.shell_host_playable_ok
+        ));
+    }
+    if !shell.control_bar_layout_ok {
+        failed.push(format!(
+            "shell control_bar_layout_ok={} (ControlBar.wnd ensure residual)",
+            shell.control_bar_layout_ok
         ));
     }
 
@@ -142,8 +154,12 @@ fn main() {
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={}; shell playable_claim={})",
-            golden.map_loaded, golden.synthetic_combat, golden.playable_claim, shell.playable_claim
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={}; shell playable_claim={} shell_host_playable_ok={})",
+            golden.map_loaded,
+            golden.synthetic_combat,
+            golden.playable_claim,
+            shell.playable_claim,
+            shell.shell_host_playable_ok
         );
         std::process::exit(0);
     }
