@@ -384,15 +384,24 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             u.status.stealthed = true;
             u.status.detected = false;
             u.stealth_breaks_on_attack = true;
+            // last_fire_time=-1 so weapon_ready at t=0 (Weapon::default reload=1.0
+            // would otherwise make fire_at return false — same setup as unit tests).
             u.weapon = Some(crate::game_logic::Weapon {
                 damage: 10.0,
                 range: 100.0,
+                reload_time: 0.5,
+                last_fire_time: -1.0,
                 ..crate::game_logic::Weapon::default()
             });
             fire_break_ok = u.fire_at(ObjectId(9999), 0.0) && !u.status.stealthed;
         }
 
         stealth_ok = hidden && detected_ok && fire_break_ok;
+        if !stealth_ok {
+            log::warn!(
+                "stealth fail: hidden={hidden} detected_ok={detected_ok} fire_break_ok={fire_break_ok}"
+            );
+        }
     }
 
     let ok = cash_ok
