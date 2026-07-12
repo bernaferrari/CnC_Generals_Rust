@@ -5,13 +5,14 @@
 //!
 //! Honesty: no tautological host flag, no silent golden_skirmish_config fallback.
 //! Opponent slot is configured through SkirmishMenu::configure_slot_medium_ai.
+//! `playable_claim` stays false — headless APIs are not retail W3D play.
 
 use crate::game_logic::GameLogic;
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
-use crate::ui::Screen;
+use crate::ui::{GameHUD, Screen};
 
 const HOST_MAP_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -30,6 +31,9 @@ pub struct ShellSmokeResult {
     pub map_loaded: bool,
     pub frames_advanced: u32,
     pub presentation_ok: bool,
+    /// Dual-tick residual: after map load, logic update + presentation seed HUD
+    /// selection health / minimap without re-reading live objects.
+    pub hud_selection_ok: bool,
     pub screen_skirmish_ok: bool,
     /// Always false here: no window/WND/GPU. Headless host APIs only.
     pub playable_claim: bool,
@@ -39,7 +43,8 @@ pub struct ShellSmokeResult {
 
 /// Exercise production host entry points headlessly (no window required).
 /// Builds config from live SkirmishMenu (including Medium AI slot via menu cycle),
-/// applies it, loads retail map when present, advances logic frames, builds presentation.
+/// applies it, loads retail map when present, advances logic frames, builds presentation,
+/// and applies dual-tick presentation → GameHUD selection/minimap (start_game_from_ui parity).
 pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let mut logic = GameLogic::new();
 
@@ -81,22 +86,66 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         false
     };
 
+    // Immediate post-map seed (matches start_game_from_ui seed before first dual-tick).
+    let mut hud = GameHUD::new();
+    let seed_pres = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+    let seed_ok = seed_pres.frame.0 == logic.get_frame()
+        && (seed_pres.alive_object_count() > 0 || !map_loaded);
+
     let frame_before = logic.get_frame();
     for _ in 0..frames.max(1) {
+        // Dual-tick: authority step then presentation/HUD apply (production order).
         logic.update();
+        let _ = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
     }
     let frames_advanced = logic.get_frame().saturating_sub(frame_before);
     let frames_ok = frames_advanced > 0;
 
-    let pres = PresentationFrame::build_from_logic(&logic, 0);
-    let presentation_ok = pres.frame.0 == logic.get_frame()
+    // Ensure at least one selectable unit is selected so selection health is exercised.
+    let select_id = logic
+        .get_objects()
+        .values()
+        .find(|o| o.is_alive() && !o.status.destroyed)
+        .map(|o| o.id);
+    if let Some(id) = select_id {
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+    }
+
+    let pres = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+    let presentation_ok = seed_ok
+        && pres.frame.0 == logic.get_frame()
         && (pres.alive_object_count() > 0 || !map_loaded)
         && !pres
             .objects
             .iter()
             .any(|o| o.model_key.is_none() && !o.destroyed);
 
+    // HUD selection health from presentation after dual-tick (not live re-read).
+    let hud_selection_ok = if let Some(id) = select_id {
+        let infos = hud.selected_unit_infos();
+        let snap_infos = pres.selected_unit_display_infos();
+        let hud_hit = infos.iter().any(|u| {
+            u.object_id == id && u.health_current > 0.0 && u.health_maximum >= u.health_current
+        });
+        let snap_hit = snap_infos
+            .iter()
+            .any(|u| u.object_id == id && u.health_current > 0.0);
+        let ids_ok = hud.selected_unit_ids().contains(&id);
+        let minimap_ok = !pres.hud_minimap_units().is_empty() || !map_loaded;
+        hud_hit && snap_hit && ids_ok && minimap_ok
+    } else {
+        // No objects (absent-map synthetic host): still require resource apply path.
+        hud.selected_unit_ids().is_empty() && (pres.local_supplies > 0 || skirmish_config_ok)
+    };
+
     // Real screen ownership semantics (not tautological discriminants).
+    // Shell pregame owns Skirmish; GameHUD is InGame (post StartGame transition).
     let screen_skirmish_ok = Screen::Skirmish.is_shell_owned_pregame()
         && Screen::MainMenu.is_shell_owned_pregame()
         && !Screen::GameHUD.is_shell_owned_pregame()
@@ -105,7 +154,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     // When assets present, map must load; when absent, still pass config+frames.
     let map_requirement_ok = if map_resolved { map_loaded } else { true };
 
-    // Never claim full playability from headless smoke.
+    // Never claim full playability from headless smoke (no W3D/window/GPU).
     let playable_claim = false;
 
     let status = if host_constructed
@@ -113,6 +162,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && menu_config_ok
         && frames_ok
         && presentation_ok
+        && hud_selection_ok
         && screen_skirmish_ok
         && map_requirement_ok
     {
@@ -129,11 +179,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         map_loaded,
         frames_advanced,
         presentation_ok,
+        hud_selection_ok,
         screen_skirmish_ok,
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} screen={screen_skirmish_ok} playable_claim={playable_claim}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} hud_sel={hud_selection_ok} screen={screen_skirmish_ok} playable_claim={playable_claim}"
         ),
     }
 }
@@ -156,6 +207,7 @@ mod tests {
         assert!(r.skirmish_config_ok, "{}", r.detail);
         assert!(r.menu_config_ok, "{}", r.detail);
         assert!(r.frames_advanced > 0, "{}", r.detail);
+        assert!(r.hud_selection_ok, "HUD selection residual: {}", r.detail);
         assert!(!r.playable_claim, "headless smoke must not claim playable");
         assert_eq!(r.status, "success", "{}", r.detail);
     }
@@ -185,5 +237,56 @@ mod tests {
         assert_eq!(obj.health_max, 50.0);
         assert_eq!(obj.model_key.as_deref(), Some("SmokeUnit"));
         assert!(!obj.destroyed);
+    }
+
+    #[test]
+    fn dual_tick_after_map_load_seeds_hud_selection_health() {
+        // Residual closed by this change: after skirmish config + (optional) map load,
+        // dual-tick presentation must put selection health on GameHUD.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ShellHudSel");
+        assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
+        let mut t = ThingTemplate::new("ShellSelUnit");
+        t.set_health(64.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("ShellSelUnit".into(), t);
+        let id = logic
+            .create_object("ShellSelUnit", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+
+        // Seed like start_game_from_ui before first logic frame.
+        let mut hud = GameHUD::new();
+        let seed = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        assert!(
+            seed.alive_object_count() >= 1,
+            "seed presentation must see map/host units"
+        );
+        assert!(
+            hud.selected_unit_ids().contains(&id),
+            "seed apply must set HUD selection"
+        );
+
+        logic.update();
+        let post = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        let info = hud
+            .selected_unit_infos()
+            .iter()
+            .find(|u| u.object_id == id)
+            .expect("dual-tick HUD selection health");
+        assert!(
+            (info.health_current - 64.0).abs() < 0.01,
+            "health from presentation after dual-tick: {}",
+            info.health_current
+        );
+        assert_eq!(post.frame.0, logic.get_frame());
+        assert!(!post.hud_minimap_units().is_empty());
     }
 }

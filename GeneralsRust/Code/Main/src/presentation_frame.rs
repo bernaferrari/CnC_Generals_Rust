@@ -162,6 +162,50 @@ impl PresentationFrame {
             .collect()
     }
 
+    /// Selected unit identity (health/name/type) from snapshot only.
+    ///
+    /// Prefer player selection list; fall back to objects marked selected on the frame
+    /// when the player list is empty (common right after click-select before player list
+    /// is mirrored).
+    pub fn selected_unit_display_infos(&self) -> Vec<crate::ui::UnitDisplayInfo> {
+        use crate::ui::UnitDisplayInfo;
+
+        let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
+            self.objects.iter().map(|o| (o.id, o)).collect();
+        let mut selected_infos = Vec::with_capacity(self.selected.len().max(1));
+        for id in &self.selected {
+            if let Some(ro) = by_id.get(id) {
+                if ro.destroyed {
+                    continue;
+                }
+                selected_infos.push(Self::unit_display_info_from_renderable(ro));
+            }
+        }
+        if selected_infos.is_empty() {
+            for ro in self.objects.iter().filter(|o| o.selected && !o.destroyed) {
+                selected_infos.push(Self::unit_display_info_from_renderable(ro));
+            }
+        }
+        selected_infos
+    }
+
+    fn unit_display_info_from_renderable(ro: &RenderableObject) -> crate::ui::UnitDisplayInfo {
+        crate::ui::UnitDisplayInfo {
+            object_id: ro.id,
+            name: ro.template_name.clone(),
+            health_current: ro.health_current,
+            health_maximum: ro.health_max.max(1.0),
+            unit_type: if ro.is_structure {
+                "Structure".into()
+            } else if ro.is_unit {
+                "Unit".into()
+            } else {
+                "Object".into()
+            },
+            current_order: "Idle".into(),
+        }
+    }
+
     /// Apply presentation identity fields onto a HUD/UI state (production consumer path).
     /// Does not re-borrow GameLogic — uses only owned snapshot data.
     ///
@@ -169,7 +213,7 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
-        use crate::ui::{color_for_player, MinimapDot, UnitDisplayInfo};
+        use crate::ui::{color_for_player, MinimapDot};
 
         ui.credits = self.local_supplies as i32;
         ui.power_generated = self.local_power.max(0);
@@ -178,52 +222,7 @@ impl PresentationFrame {
         ui.player_id = self.local_player_id;
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
-
-        // Selected unit identity (health/name/type) from snapshot only.
-        let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
-            self.objects.iter().map(|o| (o.id, o)).collect();
-        let mut selected_infos = Vec::with_capacity(self.selected.len());
-        for id in &self.selected {
-            if let Some(ro) = by_id.get(id) {
-                if ro.destroyed {
-                    continue;
-                }
-                selected_infos.push(UnitDisplayInfo {
-                    object_id: ro.id,
-                    name: ro.template_name.clone(),
-                    health_current: ro.health_current,
-                    health_maximum: ro.health_max.max(1.0),
-                    unit_type: if ro.is_structure {
-                        "Structure".into()
-                    } else if ro.is_unit {
-                        "Unit".into()
-                    } else {
-                        "Object".into()
-                    },
-                    current_order: "Idle".into(),
-                });
-            }
-        }
-        // Also include objects marked selected on the snapshot when player list is empty.
-        if selected_infos.is_empty() {
-            for ro in self.objects.iter().filter(|o| o.selected && !o.destroyed) {
-                selected_infos.push(UnitDisplayInfo {
-                    object_id: ro.id,
-                    name: ro.template_name.clone(),
-                    health_current: ro.health_current,
-                    health_maximum: ro.health_max.max(1.0),
-                    unit_type: if ro.is_structure {
-                        "Structure".into()
-                    } else if ro.is_unit {
-                        "Unit".into()
-                    } else {
-                        "Object".into()
-                    },
-                    current_order: "Idle".into(),
-                });
-            }
-        }
-        ui.selected_unit_infos = selected_infos;
+        ui.selected_unit_infos = self.selected_unit_display_infos();
 
         // Minimap dots from snapshot positions/teams (normalized into frame bounds).
         let alive: Vec<&RenderableObject> = self.objects.iter().filter(|o| !o.destroyed).collect();
@@ -293,12 +292,37 @@ impl PresentationFrame {
             .collect()
     }
 
-    /// Apply presentation resources + minimap units to the production GameHUD.
+    /// Apply presentation resources, minimap units, and selection health to GameHUD.
+    ///
+    /// Selection identity (IDs + health/name) is snapshot-owned so the production HUD
+    /// does not re-read live GameLogic after a skirmish start / dual-tick.
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
         let units = self.hud_minimap_units();
         hud.update_minimap(&units);
+        let infos = self.selected_unit_display_infos();
+        // Prefer explicit player selection list; if empty but infos came from
+        // object.selected flags, mirror those IDs onto the HUD strip.
+        let mut ids = self.selected.clone();
+        if ids.is_empty() {
+            ids = infos.iter().map(|i| i.object_id).collect();
+        }
+        hud.sync_selection_from_presentation(ids, infos);
+    }
+
+    /// Dual-tick presentation consumer after map load / logic step:
+    /// build snapshot from authority and apply it to the production GameHUD.
+    ///
+    /// Does **not** advance the world — caller is responsible for `logic.update()`.
+    pub fn build_and_apply_for_hud(
+        logic: &GameLogic,
+        local_player_id: u32,
+        hud: &mut crate::ui::GameHUD,
+    ) -> Self {
+        let frame = Self::build_from_logic(logic, local_player_id);
+        frame.apply_to_game_hud(hud);
+        frame
     }
 }
 
@@ -434,6 +458,63 @@ mod tests {
             }),
             "minimap units must come from snapshot positions"
         );
+        assert!(
+            hud.selected_unit_ids().contains(&id),
+            "GameHUD selection IDs must come from presentation"
+        );
+        let hud_info = hud
+            .selected_unit_infos()
+            .iter()
+            .find(|u| u.object_id == id)
+            .expect("GameHUD selection health from presentation");
+        assert!(
+            (hud_info.health_current - 75.0).abs() < 0.01,
+            "GameHUD selection health must be snapshot-owned: {}",
+            hud_info.health_current
+        );
+    }
+
+    #[test]
+    fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
+        // Map-load / skirmish residual: after authority advances, presentation must
+        // seed HUD resources + selection without re-borrowing live objects later.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DualTickHud");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("DualUnit");
+        t.set_health(88.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("DualUnit".into(), t);
+        let id = logic
+            .create_object("DualUnit", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+        logic.update(); // authority tick
+        let mut hud = crate::ui::GameHUD::new();
+        let snap = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        assert_eq!(snap.frame.0, logic.get_frame());
+        assert!(
+            !snap.hud_minimap_units().is_empty(),
+            "presentation after tick must expose units for minimap"
+        );
+        let info = hud
+            .selected_unit_infos()
+            .iter()
+            .find(|u| u.object_id == id)
+            .expect("selection health on HUD after dual-tick apply");
+        assert!((info.health_current - 88.0).abs() < 0.01);
+        // World mutates after apply; HUD must keep snapshot health.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.health.current = 1.0;
+        }
+        assert!((info.health_current - 88.0).abs() < 0.01);
     }
 
     #[test]
