@@ -40,18 +40,47 @@ fn main() {
             golden.status, golden.victory, golden.save_load_ok, golden.fought
         ));
     }
-    // Fail-closed honesty: synthetic host combat must not claim retail playability.
-    if !golden.synthetic_combat {
-        failed.push(format!(
-            "golden synthetic_combat={} (expected true for current host combat world)",
-            golden.synthetic_combat
-        ));
-    }
-    if golden.playable_claim {
-        failed.push(format!(
-            "golden playable_claim={} (must be false while synthetic_combat)",
-            golden.playable_claim
-        ));
+    // Map present: main combat on map armies => !synthetic_combat && playable_claim.
+    // Map absent: synthetic host soup => synthetic_combat && !playable_claim.
+    if golden.map_loaded {
+        if golden.synthetic_combat {
+            failed.push(format!(
+                "golden synthetic_combat={} (expected false when map_loaded with map-world victory)",
+                golden.synthetic_combat
+            ));
+        }
+        if !golden.playable_claim {
+            failed.push(format!(
+                "golden playable_claim={} (expected true when map-world victory proven)",
+                golden.playable_claim
+            ));
+        }
+        if !(golden.map_combat_ok
+            && golden.same_world_production_ok
+            && golden.same_world_victory_ok
+            && golden.players_preserved_on_load)
+        {
+            failed.push(format!(
+                "golden map same-world flags incomplete combat={} prod={} victory={} preserved={}",
+                golden.map_combat_ok,
+                golden.same_world_production_ok,
+                golden.same_world_victory_ok,
+                golden.players_preserved_on_load
+            ));
+        }
+    } else {
+        if !golden.synthetic_combat {
+            failed.push(format!(
+                "golden synthetic_combat={} (expected true when map absent)",
+                golden.synthetic_combat
+            ));
+        }
+        if golden.playable_claim {
+            failed.push(format!(
+                "golden playable_claim={} (must be false while synthetic_combat / map absent)",
+                golden.playable_claim
+            ));
+        }
     }
     if !golden.ai_structure_templates_retained {
         failed.push(format!(
@@ -113,8 +142,8 @@ fn main() {
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
         println!(
-            "behavior_gate: PASS (headless host APIs; golden synthetic_combat={} playable_claim={}; shell playable_claim={}; not retail playable)",
-            golden.synthetic_combat, golden.playable_claim, shell.playable_claim
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={}; shell playable_claim={})",
+            golden.map_loaded, golden.synthetic_combat, golden.playable_claim, shell.playable_claim
         );
         std::process::exit(0);
     }
