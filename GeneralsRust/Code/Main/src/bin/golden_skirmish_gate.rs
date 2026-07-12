@@ -43,21 +43,23 @@ fn main() {
         && result.status == "success"
         && !result.ai_disabled_for_slice
         && result.synthetic_combat
-        && !result.playable_claim;
+        && !result.playable_claim
+        && result.ai_structure_templates_retained;
     if pass {
         println!(
-            "golden_skirmish_gate: PASS (host combat APIs; AI on; synthetic_combat=true playable_claim=false; not retail playable)"
+            "golden_skirmish_gate: PASS (host combat APIs; AI on; synthetic_combat=true playable_claim=false; ai_templates_retained=true; not retail playable)"
         );
         std::process::exit(0);
     }
     eprintln!(
-        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={}",
+        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={} ai_templates_retained={}",
         result.victory,
         result.save_load_ok,
         result.status,
         result.ai_disabled_for_slice,
         result.synthetic_combat,
-        result.playable_claim
+        result.playable_claim,
+        result.ai_structure_templates_retained
     );
     std::process::exit(1);
 }

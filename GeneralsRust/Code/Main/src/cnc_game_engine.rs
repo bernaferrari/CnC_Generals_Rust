@@ -6011,6 +6011,20 @@ impl CnCGameEngine {
         // Full presentation snapshot for render collect (transforms/model/selection/health).
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        // Production selection overlay: prefer PresentationFrame identity when available
+        // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
+        if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
+        {
+            crate::graphics::selection_renderer::enqueue_selection_render(
+                &mut self.render_pipeline,
+                &self.view_matrix,
+                &self.projection_matrix,
+                &self.game_logic,
+                None, // drag rect is optional; unit circles use presentation identity
+                self.current_player_id,
+                self.last_presentation_frame.as_ref(),
+            );
+        }
         self.render_pipeline.execute(
             &mut self.graphics_system,
             &self.game_logic,
