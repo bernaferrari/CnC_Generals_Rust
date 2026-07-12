@@ -1925,12 +1925,22 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn validate_build_location(&self, location: Vec3) -> bool {
-        location.x.is_finite()
-            && location.z.is_finite()
-            && location.x >= -1000.0
-            && location.x <= 1000.0
-            && location.z >= -1000.0
-            && location.z <= 1000.0
+        if !location.x.is_finite() || !location.z.is_finite() {
+            return false;
+        }
+        // Use loaded map world bounds when available (Lone Eagle bases can sit
+        // near edges beyond the old hard-coded ±1000 host box). Fall back to a
+        // generous host default for synthetic/no-map worlds.
+        let (min, max) = self.game_logic.world_bounds();
+        let pad = 50.0;
+        let min_x = min.x.min(-1000.0) - pad;
+        let max_x = max.x.max(1000.0) + pad;
+        let min_z = min.z.min(-1000.0) - pad;
+        let max_z = max.z.max(1000.0) + pad;
+        location.x >= min_x
+            && location.x <= max_x
+            && location.z >= min_z
+            && location.z <= max_z
     }
 
     /// Minimal `canEnterObject`/`canDockAt` legality mirror for Main command execution.
