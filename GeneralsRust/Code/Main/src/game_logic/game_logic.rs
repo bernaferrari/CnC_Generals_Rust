@@ -1967,6 +1967,11 @@ impl GameLogic {
         log::info!("Starting new game: {:?}", mode);
         self.reset();
         self.game_mode = mode;
+        // Host combat: ensure GameLogic WeaponStore has templates before units resolve weapons.
+        let seeded = super::weapon_bootstrap::ensure_host_weapon_store();
+        if seeded > 0 {
+            log::info!("Host WeaponStore bootstrap registered {} templates", seeded);
+        }
         self.setup_templates();
         self.create_default_players();
         log::info!("New game started successfully");
@@ -7013,7 +7018,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(60.0)
             .set_cost(80, 0)
-            .set_model("airanger_s"); // USA Ranger infantry model
+            .set_model("airanger_s") // USA Ranger infantry model
+            .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
         self.templates.insert("USA_Ranger".to_string(), usa_ranger);
 
         let mut usa_missile_defender = ThingTemplate::new("USA_MissileDefender");
@@ -7035,7 +7041,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(250.0)
             .set_cost(600, 0)
-            .set_model("avhummer"); // USA Humvee vehicle model
+            .set_model("avhummer") // USA Humvee vehicle model
+            .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON);
         self.templates.insert("USA_Humvee".to_string(), usa_humvee);
 
         let mut usa_crusader = ThingTemplate::new("USA_CrusaderTank");
@@ -7081,7 +7088,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(50.0)
             .set_cost(60, 0)
-            .set_model("uirebel"); // GLA Rebel infantry model
+            .set_model("uirebel") // GLA Rebel infantry model
+            .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON);
         self.templates
             .insert("GLA_Soldier".to_string(), gla_soldier);
 
@@ -7164,7 +7172,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(55.0)
             .set_cost(70, 0)
-            .set_model("uirebel"); // China Red Guard (using rebel model since ciredgrd doesn't exist)
+            .set_model("uirebel") // China Red Guard (using rebel model since ciredgrd doesn't exist)
+            .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON);
         self.templates
             .insert("China_RedGuard".to_string(), china_infantry);
 
@@ -8015,6 +8024,8 @@ impl GameLogic {
 
     /// Ensure faction templates the host AI build/produce paths require are registered.
     pub fn ensure_ai_faction_templates(&mut self, team: Team) {
+        // Prefer real WeaponStore stats (seeded/INI) over hard-coded Weapon::default().
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
         fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
             let mut t = ThingTemplate::new(name);
             t.set_health(hp);
@@ -8027,9 +8038,12 @@ impl GameLogic {
         }
         fn unit(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
             let mut t = structure(name, kinds, hp, cost);
-            // Host combat: arm infantry/vehicles with explicit template weapon so
-            // create_object does not rely only on kind fallback.
-            t.set_primary_weapon(Weapon::default());
+            // Host combat: bind retail Weapon.ini name when known so create_object
+            // resolves via WeaponStore (seed/INI). Do not set explicit
+            // primary_weapon(Weapon::default()) — that short-circuits the store.
+            if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(name) {
+                t.set_primary_weapon_name(wname);
+            }
             t
         }
         let entries: Vec<ThingTemplate> = match team {

@@ -15,6 +15,7 @@ pub mod thing;
 pub mod units;
 pub mod victory;
 pub mod victory_conditions;
+pub mod weapon_bootstrap;
 
 pub use buildings::*;
 pub use combat::*;
@@ -32,6 +33,10 @@ pub use thing::*;
 pub use units::*;
 pub use victory::*;
 pub use victory_conditions::*;
+pub use weapon_bootstrap::{
+    ensure_host_weapon_store, primary_weapon_name_for_unit, GLA_REBEL_PRIMARY_WEAPON,
+    HUMVEE_PRIMARY_WEAPON, RANGER_PRIMARY_WEAPON, REDGUARD_PRIMARY_WEAPON,
+};
 
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
