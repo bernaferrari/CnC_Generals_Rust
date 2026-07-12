@@ -733,8 +733,14 @@ impl Object {
         self.movement.velocity = Vec3::ZERO;
         self.movement.path.clear();
         self.movement.current_path_index = 0;
-        self.ai_state = AIState::Idle;
         self.status.moving = false;
+        // Only pure locomotion returns to Idle when the destination is reached.
+        // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
+        // set a destination while remaining in-state; clobbering them to Idle
+        // aborted capture/repair on arrival before support-state resolution.
+        if matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
+            self.ai_state = AIState::Idle;
+        }
     }
 
     pub fn attack_target(&mut self, target_id: ObjectId) {
