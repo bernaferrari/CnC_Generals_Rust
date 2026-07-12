@@ -1,6 +1,7 @@
 pub mod audio_dispatch_impl;
 pub mod buildings;
 pub mod combat;
+pub mod combat_particles;
 pub mod game_logic;
 pub mod mission_scripts;
 pub mod object;
@@ -20,6 +21,9 @@ pub mod weapon_bootstrap;
 
 pub use buildings::*;
 pub use combat::*;
+pub use combat_particles::{
+    CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry,
+};
 pub use game_logic::*;
 pub use mission_scripts::*;
 pub use object::*;
