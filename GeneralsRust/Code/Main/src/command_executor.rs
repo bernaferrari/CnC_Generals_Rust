@@ -1000,7 +1000,8 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            let (origin, container_id) = if let Some(container_id) = selected_obj.target {
+            // Prefer contained_by (authoritative) over target for residual garrison exit.
+            let (origin, container_id) = if let Some(container_id) = selected_obj.container_id() {
                 if let Some(container) = self.game_logic.get_object(container_id) {
                     let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
                     (rally.unwrap_or(container.position), Some(container_id))
@@ -1033,14 +1034,20 @@ impl<'a> CommandExecutor<'a> {
             }
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                let was_garrisoned = matches!(unit.ai_state, AIState::Garrisoned)
+                    || unit.contained_by.is_some();
                 unit.stop_moving();
                 unit.set_position(drop_position);
+                unit.contained_by = None;
                 unit.set_target(None);
                 unit.set_ai_state(AIState::Idle);
                 unit.status.moving = false;
                 unit.status.attacking = false;
+                if was_garrisoned {
+                    self.game_logic.record_garrison_residual_exit();
+                }
                 debug!(
-                    "Unit {} exiting transport near {:?}",
+                    "Unit {} exiting transport/garrison near {:?}",
                     unit_id.0, drop_position
                 );
             }
@@ -2026,6 +2033,15 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
+        // Residual garrison: infantry (and heroes) enter structures; transports
+        // still accept any mobile unit. Fail-closed vs full C++ garrison filters.
+        if target.is_kind_of(KindOf::Structure)
+            && !unit.is_kind_of(KindOf::Infantry)
+            && !unit.is_hero()
+        {
+            return false;
+        }
+
         let target_contains_unit = target.contained_units().contains(&unit_id);
         let target_has_space = target.has_capacity_for(1);
         if !target_contains_unit && !target_has_space {
@@ -2047,3 +2063,4 @@ impl<'a> CommandExecutor<'a> {
         (self.commands_executed, self.commands_failed)
     }
 }
+

@@ -510,6 +510,12 @@ pub struct GameLogic {
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
     host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
 
+    /// Host garrison residual honesty counters (enter / exit / fire-from-garrison).
+    /// Fail-closed: not C++ GarrisonContain fire-point bones or full weapon matrix.
+    garrison_residual_enters: u32,
+    garrison_residual_exits: u32,
+    garrison_residual_fires: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1298,6 +1304,9 @@ impl GameLogic {
             special_power_strikes:
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
+            garrison_residual_enters: 0,
+            garrison_residual_exits: 0,
+            garrison_residual_fires: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1421,6 +1430,9 @@ impl GameLogic {
         self.combat_particles.clear();
         self.special_power_strikes.clear();
         self.host_upgrades.clear();
+        self.garrison_residual_enters = 0;
+        self.garrison_residual_exits = 0;
+        self.garrison_residual_fires = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3988,6 +4000,7 @@ impl GameLogic {
             // Interaction orders set `target` without being attacks. Skip combat
             // (fire + chase) so CaptureBuilding / SpecialAbility / Repair / Enter
             // are not converted into weapon fire or Attacking chase.
+            // Garrisoned: residual fire-from-garrison path (no chase, container origin).
             if matches!(
                 attacker.ai_state,
                 AIState::Capturing
@@ -4001,8 +4014,11 @@ impl GameLogic {
                     | AIState::SeekingRepair
                     | AIState::SeekingHealing
                     | AIState::Docked
-                    | AIState::Garrisoned
             ) {
+                continue;
+            }
+            if attacker.ai_state == AIState::Garrisoned {
+                self.try_garrison_residual_fire(attacker_id);
                 continue;
             }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -4902,6 +4918,20 @@ impl GameLogic {
                         continue;
                     };
 
+                    // Residual garrison: structures accept infantry/heroes only.
+                    let unit_can_garrison_structure = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.is_kind_of(KindOf::Infantry) || o.is_hero())
+                        .unwrap_or(false);
+                    if container_is_structure && !unit_can_garrison_structure {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_moving();
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
                     if !can_move
                         || !container_is_alive
                         || container_under_construction
@@ -4969,6 +4999,9 @@ impl GameLogic {
                             AIState::Docked
                         };
                         obj.status.moving = false;
+                    }
+                    if container_is_structure {
+                        self.record_garrison_residual_enter();
                     }
                 }
                 AIState::Capturing => {
@@ -5354,8 +5387,15 @@ impl GameLogic {
                     }
                 }
                 AIState::Docked | AIState::Garrisoned => {
-                    let Some(container_id) = target_id else {
+                    // Prefer contained_by (authoritative residual link) over target.
+                    let container_id = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.container_id())
+                        .or(target_id);
+                    let Some(container_id) = container_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.contained_by = None;
                             obj.set_target(None);
                         }
                         continue;
@@ -5371,6 +5411,7 @@ impl GameLogic {
                         })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.contained_by = None;
                             obj.set_target(None);
                         }
                         continue;
@@ -5378,12 +5419,14 @@ impl GameLogic {
 
                     if !container_alive || !container_has_unit {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.contained_by = None;
                             obj.set_target(None);
                         }
                         continue;
                     }
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.contained_by = Some(container_id);
                         obj.set_position(container_pos);
                         obj.stop_moving();
                         obj.status.moving = false;
@@ -5852,6 +5895,7 @@ impl GameLogic {
                 unit.status.moving = false;
                 unit.status.attacking = false;
             }
+            self.record_garrison_residual_exit();
         }
     }
 
@@ -8139,6 +8183,120 @@ impl GameLogic {
         &mut self,
     ) -> &mut crate::game_logic::host_upgrades::HostUpgradeRegistry {
         &mut self.host_upgrades
+    }
+
+    /// Residual garrison honesty: successful structure enter count.
+    pub fn garrison_residual_enters(&self) -> u32 {
+        self.garrison_residual_enters
+    }
+
+    /// Residual garrison honesty: successful exit/evacuate count.
+    pub fn garrison_residual_exits(&self) -> u32 {
+        self.garrison_residual_exits
+    }
+
+    /// Residual garrison honesty: fire-from-garrison shots applied.
+    pub fn garrison_residual_fires(&self) -> u32 {
+        self.garrison_residual_fires
+    }
+
+    /// Record a residual structure-garrison enter (tests / host path).
+    pub fn record_garrison_residual_enter(&mut self) {
+        self.garrison_residual_enters = self.garrison_residual_enters.saturating_add(1);
+    }
+
+    /// Record a residual garrison exit (tests / host path).
+    pub fn record_garrison_residual_exit(&mut self) {
+        self.garrison_residual_exits = self.garrison_residual_exits.saturating_add(1);
+    }
+
+    /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
+    /// enemy in weapon range from the **container position**.
+    /// Fail-closed: not C++ garrison weapon bone positions / multi-slot matrix.
+    fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&garrisoned_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let container_id = attacker.container_id();
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = container_id
+            .and_then(|cid| self.objects.get(&cid).map(|c| c.get_position()))
+            .unwrap_or_else(|| attacker.get_position());
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == garrisoned_id || Some(*id) == container_id {
+                continue;
+            }
+            if !obj.is_alive() || obj.team == team || obj.team == Team::Neutral {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Attackable)
+                && !obj.is_kind_of(KindOf::Structure)
+                && !obj.is_kind_of(KindOf::Infantry)
+                && !obj.is_kind_of(KindOf::Vehicle)
+                && !obj.is_kind_of(KindOf::Aircraft)
+            {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(damage);
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
+    }
+
+    /// Residual honesty: enter → garrisoned → exit path was exercised.
+    pub fn honesty_garrison_enter_exit_ok(&self) -> bool {
+        self.garrison_residual_enters > 0 && self.garrison_residual_exits > 0
+    }
+
+    /// Residual honesty: at least one fire-from-garrison residual shot.
+    pub fn honesty_garrison_fire_ok(&self) -> bool {
+        self.garrison_residual_fires > 0
     }
 
     /// Queue a host residual superweapon strike from DoSpecialPower.
@@ -12091,11 +12249,12 @@ mod tests {
     #[test]
     fn enter_command_allows_empty_enemy_non_faction_structure() {
         let mut game_logic = GameLogic::new();
-        ensure_test_tank_template(&mut game_logic);
+        // Residual: structure garrison accepts infantry (not vehicles).
+        ensure_test_infantry_template(&mut game_logic);
         ensure_test_garrison_template(&mut game_logic);
 
         let friendly_unit_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(-10.0, 0.0, 0.0))
+            .create_object("TestInfantry", Team::USA, Vec3::new(-10.0, 0.0, 0.0))
             .expect("friendly unit should be created");
         let enemy_garrison_id = game_logic
             .create_object("TestBunker", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -12123,11 +12282,11 @@ mod tests {
     #[test]
     fn entering_state_clears_enemy_structure_target() {
         let mut game_logic = GameLogic::new();
-        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
         ensure_test_barracks_template(&mut game_logic);
 
         let unit_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("unit should be created");
         let enemy_barracks_id = game_logic
             .create_object("TestBarracks", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -12159,11 +12318,11 @@ mod tests {
     #[test]
     fn entering_state_allows_empty_enemy_non_faction_structure() {
         let mut game_logic = GameLogic::new();
-        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
         ensure_test_garrison_template(&mut game_logic);
 
         let unit_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("unit should be created");
         let enemy_garrison_id = game_logic
             .create_object("TestBunker", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -12188,6 +12347,7 @@ mod tests {
         let unit = game_logic.find_object(unit_id).expect("unit should exist");
         assert_eq!(unit.ai_state, AIState::Garrisoned);
         assert_eq!(unit.target, Some(enemy_garrison_id));
+        assert_eq!(unit.contained_by, Some(enemy_garrison_id));
     }
 
     #[test]
@@ -16165,5 +16325,322 @@ mod tests {
             sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
             "Supply Lines must tag the supply center"
         );
+    }
+
+    /// Residual: Enter garrisonable bunker → garrisoned state + capacity bookkeeping.
+    /// Fail-closed: not full C++ GarrisonContain fire-point bones.
+    #[test]
+    fn garrison_residual_enter_sets_garrisoned_state_and_capacity() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+
+        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        assert!(
+            bunker.can_contain() && bunker.garrison_capacity() > 0,
+            "TestBunker must be residual-garrisonable"
+        );
+        assert_eq!(bunker.garrison_count(), 0);
+        let capacity = bunker.garrison_capacity();
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bunker_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Entering,
+            "Enter command must start residual enter"
+        );
+        assert_eq!(infantry.target, Some(bunker_id));
+
+        // Walk-into-range residual: close enough that Entering completes this frame.
+        game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+
+        let bunker = game_logic.find_object(bunker_id).expect("bunker after");
+        assert!(
+            bunker.contained_units().contains(&infantry_id),
+            "bunker must list garrisoned infantry"
+        );
+        assert_eq!(bunker.garrison_count(), 1);
+        assert!(
+            bunker.garrison_count() <= capacity,
+            "must respect residual capacity"
+        );
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Garrisoned,
+            "infantry must be Garrisoned after enter residual"
+        );
+        assert_eq!(infantry.contained_by, Some(bunker_id));
+        assert!(!infantry.can_move(), "garrisoned units cannot move freely");
+        assert_eq!(game_logic.garrison_residual_enters(), 1);
+    }
+
+    /// Residual: Exit/Evacuate → free again (contained_by cleared, Idle, capacity freed).
+    #[test]
+    fn garrison_residual_exit_frees_unit_and_capacity() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+
+        // Force enter residual via Entering support-state.
+        {
+            let unit = game_logic
+                .find_object_mut(infantry_id)
+                .expect("infantry mut");
+            unit.target = Some(bunker_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().ai_state,
+            AIState::Garrisoned
+        );
+        assert_eq!(game_logic.garrison_residual_enters(), 1);
+
+        // Evacuate from selected bunker (structure inventory residual).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bunker_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let bunker = game_logic.find_object(bunker_id).expect("bunker after exit");
+        assert!(
+            !bunker.contained_units().contains(&infantry_id),
+            "evacuate must free garrison capacity"
+        );
+        assert_eq!(bunker.garrison_count(), 0);
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry free");
+        assert_eq!(infantry.ai_state, AIState::Idle);
+        assert!(infantry.contained_by.is_none());
+        assert!(infantry.target.is_none());
+        assert!(infantry.can_move(), "exited unit must be free to move");
+        assert_eq!(game_logic.garrison_residual_exits(), 1);
+        assert!(
+            game_logic.honesty_garrison_enter_exit_ok(),
+            "enter+exit residual honesty"
+        );
+    }
+
+    /// Residual: capacity full rejects further Enter.
+    #[test]
+    fn garrison_residual_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+
+        // Shrink residual capacity to 1 for a fast full test.
+        {
+            let bunker = game_logic.find_object_mut(bunker_id).expect("bunker mut");
+            if let Some(data) = bunker.building_data.as_mut() {
+                data.max_garrison = 1;
+            }
+        }
+
+        let first_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("first");
+        {
+            let unit = game_logic.find_object_mut(first_id).unwrap();
+            unit.target = Some(bunker_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
+        assert!(
+            game_logic
+                .find_object(bunker_id)
+                .unwrap()
+                .contained_units()
+                .contains(&first_id)
+        );
+
+        let second_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("second");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bunker_id,
+            },
+            player_id: 0,
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![second_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let second = game_logic.find_object(second_id).expect("second after");
+        assert_ne!(
+            second.ai_state,
+            AIState::Entering,
+            "full garrison must reject Enter"
+        );
+        assert_ne!(second.target, Some(bunker_id));
+        assert_eq!(
+            game_logic.find_object(bunker_id).unwrap().garrison_count(),
+            1,
+            "capacity stays full at residual max"
+        );
+    }
+
+    /// Residual: vehicles cannot Enter structures (infantry-only garrison).
+    #[test]
+    fn garrison_residual_rejects_vehicle_enter_structure() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bunker_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert_ne!(tank.ai_state, AIState::Entering);
+        assert_ne!(tank.target, Some(bunker_id));
+    }
+
+    /// Residual optional fire-from-garrison: garrisoned infantry damages nearby enemy.
+    /// Fail-closed: fires from container origin; not C++ garrison weapon positions.
+    #[test]
+    fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("infantry");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bunker");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+
+        // Equip residual weapon + force garrisoned state.
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            unit.target = Some(bunker_id);
+            unit.contained_by = Some(bunker_id);
+            unit.ai_state = AIState::Garrisoned;
+            unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        }
+        {
+            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            assert!(bunker.add_occupant(infantry_id));
+        }
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.update_combat(&[infantry_id, bunker_id, enemy_id], 1.0 / 30.0);
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "garrison residual fire must damage nearby enemy (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_garrison_fire_ok(),
+            "fire-from-garrison residual honesty"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().ai_state,
+            AIState::Garrisoned,
+            "firing must not eject garrisoned unit"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().contained_by,
+            Some(bunker_id)
+        );
+    }
+
+    /// Residual: non-garrisonable faction producers reject can_contain.
+    #[test]
+    fn garrison_residual_barracks_not_garrisonable() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_barracks_template(&mut game_logic);
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+        let barracks = game_logic.find_object(barracks_id).unwrap();
+        assert!(
+            !barracks.can_contain(),
+            "faction barracks must not accept residual garrison"
+        );
+        assert_eq!(barracks.garrison_capacity(), 0);
     }
 }
