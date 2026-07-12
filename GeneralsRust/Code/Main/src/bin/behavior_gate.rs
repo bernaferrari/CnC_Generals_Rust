@@ -53,6 +53,12 @@ fn main() {
             golden.playable_claim
         ));
     }
+    if !golden.ai_structure_templates_retained {
+        failed.push(format!(
+            "golden ai_structure_templates_retained={} (must retain AI structure catalog; no mid-scenario strip)",
+            golden.ai_structure_templates_retained
+        ));
+    }
 
     // 3) Breadth categories.
     let breadth = run_all_breadth();
