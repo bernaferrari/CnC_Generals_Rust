@@ -57,17 +57,18 @@ fn main() {
         && map_same_world_ok;
     if pass {
         println!(
-            "golden_skirmish_gate: PASS (AI on; map_loaded={} synthetic_combat={} playable_claim={}; ai_templates_retained=true; map_same_world_prod={} map_same_world_victory={})",
+            "golden_skirmish_gate: PASS (AI on; map_loaded={} synthetic_combat={} playable_claim={}; ai_templates_retained=true; map_same_world_prod={} map_same_world_victory={} retail_prod={})",
             result.map_loaded,
             result.synthetic_combat,
             result.playable_claim,
             result.same_world_production_ok,
-            result.same_world_victory_ok
+            result.same_world_victory_ok,
+            result.retail_production_chain_ok
         );
         std::process::exit(0);
     }
     eprintln!(
-        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} map_loaded={}",
+        "golden_skirmish_gate: FAIL victory={} save_load={} status={} ai_off={} synthetic={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} map_loaded={}",
         result.victory,
         result.save_load_ok,
         result.status,
@@ -79,6 +80,7 @@ fn main() {
         result.same_world_production_ok,
         result.same_world_victory_ok,
         result.players_preserved_on_load,
+        result.retail_production_chain_ok,
         result.map_loaded
     );
     std::process::exit(1);
