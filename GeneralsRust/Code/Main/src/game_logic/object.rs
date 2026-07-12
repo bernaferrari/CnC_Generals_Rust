@@ -109,6 +109,12 @@ pub struct Object {
     /// Tracked occupants for transports/garrisons
     pub occupants: Vec<ObjectId>,
 
+    /// Residual transport slot capacity (vehicles).
+    /// `0` = use footprint heuristic (existing host residual default).
+    /// Explicit value (e.g. Humvee/Chinook slots) hard-caps occupants.
+    /// Fail-closed: not multi-door / air-transport path parity.
+    pub max_transport: usize,
+
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
@@ -232,6 +238,7 @@ impl Object {
             selection_radius,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            max_transport: 0,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -289,6 +296,7 @@ impl Object {
             selection_radius,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            max_transport: 0,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -895,6 +903,7 @@ impl Object {
             return false;
         }
         // Transports: any vehicle may act as a container (host residual).
+        // Explicit max_transport=0 still allows footprint residual capacity.
         if self.is_kind_of(KindOf::Vehicle) {
             return true;
         }
@@ -916,11 +925,10 @@ impl Object {
                 return false;
             }
             building.garrisoned_units.len() + count <= building.max_garrison
+        } else if self.is_kind_of(KindOf::Vehicle) {
+            self.occupants.len() + count <= self.transport_capacity()
         } else {
-            // Transport heuristic based on footprint: larger selection radius holds more
-            let base_cap = (self.selection_radius / 8.0).ceil() as usize + 2;
-            let max_cap = base_cap.clamp(2, 12);
-            self.occupants.len() + count <= max_cap
+            false
         }
     }
 
@@ -930,6 +938,32 @@ impl Object {
             .as_ref()
             .map(|b| b.max_garrison)
             .unwrap_or(0)
+    }
+
+    /// Residual transport capacity (vehicles). Explicit `max_transport` wins;
+    /// otherwise footprint heuristic. Structures return 0.
+    pub fn transport_capacity(&self) -> usize {
+        if self.is_kind_of(KindOf::Structure) {
+            return 0;
+        }
+        if !self.is_kind_of(KindOf::Vehicle) {
+            return 0;
+        }
+        if self.max_transport > 0 {
+            return self.max_transport;
+        }
+        // Transport heuristic based on footprint: larger selection radius holds more.
+        let base_cap = (self.selection_radius / 8.0).ceil() as usize + 2;
+        base_cap.clamp(2, 12)
+    }
+
+    /// Current transport occupant count (vehicles only; structures use garrison).
+    pub fn transport_count(&self) -> usize {
+        if self.is_kind_of(KindOf::Structure) {
+            0
+        } else {
+            self.occupants.len()
+        }
     }
 
     /// Current garrison/transport occupant count.
