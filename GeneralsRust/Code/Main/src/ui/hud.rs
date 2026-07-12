@@ -6,7 +6,7 @@
 
 use super::{
     color_for_player, layout, utils, BeaconDot, Interactive, KeyCode, MinimapUIState, MouseButton,
-    Renderable, UIEvent, UIRenderContext,
+    Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
 };
 use crate::game_logic::ObjectId;
 use crate::localization;
@@ -411,6 +411,8 @@ pub struct GameHUD {
     construction_panel: ConstructionPanel,
     /// Selected units
     selected_units: Vec<ObjectId>,
+    /// Selected unit identity (health/name) from PresentationFrame when available.
+    selected_unit_infos: Vec<UnitDisplayInfo>,
     /// Screen dimensions
     screen_size: (u32, u32),
     /// HUD visibility
@@ -483,6 +485,7 @@ impl GameHUD {
             ),
             minimap_panel: MinimapUIState::default(),
             selected_units: Vec::new(),
+            selected_unit_infos: Vec::new(),
             screen_size,
             visible: true,
             command_buttons: Vec::new(),
@@ -617,6 +620,7 @@ impl GameHUD {
     /// Select units
     pub fn select_units(&mut self, unit_ids: Vec<ObjectId>) {
         self.selected_units = unit_ids;
+        self.selected_unit_infos.clear();
         self.update_command_buttons();
 
         if self.selected_units.len() == 1 {
@@ -631,6 +635,34 @@ impl GameHUD {
             );
             self.add_message(&message, MessageType::Info);
         }
+    }
+
+    /// Quiet presentation-driven selection sync (no toast spam each frame).
+    ///
+    /// Production path: `PresentationFrame::apply_to_game_hud` overwrites IDs +
+    /// health/name identity from the immutable snapshot after each logic step
+    /// (and after map load / skirmish start seed).
+    pub fn sync_selection_from_presentation(
+        &mut self,
+        unit_ids: Vec<ObjectId>,
+        unit_infos: Vec<UnitDisplayInfo>,
+    ) {
+        let selection_changed = self.selected_units != unit_ids;
+        self.selected_units = unit_ids;
+        self.selected_unit_infos = unit_infos;
+        if selection_changed {
+            self.update_command_buttons();
+        }
+    }
+
+    /// Selected object IDs currently shown on the HUD command strip.
+    pub fn selected_unit_ids(&self) -> &[ObjectId] {
+        &self.selected_units
+    }
+
+    /// Selected unit identity (health/name) from presentation when available.
+    pub fn selected_unit_infos(&self) -> &[UnitDisplayInfo] {
+        &self.selected_unit_infos
     }
 
     /// Select building

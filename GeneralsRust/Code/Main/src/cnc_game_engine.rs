@@ -1129,6 +1129,9 @@ pub struct CnCGameEngine {
     game_logic: GameLogic,
     /// Immutable presentation feed for client/render after last logic step.
     last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Last presentation-overlaid UI state (selection health/minimap identity retained
+    /// after render build so consumers are not dropped each frame).
+    last_ui_state: Option<GameUIState>,
     combat_system: CombatSystem,
     pathfinding_system: PathfindingSystem,
     resource_manager: ResourceManager,
@@ -3768,6 +3771,7 @@ impl CnCGameEngine {
 
             game_logic,
             last_presentation_frame: None,
+            last_ui_state: None,
             combat_system,
             pathfinding_system,
             resource_manager,
@@ -5716,11 +5720,10 @@ impl CnCGameEngine {
             }
         }
 
-        // Update HUD resources: prefer presentation snapshot when available.
+        // Update HUD from presentation when available (resources + minimap + selection health).
         if self.current_state == GameState::InGame {
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
-                let (money, power, max_power) = pres.hud_resource_triple();
-                self.game_hud.update_resources(money, power, max_power);
+            if let Some(pres) = self.last_presentation_frame.clone() {
+                pres.apply_to_game_hud(&mut self.game_hud);
             } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                 let money = player.resources.supplies as i32;
                 let power = player.power_available;
@@ -5876,6 +5879,11 @@ impl CnCGameEngine {
         self.last_presentation_frame.as_ref()
     }
 
+    /// Last presentation-overlaid UI state (selection health / minimap identity).
+    pub fn last_ui_state(&self) -> Option<&GameUIState> {
+        self.last_ui_state.as_ref()
+    }
+
     /// Production HUD consumer: apply last presentation to GameHUD without re-reading live objects.
     pub fn apply_presentation_to_hud(&mut self) -> bool {
         let Some(pres) = self.last_presentation_frame.clone() else {
@@ -5883,6 +5891,22 @@ impl CnCGameEngine {
         };
         pres.apply_to_game_hud(&mut self.game_hud);
         true
+    }
+
+    /// After map load / load-game / skirmish StartGame: seed PresentationFrame + HUD so
+    /// the first InGame frame has units/minimap/selection identity without waiting for
+    /// the next dual-tick. Does not advance logic frames.
+    fn seed_presentation_after_match_start(&mut self) {
+        let local_id = self.current_player_id;
+        let pres = crate::presentation_frame::PresentationFrame::build_and_apply_for_hud(
+            &self.game_logic,
+            local_id,
+            &mut self.game_hud,
+        );
+        let mut ui = GameUIState::default();
+        pres.apply_to_ui_state(&mut ui);
+        self.last_ui_state = Some(ui);
+        self.last_presentation_frame = Some(pres);
     }
 
     pub fn render(&mut self) -> Result<()> {
@@ -5972,6 +5996,8 @@ impl CnCGameEngine {
                 ui_state.victory_summary = None;
                 ui_state.player_outcome = None;
             }
+            // Retain presentation-overlaid identity for consumers (was dropped each frame).
+            self.last_ui_state = Some(ui_state);
         }
 
         // Execute the main game render pipeline using the WW3D frame.
@@ -6470,6 +6496,8 @@ impl CnCGameEngine {
                     &self.game_logic,
                 );
 
+                // Seed presentation before first InGame render (units/HUD identity).
+                self.seed_presentation_after_match_start();
                 self.transition_to_state(GameState::InGame);
             }
             Err(err) => {
@@ -6603,6 +6631,9 @@ impl CnCGameEngine {
                 startup_camera_defaults,
             );
         self.sync_orbit_from_camera_transform();
+        // Dual-tick residual close: map load → presentation seed → InGame HUD/units
+        // without waiting for the first logic frame (render collect uses snapshot IDs).
+        self.seed_presentation_after_match_start();
         self.transition_to_state(GameState::InGame);
     }
 
