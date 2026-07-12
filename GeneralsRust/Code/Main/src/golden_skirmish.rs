@@ -177,6 +177,9 @@ fn probe_map_load_and_combat(map_identity: &str) -> (bool, bool) {
         return (false, false);
     }
     install_templates(&mut probe);
+    // Real faction unit catalog for map combat (USA_Ranger etc.).
+    probe.ensure_ai_faction_templates(Team::USA);
+    probe.ensure_ai_faction_templates(Team::GLA);
     if !probe.load_map(map_identity) {
         return (false, false);
     }
@@ -195,11 +198,17 @@ fn probe_map_load_and_combat(map_identity: &str) -> (bool, bool) {
         // Map loaded but no attackable enemy structures — load ok, combat not proven.
         return (true, false);
     };
-    // Production template rangers near the map enemy (within Weapon range 100).
+    // Prefer real USA_Ranger when catalog has it; fall back to golden production template.
+    let ranger_template = if probe.templates.contains_key("USA_Ranger") {
+        "USA_Ranger"
+    } else {
+        "GoldenRanger"
+    };
+    // Rangers near the map enemy (within Weapon range 100).
     let mut ranger_ids = Vec::new();
     for i in 0..4 {
         let offset = Vec3::new(15.0 + i as f32 * 3.0, 0.0, 0.0);
-        if let Some(id) = probe.create_object("GoldenRanger", Team::USA, enemy_pos + offset) {
+        if let Some(id) = probe.create_object(ranger_template, Team::USA, enemy_pos + offset) {
             ranger_ids.push(id);
         }
     }
