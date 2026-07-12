@@ -12,6 +12,7 @@ pub mod resources;
 pub mod script_events;
 pub mod script_loader;
 pub mod special_power_strikes;
+pub mod host_upgrades;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -27,6 +28,9 @@ pub use combat_particles::{
 };
 pub use special_power_strikes::{
     HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase, HostSuperweaponKind,
+};
+pub use host_upgrades::{
+    HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

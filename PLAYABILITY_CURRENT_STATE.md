@@ -13,6 +13,38 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Upgrade Queue/Complete Host Path (2026-07-12)
+**Closed (host-testable QueueUpgrade → complete → observable unlock):**
+1. Host `HostUpgradeRegistry` on Main `GameLogic` records queue/complete for residual
+   kinds: CaptureBuilding, FlashBangGrenade, TowMissile, SupplyLines (+ Other flag-only).
+2. `CommandExecutor::execute_queue_upgrade` still deducts cost once per team and inserts
+   into `Player.queued_upgrades`; now also records host residual queue honesty.
+3. `GameLogic::update_player_upgrades` completes research into `unlocked_sciences` and
+   applies observable unlocks:
+   - **Capture**: player unlock flag gates `CaptureBuilding`; infantry receive upgrade tags
+   - **FlashBang**: equips Ranger `secondary_weapon` (store `RangerFlashBangGrenadeWeapon`)
+     + upgrade tag on team rangers missing secondary
+   - **TOW**: equips Humvee secondary + tag
+   - **SupplyLines**: tags supply centers
+4. Local-player complete queues `EVA_UpgradeComplete` audio residual.
+5. Honesty flags (registry API; do **not** claim full science/ProductionUpdate parity):
+   - `honesty_queue_ok(kind)` / `honesty_complete_ok(kind)` / `honesty_host_path_ok(kind)`
+   - `honesty_capture_unlock_ok` / `honesty_flashbang_equipped_ok`
+6. Tests (not log-only):
+   - `capture_building_upgrade_queue_complete_unlocks_capture_ability`
+   - `flashbang_upgrade_queue_complete_equips_ranger_secondary`
+   - `supply_lines_upgrade_queue_complete_tags_supply_center`
+   - module unit tests in `host_upgrades.rs`
+   - existing `queued_upgrade_completes_during_simulation_update` still holds
+
+**Still residual (fail-closed, not claimed):**
+- Full retail Upgrade.ini BuildTime (30s) research timers / ProductionUpdate door UI
+- Full science tree purchase / prerequisite graph / academy stats
+- Full WeaponSetUpgrade / CommandSetUpgrade module matrices for every unit
+- Object-type upgrades (`UPGRADE_TYPE_OBJECT`) vs player-type split beyond residual tags
+- Network upgrade replication (network deferred)
+- Economy effect of SupplyLines beyond tag observability
+
 ## Residual Host Playability — Campaign SinglePlayer Path (2026-07-12)
 **Closed (host-testable campaign residual):**
 1. `golden_campaign` / `golden_campaign_gate` — SinglePlayer start, CampaignManager

@@ -1928,8 +1928,8 @@ mod tests {
 
         let player_after_first = game_logic.get_player(0).expect("player should exist");
         assert_eq!(
-            player_after_first.resources.supplies, 4000,
-            "upgrade cost should be charged once per team, not per selected unit"
+            player_after_first.resources.supplies, 4200,
+            "upgrade cost should be charged once per team, not per selected unit (retail SupplyLines=800)"
         );
         assert!(player_after_first
             .queued_upgrades

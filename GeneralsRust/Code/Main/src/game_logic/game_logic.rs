@@ -501,6 +501,10 @@ pub struct GameLogic {
     /// Queues on DoSpecialPower and completes with area damage — fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
+    /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
+    /// Completes research into unlocked_sciences and applies observable unit unlocks.
+    host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1288,6 +1292,7 @@ impl GameLogic {
             combat_particles: CombatParticleRegistry::new(),
             special_power_strikes:
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
+            host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1410,6 +1415,7 @@ impl GameLogic {
         self.objects_to_destroy.clear();
         self.combat_particles.clear();
         self.special_power_strikes.clear();
+        self.host_upgrades.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -5448,9 +5454,191 @@ impl GameLogic {
     }
 
     fn update_player_upgrades(&mut self) {
+        // Residual: drain queued research into unlocked_sciences, then apply
+        // observable unlocks (Capture ability flag, FlashBang secondary, etc.).
+        self.host_upgrades.clear_frame_events();
+
+        let mut completed: Vec<(Team, u32, String)> = Vec::new();
         for player in self.players.values_mut() {
-            player.complete_queued_upgrades();
+            let team = player.team;
+            let player_id = player.id;
+            let done = player.complete_queued_upgrades();
+            for name in done {
+                completed.push((team, player_id, name));
+            }
         }
+
+        for (team, player_id, name) in completed {
+            self.apply_host_upgrade_complete(team, player_id, &name);
+        }
+    }
+
+    /// Record that a player queued upgrade research (host residual honesty).
+    pub fn record_host_upgrade_queued(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        upgrade_name: &str,
+        source_object: Option<ObjectId>,
+    ) {
+        self.host_upgrades.record_queue(
+            upgrade_name,
+            team,
+            player_id,
+            self.frame,
+            source_object,
+        );
+    }
+
+    /// Record that a player cancelled upgrade research (host residual honesty).
+    pub fn record_host_upgrade_cancelled(&mut self, player_id: u32, upgrade_name: &str) {
+        self.host_upgrades.record_cancel(upgrade_name, player_id);
+    }
+
+    /// Apply unlock effects for a completed upgrade and record honesty.
+    /// Matches C++ ProductionUpdate upgrade-complete: player mask + object giveUpgrade.
+    fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let kind = HostUpgradeKind::from_name(upgrade_name);
+        let units_affected = match kind {
+            HostUpgradeKind::FlashBangGrenade => {
+                self.apply_flashbang_unlock_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::TowMissile => self.apply_tow_unlock_to_team(team, upgrade_name),
+            HostUpgradeKind::CaptureBuilding => {
+                self.apply_capture_unlock_tags_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::SupplyLines => {
+                self.apply_supply_lines_tags_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::Other => 0,
+        };
+
+        // Ensure registry has a queue entry even if command path skipped record
+        // (e.g. direct Player::queue_upgrade in unit tests).
+        self.host_upgrades.record_queue(
+            upgrade_name,
+            team,
+            player_id,
+            self.frame.saturating_sub(1),
+            None,
+        );
+        self.host_upgrades
+            .record_complete(upgrade_name, player_id, self.frame, units_affected);
+
+        log::info!(
+            "Host upgrade complete: player={} team={:?} '{}' kind={} units_affected={}",
+            player_id,
+            team,
+            upgrade_name,
+            kind.label(),
+            units_affected
+        );
+
+        // EVA residual audio for local player upgrades.
+        if self.is_local_player(player_id) {
+            self.queue_audio_event(
+                AudioEventRequest::new("EVA_UpgradeComplete").with_priority(140),
+            );
+        }
+    }
+
+    /// Equip FlashBang secondary on team rangers + apply upgrade tag.
+    fn apply_flashbang_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::is_flashbang_unit_template;
+        use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, RANGER_SECONDARY_WEAPON};
+
+        ensure_host_weapon_store();
+        let secondary = ThingTemplate::weapon_from_store(RANGER_SECONDARY_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_flashbang_unit_template(&obj.template_name) {
+                continue;
+            }
+            if obj.secondary_weapon.is_none() {
+                if let Some(ref w) = secondary {
+                    obj.secondary_weapon = Some(w.clone());
+                }
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            // Canonical retail name tag for ability checks.
+            obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Equip TOW secondary on team Humvees + apply upgrade tag.
+    fn apply_tow_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::is_tow_unit_template;
+        use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON};
+
+        ensure_host_weapon_store();
+        let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_tow_unit_template(&obj.template_name) {
+                continue;
+            }
+            if obj.secondary_weapon.is_none() {
+                if let Some(ref w) = secondary {
+                    obj.secondary_weapon = Some(w.clone());
+                }
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Tag capture-capable infantry so capture unlock is unit-observable.
+    fn apply_capture_unlock_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::{
+            is_capture_capable_infantry_template, UPGRADE_INFANTRY_CAPTURE,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Infantry) {
+                continue;
+            }
+            if !is_capture_capable_infantry_template(&obj.template_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_INFANTRY_CAPTURE);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Tag supply centers for Supply Lines residual observability.
+    fn apply_supply_lines_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::is_supply_center_template;
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::SupplyCenter) || is_supply_center_template(&obj.template_name)
+            {
+                obj.apply_upgrade_tag(upgrade_name);
+                affected = affected.saturating_add(1);
+            }
+        }
+        affected
     }
 
     fn update_player_resources(&mut self, dt: f32) {
@@ -7888,6 +8076,20 @@ impl GameLogic {
         &mut self,
     ) -> &mut crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry {
         &mut self.special_power_strikes
+    }
+
+    /// Host upgrade research registry (queue + complete residual).
+    pub fn host_upgrades(
+        &self,
+    ) -> &crate::game_logic::host_upgrades::HostUpgradeRegistry {
+        &self.host_upgrades
+    }
+
+    /// Mutable host upgrade research registry (tests / honesty drain).
+    pub fn host_upgrades_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::host_upgrades::HostUpgradeRegistry {
+        &mut self.host_upgrades
     }
 
     /// Queue a host residual superweapon strike from DoSpecialPower.
@@ -15456,5 +15658,321 @@ mod tests {
             "non-superweapon special powers must not enqueue residual strikes"
         );
         assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+    }
+
+    /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
+    /// Fail-closed: not full science tree / SpecialAbility module parity.
+    #[test]
+    fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            HostUpgradeKind, UPGRADE_INFANTRY_CAPTURE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("barracks");
+        assert!(
+            game_logic
+                .find_object(barracks_id)
+                .map(|b| b.building_data.is_some() && b.is_constructed())
+                .unwrap_or(false),
+            "barracks must be a constructed producer for QueueUpgrade"
+        );
+
+        let captor_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+            .expect("captor");
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+
+        // Before research: capture command must not enter Capturing.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        let captor = game_logic.find_object(captor_id).expect("captor");
+        assert_ne!(captor.ai_state, AIState::Capturing);
+        assert_ne!(captor.target, Some(building_id));
+
+        // Queue capture research from barracks.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_INFANTRY_CAPTURE.to_string(),
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let player = game_logic.get_player(0).expect("player");
+        assert!(
+            player.has_queued_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "capture upgrade must be queued after QueueUpgrade"
+        );
+        assert!(
+            !player.has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "must not unlock before research completes"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::CaptureBuilding),
+            "host residual must record pending Capture research"
+        );
+
+        // Complete research on simulation update.
+        game_logic.update();
+
+        let player = game_logic.get_player(0).expect("player after complete");
+        assert!(
+            !player.has_queued_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "queue must clear on complete"
+        );
+        assert!(
+            player.has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "player unlock flag must be set"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::CaptureBuilding),
+            "registry must record Capture complete"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_capture_unlock_ok(),
+            "capture unlock honesty"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::CaptureBuilding),
+            "host path honesty for Capture"
+        );
+
+        // Infantry should carry upgrade tag after complete.
+        let captor = game_logic.find_object(captor_id).expect("captor tagged");
+        assert!(
+            captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
+            "captor must receive capture upgrade tag"
+        );
+
+        // Ability now available.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let captor = game_logic.find_object(captor_id).expect("captor after unlock");
+        assert_eq!(
+            captor.ai_state,
+            AIState::Capturing,
+            "CaptureBuilding must work after research complete"
+        );
+        assert_eq!(captor.target, Some(building_id));
+    }
+
+    /// Residual: QueueUpgrade FlashBang → complete → Ranger secondary equipped.
+    /// Fail-closed: not full WeaponSetUpgrade matrix / science tree.
+    #[test]
+    fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, RANGER_PRIMARY_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // Ranger without secondary — unlock must equip it.
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0)
+            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
+        // Intentionally no secondary_weapon_name — research unlocks it.
+        game_logic.templates.insert("USA_Ranger".to_string(), ranger);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+
+        let ranger_id = game_logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        {
+            let r = game_logic.find_object(ranger_id).expect("ranger");
+            assert!(
+                r.secondary_weapon.is_none(),
+                "pre-upgrade ranger must lack FlashBang secondary"
+            );
+            assert!(!r.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG));
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .get_player(0)
+                .unwrap()
+                .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG)
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::FlashBangGrenade)
+        );
+
+        game_logic.update();
+
+        let player = game_logic.get_player(0).expect("player");
+        assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
+        assert!(!player.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG));
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade)
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_flashbang_equipped_ok(),
+            "FlashBang complete must equip at least one unit"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::FlashBangGrenade)
+        );
+
+        let ranger = game_logic.find_object(ranger_id).expect("ranger after");
+        assert!(
+            ranger.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG),
+            "ranger must receive FlashBang upgrade tag"
+        );
+        let secondary = ranger
+            .secondary_weapon
+            .as_ref()
+            .expect("FlashBang secondary must be equipped on complete");
+        assert!(
+            (secondary.damage - 35.0).abs() < 0.1,
+            "expected RangerFlashBangGrenadeWeapon damage 35, got {}",
+            secondary.damage
+        );
+        assert!((secondary.range - 175.0).abs() < 0.1);
+    }
+
+    /// Residual: SupplyLines QueueUpgrade → complete → supply center tagged.
+    #[test]
+    fn supply_lines_upgrade_queue_complete_tags_supply_center() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+
+        let mut supply = ThingTemplate::new("AmericaSupplyCenter");
+        supply
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaSupplyCenter".to_string(), supply);
+
+        let producer_id = game_logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("supply center");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_SUPPLY_LINES.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![producer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::SupplyLines)
+        );
+
+        game_logic.update();
+
+        assert!(game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::SupplyLines)
+        );
+        let sc = game_logic.find_object(producer_id).expect("sc after");
+        assert!(
+            sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
+            "Supply Lines must tag the supply center"
+        );
     }
 }
