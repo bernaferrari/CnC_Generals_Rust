@@ -2,7 +2,11 @@
 //!
 //! This module handles GPU texture management for the minimap fog-of-war system.
 //! It bridges between the game logic FOW state and the UI rendering system.
+//!
+//! Prefer `PresentationFowGrid` (frozen on `PresentationFrame`) when available so
+//! minimap texture regeneration does not re-lock the live shroud manager mid-render.
 
+use crate::fow_rendering::PresentationFowGrid;
 use crate::ui::UiTextureId;
 use anyhow::{anyhow, Result};
 use gamelogic::common::Coord3D as LogicCoord3D;
@@ -204,6 +208,77 @@ impl MinimapFowManager {
         Ok(())
     }
 
+    fn cell_to_minimap_state(cell: u8) -> MinimapFowState {
+        match cell {
+            PresentationFowGrid::CELL_VISIBLE => MinimapFowState::Visible,
+            PresentationFowGrid::CELL_EXPLORED => MinimapFowState::Explored,
+            _ => MinimapFowState::Hidden,
+        }
+    }
+
+    fn write_pixel_state(
+        &self,
+        texture: &mut [u8],
+        states: &mut [MinimapFowState],
+        index: usize,
+        state: MinimapFowState,
+    ) {
+        states[index] = state;
+        let rgba = if self.base_terrain_texture.is_some() {
+            let base = [
+                texture[index * 4],
+                texture[index * 4 + 1],
+                texture[index * 4 + 2],
+                texture[index * 4 + 3],
+            ];
+            Self::blend_fow_with_base(base, state)
+        } else {
+            Self::state_to_rgba(state)
+        };
+        let base = index * 4;
+        texture[base] = rgba[0];
+        texture[base + 1] = rgba[1];
+        texture[base + 2] = rgba[2];
+        texture[base + 3] = rgba[3];
+    }
+
+    /// Regenerate minimap FOW from a presentation-owned grid (no live shroud lock).
+    ///
+    /// Preferred path when `PresentationFrame.fow_grid` is active.
+    pub fn regenerate_texture_from_presentation_grid(
+        &mut self,
+        player_id: usize,
+        grid: &PresentationFowGrid,
+        _frame: u64,
+    ) {
+        let pixel_count = (self.dimensions.width * self.dimensions.height) as usize;
+        let mut states = vec![MinimapFowState::Visible; pixel_count];
+        let mut texture = self
+            .base_terrain_texture
+            .clone()
+            .unwrap_or_else(|| vec![255u8; pixel_count * 4]);
+
+        if grid.active {
+            for y in 0..self.dimensions.height {
+                for x in 0..self.dimensions.width {
+                    let world_pos = self.pixel_to_shroud_world(x, y);
+                    // Shroud partition uses world X/Y; minimap maps world Z → shroud Y.
+                    let cell = grid.state_at_world_xy(world_pos.x, world_pos.y);
+                    let state = Self::cell_to_minimap_state(cell);
+                    let index = (y * self.dimensions.width + x) as usize;
+                    self.write_pixel_state(&mut texture, &mut states, index, state);
+                }
+            }
+            if self.base_terrain_texture.is_some() {
+                self.soften_fow_edges(&states, &mut texture);
+            }
+        }
+
+        self.cached_pixel_states.insert(player_id, states);
+        self.cached_textures.insert(player_id, texture);
+    }
+
+    /// Live shroud-manager path (boot / no presentation frame).
     pub fn regenerate_texture(&mut self, player_id: usize, _frame: u64) {
         let pixel_count = (self.dimensions.width * self.dimensions.height) as usize;
         let mut states = vec![MinimapFowState::Visible; pixel_count];
@@ -241,23 +316,7 @@ impl MinimapFowManager {
                         };
 
                         let index = (y * self.dimensions.width + x) as usize;
-                        states[index] = state;
-                        let rgba = if self.base_terrain_texture.is_some() {
-                            let base = [
-                                texture[index * 4],
-                                texture[index * 4 + 1],
-                                texture[index * 4 + 2],
-                                texture[index * 4 + 3],
-                            ];
-                            Self::blend_fow_with_base(base, state)
-                        } else {
-                            Self::state_to_rgba(state)
-                        };
-                        let base = index * 4;
-                        texture[base] = rgba[0];
-                        texture[base + 1] = rgba[1];
-                        texture[base + 2] = rgba[2];
-                        texture[base + 3] = rgba[3];
+                        self.write_pixel_state(&mut texture, &mut states, index, state);
                     }
                 }
             }
@@ -464,8 +523,21 @@ impl MinimapTextureRenderer {
         Ok(())
     }
 
-    /// Update texture from FOW manager data
+    /// Update texture from FOW manager data (live shroud path).
     pub fn update_texture_from_fow(&mut self, player_id: usize, frame_number: u64) -> Result<()> {
+        self.update_texture_from_fow_with_grid(player_id, frame_number, None)
+    }
+
+    /// Update minimap FOW texture, preferring a presentation-owned grid when active.
+    ///
+    /// When `fow_grid` is active, regenerates from the snapshot only (no mid-render
+    /// shroud lock). Falls back to live `ShroudManager` queries otherwise.
+    pub fn update_texture_from_fow_with_grid(
+        &mut self,
+        player_id: usize,
+        frame_number: u64,
+        fow_grid: Option<&PresentationFowGrid>,
+    ) -> Result<()> {
         // Only update if player changed or enough frames have passed
         if self.force_refresh
             || self.current_player_id != player_id
@@ -483,7 +555,11 @@ impl MinimapTextureRenderer {
             // Regenerate texture for current player
             fow.ensure_dimensions(self.dimensions);
             fow.set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
-            fow.regenerate_texture(player_id, frame_number);
+            if let Some(grid) = fow_grid.filter(|g| g.active) {
+                fow.regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
+            } else {
+                fow.regenerate_texture(player_id, frame_number);
+            }
 
             // Get texture data
             let texture_data = fow.get_texture_data(player_id);
@@ -492,9 +568,10 @@ impl MinimapTextureRenderer {
             self.upload_texture_to_gpu(&texture_data)?;
 
             trace!(
-                "Updated minimap FOW texture for player {} at frame {}",
+                "Updated minimap FOW texture for player {} at frame {} (presentation_grid={})",
                 player_id,
-                frame_number
+                frame_number,
+                fow_grid.map(|g| g.active).unwrap_or(false)
             );
             self.force_refresh = false;
         }

@@ -1137,6 +1137,36 @@ impl ShroudManager {
     pub fn has_shroud_grid(&self) -> bool {
         self.shroud_grid.is_some()
     }
+
+    /// Grid dimensions when initialized: `(width_cells, height_cells, cell_size_world)`.
+    ///
+    /// Used by presentation FOW grid snapshots for terrain / minimap overlay sizing.
+    pub fn grid_dimensions(&self) -> Option<(usize, usize, f32)> {
+        self.shroud_grid
+            .as_ref()
+            .map(|g| (g.width, g.height, g.cell_size))
+    }
+
+    /// Compact per-cell shroud state for one player (row-major `y * width + x`).
+    ///
+    /// Values are [`ShroudState`] discriminants: `0=Hidden`, `1=Explored`, `2=Visible`.
+    /// Returns `None` when the grid is not initialized or `player_id` is invalid.
+    ///
+    /// Fail-closed vs full SAGE dirty-rect streaming — full grid copy for presentation.
+    pub fn snapshot_grid_for_player(&self, player_id: u32) -> Option<Vec<u8>> {
+        if (player_id as usize) >= MAX_PLAYER_COUNT {
+            return None;
+        }
+        let grid = self.shroud_grid.as_ref()?;
+        let mut cells = Vec::with_capacity(grid.width * grid.height);
+        for y in 0..grid.height {
+            for x in 0..grid.width {
+                cells.push(grid.get_cell_state(player_id as usize, x, y) as u8);
+            }
+        }
+        Some(cells)
+    }
+
     /// Create a new ShroudManager
     pub fn new() -> Self {
         // Pre-allocate visible object sets for all players
@@ -2373,9 +2403,33 @@ mod tests {
     fn test_shroud_manager_grid_initialization() {
         let mut manager = ShroudManager::new();
         assert!(manager.shroud_grid.is_none());
+        assert!(manager.grid_dimensions().is_none());
+        assert!(manager.snapshot_grid_for_player(0).is_none());
 
         manager.init_shroud_grid(1000.0, 1000.0);
         assert!(manager.shroud_grid.is_some());
+        let (w, h, cell) = manager.grid_dimensions().expect("dims");
+        assert_eq!(w, 20); // 1000 / 50
+        assert_eq!(h, 20);
+        assert!((cell - SHROUD_GRID_CELL_SIZE).abs() < f32::EPSILON);
+
+        let snap = manager.snapshot_grid_for_player(0).expect("grid snap");
+        assert_eq!(snap.len(), w * h);
+        // Fresh grid is fully Hidden (never explored).
+        assert!(snap.iter().all(|&c| c == ShroudState::Hidden as u8));
+
+        // Temporary reveal (add+remove looker) leaves Explored/fogged, not clear.
+        manager.reveal_map_for_player(0).expect("reveal");
+        let snap2 = manager.snapshot_grid_for_player(0).expect("after reveal");
+        assert!(snap2.iter().all(|&c| c == ShroudState::Explored as u8));
+        assert_ne!(snap, snap2);
+
+        // Permanent reveal keeps lookers → Visible.
+        manager
+            .reveal_map_for_player_permanently(0)
+            .expect("permanent reveal");
+        let snap3 = manager.snapshot_grid_for_player(0).expect("after permanent");
+        assert!(snap3.iter().all(|&c| c == ShroudState::Visible as u8));
     }
 
     #[test]

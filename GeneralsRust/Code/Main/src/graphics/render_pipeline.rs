@@ -2546,21 +2546,42 @@ impl RenderPipeline {
 
     /// Update minimap FOW texture
     ///
-    /// Updates the minimap texture with current FOW state
-    /// Should be called each frame before UI rendering
+    /// Updates the minimap texture with FOW state. Prefer the presentation
+    /// frame's frozen `fow_grid` when available so terrain/minimap overlay does
+    /// not re-query the live shroud manager mid-render.
     pub fn update_minimap_fow_texture(&mut self) -> Result<()> {
+        // Clone grid before mutably borrowing minimap_renderer (split-borrow).
+        let grid = self
+            .presentation_frame
+            .as_ref()
+            .map(|f| f.fow_grid().clone());
+        let player_id = self.current_player_id as usize;
+        let frame_number = self.frame_number;
         if let Some(ref mut minimap_renderer) = self.minimap_renderer {
-            // Update texture from FOW manager for current player
-            minimap_renderer
-                .update_texture_from_fow(self.current_player_id as usize, self.frame_number)?;
+            minimap_renderer.update_texture_from_fow_with_grid(
+                player_id,
+                frame_number,
+                grid.as_ref(),
+            )?;
 
             trace!(
-                "Updated minimap FOW texture for player {} at frame {}",
-                self.current_player_id,
-                self.frame_number
+                "Updated minimap FOW texture for player {} at frame {} (grid_active={})",
+                player_id,
+                frame_number,
+                grid.as_ref().map(|g| g.active).unwrap_or(false)
             );
         }
         Ok(())
+    }
+
+    /// R8 terrain FOW overlay payload from the presentation snapshot (no live shroud).
+    ///
+    /// Feed into `FowTerrainOverlay::update_texture` when the GPU overlay is bound.
+    /// Returns `None` when inactive / fail-open (skip overlay upload).
+    pub fn presentation_terrain_fow_r8(&self) -> Option<Vec<u8>> {
+        self.presentation_frame
+            .as_ref()
+            .and_then(|f| f.terrain_fow_r8())
     }
 
     /// Get minimap texture ID for UI rendering.
