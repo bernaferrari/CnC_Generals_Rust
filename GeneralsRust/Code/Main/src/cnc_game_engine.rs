@@ -3513,8 +3513,17 @@ impl CnCGameEngine {
 
         // Host combat WeaponStore: guarantee init even if asset manager init fails.
         // (AssetManager also inits this; this is a hard early guarantee for create_object.)
+        // Note: Common ini_weapon store (filled later from archives) is separate;
+        // host create_object binds via gamelogic WeaponStore — see weapon_bootstrap.
         if let Err(e) = gamelogic::initialize_weapon_store() {
             warn!("Early WeaponStore init failed (will retry via assets): {e}");
+        }
+        let seeded = crate::game_logic::ensure_host_weapon_store();
+        if seeded > 0 {
+            info!(
+                "Early host WeaponStore bootstrap registered {} templates (archive load may add more)",
+                seeded
+            );
         }
 
         // C++ parity: initialize the asset manager during engine setup so startup loading

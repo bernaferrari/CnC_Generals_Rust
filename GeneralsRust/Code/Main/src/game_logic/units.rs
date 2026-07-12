@@ -62,7 +62,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(50.0)
         .set_cost(60, 0)
-        .set_model("githrpf"); // GLA Infantry model
+        .set_model("githrpf") // GLA Infantry model
+        .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON);
     templates.insert("GLA_Soldier".to_string(), gla_soldier);
 
     let mut gla_worker = ThingTemplate::new("GLA_Worker");
@@ -102,7 +103,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(60.0)
         .set_cost(80, 0)
-        .set_model("airanger"); // USA Ranger infantry
+        .set_model("airanger") // USA Ranger infantry
+        .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
     templates.insert("USA_Ranger".to_string(), usa_ranger);
 
     let mut usa_dozer = ThingTemplate::new("USA_Dozer");
@@ -121,7 +123,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(250.0)
         .set_cost(600, 0)
-        .set_model("avhummer"); // USA Humvee
+        .set_model("avhummer") // USA Humvee
+        .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON);
     templates.insert("USA_Humvee".to_string(), usa_humvee);
 
     let mut usa_crusader = ThingTemplate::new("USA_Crusader");
@@ -142,7 +145,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(55.0)
         .set_cost(75, 0)
-        .set_model("cirifle"); // China Red Guard infantry
+        .set_model("cirifle") // China Red Guard infantry
+        .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON);
     templates.insert("China_Soldier".to_string(), china_soldier);
 
     let mut china_dozer = ThingTemplate::new("China_Dozer");

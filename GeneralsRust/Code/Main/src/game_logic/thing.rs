@@ -74,6 +74,10 @@ impl ThingTemplate {
             return Some(w.clone());
         }
         if let Some(name) = self.primary_weapon_name.as_deref() {
+            // Host residual: unit tests / early create often have an empty store
+            // (no AssetManager archive load). Bootstrap seeds known weapons or
+            // loads extracted Weapon.ini when present — see weapon_bootstrap.rs.
+            let _ = super::weapon_bootstrap::ensure_host_weapon_store();
             if let Some(w) = Self::weapon_from_store(name) {
                 return Some(w);
             }
@@ -206,6 +210,23 @@ mod weapon_resolve_tests {
         let mut t = ThingTemplate::new("BareStructure");
         t.add_kind_of(KindOf::Structure);
         assert!(t.resolve_primary_weapon().is_none());
+    }
+
+    #[test]
+    fn primary_weapon_name_resolves_non_default_store_stats() {
+        // Prove store bind path for USA_Ranger / GoldenRanger weapon name.
+        let mut t = ThingTemplate::new("USA_Ranger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .set_primary_weapon_name(super::super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+        let w = t.resolve_primary_weapon().expect("store-bound weapon");
+        assert!(
+            (w.damage - Weapon::default().damage).abs() > 0.01,
+            "store path must not yield host default damage; got {}",
+            w.damage
+        );
+        assert!((w.damage - 5.0).abs() < 0.01);
+        assert!((w.range - 100.0).abs() < 0.01);
     }
 }
 

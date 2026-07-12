@@ -388,17 +388,7 @@ pub async fn load_weapon_templates(
             }
         };
 
-        let sections = parse_ini_sections(&content);
-        let mut file_weapon_count = 0usize;
-
-        for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Weapon")
-                && register_weapon_template(block_name, properties)
-            {
-                file_weapon_count += 1;
-            }
-        }
-
+        let file_weapon_count = register_weapons_from_ini_text(&content);
         total_weapons += file_weapon_count;
         debug!(
             "Loaded {} weapon templates from {}",
@@ -592,6 +582,46 @@ pub async fn load_all_ini_templates(
     Ok(stats)
 }
 
+/// Register all `Weapon` blocks from raw INI text into the GameLogic WeaponStore.
+///
+/// Used by AssetManager (archive path) and host bootstrap (filesystem path).
+/// Returns the number of successfully registered templates.
+pub fn register_weapons_from_ini_text(content: &str) -> usize {
+    // Ensure store exists before registration attempts.
+    if let Err(e) = gamelogic::initialize_weapon_store() {
+        warn!("Cannot register weapons — WeaponStore init failed: {e}");
+        return 0;
+    }
+    let sections = parse_ini_sections(content);
+    let mut count = 0usize;
+    for (block_type, block_name, properties) in &sections {
+        if block_type.eq_ignore_ascii_case("Weapon")
+            && register_weapon_template(block_name, properties)
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// C++ ConvertDurationFromMsecsToFrames (logic clock at 30 FPS).
+fn msec_to_logic_frames(msec: i32) -> i32 {
+    if msec <= 0 {
+        return 0;
+    }
+    // ceil(msec * FPS / 1000)
+    ((msec as i64 * 30 + 999) / 1000) as i32
+}
+
+/// Parse C++ INI booleans: Yes/No, True/False, 1/0.
+fn parse_ini_bool(val: &str) -> Option<bool> {
+    match val.trim().to_ascii_lowercase().as_str() {
+        "yes" | "true" | "1" => Some(true),
+        "no" | "false" | "0" => Some(false),
+        _ => val.parse::<bool>().ok(),
+    }
+}
+
 /// Register a weapon template parsed from INI into the GameLogic WeaponStore.
 fn register_weapon_template(name: &str, properties: &HashMap<String, String>) -> bool {
     use gamelogic::WeaponTemplate;
@@ -688,6 +718,32 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         }
     }
 
+    // C++ Weapon.ini uses DelayBetweenShots in milliseconds (single value or min max).
+    // Convert to logic frames (30 FPS) to match WeaponTemplate::parseShotDelay /
+    // ConvertDurationFromMsecsToFrames. Prefer explicit Min/Max when already set above.
+    if let Some(val) = properties.get("DelayBetweenShots") {
+        let tokens: Vec<&str> = val.split_whitespace().collect();
+        if let Some(first) = tokens.first() {
+            if let Ok(msec) = first.parse::<i32>() {
+                let frames = msec_to_logic_frames(msec);
+                if template.min_delay_between_shots == 0 {
+                    template.min_delay_between_shots = frames;
+                }
+                if let Some(second) = tokens.get(1) {
+                    if let Ok(msec2) = second.parse::<i32>() {
+                        if template.max_delay_between_shots == 0 {
+                            template.max_delay_between_shots = msec_to_logic_frames(msec2);
+                        }
+                    } else if template.max_delay_between_shots == 0 {
+                        template.max_delay_between_shots = frames;
+                    }
+                } else if template.max_delay_between_shots == 0 {
+                    template.max_delay_between_shots = frames;
+                }
+            }
+        }
+    }
+
     if let Some(val) = properties.get("ClipSize") {
         if let Ok(size) = val.parse::<i32>() {
             template.clip_size = size;
@@ -746,58 +802,56 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
     }
 
     if let Some(val) = properties.get("AntiAirborneVehicle") {
-        if let Ok(val) = val.parse::<bool>() {
-            if val {
-                template
-                    .anti_mask
-                    .insert(gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE);
-            }
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE);
         }
     }
 
     if let Some(val) = properties.get("AntiGround") {
-        if let Ok(val) = val.parse::<bool>() {
-            if val {
-                template
-                    .anti_mask
-                    .insert(gamelogic::weapon::WeaponAntiMask::GROUND);
-            }
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::GROUND);
         }
     }
 
     if let Some(val) = properties.get("AntiProjectile") {
-        if let Ok(val) = val.parse::<bool>() {
-            if val {
-                template
-                    .anti_mask
-                    .insert(gamelogic::weapon::WeaponAntiMask::PROJECTILE);
-            }
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::PROJECTILE);
         }
     }
 
     if let Some(val) = properties.get("AntiSmallMissile") {
-        if let Ok(val) = val.parse::<bool>() {
-            if val {
-                template
-                    .anti_mask
-                    .insert(gamelogic::weapon::WeaponAntiMask::SMALL_MISSILE);
-            }
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::SMALL_MISSILE);
         }
     }
 
     if let Some(val) = properties.get("AntiMine") {
-        if let Ok(val) = val.parse::<bool>() {
-            if val {
-                template
-                    .anti_mask
-                    .insert(gamelogic::weapon::WeaponAntiMask::MINE);
-            }
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::MINE);
+        }
+    }
+
+    if let Some(val) = properties.get("AntiAirborneInfantry") {
+        if parse_ini_bool(val) == Some(true) {
+            template
+                .anti_mask
+                .insert(gamelogic::weapon::WeaponAntiMask::AIRBORNE_INFANTRY);
         }
     }
 
     if let Some(val) = properties.get("ScaleWeaponSpeed") {
-        if let Ok(val) = val.parse::<bool>() {
-            template.is_scale_weapon_speed = val;
+        if let Some(b) = parse_ini_bool(val) {
+            template.is_scale_weapon_speed = b;
         }
     }
 
