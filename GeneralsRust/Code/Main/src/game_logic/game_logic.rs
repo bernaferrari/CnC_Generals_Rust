@@ -3965,6 +3965,26 @@ impl GameLogic {
             if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
                 continue;
             }
+            // Interaction orders set `target` without being attacks. Skip combat
+            // (fire + chase) so CaptureBuilding / SpecialAbility / Repair / Enter
+            // are not converted into weapon fire or Attacking chase.
+            if matches!(
+                attacker.ai_state,
+                AIState::Capturing
+                    | AIState::SpecialAbility
+                    | AIState::Repairing
+                    | AIState::Entering
+                    | AIState::Docking
+                    | AIState::Constructing
+                    | AIState::Gathering
+                    | AIState::ReturningResources
+                    | AIState::SeekingRepair
+                    | AIState::SeekingHealing
+                    | AIState::Docked
+                    | AIState::Garrisoned
+            ) {
+                continue;
+            }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
             // Any slot ready on reload timer? If all reloading, skip (no chase).
@@ -4055,10 +4075,19 @@ impl GameLogic {
                     // Ready weapons but out of range / cannot hit: chase.
                     // (Matches prior host residual: chase whenever engagement is legal
                     // but no ready weapon is currently in range.)
+                    // Do not clobber interaction orders that also set `target`
+                    // (CaptureBuilding, SpecialAbility, Repair, Enter, etc.).
                     if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        // Match classic behavior: an attack order should chase a valid target until
-                        // the weapon can fire (unless the unit is immobile).
-                        if attacker.can_move() {
+                        let combat_chase_ok = matches!(
+                            attacker.ai_state,
+                            AIState::Idle
+                                | AIState::Moving
+                                | AIState::Attacking
+                                | AIState::AttackMoving
+                                | AIState::Patrolling
+                                | AIState::AttackingGround
+                        );
+                        if attacker.can_move() && combat_chase_ok {
                             attacker.movement.path.clear();
                             attacker.movement.current_path_index = 0;
                             attacker.movement.target_position = Some(target_position);
@@ -15798,6 +15827,105 @@ mod tests {
             "CaptureBuilding must work after research complete"
         );
         assert_eq!(captor.target, Some(building_id));
+
+        // Residual capture action: in-range Capturing completes ownership transfer
+        // on the next support-state update. Fail-closed: not C++ capture progress bar.
+        game_logic.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+
+        let building = game_logic
+            .find_object(building_id)
+            .expect("building after capture");
+        assert_eq!(
+            building.team,
+            Team::USA,
+            "CaptureBuilding residual must transfer ownership after unlock + Capturing"
+        );
+        let captor = game_logic
+            .find_object(captor_id)
+            .expect("captor after capture complete");
+        assert_eq!(captor.ai_state, AIState::Idle);
+        assert!(captor.target.is_none());
+    }
+
+    /// Residual: unlock → CaptureBuilding from out-of-range → walk in → ownership transfer.
+    /// Also guards against `stop_moving` clobbering Capturing on arrival.
+    #[test]
+    fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::UPGRADE_INFANTRY_CAPTURE;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        // Unlock without research frames so the walk path is the unit under test.
+        player
+            .unlocked_sciences
+            .insert(UPGRADE_INFANTRY_CAPTURE.to_string());
+        game_logic.add_player(player);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        // Outside capture range (≈ 8+25+4 = 37) so Capturing must walk in.
+        let captor_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(55.0, 0.0, 0.0))
+            .expect("captor");
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let captor = game_logic.find_object(captor_id).expect("captor after cmd");
+            assert_eq!(captor.ai_state, AIState::Capturing);
+            assert_eq!(captor.target, Some(building_id));
+        }
+        {
+            let building = game_logic.find_object(building_id).expect("building");
+            assert_eq!(
+                building.team,
+                Team::GLA,
+                "must not transfer ownership until in range"
+            );
+        }
+
+        // Simulate walk + capture. Host residual is instant on range, not progress bar.
+        let mut transferred = false;
+        for _ in 0..900 {
+            game_logic.update();
+            if game_logic
+                .find_object(building_id)
+                .map(|b| b.team == Team::USA)
+                .unwrap_or(false)
+            {
+                transferred = true;
+                break;
+            }
+        }
+
+        assert!(
+            transferred,
+            "upgraded infantry must walk into range and transfer building ownership"
+        );
+        let captor = game_logic
+            .find_object(captor_id)
+            .expect("captor after transfer");
+        assert_eq!(
+            captor.ai_state,
+            AIState::Idle,
+            "captor returns to Idle after residual capture complete"
+        );
+        assert!(captor.target.is_none());
     }
 
     /// Residual: QueueUpgrade FlashBang → complete → Ranger secondary equipped.

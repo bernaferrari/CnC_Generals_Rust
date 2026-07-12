@@ -205,7 +205,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 .unwrap_or(false);
     }
 
-    // Capture: requires completed capture upgrade; assert Capturing state (not just queue).
+    // Capture: requires completed capture upgrade; Capturing → ownership transfer residual.
     logic.templates.insert(
         "BreadthEnemyBldg".into(),
         tpl_cost(
@@ -215,7 +215,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             1_000,
         ),
     );
-    let enemy = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(30.0, 0.0, 0.0));
+    // Place enemy close enough for instant residual capture (range ≈ selection radii + pad).
+    let enemy = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(10.0, 0.0, 0.0));
     let mut capture_ok = false;
     if let (Some(eid), Some(iid)) = (enemy, infantry) {
         if let Some(p) = logic.get_player_mut(0) {
@@ -229,7 +230,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             vec![iid],
         );
         let cap_result = system.execute_command(&cap_cmd, &mut logic);
-        capture_ok = cap_result == CommandResult::Success
+        let entered_capturing = cap_result == CommandResult::Success
             && logic
                 .get_object(iid)
                 .map(|o| o.ai_state == AIState::Capturing && o.target == Some(eid))
@@ -238,6 +239,14 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 .get_object(eid)
                 .map(|o| o.team == Team::China)
                 .unwrap_or(false);
+        if entered_capturing {
+            // Residual: complete capture on next logic update (instant-in-range; no progress bar).
+            logic.update();
+            capture_ok = logic
+                .get_object(eid)
+                .map(|o| o.team == Team::USA)
+                .unwrap_or(false);
+        }
     }
 
     // Special power: consume charge + SpecialAbility AI state (production executor path).
