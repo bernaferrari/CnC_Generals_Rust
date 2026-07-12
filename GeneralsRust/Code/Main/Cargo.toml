@@ -360,6 +360,11 @@ name = "golden_skirmish_gate"
 path = "src/bin/golden_skirmish_gate.rs"
 
 [[bin]]
+name = "golden_campaign_gate"
+path = "src/bin/golden_campaign_gate.rs"
+
+
+[[bin]]
 name = "breadth_gate"
 path = "src/bin/breadth_gate.rs"
 
