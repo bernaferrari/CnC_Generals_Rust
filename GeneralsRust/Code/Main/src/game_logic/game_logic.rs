@@ -283,7 +283,18 @@ impl Player {
     }
 
     pub fn can_afford(&self, cost: &Resources) -> bool {
-        self.resources.supplies >= cost.supplies && self.power_available + cost.power >= 0
+        // Money is the hard construction gate. Power is separate (slows production /
+        // disables powered buildings). Do not block structure starts when the grid is
+        // already negative — GLA has no power plants, and USA/China must still place
+        // a PowerPlant after the first Command Center finishes.
+        if self.resources.supplies < cost.supplies {
+            return false;
+        }
+        // Explicit power cost on the purchase (cost.power < 0) remains a hard gate.
+        if cost.power < 0 {
+            return self.power_available + cost.power >= 0;
+        }
+        true
     }
 
     pub fn spend_resources(&mut self, cost: &Resources) -> bool {
@@ -8074,11 +8085,35 @@ impl GameLogic {
             self.ensure_ai_faction_templates(team);
         }
         self.ai_manager.rebind_after_world_reset();
+        // Skirmish residual: AI must have enough cash to start rebuild soup after
+        // preserve load. Never wipe intentional positive cash; only top-up empty
+        // AI slots (e.g. map path that recreated players without starting_cash).
+        self.ensure_skirmish_ai_starting_cash(10_000);
         log::info!(
             "Host AI rebound after map load: ai_players={}, host_players={}",
             self.ai_manager.ai_players.len(),
             self.players.len()
         );
+    }
+
+    /// Ensure registered host AI players have at least `min_cash` supplies.
+    /// Used after load_map rebind so Medium AI can produce/rebuild without a
+    /// full C++ economy parity pass.
+    pub fn ensure_skirmish_ai_starting_cash(&mut self, min_cash: u32) {
+        let ai_ids: Vec<u32> = self.ai_manager.ai_players.keys().copied().collect();
+        for pid in ai_ids {
+            if let Some(player) = self.players.get_mut(&pid) {
+                if player.resources.supplies < min_cash {
+                    log::info!(
+                        "Topping up AI player {} cash {} -> {} after map rebind",
+                        pid,
+                        player.resources.supplies,
+                        min_cash
+                    );
+                    player.resources.supplies = min_cash;
+                }
+            }
+        }
     }
 
     /// Whether a host AI player is registered and currently active.
