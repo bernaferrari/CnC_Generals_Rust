@@ -18,6 +18,15 @@
 //! Fail-closed: seeding known host weapons is not full Weapon.ini parity.
 //! Secondary slots (`Weapon = SECONDARY Name`) are seeded for known units only;
 //! full WeaponSet upgrade matrices are deferred.
+//!
+//! # Secondary combat residual (host `update_combat`)
+//!
+//! Binding alone is not enough: fire must consider `Object.secondary_weapon`.
+//! Fail-closed host rules (not full AutoChoose / PreferredAgainst):
+//! - Prefer secondary vs structures when secondary damage ≥ primary (or primary cannot fire).
+//! - Otherwise primary first; secondary when primary is reloading / OOR (alternate fire).
+//! - Player `active_weapon_slot == 1` forces secondary preference when ready + in range.
+//! - Ground force-fire still uses primary only.
 
 use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut, WeaponAntiMask, WeaponTemplate};
 use std::path::{Path, PathBuf};
@@ -356,5 +365,288 @@ mod tests {
         );
         assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
         assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);
+    }
+
+    /// Residual: combat must consider secondary vs structures (flashbang > rifle).
+    #[test]
+    fn update_combat_prefers_secondary_damage_vs_structure() {
+        ensure_host_weapon_store();
+
+        let mut logic = crate::game_logic::GameLogic::new();
+
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0)
+            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(RANGER_SECONDARY_WEAPON);
+        logic.templates.insert("USA_Ranger".to_string(), ranger);
+
+        let mut bunker = ThingTemplate::new("GLA_Tunnel");
+        bunker
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(500.0);
+        logic.templates.insert("GLA_Tunnel".to_string(), bunker);
+
+        let attacker_id = logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        let target_id = logic
+            .create_object("GLA_Tunnel", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("structure");
+
+        // Sanity: both slots bound; secondary deals more damage than primary.
+        let (primary_dmg, secondary_dmg) = {
+            let atk = logic.objects.get(&attacker_id).expect("attacker");
+            let p = atk.weapon.as_ref().expect("primary").damage;
+            let s = atk.secondary_weapon.as_ref().expect("secondary").damage;
+            assert!(s > p, "secondary should out-damage primary (s={s} p={p})");
+            (p, s)
+        };
+
+        {
+            let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
+            atk.attack_target(target_id);
+            // Ensure both ready.
+            if let Some(w) = atk.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = atk.secondary_weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.1;
+            }
+        }
+
+        let health_before = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+
+        logic.set_current_frame(60); // t = 1s
+        logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
+
+        let health_after = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+        let dealt = health_before - health_after;
+
+        // Armor may reduce slightly; secondary path must land ~secondary damage, not primary.
+        assert!(
+            dealt > primary_dmg + 0.5,
+            "structure shot must use secondary path: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
+        );
+        assert!(
+            (dealt - secondary_dmg).abs() < 1.0 || dealt >= secondary_dmg * 0.5,
+            "dealt damage should track secondary ({secondary_dmg}), got {dealt}"
+        );
+
+        // Secondary last_fire_time advanced; primary untouched this shot.
+        let atk = logic.objects.get(&attacker_id).expect("attacker");
+        let sec_last = atk
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.last_fire_time)
+            .unwrap_or(0.0);
+        let pri_last = atk
+            .weapon
+            .as_ref()
+            .map(|w| w.last_fire_time)
+            .unwrap_or(0.0);
+        assert!(
+            sec_last > 0.0,
+            "secondary last_fire_time must advance on secondary shot"
+        );
+        assert!(
+            (pri_last - 0.0).abs() < f32::EPSILON,
+            "primary last_fire_time must stay 0 when secondary fired"
+        );
+    }
+
+    /// Residual: infantry (non-structure) still uses primary when both ready.
+    #[test]
+    fn update_combat_uses_primary_vs_infantry_when_both_ready() {
+        ensure_host_weapon_store();
+
+        let mut logic = crate::game_logic::GameLogic::new();
+
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0)
+            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(RANGER_SECONDARY_WEAPON);
+        logic.templates.insert("USA_Ranger".to_string(), ranger);
+
+        let mut rebel = ThingTemplate::new("GLA_Soldier");
+        rebel
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("GLA_Soldier".to_string(), rebel);
+
+        let attacker_id = logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        let target_id = logic
+            .create_object("GLA_Soldier", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("infantry");
+
+        let primary_dmg = logic
+            .objects
+            .get(&attacker_id)
+            .and_then(|a| a.weapon.as_ref())
+            .map(|w| w.damage)
+            .unwrap_or(0.0);
+
+        {
+            let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
+            atk.attack_target(target_id);
+            if let Some(w) = atk.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = atk.secondary_weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.1;
+            }
+        }
+
+        let health_before = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+
+        logic.set_current_frame(60);
+        logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
+
+        let health_after = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+        let dealt = health_before - health_after;
+
+        assert!(
+            (dealt - primary_dmg).abs() < 1.0 || (dealt > 0.0 && dealt <= primary_dmg + 0.5),
+            "infantry shot must use primary path: dealt={dealt} primary={primary_dmg}"
+        );
+
+        let atk = logic.objects.get(&attacker_id).expect("attacker");
+        let pri_last = atk.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let sec_last = atk
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.last_fire_time)
+            .unwrap_or(0.0);
+        assert!(pri_last > 0.0, "primary must fire vs infantry");
+        assert!(
+            (sec_last - 0.0).abs() < f32::EPSILON,
+            "secondary must stay idle vs infantry when primary ready"
+        );
+    }
+
+    /// Residual: when primary is reloading, secondary may still fire (alternate path).
+    #[test]
+    fn update_combat_uses_secondary_when_primary_reloading() {
+        ensure_host_weapon_store();
+
+        let mut logic = crate::game_logic::GameLogic::new();
+
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0)
+            .set_primary_weapon_name(RANGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(RANGER_SECONDARY_WEAPON);
+        logic.templates.insert("USA_Ranger".to_string(), ranger);
+
+        let mut rebel = ThingTemplate::new("GLA_Soldier");
+        rebel
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        logic.templates.insert("GLA_Soldier".to_string(), rebel);
+
+        let attacker_id = logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        let target_id = logic
+            .create_object("GLA_Soldier", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("infantry");
+
+        let secondary_dmg = logic
+            .objects
+            .get(&attacker_id)
+            .and_then(|a| a.secondary_weapon.as_ref())
+            .map(|w| w.damage)
+            .unwrap_or(0.0);
+
+        {
+            let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
+            atk.attack_target(target_id);
+            // Primary still on cooldown; secondary ready.
+            if let Some(w) = atk.weapon.as_mut() {
+                w.last_fire_time = 100.0;
+                w.reload_time = 10.0;
+            }
+            if let Some(w) = atk.secondary_weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.1;
+            }
+        }
+
+        let health_before = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+
+        logic.set_current_frame(60); // t=1s; primary still reloading (last=100, reload=10)
+        logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
+
+        let health_after = logic
+            .objects
+            .get(&target_id)
+            .expect("target")
+            .health
+            .current;
+        let dealt = health_before - health_after;
+
+        assert!(
+            dealt > 0.0,
+            "secondary must fire while primary reloads; dealt={dealt}"
+        );
+        assert!(
+            (dealt - secondary_dmg).abs() < 1.0 || dealt >= secondary_dmg * 0.5,
+            "damage should match secondary ({secondary_dmg}), got {dealt}"
+        );
+
+        let atk = logic.objects.get(&attacker_id).expect("attacker");
+        let sec_last = atk
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.last_fire_time)
+            .unwrap_or(0.0);
+        assert!(sec_last > 0.0, "secondary last_fire_time must advance");
     }
 }
