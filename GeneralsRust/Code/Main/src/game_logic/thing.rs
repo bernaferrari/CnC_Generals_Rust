@@ -33,6 +33,9 @@ pub struct ThingTemplate {
     pub secondary_weapon: Option<Weapon>,
     /// Weapon.ini / Object INI secondary weapon template name (resolved via WeaponStore).
     pub secondary_weapon_name: Option<String>,
+    /// Locomotor.ini SET_NORMAL template name (resolved via Common LocomotorStore).
+    /// Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
+    pub locomotor_name: Option<String>,
 }
 
 impl ThingTemplate {
@@ -55,6 +58,7 @@ impl ThingTemplate {
             primary_weapon_name: None,
             secondary_weapon: None,
             secondary_weapon_name: None,
+            locomotor_name: None,
         }
     }
 
@@ -87,6 +91,29 @@ impl ThingTemplate {
             self.secondary_weapon_name = Some(n.to_string());
         }
         self
+    }
+
+    /// Record the Locomotor.ini SET_NORMAL template name for store lookup at create time.
+    /// Fail-closed: empty/"None" does not register a locomotor bind.
+    pub fn set_locomotor_name(&mut self, name: &str) -> &mut Self {
+        let n = name.trim();
+        if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
+            self.locomotor_name = Some(n.to_string());
+        }
+        self
+    }
+
+    /// Resolve host Movement stats from the Locomotor catalog:
+    /// 1) explicit locomotor_name → LocomotorStore (seed/INI)
+    /// Fail-closed: no kind-based default — units without a name keep Movement::default().
+    pub fn resolve_movement(&self) -> Option<super::locomotor_bootstrap::HostMovementStats> {
+        if let Some(name) = self.locomotor_name.as_deref() {
+            // Host residual: unit tests / early create often have an empty store
+            // (no AssetManager archive load). Bootstrap seeds known locomotors or
+            // loads extracted Locomotor.ini when present — see locomotor_bootstrap.rs.
+            return super::locomotor_bootstrap::resolve_host_movement(name);
+        }
+        None
     }
 
     /// Resolve weapon for a newly created combat unit:
