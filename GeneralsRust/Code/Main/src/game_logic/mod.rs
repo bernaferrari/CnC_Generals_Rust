@@ -35,7 +35,9 @@ pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
 };
 pub use host_mines::{
-    HostMineData, HostMineDetonateReason, HostMineKind, HostMineDetonationPlan,
+    can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
+    HostMineDetonationPlan, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+    MINE_CLEARED_AUDIO,
 };
 pub use host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
