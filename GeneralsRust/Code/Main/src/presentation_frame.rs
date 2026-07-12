@@ -6,6 +6,7 @@
 //! Ownership: borrow-first on the authority during `build_*`; then the snapshot
 //! is owned values with no live borrows into the world.
 
+use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -40,12 +41,16 @@ pub struct RenderableObject {
     /// Presentation-owned so the unit mesh pass can skip double-draw without
     /// locking live GameLogic for identity.
     pub engine_bridged: bool,
+    /// FOW visibility for `PresentationFrame.local_player_id` at snapshot time.
+    /// Unit mesh pass applies alpha / never-explored skip from this only — no
+    /// live shroud re-query mid-render.
+    pub fow_visibility: ObjectVisibility,
 }
 
-/// Snapshot-owned unit mesh/position/selection input for the main unit render pass.
+/// Snapshot-owned unit mesh/position/selection/FOW input for the main unit render pass.
 ///
-/// Built only from `PresentationFrame` — no live `GameLogic` borrow. FOW alpha and
-/// W3D asset resolve remain outside this type (see residual notes).
+/// Built only from `PresentationFrame` — no live `GameLogic` or shroud borrow.
+/// W3D asset resolve remains outside this type (see residual notes).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnitRenderInput {
     pub id: ObjectId,
@@ -61,6 +66,8 @@ pub struct UnitRenderInput {
     pub is_unit: bool,
     /// Skip main mesh pass when RenderBridge owns this drawable.
     pub engine_bridged: bool,
+    /// Local-player FOW from the presentation snapshot (not a live shroud query).
+    pub fow_visibility: ObjectVisibility,
 }
 
 impl UnitRenderInput {
@@ -82,6 +89,7 @@ impl UnitRenderInput {
             is_structure: ro.is_structure,
             is_unit: ro.is_unit,
             engine_bridged: ro.engine_bridged,
+            fow_visibility: ro.fow_visibility,
         }
     }
 
@@ -89,6 +97,12 @@ impl UnitRenderInput {
     pub fn world_matrix(&self) -> glam::Mat4 {
         glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
+    }
+
+    /// Never-explored skip for the main mesh pass (snapshot FOW only).
+    #[inline]
+    pub fn fow_should_render(&self) -> bool {
+        self.fow_visibility.should_render()
     }
 }
 
@@ -114,11 +128,20 @@ pub struct PresentationFrame {
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
     pub victory_label: Option<String>,
+    /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
+    /// When true, unit FOW is forced fully visible and never-explored skip is off.
+    pub fow_shell_bypass: bool,
 }
 
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
+    ///
+    /// FOW for `local_player_id` is frozen here via the FOW bridge so the unit mesh
+    /// pass can apply alpha / never-explored skip without mid-render shroud locks.
+    /// Not full SAGE cell-grid FOW parity — unit-level visibility only (fail-closed claim).
     pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
+        // Shell maps render fully visible background scenes (C++ parity).
+        let fow_shell_bypass = logic.isInShellGame();
         let mut objects = Vec::with_capacity(logic.get_objects().len());
         for obj in logic.get_objects().values() {
             let is_structure = obj.is_kind_of(KindOf::Structure);
@@ -127,6 +150,11 @@ impl PresentationFrame {
                 || obj.is_kind_of(KindOf::Aircraft);
             // Prefer explicit template model name so mesh resolve matches live collect path.
             let model_key = Some(obj.get_template().get_model_name().to_string());
+            let fow_visibility = if fow_shell_bypass {
+                ObjectVisibility::FULLY_VISIBLE
+            } else {
+                FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
+            };
             objects.push(RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
@@ -145,6 +173,7 @@ impl PresentationFrame {
                 model_key,
                 selection_radius: obj.selection_radius.max(5.0),
                 engine_bridged: obj.engine_object_id.is_some(),
+                fow_visibility,
             });
         }
         // Stable presentation order for determinism (by ObjectId).
@@ -169,6 +198,7 @@ impl PresentationFrame {
             events: Vec::new(),
             match_over: false,
             victory_label: None,
+            fow_shell_bypass,
         }
     }
 
@@ -203,9 +233,13 @@ impl PresentationFrame {
             o.health_current.to_bits().hash(&mut h);
             o.selected.hash(&mut h);
             o.destroyed.hash(&mut h);
+            o.fow_visibility.visibility_alpha.to_bits().hash(&mut h);
+            o.fow_visibility.is_explored.to_bits().hash(&mut h);
         }
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);
+        self.fow_shell_bypass.hash(&mut h);
+        self.local_player_id.hash(&mut h);
         h.finish()
     }
 
@@ -214,8 +248,8 @@ impl PresentationFrame {
     }
 
     /// Stable object-id list for the production render collect path.
-    /// Presentation owns unit identity; FOW / mesh asset load may still consult
-    /// other systems (not live object transform re-read).
+    /// Presentation owns unit identity + unit FOW; mesh asset load may still
+    /// consult asset systems (not live object transform / shroud re-read).
     pub fn renderable_object_ids(&self) -> Vec<ObjectId> {
         self.objects
             .iter()
@@ -224,16 +258,24 @@ impl PresentationFrame {
             .collect()
     }
 
-    /// Main unit mesh pass inputs from the snapshot only (no GameLogic borrow).
+    /// Main unit mesh pass inputs from the snapshot only (no GameLogic / shroud borrow).
     ///
     /// Filters destroyed and engine-bridged objects (RenderBridge owns those).
-    /// Callers use this to drive mesh/position/selection without locking the sim.
+    /// Includes local-player FOW alpha for skip/darkening without mid-render queries.
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
         self.objects
             .iter()
             .filter(|o| !o.destroyed && !o.engine_bridged)
             .map(UnitRenderInput::from_renderable)
             .collect()
+    }
+
+    /// Lookup snapshot FOW for an object (local player). None if not on the frame.
+    pub fn fow_for_object(&self, id: ObjectId) -> Option<ObjectVisibility> {
+        self.objects
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.fow_visibility)
     }
 
     /// All alive presentation objects including engine-bridged (for FOW/id lists).
@@ -707,6 +749,7 @@ mod tests {
         assert!((inputs[0].position.x - 3.0).abs() < 0.01);
         assert!(inputs[0].selected);
         assert!(!inputs[0].engine_bridged);
+        assert_eq!(inputs[0].fow_visibility, ro.fow_visibility);
 
         // Mutate authority after snapshot — inputs must stay frozen.
         if let Some(o) = logic.get_object_mut(id) {
@@ -722,6 +765,101 @@ mod tests {
         );
         assert!(inputs_after[0].selected);
         assert!(!inputs_after[0].engine_bridged);
+        assert_eq!(
+            inputs_after[0].fow_visibility, ro.fow_visibility,
+            "FOW on unit inputs must stay frozen after live world mutation"
+        );
+    }
+
+    #[test]
+    fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
+        use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FowSnapConsistency");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("FowUnit");
+        t.set_health(50.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("FowUnit".into(), t);
+        let id = logic
+            .create_object("FowUnit", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+            .expect("unit");
+
+        // Bridge state at build time is the source of truth for the snapshot.
+        let bridge_at_build = FOWRenderingBridge::get_object_visibility(0, id);
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert_eq!(
+            ro.fow_visibility, bridge_at_build,
+            "presentation FOW must match FOW bridge at build time"
+        );
+        assert_eq!(snap.fow_for_object(id), Some(bridge_at_build));
+        assert_eq!(snap.fow_shell_bypass, logic.isInShellGame());
+
+        let inputs = snap.unit_render_inputs();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].fow_visibility, bridge_at_build);
+        assert_eq!(
+            inputs[0].fow_should_render(),
+            bridge_at_build.should_render()
+        );
+
+        // Encode states are stable and cover the three SAGE-style buckets.
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(true, true),
+            ObjectVisibility::VISIBLE
+        );
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(false, true),
+            ObjectVisibility::FOGGED
+        );
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(false, false),
+            ObjectVisibility::HIDDEN
+        );
+        assert!(ObjectVisibility::FOGGED.should_render());
+        assert!(!ObjectVisibility::HIDDEN.should_render());
+        assert!(ObjectVisibility::HIDDEN.never_explored());
+
+        // Dual-build with identical world + FOW state yields matching FOW on hash.
+        let snap2 = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(snap.fow_for_object(id), snap2.fow_for_object(id));
+        assert_eq!(
+            snap.objects
+                .iter()
+                .find(|o| o.id == id)
+                .map(|o| o.fow_visibility),
+            snap2
+                .objects
+                .iter()
+                .find(|o| o.id == id)
+                .map(|o| o.fow_visibility)
+        );
+    }
+
+    #[test]
+    fn presentation_fow_shell_bypass_forces_fully_visible() {
+        use crate::fow_rendering::ObjectVisibility;
+        use crate::game_logic::GameMode;
+
+        let mut logic = GameLogic::new();
+        // Shell map path: FOW bypass is frozen on the frame.
+        logic.start_new_game(GameMode::Shell);
+        assert!(logic.isInShellGame());
+        let mut t = ThingTemplate::new("ShellFowUnit");
+        t.set_health(10.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("ShellFowUnit".into(), t);
+        let id = logic
+            .create_object("ShellFowUnit", Team::USA, glam::Vec3::ZERO)
+            .expect("unit");
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(snap.fow_shell_bypass);
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert_eq!(ro.fow_visibility, ObjectVisibility::FULLY_VISIBLE);
+        assert!(snap.unit_render_inputs()[0].fow_should_render());
     }
 
     #[test]

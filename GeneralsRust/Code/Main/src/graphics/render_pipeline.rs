@@ -611,10 +611,10 @@ impl RenderPipeline {
         self.presentation_frame = frame;
     }
 
-    /// Pure unit-identity collection for the main mesh pass (no GameLogic borrow).
+    /// Pure unit-identity + FOW collection for the main mesh pass (no GameLogic borrow).
     ///
     /// Production `collect_render_items` uses this when a presentation frame is set.
-    /// FOW alpha / shell bypass / W3D mesh asset load remain outside this helper.
+    /// W3D mesh asset load remains outside this helper.
     pub fn collect_unit_render_inputs_from_presentation(
         frame: &crate::presentation_frame::PresentationFrame,
     ) -> Vec<crate::presentation_frame::UnitRenderInput> {
@@ -1173,17 +1173,16 @@ impl RenderPipeline {
     /// When `presentation_frame` is set, the **main unit mesh pass** iterates
     /// `PresentationFrame::unit_render_inputs()` only:
     /// position / orientation / team / model_key / selected / selection_radius /
-    /// aliveness / engine_bridged — all snapshot-owned.
+    /// aliveness / engine_bridged / **fow_visibility** / shell FOW bypass —
+    /// all snapshot-owned.
     ///
-    /// Remaining live `GameLogic` borrows are intentional residuals only:
-    /// - shell FOW bypass (`isInShellGame`)
+    /// Remaining live `GameLogic` / shroud borrows are intentional residuals only:
     /// - live fallback when no presentation frame is set (boot/loading)
     /// - mesh asset resolve still uses GraphicsSystem / AssetManager (not object state)
+    /// - terrain / cell-grid FOW overlay (not unit mesh identity)
     ///
-    /// FOW visibility alpha is pipeline state (not unit identity). Terrain passes
-    /// remain outside this unit collect.
-    /// Do **not** re-read live position/orientation/health/team/selected/model_key when
-    /// presentation owns those fields.
+    /// Do **not** re-read live position/orientation/health/team/selected/model_key/FOW
+    /// when presentation owns those fields.
     fn collect_render_items(
         &mut self,
         graphics_system: &mut GraphicsSystem,
@@ -1198,9 +1197,14 @@ impl RenderPipeline {
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
         // Snapshot ownership: when presentation is present, drive the main unit
-        // mesh pass from unit_render_inputs (no live object identity re-read).
+        // mesh pass from unit_render_inputs (no live object identity / FOW re-read).
         let presentation = self.presentation_frame.take();
         let presentation_unit_pass = presentation.is_some();
+        // Shell FOW bypass from snapshot when available (no live GameLogic re-read).
+        let bypass_fow = presentation
+            .as_ref()
+            .map(|p| p.fow_shell_bypass)
+            .unwrap_or_else(|| game_logic.isInShellGame());
 
         // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
         let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
@@ -1217,9 +1221,9 @@ impl RenderPipeline {
             game_logic.get_objects().keys().copied().collect()
         };
 
-        // FOW batch needs IDs of candidates we may draw.
+        // Live FOW batch needs IDs only when presentation is absent.
         let mut fow_ids: Vec<ObjectID> = if presentation_unit_pass {
-            unit_inputs.iter().map(|u| u.id).collect()
+            Vec::new()
         } else {
             live_object_ids.clone()
         };
@@ -1239,8 +1243,8 @@ impl RenderPipeline {
                 unit_inputs.sort_by_key(|u| u.id.0);
             } else {
                 live_object_ids.sort_unstable();
+                fow_ids.sort_unstable();
             }
-            fow_ids.sort_unstable();
         } else if presentation_unit_pass {
             // Distance sort from snapshot positions only — no live transform re-read.
             unit_inputs.sort_by(|a, b| {
@@ -1250,7 +1254,6 @@ impl RenderPipeline {
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.id.cmp(&b.id))
             });
-            fow_ids = unit_inputs.iter().map(|u| u.id).collect();
         } else {
             let mut object_ids_with_distance: Vec<(ObjectID, f32)> = live_object_ids
                 .iter()
@@ -1283,14 +1286,13 @@ impl RenderPipeline {
         }
         let object_ids_elapsed = object_ids_started.elapsed();
 
-        // Residual: shell FOW bypass still consults GameLogic (not unit identity).
-        let bypass_fow = game_logic.isInShellGame();
         let mut alive_objects = 0usize;
         let mut fow_filtered = 0usize;
         let mut model_missing = 0usize;
-        // Shell maps render as fully visible background scenes in C++.
+        // Shell maps / presentation path: no live shroud batch.
+        // Live fallback still queries FOW bridge once per collect.
         let visibility_started = Instant::now();
-        let visibilities = if bypass_fow {
+        let visibilities = if bypass_fow || presentation_unit_pass {
             std::collections::HashMap::new()
         } else {
             self.get_batch_fow_visibility(&fow_ids)
@@ -1322,7 +1324,7 @@ impl RenderPipeline {
         };
 
         for source in pass_sources {
-            // Resolve unit-identity fields without live re-read when presentation owns them.
+            // Resolve unit-identity + FOW without live re-read when presentation owns them.
             let (
                 object_id,
                 world_matrix,
@@ -1330,6 +1332,7 @@ impl RenderPipeline {
                 template_name_owned,
                 selection_radius,
                 model_hint_owned,
+                snapshot_fow,
             ) = match &source {
                 UnitPassSource::Presentation(u) => {
                     // engine_bridged already filtered in unit_render_inputs; keep guard.
@@ -1344,6 +1347,7 @@ impl RenderPipeline {
                         u.template_name.clone(),
                         u.selection_radius,
                         Some(u.model_key.clone()),
+                        Some(u.fow_visibility),
                     )
                 }
                 UnitPassSource::Live(id) => {
@@ -1365,22 +1369,44 @@ impl RenderPipeline {
                         object.template_name.clone(),
                         object.selection_radius.max(5.0),
                         object.get_template().model_name.clone(),
+                        None,
                     )
                 }
             };
 
             alive_objects += 1;
 
-            // Residual FOW filter (pipeline state, not unit identity re-read).
-            if !bypass_fow && !self.should_render_object(object_id) {
-                fow_filtered += 1;
-                trace!(
-                    "Skipping object {} - never explored by player {}",
-                    object_id,
-                    self.current_player_id
-                );
-                continue;
-            }
+            // FOW never-explored skip: presentation path uses snapshot only.
+            let fow_visibility = if let Some(snap_vis) = snapshot_fow {
+                if !bypass_fow && !snap_vis.should_render() {
+                    fow_filtered += 1;
+                    trace!(
+                        "Skipping object {} - never explored (presentation FOW) by player {}",
+                        object_id,
+                        self.current_player_id
+                    );
+                    continue;
+                }
+                if bypass_fow {
+                    ObjectVisibility::FULLY_VISIBLE
+                } else {
+                    snap_vis
+                }
+            } else {
+                if !bypass_fow && !self.should_render_object(object_id) {
+                    fow_filtered += 1;
+                    trace!(
+                        "Skipping object {} - never explored by player {}",
+                        object_id,
+                        self.current_player_id
+                    );
+                    continue;
+                }
+                visibilities
+                    .get(&object_id)
+                    .copied()
+                    .unwrap_or_else(ObjectVisibility::default)
+            };
 
             let world_position = world_matrix.w_axis.truncate();
             let model_name = model_name_owned.as_str();
@@ -1422,10 +1448,7 @@ impl RenderPipeline {
                         self.debug_last_zero_mesh_models += 1;
                         // Fall through to fallback cube below (same as Failed path)
                     } else {
-                        let visibility = visibilities
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or_else(ObjectVisibility::default);
+                        let visibility = fow_visibility;
 
                         let anim_frame = if !w3d_model.animations.is_empty()
                             && w3d_model.hierarchy.is_some()
@@ -1559,11 +1582,6 @@ impl RenderPipeline {
                             graphics_system.get_model_or_fallback("__fallback_cube__")
                         {
                             if !fallback_model.meshes.is_empty() {
-                                let visibility = visibilities
-                                    .get(&object_id)
-                                    .copied()
-                                    .unwrap_or_else(ObjectVisibility::default);
-
                                 let fallback_mesh = &fallback_model.meshes[0];
                                 let mut render_item = RenderItem::new(
                                     object_id,
@@ -1575,7 +1593,7 @@ impl RenderPipeline {
                                     RenderPass::ForwardOpaque,
                                 );
                                 render_item.distance = world_position.distance(camera_position);
-                                render_item.set_fow_visibility(visibility);
+                                render_item.set_fow_visibility(fow_visibility);
 
                                 self.render_items.push(render_item);
                             }
@@ -1612,11 +1630,6 @@ impl RenderPipeline {
                             graphics_system.get_model_or_fallback("__fallback_cube__")
                         {
                             if !fallback_model.meshes.is_empty() {
-                                let visibility = visibilities
-                                    .get(&object_id)
-                                    .copied()
-                                    .unwrap_or_else(ObjectVisibility::default);
-
                                 let fallback_mesh = &fallback_model.meshes[0];
                                 let mut render_item = RenderItem::new(
                                     object_id,
@@ -1628,7 +1641,7 @@ impl RenderPipeline {
                                     RenderPass::ForwardOpaque,
                                 );
                                 render_item.distance = world_position.distance(camera_position);
-                                render_item.set_fow_visibility(visibility);
+                                render_item.set_fow_visibility(fow_visibility);
 
                                 self.render_items.push(render_item);
                             }
@@ -4248,8 +4261,13 @@ mod tests {
         assert!(inputs[0].selected);
         assert!((inputs[0].selection_radius - 14.0).abs() < 0.01);
         assert!(!inputs[0].engine_bridged);
+        // FOW is snapshot-owned on unit inputs (matches frame object FOW).
+        assert_eq!(
+            inputs[0].fow_visibility,
+            snap.fow_for_object(id).expect("fow on frame")
+        );
 
-        // Structural: production collect prefers presentation unit pass.
+        // Structural: production collect prefers presentation unit pass + snapshot FOW.
         let src = include_str!("render_pipeline.rs");
         assert!(
             src.contains("unit_render_inputs()"),
@@ -4259,5 +4277,46 @@ mod tests {
             src.contains("presentation_unit_pass"),
             "collect_render_items must gate live identity behind presentation_unit_pass"
         );
+        assert!(
+            src.contains("fow_shell_bypass") && src.contains("snapshot_fow"),
+            "collect_render_items must apply presentation FOW without live shroud re-query"
+        );
+    }
+
+    #[test]
+    fn presentation_fow_never_explored_skip_is_snapshot_owned() {
+        use crate::fow_rendering::ObjectVisibility;
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::presentation_frame::{PresentationFrame, UnitRenderInput};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FowSnapSkip");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("FowSkipUnit");
+        t.set_health(40.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("FowSkipUnit".into(), t);
+        let id = logic
+            .create_object("FowSkipUnit", Team::China, Vec3::new(1.0, 0.0, 1.0))
+            .expect("unit");
+
+        let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+        // Force never-explored FOW on the owned snapshot (simulates post-build shroud).
+        if let Some(ro) = snap.objects.iter_mut().find(|o| o.id == id) {
+            ro.fow_visibility = ObjectVisibility::HIDDEN;
+        }
+        let inputs = RenderPipeline::collect_unit_render_inputs_from_presentation(&snap);
+        assert_eq!(inputs.len(), 1);
+        assert!(!inputs[0].fow_should_render());
+        assert!(inputs[0].fow_visibility.never_explored());
+
+        // Fogged (explored-not-visible) still renders with darkened alpha.
+        let fogged = UnitRenderInput {
+            fow_visibility: ObjectVisibility::FOGGED,
+            ..inputs[0].clone()
+        };
+        assert!(fogged.fow_should_render());
+        assert!((fogged.fow_visibility.visibility_alpha - 0.3).abs() < 0.01);
     }
 }

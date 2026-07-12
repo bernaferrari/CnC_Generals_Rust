@@ -34,7 +34,10 @@ fn shroud_runtime_active(
 }
 
 /// FOW visibility state for rendering an object
-#[derive(Debug, Clone, Copy)]
+///
+/// Snapshot-friendly (Copy + Serialize) so `PresentationFrame` can own unit FOW
+/// without re-locking the shroud manager mid-render.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectVisibility {
     /// Alpha blend factor (0.0 = hidden, 1.0 = fully visible)
     pub visibility_alpha: f32,
@@ -51,6 +54,55 @@ impl Default for ObjectVisibility {
             is_explored: 1.0,        // Default: explored
             visibility_falloff: 1.0, // Default: sharp transition
         }
+    }
+}
+
+impl ObjectVisibility {
+    /// Fully visible (no FOW darkening / shell-map bypass).
+    pub const FULLY_VISIBLE: Self = Self {
+        visibility_alpha: 1.0,
+        is_explored: 1.0,
+        visibility_falloff: 1.0,
+    };
+
+    /// Currently visible.
+    pub const VISIBLE: Self = Self::FULLY_VISIBLE;
+
+    /// Explored earlier, not currently in vision (darkened).
+    pub const FOGGED: Self = Self {
+        visibility_alpha: 0.3,
+        is_explored: 1.0,
+        visibility_falloff: 1.0,
+    };
+
+    /// Never explored — must not be drawn for the local player.
+    pub const HIDDEN: Self = Self {
+        visibility_alpha: 0.0,
+        is_explored: 0.0,
+        visibility_falloff: 1.0,
+    };
+
+    /// Encode shroud flags into render visibility (parity with FOW bridge states).
+    pub fn from_shroud_flags(is_visible: bool, is_explored: bool) -> Self {
+        if is_visible {
+            Self::VISIBLE
+        } else if is_explored {
+            Self::FOGGED
+        } else {
+            Self::HIDDEN
+        }
+    }
+
+    /// True when the object should enter the mesh pass (visible or fogged, not never-seen).
+    #[inline]
+    pub fn should_render(&self) -> bool {
+        self.visibility_alpha > 0.0 || self.is_explored > 0.0
+    }
+
+    /// True when never explored (skip mesh entirely for local player).
+    #[inline]
+    pub fn never_explored(&self) -> bool {
+        self.visibility_alpha <= 0.0 && self.is_explored <= 0.0
     }
 }
 
@@ -91,23 +143,7 @@ impl FOWRenderingBridge {
             // Check if object has been explored by this player
             let is_explored = shroud_mgr.has_explored_object(player_id, object_id.0);
 
-            if is_visible {
-                // Object is currently visible
-                visibility.visibility_alpha = 1.0;
-                visibility.is_explored = 1.0;
-                visibility.visibility_falloff = 1.0;
-            } else if is_explored {
-                // Object was seen before but is not currently visible
-                // Apply fog-of-war darkening effect
-                visibility.visibility_alpha = 0.3;
-                visibility.is_explored = 1.0;
-                visibility.visibility_falloff = 1.0;
-            } else {
-                // Object has never been seen - completely hidden
-                visibility.visibility_alpha = 0.0;
-                visibility.is_explored = 0.0;
-                visibility.visibility_falloff = 1.0;
-            }
+            visibility = ObjectVisibility::from_shroud_flags(is_visible, is_explored);
 
             trace!(
                 "FOW visibility for object {}: alpha={}, explored={}, visible={}",
@@ -262,6 +298,7 @@ mod tests {
         assert_eq!(vis.visibility_alpha, 1.0);
         assert_eq!(vis.is_explored, 1.0);
         assert_eq!(vis.visibility_falloff, 1.0);
+        assert!(vis.should_render());
     }
 
     #[test]
@@ -274,5 +311,24 @@ mod tests {
         assert_eq!(vis.visibility_alpha, 0.5);
         assert_eq!(vis.is_explored, 1.0);
         assert_eq!(vis.visibility_falloff, 0.8);
+    }
+
+    #[test]
+    fn test_object_visibility_from_shroud_flags() {
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(true, true),
+            ObjectVisibility::VISIBLE
+        );
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(false, true),
+            ObjectVisibility::FOGGED
+        );
+        assert_eq!(
+            ObjectVisibility::from_shroud_flags(false, false),
+            ObjectVisibility::HIDDEN
+        );
+        assert!(ObjectVisibility::HIDDEN.never_explored());
+        assert!(!ObjectVisibility::HIDDEN.should_render());
+        assert!(ObjectVisibility::FOGGED.should_render());
     }
 }
