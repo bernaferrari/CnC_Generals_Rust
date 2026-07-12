@@ -5639,9 +5639,41 @@ impl CnCGameEngine {
                 }
             }
 
+            // C++ parity: when script time-freeze is active, gameplay simulation should not
+            // advance outside script evaluation.
+            // Host side systems (projectiles + path) run *before* PresentationFrame so the
+            // client snapshot matches end-of-frame identity (position/health), not mid-frame.
+            if !self.game_logic.is_time_frozen_for_simulation() {
+                {
+                    let objects = self.game_logic.get_objects();
+                    crate::game_logic::combat::drain_pending_projectiles(
+                        &mut self.combat_system,
+                        objects,
+                    );
+                }
+
+                let hits = self
+                    .combat_system
+                    .update_projectiles(dt, self.game_logic.get_objects_mut());
+
+                if !hits.is_empty() {
+                    self.play_sound_effect(SoundType::Hit);
+                }
+
+                let object_ids: Vec<ObjectId> =
+                    self.game_logic.get_objects().keys().copied().collect();
+
+                for object_id in object_ids {
+                    let _path_completed = self.pathfinding_system.move_unit_along_path(
+                        object_id,
+                        self.game_logic.get_objects_mut(),
+                        dt,
+                    );
+                }
+            }
+
             // Immutable presentation snapshot for client/render (borrow-first policy).
-            // Built after the authority step so GameClient need not lock live objects
-            // during a WGPU pass.
+            // Built after authority + host side systems so HUD/render see final frame state.
             let local_id = self.current_player_id;
             self.last_presentation_frame = Some(
                 crate::presentation_frame::PresentationFrame::build_from_logic(
@@ -5667,48 +5699,14 @@ impl CnCGameEngine {
                 self.game_client.update_pre_draw_ui().ok();
                 self.game_client.update_post_draw_ui().ok();
             }
-
-            // C++ parity: when script time-freeze is active, gameplay simulation should not
-            // advance outside script evaluation.
-            if !self.game_logic.is_time_frozen_for_simulation() {
-                // Drain pending projectiles queued by Object::fire_at() this frame
-                // Drain pending projectiles queued by Object::fire_at() this frame
-                {
-                    let objects = self.game_logic.get_objects();
-                    crate::game_logic::combat::drain_pending_projectiles(
-                        &mut self.combat_system,
-                        objects,
-                    );
-                }
-
-                // Update combat system
-                let hits = self
-                    .combat_system
-                    .update_projectiles(dt, self.game_logic.get_objects_mut());
-
-                // Play sound effects for hits
-                if !hits.is_empty() {
-                    self.play_sound_effect(SoundType::Hit);
-                }
-
-                // Update pathfinding for moving units
-                let object_ids: Vec<ObjectId> =
-                    self.game_logic.get_objects().keys().copied().collect();
-
-                for object_id in object_ids {
-                    // Move units along their paths
-                    let _path_completed = self.pathfinding_system.move_unit_along_path(
-                        object_id,
-                        self.game_logic.get_objects_mut(),
-                        dt,
-                    );
-                }
-            }
         }
 
-        // Update HUD with current player resources while actively playing.
+        // Update HUD resources: prefer presentation snapshot when available.
         if self.current_state == GameState::InGame {
-            if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+            if let Some(pres) = self.last_presentation_frame.as_ref() {
+                let (money, power, max_power) = pres.hud_resource_triple();
+                self.game_hud.update_resources(money, power, max_power);
+            } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                 let money = player.resources.supplies as i32;
                 let power = player.power_available;
                 let max_power = player.power_produced.max(0);
