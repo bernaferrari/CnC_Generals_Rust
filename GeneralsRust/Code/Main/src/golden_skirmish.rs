@@ -46,6 +46,10 @@ pub struct GoldenSkirmishResult {
     /// True when AI faction structure templates remain in the host catalog through
     /// the success path (no mid-scenario `templates.remove` residual).
     pub ai_structure_templates_retained: bool,
+    /// True when AttackObject/`update_combat` damaged or killed a **map-loaded**
+    /// enemy object (not the synthetic GoldenEnemyCC-only path). Fail-closed:
+    /// does not flip `playable_claim` by itself.
+    pub map_combat_ok: bool,
     pub status: String,
 }
 
@@ -83,7 +87,7 @@ fn template(
 }
 
 fn install_templates(logic: &mut GameLogic) {
-    for t in [
+    let mut templates = vec![
         template(
             "GoldenCC",
             &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
@@ -119,7 +123,7 @@ fn install_templates(logic: &mut GameLogic) {
             100,
             0.05,
         ),
-        // Structure-scale HP (not a 80-HP toy). Default Weapon (25 dmg / 1s reload)
+        // Structure-scale HP. Template-owned weapon (not ad-hoc create inject)
         // must kill via update_combat over enough frames — no take_damage fallback.
         template(
             "GoldenEnemyCC",
@@ -142,7 +146,17 @@ fn install_templates(logic: &mut GameLogic) {
             1500,
             0.1,
         ),
-    ] {
+    ];
+    // Explicit template weapon for production rangers (host primary_weapon path).
+    if let Some(ranger) = templates.iter_mut().find(|t| t.name == "GoldenRanger") {
+        ranger.set_primary_weapon(Weapon {
+            damage: 25.0,
+            range: 100.0,
+            reload_time: 1.0,
+            ..Weapon::default()
+        });
+    }
+    for t in templates {
         logic.templates.insert(t.name.clone(), t);
     }
 }
@@ -151,6 +165,87 @@ fn run_frames(logic: &mut GameLogic, frames: usize) {
     for _ in 0..frames {
         logic.update();
     }
+}
+
+/// Load retail map and prove AttackObject/`update_combat` can hit a **map-spawned**
+/// enemy without neutralize/re-team. Spawns production-template rangers near the
+/// enemy (not teleported map army re-team). Fail-closed: never sets playable_claim.
+fn probe_map_load_and_combat(map_identity: &str) -> (bool, bool) {
+    let mut probe = GameLogic::new();
+    let cfg = golden_skirmish_config(map_identity);
+    if apply_skirmish_config(&mut probe, &cfg).is_err() {
+        return (false, false);
+    }
+    install_templates(&mut probe);
+    if !probe.load_map(map_identity) {
+        return (false, false);
+    }
+    // Prefer non-USA living structures from the map (enemy base pieces).
+    let enemy = probe
+        .get_objects()
+        .values()
+        .find(|o| {
+            o.team != Team::USA
+                && o.team != Team::Neutral
+                && o.is_alive()
+                && (o.is_kind_of(KindOf::Structure) || o.is_kind_of(KindOf::CommandCenter))
+        })
+        .map(|o| (o.id, o.get_position()));
+    let Some((enemy_id, enemy_pos)) = enemy else {
+        // Map loaded but no attackable enemy structures — load ok, combat not proven.
+        return (true, false);
+    };
+    // Production template rangers near the map enemy (within Weapon range 100).
+    let mut ranger_ids = Vec::new();
+    for i in 0..4 {
+        let offset = Vec3::new(15.0 + i as f32 * 3.0, 0.0, 0.0);
+        if let Some(id) = probe.create_object("GoldenRanger", Team::USA, enemy_pos + offset) {
+            ranger_ids.push(id);
+        }
+    }
+    if ranger_ids.is_empty() {
+        return (true, false);
+    }
+    let hp_before = probe
+        .get_object(enemy_id)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    for round in 0..200u32 {
+        let live: Vec<_> = ranger_ids
+            .iter()
+            .copied()
+            .filter(|id| probe.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+            .collect();
+        if live.is_empty() {
+            break;
+        }
+        if !probe
+            .get_object(enemy_id)
+            .map(|o| o.is_alive())
+            .unwrap_or(false)
+        {
+            break;
+        }
+        probe.queue_command(command(
+            100 + round,
+            0,
+            CommandType::AttackObject {
+                target_id: enemy_id,
+            },
+            live,
+        ));
+        run_frames(&mut probe, 3);
+    }
+    let hp_after = probe
+        .get_object(enemy_id)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    let dead = !probe
+        .get_object(enemy_id)
+        .map(|o| o.is_alive())
+        .unwrap_or(false);
+    let map_combat_ok = dead || hp_after < hp_before;
+    (true, map_combat_ok)
 }
 
 fn run_until<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> bool
@@ -193,14 +288,12 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
     let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
     install_templates(&mut logic);
 
-    // Retail map honesty: prove load_map on a probe world when assets exist.
-    // Combat runs on a clean host world (no map-army neutralize/re-team cheats).
-    let map_loaded = if map_exists {
-        let mut probe = GameLogic::new();
-        install_templates(&mut probe);
-        probe.load_map(&map_identity)
+    // Retail map honesty: load_map + optional AttackObject against map-spawned
+    // enemies (no neutralize/re-team). Main combat still uses synthetic host world.
+    let (map_loaded, map_combat_ok) = if map_exists {
+        probe_map_load_and_combat(&map_identity)
     } else {
-        false
+        (false, false)
     };
     // Combat world: golden templates + host AI on. apply_skirmish installs
     // ensure_ai_faction_templates (GLA_CommandCenter, etc.). Keep those templates
@@ -389,15 +482,17 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         .map(|o| o.id)
         .collect();
     if !production_rangers.is_empty() {
-        // Host create_object leaves engine_object_id = None by default; do not force-clear
-        // mid-scenario (residual removed). Only ensure a Weapon for update_combat.
-        for rid in &production_rangers {
-            if let Some(ranger) = logic.get_object_mut(*rid) {
-                if ranger.weapon.is_none() {
-                    ranger.weapon = Some(Weapon::default());
-                }
-            }
-        }
+        // Weapons come from template.primary_weapon via create_object — no mid-scenario
+        // Weapon::default inject residual. engine_object_id stays None by default.
+        debug_assert!(
+            production_rangers.iter().all(|id| {
+                logic
+                    .get_object(*id)
+                    .map(|o| o.weapon.is_some())
+                    .unwrap_or(false)
+            }),
+            "production rangers must receive template weapons at create"
+        );
         let health_before = logic
             .get_object(enemy_cc)
             .map(|o| o.health.current)
@@ -567,6 +662,8 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && logic.templates.contains_key("GLA_SupplyStash")
         && logic.templates.contains_key("GLA_ArmsDealer");
 
+    // When a retail map is present, require map-army combat proof for success.
+    let map_combat_required_ok = !map_loaded || map_combat_ok;
     let status = if config_applied
         && frames_advanced > 0
         && moved_units
@@ -579,6 +676,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && save_load_ok
         && ha == hb
         && ai_structure_templates_retained
+        && map_combat_required_ok
     {
         "success".into()
     } else {
@@ -609,13 +707,14 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         ai_disabled_for_slice,
         playable_claim,
         ai_structure_templates_retained,
+        map_combat_ok,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -637,7 +736,8 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.synthetic_combat,
         r.ai_disabled_for_slice,
         r.playable_claim,
-        r.ai_structure_templates_retained
+        r.ai_structure_templates_retained,
+        r.map_combat_ok
     )
 }
 
@@ -674,6 +774,13 @@ mod tests {
             result.ai_structure_templates_retained,
             "AI structure templates must remain in catalog (no mid-scenario strip)"
         );
+        if result.map_loaded {
+            assert!(
+                result.map_combat_ok,
+                "map-loaded path must prove AttackObject damage on map army: {}",
+                format_golden_report(&result)
+            );
+        }
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
             "identical config must yield identical start probes"
