@@ -258,8 +258,9 @@ pub enum SpecialPowerType {
     ScudStorm,
     /// USA Spy Satellite Scan residual — temporary FOW reveal at location.
     SpySatellite,
-    /// USA CIA Intelligence residual (SpyVision) — optional FOW residual path.
-    /// Fail-closed: not full setUnitsVisionSpied enemy-vision module.
+    /// USA CIA Intelligence residual (SpyVision / setUnitsVisionSpied).
+    /// Temporarily reveals enemy units (vision-spied + FOW + DETECTED residual).
+    /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
     CiaIntelligence,
     SpyDrone,
     SuperweaponCountermeasures,
