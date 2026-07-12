@@ -2374,6 +2374,15 @@ impl Drawable {
         self.drawable_status_bits &= !flag;
     }
 
+    /// C++ parity: `Drawable::getShadowsEnabled()` — DRAWABLE_STATUS_SHADOWS bit.
+    pub fn get_shadows_enabled(&self) -> bool {
+        self.test_drawable_status(0x00000002)
+    }
+
+    /// C++ parity: `Drawable::setShadowsEnabled(Bool)`.
+    ///
+    /// Sets DRAWABLE_STATUS_SHADOWS and dispatches to draw modules. Fail-closed:
+    /// modules record enable state only — not full shadow mesh GPU allocation.
     pub fn set_shadows_enabled(&mut self, enabled: bool) {
         if enabled {
             self.set_drawable_status(0x00000002); // DRAWABLE_STATUS_SHADOWS
@@ -2387,6 +2396,10 @@ impl Drawable {
         }
     }
 
+    /// C++ parity: `Drawable::releaseShadows()` — Options screen resource free.
+    ///
+    /// Fail-closed residual: notifies draw modules only; does not clear status bits
+    /// and does not free GPU meshes that were never allocated.
     pub fn release_shadows(&mut self) {
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle
@@ -2394,6 +2407,10 @@ impl Drawable {
         }
     }
 
+    /// C++ parity: `Drawable::allocateShadows()` — Options screen resource create.
+    ///
+    /// Fail-closed residual: notifies draw modules only; does not set status bits
+    /// and does not allocate full shadow mesh GPU resources.
     pub fn allocate_shadows(&mut self) {
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle
@@ -4114,5 +4131,118 @@ mod react_to_body_damage_tests {
                 state
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod shadow_status_tests {
+    use super::*;
+    use crate::object::body::body_module::BodyDamageType;
+    use crate::object::draw::draw_module::DrawModule as LogicDrawModule;
+    use crate::object::draw::w3d_model_draw::{W3DModelDraw, W3DModelDrawModuleData};
+
+    const DRAWABLE_STATUS_SHADOWS: u32 = 0x00000002;
+
+    #[test]
+    fn shadow_status_enabled_after_create() {
+        let drawable = Drawable::new(
+            10,
+            INVALID_ID,
+            "ShadowUnit".to_string(),
+            DrawableType::Animated,
+        );
+        assert!(
+            drawable.get_shadows_enabled(),
+            "create seeds DRAWABLE_STATUS_SHADOWS for observability"
+        );
+        assert!(drawable.test_drawable_status(DRAWABLE_STATUS_SHADOWS));
+        assert!(drawable.casts_shadows);
+    }
+
+    #[test]
+    fn set_shadows_enabled_toggles_status_bit() {
+        let mut drawable = Drawable::new(
+            11,
+            INVALID_ID,
+            "ShadowToggle".to_string(),
+            DrawableType::Static,
+        );
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.set_shadows_enabled(false);
+        assert!(!drawable.get_shadows_enabled());
+        assert!(!drawable.test_drawable_status(DRAWABLE_STATUS_SHADOWS));
+
+        drawable.set_shadows_enabled(true);
+        assert!(drawable.get_shadows_enabled());
+    }
+
+    #[test]
+    fn allocate_release_shadows_do_not_flip_status() {
+        let mut drawable = Drawable::new(
+            12,
+            INVALID_ID,
+            "ShadowAlloc".to_string(),
+            DrawableType::Static,
+        );
+        drawable.set_shadows_enabled(false);
+        drawable.allocate_shadows();
+        assert!(
+            !drawable.get_shadows_enabled(),
+            "allocate_shadows is fail-closed resource hook — must not set status"
+        );
+
+        drawable.set_shadows_enabled(true);
+        drawable.release_shadows();
+        assert!(
+            drawable.get_shadows_enabled(),
+            "release_shadows is fail-closed resource hook — must not clear status"
+        );
+    }
+
+    #[test]
+    fn model_condition_change_preserves_shadow_status() {
+        let mut drawable = Drawable::new(
+            13,
+            INVALID_ID,
+            "ShadowCondition".to_string(),
+            DrawableType::Animated,
+        );
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::Damaged);
+        assert!(
+            drawable.get_shadows_enabled(),
+            "model condition damage bits must not clear SHADOWS status"
+        );
+
+        drawable.react_to_body_damage_state_change(BodyDamageType::Rubble);
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.set_shadows_enabled(false);
+        drawable.react_to_body_damage_state_change(BodyDamageType::Pristine);
+        assert!(
+            !drawable.get_shadows_enabled(),
+            "explicit disable survives condition updates"
+        );
+    }
+
+    #[test]
+    fn w3d_model_draw_shadow_enabled_after_create() {
+        // C++ W3DModelDraw ctor: m_shadowEnabled = TRUE.
+        let mut draw = W3DModelDraw::new(W3DModelDrawModuleData::new());
+        // Fail-closed residual: enable bookkeeping only (no GPU mesh).
+        LogicDrawModule::set_shadows_enabled(&mut draw, false);
+        LogicDrawModule::set_shadows_enabled(&mut draw, true);
+        LogicDrawModule::allocate_shadows(&mut draw);
+        LogicDrawModule::release_shadows(&mut draw);
+
+        let drawable = Drawable::new(
+            14,
+            INVALID_ID,
+            "ModelDrawShadow".to_string(),
+            DrawableType::Animated,
+        );
+        assert!(drawable.get_shadows_enabled());
     }
 }
