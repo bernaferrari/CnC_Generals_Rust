@@ -1,5 +1,36 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Mine / Demo Trap / Demo Charge (2026-07-12)
+**Closed (host-testable place → enemy trigger damage / timed detonation):**
+1. Host residual on Main `GameLogic` + `Object.mine_data` (`host_mines.rs`):
+   - **Land mine** place (`place_land_mine` / ClusterMines special power ring)
+   - **Demo trap** place (`place_demo_trap`, GLADemoTrap proximity residual)
+   - **Timed demo charge** place (`place_timed_demo_charge`, TNTStickyBomb residual)
+2. `update_mines_and_demo_traps` each frame:
+   - proximity: enemy (not ally) in trigger range → area damage + destroy mine/trap
+   - timed: absolute frame deadline → detonation
+   - manual: `manual_detonate_mine` for demo-trap command residual
+3. `SpecialPowerType::ClusterMines` via `DoSpecialPower` places residual mine ring
+   (not full OCL ClusterMinesBomb / GenerateMinefieldBehavior density).
+4. Honesty counters: places / proximity / timed / manual detonations;
+   `honesty_mine_place_trigger_ok` / `honesty_timed_demo_charge_ok`.
+5. Tests (not log-only):
+   - `mine_residual_place_enemy_triggers_damage`
+   - `mine_residual_ally_does_not_trigger_land_mine`
+   - `demo_trap_residual_proximity_detonates_on_enemy`
+   - `timed_demo_charge_residual_detonates_after_delay`
+   - `cluster_mines_special_power_places_mines`
+   - `demo_trap_manual_detonate_residual`
+   - unit tests in `host_mines.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full C++ MinefieldBehavior virtual-mine regen / scoot / clearer immunity slots
+- Full DemoTrapUpdate weapon-slot mode matrix / dozer-disarm scan path
+- Full StickyBombUpdate attach bones / geometry-based secondary splash
+- Full OCL ClusterMinesBomb aircraft delivery path
+- BoobyTrap install-on-building residual (related StickyBomb path)
+- Network mine replication (network deferred)
+
 ## Residual Host Playability — W3D Mesh Asset Resolve (2026-07-12)
 - Closed highest-value mesh residual after PresentationFrame unit identity:
   - `assets/mesh_asset_resolve.rs`: `model_key` / `get_model_name` → canonical W3D key

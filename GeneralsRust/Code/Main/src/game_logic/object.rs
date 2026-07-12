@@ -136,6 +136,11 @@ pub struct Object {
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
+
+    /// Host residual mine / demo-trap / timed demo-charge state.
+    /// `None` for ordinary units/structures. Fail-closed: not full C++
+    /// MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate modules.
+    pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
 }
 
 /// AI behavior states
@@ -248,6 +253,7 @@ impl Object {
             special_power_ready: true,
             special_power_cooldown,
             special_power_cooldown_remaining: 0.0,
+            mine_data: None,
         }
     }
 
@@ -306,6 +312,7 @@ impl Object {
             special_power_ready: true,
             special_power_cooldown: 10.0,
             special_power_cooldown_remaining: 0.0,
+            mine_data: None,
         }
     }
 
