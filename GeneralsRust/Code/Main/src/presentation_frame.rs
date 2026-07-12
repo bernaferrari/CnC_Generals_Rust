@@ -30,6 +30,8 @@ pub struct RenderableObject {
     pub is_structure: bool,
     pub is_unit: bool,
     pub model_key: Option<String>,
+    /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
+    pub selection_radius: f32,
 }
 
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
@@ -80,6 +82,7 @@ impl PresentationFrame {
                 is_structure,
                 is_unit,
                 model_key: Some(obj.template_name.clone()),
+                selection_radius: obj.selection_radius.max(5.0),
             });
         }
         // Stable presentation order for determinism (by ObjectId).
@@ -430,6 +433,47 @@ mod tests {
                 *oid == id && (*x - 9.0).abs() < 0.01 && (*z + 4.0).abs() < 0.01
             }),
             "minimap units must come from snapshot positions"
+        );
+    }
+
+    #[test]
+    fn presentation_snapshot_includes_selection_radius_for_cull() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelRadius");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("RadiusUnit");
+        t.set_health(50.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("RadiusUnit".into(), t);
+        let id = logic
+            .create_object("RadiusUnit", Team::USA, glam::Vec3::ZERO)
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selection_radius = 12.5;
+        }
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert!(
+            (ro.selection_radius - 12.5).abs() < 0.01,
+            "selection_radius must be snapshot-owned for presentation-only cull: {}",
+            ro.selection_radius
+        );
+    }
+
+    #[test]
+    fn production_tick_builds_presentation_after_side_systems() {
+        // Structural: presentation snapshot must be built after projectile/path host systems.
+        let src = include_str!("cnc_game_engine.rs");
+        let proj = src
+            .find("drain_pending_projectiles")
+            .expect("projectile drain");
+        let path = src.find("move_unit_along_path").expect("path move");
+        let pres = src
+            .find("PresentationFrame::build_from_logic")
+            .expect("presentation build");
+        assert!(
+            proj < pres && path < pres,
+            "PresentationFrame must be built after projectiles ({proj}) and path ({path}); found at {pres}"
         );
     }
 
