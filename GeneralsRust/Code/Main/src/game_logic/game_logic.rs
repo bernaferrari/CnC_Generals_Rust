@@ -76,6 +76,11 @@ const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
 const SHELL_MISSION_SCRIPT_BUDGET: usize = 8;
+/// Cap per-frame mission script evaluation on dense campaign maps so a single
+/// frame cannot stall on hundreds of always-true / CALL_SUBROUTINE scripts.
+/// (Shell mode already budgets; SP/skirmish previously ran the full list.)
+const DENSE_MISSION_SCRIPT_BUDGET: usize = 24;
+const DENSE_MISSION_SCRIPT_THRESHOLD: usize = 48;
 
 /// Tick the gamelogic crate's full C++-parity update pipeline.
 /// This runs AI players, production/build assistant, weapon store (delayed damage),
@@ -3866,15 +3871,30 @@ impl GameLogic {
         let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
+        // Campaign maps place thousands of decorative props. Skip AI for
+        // non-combat, non-structure objects so frame cost stays reasonable.
+        let dense_world = object_ids.len() > 400;
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
             if let Some(obj) = self.objects.get(&object_id) {
+                let can_attack = obj.can_attack();
+                if dense_world
+                    && !can_attack
+                    && !obj.is_kind_of(KindOf::Structure)
+                    && !obj.is_kind_of(KindOf::Worker)
+                    && !obj.is_kind_of(KindOf::Infantry)
+                    && !obj.is_kind_of(KindOf::Vehicle)
+                    && !obj.is_kind_of(KindOf::Aircraft)
+                    && obj.target.is_none()
+                    && matches!(obj.ai_state, AIState::Idle)
+                {
+                    continue;
+                }
                 let position = obj.get_position();
                 let team = obj.team;
                 let ai_state = obj.ai_state.clone();
                 let current_target = obj.target;
-                let can_attack = obj.can_attack();
                 if let Some(command) = self.process_ai_behavior(
                     object_id,
                     ai_state,
@@ -9181,6 +9201,21 @@ impl GameLogic {
                 self.scripts_loaded = true;
                 self.mission_scripts
                     .install_lists(&self.loaded_script_lists);
+                // Dense campaign maps: disable host-hanging utility scripts (random
+                // generators that CALL_SUBROUTINE every frame, attack-wave spawns,
+                // cinematic camera chains). Decode/install still proven; evaluation
+                // is budgeted separately for residual safety.
+                if result.total_scripts >= DENSE_MISSION_SCRIPT_THRESHOLD {
+                    let attack = self.mission_scripts.disable_attack_wave_scripts();
+                    let utility = self.mission_scripts.disable_heavy_campaign_utility_scripts();
+                    log::info!(
+                        "Dense campaign scripts for '{}': disabled attack_wave={} utility={} (of {})",
+                        map_name,
+                        attack,
+                        utility,
+                        result.total_scripts
+                    );
+                }
                 self.script_broadcasts.clear();
                 self.new_script_messages.clear();
                 self.pending_popup_messages.clear();
@@ -9444,6 +9479,28 @@ impl GameLogic {
     /// Evaluate and execute scripts each frame
     /// This is called from the main game loop (update_simulation)
     /// Phase 8 of game loop update sequence (C++ Generals compatibility)
+    /// Count scripts currently installed from the last map load (groups + free lists).
+    fn mission_script_count(&self) -> usize {
+        let mut count = 0usize;
+        for list in &self.loaded_script_lists {
+            let mut script = list.first_script.as_deref();
+            while let Some(s) = script {
+                count += 1;
+                script = s.get_next();
+            }
+            let mut group = list.first_group.as_deref();
+            while let Some(g) = group {
+                let mut script = g.get_script();
+                while let Some(s) = script {
+                    count += 1;
+                    script = s.get_next();
+                }
+                group = g.get_next();
+            }
+        }
+        count
+    }
+
     fn evaluate_and_execute_scripts(&mut self, dt: f32) {
         if !self.scripts_loaded {
             return;
@@ -9507,11 +9564,17 @@ impl GameLogic {
         }
 
         let mission_runtime_started = Instant::now();
+        let dense_script_map = self.mission_script_count() >= DENSE_MISSION_SCRIPT_THRESHOLD;
         let mission_update_result = if self.isInShellGame() {
             // Shell/menu mode already has chunked heavy-script evaluation; cap how many
             // scripts we touch per frame so the UI thread cannot stall on long script lists.
             self.mission_scripts
                 .update_shell_budgeted(self.frame as u64, Some(SHELL_MISSION_SCRIPT_BUDGET))
+        } else if dense_script_map {
+            // Dense campaign maps: budget evaluation so residual/gates cannot hang a frame.
+            // Full parity still progresses scripts over successive frames.
+            self.mission_scripts
+                .update_budgeted(self.frame as u64, Some(DENSE_MISSION_SCRIPT_BUDGET))
         } else {
             self.mission_scripts.update(self.frame as u64)
         };

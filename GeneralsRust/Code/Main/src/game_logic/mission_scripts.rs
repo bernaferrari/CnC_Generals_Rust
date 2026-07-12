@@ -1198,6 +1198,37 @@ impl MissionScriptHooks {
         disabled
     }
 
+    /// Disable dense campaign utility scripts that re-enter CALL_SUBROUTINE every
+    /// frame (random-number generators, pure cinematic camera chains). Keeps the
+    /// mission path tickable without hanging the host on MD_*/GC_* maps.
+    pub fn disable_heavy_campaign_utility_scripts(&self) -> usize {
+        let mut disabled = 0usize;
+        if let Ok(mut runtime) = self.runtime.lock() {
+            for entry in runtime.scripts.iter_mut() {
+                let runtime_name = entry.name.to_ascii_lowercase();
+                let original_name = entry
+                    .original_name
+                    .clone()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                let combined = format!("{runtime_name} {original_name}");
+                let looks_heavy = combined.contains("generate random number")
+                    || combined.contains("sub-random")
+                    || combined.contains("sub-generate")
+                    || (combined.contains("cinematic") && combined.contains("camera"))
+                    || combined.contains("move_camera")
+                    || combined.contains("move camera");
+                if looks_heavy && entry.enabled {
+                    entry.enabled = false;
+                    entry.script.set_active(false);
+                    entry.state.completed = true;
+                    disabled += 1;
+                }
+            }
+        }
+        disabled
+    }
+
     pub fn push_message(&self, text: String) {
         if let Ok(mut queue) = self.messages.lock() {
             let localized = localization::localize_with_args(
