@@ -1,3 +1,24 @@
+//! World snapshot / Xfer residual for host save/load.
+//!
+//! # Secondary weapon residual (2026-07-12)
+//!
+//! Host `Object` gained `secondary_weapon` + `active_weapon_slot` for combat /
+//! FlashBang / TOW residual paths. Snapshot capture previously only stored
+//! primary in `weapons[0]` and restore never rebound secondary — load desynced
+//! dual-slot combat and lost upgrade-equipped secondaries.
+//!
+//! Closed residual layout (not full C++ WeaponSet Xfer table):
+//! - `weapons[0]` = primary, `weapons[1]` = secondary when present
+//! - secondary-only uses a zero-damage primary pad so secondary stays at index 1
+//! - `ObjectStatusSnapshot.active_weapon_slot` survives player weapon-toggle
+//!
+//! Still residual (fail-closed, not claimed):
+//! - `CombatParticleRegistry` host systems not in `WorldSnapshot`
+//! - `HostSpecialPowerStrikeRegistry` pending strikes not in `WorldSnapshot`
+//! - `HostUpgradeRegistry` in-flight research queue not in `WorldSnapshot`
+//!   (completed unlocks that already mutated objects/players do survive)
+//! - Full C++ per-module WeaponSet / SpecialPowerModule Xfer tables
+
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use glam::Vec3;
@@ -90,6 +111,10 @@ pub struct ObjectStatusSnapshot {
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
+    /// Host residual: player weapon-slot lock (`0` primary, `1` secondary).
+    /// Fail-closed: not full C++ WeaponSet chooser state.
+    #[serde(default)]
+    pub active_weapon_slot: u8,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -112,6 +137,7 @@ impl Default for ObjectStatusSnapshot {
             special_power_ready: true,
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
+            active_weapon_slot: 0,
         }
     }
 }
@@ -1196,6 +1222,8 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_f32(&mut self.special_power_cooldown)?;
         xfer.xfer_marker_label("SpecialPowerCooldownRemaining")?;
         xfer.xfer_f32(&mut self.special_power_cooldown_remaining)?;
+        xfer.xfer_marker_label("ActiveWeaponSlot")?;
+        xfer.xfer_u8(&mut self.active_weapon_slot)?;
         Ok(())
     }
 }
@@ -2494,12 +2522,51 @@ impl SnapshotBuilder {
             health: object.health.clone(),
             movement: object.movement.clone(),
             experience: object.experience.clone(),
-            weapons: object.weapon.clone().map(|w| vec![w]).unwrap_or_default(),
+            // Slot layout (host residual, not full C++ WeaponSet):
+            //   weapons[0] = primary, weapons[1] = secondary when present.
+            // When primary is missing but secondary exists, pad index 0 with a
+            // zero-damage placeholder so secondary stays at index 1 on restore.
+            weapons: Self::snapshot_object_weapons(object),
             contained_objects: object.occupants.clone(),
             container_object: None, // Would need to track container
             modules: self.snapshot_object_modules(object)?,
             object_type,
         })
+    }
+
+    /// Capture primary + secondary weapons into the snapshot `weapons` vec.
+    ///
+    /// Index 0 = primary, index 1 = secondary. Runtime state such as
+    /// `last_fire_time` / ammo must survive so combat does not desync after load.
+    fn snapshot_object_weapons(object: &Object) -> Vec<Weapon> {
+        let mut weapons = Vec::new();
+        match (&object.weapon, &object.secondary_weapon) {
+            (Some(primary), Some(secondary)) => {
+                weapons.push(primary.clone());
+                weapons.push(secondary.clone());
+            }
+            (Some(primary), None) => {
+                weapons.push(primary.clone());
+            }
+            (None, Some(secondary)) => {
+                // Pad so secondary restores at slot 1 (see restore_object).
+                weapons.push(Weapon {
+                    damage: 0.0,
+                    range: 0.0,
+                    min_range: 0.0,
+                    reload_time: 0.0,
+                    last_fire_time: 0.0,
+                    ammo: None,
+                    can_target_air: false,
+                    can_target_ground: false,
+                    projectile_speed: 0.0,
+                    pre_attack_delay: 0.0,
+                });
+                weapons.push(secondary.clone());
+            }
+            (None, None) => {}
+        }
+        weapons
     }
 
     fn snapshot_object_status(&self, object: &Object) -> ObjectStatusSnapshot {
@@ -2521,6 +2588,7 @@ impl SnapshotBuilder {
             special_power_ready: object.special_power_ready,
             special_power_cooldown: object.special_power_cooldown,
             special_power_cooldown_remaining: object.special_power_cooldown_remaining,
+            active_weapon_slot: object.active_weapon_slot,
         }
     }
 
@@ -3083,7 +3151,11 @@ impl SnapshotBuilder {
         object.movement = snapshot.movement.clone();
         object.experience = snapshot.experience.clone();
 
-        object.weapon = snapshot.weapons.first().cloned();
+        // weapons[0] = primary, weapons[1] = secondary (host residual layout).
+        // Zero-damage pad at [0] means "no primary" (secondary-only objects).
+        let (primary, secondary) = Self::restore_object_weapons(&snapshot.weapons);
+        object.weapon = primary;
+        object.secondary_weapon = secondary;
         object.occupants = snapshot.contained_objects.clone();
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
@@ -3091,6 +3163,34 @@ impl SnapshotBuilder {
 
         game_logic.objects.insert(snapshot.id, object);
         Ok(())
+    }
+
+    /// Decode snapshot weapons vec into primary / secondary slots.
+    ///
+    /// Fail-closed residual layout:
+    /// - empty → neither
+    /// - [primary] → primary only (legacy saves)
+    /// - [primary, secondary] → both
+    /// - [zero-damage pad, secondary] → secondary only
+    fn restore_object_weapons(weapons: &[Weapon]) -> (Option<Weapon>, Option<Weapon>) {
+        match weapons.len() {
+            0 => (None, None),
+            1 => (Some(weapons[0].clone()), None),
+            _ => {
+                let primary = &weapons[0];
+                let secondary = Some(weapons[1].clone());
+                let primary_is_pad = primary.damage <= 0.0
+                    && primary.range <= 0.0
+                    && primary.reload_time <= 0.0
+                    && !primary.can_target_air
+                    && !primary.can_target_ground;
+                if primary_is_pad {
+                    (None, secondary)
+                } else {
+                    (Some(primary.clone()), secondary)
+                }
+            }
+        }
     }
 
     fn restore_object_status(&self, status: &ObjectStatusSnapshot, object: &mut Object) {
@@ -3119,6 +3219,7 @@ impl SnapshotBuilder {
         object.special_power_ready = status.special_power_ready;
         object.special_power_cooldown = status.special_power_cooldown;
         object.special_power_cooldown_remaining = status.special_power_cooldown_remaining;
+        object.active_weapon_slot = status.active_weapon_slot;
 
         // Not represented in `ObjectStatus` in `Code/Main/src/game_logic/mod.rs`.
         let _ = status.on_fire;
@@ -4277,5 +4378,282 @@ mod tests {
         assert_eq!(mover.movement.path[2], Vec3::new(21.0, 0.0, 11.0));
         assert!(mover.status.moving);
         assert_eq!(mover.ai_state, AIState::Moving);
+    }
+
+    /// Residual: secondary_weapon + active_weapon_slot must survive snapshot save/load.
+    /// Prior gap: capture only stored primary in `weapons[0]`, restore left secondary None.
+    #[test]
+    fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
+        let mut source = GameLogic::new();
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable);
+        source
+            .templates
+            .insert("USA_Ranger".to_string(), ranger);
+
+        let ranger_id = source
+            .create_object("USA_Ranger", Team::USA, Vec3::new(5.0, 0.0, 5.0))
+            .expect("failed to create ranger");
+
+        let primary = Weapon {
+            damage: 25.0,
+            range: 120.0,
+            min_range: 0.0,
+            reload_time: 0.5,
+            last_fire_time: 12.5,
+            ammo: Some(28),
+            can_target_air: false,
+            can_target_ground: true,
+            projectile_speed: 0.0,
+            pre_attack_delay: 0.0,
+        };
+        let secondary = Weapon {
+            damage: 80.0,
+            range: 90.0,
+            min_range: 5.0,
+            reload_time: 2.0,
+            last_fire_time: 3.25,
+            ammo: Some(4),
+            can_target_air: false,
+            can_target_ground: true,
+            projectile_speed: 40.0,
+            pre_attack_delay: 0.1,
+        };
+
+        {
+            let unit = source
+                .find_object_mut(ranger_id)
+                .expect("ranger should exist");
+            unit.weapon = Some(primary.clone());
+            unit.secondary_weapon = Some(secondary.clone());
+            unit.active_weapon_slot = 1;
+            unit.apply_upgrade_tag("Upgrade_AmericaRangerFlashBangGrenade");
+        }
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("snapshot creation failed");
+
+        let snap_obj = snapshot
+            .objects
+            .get(&ranger_id)
+            .expect("ranger snapshot should exist");
+        assert_eq!(
+            snap_obj.weapons.len(),
+            2,
+            "secondary must be encoded as weapons[1]"
+        );
+        assert!((snap_obj.weapons[0].damage - primary.damage).abs() < f32::EPSILON);
+        assert!((snap_obj.weapons[1].damage - secondary.damage).abs() < f32::EPSILON);
+        assert!((snap_obj.weapons[1].last_fire_time - secondary.last_fire_time).abs() < 0.0001);
+        assert_eq!(snap_obj.status.active_weapon_slot, 1);
+
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("snapshot restore failed");
+
+        let unit = restored
+            .find_object(ranger_id)
+            .expect("restored ranger should exist");
+        let restored_primary = unit.weapon.as_ref().expect("primary weapon must survive load");
+        let restored_secondary = unit
+            .secondary_weapon
+            .as_ref()
+            .expect("secondary weapon must survive load");
+
+        assert!((restored_primary.damage - primary.damage).abs() < f32::EPSILON);
+        assert!((restored_primary.last_fire_time - primary.last_fire_time).abs() < 0.0001);
+        assert_eq!(restored_primary.ammo, primary.ammo);
+
+        assert!((restored_secondary.damage - secondary.damage).abs() < f32::EPSILON);
+        assert!((restored_secondary.range - secondary.range).abs() < f32::EPSILON);
+        assert!((restored_secondary.min_range - secondary.min_range).abs() < f32::EPSILON);
+        assert!((restored_secondary.reload_time - secondary.reload_time).abs() < f32::EPSILON);
+        assert!(
+            (restored_secondary.last_fire_time - secondary.last_fire_time).abs() < 0.0001,
+            "secondary last_fire_time must survive or reload timing desyncs"
+        );
+        assert_eq!(restored_secondary.ammo, secondary.ammo);
+        assert!(
+            (restored_secondary.projectile_speed - secondary.projectile_speed).abs() < f32::EPSILON
+        );
+        assert_eq!(unit.active_weapon_slot, 1);
+        assert!(unit.has_upgrade_tag("Upgrade_AmericaRangerFlashBangGrenade"));
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_secondary_only_weapon_slot() {
+        let mut source = GameLogic::new();
+        source
+            .templates
+            .insert("TestUnit".to_string(), ThingTemplate::new("TestUnit"));
+
+        let id = source
+            .create_object("TestUnit", Team::USA, Vec3::ZERO)
+            .expect("create unit");
+        let secondary = Weapon {
+            damage: 50.0,
+            range: 75.0,
+            min_range: 0.0,
+            reload_time: 1.0,
+            last_fire_time: 9.0,
+            ammo: None,
+            can_target_air: true,
+            can_target_ground: true,
+            projectile_speed: 100.0,
+            pre_attack_delay: 0.0,
+        };
+        {
+            let unit = source.find_object_mut(id).expect("unit");
+            unit.weapon = None;
+            unit.secondary_weapon = Some(secondary.clone());
+            unit.active_weapon_slot = 1;
+        }
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("snapshot");
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore");
+
+        let unit = restored.find_object(id).expect("restored unit");
+        assert!(
+            unit.weapon.is_none(),
+            "pad primary must not become a real primary weapon"
+        );
+        let sec = unit
+            .secondary_weapon
+            .as_ref()
+            .expect("secondary-only must restore");
+        assert!((sec.damage - 50.0).abs() < f32::EPSILON);
+        assert!((sec.last_fire_time - 9.0).abs() < 0.0001);
+        assert_eq!(unit.active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn snapshot_weapon_layout_helpers_round_trip() {
+        let primary = Weapon {
+            damage: 10.0,
+            range: 50.0,
+            ..Weapon::default()
+        };
+        let secondary = Weapon {
+            damage: 99.0,
+            range: 40.0,
+            last_fire_time: 1.5,
+            ..Weapon::default()
+        };
+
+        // Both slots
+        let mut obj = Object::new(ThingTemplate::new("T"), ObjectId(1), Team::USA);
+        obj.weapon = Some(primary.clone());
+        obj.secondary_weapon = Some(secondary.clone());
+        let weapons = SnapshotBuilder::snapshot_object_weapons(&obj);
+        let (p, s) = SnapshotBuilder::restore_object_weapons(&weapons);
+        assert!((p.unwrap().damage - 10.0).abs() < f32::EPSILON);
+        assert!((s.unwrap().damage - 99.0).abs() < f32::EPSILON);
+
+        // Primary only (legacy)
+        let weapons = vec![primary.clone()];
+        let (p, s) = SnapshotBuilder::restore_object_weapons(&weapons);
+        assert!(p.is_some());
+        assert!(s.is_none());
+
+        // Empty
+        let (p, s) = SnapshotBuilder::restore_object_weapons(&[]);
+        assert!(p.is_none() && s.is_none());
+    }
+
+    /// End-to-end SaveFileManager path: secondary stays bound after save → load.
+    #[test]
+    fn save_file_roundtrip_preserves_secondary_weapon() {
+        use crate::save_load::{
+            GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
+        };
+        use std::time::{Duration, SystemTime};
+
+        let save_dir = tempfile::TempDir::new().expect("temp save dir");
+        let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+        manager.init().expect("save manager init");
+
+        let mut source = GameLogic::new();
+        let mut template = ThingTemplate::new("SaveSecondaryRanger");
+        template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable);
+        source
+            .templates
+            .insert("SaveSecondaryRanger".to_string(), template);
+
+        let id = source
+            .create_object(
+                "SaveSecondaryRanger",
+                Team::USA,
+                Vec3::new(12.0, 0.0, 8.0),
+            )
+            .expect("create ranger");
+        {
+            let unit = source.find_object_mut(id).expect("ranger");
+            unit.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                last_fire_time: 1.0,
+                ..Weapon::default()
+            });
+            unit.secondary_weapon = Some(Weapon {
+                damage: 55.0,
+                range: 80.0,
+                reload_time: 1.5,
+                last_fire_time: 4.5,
+                ammo: Some(2),
+                ..Weapon::default()
+            });
+            unit.active_weapon_slot = 1;
+        }
+
+        let info = SaveGameInfo {
+            filename: "secondary_weapon_rt".to_string(),
+            display_name: "Secondary Weapon Roundtrip".to_string(),
+            description: "residual secondary_weapon save/load".to_string(),
+            map_name: "ResidualMap".to_string(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").to_string(),
+            play_time: Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        manager
+            .save_game("secondary_weapon_rt", &source, &info)
+            .expect("save");
+
+        let mut loaded = GameLogic::new();
+        loaded.templates = source.templates.clone();
+        manager
+            .load_game("secondary_weapon_rt", &mut loaded)
+            .expect("load");
+
+        let unit = loaded.find_object(id).expect("loaded unit");
+        let secondary = unit
+            .secondary_weapon
+            .as_ref()
+            .expect("secondary must remain bound after file load");
+        assert!((secondary.damage - 55.0).abs() < f32::EPSILON);
+        assert!((secondary.last_fire_time - 4.5).abs() < 0.0001);
+        assert_eq!(secondary.ammo, Some(2));
+        assert_eq!(unit.active_weapon_slot, 1);
+        assert!(unit.weapon.is_some());
     }
 }
