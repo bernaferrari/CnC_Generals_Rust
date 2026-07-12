@@ -13,6 +13,30 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Campaign SinglePlayer Path (2026-07-12)
+**Closed (host-testable campaign residual):**
+1. `golden_campaign` / `golden_campaign_gate` — SinglePlayer start, CampaignManager
+   start/complete, mission `victory_rule` override (`nounits` via
+   `victory_rules_for_map`), host-safe map `load_map` (Lone Eagle), logic frames
+   advance, mission script counter ticks without panic.
+2. Real campaign map **script decode**: MD_USA01 `load_map_scripts` → 291 scripts
+   proven on residual path (`campaign_scripts_resolved` / `script_count`).
+3. Sample mission seeds use retail map identities (`MD_USA01`, `GC_ChemGeneral`)
+   instead of placeholder `usa_mission_01`.
+4. Wired into `release_candidate` (`campaign_runtime_ok`) and `behavior_gate`.
+5. Honesty flags:
+   - `campaign_playable_claim=true` — SP path advances with scripts/victory (not full
+     retail mission playthrough)
+   - `retail_campaign_map_loaded=false` — fail-closed; full MD_*/GC_* `load_map`
+     object-spawn still hangs / deferred (`GEN_CAMPAIGN_FULL_LOAD=1` opt-in)
+
+**Still residual (fail-closed, not claimed):**
+- Full retail campaign map object load (MD_USA01 ~2846 placements hang host load)
+- Dense campaign `initialize_scripts` install of 200–300+ scripts on SP world
+- End-to-end mission objective completion / cinematic / score-screen campaign flow
+- Campaign.ini → Main `CampaignManager` mission table (GameClient manager already
+  loads INI; Main save_load manager still uses seeded definitions)
+
 ## Residual Host Playability — Special Power Superweapon Host Path (2026-07-12)
 **Closed (host-testable DoSpecialPower → queue → impact complete path):**
 1. Host `HostSpecialPowerStrikeRegistry` on Main `GameLogic` queues real strikes for

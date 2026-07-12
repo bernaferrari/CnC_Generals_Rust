@@ -7,6 +7,7 @@ use generals_main::ai_skirmish_activity::{
     format_ai_activity_report, run_medium_ai_skirmish_activity,
 };
 use generals_main::breadth_scenarios::{format_breadth_report, run_all_breadth};
+use generals_main::golden_campaign::{format_campaign_report, run_golden_campaign};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
     format_map_frame_report, run_map_frame_scenario, MapFrameStatus,
@@ -137,7 +138,24 @@ fn main() {
         ));
     }
 
-    // 6) RC package.
+    // 6) Campaign residual — SinglePlayer + mission scripts tick + frames.
+    let campaign = run_golden_campaign(None, 5);
+    println!("campaign: {}", format_campaign_report(&campaign));
+    if !(campaign.campaign_playable_claim
+        && campaign.status == "success"
+        && campaign.scripts_tick_ok
+        && campaign.frames_advanced > 0)
+    {
+        failed.push(format!(
+            "campaign residual claim={} status={} scripts_tick={} frames={}",
+            campaign.campaign_playable_claim,
+            campaign.status,
+            campaign.scripts_tick_ok,
+            campaign.frames_advanced
+        ));
+    }
+
+    // 7) RC package.
     let rc = run_release_candidate_package(2, 5);
     println!("rc: {}", format_rc_report(&rc));
     if !(rc.soak_ok
@@ -146,6 +164,7 @@ fn main() {
         && rc.missing_asset_policy_ok
         && rc.presentation_ok
         && rc.campaign_soak_ok
+        && rc.campaign_runtime_ok
         && rc.golden_status == "success")
     {
         failed.push(format!("rc failed: {}", format_rc_report(&rc)));
@@ -155,8 +174,9 @@ fn main() {
         // PASS text reflects values already asserted above (not hardcoded-only).
         // Honesty flags: shell playable_claim always false; golden synthetic when no map;
         // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
+        // Campaign retail_campaign_map_loaded fail-closed when full MD_*/GC_* load hangs.
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={})",
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={}; campaign_playable_claim={} retail_campaign_map_loaded={})",
             golden.map_loaded,
             golden.synthetic_combat,
             golden.playable_claim,
@@ -166,7 +186,9 @@ fn main() {
             golden.combat_realistic_speed_ok,
             golden.combat_store_damage_ok,
             shell.playable_claim,
-            shell.shell_host_playable_ok
+            shell.shell_host_playable_ok,
+            campaign.campaign_playable_claim,
+            campaign.retail_campaign_map_loaded
         );
         std::process::exit(0);
     }
