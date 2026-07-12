@@ -10,6 +10,7 @@ use crate::deterministic_trace::{run_trace_scenario, TraceScenario};
 use crate::effects::particle_system::{ParticleSystem, ParticleSystemTemplate};
 use crate::game_logic::GameLogic;
 use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
+use crate::golden_campaign::run_golden_campaign;
 use crate::golden_skirmish::run_golden_skirmish;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
@@ -341,6 +342,10 @@ pub struct ReleaseCandidateReport {
     pub missing_asset_policy_ok: bool,
     pub presentation_ok: bool,
     pub campaign_soak_ok: bool,
+    /// SinglePlayer campaign residual (scripts tick + frames + victory path).
+    pub campaign_runtime_ok: bool,
+    /// Fail-closed honesty: full retail MD_*/GC_* load_map succeeded.
+    pub retail_campaign_map_loaded: bool,
     pub golden_status: String,
     pub detail: String,
 }
@@ -411,6 +416,12 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
 
     let (presentation_ok, presentation_detail) = exercise_presentation_paths();
     let (campaign_soak_ok, campaign_detail) = exercise_campaign_progression_soak();
+    let campaign_runtime = run_golden_campaign(None, 5);
+    let campaign_runtime_ok = campaign_runtime.campaign_playable_claim
+        && campaign_runtime.status == "success"
+        && campaign_runtime.frames_advanced > 0
+        && campaign_runtime.scripts_tick_ok;
+    let retail_campaign_map_loaded = campaign_runtime.retail_campaign_map_loaded;
 
     // Deterministic trace production path.
     {
@@ -428,28 +439,36 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
 
     ReleaseCandidateReport {
         soak_runs: soak_runs.max(1),
-        soak_ok: soak_ok && g1.status == "success" && presentation_ok && campaign_soak_ok,
+        soak_ok: soak_ok
+            && g1.status == "success"
+            && presentation_ok
+            && campaign_soak_ok
+            && campaign_runtime_ok,
         deterministic_match: deterministic_match && golden_cash_match,
         dual_run_hash_match,
         missing_asset_policy_ok,
         presentation_ok,
         campaign_soak_ok,
+        campaign_runtime_ok,
+        retail_campaign_map_loaded,
         golden_status: g1.status.clone(),
         detail: format!(
-            "g1_frames={} g2_frames={} dual_hash={} cash={} presentation={} campaign={}",
+            "g1_frames={} g2_frames={} dual_hash={} cash={} presentation={} campaign={} campaign_runtime={} retail_campaign_map={}",
             g1.frames_advanced,
             g2.frames_advanced,
             dual_run_hash_match,
             g1.human_cash,
             presentation_detail,
-            campaign_detail
+            campaign_detail,
+            campaign_runtime_ok,
+            retail_campaign_map_loaded
         ),
     }
 }
 
 pub fn format_rc_report(r: &ReleaseCandidateReport) -> String {
     format!(
-        "soak_runs={} soak_ok={} deterministic={} dual_run_hash={} missing_asset_policy_ok={} presentation_ok={} campaign_soak_ok={} golden={} detail={}",
+        "soak_runs={} soak_ok={} deterministic={} dual_run_hash={} missing_asset_policy_ok={} presentation_ok={} campaign_soak_ok={} campaign_runtime_ok={} retail_campaign_map_loaded={} golden={} detail={}",
         r.soak_runs,
         r.soak_ok,
         r.deterministic_match,
@@ -457,6 +476,8 @@ pub fn format_rc_report(r: &ReleaseCandidateReport) -> String {
         r.missing_asset_policy_ok,
         r.presentation_ok,
         r.campaign_soak_ok,
+        r.campaign_runtime_ok,
+        r.retail_campaign_map_loaded,
         r.golden_status,
         r.detail
     )
@@ -487,6 +508,12 @@ mod tests {
         assert!(p_ok, "{p_detail}");
         let (c_ok, c_detail) = exercise_campaign_progression_soak();
         assert!(c_ok, "{c_detail}");
+        let runtime = run_golden_campaign(None, 4);
+        assert!(
+            runtime.campaign_playable_claim && runtime.scripts_tick_ok,
+            "campaign runtime residual: {}",
+            crate::golden_campaign::format_campaign_report(&runtime)
+        );
     }
 
     #[test]
@@ -498,10 +525,12 @@ mod tests {
         assert!(report.missing_asset_policy_ok, "{}", report.detail);
         assert!(report.presentation_ok, "{}", report.detail);
         assert!(report.campaign_soak_ok, "{}", report.detail);
+        assert!(report.campaign_runtime_ok, "{}", report.detail);
         let s = format_rc_report(&report);
         assert!(s.contains("soak_ok=true"));
         assert!(s.contains("dual_run_hash=true"));
         assert!(s.contains("presentation_ok=true"));
         assert!(s.contains("campaign_soak_ok=true"));
+        assert!(s.contains("campaign_runtime_ok=true"));
     }
 }

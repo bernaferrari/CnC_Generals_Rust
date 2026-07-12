@@ -770,14 +770,16 @@ impl CampaignManager {
     }
 
     fn add_sample_missions(&mut self) {
-        // Add some sample missions for demonstration
+        // Seed missions against real Zero Hour map identities when present.
+        // (Full object-spawn load of MD_* maps is a separate residual; names match retail.)
         let mission = MissionInfo {
             id: "usa_01".to_string(),
             campaign_id: CampaignId::USACampaign,
             mission_number: 1,
             name: "Operation Righteous Strike".to_string(),
             description: "Eliminate GLA presence in the region".to_string(),
-            map_name: "usa_mission_01".to_string(),
+            // Retail ZH USA mission 1 map identity (Maps/MD_USA01/MD_USA01.map).
+            map_name: "MD_USA01".to_string(),
             briefing_video: Some("usa_01_briefing.bik".to_string()),
             preview_image: Some("usa_01_preview.tga".to_string()),
             required_missions: Vec::new(),
@@ -805,8 +807,36 @@ impl CampaignManager {
             secondary_objectives: Vec::new(),
             bonus_objectives: Vec::new(),
         };
-
         self.mission_definitions.insert(mission.id.clone(), mission);
+
+        // Generals Challenge opener — GC_ChemGeneral is a real shipped challenge map.
+        let challenge = MissionInfo {
+            id: "usa_gen_01".to_string(),
+            campaign_id: CampaignId::USAGeneral,
+            mission_number: 1,
+            name: "General's Challenge — Chem".to_string(),
+            description: "Defeat the Chemical General".to_string(),
+            map_name: "GC_ChemGeneral".to_string(),
+            briefing_video: None,
+            preview_image: None,
+            required_missions: Vec::new(),
+            required_rank: None,
+            required_honor_points: None,
+            time_limit: None,
+            starting_resources: Resources {
+                supplies: 8000,
+                power: 0,
+            },
+            starting_units: Vec::new(),
+            tech_restrictions: Vec::new(),
+            special_rules: Vec::new(),
+            victory_rule: Some("Annihilation".to_string()),
+            primary_objectives: Vec::new(),
+            secondary_objectives: Vec::new(),
+            bonus_objectives: Vec::new(),
+        };
+        self.mission_definitions
+            .insert(challenge.id.clone(), challenge);
     }
 
     fn add_sample_honors(&mut self) {
