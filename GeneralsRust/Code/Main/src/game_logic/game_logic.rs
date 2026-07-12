@@ -3479,8 +3479,11 @@ impl GameLogic {
                 spawn_position.y = ground_height;
             }
 
+            // Ensure faction template catalog (CC, barracks, combat units) exists.
+            self.ensure_ai_faction_templates(team);
+
             let primary_template = match team {
-                Team::USA => "CommandCenter",
+                Team::USA => "USA_CommandCenter",
                 Team::GLA => "GLA_CommandCenter",
                 Team::China => "China_CommandCenter",
                 Team::Neutral => "CommandCenter",
@@ -3489,9 +3492,34 @@ impl GameLogic {
             if self
                 .create_object(primary_template, team, spawn_position)
                 .is_none()
-                && primary_template != "CommandCenter"
             {
-                let _ = self.create_object("CommandCenter", team, spawn_position);
+                // Fallbacks for incomplete catalogs.
+                let _ = self
+                    .create_object("CommandCenter", team, spawn_position)
+                    .or_else(|| self.create_object("GoldenCC", team, spawn_position));
+            }
+            // Seed a worker for the first human-capable team so DozerConstruct can start.
+            if index == 0 {
+                let dozer_pos = spawn_position + Vec3::new(20.0, 0.0, 0.0);
+                let dozer_name = match team {
+                    Team::USA => "USA_Dozer",
+                    Team::China => "China_Dozer",
+                    Team::GLA => "GLA_Worker",
+                    Team::Neutral => "GoldenDozer",
+                };
+                if self.create_object(dozer_name, team, dozer_pos).is_none() {
+                    // Install a minimal dozer if faction worker missing.
+                    if !self.templates.contains_key("GoldenDozer") {
+                        let mut d = ThingTemplate::new("GoldenDozer");
+                        d.set_health(300.0);
+                        d.set_cost(1000, 0);
+                        d.add_kind_of(KindOf::Vehicle);
+                        d.add_kind_of(KindOf::Worker);
+                        d.add_kind_of(KindOf::Selectable);
+                        self.templates.insert("GoldenDozer".into(), d);
+                    }
+                    let _ = self.create_object("GoldenDozer", team, dozer_pos);
+                }
             }
             spawned_count += 1;
         }
@@ -8048,6 +8076,17 @@ impl GameLogic {
                     300.0,
                     400,
                 ),
+                {
+                    let mut d = unit(
+                        "USA_Dozer",
+                        &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+                        300.0,
+                        1000,
+                    );
+                    // Workers are not combat units — clear default weapon.
+                    d.primary_weapon = None;
+                    d
+                },
             ],
             Team::China => vec![
                 structure(
