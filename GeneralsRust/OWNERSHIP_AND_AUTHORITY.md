@@ -57,7 +57,7 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 ### Honest reading (do not overclaim)
 
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
-- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, zero GameLogic borrow for FOW/shell bypass, or full W3D mesh-asset retail (unit *identity* for the main mesh pass is presentation-owned; FOW/terrain/asset load remain residual).
+- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, full SAGE cell-grid FOW parity, or full W3D mesh-asset retail (unit *identity* + unit-level FOW for the main mesh pass are presentation-owned; terrain FOW overlay / asset load remain residual).
 
 Gate honesty labels:
 
@@ -102,13 +102,25 @@ Still residual (not claimed by shell_smoke):
 4. Tests: presentation build includes positions/model/team; render collection helper
    builds unit inputs from frame after live world mutation (no logic re-read).
 
-**Still residual (not claimed as full presentation-only renderer):**
+**Closed (unit FOW for main mesh pass — partial, fail-closed vs full SAGE FOW):**
+
+1. `PresentationFrame` freezes per-object FOW for `local_player_id` at build time
+   (`RenderableObject.fow_visibility` + `fow_shell_bypass` from `isInShellGame`).
+2. `UnitRenderInput` carries snapshot FOW; never-explored skip and fog alpha apply
+   from the frame without mid-render shroud / ownership re-query.
+3. Production collect uses presentation FOW when a frame is set; live FOW bridge
+   remains only for the boot/loading path (no presentation frame).
+4. Tests: FOW matches FOW bridge at build; unit inputs stay frozen; shell bypass
+   forces fully visible; never-explored / fogged encode states.
+
+**Still residual (not claimed as full presentation-only renderer / SAGE FOW):**
 
 | Residual | Why still live / other system |
 |----------|-------------------------------|
-| FOW visibility alpha / never-explored skip | Pipeline FOW bridge + shell `isInShellGame()` |
+| Cell-grid / terrain FOW overlay texture | Minimap / terrain shroud systems (not unit mesh) |
+| Stealth detection FOW variants mid-pass | Live stealth managers when presentation absent |
 | Terrain / heightmap / skybox / roads | Map/environment systems, not unit identity |
 | W3D mesh asset resolve / deferred model load | `GraphicsSystem` / `AssetManager` (immutable assets, not sim) |
 | RenderBridge drawable path | engine-bridged units drawn outside main mesh pass |
-| Full retail W3D GPU match | Fail-closed: not claimed by unit-identity residual close |
+| Full retail W3D GPU match / full SAGE FOW | Fail-closed: not claimed by this residual close |
 

@@ -41,18 +41,25 @@ fn force_visibility_update_is_safe_to_call() {
 
 #[test]
 fn object_visibility_struct_supports_expected_states() {
-    let hidden = ObjectVisibility {
-        visibility_alpha: 0.0,
-        is_explored: 0.0,
-        visibility_falloff: 1.0,
-    };
-    let explored = ObjectVisibility {
-        visibility_alpha: 0.3,
-        is_explored: 1.0,
-        visibility_falloff: 1.0,
-    };
+    let hidden = ObjectVisibility::HIDDEN;
+    let explored = ObjectVisibility::FOGGED;
     let visible = ObjectVisibility::default();
 
     assert!(hidden.visibility_alpha < explored.visibility_alpha);
     assert!(explored.visibility_alpha < visible.visibility_alpha);
+    assert_eq!(
+        ObjectVisibility::from_shroud_flags(false, false),
+        ObjectVisibility::HIDDEN
+    );
+    assert_eq!(
+        ObjectVisibility::from_shroud_flags(false, true),
+        ObjectVisibility::FOGGED
+    );
+    assert_eq!(
+        ObjectVisibility::from_shroud_flags(true, false),
+        ObjectVisibility::VISIBLE
+    );
+    assert!(!hidden.should_render());
+    assert!(explored.should_render());
+    assert!(visible.should_render());
 }
