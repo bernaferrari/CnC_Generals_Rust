@@ -389,16 +389,14 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         .map(|o| o.id)
         .collect();
     if !production_rangers.is_empty() {
+        // Host create_object leaves engine_object_id = None by default; do not force-clear
+        // mid-scenario (residual removed). Only ensure a Weapon for update_combat.
         for rid in &production_rangers {
             if let Some(ranger) = logic.get_object_mut(*rid) {
                 if ranger.weapon.is_none() {
                     ranger.weapon = Some(Weapon::default());
                 }
-                ranger.engine_object_id = None;
             }
-        }
-        if let Some(enemy) = logic.get_object_mut(enemy_cc) {
-            enemy.engine_object_id = None;
         }
         let health_before = logic
             .get_object(enemy_cc)

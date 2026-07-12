@@ -282,6 +282,7 @@ impl UnitControlDemo {
                 &self.camera_view_matrix,
                 &self.camera_proj_matrix,
                 self.window_size,
+                None, // demo path: no presentation frame; live identity fallback
             )
             .await;
 
