@@ -839,19 +839,49 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
+        // Resolve impact position for residual superweapon path (DaisyCutter/A10/Scud/PUC).
+        let target_position: Option<Vec3> = match target {
+            PowerTarget::Location(loc) => Some(*loc),
+            PowerTarget::Object(id) => self
+                .game_logic
+                .get_object(*id)
+                .map(|obj| obj.get_position()),
+            PowerTarget::None => units.first().and_then(|id| {
+                self.game_logic
+                    .get_object(*id)
+                    .map(|obj| obj.get_position())
+            }),
+        };
+
         debug!(
             "Executing special power {:?} with target {:?}",
             power_type, target
         );
         let mut any = false;
         for &unit_id in units {
-            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                if unit.is_special_power_ready(power_type) {
-                    unit.consume_special_power_charge(power_type);
-                    unit.set_ai_state(AIState::SpecialAbility);
-                    any = true;
-                }
+            let ready = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| unit.is_special_power_ready(power_type))
+                .unwrap_or(false);
+            if !ready {
+                continue;
             }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.consume_special_power_charge(power_type);
+                unit.set_ai_state(AIState::SpecialAbility);
+            }
+
+            // Host residual: queue superweapon strike that will complete with
+            // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon).
+            // Other powers (RadarScan, etc.) remain charge-consume only.
+            if let Some(pos) = target_position {
+                let _ = self
+                    .game_logic
+                    .queue_special_power_strike(power_type, unit_id, pos);
+            }
+            any = true;
         }
         if any {
             CommandResult::Success
