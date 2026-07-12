@@ -13,6 +13,7 @@ pub mod script_events;
 pub mod script_loader;
 pub mod special_power_strikes;
 pub mod host_upgrades;
+pub mod host_mines;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -31,6 +32,9 @@ pub use special_power_strikes::{
 };
 pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
+};
+pub use host_mines::{
+    HostMineData, HostMineDetonateReason, HostMineKind, HostMineDetonationPlan,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

@@ -521,6 +521,13 @@ pub struct GameLogic {
     transport_residual_loads: u32,
     transport_residual_unloads: u32,
 
+    /// Host mine / demo-trap / timed demo-charge residual honesty counters.
+    /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
+    mine_residual_places: u32,
+    mine_residual_proximity_detonations: u32,
+    mine_residual_timed_detonations: u32,
+    mine_residual_manual_detonations: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1314,6 +1321,10 @@ impl GameLogic {
             garrison_residual_fires: 0,
             transport_residual_loads: 0,
             transport_residual_unloads: 0,
+            mine_residual_places: 0,
+            mine_residual_proximity_detonations: 0,
+            mine_residual_timed_detonations: 0,
+            mine_residual_manual_detonations: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1442,6 +1453,10 @@ impl GameLogic {
         self.garrison_residual_fires = 0;
         self.transport_residual_loads = 0;
         self.transport_residual_unloads = 0;
+        self.mine_residual_places = 0;
+        self.mine_residual_proximity_detonations = 0;
+        self.mine_residual_timed_detonations = 0;
+        self.mine_residual_manual_detonations = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3258,6 +3273,10 @@ impl GameLogic {
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
         // ParticleCannon strikes (area damage). Fail-closed vs full OCL aircraft.
         self.update_special_power_strikes();
+
+        // Host mine / demo-trap residual: proximity trigger + timed detonation.
+        // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
+        self.update_mines_and_demo_traps();
 
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
@@ -6062,6 +6081,13 @@ impl GameLogic {
                 object.movement.turn_rate = stats.turn_rate;
             }
 
+            // Host residual: bind mine/demo-trap data for recognized templates.
+            if let Some(mine_data) =
+                crate::game_logic::host_mines::residual_data_for_template(template_name, self.frame)
+            {
+                object.mine_data = Some(mine_data);
+            }
+
             self.objects.insert(id, object);
 
             // Dual-object factory bridge is opt-in. Default host path owns objects
@@ -8334,6 +8360,416 @@ impl GameLogic {
     /// Residual honesty: load → docked → unload path was exercised.
     pub fn honesty_transport_load_unload_ok(&self) -> bool {
         self.transport_residual_loads > 0 && self.transport_residual_unloads > 0
+    }
+
+    // -----------------------------------------------------------------------
+    // Mine / demo-trap / timed demo-charge residual
+    // Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
+    // -----------------------------------------------------------------------
+
+    /// Residual honesty: at least one mine/trap/charge was placed.
+    pub fn mine_residual_places(&self) -> u32 {
+        self.mine_residual_places
+    }
+
+    /// Residual honesty: proximity-triggered detonations.
+    pub fn mine_residual_proximity_detonations(&self) -> u32 {
+        self.mine_residual_proximity_detonations
+    }
+
+    /// Residual honesty: timed-charge detonations.
+    pub fn mine_residual_timed_detonations(&self) -> u32 {
+        self.mine_residual_timed_detonations
+    }
+
+    /// Residual honesty: manual detonations (demo trap command residual).
+    pub fn mine_residual_manual_detonations(&self) -> u32 {
+        self.mine_residual_manual_detonations
+    }
+
+    /// Residual honesty: place → enemy trigger → damage path exercised.
+    pub fn honesty_mine_place_trigger_ok(&self) -> bool {
+        self.mine_residual_places > 0 && self.mine_residual_proximity_detonations > 0
+    }
+
+    /// Residual honesty: place timed charge → detonation path exercised.
+    pub fn honesty_timed_demo_charge_ok(&self) -> bool {
+        self.mine_residual_places > 0 && self.mine_residual_timed_detonations > 0
+    }
+
+    /// Place a residual land mine at `position` for `team`.
+    pub fn place_land_mine(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind(
+            crate::game_logic::host_mines::HostMineKind::LandMine,
+            "TestLandMine",
+            team,
+            position,
+            producer,
+            None,
+            None,
+        )
+    }
+
+    /// Place a residual GLA demo trap (proximity mode).
+    pub fn place_demo_trap(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind(
+            crate::game_logic::host_mines::HostMineKind::DemoTrap,
+            "TestDemoTrap",
+            team,
+            position,
+            producer,
+            None,
+            None,
+        )
+    }
+
+    /// Place a residual timed demo charge (detonates after delay frames).
+    pub fn place_timed_demo_charge(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        delay_frames: Option<u32>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind(
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge,
+            "TestTimedDemoCharge",
+            team,
+            position,
+            producer,
+            attach_to,
+            delay_frames,
+        )
+    }
+
+    /// Cluster Mines special-power residual: place a ring of land mines.
+    /// Fail-closed: not full OCL ClusterMinesBomb / GenerateMinefieldBehavior density.
+    pub fn place_cluster_mines(
+        &mut self,
+        team: Team,
+        center: Vec3,
+        producer: Option<ObjectId>,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::host_mines::{
+            cluster_mine_positions, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS,
+        };
+        let positions = cluster_mine_positions(center, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS);
+        let mut ids = Vec::with_capacity(positions.len());
+        for pos in positions {
+            if let Some(id) = self.place_land_mine(team, pos, producer) {
+                ids.push(id);
+            }
+        }
+        if !ids.is_empty() {
+            self.queue_audio_event(
+                AudioEventRequest::new("MineFieldPlaced")
+                    .with_position(center)
+                    .with_priority(160),
+            );
+        }
+        ids
+    }
+
+    fn ensure_residual_mine_template(
+        &mut self,
+        template_name: &str,
+        kind: crate::game_logic::host_mines::HostMineKind,
+    ) {
+        if self.templates.contains_key(template_name) {
+            return;
+        }
+        let mut t = ThingTemplate::new(template_name);
+        // Mines are not infantry/vehicles; residual treats them as Neutral objects
+        // with mine_data driving behavior. Demo trap is structure-like but residual
+        // does not require full structure production path.
+        match kind {
+            crate::game_logic::host_mines::HostMineKind::DemoTrap => {
+                t.add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0)
+                    .set_cost(400, 0);
+            }
+            crate::game_logic::host_mines::HostMineKind::LandMine
+            | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
+                t.set_health(100.0).set_cost(0, 0);
+            }
+        }
+        self.templates.insert(template_name.to_string(), t);
+    }
+
+    fn place_mine_kind(
+        &mut self,
+        kind: crate::game_logic::host_mines::HostMineKind,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+        delay_frames: Option<u32>,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::HostMineData;
+
+        self.ensure_residual_mine_template(template_name, kind);
+        let id = self.create_object(template_name, team, position)?;
+
+        let mut data = match kind {
+            crate::game_logic::host_mines::HostMineKind::LandMine => HostMineData::land_mine(),
+            crate::game_logic::host_mines::HostMineKind::DemoTrap => HostMineData::demo_trap(),
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
+                let mut d = HostMineData::timed_demo_charge(self.frame);
+                if let Some(delay) = delay_frames {
+                    d = d.with_lifetime_frames(self.frame, delay);
+                }
+                d
+            }
+        };
+        if let Some(p) = producer {
+            data = data.with_producer(p);
+        }
+        if let Some(t) = attach_to {
+            data = data.with_attach(t);
+        }
+
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.mine_data = Some(data);
+            // Mines/charges are not combat movers.
+            obj.movement.max_speed = 0.0;
+            obj.weapon = None;
+            obj.secondary_weapon = None;
+        }
+
+        self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.place_audio())
+                .with_object(id)
+                .with_position(position)
+                .with_priority(150),
+        );
+        Some(id)
+    }
+
+    /// Manually detonate a residual demo trap / charge (command residual).
+    pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> bool {
+        use crate::game_logic::host_mines::HostMineDetonateReason;
+        self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual)
+    }
+
+    /// Advance residual mines: proximity scan + timed detonation.
+    pub fn update_mines_and_demo_traps(&mut self) {
+        use crate::game_logic::host_mines::HostMineDetonateReason;
+
+        let frame = self.frame;
+        let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
+
+        // Collect active mine positions + params first (avoid borrow issues).
+        let mines: Vec<(ObjectId, Team, Vec3, f32, bool, Option<u32>, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                let data = obj.mine_data.as_ref()?;
+                if !data.is_active() || !obj.is_alive() {
+                    return None;
+                }
+                Some((
+                    *id,
+                    obj.team,
+                    obj.get_position(),
+                    data.trigger_range,
+                    data.proximity_enabled,
+                    data.detonate_at_frame,
+                    obj.status.under_construction,
+                ))
+            })
+            .collect();
+
+        // Potential victims snapshot.
+        let victims: Vec<(ObjectId, Team, Vec3, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.mine_data.is_some() {
+                    return None;
+                }
+                // Only ground combatants / structures trigger residual mines.
+                let combatant = obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Attackable);
+                if !combatant {
+                    return None;
+                }
+                // Aircraft do not trigger (C++ DemoTrapUpdate is_above_terrain skip residual).
+                if obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target {
+                    return None;
+                }
+                Some((*id, obj.team, obj.get_position(), true))
+            })
+            .collect();
+
+        for (mine_id, mine_team, mine_pos, trigger_range, proximity, detonate_at, under_construction)
+            in mines
+        {
+            if under_construction {
+                continue;
+            }
+            if let Some(at) = detonate_at {
+                if frame >= at {
+                    due.push((mine_id, HostMineDetonateReason::Timed));
+                    continue;
+                }
+            }
+            if !proximity || trigger_range <= 0.0 {
+                continue;
+            }
+            let range_sqr = trigger_range * trigger_range;
+            for (vid, vteam, vpos, _) in &victims {
+                if *vid == mine_id {
+                    continue;
+                }
+                // Enemies (and neutrals as residual default for mines) trigger.
+                if *vteam == mine_team {
+                    continue;
+                }
+                let dx = vpos.x - mine_pos.x;
+                let dz = vpos.z - mine_pos.z;
+                if dx * dx + dz * dz <= range_sqr {
+                    due.push((mine_id, HostMineDetonateReason::Proximity));
+                    break;
+                }
+            }
+        }
+
+        for (mine_id, reason) in due {
+            let _ = self.detonate_mine_internal(mine_id, reason);
+        }
+    }
+
+    fn detonate_mine_internal(
+        &mut self,
+        mine_id: ObjectId,
+        reason: crate::game_logic::host_mines::HostMineDetonateReason,
+    ) -> bool {
+        use crate::game_logic::host_mines::{damage_at_distance, HostMineDetonateReason};
+
+        let Some(mine) = self.objects.get(&mine_id) else {
+            return false;
+        };
+        if !mine.is_alive() {
+            return false;
+        }
+        let Some(data) = mine.mine_data.as_ref() else {
+            return false;
+        };
+        if data.detonated {
+            return false;
+        }
+        if mine.status.under_construction {
+            return false;
+        }
+
+        let kind = data.kind;
+        let damage = data.detonation_damage;
+        let radius = data.detonation_radius;
+        let mine_team = mine.team;
+        let mine_pos = mine.get_position();
+        let producer = data.producer_id;
+
+        // Mark detonated before applying damage.
+        if let Some(obj) = self.objects.get_mut(&mine_id) {
+            if let Some(md) = obj.mine_data.as_mut() {
+                md.detonated = true;
+            }
+        }
+
+        match reason {
+            HostMineDetonateReason::Proximity => {
+                self.mine_residual_proximity_detonations =
+                    self.mine_residual_proximity_detonations.saturating_add(1);
+            }
+            HostMineDetonateReason::Timed => {
+                self.mine_residual_timed_detonations =
+                    self.mine_residual_timed_detonations.saturating_add(1);
+            }
+            HostMineDetonateReason::Manual => {
+                self.mine_residual_manual_detonations =
+                    self.mine_residual_manual_detonations.saturating_add(1);
+            }
+        }
+
+        // Area damage: residual hits enemies + neutrals; demo trap also hits allies
+        // (DemoTrapDetonationWeapon RadiusDamageAffects SELF ALLIES ENEMIES NEUTRALS).
+        let hit_allies = matches!(
+            kind,
+            crate::game_logic::host_mines::HostMineKind::DemoTrap
+                | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+        );
+
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for vid in victim_ids {
+            if vid == mine_id {
+                continue;
+            }
+            let Some(victim) = self.objects.get(&vid) else {
+                continue;
+            };
+            if !victim.is_alive() || victim.mine_data.is_some() {
+                continue;
+            }
+            if victim.team == mine_team && !hit_allies {
+                continue;
+            }
+            let vpos = victim.get_position();
+            let dist = {
+                let dx = vpos.x - mine_pos.x;
+                let dz = vpos.z - mine_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            let dmg = damage_at_distance(damage, radius, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(victim) = self.objects.get_mut(&vid) {
+                if victim.take_damage(dmg) {
+                    destroy_ids.push((vid, mine_team));
+                }
+            }
+        }
+
+        // Audio + particle residual.
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.detonate_audio())
+                .with_object(mine_id)
+                .with_position(mine_pos)
+                .with_priority(190),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            mine_pos,
+            self.frame,
+            Some(mine_id),
+            None,
+        );
+
+        // Destroy the mine/trap itself.
+        self.mark_object_for_destruction(mine_id, producer.map(|_| mine_team));
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+
+        let _ = producer; // residual bookkeeping only
+        true
     }
 
     /// Queue a host residual superweapon strike from DoSpecialPower.
@@ -16970,6 +17406,267 @@ mod tests {
                 .unwrap()
                 .transport_count(),
             1
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Mine / demo-trap / timed demo-charge residual
+    // Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
+    // -----------------------------------------------------------------------
+
+    /// Residual: place land mine → enemy walks into trigger → damage + detonation honesty.
+    #[test]
+    fn mine_residual_place_enemy_triggers_damage() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("place mine");
+        assert_eq!(game_logic.mine_residual_places(), 1);
+
+        let mine = game_logic.find_object(mine_id).expect("mine object");
+        assert!(
+            mine.mine_data.is_some(),
+            "placed mine must carry residual mine_data"
+        );
+        let trigger = mine.mine_data.as_ref().unwrap().trigger_range;
+        assert!(trigger > 0.0);
+
+        // Enemy infantry outside range: no detonation.
+        let enemy_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                Vec3::new(trigger + 50.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(
+            game_logic.mine_residual_proximity_detonations(),
+            0,
+            "out-of-range enemy must not trigger"
+        );
+        assert!(game_logic.find_object(mine_id).unwrap().is_alive());
+
+        // Move enemy into trigger range.
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).unwrap();
+            enemy.set_position(Vec3::new(trigger * 0.25, 0.0, 0.0));
+        }
+        game_logic.update_mines_and_demo_traps();
+
+        assert_eq!(
+            game_logic.mine_residual_proximity_detonations(),
+            1,
+            "in-range enemy must proximity-detonate"
+        );
+        assert!(
+            game_logic.honesty_mine_place_trigger_ok(),
+            "place+trigger honesty"
+        );
+
+        let enemy = game_logic.find_object(enemy_id).expect("enemy after");
+        assert!(
+            enemy.health.current < health_before || !enemy.is_alive() || enemy.status.destroyed,
+            "enemy must take residual mine damage"
+        );
+
+        // Mine marked detonated / destroyed residual.
+        if let Some(mine) = game_logic.find_object(mine_id) {
+            assert!(
+                mine.mine_data
+                    .as_ref()
+                    .map(|d| d.detonated)
+                    .unwrap_or(true)
+                    || mine.status.destroyed
+            );
+        }
+    }
+
+    /// Residual: ally does not trigger land mine (enemies/neutrals only residual).
+    #[test]
+    fn mine_residual_ally_does_not_trigger_land_mine() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mine_id = game_logic
+            .place_land_mine(Team::USA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("mine");
+        let ally_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("ally");
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
+        assert!(game_logic.find_object(mine_id).unwrap().is_alive());
+        assert!(game_logic.find_object(ally_id).unwrap().is_alive());
+    }
+
+    /// Residual: GLA demo trap proximity detonation damages nearby enemy.
+    #[test]
+    fn demo_trap_residual_proximity_detonates_on_enemy() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let trap_id = game_logic
+            .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("trap");
+        let trap = game_logic.find_object(trap_id).unwrap();
+        assert_eq!(
+            trap.mine_data.as_ref().unwrap().kind,
+            crate::game_logic::host_mines::HostMineKind::DemoTrap
+        );
+        let range = trap.mine_data.as_ref().unwrap().trigger_range;
+        assert!((range - 40.0).abs() < 0.01);
+
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
+        let enemy = game_logic.find_object(enemy_id).unwrap();
+        assert!(
+            enemy.health.current < health_before || enemy.status.destroyed,
+            "demo trap must damage enemy"
+        );
+    }
+
+    /// Residual: timed demo charge detonates after delay frames.
+    #[test]
+    fn timed_demo_charge_residual_detonates_after_delay() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_structure_template(&mut game_logic);
+
+        // Short delay for test observability (not full 10s retail lifetime).
+        let charge_id = game_logic
+            .place_timed_demo_charge(
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+                None,
+                None,
+                Some(3),
+            )
+            .expect("charge");
+        assert_eq!(game_logic.mine_residual_places(), 1);
+
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("building");
+        let health_before = game_logic.find_object(building_id).unwrap().health.current;
+
+        // Before deadline: no detonation.
+        game_logic.frame = 1;
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_timed_detonations(), 0);
+        assert!(game_logic.find_object(charge_id).unwrap().is_alive());
+
+        // At deadline: detonate.
+        game_logic.frame = 3;
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_timed_detonations(), 1);
+        assert!(
+            game_logic.honesty_timed_demo_charge_ok(),
+            "timed charge honesty"
+        );
+
+        let building = game_logic.find_object(building_id).unwrap();
+        assert!(
+            building.health.current < health_before || building.status.destroyed,
+            "timed charge must damage nearby structure"
+        );
+    }
+
+    /// Residual: ClusterMines special power places a ring of mines at target.
+    #[test]
+    fn cluster_mines_special_power_places_mines() {
+        use crate::command_system::{
+            CommandType, GameCommand, PowerTarget, SpecialPowerType,
+        };
+        use crate::game_logic::host_mines::CLUSTER_MINE_COUNT;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_structure_template(&mut game_logic);
+
+        // Caster that can fire special powers (player_id 0 → Team::USA ownership).
+        let caster_id = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(-100.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).unwrap();
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        let target = Vec3::new(50.0, 0.0, 50.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::ClusterMines,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.mine_residual_places() as usize >= CLUSTER_MINE_COUNT,
+            "ClusterMines must place residual mine ring (got {})",
+            game_logic.mine_residual_places()
+        );
+
+        let mine_count = game_logic
+            .get_objects()
+            .values()
+            .filter(|o| {
+                o.mine_data
+                    .as_ref()
+                    .map(|d| {
+                        d.kind == crate::game_logic::host_mines::HostMineKind::LandMine
+                            && d.is_active()
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+        assert!(
+            mine_count >= CLUSTER_MINE_COUNT,
+            "expected live residual mines, got {mine_count}"
+        );
+    }
+
+    /// Residual: manual detonate demo trap path.
+    #[test]
+    fn demo_trap_manual_detonate_residual() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let trap_id = game_logic
+            .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("trap");
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("enemy");
+        // Disable proximity so only manual path fires.
+        {
+            let trap = game_logic.find_object_mut(trap_id).unwrap();
+            if let Some(md) = trap.mine_data.as_mut() {
+                md.proximity_enabled = false;
+            }
+        }
+
+        assert!(game_logic.manual_detonate_mine(trap_id));
+        assert_eq!(game_logic.mine_residual_manual_detonations(), 1);
+        let enemy = game_logic.find_object(enemy_id).unwrap();
+        assert!(
+            enemy.health.current < enemy.max_health || enemy.status.destroyed,
+            "manual detonate must damage nearby enemy"
         );
     }
 }
