@@ -2,8 +2,12 @@
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
 //! ParticleCannon queues a real strike that completes with area damage on
-//! host GameLogic objects. Fail-closed: not full retail OCL / aircraft /
-//! beam / multiplayer superweapon parity.
+//! host GameLogic objects. Pending strikes (absolute `impact_frame`) are
+//! captured in `WorldSnapshot.special_power_strikes` so mid-flight save/load
+//! continues remaining delay and still fires impact damage.
+//!
+//! Fail-closed: not full retail OCL / aircraft / beam / multiplayer
+//! superweapon parity or C++ SpecialPowerModule Xfer tables.
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -195,6 +199,30 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn clear_frame_events(&mut self) {
         self.completed_this_frame.clear();
         self.activated_this_frame.clear();
+    }
+
+    /// Allocator cursor for next strike id (survives save/load).
+    pub fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    /// Replace registry contents from a save/load snapshot.
+    ///
+    /// Frame-local presentation drains (`activated_this_frame` /
+    /// `completed_this_frame`) are cleared — they are not persistent.
+    pub fn restore_from_snapshot(
+        &mut self,
+        next_id: u32,
+        strikes: impl IntoIterator<Item = HostSpecialPowerStrike>,
+    ) {
+        self.clear();
+        let mut max_id = 0_u32;
+        for strike in strikes {
+            max_id = max_id.max(strike.id);
+            self.strikes.insert(strike.id, strike);
+        }
+        // Prefer the saved allocator; never reuse an id that is already present.
+        self.next_id = next_id.max(max_id.saturating_add(1)).max(1);
     }
 
     pub fn strike_count(&self) -> usize {
@@ -494,5 +522,27 @@ mod tests {
         let plans = reg.plan_due_impacts(60, &objects);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, ObjectId(3));
+    }
+
+    #[test]
+    fn restore_from_snapshot_keeps_pending_impact_frame() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::DaisyCutter,
+            ObjectId(9),
+            Team::USA,
+            Vec3::new(1.0, 0.0, 2.0),
+            10,
+        );
+        let snap = reg.strikes_snapshot();
+        let next = reg.next_id();
+
+        let mut loaded = HostSpecialPowerStrikeRegistry::new();
+        loaded.restore_from_snapshot(next, snap);
+        assert_eq!(loaded.pending_count(), 1);
+        let s = loaded.get(id).expect("restored strike");
+        assert_eq!(s.impact_frame, 100);
+        assert_eq!(s.phase, HostStrikePhase::Queued);
+        assert_eq!(loaded.next_id(), next);
     }
 }

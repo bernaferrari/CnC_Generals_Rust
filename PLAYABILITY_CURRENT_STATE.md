@@ -1,5 +1,15 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — W3D Mesh Asset Resolve (2026-07-12)
+- Closed highest-value mesh residual after PresentationFrame unit identity:
+  - `assets/mesh_asset_resolve.rs`: `model_key` / `get_model_name` → canonical W3D key
+  - USA_Ranger / airanger → `airanger_s` (shipped `AIRanger_S.W3D`)
+  - Load real mesh when AssetManager or filesystem extract/sample present
+  - Placeholder cube + `MeshResolveHonesty` when missing (opt-in draw via debug cubes)
+  - PresentationFrame freezes aliased model_key for unit mesh pass
+- Fail-closed: not full W3D material / animation / GPU retail parity.
+- Tests: non-empty USA_Ranger key; placeholder honesty; load when assets present else skip.
+
 ## Scope
 - Non-network parity only (project policy).
 - Multiplayer/network behavior remains deferred until non-network systems are complete.
@@ -30,11 +40,34 @@
    - `save_file_roundtrip_preserves_secondary_weapon` (SaveFileManager path)
 
 **Still residual (fail-closed, not claimed):**
-- Host `CombatParticleRegistry` systems not serialized in `WorldSnapshot`
-- Host `HostSpecialPowerStrikeRegistry` pending strikes not serialized
 - Host `HostUpgradeRegistry` in-flight research queue not serialized
   (completed unlocks already applied to objects/players do survive via object fields)
 - Full C++ per-module WeaponSet / SpecialPowerModule / particle Xfer tables
+- Network save/load (network deferred)
+
+## Residual Host Playability — Special Power Strike Save/Load Xfer (2026-07-12)
+**Closed (host-testable mid-flight strike survives snapshot + file save/load):**
+1. Gap: `HostSpecialPowerStrikeRegistry` and `CombatParticleRegistry` lived only on
+   live `GameLogic` — `WorldSnapshot` never captured pending strikes, so save
+   mid-flight dropped the queue and impact never fired after load.
+2. Fix (fail-closed residual, not full retail OCL / SpecialPowerModule Xfer):
+   - `WorldSnapshot.special_power_strikes` stores `next_id` + all strike records
+     (queued / completed / cancelled) including absolute `impact_frame`
+   - `WorldSnapshot.combat_particles` stores host particle system entries
+     (template + pose + spawn frame; not full W3D GPU state)
+   - `SnapshotBuilder` capture/restore + Xfer markers after `GlobalAIState`
+   - Registry `restore_from_snapshot` rebinds allocator + entries
+3. Tests:
+   - `special_power_daisy_cutter_mid_flight_save_load_still_impacts`
+   - `special_power_a10_mid_flight_save_load_still_impacts`
+   - `save_file_roundtrip_preserves_pending_special_power_strike`
+   - registry unit restore tests in `special_power_strikes.rs` / `combat_particles.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full retail OCL aircraft / beam / multiplayer superweapon Xfer tables
+- Client `ParticleSystemManager` GPU rebind after load (host registry only)
+- Host `HostUpgradeRegistry` in-flight research queue still not in `WorldSnapshot`
+- Full C++ per-module SpecialPowerModule / particle Xfer tables
 - Network save/load (network deferred)
 
 ## Residual Host Playability — Upgrade Queue/Complete Host Path (2026-07-12)
@@ -122,6 +155,7 @@
 - Weapon.ini / SpecialPower.ini damage tables beyond residual constants
 - Network superweapon replication (network deferred)
 - Non-superweapon special abilities beyond existing PendingSpecialAbility (hijack/etc.)
+- *(Pending-strike save/load residual closed — see Special Power Strike Save/Load Xfer)*
 
 ## Residual Host Playability — Combat Particle Feedback (2026-07-12)
 **Closed (host-testable kill/fire → particle registry observe path):**
@@ -143,7 +177,9 @@
 - Full W3D GPU particle render/compute parity (Main GPU ParticleSystemManager path)
 - Full ParticleSystems.ini / FXList.ini retail coverage for every combat FX
 - Bone-attached / slave systems / LOD culling for combat residual path
+- Client GPU rebind of mirrored systems after save/load (host registry is restored)
 - Network particle replication (network deferred)
+- *(Host registry systems now survive WorldSnapshot — see Special Power Strike Save/Load Xfer)*
 
 ## Residual Host Playability — Combat March Honesty (2026-07-12)
 - Map-world golden skirmish prefers pure `assign_unit_path` / Move march into weapon range,
