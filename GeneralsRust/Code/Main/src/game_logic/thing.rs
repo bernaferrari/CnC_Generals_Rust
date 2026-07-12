@@ -24,6 +24,9 @@ pub struct ThingTemplate {
     /// C++ parity (Object::ExperienceValues): per-template veterancy XP
     /// thresholds [Veteran, Elite, Heroic].  Defaults to [60, 150, 300].
     pub veterancy_xp_thresholds: [f32; 3],
+    /// Host primary weapon stats when the template defines combat capability.
+    /// Prefer this over ad-hoc `Weapon::default()` injection at create time.
+    pub primary_weapon: Option<Weapon>,
 }
 
 impl ThingTemplate {
@@ -42,7 +45,31 @@ impl ThingTemplate {
             special_power_cooldown: 10.0,
             experience_value: 0.0,
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
+            primary_weapon: None,
         }
+    }
+
+    /// Attach host primary weapon stats (damage/range/reload) to this template.
+    pub fn set_primary_weapon(&mut self, weapon: Weapon) -> &mut Self {
+        self.primary_weapon = Some(weapon);
+        self
+    }
+
+    /// Resolve weapon for a newly created combat unit: template first, then
+    /// a kind-based fallback for infantry/vehicle/aircraft without explicit stats.
+    pub fn resolve_primary_weapon(&self) -> Option<Weapon> {
+        if let Some(w) = &self.primary_weapon {
+            return Some(w.clone());
+        }
+        if self.is_kind_of(KindOf::Infantry)
+            || self.is_kind_of(KindOf::Vehicle)
+            || self.is_kind_of(KindOf::Aircraft)
+            || self.is_kind_of(KindOf::Attackable)
+        {
+            // Last-resort host combat stats until full Weapon.ini binding is wired.
+            return Some(Weapon::default());
+        }
+        None
     }
 
     pub fn is_kind_of(&self, kind: KindOf) -> bool {

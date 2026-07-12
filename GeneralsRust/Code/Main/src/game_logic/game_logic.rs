@@ -5461,13 +5461,15 @@ impl GameLogic {
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
+            // Resolve weapon before move into Object.
+            let weapon = template.resolve_primary_weapon();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
             let starts_under_construction = object.status.under_construction;
 
-            // Set up weapon for combat units
-            if object.is_kind_of(KindOf::Infantry) || object.is_kind_of(KindOf::Vehicle) {
-                object.weapon = Some(Weapon::default());
+            // Weapon from template when defined; kind-based fallback only as last resort.
+            if let Some(weapon) = weapon {
+                object.weapon = Some(weapon);
             }
 
             self.objects.insert(id, object);

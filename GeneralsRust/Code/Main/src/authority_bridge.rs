@@ -2,7 +2,7 @@
 
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
+    AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition,
 };
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -105,14 +105,8 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         );
     }
 
-    // Default infantry weapon from create_object — only ensure present, no custom DPS.
-    // engine_object_id stays None from create_object on the default host path; no
-    // mid-scenario force-clear residual (matches golden combat policy).
-    if let Some(r) = logic.get_object_mut(ranger) {
-        if r.weapon.is_none() {
-            r.weapon = Some(Weapon::default());
-        }
-    }
+    // Weapons come from template.resolve_primary_weapon at create_object.
+    // engine_object_id stays None on the default host path.
 
     logic.queue_command(cmd(
         1,
