@@ -7998,7 +7998,11 @@ impl GameLogic {
             t
         }
         fn unit(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
-            structure(name, kinds, hp, cost)
+            let mut t = structure(name, kinds, hp, cost);
+            // Host combat: arm infantry/vehicles with explicit template weapon so
+            // create_object does not rely only on kind fallback.
+            t.set_primary_weapon(Weapon::default());
+            t
         }
         let entries: Vec<ThingTemplate> = match team {
             Team::USA => vec![
