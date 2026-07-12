@@ -323,11 +323,8 @@ impl UnitBehavior {
         let mut nearest_distance = sight_range;
 
         for (&other_id, other_obj) in objects.iter() {
-            if other_id != object_id
-                && other_obj.team != team
-                && other_obj.is_alive()
-                && other_obj.is_kind_of(KindOf::Attackable)
-            {
+            // Skip stealthed-undetected enemies (C++ auto-acquire residual).
+            if other_id != object_id && other_obj.is_targetable_by_enemy_of(team) {
                 let distance = position.distance(other_obj.get_position());
                 if distance < nearest_distance {
                     nearest_distance = distance;

@@ -323,7 +323,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         }
     }
 
-    // Stealth: production ObjectStatus.stealthed + is_visible_to_team path.
+    // Stealth residual: stealthed not targetable until detector reveals.
     logic.templates.insert(
         "BreadthStealth".into(),
         tpl(
@@ -332,19 +332,67 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             80.0,
         ),
     );
+    logic.templates.insert(
+        "BreadthDetector".into(),
+        tpl(
+            "BreadthDetector",
+            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+            80.0,
+        ),
+    );
     let mut stealth_ok = false;
     if let Some(sid) = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0)) {
         if let Some(u) = logic.get_object_mut(sid) {
             u.status.stealthed = true;
+            u.status.detected = false;
         }
-        stealth_ok = logic
+        let hidden = logic
             .get_object(sid)
             .map(|o| {
                 o.status.stealthed
+                    && o.is_effectively_stealthed()
                     && o.is_visible_to_team(Team::USA)
                     && !o.is_visible_to_team(Team::China)
+                    && !o.is_targetable_by_enemy_of(Team::China)
             })
             .unwrap_or(false);
+
+        // Detector nearby (China) should mark stealthed unit detected.
+        let mut detected_ok = false;
+        if let Some(did) =
+            logic.create_object("BreadthDetector", Team::China, Vec3::new(5.0, 0.0, 20.0))
+        {
+            if let Some(d) = logic.get_object_mut(did) {
+                d.is_detector = true;
+                d.detection_range = 50.0;
+            }
+            logic.update_stealth_and_detection();
+            detected_ok = logic
+                .get_object(sid)
+                .map(|o| {
+                    o.status.detected
+                        && !o.is_effectively_stealthed()
+                        && o.is_visible_to_team(Team::China)
+                        && o.is_targetable_by_enemy_of(Team::China)
+                })
+                .unwrap_or(false);
+        }
+
+        // Fire breaks stealth residual.
+        let mut fire_break_ok = false;
+        if let Some(u) = logic.get_object_mut(sid) {
+            u.status.stealthed = true;
+            u.status.detected = false;
+            u.stealth_breaks_on_attack = true;
+            u.weapon = Some(crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            fire_break_ok = u.fire_at(ObjectId(9999), 0.0) && !u.status.stealthed;
+        }
+
+        stealth_ok = hidden && detected_ok && fire_break_ok;
     }
 
     let ok = cash_ok

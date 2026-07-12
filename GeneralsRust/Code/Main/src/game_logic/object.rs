@@ -141,6 +141,19 @@ pub struct Object {
     /// `None` for ordinary units/structures. Fail-closed: not full C++
     /// MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate modules.
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
+
+    /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
+    /// Fail-closed: not full IR FX / kindof filters / garrisoned-detect rules.
+    pub is_detector: bool,
+    /// Detection range in world units. `0` => use template `sight_range`
+    /// (matches C++ when DetectionRange is unset/0).
+    pub detection_range: f32,
+    /// Logic frame when OBJECT_STATUS_DETECTED expires (0 = no timer).
+    /// C++ StealthUpdate::m_detectionExpiresFrame residual.
+    pub detection_expires_frame: u32,
+    /// C++ STEALTH_NOT_WHILE_ATTACKING residual: firing breaks stealth.
+    /// Default true for host residual honesty.
+    pub stealth_breaks_on_attack: bool,
 }
 
 /// AI behavior states
@@ -254,6 +267,10 @@ impl Object {
             special_power_cooldown,
             special_power_cooldown_remaining: 0.0,
             mine_data: None,
+            is_detector: false,
+            detection_range: 0.0,
+            detection_expires_frame: 0,
+            stealth_breaks_on_attack: true,
         }
     }
 
@@ -313,6 +330,10 @@ impl Object {
             special_power_cooldown: 10.0,
             special_power_cooldown_remaining: 0.0,
             mine_data: None,
+            is_detector: false,
+            detection_range: 0.0,
+            detection_expires_frame: 0,
+            stealth_breaks_on_attack: true,
         }
     }
 
@@ -568,8 +589,66 @@ impl Object {
         }
     }
 
-    /// Whether `weapon` can legally hit `target` (air/ground + range).
+    /// C++ residual: STEALTHED && !DETECTED && !DISGUISED (disguise not residual).
+    /// Stealthed-and-undetected units are not legal auto/manual attack targets.
+    pub fn is_effectively_stealthed(&self) -> bool {
+        self.status.stealthed && !self.status.detected
+    }
+
+    /// Effective detection radius for this unit when `is_detector`.
+    /// C++: DetectionRange if > 0 else vision range.
+    pub fn effective_detection_range(&self) -> f32 {
+        if self.detection_range > 0.0 {
+            self.detection_range
+        } else {
+            self.get_template().sight_range
+        }
+    }
+
+    /// Mark this object as detected until `expires_frame` (logic frame exclusive).
+    /// C++ StealthUpdate::markAsDetected residual.
+    pub fn mark_detected(&mut self, expires_frame: u32) {
+        self.status.detected = true;
+        // Keep the later expiry if already detected by another scanner.
+        if expires_frame > self.detection_expires_frame {
+            self.detection_expires_frame = expires_frame;
+        }
+    }
+
+    /// Clear DETECTED status (stealth may remain active).
+    pub fn clear_detected(&mut self) {
+        self.status.detected = false;
+        self.detection_expires_frame = 0;
+    }
+
+    /// Break stealth entirely (fire / script residual).
+    pub fn break_stealth(&mut self) {
+        self.status.stealthed = false;
+        self.status.detected = false;
+        self.detection_expires_frame = 0;
+    }
+
+    /// Whether an enemy of `attacker_team` may target this object.
+    /// C++ WeaponSet::getCanAttackObject stealth gate residual.
+    pub fn is_targetable_by_enemy_of(&self, attacker_team: Team) -> bool {
+        if !self.is_alive() || !self.is_attackable() {
+            return false;
+        }
+        if self.team == attacker_team {
+            return false;
+        }
+        // Stealthed and not detected: not a valid target.
+        !self.is_effectively_stealthed()
+    }
+
+    /// Whether `weapon` can legally hit `target` (air/ground + range + stealth).
     pub fn can_target_with(&self, target: &Object, weapon: &Weapon) -> bool {
+        // C++ WeaponSet: stealthed + undetected cannot be attacked
+        // (including force-fire against pure stealth; disguise exception not residual).
+        if target.is_effectively_stealthed() && target.team != self.team {
+            return false;
+        }
+
         let target_is_air =
             target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
@@ -602,6 +681,9 @@ impl Object {
 
     /// True if primary **or** secondary can currently hit the target.
     pub fn can_target(&self, target: &Object) -> bool {
+        if target.is_effectively_stealthed() && target.team != self.team {
+            return false;
+        }
         if let Some(weapon) = &self.weapon {
             if self.can_target_with(target, weapon) {
                 return true;
@@ -747,6 +829,12 @@ impl Object {
                 damage: weapon_damage,
                 speed: weapon_speed,
             });
+
+            // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
+            // firing breaks stealth (default host residual).
+            if self.stealth_breaks_on_attack && self.status.stealthed {
+                self.break_stealth();
+            }
             true
         } else {
             false
@@ -1252,11 +1340,16 @@ impl Object {
         self.team_color = team.get_color();
     }
 
-    /// Check if this object is visible to a team (for fog of war)
+    /// Check if this object is visible to a team (for fog of war / targeting UI).
+    /// C++ residual: stealthed-and-undetected units are hidden from non-allied teams.
+    /// Detected stealthed units become visible (and targetable).
     pub fn is_visible_to_team(&self, team: Team) -> bool {
         // Team-local baseline visibility check. Global shroud/fog filtering is applied by
         // higher-level visibility queries in GameLogic that have object IDs and player context.
-        !self.status.stealthed || team == self.team
+        if team == self.team {
+            return true;
+        }
+        !self.is_effectively_stealthed()
     }
 
     /// Get a description string for UI display.
@@ -1351,6 +1444,64 @@ mod tests {
         assert!(object.target.is_none());
         assert!(object.target_location.is_some());
         assert!(object.status.attacking);
+    }
+
+    #[test]
+    fn effectively_stealthed_blocks_enemy_visibility_and_targeting() {
+        let mut stealthed = make_test_object();
+        stealthed.team = Team::USA;
+        stealthed.status.stealthed = true;
+        stealthed.status.detected = false;
+        stealthed.thing.template.add_kind_of(KindOf::Attackable);
+
+        assert!(stealthed.is_effectively_stealthed());
+        assert!(stealthed.is_visible_to_team(Team::USA));
+        assert!(!stealthed.is_visible_to_team(Team::China));
+        assert!(!stealthed.is_targetable_by_enemy_of(Team::China));
+
+        stealthed.status.detected = true;
+        assert!(!stealthed.is_effectively_stealthed());
+        assert!(stealthed.is_visible_to_team(Team::China));
+        assert!(stealthed.is_targetable_by_enemy_of(Team::China));
+    }
+
+    #[test]
+    fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
+        let mut object = make_test_object();
+        object.status.stealthed = true;
+        object.stealth_breaks_on_attack = true;
+        object.weapon = Some(Weapon {
+            damage: 100.0,
+            range: 100.0,
+            reload_time: 0.5,
+            last_fire_time: -1.0,
+            ..Weapon::default()
+        });
+        assert!(object.fire_at(ObjectId(2), 0.0));
+        assert!(!object.status.stealthed);
+        assert!(!object.status.detected);
+    }
+
+    #[test]
+    fn can_target_rejects_undetected_stealthed_enemy() {
+        let mut attacker = make_test_object();
+        attacker.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+
+        let mut target = make_test_object();
+        target.id = ObjectId(2);
+        target.team = Team::China;
+        target.status.stealthed = true;
+        target.status.detected = false;
+        target.set_position(Vec3::new(5.0, 0.0, 0.0));
+
+        assert!(!attacker.can_target(&target));
+
+        target.status.detected = true;
+        assert!(attacker.can_target(&target));
     }
 }
 
