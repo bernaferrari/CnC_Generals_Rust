@@ -40,6 +40,19 @@ fn main() {
             golden.status, golden.victory, golden.save_load_ok, golden.fought
         ));
     }
+    // Fail-closed honesty: synthetic host combat must not claim retail playability.
+    if !golden.synthetic_combat {
+        failed.push(format!(
+            "golden synthetic_combat={} (expected true for current host combat world)",
+            golden.synthetic_combat
+        ));
+    }
+    if golden.playable_claim {
+        failed.push(format!(
+            "golden playable_claim={} (must be false while synthetic_combat)",
+            golden.playable_claim
+        ));
+    }
 
     // 3) Breadth categories.
     let breadth = run_all_breadth();
@@ -70,6 +83,12 @@ fn main() {
     if shell.status != "success" {
         failed.push(format!("shell {}", shell.detail));
     }
+    if shell.playable_claim {
+        failed.push(format!(
+            "shell playable_claim={} (headless smoke must fail-closed)",
+            shell.playable_claim
+        ));
+    }
 
     // 6) RC package.
     let rc = run_release_candidate_package(2, 5);
@@ -86,10 +105,10 @@ fn main() {
     }
 
     if failed.is_empty() {
-        // Shell remains headless (no window/WND). Golden is synthetic_combat with
-        // playable_claim=false (fail-closed). Not multiplayer/campaign/windowed retail.
+        // PASS text reflects values already asserted above (not hardcoded-only).
         println!(
-            "behavior_gate: PASS (headless host APIs; golden synthetic_combat=true playable_claim=false; shell playable_claim=false; not retail playable)"
+            "behavior_gate: PASS (headless host APIs; golden synthetic_combat={} playable_claim={}; shell playable_claim={}; not retail playable)",
+            golden.synthetic_combat, golden.playable_claim, shell.playable_claim
         );
         std::process::exit(0);
     }
