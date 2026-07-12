@@ -10,10 +10,13 @@
    - proximity: enemy (not ally) in trigger range → area damage + destroy mine/trap
    - timed: absolute frame deadline → detonation
    - manual: `manual_detonate_mine` for demo-trap command residual
+   - **dozer/worker clear**: Worker/Dozer within clear range (5) of enemy/neutral mine
+     → `clear_mine_internal` (DAMAGE_DISARM residual) destroys mine with no splash;
+     clearers never proximity-detonate; idle clearers approach within scan range (100)
 3. `SpecialPowerType::ClusterMines` via `DoSpecialPower` places residual mine ring
    (not full OCL ClusterMinesBomb / GenerateMinefieldBehavior density).
-4. Honesty counters: places / proximity / timed / manual detonations;
-   `honesty_mine_place_trigger_ok` / `honesty_timed_demo_charge_ok`.
+4. Honesty counters: places / proximity / timed / manual detonations / clears;
+   `honesty_mine_place_trigger_ok` / `honesty_timed_demo_charge_ok` / `honesty_mine_clear_ok`.
 5. Tests (not log-only):
    - `mine_residual_place_enemy_triggers_damage`
    - `mine_residual_ally_does_not_trigger_land_mine`
@@ -21,11 +24,16 @@
    - `timed_demo_charge_residual_detonates_after_delay`
    - `cluster_mines_special_power_places_mines`
    - `demo_trap_manual_detonate_residual`
+   - `dozer_mine_clear_residual_disarms_enemy_mine_safely`
+   - `dozer_mine_clear_residual_approaches_then_clears`
+   - `dozer_mine_clear_residual_skips_ally_mine`
+   - `dozer_mine_clear_residual_infantry_still_triggers`
    - unit tests in `host_mines.rs`
 
 **Still residual (fail-closed, not claimed):**
-- Full C++ MinefieldBehavior virtual-mine regen / scoot / clearer immunity slots
-- Full DemoTrapUpdate weapon-slot mode matrix / dozer-disarm scan path
+- Full C++ MinefieldBehavior virtual-mine regen / scoot / multi-slot immunity
+- Full DemoTrapUpdate weapon-slot mode matrix / PreAttack scoop animation
+- Full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
 - Full StickyBombUpdate attach bones / geometry-based secondary splash
 - Full OCL ClusterMinesBomb aircraft delivery path
 - BoobyTrap install-on-building residual (related StickyBomb path)
