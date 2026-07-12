@@ -173,7 +173,16 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
     let cfg = golden_skirmish_config("PresConsumer");
     let _ = apply_skirmish_config(&mut logic, &cfg);
     host_templates(&mut logic);
-    let _ = logic.create_object("HostRanger", Team::USA, Vec3::new(5.0, 0.0, 0.0));
+    let id = logic
+        .create_object("HostRanger", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("ranger");
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    if let Some(o) = logic.get_object_mut(id) {
+        o.selected = true;
+        o.status.selected = true;
+    }
     logic.update();
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     let mut ui = GameUIState::default();
@@ -183,14 +192,28 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
     let supplies_ok = ui.credits == frame.local_supplies as i32;
     let objects_ok = frame.alive_object_count() >= 1;
     let minimap_ok = !frame.hud_minimap_units().is_empty();
-    let ok = supplies_ok && objects_ok && minimap_ok;
+    let panel_ok = hud.selection_panel().has_positive_health()
+        && ui.selection_panel.has_positive_health()
+        && (hud.selection_panel().health_current - 120.0).abs() < 0.01;
+    #[cfg(feature = "game_client")]
+    let control_bar_ok = {
+        let mut bar = game_client::gui::control_bar::ControlBar::new();
+        frame.apply_to_control_bar(&mut bar);
+        bar.selection_panel_health()
+            .map(|(hp, _)| (hp - 120.0).abs() < 0.01)
+            .unwrap_or(false)
+    };
+    #[cfg(not(feature = "game_client"))]
+    let control_bar_ok = true;
+    let ok = supplies_ok && objects_ok && minimap_ok && panel_ok && control_bar_ok;
     (
         ok,
         format!(
-            "credits={} objects={} minimap={} frame={}",
+            "credits={} objects={} minimap={} panel_hp={} frame={}",
             ui.credits,
             frame.alive_object_count(),
             frame.hud_minimap_units().len(),
+            hud.selection_panel().health_current,
             frame.frame.0
         ),
     )
