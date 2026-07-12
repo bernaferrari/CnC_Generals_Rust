@@ -16,6 +16,7 @@ pub mod host_upgrades;
 pub mod host_mines;
 pub mod host_radar_scan;
 pub mod host_spy_satellite;
+pub mod host_cia_intelligence;
 pub mod host_hero_abilities;
 pub mod host_repair;
 pub mod host_paradrop;
@@ -34,7 +35,9 @@ pub use combat_particles::{
     CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry,
 };
 pub use special_power_strikes::{
-    HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase, HostSuperweaponKind,
+    HostRadiationField, HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase,
+    HostSuperweaponKind, NUKE_RADIATION_DAMAGE_PER_TICK, NUKE_RADIATION_DURATION_FRAMES,
+    NUKE_RADIATION_RADIUS, NUKE_RADIATION_TICK_INTERVAL_FRAMES,
 };
 pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
@@ -51,6 +54,11 @@ pub use host_radar_scan::{
 pub use host_spy_satellite::{
     HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
     SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+};
+pub use host_cia_intelligence::{
+    HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,
+    CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
+    CIA_INTELLIGENCE_DURATION_FRAMES,
 };
 pub use host_hero_abilities::{
     HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,

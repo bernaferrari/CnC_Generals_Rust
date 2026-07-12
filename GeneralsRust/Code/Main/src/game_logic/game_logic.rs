@@ -509,8 +509,9 @@ pub struct GameLogic {
     /// Residual hq-gq7n: not full W3D GPU parity; PresentationFrame can observe entries.
     combat_particles: CombatParticleRegistry,
 
-    /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon).
-    /// Queues on DoSpecialPower and completes with area damage — fail-closed vs full retail.
+    /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
+    /// NuclearMissile). Queues on DoSpecialPower and completes with area damage —
+    /// NuclearMissile also spawns residual radiation. Fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
     /// Host America Paradrop / Airborne residual.
@@ -561,6 +562,10 @@ pub struct GameLogic {
     /// Host SpySatellite FOW temporary-reveal residual.
     /// Fail-closed: not full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
     spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
+
+    /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
+    /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
 
     /// Host hero special-ability residual (snipe / timed C4 / cash hack).
     /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
@@ -1375,6 +1380,8 @@ impl GameLogic {
             repair_residual_vehicle_heals: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             is_paused: false,
@@ -3333,7 +3340,8 @@ impl GameLogic {
         update_special_powers();
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
-        // ParticleCannon strikes (area damage). Fail-closed vs full OCL aircraft.
+        // ParticleCannon / NuclearMissile strikes (area damage + nuke radiation).
+        // Fail-closed vs full OCL aircraft / NeutronMissileUpdate.
         self.update_special_power_strikes();
 
         // Host America Paradrop residual: spawn infantry after approach delay.
@@ -3351,6 +3359,10 @@ impl GameLogic {
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
         self.update_spy_satellites();
+
+        // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
+        // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.
+        self.update_cia_intelligence();
 
         // Host China FireWall residual: tick fire damage along wall segments.
         // Fail-closed vs full OCL FireWallSegment / InchForwardLocomotor.
@@ -9057,6 +9069,230 @@ impl GameLogic {
     }
 
     // -----------------------------------------------------------------------
+    // CIA Intelligence / SpyVision residual (setUnitsVisionSpied)
+    // Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
+    // -----------------------------------------------------------------------
+
+    /// Host CIA Intelligence residual registry (activate + honesty).
+    pub fn cia_intelligence(
+        &self,
+    ) -> &crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry {
+        &self.cia_intelligence
+    }
+
+    /// Residual honesty: CIA Intelligence activated at least once.
+    pub fn honesty_cia_intelligence_activate_ok(&self) -> bool {
+        self.cia_intelligence.honesty_activate_ok()
+    }
+
+    /// Residual honesty: at least one enemy unit was vision-spied.
+    pub fn honesty_cia_intelligence_vision_spied_ok(&self) -> bool {
+        self.cia_intelligence.honesty_vision_spied_ok()
+    }
+
+    /// Residual honesty: FOW was cleared at least once at an enemy unit.
+    pub fn honesty_cia_intelligence_fow_ok(&self) -> bool {
+        self.cia_intelligence.honesty_fow_reveal_ok()
+    }
+
+    /// Combined host path honesty for CIA Intelligence residual.
+    pub fn honesty_cia_intelligence_ok(&self) -> bool {
+        self.cia_intelligence.honesty_host_path_ok()
+    }
+
+    /// Activate CIA Intelligence residual: temporarily vision-spy all enemy units.
+    ///
+    /// Matches retail SuperweaponCIAIntelligence / SpyVisionSpecialPower BaseDuration
+    /// (30000 ms → 900 frames). For each enemy unit: set vision-spied residual,
+    /// temporary FOW reveal at unit position (sight_range residual), and mark
+    /// stealthed units DETECTED so they become visible/targetable.
+    ///
+    /// Fail-closed: not SpyVisionUpdate upgrade mux / self-powered / kindof filter /
+    /// capture / sabotage-disable / full OBJECT_REGISTRY Player::setUnitsVisionSpied.
+    pub fn activate_cia_intelligence(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_cia_intelligence::{
+            HostCiaIntelligence, HostCiaIntelligenceSpiedUnit, CIA_INTELLIGENCE_ACTIVATE_AUDIO,
+            CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS, CIA_INTELLIGENCE_DURATION_FRAMES,
+        };
+        use gamelogic::common::Coord3D;
+
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+
+        let mut player_mask = 0u32;
+        for (&pid, player) in &self.players {
+            if player.team == team {
+                player_mask |= 1u32 << pid.min(31);
+            }
+        }
+        if player_mask == 0 {
+            player_mask = 1u32 << player_id.min(31);
+        }
+
+        let duration = CIA_INTELLIGENCE_DURATION_FRAMES;
+        let frame = self.frame;
+        let expires_frame = frame.saturating_add(duration);
+
+        // Collect enemy unit snapshots first (avoid borrow issues while mutating).
+        let enemy_snapshots: Vec<(ObjectId, Vec3, f32, bool)> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && obj.team != team
+                    && obj.team != Team::Neutral
+                    && caster_id.map(|c| c != obj.id).unwrap_or(true)
+            })
+            .map(|obj| {
+                let sight = obj.get_template().sight_range;
+                let radius = if sight > 0.0 {
+                    sight
+                } else {
+                    CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
+                };
+                (obj.id, obj.get_position(), radius, obj.status.stealthed)
+            })
+            .collect();
+
+        // Ensure shroud grid exists (tests / pre-map residual).
+        {
+            let shroud = get_shroud_manager();
+            if let Ok(mut shroud_mgr) = shroud.lock() {
+                if !shroud_mgr.has_shroud_grid() {
+                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                }
+            }
+        }
+
+        let mut spied_units = Vec::with_capacity(enemy_snapshots.len());
+        let mut any_vision_spied = false;
+        let mut any_fow = false;
+        let mut any_detect = false;
+        let mut audio_pos = caster_id
+            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .unwrap_or(Vec3::ZERO);
+
+        for (obj_id, location, radius, was_stealthed) in enemy_snapshots {
+            // Mark vision-spied residual on Main object (setUnitsVisionSpied residual).
+            if let Some(obj) = self.objects.get_mut(&obj_id) {
+                obj.set_vision_spied_by_player(player_id, true);
+                any_vision_spied = true;
+                // Stealthed residual: DETECTED until spy expires so unit is
+                // visible/targetable (goal: enemy units become detectable).
+                if was_stealthed || obj.status.stealthed {
+                    obj.mark_detected(expires_frame);
+                    any_detect = true;
+                }
+            }
+
+            // Temporary FOW reveal at enemy unit (spy their vision residual).
+            // ShroudManager grid axes are (x, y); host uses (x, z) ground plane.
+            let center = Coord3D::new(location.x, location.z, location.y);
+            let fow_reveal_ok = {
+                let shroud = get_shroud_manager();
+                let mut shroud_mgr = match shroud.lock() {
+                    Ok(mgr) => mgr,
+                    Err(_) => {
+                        spied_units.push(HostCiaIntelligenceSpiedUnit {
+                            object_id: obj_id,
+                            location,
+                            radius,
+                            fow_reveal_ok: false,
+                            detected_ok: was_stealthed,
+                        });
+                        continue;
+                    }
+                };
+                shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+                shroud_mgr.queue_undo_shroud_reveal(
+                    &center,
+                    radius,
+                    player_mask,
+                    duration,
+                    frame,
+                );
+                let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
+                if !visible {
+                    for bit in 0..32u32 {
+                        if (player_mask & (1u32 << bit)) != 0
+                            && shroud_mgr.is_position_visible(bit, &center)
+                        {
+                            visible = true;
+                            break;
+                        }
+                    }
+                }
+                visible
+            };
+            if fow_reveal_ok {
+                any_fow = true;
+            }
+            audio_pos = location;
+            spied_units.push(HostCiaIntelligenceSpiedUnit {
+                object_id: obj_id,
+                location,
+                radius,
+                fow_reveal_ok,
+                detected_ok: was_stealthed,
+            });
+        }
+
+        let act_id = self.cia_intelligence.alloc_id();
+        self.cia_intelligence.record_activation(HostCiaIntelligence {
+            id: act_id,
+            player_id,
+            player_mask,
+            spying_team: team,
+            activate_frame: frame,
+            expires_frame,
+            caster_id,
+            spied_units,
+            vision_spied_ok: any_vision_spied,
+            fow_reveal_ok: any_fow,
+            detect_ok: any_detect,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(CIA_INTELLIGENCE_ACTIVATE_AUDIO)
+                .with_position(audio_pos)
+                .with_priority(150),
+        );
+
+        // Residual success: activation recorded (even with zero enemies — honesty
+        // activate_ok). Vision-spied path preferred when enemies present.
+        self.cia_intelligence.activations() > 0
+    }
+
+    /// Advance CIA Intelligence residual: clear expired vision-spied marks + FOW undos.
+    fn update_cia_intelligence(&mut self) {
+        let cleared = self.cia_intelligence.prune_expired(self.frame);
+        // Clear vision_spied residual marks only if no other active spy still covers them.
+        for obj_id in cleared {
+            let still_spied = self
+                .cia_intelligence
+                .active_scans()
+                .iter()
+                .any(|a| a.is_object_spied(obj_id));
+            if still_spied {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&obj_id) {
+                // Clear all spy player bits that no longer have an active residual.
+                // Residual simplification: clear full mask when no active spy covers unit.
+                obj.vision_spied_mask = 0;
+            }
+        }
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // China FireWall / Firestorm residual (Dragon Tank FIRE_WEAPON secondary)
     // Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
     // -----------------------------------------------------------------------
@@ -9853,7 +10089,10 @@ impl GameLogic {
     }
 
     /// Advance pending host superweapon strikes to impact and apply area damage.
+    /// NuclearMissile residual also ticks radiation fields after impact.
     pub fn update_special_power_strikes(&mut self) {
+        use crate::game_logic::special_power_strikes::NUKE_RADIATION_AUDIO;
+
         self.special_power_strikes.clear_frame_events();
 
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
@@ -9913,6 +10152,21 @@ impl GameLogic {
                 objects_destroyed,
             );
 
+            // NuclearMissile residual: radiation field ambient cue on spawn.
+            if plan.kind.spawns_radiation()
+                && !self
+                    .special_power_strikes
+                    .radiation_spawned_this_frame()
+                    .is_empty()
+            {
+                self.queue_audio_event(
+                    AudioEventRequest::new(NUKE_RADIATION_AUDIO)
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(150),
+                );
+            }
+
             log::info!(
                 "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
                 plan.kind.label(),
@@ -9923,6 +10177,60 @@ impl GameLogic {
                 objects_destroyed
             );
         }
+
+        // NuclearMissile residual radiation field ticks (after impact blasts).
+        self.update_nuclear_radiation_fields();
+    }
+
+    /// Tick residual radiation fields spawned by NuclearMissile impacts.
+    /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard objects.
+    fn update_nuclear_radiation_fields(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_radiation_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.special_power_strikes.record_radiation_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.special_power_strikes.prune_expired_radiation(frame);
     }
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
@@ -18154,6 +18462,217 @@ mod tests {
             .honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
     }
 
+    /// Residual: NuclearMissile (China NeutronMissile) queues delayed area damage
+    /// and spawns residual radiation field after impact.
+    /// Fail-closed: not full OCL flight / multi-blast SlowDeath / cleanup-hazard.
+    #[test]
+    fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{
+            HostSuperweaponKind, NUKE_RADIATION_DAMAGE_PER_TICK, NUKE_RADIATION_AUDIO,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        // Survivor for radiation residual: far enough to avoid lethal blast but
+        // inside radiation radius (200). Blast outer = 210, max 3500 at ≤60.
+        // Place at ~150: mid falloff still high; use high HP survivor that lives
+        // past blast if outside inner, then takes radiation ticks.
+        let rad_victim_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(150.0, 0.0, 0.0))
+            .expect("rad victim");
+        let far_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(800.0, 0.0, 0.0))
+            .expect("far enemy");
+
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 800.0;
+            enemy.health.maximum = 800.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let v = game_logic.find_object_mut(rad_victim_id).expect("rad victim");
+            // Blast falloff at 150: inner 60, outer 210 → t=(150-60)/150=0.6 → dmg=3500*0.4=1400
+            v.health.current = 5000.0;
+            v.health.maximum = 5000.0;
+            v.thing.template.armor = 0.0;
+        }
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 500.0;
+            far.health.maximum = 500.0;
+            far.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(40.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::NuclearMissile,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 1, // Team::China
+            command_id: 50,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::NuclearMissile),
+            "NuclearMissile must queue a pending host strike"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponNuclearMissile"),
+            "activation must queue SuperweaponNuclearMissile audio"
+        );
+        assert!(
+            game_logic.special_power_strikes().radiation_fields().is_empty(),
+            "radiation must not spawn before impact"
+        );
+
+        // Before impact delay: no damage.
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let rad_before = game_logic.find_object(rad_victim_id).unwrap().health.current;
+        game_logic.frame = 179;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no blast damage before impact frame 180"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::NuclearMissile));
+
+        // At impact: blast + radiation field spawn + first radiation tick.
+        game_logic.frame = 180;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::NuclearMissile),
+            "NuclearMissile must complete on impact frame"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_radiation_ok(),
+            "NuclearMissile must spawn residual radiation"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::NuclearMissile),
+            "host path honesty requires complete blast + radiation spawn"
+        );
+
+        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        assert!(
+            enemy_after.is_none()
+                || enemy_after == Some(0.0)
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy at epicenter must take lethal NuclearMissile residual damage"
+        );
+
+        // Radiation victim took blast falloff + one radiation tick (same impact frame).
+        let rad_after = game_logic
+            .find_object(rad_victim_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            rad_after < rad_before,
+            "mid-radius victim must take blast and/or radiation damage (before={rad_before}, after={rad_after})"
+        );
+        // Far unit untouched.
+        assert!(
+            game_logic
+                .find_object(far_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside blast/radiation radius must be untouched"
+        );
+
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "NuclearMissileImpact"),
+            "impact must queue NuclearMissileImpact audio"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == NUKE_RADIATION_AUDIO),
+            "impact must queue radiation ambient residual"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "impact must register DeathExplosion particle residual"
+        );
+
+        // Second radiation tick after interval: more residual damage if still alive.
+        let rad_mid = game_logic
+            .find_object(rad_victim_id)
+            .map(|o| o.health.current);
+        if let Some(mid_hp) = rad_mid {
+            game_logic.frame = 180 + 23;
+            game_logic.update_special_power_strikes();
+            let rad_later = game_logic
+                .find_object(rad_victim_id)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            assert!(
+                rad_later < mid_hp - NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
+                    || rad_later == 0.0
+                    || game_logic.find_object(rad_victim_id).is_none(),
+                "second radiation tick must apply residual damage (mid={mid_hp}, later={rad_later})"
+            );
+            assert!(
+                game_logic
+                    .special_power_strikes()
+                    .honesty_radiation_damage_ok(),
+                "radiation damage honesty after tick"
+            );
+        }
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::NuclearMissile);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].objects_hit >= 1);
+        assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
     /// RadarScan is not a superweapon residual strike (separate FOW residual path).
     #[test]
     fn radar_scan_does_not_queue_superweapon_strike() {
@@ -18458,6 +18977,231 @@ mod tests {
             "scan bookkeeping expires after residual duration"
         );
         assert!(game_logic.spy_satellites().expirations() >= 1);
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "temporary reveal must undo after duration (fogged/hidden)"
+            );
+            assert!(
+                shroud.is_position_explored(0, &center),
+                "explored residual should remain after undo"
+            );
+        }
+
+        // Cleanup global shroud for other tests.
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1.0, 1.0);
+            shroud.clear_all();
+        }
+    }
+
+    /// CiaIntelligence is not a superweapon residual strike (SpyVision residual path).
+    #[test]
+    fn cia_intelligence_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+        // Enemy unit so residual has a vision-spy target.
+        let _enemy = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(300.0, 0.0, 300.0))
+            .expect("enemy");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CiaIntelligence,
+                target: PowerTarget::None,
+            },
+            player_id: 0,
+            command_id: 7,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "CiaIntelligence must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_cia_intelligence_activate_ok(),
+            "CiaIntelligence residual must record activation honesty"
+        );
+    }
+
+    /// Residual: CIA Intelligence temporarily vision-spies enemy units (visible/detectable).
+    /// Fail-closed: not full SpyVisionUpdate setUnitsVisionSpied module path.
+    #[test]
+    fn cia_intelligence_special_power_reveals_enemy_units() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DURATION_FRAMES;
+        use gamelogic::common::Coord3D;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Isolate global shroud for this residual test.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(1024.0, 1024.0);
+        }
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        // Far enemy so caster vision does not already clear the cell.
+        let enemy_pos = Vec3::new(400.0, 0.0, 400.0);
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::China, enemy_pos)
+            .expect("enemy");
+        // Stealthed residual: CIA must make unit detectable.
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.status.stealthed = true;
+            enemy.status.detected = false;
+        }
+        let center = Coord3D::new(enemy_pos.x, enemy_pos.z, enemy_pos.y);
+
+        // Baseline: enemy position shrouded, unit effectively stealthed.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "precondition: enemy must start shrouded"
+            );
+        }
+        assert!(
+            game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "precondition: enemy starts stealthed+undetected"
+        );
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .is_vision_spied_by_player(0),
+            "precondition: not vision-spied yet"
+        );
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CiaIntelligence,
+                target: PowerTarget::None,
+            },
+            player_id: 0,
+            command_id: 44,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_cia_intelligence_ok(),
+            "CiaIntelligence host residual path honesty (activate + vision-spied)"
+        );
+        assert_eq!(game_logic.cia_intelligence().activations(), 1);
+        assert_eq!(game_logic.cia_intelligence().active_count(), 1);
+        assert!(
+            game_logic.cia_intelligence().units_spied() >= 1,
+            "must vision-spy at least one enemy unit"
+        );
+        assert!(
+            game_logic
+                .cia_intelligence()
+                .is_object_vision_spied(0, enemy_id),
+            "registry must track vision-spied enemy"
+        );
+        assert!(
+            game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .is_vision_spied_by_player(0),
+            "enemy Object residual vision_spied_mask must be set"
+        );
+
+        // FOW observable: enemy cell visible after spy vision residual.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                shroud.is_position_visible(0, &center),
+                "CiaIntelligence must reveal FOW at enemy unit position"
+            );
+        }
+
+        // Detectable residual: stealthed enemy becomes DETECTED / visible / targetable.
+        let enemy_after = game_logic.find_object(enemy_id).unwrap();
+        assert!(
+            enemy_after.status.detected,
+            "stealthed enemy must become DETECTED residual"
+        );
+        assert!(
+            !enemy_after.is_effectively_stealthed(),
+            "detected residual must clear effectively-stealthed"
+        );
+        assert!(
+            enemy_after.is_visible_to_team(Team::USA),
+            "enemy unit must be visible to spying team residual"
+        );
+        assert!(
+            enemy_after.is_targetable_by_enemy_of(Team::USA),
+            "enemy unit must be targetable residual after detect"
+        );
+        assert!(
+            game_logic.cia_intelligence().detects() >= 1
+                || game_logic.cia_intelligence().active_scans()[0].detect_ok,
+            "detect honesty residual"
+        );
+
+        // Charge consumed, not a superweapon strike.
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
+
+        // Expire residual: advance past duration and run update path.
+        game_logic.frame = CIA_INTELLIGENCE_DURATION_FRAMES + 1;
+        game_logic.update_cia_intelligence();
+        assert_eq!(
+            game_logic.cia_intelligence().active_count(),
+            0,
+            "spy bookkeeping expires after residual duration"
+        );
+        assert!(game_logic.cia_intelligence().expirations() >= 1);
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .is_vision_spied_by_player(0),
+            "vision_spied residual mark must clear after expiry"
+        );
         {
             let shroud = get_shroud_manager().lock().expect("shroud");
             assert!(

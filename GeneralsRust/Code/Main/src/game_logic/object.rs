@@ -154,6 +154,11 @@ pub struct Object {
     /// C++ STEALTH_NOT_WHILE_ATTACKING residual: firing breaks stealth.
     /// Default true for host residual honesty.
     pub stealth_breaks_on_attack: bool,
+
+    /// Host residual: bitmask of player indices currently vision-spying this unit
+    /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
+    /// Fail-closed: not full looking_mask partition maintenance.
+    pub vision_spied_mask: u32,
 }
 
 /// AI behavior states
@@ -271,6 +276,7 @@ impl Object {
             detection_range: 0.0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
+            vision_spied_mask: 0,
         }
     }
 
@@ -334,6 +340,7 @@ impl Object {
             detection_range: 0.0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
+            vision_spied_mask: 0,
         }
     }
 
@@ -646,6 +653,23 @@ impl Object {
         self.status.stealthed = false;
         self.status.detected = false;
         self.detection_expires_frame = 0;
+    }
+
+    /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
+    /// When on, spying player treats this unit as a temporary looker / revealed target.
+    pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
+        let bit = 1u32 << player_id.min(31);
+        if on {
+            self.vision_spied_mask |= bit;
+        } else {
+            self.vision_spied_mask &= !bit;
+        }
+    }
+
+    /// True if `player_id` currently has vision-spied residual on this unit.
+    pub fn is_vision_spied_by_player(&self, player_id: u32) -> bool {
+        let bit = 1u32 << player_id.min(31);
+        (self.vision_spied_mask & bit) != 0
     }
 
     /// Whether an enemy of `attacker_team` may target this object.
