@@ -153,17 +153,36 @@ fn main() {
 
     if failed.is_empty() {
         // PASS text reflects values already asserted above (not hardcoded-only).
+        // Honesty flags: shell playable_claim always false; golden synthetic when no map;
+        // retail_* / combat_no_teleport / combat_realistic_* are residual honesty only.
         println!(
-            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={}; shell playable_claim={} shell_host_playable_ok={})",
+            "behavior_gate: PASS (headless host APIs; golden map_loaded={} synthetic_combat={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}; shell playable_claim={} shell_host_playable_ok={})",
             golden.map_loaded,
             golden.synthetic_combat,
             golden.playable_claim,
+            golden.retail_production_chain_ok,
+            golden.retail_gather_ok,
+            golden.combat_no_teleport_ok,
+            golden.combat_realistic_speed_ok,
+            golden.combat_store_damage_ok,
             shell.playable_claim,
             shell.shell_host_playable_ok
         );
         std::process::exit(0);
     }
-    eprintln!("behavior_gate: FAIL");
+    eprintln!(
+        "behavior_gate: FAIL golden_map={} synthetic={} playable_claim={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={} shell_claim={} shell_host_playable_ok={}",
+        golden.map_loaded,
+        golden.synthetic_combat,
+        golden.playable_claim,
+        golden.retail_production_chain_ok,
+        golden.retail_gather_ok,
+        golden.combat_no_teleport_ok,
+        golden.combat_realistic_speed_ok,
+        golden.combat_store_damage_ok,
+        shell.playable_claim,
+        shell.shell_host_playable_ok
+    );
     for f in failed {
         eprintln!("  - {f}");
     }

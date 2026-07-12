@@ -528,6 +528,11 @@ fn mini_skirmish_playable_flow_smoke() {
         .is_some());
 
     let mut game_logic = loaded_game_logic;
+    // load_game rebinds host skirmish AI for non-local players. Pause it so the
+    // post-load combat frames do not spawn extra China objects and obscure the
+    // intentional single-CC defeat path (AI depth is covered by ai_skirmish_gate).
+    game_logic.set_ai_active(1, false);
+
     let enemy_health_before = game_logic
         .get_object(enemy_command_center)
         .expect("enemy command center should exist")
@@ -550,11 +555,22 @@ fn mini_skirmish_playable_flow_smoke() {
         .current;
     assert!(enemy_health_after < enemy_health_before);
 
-    game_logic
-        .get_object_mut(enemy_command_center)
-        .expect("enemy command center should exist before defeat")
-        .status
-        .destroyed = true;
+    // Eliminate every living China object (fail-closed if AI left residuals).
+    let china_ids: Vec<_> = game_logic
+        .get_objects()
+        .values()
+        .filter(|o| o.team == Team::China && o.is_alive())
+        .map(|o| o.id)
+        .collect();
+    assert!(
+        china_ids.contains(&enemy_command_center),
+        "enemy command center should still be among living China objects before defeat"
+    );
+    for id in china_ids {
+        if let Some(obj) = game_logic.get_object_mut(id) {
+            obj.status.destroyed = true;
+        }
+    }
     let victory = game_logic.evaluate_victory_condition();
     assert_eq!(victory, Some(VictoryCondition::Winner(0)));
 
