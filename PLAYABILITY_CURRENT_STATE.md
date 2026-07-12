@@ -127,6 +127,36 @@
 - Network upgrade replication (network deferred)
 - Economy effect of SupplyLines beyond tag observability
 
+## Residual Host Playability — CaptureBuilding Action (2026-07-12)
+**Closed (host-testable unlock → CaptureBuilding → ownership transfer):**
+1. Gate: `team_has_completed_capture_upgrade` / hero path; infantry without Capture
+   research cannot enter `AIState::Capturing` when a player exists for the team.
+2. Command: `CommandType::CaptureBuilding` → `CommandExecutor::execute_capture_building`
+   sets target + destination + `AIState::Capturing` (does **not** flip ownership).
+3. Complete: `GameLogic::update_support_states` Capturing branch — when in range of a
+   live enemy structure (not under construction), cancels old production, `set_team`
+   to captor team, heals to max, radar "Building captured" residual, captor → Idle.
+4. Walk residual: out-of-range Capturing keeps destination; `Object::stop_moving` no
+   longer clobbers interaction AI states on arrival (only `Moving`/`AttackMoving` → Idle).
+5. Combat isolation: `update_combat` skips fire/chase while in Capturing (and other
+   interaction states). Capture sets `target` without being an attack order — without
+   this, default-weapon chase rewrote Capturing → Attacking mid-walk.
+6. Instant residual when in range (fail-closed vs C++ SpecialAbilityUpdate prep timer /
+   capture progress bar / defect flash).
+7. Tests (not log-only):
+   - `capture_building_upgrade_queue_complete_unlocks_capture_ability` (includes ownership)
+   - `capture_building_walk_into_range_transfers_ownership_after_upgrade`
+   - `capturing_state_transfers_building_when_in_range`
+   - `infantry_capture_requires_completed_capture_upgrade_when_player_exists`
+   - breadth scenario capture asserts team transfer after `update`
+
+**Still residual (fail-closed, not claimed):**
+- Full C++ capture progress bar / SpecialAbilityUpdate packing / prep duration
+- Object defection flash / undetected-defector helper timing
+- Black Lotus special capture path parity beyond hero gate residual
+- Network capture replication (network deferred)
+- Full ActionManager canCaptureBuilding edge matrix (stealthed, garrison, etc.)
+
 ## Residual Host Playability — Campaign SinglePlayer Path (2026-07-12)
 **Closed (host-testable campaign residual):**
 1. `golden_campaign` / `golden_campaign_gate` — SinglePlayer start, CampaignManager
