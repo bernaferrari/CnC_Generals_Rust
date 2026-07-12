@@ -750,15 +750,23 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         }
     }
 
+    // C++: INI::parseDurationUnsignedInt — msec → logic frames (30 FPS).
     if let Some(val) = properties.get("ClipReloadTime") {
-        if let Ok(time) = val.parse::<i32>() {
-            template.clip_reload_time = time;
+        let tokens: Vec<&str> = val.split_whitespace().collect();
+        if let Some(first) = tokens.first() {
+            if let Ok(msec) = first.parse::<i32>() {
+                template.clip_reload_time = msec_to_logic_frames(msec);
+            }
         }
     }
 
+    // C++: INI::parseDurationUnsignedInt — msec → logic frames (30 FPS).
     if let Some(val) = properties.get("PreAttackDelay") {
-        if let Ok(delay) = val.parse::<i32>() {
-            template.pre_attack_delay = delay;
+        let tokens: Vec<&str> = val.split_whitespace().collect();
+        if let Some(first) = tokens.first() {
+            if let Ok(msec) = first.parse::<i32>() {
+                template.pre_attack_delay = msec_to_logic_frames(msec);
+            }
         }
     }
 
@@ -859,15 +867,17 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         template.death_type = parse_death_type(val);
     }
 
+    // C++: INI::parseDurationUnsignedInt — msec → logic frames.
     if let Some(val) = properties.get("AutoReloadWhenIdle") {
-        if let Ok(frames) = val.parse::<u32>() {
-            template.auto_reload_when_idle_frames = frames;
+        if let Ok(msec) = val.parse::<i32>() {
+            template.auto_reload_when_idle_frames = msec_to_logic_frames(msec) as u32;
         }
     }
 
+    // C++: INI::parseDurationUnsignedInt — msec → logic frames.
     if let Some(val) = properties.get("SuspendFXDelay") {
-        if let Ok(delay) = val.parse::<u32>() {
-            template.suspend_fx_delay = delay;
+        if let Ok(msec) = val.parse::<i32>() {
+            template.suspend_fx_delay = msec_to_logic_frames(msec) as u32;
         }
     }
 
@@ -877,9 +887,10 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         }
     }
 
+    // C++: INI::parseDurationUnsignedInt — msec → logic frames.
     if let Some(val) = properties.get("HistoricBonusTime") {
-        if let Ok(time) = val.parse::<u32>() {
-            template.historic_bonus_time = time;
+        if let Ok(msec) = val.parse::<i32>() {
+            template.historic_bonus_time = msec_to_logic_frames(msec) as u32;
         }
     }
 
@@ -1137,6 +1148,39 @@ End
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].2.get("DamageType").unwrap(), "Explosion");
         assert_eq!(sections[0].2.get("AttackRange").unwrap(), "100.0");
+    }
+
+    #[test]
+    fn test_msec_to_logic_frames_matches_cpp_duration() {
+        // C++ ConvertDurationFromMsecsToFrames: ceil(msec * 30 / 1000)
+        assert_eq!(msec_to_logic_frames(0), 0);
+        assert_eq!(msec_to_logic_frames(-1), 0);
+        assert_eq!(msec_to_logic_frames(1000), 30); // 1 second
+        assert_eq!(msec_to_logic_frames(100), 3); // ceil(3.0)
+        assert_eq!(msec_to_logic_frames(33), 1); // ceil(0.99) = 1
+        assert_eq!(msec_to_logic_frames(2000), 60);
+    }
+
+    #[test]
+    fn test_clip_reload_and_pre_attack_use_frame_conversion() {
+        // Register a weapon with msec durations; store must hold logic frames.
+        let _ = gamelogic::initialize_weapon_store();
+        let mut props = HashMap::new();
+        props.insert("ClipReloadTime".into(), "2000".into()); // 2000ms → 60 frames
+        props.insert("PreAttackDelay".into(), "500".into()); // 500ms → 15 frames
+        props.insert("PrimaryDamage".into(), "10.0".into());
+        props.insert("AttackRange".into(), "100.0".into());
+        assert!(register_weapon_template("TestClipReloadWeapon", &props));
+
+        let frames = gamelogic::with_weapon_store(|store| {
+            let t = store
+                .find_weapon_template("TestClipReloadWeapon")
+                .expect("template registered");
+            (t.clip_reload_time, t.pre_attack_delay)
+        })
+        .expect("weapon store available");
+        assert_eq!(frames.0, 60, "ClipReloadTime 2000ms → 60 frames");
+        assert_eq!(frames.1, 15, "PreAttackDelay 500ms → 15 frames");
     }
 
     #[test]
