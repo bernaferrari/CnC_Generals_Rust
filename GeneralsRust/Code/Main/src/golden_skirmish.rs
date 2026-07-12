@@ -8,11 +8,13 @@
 //! - **Synthetic host** (no retail map): GoldenCC/GoldenEnemyCC host soup.
 //!   synthetic_combat=true, playable_claim=false.
 //!
-//! Combat honesty residual (`combat_no_teleport_ok`):
-//! - Prefer pure `assign_unit_path` / Move march into weapon range, then AttackObject.
-//! - `set_position` range pull is a **narrow** per-focus-target fallback only after stall.
-//! - Flag is true only when damage/kills happen without any combat pull.
-//! - Fail-closed honesty only: does **not** gate `playable_claim` when victory still works.
+//! Combat honesty residuals (do **not** gate `playable_claim` when victory still works):
+//! - `combat_no_teleport_ok`: pure `assign_unit_path` / Move into range + AttackObject;
+//!   no `set_position` range pull. Pull remains a narrow per-focus stall fallback only.
+//! - `combat_realistic_speed_ok`: march speed ≤ retail BasicHumanLocomotor (20 u/s),
+//!   not the old slice-only 80 u/s assist.
+//! - `combat_store_damage_ok`: weapons keep WeaponStore/template damage (retail ranger ~5);
+//!   no slice-only damage floor (was 40).
 
 use crate::authoritative_world::{set_verification_single_authority, AuthorityProbe};
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
@@ -82,6 +84,12 @@ pub struct GoldenSkirmishResult {
     /// Fail-closed residual: playable_claim still holds if victory used the
     /// narrow teleport fallback; this flag alone reports pure-march honesty.
     pub combat_no_teleport_ok: bool,
+    /// Honesty: true when slice march speed stayed ≤ retail infantry (~20 u/s).
+    /// Fail-closed residual: does not gate playable_claim.
+    pub combat_realistic_speed_ok: bool,
+    /// Honesty: true when weapons used store/template damage without a slice
+    /// damage floor (retail RangerAdvancedCombatRifle ~5). Fail-closed residual.
+    pub combat_store_damage_ok: bool,
     pub status: String,
 }
 
@@ -106,6 +114,10 @@ struct VerticalSliceOutcome {
     retail_gather_ok: bool,
     /// Fought without set_position combat range pull.
     combat_no_teleport_ok: bool,
+    /// March speed ≤ retail BasicHumanLocomotor (no 80 u/s assist).
+    combat_realistic_speed_ok: bool,
+    /// No slice damage floor above WeaponStore/template stats.
+    combat_store_damage_ok: bool,
 }
 
 fn command(
@@ -669,32 +681,46 @@ fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_po
     })
 }
 
-/// Slice-only move speed boost so pure march can cross map distances without
-/// cheat damage / HP. Does not change weapons or enemy health.
-///
-/// Lone Eagle player spawns are ~0.2/0.8 of a 3500 map (~3k units apart). At the
-/// prior 40 u/s cap the 1800-frame march budget could not close before the
-/// set_position stall fired — raise speed so honest path following can finish.
-fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) {
-    const SLICE_MARCH_SPEED: f32 = 80.0;
-    const SLICE_MARCH_ACCEL: f32 = 80.0; // reach full speed in ~1 logic second
-    // Retail store ranger damage is ~5; GLA_CC is 1800 HP. Slice-only floor so a
-    // pure-march squad can finish multi-structure clears without set_position.
-    // Not a take_damage/re-team cheat — weapons still fire via update_combat.
-    const SLICE_DAMAGE_FLOOR: f32 = 40.0;
+/// Retail BasicHumanLocomotor Speed (AmericaInfantryRanger). Host Movement
+/// default is 10; lift toward retail so pure-march budgets use real infantry pace.
+const RETAIL_INFANTRY_SPEED: f32 = 20.0;
+/// Retail BasicHumanLocomotor Acceleration (dist/sec²).
+const RETAIL_INFANTRY_ACCEL: f32 = 100.0;
+/// Slice march speed cap. Prefer retail (20); only raise above retail if pure
+/// march still stalls on large maps (honesty residual — see flags).
+const SLICE_MARCH_SPEED: f32 = RETAIL_INFANTRY_SPEED;
+/// Slice damage floor. 0 = keep WeaponStore/template damage (retail ranger ~5).
+/// Non-zero reintroduces the old clear assist and clears `combat_store_damage_ok`.
+const SLICE_DAMAGE_FLOOR: f32 = 0.0;
+
+/// Apply locomotor/weapon assists for the golden fight. Prefer retail-honest
+/// values (speed ≤ 20, no damage floor). Returns
+/// `(combat_realistic_speed_ok, combat_store_damage_ok)`.
+fn boost_ranger_march_speed(logic: &mut GameLogic, rangers: &[ObjectId]) -> (bool, bool) {
+    let mut max_applied_speed = 0.0_f32;
+    let mut raised_damage = false;
     for &rid in rangers {
         if let Some(r) = logic.get_object_mut(rid) {
             if r.movement.max_speed < SLICE_MARCH_SPEED {
                 r.movement.max_speed = SLICE_MARCH_SPEED;
-                r.movement.acceleration = r.movement.acceleration.max(SLICE_MARCH_ACCEL);
+                r.movement.acceleration = r.movement.acceleration.max(RETAIL_INFANTRY_ACCEL);
             }
-            if let Some(w) = r.weapon.as_mut() {
-                if w.damage < SLICE_DAMAGE_FLOOR {
-                    w.damage = SLICE_DAMAGE_FLOOR;
+            max_applied_speed = max_applied_speed.max(r.movement.max_speed);
+            if SLICE_DAMAGE_FLOOR > 0.0 {
+                if let Some(w) = r.weapon.as_mut() {
+                    if w.damage < SLICE_DAMAGE_FLOOR {
+                        w.damage = SLICE_DAMAGE_FLOOR;
+                        raised_damage = true;
+                    }
                 }
             }
         }
     }
+    let realistic_speed_ok =
+        max_applied_speed <= RETAIL_INFANTRY_SPEED + 0.01 || rangers.is_empty();
+    // Store damage honesty: no floor raise above template/WeaponStore values.
+    let store_damage_ok = !raised_damage;
+    (realistic_speed_ok, store_damage_ok)
 }
 
 /// Approach point well inside default weapon range (100) of an enemy.
@@ -709,7 +735,7 @@ fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
 /// cannot reach (pathfinding incomplete / units stuck far out of range with no
 /// damage progress). No take_damage / re-team / force-clear.
 ///
-/// Returns `(fought, all_cleared, combat_no_teleport_ok)`.
+/// Returns `(fought, all_cleared, combat_no_teleport_ok, realistic_speed_ok, store_damage_ok)`.
 /// `combat_no_teleport_ok` is true only when damage/kills happened without any
 /// set_position combat range pull.
 fn fight_enemies_with_rangers(
@@ -717,13 +743,13 @@ fn fight_enemies_with_rangers(
     rangers: &[ObjectId],
     primary_target: Option<ObjectId>,
     max_rounds: u32,
-) -> (bool, bool, bool) {
+) -> (bool, bool, bool, bool, bool) {
     if rangers.is_empty() {
-        return (false, false, false);
+        return (false, false, false, false, false);
     }
 
-    // Help pure march cross large map distances (no damage cheat).
-    boost_ranger_march_speed(logic, rangers);
+    // Prefer retail infantry speed + store weapon damage (no 80/40 assists).
+    let (realistic_speed_ok, store_damage_ok) = boost_ranger_march_speed(logic, rangers);
 
     let primary_hp_before = primary_target
         .and_then(|id| logic.get_object(id).map(|o| o.health.current))
@@ -737,12 +763,12 @@ fn fight_enemies_with_rangers(
     let mut stalled_oor_rounds: u32 = 0;
     let mut focus_target: Option<ObjectId> = None;
     let mut focus_hp_at_acquire: f32 = 0.0;
-    // After the initial long march, allow ~20s more pure pathing before residual pull.
-    // (Prior 60 rounds ≈ 6s was shorter than a half-map re-path on Lone Eagle.)
-    const STALL_BEFORE_TELEPORT: u32 = 200;
+    // At retail infantry speed (~20), secondary bases need a longer pure-path window
+    // before residual pull (prior 200 rounds was tuned for 80 u/s).
+    const STALL_BEFORE_TELEPORT: u32 = 400;
     let mut cmd_id: u32 = 600;
-    // Matches boost_ranger_march_speed.
-    const MARCH_SPEED: f32 = 80.0;
+    // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
+    const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
 
     // --- Initial pure march toward primary / first enemy ---
     let initial_target = primary_target.filter(|id| {
@@ -787,9 +813,9 @@ fn fight_enemies_with_rangers(
                     .fold(Vec3::ZERO, |a, p| a + p)
                     / (live.len() as f32).max(1.0);
                 let dist = horiz_distance(centroid, ep);
-                // frames ≈ dist/speed * 30 + buffer; allow full diagonal of 3.5k maps.
-                let march_frames = ((dist / MARCH_SPEED) * 30.0) as usize + 180;
-                let march_frames = march_frames.clamp(90, 4500);
+                // frames ≈ dist/speed * 30 + buffer; retail 20 u/s needs ~5250 for 3.5k maps.
+                let march_frames = ((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 300;
+                let march_frames = march_frames.clamp(90, 9000);
                 // March until in range or budget exhausted.
                 let _ = run_until(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
@@ -874,7 +900,7 @@ fn fight_enemies_with_rangers(
                 .fold(Vec3::ZERO, |a, p| a + p)
                 / (live.len() as f32).max(1.0);
             let dist = horiz_distance(centroid, ep);
-            let mini = (((dist / MARCH_SPEED) * 30.0) as usize + 90).clamp(30, 2400);
+            let mini = (((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 180).clamp(30, 4800);
             let _ = run_until(logic, mini, |g| {
                 any_ranger_in_weapon_range(g, &live, ep)
             });
@@ -1027,7 +1053,13 @@ fn fight_enemies_with_rangers(
     let fought = any_damage || combat_destroyed;
     // Honesty: damage/victory without ever pulling via set_position.
     let combat_no_teleport_ok = fought && !used_teleport_pull;
-    (fought, combat_destroyed && !enemies_left, combat_no_teleport_ok)
+    (
+        fought,
+        combat_destroyed && !enemies_left,
+        combat_no_teleport_ok,
+        realistic_speed_ok,
+        store_damage_ok,
+    )
 }
 
 /// Synthetic host combat world: GoldenCC + GoldenEnemyCC soup (no map load).
@@ -1178,8 +1210,10 @@ fn run_synthetic_host_skirmish(
         }),
         "production rangers must receive template weapons at create"
     );
-    let (fought, all_cleared, combat_no_teleport_ok) =
-        fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 800);
+    // GoldenRanger template damage is 25 (not store 5); still no floor raise.
+    // Synthetic world is short-range — retail speed is fine.
+    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
+        fight_enemies_with_rangers(logic, &production_rangers, Some(enemy_cc), 1200);
 
     let frame_before = logic.get_frame();
     run_frames(logic, frames.max(1) as usize);
@@ -1215,6 +1249,8 @@ fn run_synthetic_host_skirmish(
         // Synthetic host always uses GoldenSupply — honesty fail-closed.
         retail_gather_ok: false,
         combat_no_teleport_ok,
+        combat_realistic_speed_ok,
+        combat_store_damage_ok,
     }
 }
 
@@ -1309,6 +1345,8 @@ fn run_map_world_skirmish(
             retail_production_chain_ok: false,
             retail_gather_ok: false,
             combat_no_teleport_ok: false,
+            combat_realistic_speed_ok: false,
+            combat_store_damage_ok: false,
         };
     };
     let dozer_is_retail = logic
@@ -1451,20 +1489,21 @@ fn run_map_world_skirmish(
             None => vec!["GoldenRanger".into()],
         };
         for rname in &ranger_candidates {
-            ensure_human_economy(logic, 10_000, 500);
+            ensure_human_economy(logic, 15_000, 500);
+            // More rangers compensate for store damage (~5) vs prior floor (40).
             let queue_cmd = command(
                 4,
                 0,
                 CommandType::QueueUnitCreate {
                     template_name: rname.clone(),
-                    quantity: 8,
+                    quantity: 12,
                 },
                 vec![bid],
             );
             let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
                 || {
                     let mut any = false;
-                    for _ in 0..8 {
+                    for _ in 0..12 {
                         any |= logic.enqueue_production(bid, rname.clone());
                     }
                     any
@@ -1472,7 +1511,7 @@ fn run_map_world_skirmish(
             if !queue_ok {
                 continue;
             }
-            let got_two = run_until(logic, 480, |g| {
+            let got_two = run_until(logic, 600, |g| {
                 g.get_objects()
                     .values()
                     .filter(|o| {
@@ -1484,7 +1523,8 @@ fn run_map_world_skirmish(
             if got_two {
                 produced = true;
                 ranger_name_used = rname.clone();
-                let _ = run_until(logic, 480, |g| {
+                // Prefer a full squad so store damage (~5) can clear multi-structure maps.
+                let _ = run_until(logic, 900, |g| {
                     g.get_objects()
                         .values()
                         .filter(|o| {
@@ -1493,7 +1533,7 @@ fn run_map_world_skirmish(
                                 && is_produced_ranger(&o.template_name)
                         })
                         .count()
-                        >= 4
+                        >= 8
                 });
                 break;
             }
@@ -1558,45 +1598,60 @@ fn run_map_world_skirmish(
     let primary_alive_before = primary_enemy
         .map(|id| logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
         .unwrap_or(false);
-    // Retail rangers may use lower store damage (5) vs golden (25); allow more rounds.
-    // Large skirmish maps also need headroom for multi-base pure-march clears.
+    // Retail store damage ~5 (was floor 40); longer windows + more rangers compensate.
+    // Large skirmish maps also need headroom for multi-base pure-march at 20 u/s.
     let fight_rounds = if is_retail_ranger_name(&ranger_name_used) {
-        2500
+        4000
     } else {
-        1200
+        2000
     };
     // Pause AI rebuild during the clear so pure-march rangers are not racing an
     // infinite production queue (teleport residual previously masked this).
     logic.set_ai_active(1, false);
-    let (fought, all_cleared, combat_no_teleport_ok) =
+    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
         fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
     // If a straggler remains (common: distant GLA_CC), one more pure-march sweep.
-    let (fought, all_cleared, combat_no_teleport_ok) = if !all_cleared {
-        let remaining = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
-        let live: Vec<_> = logic
-            .get_objects()
-            .values()
-            .filter(|o| {
-                o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
-            })
-            .map(|o| o.id)
-            .collect();
-        if remaining.is_some() && !live.is_empty() {
-            let (f2, c2, t2) =
-                fight_enemies_with_rangers(logic, &live, remaining, fight_rounds);
-            (
-                fought || f2,
-                c2 && !logic.get_objects().values().any(|o| {
-                    o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
-                }),
-                combat_no_teleport_ok && t2,
-            )
+    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
+        if !all_cleared {
+            let remaining = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
+            let live: Vec<_> = logic
+                .get_objects()
+                .values()
+                .filter(|o| {
+                    o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
+                })
+                .map(|o| o.id)
+                .collect();
+            if remaining.is_some() && !live.is_empty() {
+                let (f2, c2, t2, s2, d2) =
+                    fight_enemies_with_rangers(logic, &live, remaining, fight_rounds);
+                (
+                    fought || f2,
+                    c2 && !logic.get_objects().values().any(|o| {
+                        o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
+                    }),
+                    combat_no_teleport_ok && t2,
+                    combat_realistic_speed_ok && s2,
+                    combat_store_damage_ok && d2,
+                )
+            } else {
+                (
+                    fought,
+                    all_cleared,
+                    combat_no_teleport_ok,
+                    combat_realistic_speed_ok,
+                    combat_store_damage_ok,
+                )
+            }
         } else {
-            (fought, all_cleared, combat_no_teleport_ok)
-        }
-    } else {
-        (fought, all_cleared, combat_no_teleport_ok)
-    };
+            (
+                fought,
+                all_cleared,
+                combat_no_teleport_ok,
+                combat_realistic_speed_ok,
+                combat_store_damage_ok,
+            )
+        };
     logic.set_ai_active(1, true);
 
     let map_enemy_dead = primary_enemy
@@ -1640,8 +1695,10 @@ fn run_map_world_skirmish(
         same_world_victory_ok,
         retail_production_chain_ok,
         retail_gather_ok,
-        // Map path: honesty only — playable_claim does not require pure march.
+        // Map path: honesty only — playable_claim does not require pure march / assists.
         combat_no_teleport_ok,
+        combat_realistic_speed_ok,
+        combat_store_damage_ok,
     }
 }
 
@@ -1819,13 +1876,15 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         // Honesty residual: true when fought without set_position range pull.
         // Not gated into playable_claim (fail-closed honesty only).
         combat_no_teleport_ok: outcome.combat_no_teleport_ok,
+        combat_realistic_speed_ok: outcome.combat_realistic_speed_ok,
+        combat_store_damage_ok: outcome.combat_store_damage_ok,
         status,
     }
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -1854,7 +1913,9 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.players_preserved_on_load,
         r.retail_production_chain_ok,
         r.retail_gather_ok,
-        r.combat_no_teleport_ok
+        r.combat_no_teleport_ok,
+        r.combat_realistic_speed_ok,
+        r.combat_store_damage_ok
     )
 }
 
@@ -1937,6 +1998,18 @@ mod tests {
             if !result.combat_no_teleport_ok {
                 eprintln!(
                     "WARNING: combat_no_teleport_ok=false (set_position range pull residual used): {}",
+                    format_golden_report(&result)
+                );
+            }
+            if !result.combat_realistic_speed_ok {
+                eprintln!(
+                    "WARNING: combat_realistic_speed_ok=false (slice march speed above retail ~20): {}",
+                    format_golden_report(&result)
+                );
+            }
+            if !result.combat_store_damage_ok {
+                eprintln!(
+                    "WARNING: combat_store_damage_ok=false (slice damage floor above WeaponStore): {}",
                     format_golden_report(&result)
                 );
             }
@@ -2032,6 +2105,18 @@ mod tests {
         if !result.combat_no_teleport_ok {
             eprintln!(
                 "WARNING: combat used set_position range pull residual (pathfinding incomplete); playable_claim kept: {}",
+                format_golden_report(&result)
+            );
+        }
+        if !result.combat_realistic_speed_ok {
+            eprintln!(
+                "WARNING: combat_realistic_speed_ok=false (slice speed assist > retail infantry); playable_claim kept: {}",
+                format_golden_report(&result)
+            );
+        }
+        if !result.combat_store_damage_ok {
+            eprintln!(
+                "WARNING: combat_store_damage_ok=false (slice damage floor used); playable_claim kept: {}",
                 format_golden_report(&result)
             );
         }

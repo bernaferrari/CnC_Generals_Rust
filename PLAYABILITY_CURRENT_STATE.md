@@ -16,8 +16,10 @@
 ## Residual Host Playability — Combat March Honesty (2026-07-12)
 - Map-world golden skirmish prefers pure `assign_unit_path` / Move march into weapon range,
   then `AttackObject`. Narrow `set_position` range pull remains only after per-focus stall.
-- Honesty flag: `combat_no_teleport_ok` (true only when damage/kills without any combat pull).
-  Does **not** gate `playable_claim` when map victory still works.
+- Honesty flags (do **not** gate `playable_claim` when map victory still works):
+  - `combat_no_teleport_ok` — damage/kills without any combat `set_position` pull
+  - `combat_realistic_speed_ok` — march speed ≤ retail BasicHumanLocomotor (20 u/s)
+  - `combat_store_damage_ok` — no slice damage floor; WeaponStore/template damage (ranger ~5)
 
 ### Pathfinding / pure-march closure (2026-07-12)
 **Root causes fixed:**
@@ -29,17 +31,21 @@
 3. Path grid: flatter slope mask (MAX_SLOPE 4.0) + auto-clear if >35% blocked; A* closed set;
    nearest-open goal when building footprints block the cell.
 4. Golden fight: stable focus (no HashMap thrash), structure-prefer targeting, distance-scaled
-   march budgets for 3.5k maps, slice speed/damage floors, AI paused during clear.
+   march budgets for 3.5k maps, AI paused during clear; longer windows + more rangers replace
+   the old 80 u/s / damage-floor-40 assists.
 5. GLA/faction structures marked `Attackable` so combat targeting is consistent.
 
-**Lone Eagle gate (validated):**
+**Lone Eagle gate (target / validated when green):**
 `playable_claim=true`, `retail_prod=true`, `retail_gather=true`, **`combat_no_teleport_ok=true`**,
-`victory=true`, `map_combat=true`.
+`combat_realistic_speed_ok=true`, `combat_store_damage_ok=true`, `victory=true`, `map_combat=true`.
 
 **Residual (honest, non-blocking):**
-- Slice-only march speed (80) + damage floor (40) are golden-scenario assists, not full locomotor
-  / weapon INI parity. Real-time play still needs proper locomotor stats and SAGE passability.
-- `set_position` stall fallback code remains for pathological maps; currently unused on Lone Eagle.
+- Slice still lifts host default Movement (10) toward retail infantry (20) + accel 100 — not a full
+  Locomotor.ini bind. Reintroduce SLICE_MARCH_SPEED > 20 or SLICE_DAMAGE_FLOOR > 0 only if
+  pure-march budgets fail; that would clear the matching honesty flag without flipping claim off.
+- Full Weapon.ini / locomotor parity and SAGE passability remain open for real-time play.
+- `set_position` stall fallback code remains for pathological maps; currently unused on Lone Eagle
+  when pure march succeeds.
 - Network still deferred.
 
 ## Recent Validated Closures (2026-04-02)
