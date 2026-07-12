@@ -1689,13 +1689,12 @@ impl GameLogic {
             // Reset static blocks to the terrain-derived mask each map load.
             self.pathfinding_system.clear_static_blocks();
 
-            // Coarse impassability heuristic:
+            // Coarse impassability heuristic until real SAGE passability layers land:
             // - Keep units inside map bounds
-            // - Treat very steep slopes as impassable
-            //
-            // This is intentionally conservative until the real SAGE passability layers (roads/water/cliffs)
-            // are decoded from map + terrain INIs.
-            const MAX_SLOPE: f32 = 1.0; // tan(theta) gradient threshold
+            // - Only block *extreme* slopes (near-vertical). Mild hills must stay walkable
+            //   so pure-march combat can cross maps without set_position pulls. Incomplete
+            //   heightmap decode previously over-blocked and fragmented the grid.
+            const MAX_SLOPE: f32 = 4.0; // only block cliffs-ish grades
             let grid_size = self.pathfinding_system.grid.grid_size();
             let grid_origin = self.pathfinding_system.grid.origin();
 
@@ -1707,8 +1706,11 @@ impl GameLogic {
 
             let width = self.pathfinding_system.grid.width();
             let height = self.pathfinding_system.grid.height();
+            let mut blocked_slopes = 0u32;
+            let mut total_cells = 0u32;
             for y in 0..height {
                 for x in 0..width {
+                    total_cells += 1;
                     let center = Vec3::new(
                         grid_origin.x + (x as f32 + 0.5) * grid_size,
                         0.0,
@@ -1725,9 +1727,38 @@ impl GameLogic {
 
                     let slope = terrain.slope_at_world(center);
                     if slope > MAX_SLOPE {
+                        blocked_slopes += 1;
                         self.pathfinding_system
                             .grid
                             .set_blocked(super::pathfinding::GridPos::new(x, y), true);
+                    }
+                }
+            }
+
+            // If the slope heuristic blocked most of the map, terrain data is incomplete —
+            // clear slope blocks and keep only out-of-bounds so infantry can still march.
+            if total_cells > 0 && blocked_slopes as f32 / total_cells as f32 > 0.35 {
+                log::warn!(
+                    "Pathfinding slope mask blocked {:.0}% of cells; clearing static blocks (terrain incomplete)",
+                    100.0 * blocked_slopes as f32 / total_cells as f32
+                );
+                self.pathfinding_system.clear_static_blocks();
+                for y in 0..height {
+                    for x in 0..width {
+                        let center = Vec3::new(
+                            grid_origin.x + (x as f32 + 0.5) * grid_size,
+                            0.0,
+                            grid_origin.z + (y as f32 + 0.5) * grid_size,
+                        );
+                        if center.x < min_x
+                            || center.x > max_x
+                            || center.z < min_z
+                            || center.z > max_z
+                        {
+                            self.pathfinding_system
+                                .grid
+                                .set_blocked(super::pathfinding::GridPos::new(x, y), true);
+                        }
                     }
                 }
             }
@@ -1748,35 +1779,68 @@ impl GameLogic {
             return false;
         }
 
+        let horiz = |a: Vec3, b: Vec3| {
+            let dx = a.x - b.x;
+            let dz = a.z - b.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+
         let mut goals: Vec<Vec3> = waypoints.to_vec();
         goals.push(destination);
 
         let mut full_path: Vec<Vec3> = Vec::new();
         let mut segment_start = start;
         for goal in goals {
-            if segment_start.distance(goal) < 0.1 {
+            if horiz(segment_start, goal) < 0.1 {
                 segment_start = goal;
                 continue;
             }
 
-            let segment = self
-                .pathfinding_system
-                .find_path(segment_start, goal, &self.objects);
+            // Short hops: skip A* overhead and go direct.
+            let straight = horiz(segment_start, goal);
+            let segment = if straight < 20.0 {
+                None
+            } else {
+                self.pathfinding_system
+                    .find_path(segment_start, goal, &self.objects)
+            };
 
             match segment {
                 Some(mut segment_path) => {
-                    if let Some(first) = segment_path.first_mut() {
-                        *first = segment_start;
+                    // Reject absurd detours (fragmented slope masks / blocked corridors).
+                    // Prefer honest direct march so combat can close range without teleports.
+                    let path_len: f32 = segment_path
+                        .windows(2)
+                        .map(|w| horiz(w[0], w[1]))
+                        .sum();
+                    if straight > 1.0 && path_len > straight * 3.5 {
+                        log::debug!(
+                            "Path detour {:.0} vs straight {:.0} for {:?}; using direct march",
+                            path_len,
+                            straight,
+                            unit_id
+                        );
+                        if full_path.is_empty() {
+                            full_path.push(segment_start);
+                        }
+                        full_path.push(goal);
+                    } else {
+                        if let Some(first) = segment_path.first_mut() {
+                            *first = segment_start;
+                        }
+                        if let Some(last) = segment_path.last_mut() {
+                            *last = goal;
+                        }
+                        if !full_path.is_empty()
+                            && !segment_path.is_empty()
+                            && full_path
+                                .last()
+                                .is_some_and(|prev| horiz(*prev, segment_path[0]) < 0.01)
+                        {
+                            segment_path.remove(0);
+                        }
+                        full_path.extend(segment_path);
                     }
-                    if !full_path.is_empty()
-                        && !segment_path.is_empty()
-                        && full_path
-                            .last()
-                            .is_some_and(|prev| prev.distance(segment_path[0]) < 0.01)
-                    {
-                        segment_path.remove(0);
-                    }
-                    full_path.extend(segment_path);
                 }
                 None => {
                     log::debug!(
@@ -1795,9 +1859,16 @@ impl GameLogic {
             segment_start = goal;
         }
 
+        if full_path.is_empty() {
+            full_path.push(start);
+            full_path.push(destination);
+        }
+
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        // Reset velocity so a fresh order can accelerate cleanly toward the new goal.
+        unit.movement.velocity = Vec3::ZERO;
         unit.movement.path = full_path;
         unit.movement.current_path_index = 0;
         unit.movement.target_position = Some(destination);
@@ -3666,12 +3737,20 @@ impl GameLogic {
                     continue;
                 }
 
+                // Horizontal (XZ) distance — path grid / terrain height use Y separately,
+                // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
+                let horiz = |a: Vec3, b: Vec3| {
+                    let dx = a.x - b.x;
+                    let dz = a.z - b.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+
                 if !obj.movement.path.is_empty()
                     && obj.movement.current_path_index < obj.movement.path.len()
                 {
                     let current_pos = obj.get_position();
                     let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    if current_pos.distance(waypoint) < 5.0 {
+                    if horiz(current_pos, waypoint) < 5.0 {
                         obj.movement.current_path_index += 1;
                         if obj.movement.current_path_index >= obj.movement.path.len() {
                             obj.stop_moving();
@@ -3680,12 +3759,18 @@ impl GameLogic {
                     }
 
                     let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    obj.movement.target_position = Some(waypoint);
+                    // Keep unit height; path cells often sit at Y=0 from the grid.
+                    let mut target = waypoint;
+                    target.y = current_pos.y;
+                    obj.movement.target_position = Some(target);
                 }
 
                 if let Some(target_pos) = obj.movement.target_position {
                     let current_pos = obj.get_position();
-                    let direction = (target_pos - current_pos).normalize_or_zero();
+                    // March in the XZ plane; do not dive to Y=0 path cells.
+                    let mut flat_target = target_pos;
+                    flat_target.y = current_pos.y;
+                    let direction = (flat_target - current_pos).normalize_or_zero();
 
                     if direction.length() > 0.0 {
                         // Calculate new position and orientation
@@ -3699,13 +3784,36 @@ impl GameLogic {
                             obj.movement.velocity + velocity_diff.normalize() * max_accel
                         };
 
+                        // Persist velocity — without this, every frame restarts from 0 and
+                        // units crawl at ~accel*dt per frame (pure-march combat stalls OOR).
+                        obj.movement.velocity = new_velocity;
+
                         let new_position = current_pos + new_velocity * dt;
                         let desired_angle = (-new_velocity.z).atan2(new_velocity.x);
-                        let reached_target = current_pos.distance(target_pos) < 2.0;
+                        let reached_target = horiz(current_pos, flat_target) < 2.0;
 
                         obj.set_position(new_position);
                         obj.set_orientation(desired_angle);
                         if reached_target {
+                            // Only stop when there is no further path waypoint.
+                            // Mid-path "reached" is handled by index advance above.
+                            if obj.movement.path.is_empty()
+                                || obj.movement.current_path_index + 1 >= obj.movement.path.len()
+                            {
+                                obj.stop_moving();
+                            } else {
+                                obj.movement.current_path_index += 1;
+                                let mut next = obj.movement.path[obj.movement.current_path_index];
+                                next.y = new_position.y;
+                                obj.movement.target_position = Some(next);
+                            }
+                        }
+                    } else {
+                        // Already on target (zero horizontal delta).
+                        obj.movement.velocity = Vec3::ZERO;
+                        if obj.movement.path.is_empty()
+                            || obj.movement.current_path_index + 1 >= obj.movement.path.len()
+                        {
                             obj.stop_moving();
                         }
                     }
@@ -5529,15 +5637,20 @@ impl GameLogic {
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
-            // Resolve weapon before move into Object.
+            // Resolve weapons before move into Object.
             let weapon = template.resolve_primary_weapon();
+            let secondary_weapon = template.resolve_secondary_weapon();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
             let starts_under_construction = object.status.under_construction;
 
-            // Weapon from template when defined; kind-based fallback only as last resort.
+            // Primary weapon from template when defined; kind-based fallback only as last resort.
             if let Some(weapon) = weapon {
                 object.weapon = Some(weapon);
+            }
+            // Secondary slot: fail-closed (only when template names/stats resolve).
+            if let Some(secondary) = secondary_weapon {
+                object.secondary_weapon = Some(secondary);
             }
 
             self.objects.insert(id, object);
@@ -6339,7 +6452,7 @@ impl GameLogic {
         if let Some(wname) = definition.primary_weapon.as_deref() {
             template.set_primary_weapon_name(wname);
         } else if let Some(raw) = Self::object_definition_attr(definition, "weapon") {
-            // Fallback: scan attribute "PRIMARY Name"
+            // Fallback: scan attribute "PRIMARY Name" (last Weapon= line may be secondary)
             let mut parts = raw.split_whitespace();
             if parts
                 .next()
@@ -6350,6 +6463,11 @@ impl GameLogic {
                     template.set_primary_weapon_name(wname);
                 }
             }
+        }
+
+        // Secondary weapon name from Object INI (Weapon = SECONDARY Foo). Fail-closed residual.
+        if let Some(wname) = definition.secondary_weapon.as_deref() {
+            template.set_secondary_weapon_name(wname);
         }
 
         // Combat unit KindOf from object type / kindof string so store weapons can attach.
@@ -7064,7 +7182,8 @@ impl GameLogic {
             .set_health(60.0)
             .set_cost(80, 0)
             .set_model("airanger_s") // USA Ranger infantry model
-            .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
         self.templates.insert("USA_Ranger".to_string(), usa_ranger);
 
         let mut usa_missile_defender = ThingTemplate::new("USA_MissileDefender");
@@ -7087,7 +7206,8 @@ impl GameLogic {
             .set_health(250.0)
             .set_cost(600, 0)
             .set_model("avhummer") // USA Humvee vehicle model
-            .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
         self.templates.insert("USA_Humvee".to_string(), usa_humvee);
 
         let mut usa_crusader = ThingTemplate::new("USA_CrusaderTank");
@@ -8148,6 +8268,9 @@ impl GameLogic {
             if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(name) {
                 t.set_primary_weapon_name(wname);
             }
+            if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(name) {
+                t.set_secondary_weapon_name(wname);
+            }
             t
         }
         let entries: Vec<ThingTemplate> = match team {
@@ -8203,6 +8326,9 @@ impl GameLogic {
                     );
                     // Workers are not combat units — clear default weapon.
                     d.primary_weapon = None;
+                    d.secondary_weapon = None;
+                    d.primary_weapon_name = None;
+                    d.secondary_weapon_name = None;
                     d
                 },
             ],
