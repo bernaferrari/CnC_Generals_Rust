@@ -3376,15 +3376,25 @@ impl Player {
         before != after
     }
 
-    // Debug/cheat functions
+    // Debug/cheat functions.
+    // Getters must exist in all build profiles: can_build / cost / build-time call sites
+    // use them unconditionally. In release without internal features they always return
+    // false (production-safe). Toggles remain debug/internal-only.
+
     #[cfg(any(debug_assertions, feature = "internal"))]
     pub fn toggle_ignore_prereqs(&mut self) {
         self.demo_ignore_prereqs = !self.demo_ignore_prereqs;
     }
 
-    #[cfg(any(debug_assertions, feature = "internal"))]
     pub fn ignores_prereqs(&self) -> Bool {
-        self.demo_ignore_prereqs
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.demo_ignore_prereqs
+        }
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            false
+        }
     }
 
     #[cfg(any(debug_assertions, feature = "internal"))]
@@ -3392,9 +3402,15 @@ impl Player {
         self.demo_free_build = !self.demo_free_build;
     }
 
-    #[cfg(any(debug_assertions, feature = "internal"))]
     pub fn builds_for_free(&self) -> Bool {
-        self.demo_free_build
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.demo_free_build
+        }
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            false
+        }
     }
 
     #[cfg(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats"))]
@@ -3402,9 +3418,19 @@ impl Player {
         self.demo_instant_build = !self.demo_instant_build;
     }
 
-    #[cfg(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats"))]
     pub fn builds_instantly(&self) -> Bool {
-        self.demo_instant_build
+        #[cfg(any(debug_assertions, feature = "internal", feature = "allow_debug_cheats"))]
+        {
+            self.demo_instant_build
+        }
+        #[cfg(not(any(
+            debug_assertions,
+            feature = "internal",
+            feature = "allow_debug_cheats"
+        )))]
+        {
+            false
+        }
     }
 
     /// Player relationship management
