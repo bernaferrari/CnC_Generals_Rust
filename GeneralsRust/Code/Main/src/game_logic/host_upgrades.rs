@@ -142,8 +142,47 @@ impl HostUpgradeRegistry {
         self.queued_this_frame.clear();
     }
 
+    /// Next allocator id (for save/load residual).
+    pub fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    /// Replace registry contents from a save/load snapshot.
+    ///
+    /// Frame-local presentation drains (`queued_this_frame` /
+    /// `completed_this_frame`) are cleared — they are not persistent.
+    /// Rebuilds `pending_index` from entries still in [`HostUpgradePhase::Queued`].
+    pub fn restore_from_snapshot(
+        &mut self,
+        next_id: u32,
+        entries: impl IntoIterator<Item = HostUpgradeResearch>,
+    ) {
+        self.clear();
+        let mut max_id = 0_u32;
+        for entry in entries {
+            max_id = max_id.max(entry.id);
+            if entry.phase == HostUpgradePhase::Queued {
+                let key = (
+                    entry.player_id,
+                    normalize_upgrade_identity(&entry.name),
+                );
+                self.pending_index.insert(key, entry.id);
+            }
+            self.entries.insert(entry.id, entry);
+        }
+        // Prefer the saved allocator; never reuse an id that is already present.
+        self.next_id = next_id.max(max_id.saturating_add(1));
+    }
+
     pub fn get(&self, id: u32) -> Option<&HostUpgradeResearch> {
         self.entries.get(&id)
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|e| e.phase == HostUpgradePhase::Queued)
+            .count()
     }
 
     pub fn entries_snapshot(&self) -> Vec<HostUpgradeResearch> {
@@ -426,5 +465,37 @@ mod tests {
         assert!(reg.honesty_queue_ok(HostUpgradeKind::SupplyLines));
         assert!(reg.record_cancel(UPGRADE_AMERICA_SUPPLY_LINES, 0));
         assert!(!reg.honesty_queue_ok(HostUpgradeKind::SupplyLines));
+    }
+
+    #[test]
+    fn restore_from_snapshot_keeps_pending_queue() {
+        let mut reg = HostUpgradeRegistry::new();
+        let id = reg.record_queue(
+            UPGRADE_INFANTRY_CAPTURE,
+            Team::USA,
+            0,
+            10,
+            Some(ObjectId(7)),
+        );
+        assert_eq!(reg.pending_count(), 1);
+        let snap = reg.entries_snapshot();
+        let next = reg.next_id();
+
+        let mut loaded = HostUpgradeRegistry::new();
+        loaded.restore_from_snapshot(next, snap);
+        assert_eq!(loaded.pending_count(), 1);
+        let e = loaded.get(id).expect("restored research");
+        assert_eq!(e.phase, HostUpgradePhase::Queued);
+        assert_eq!(e.kind, HostUpgradeKind::CaptureBuilding);
+        assert_eq!(e.queue_frame, 10);
+        assert_eq!(e.source_object, Some(ObjectId(7)));
+        assert_eq!(loaded.next_id(), next);
+        assert!(loaded.honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
+
+        // Completing via restored pending_index must work.
+        loaded.record_complete(UPGRADE_INFANTRY_CAPTURE, 0, 11, 1);
+        assert!(!loaded.honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
+        assert!(loaded.honesty_complete_ok(HostUpgradeKind::CaptureBuilding));
+        assert_eq!(loaded.get(id).unwrap().units_affected, 1);
     }
 }

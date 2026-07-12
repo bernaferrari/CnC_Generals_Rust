@@ -25,12 +25,25 @@
 //! - `WorldSnapshot.combat_particles` optionally stores active host particle systems
 //!   (template name + pose + spawn frame; not full W3D GPU particle state)
 //!
+//! # Host upgrade research residual (2026-07-12)
+//!
+//! Host `HostUpgradeRegistry` records QueueUpgrade → research complete honesty for
+//! CaptureBuilding / FlashBang / TOW / SupplyLines. Player `queued_upgrades` already
+//! survived via `PlayerSnapshot.research_queue`, but the host registry (pending ids,
+//! source object, honesty flags) was live-only — mid-flight save dropped residual
+//! queue honesty and could desync complete bookkeeping after load.
+//!
+//! Closed residual layout:
+//! - `WorldSnapshot.host_upgrades` stores `next_id` + all research records
+//!   (queued / completed / cancelled) including `queue_frame` / `complete_frame`
+//! - restore rebinds registry + `pending_index` so mid-research entries complete
+//!   on the next `update_player_upgrades` with unlocks still applied
+//!
 //! Still residual (fail-closed, not claimed):
 //! - Full retail OCL / aircraft / beam / multiplayer superweapon Xfer tables
 //! - Client `ParticleSystemManager` GPU rebind after load (host registry only)
-//! - `HostUpgradeRegistry` in-flight research queue not in `WorldSnapshot`
-//!   (completed unlocks that already mutated objects/players do survive)
-//! - Full C++ per-module WeaponSet / SpecialPowerModule Xfer tables
+//! - Full retail Upgrade.ini BuildTime / ProductionUpdate research timers
+//! - Full C++ per-module WeaponSet / SpecialPowerModule / Upgrade Xfer tables
 
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
@@ -85,6 +98,11 @@ pub struct WorldSnapshot {
     /// Fail-closed: not full client W3D particle GPU state.
     #[serde(default)]
     pub combat_particles: CombatParticleRegistrySnapshot,
+
+    /// Host upgrade research queue residual (Capture / FlashBang / TOW / …).
+    /// Mid-flight loads must keep pending research so complete unlocks still fire.
+    #[serde(default)]
+    pub host_upgrades: HostUpgradeRegistrySnapshot,
 }
 
 /// Snapshot of [`HostSpecialPowerStrikeRegistry`] for save/load residual.
@@ -112,6 +130,24 @@ pub struct CombatParticleRegistrySnapshot {
     pub next_id: u32,
     /// Active + inactive host particle system entries (presentation residual).
     pub systems: Vec<CombatParticleSystemEntry>,
+}
+
+/// Snapshot of [`HostUpgradeRegistry`] for save/load residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostUpgradeRegistrySnapshot {
+    /// Next allocator id after restore.
+    pub next_id: u32,
+    /// All research records (queued / completed / cancelled), sorted by id on capture.
+    pub entries: Vec<HostUpgradeResearch>,
+}
+
+impl Default for HostUpgradeRegistrySnapshot {
+    fn default() -> Self {
+        Self {
+            next_id: 0,
+            entries: Vec::new(),
+        }
+    }
 }
 
 impl Default for CombatParticleRegistrySnapshot {
@@ -757,6 +793,9 @@ impl Snapshot for WorldSnapshot {
 
         xfer.xfer_marker_label("CombatParticles")?;
         self.combat_particles.xfer(xfer)?;
+
+        xfer.xfer_marker_label("HostUpgrades")?;
+        self.host_upgrades.xfer(xfer)?;
 
         Ok(())
     }
@@ -2639,6 +2678,107 @@ impl XferData for CombatParticleRegistrySnapshot {
     }
 }
 
+impl XferData for HostUpgradeKind {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            HostUpgradeKind::CaptureBuilding => 0u32,
+            HostUpgradeKind::FlashBangGrenade => 1,
+            HostUpgradeKind::TowMissile => 2,
+            HostUpgradeKind::SupplyLines => 3,
+            HostUpgradeKind::Other => 4,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => HostUpgradeKind::CaptureBuilding,
+            1 => HostUpgradeKind::FlashBangGrenade,
+            2 => HostUpgradeKind::TowMissile,
+            3 => HostUpgradeKind::SupplyLines,
+            4 => HostUpgradeKind::Other,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid HostUpgradeKind discriminant: {other}"
+                )));
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for HostUpgradePhase {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            HostUpgradePhase::Queued => 0u32,
+            HostUpgradePhase::Completed => 1,
+            HostUpgradePhase::Cancelled => 2,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => HostUpgradePhase::Queued,
+            1 => HostUpgradePhase::Completed,
+            2 => HostUpgradePhase::Cancelled,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid HostUpgradePhase discriminant: {other}"
+                )));
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for HostUpgradeResearch {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostUpgradeResearch")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("Name")?;
+        self.name.xfer(xfer)?;
+        xfer.xfer_marker_label("Kind")?;
+        self.kind.xfer(xfer)?;
+        xfer.xfer_marker_label("Team")?;
+        self.team.xfer(xfer)?;
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_marker_label("QueueFrame")?;
+        xfer.xfer_u32(&mut self.queue_frame)?;
+        xfer.xfer_marker_label("CompleteFrame")?;
+        xfer.xfer_u32(&mut self.complete_frame)?;
+        xfer.xfer_marker_label("Phase")?;
+        self.phase.xfer(xfer)?;
+        xfer.xfer_marker_label("UnitsAffected")?;
+        xfer.xfer_u32(&mut self.units_affected)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        xfer_option(xfer, &mut self.source_object, ObjectId(0))?;
+        Ok(())
+    }
+}
+
+impl XferData for HostUpgradeRegistrySnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostUpgradeRegistrySnapshot")?;
+        xfer.xfer_marker_label("NextId")?;
+        xfer.xfer_u32(&mut self.next_id)?;
+        xfer.xfer_marker_label("Entries")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.entries,
+            HostUpgradeResearch {
+                id: 0,
+                name: String::new(),
+                kind: HostUpgradeKind::Other,
+                team: Team::Neutral,
+                player_id: 0,
+                queue_frame: 0,
+                complete_frame: 0,
+                phase: HostUpgradePhase::Queued,
+                units_affected: 0,
+                source_object: None,
+            },
+        )?;
+        Ok(())
+    }
+}
+
 /// Snapshot builder for creating world snapshots from current game state
 pub struct SnapshotBuilder {
     // Access to game systems for snapshot creation
@@ -2685,6 +2825,7 @@ impl SnapshotBuilder {
             global_ai_state: self.snapshot_global_ai_state(game_logic)?,
             special_power_strikes: self.snapshot_special_power_strikes(game_logic)?,
             combat_particles: self.snapshot_combat_particles(game_logic)?,
+            host_upgrades: self.snapshot_host_upgrades(game_logic)?,
         };
 
         log::info!(
@@ -2724,6 +2865,7 @@ impl SnapshotBuilder {
         self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
+        self.restore_host_upgrades(&snapshot.host_upgrades, game_logic)?;
 
         log::info!("World restoration complete");
         Ok(())
@@ -3951,6 +4093,30 @@ impl SnapshotBuilder {
         Ok(())
     }
 
+    /// Capture pending/completed host upgrade research so mid-flight loads
+    /// still complete with unlocks after restore.
+    fn snapshot_host_upgrades(
+        &self,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<HostUpgradeRegistrySnapshot> {
+        let reg = game_logic.host_upgrades();
+        Ok(HostUpgradeRegistrySnapshot {
+            next_id: reg.next_id(),
+            entries: reg.entries_snapshot(),
+        })
+    }
+
+    fn restore_host_upgrades(
+        &self,
+        snapshot: &HostUpgradeRegistrySnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        game_logic
+            .host_upgrades_mut()
+            .restore_from_snapshot(snapshot.next_id, snapshot.entries.clone());
+        Ok(())
+    }
+
     fn restore_experience_tracker(
         &self,
         exp_tracker_snapshot: &ExperienceTrackerSnapshot,
@@ -4195,6 +4361,7 @@ impl Default for WorldSnapshot {
             global_ai_state: GlobalAIStateSnapshot::default(),
             special_power_strikes: SpecialPowerStrikeRegistrySnapshot::default(),
             combat_particles: CombatParticleRegistrySnapshot::default(),
+            host_upgrades: HostUpgradeRegistrySnapshot::default(),
         }
     }
 }
@@ -5248,6 +5415,281 @@ mod tests {
         assert!(
             health < 300.0 || loaded.find_object(enemy).is_none(),
             "damage after file load (health={health})"
+        );
+    }
+
+    fn ensure_upgrade_test_templates(logic: &mut GameLogic) {
+        if !logic.templates.contains_key("TestInfantry") {
+            let mut t = ThingTemplate::new("TestInfantry");
+            t.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(80.0)
+                .set_cost(100, 0);
+            logic.templates.insert("TestInfantry".to_string(), t);
+        }
+        if !logic.templates.contains_key("TestBuilding") {
+            let mut t = ThingTemplate::new("TestBuilding");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(1200.0)
+                .set_cost(500, -1);
+            logic.templates.insert("TestBuilding".to_string(), t);
+        }
+        if !logic.templates.contains_key("TestBarracks") {
+            let mut t = ThingTemplate::new("TestBarracks");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSBarracks)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(1000.0)
+                .set_cost(600, -1);
+            logic.templates.insert("TestBarracks".to_string(), t);
+        }
+    }
+
+    /// Residual: CaptureBuilding queued mid-flight must survive snapshot and still
+    /// complete with capture unlock after load.
+    #[test]
+    fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            HostUpgradeKind, HostUpgradePhase, UPGRADE_INFANTRY_CAPTURE,
+        };
+
+        let mut source = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        source.add_player(player);
+        ensure_upgrade_test_templates(&mut source);
+
+        let barracks_id = source
+            .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("barracks");
+        let captor_id = source
+            .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+            .expect("captor");
+        let building_id = source
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+
+        // Queue capture research; do NOT update yet (mid-flight residual window).
+        source.set_current_frame(20);
+        source.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_INFANTRY_CAPTURE.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        source.process_commands();
+
+        assert!(
+            source
+                .get_player(0)
+                .unwrap()
+                .has_queued_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "player research queue must hold Capture mid-flight"
+        );
+        assert!(
+            !source
+                .get_player(0)
+                .unwrap()
+                .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "must not unlock before research completes"
+        );
+        assert_eq!(source.host_upgrades().pending_count(), 1);
+        assert!(
+            source
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::CaptureBuilding),
+            "host residual must record pending Capture research"
+        );
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("snapshot mid-flight Capture upgrade");
+        assert_eq!(snapshot.host_upgrades.entries.len(), 1);
+        assert_eq!(
+            snapshot.host_upgrades.entries[0].phase,
+            HostUpgradePhase::Queued
+        );
+        assert_eq!(
+            snapshot.host_upgrades.entries[0].kind,
+            HostUpgradeKind::CaptureBuilding
+        );
+        assert!(
+            snapshot
+                .players
+                .iter()
+                .any(|p| p.research_queue.iter().any(|n| n.contains("Capture")
+                    || n == UPGRADE_INFANTRY_CAPTURE)),
+            "player research_queue must also capture in-flight upgrade"
+        );
+
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore mid-flight Capture upgrade");
+
+        assert_eq!(restored.get_current_frame(), 20);
+        assert_eq!(restored.host_upgrades().pending_count(), 1);
+        assert!(
+            restored
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::CaptureBuilding),
+            "host registry pending Capture must survive load"
+        );
+        assert!(
+            restored
+                .get_player(0)
+                .unwrap()
+                .has_queued_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "player queued upgrade must survive load"
+        );
+        assert!(
+            !restored
+                .get_player(0)
+                .unwrap()
+                .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "must still be mid-research after load"
+        );
+
+        // Complete research after load.
+        restored.update();
+
+        assert!(
+            restored
+                .get_player(0)
+                .unwrap()
+                .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "capture unlock must complete after mid-flight load"
+        );
+        assert!(
+            restored
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::CaptureBuilding),
+            "registry must record Capture complete after load"
+        );
+        assert!(
+            restored.host_upgrades().honesty_capture_unlock_ok(),
+            "capture unlock honesty after load"
+        );
+        assert!(
+            restored
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::CaptureBuilding),
+            "host path honesty for Capture after load"
+        );
+        let captor = restored.find_object(captor_id).expect("captor after complete");
+        assert!(
+            captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
+            "captor must receive capture upgrade tag after post-load complete"
+        );
+
+        // Ability now available.
+        restored.queue_command(GameCommand {
+            command_type: CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        restored.process_commands();
+        let captor = restored.find_object(captor_id).expect("captor after unlock");
+        assert_eq!(
+            captor.ai_state,
+            AIState::Capturing,
+            "CaptureBuilding must work after mid-flight save/load + complete"
+        );
+    }
+
+    /// Bincode / SaveFileManager path also keeps pending host upgrade research.
+    #[test]
+    fn save_file_roundtrip_preserves_pending_host_upgrade() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_INFANTRY_CAPTURE};
+        use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+        use std::time::{Duration, SystemTime};
+
+        let save_dir = tempfile::TempDir::new().expect("temp save dir");
+        let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+        manager.init().expect("save manager init");
+
+        let mut source = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        source.add_player(player);
+        ensure_upgrade_test_templates(&mut source);
+        let barracks = source
+            .create_object("TestBarracks", Team::USA, Vec3::ZERO)
+            .expect("barracks");
+        source.set_current_frame(5);
+        source.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_INFANTRY_CAPTURE.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: SystemTime::now(),
+            selected_units: vec![barracks],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        source.process_commands();
+        assert_eq!(source.host_upgrades().pending_count(), 1);
+
+        let info = SaveGameInfo {
+            filename: "host_upgrade_rt".to_string(),
+            display_name: "Host Upgrade Roundtrip".to_string(),
+            description: "residual pending upgrade save/load".to_string(),
+            map_name: "ResidualMap".to_string(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").to_string(),
+            play_time: Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        manager
+            .save_game("host_upgrade_rt", &source, &info)
+            .expect("save");
+
+        let mut loaded = GameLogic::new();
+        loaded.templates = source.templates.clone();
+        manager
+            .load_game("host_upgrade_rt", &mut loaded)
+            .expect("load");
+
+        assert_eq!(loaded.get_current_frame(), 5);
+        assert_eq!(loaded.host_upgrades().pending_count(), 1);
+        assert!(
+            loaded
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::CaptureBuilding)
+        );
+        loaded.update();
+        assert!(
+            loaded
+                .get_player(0)
+                .unwrap()
+                .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+            "file-loaded pending upgrade must complete"
+        );
+        assert!(
+            loaded
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::CaptureBuilding),
+            "file-loaded registry must record complete"
         );
     }
 }
