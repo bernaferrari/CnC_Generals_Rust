@@ -197,6 +197,9 @@ pub struct ObjectStatusSnapshot {
     pub attacking: bool,
     pub airborne_target: bool,
     pub stealthed: bool,
+    /// C++ OBJECT_STATUS_DETECTED residual. Serde default for older snapshots.
+    #[serde(default)]
+    pub detected: bool,
     pub garrisoned: bool,
     pub being_repaired: bool,
     pub on_fire: bool,
@@ -223,6 +226,7 @@ impl Default for ObjectStatusSnapshot {
             attacking: false,
             airborne_target: false,
             stealthed: false,
+            detected: false,
             garrisoned: false,
             being_repaired: false,
             on_fire: false,
@@ -1312,6 +1316,8 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.airborne_target)?;
         xfer.xfer_marker_label("Stealthed")?;
         xfer.xfer_bool(&mut self.stealthed)?;
+        xfer.xfer_marker_label("Detected")?;
+        xfer.xfer_bool(&mut self.detected)?;
         xfer.xfer_marker_label("Garrisoned")?;
         xfer.xfer_bool(&mut self.garrisoned)?;
         xfer.xfer_marker_label("BeingRepaired")?;
@@ -2979,6 +2985,7 @@ impl SnapshotBuilder {
             attacking: object.status.attacking,
             airborne_target: object.status.airborne_target,
             stealthed: object.status.stealthed,
+            detected: object.status.detected,
             garrisoned: matches!(object.ai_state, AIState::Garrisoned),
             being_repaired: matches!(object.ai_state, AIState::SeekingRepair),
             on_fire: false,
@@ -3600,6 +3607,7 @@ impl SnapshotBuilder {
         object.status.attacking = status.attacking;
         object.status.airborne_target = status.airborne_target;
         object.status.stealthed = status.stealthed;
+        object.status.detected = status.detected;
         object.status.selected = status.selected;
         object.status.disabled_underpowered = status.disabled_underpowered;
 

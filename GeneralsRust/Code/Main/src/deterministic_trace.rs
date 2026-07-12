@@ -468,6 +468,8 @@ fn object_status_bits(object: &Object) -> u32 {
         | ((object.selected as u32) << 8)
         | ((object.force_attack as u32) << 9)
         | ((object.overcharge_enabled as u32) << 10)
+        | ((status.detected as u32) << 11)
+        | ((object.is_detector as u32) << 12)
 }
 
 fn format_vec_command(name: &str, value: Vec3) -> String {

@@ -528,6 +528,10 @@ pub struct GameLogic {
     mine_residual_timed_detonations: u32,
     mine_residual_manual_detonations: u32,
 
+    /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
+    /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
+    radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1325,6 +1329,7 @@ impl GameLogic {
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
             mine_residual_manual_detonations: 0,
+            radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1457,6 +1462,7 @@ impl GameLogic {
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
         self.mine_residual_manual_detonations = 0;
+        self.radar_scans.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3278,6 +3284,15 @@ impl GameLogic {
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         self.update_mines_and_demo_traps();
 
+        // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
+        // Fail-closed vs full OCL RadarVanPing lifetime modules.
+        self.update_radar_scans();
+
+        // Host stealth residual: detector scans + DETECTED expiry.
+        // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
+        // (no IR FX, kindof filters, or disguise).
+        self.update_stealth_and_detection();
+
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
         // -----------------------------------------------------------------------
@@ -4093,22 +4108,32 @@ impl GameLogic {
                 }
 
                 // Choose primary/secondary, then fire if legal target.
-                let (selected_slot, enemy_or_forced) = {
+                // Stealthed + undetected: drop the engagement (C++ AIStates residual).
+                let (selected_slot, enemy_or_forced, target_stealthed_hidden) = {
                     if let (Some(attacker), Some(target)) =
                         (self.objects.get(&attacker_id), self.objects.get(&target_id))
                     {
+                        let stealthed_hidden = target.is_effectively_stealthed()
+                            && target.team != attacker.team;
                         let enemy_or_forced =
                             attacker.force_attack || attacker.team != target.team;
-                        let slot = if enemy_or_forced {
+                        let slot = if enemy_or_forced && !stealthed_hidden {
                             attacker.select_combat_weapon_slot(target, current_time)
                         } else {
                             None
                         };
-                        (slot, enemy_or_forced)
+                        (slot, enemy_or_forced, stealthed_hidden)
                     } else {
-                        (None, false)
+                        (None, false, false)
                     }
                 };
+
+                if target_stealthed_hidden {
+                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        attacker.stop_attack();
+                    }
+                    continue;
+                }
 
                 if let Some(slot) = selected_slot {
                     let mut weapon_damage = self
@@ -4247,6 +4272,10 @@ impl GameLogic {
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         weapon.last_fire_time = current_time;
+                    }
+                    // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
+                    if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                        attacker.break_stealth();
                     }
                 }
             }
@@ -8406,6 +8435,210 @@ impl GameLogic {
     /// Residual honesty: place timed charge → detonation path exercised.
     pub fn honesty_timed_demo_charge_ok(&self) -> bool {
         self.mine_residual_places > 0 && self.mine_residual_timed_detonations > 0
+    }
+
+    // -----------------------------------------------------------------------
+    // RadarScan / RadarVanScan FOW temporary-reveal residual
+    // Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
+    // -----------------------------------------------------------------------
+
+    /// Host RadarScan residual registry (activate + honesty).
+    pub fn radar_scans(&self) -> &crate::game_logic::host_radar_scan::HostRadarScanRegistry {
+        &self.radar_scans
+    }
+
+    /// Residual honesty: RadarScan activated at least once.
+    pub fn honesty_radar_scan_activate_ok(&self) -> bool {
+        self.radar_scans.honesty_activate_ok()
+    }
+
+    /// Residual honesty: RadarScan cleared FOW at scan center at least once.
+    pub fn honesty_radar_scan_fow_ok(&self) -> bool {
+        self.radar_scans.honesty_fow_reveal_ok()
+    }
+
+    /// Combined host path honesty for RadarScan residual.
+    pub fn honesty_radar_scan_ok(&self) -> bool {
+        self.radar_scans.honesty_host_path_ok()
+    }
+
+    /// Activate RadarScan residual: temporary FOW reveal at `location`.
+    ///
+    /// Matches retail SpecialPowerRadarVanScan / RadarVanPing radius (150) and
+    /// lifetime residual (10000 ms → 300 frames). Uses ShroudManager
+    /// do_shroud_reveal + queue_undo_shroud_reveal so fog returns after duration.
+    ///
+    /// Fail-closed: not OCL object spawn / shrink curve / stealth detector.
+    pub fn activate_radar_scan(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_radar_scan::{
+            HostRadarScan, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS,
+        };
+        use gamelogic::common::Coord3D;
+
+        // Ensure shroud grid exists (tests / pre-map residual).
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+
+        let mut player_mask = 0u32;
+        for (&pid, player) in &self.players {
+            if player.team == team {
+                player_mask |= 1u32 << pid.min(31);
+            }
+        }
+        if player_mask == 0 {
+            // No registered players for team: fall back to commanding player bit.
+            player_mask = 1u32 << player_id.min(31);
+        }
+
+        // ShroudManager grid axes are (x, y). Host residual gameplay uses glam
+        // (x, z) as the ground plane (y = height). Feed horizontal plane into
+        // shroud so temporary reveals land on FOW / PresentationFowGrid cells.
+        let center = Coord3D::new(location.x, location.z, location.y);
+        let radius = RADAR_SCAN_RADIUS;
+        let duration = RADAR_SCAN_DURATION_FRAMES;
+        let frame = self.frame;
+
+        let fow_reveal_ok = {
+            let shroud = get_shroud_manager();
+            let mut shroud_mgr = match shroud.lock() {
+                Ok(mgr) => mgr,
+                Err(_) => return false,
+            };
+
+            // Init grid if not yet (unit tests without load_map).
+            if !shroud_mgr.has_shroud_grid() {
+                shroud_mgr.init_shroud_grid(world_w, world_h);
+            }
+
+            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
+
+            // Observe FOW: center must be visible for the commanding player.
+            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
+            if !visible {
+                // Team-shared mask may use a different bit; check any teammate bit.
+                for bit in 0..32u32 {
+                    if (player_mask & (1u32 << bit)) != 0
+                        && shroud_mgr.is_position_visible(bit, &center)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            visible
+        };
+
+        let scan_id = self.radar_scans.alloc_id();
+        self.radar_scans.record_activation(HostRadarScan {
+            id: scan_id,
+            player_id,
+            player_mask,
+            location,
+            radius,
+            activate_frame: frame,
+            expires_frame: frame.saturating_add(duration),
+            caster_id,
+            fow_reveal_ok,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(RADAR_SCAN_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(150),
+        );
+
+        // Also enable radar UI residual if scripts had disabled it — scan is
+        // a radar power; observability via radar_enabled honesty path.
+        if !self.radar_enabled && !self.radar_forced {
+            self.radar_enabled = true;
+        }
+
+        fow_reveal_ok || self.radar_scans.activations() > 0
+    }
+
+    /// Advance RadarScan residual: expire bookkeeping + process shroud undos.
+    fn update_radar_scans(&mut self) {
+        self.radar_scans.prune_expired(self.frame);
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
+        }
+    }
+
+    /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
+    ///
+    /// - Expires `OBJECT_STATUS_DETECTED` when `detection_expires_frame` is reached
+    /// - Detectors mark nearby enemy stealthed units as detected (hold ~1s)
+    /// - Fail-closed: no IR FX, ExtraRequiredKindOf filters, garrisoned-detect,
+    ///   disguise, or full stealth delay re-cloak state machine.
+    pub fn update_stealth_and_detection(&mut self) {
+        let frame = self.frame;
+
+        // Expire timed detections (unit may remain stealthed).
+        for obj in self.objects.values_mut() {
+            if obj.status.detected
+                && obj.detection_expires_frame > 0
+                && frame >= obj.detection_expires_frame
+            {
+                obj.clear_detected();
+            }
+        }
+
+        // Collect active detectors (alive, not under construction).
+        let detectors: Vec<(Team, Vec3, f32)> = self
+            .objects
+            .values()
+            .filter(|o| {
+                o.is_detector
+                    && o.is_alive()
+                    && !o.status.under_construction
+                    && !o.status.destroyed
+            })
+            .map(|o| (o.team, o.get_position(), o.effective_detection_range()))
+            .filter(|(_, _, range)| *range > 0.0)
+            .collect();
+
+        if detectors.is_empty() {
+            return;
+        }
+
+        // C++ residual: markAsDetected(updateRate + 1). Host uses ~1 logic second.
+        const DETECT_HOLD_FRAMES: u32 = 30;
+        let expires = frame.saturating_add(DETECT_HOLD_FRAMES);
+
+        // Collect stealthed targets first to avoid borrow conflicts.
+        let stealthed_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.status.stealthed)
+            .map(|(id, _)| *id)
+            .collect();
+
+        for sid in stealthed_ids {
+            let Some((s_team, s_pos)) = self
+                .objects
+                .get(&sid)
+                .map(|o| (o.team, o.get_position()))
+            else {
+                continue;
+            };
+
+            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range)| {
+                *det_team != s_team && det_pos.distance(s_pos) <= *range
+            });
+
+            if detected_by_someone {
+                if let Some(obj) = self.objects.get_mut(&sid) {
+                    obj.mark_detected(expires);
+                }
+            }
+        }
     }
 
     /// Place a residual land mine at `position` for `team`.
@@ -16434,7 +16667,7 @@ mod tests {
             .honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
     }
 
-    /// RadarScan remains charge-consume only (no superweapon residual strike).
+    /// RadarScan is not a superweapon residual strike (separate FOW residual path).
     #[test]
     fn radar_scan_does_not_queue_superweapon_strike() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -16453,7 +16686,7 @@ mod tests {
         game_logic.queue_command(GameCommand {
             command_type: CommandType::DoSpecialPower {
                 power_type: SpecialPowerType::RadarScan,
-                target: PowerTarget::None,
+                target: PowerTarget::Location(Vec3::new(200.0, 0.0, 200.0)),
             },
             player_id: 0,
             command_id: 5,
@@ -16465,9 +16698,131 @@ mod tests {
         assert_eq!(
             game_logic.special_power_strikes().strike_count(),
             0,
-            "non-superweapon special powers must not enqueue residual strikes"
+            "RadarScan must not enqueue superweapon residual strikes"
         );
         assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_radar_scan_activate_ok(),
+            "RadarScan residual must record activation honesty"
+        );
+    }
+
+    /// Residual: RadarScan special power temporarily reveals FOW at target.
+    /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
+    #[test]
+    fn radar_scan_special_power_reveals_fow() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_radar_scan::{
+            RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS,
+        };
+        use gamelogic::common::Coord3D;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Isolate global shroud for this residual test.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(512.0, 512.0);
+        }
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        // Far from caster so unit vision does not already clear the cell.
+        let target = Vec3::new(250.0, 0.0, 250.0);
+        let center = Coord3D::new(target.x, target.z, target.y);
+
+        // Baseline: target shroud not visible.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "precondition: scan target must start shrouded"
+            );
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::RadarScan,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 42,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_radar_scan_ok(),
+            "RadarScan host residual path honesty (activate + FOW)"
+        );
+        assert_eq!(game_logic.radar_scans().activations(), 1);
+        assert_eq!(game_logic.radar_scans().active_count(), 1);
+        assert!(
+            game_logic
+                .radar_scans()
+                .is_position_in_active_scan(0, target),
+            "active residual scan must cover target"
+        );
+        assert!(
+            (game_logic.radar_scans().active_scans()[0].radius - RADAR_SCAN_RADIUS).abs() < 0.01,
+            "retail residual radius 150"
+        );
+
+        // FOW observable: center cell visible after scan.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                shroud.is_position_visible(0, &center),
+                "RadarScan must reveal FOW at target center"
+            );
+        }
+
+        // Charge consumed, not a superweapon strike.
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
+
+        // Expire residual: advance past duration and run update path.
+        game_logic.frame = RADAR_SCAN_DURATION_FRAMES + 1;
+        game_logic.update_radar_scans();
+        assert_eq!(
+            game_logic.radar_scans().active_count(),
+            0,
+            "scan bookkeeping expires after residual duration"
+        );
+        assert!(game_logic.radar_scans().expirations() >= 1);
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "temporary reveal must undo after duration (fogged/hidden)"
+            );
+            assert!(
+                shroud.is_position_explored(0, &center),
+                "explored residual should remain after undo"
+            );
+        }
+
+        // Cleanup global shroud for other tests.
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1.0, 1.0);
+            shroud.clear_all();
+        }
     }
 
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
@@ -17718,5 +18073,164 @@ mod tests {
             enemy.health.current < enemy.max_health || enemy.status.destroyed,
             "manual detonate must damage nearby enemy"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Stealth residual (targetability + detector reveal + fire-break)
+    // Fail-closed vs full StealthUpdate / StealthDetectorUpdate modules.
+    // -----------------------------------------------------------------------
+
+    /// Stealthed unit is not auto-targeted until a detector reveals it.
+    #[test]
+    fn stealth_residual_not_auto_targeted_until_detected() {
+        use crate::ai_decisions::AIDecisionSystem;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let attacker_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        {
+            let a = game_logic.find_object_mut(attacker_id).unwrap();
+            a.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            });
+        }
+
+        let stealth_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("stealthed");
+        {
+            let s = game_logic.find_object_mut(stealth_id).unwrap();
+            s.status.stealthed = true;
+            s.status.detected = false;
+        }
+
+        // No detector: auto-target search must skip stealthed unit.
+        let found = AIDecisionSystem::find_best_target(
+            &game_logic,
+            attacker_id,
+            Vec3::ZERO,
+            Team::China,
+            200.0,
+            false,
+            true,
+            false,
+        );
+        assert!(
+            found.is_none(),
+            "stealthed+undetected must not be auto-targeted"
+        );
+        assert!(
+            AIDecisionSystem::find_nearest_enemy(&game_logic, Vec3::ZERO, Team::China, 200.0)
+                .is_none(),
+            "nearest-enemy must ignore stealthed+undetected"
+        );
+
+        // Spawn detector near stealthed unit.
+        let detector_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
+            .expect("detector");
+        {
+            let d = game_logic.find_object_mut(detector_id).unwrap();
+            d.is_detector = true;
+            d.detection_range = 50.0;
+        }
+
+        game_logic.update_stealth_and_detection();
+
+        let stealth = game_logic.find_object(stealth_id).unwrap();
+        assert!(
+            stealth.status.detected,
+            "detector in range must mark stealthed unit detected"
+        );
+        assert!(
+            !stealth.is_effectively_stealthed(),
+            "detected stealthed unit is no longer effectively stealthed"
+        );
+        assert!(
+            stealth.is_targetable_by_enemy_of(Team::China),
+            "detected unit must become targetable"
+        );
+
+        let found_after = AIDecisionSystem::find_best_target(
+            &game_logic,
+            attacker_id,
+            Vec3::ZERO,
+            Team::China,
+            200.0,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(
+            found_after,
+            Some(stealth_id),
+            "after detection, stealthed unit becomes auto-targetable"
+        );
+    }
+
+    /// Firing breaks stealth (C++ STEALTH_NOT_WHILE_ATTACKING residual).
+    #[test]
+    fn stealth_residual_fire_breaks_stealth() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let shooter_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let target_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let s = game_logic.find_object_mut(shooter_id).unwrap();
+            s.status.stealthed = true;
+            s.stealth_breaks_on_attack = true;
+            s.weapon = Some(Weapon {
+                damage: 5.0,
+                range: 100.0,
+                reload_time: 0.5,
+                last_fire_time: -1.0, // ready immediately
+                ..Weapon::default()
+            });
+            assert!(s.fire_at(target_id, 0.0));
+            assert!(!s.status.stealthed, "fire_at must break stealth");
+        }
+    }
+
+    /// Detection expires after hold frames when detector leaves range.
+    #[test]
+    fn stealth_residual_detection_expires() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let stealth_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("stealth");
+        {
+            let s = game_logic.find_object_mut(stealth_id).unwrap();
+            s.status.stealthed = true;
+            s.mark_detected(5); // expires at frame 5
+        }
+
+        game_logic.frame = 4;
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic.find_object(stealth_id).unwrap().status.detected,
+            "must remain detected before expiry frame"
+        );
+
+        game_logic.frame = 5;
+        game_logic.update_stealth_and_detection();
+        let stealth = game_logic.find_object(stealth_id).unwrap();
+        assert!(
+            !stealth.status.detected && stealth.status.stealthed,
+            "detected clears at expiry; stealthed may remain"
+        );
+        assert!(stealth.is_effectively_stealthed());
     }
 }
