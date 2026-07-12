@@ -1173,31 +1173,80 @@ impl AIManager {
         })
     }
 
-    /// Called when a game is loaded from save
-    pub fn on_game_loaded(&mut self) {
-        log::info!("AI Manager: Game loaded, reinitializing AI state...");
+    /// True when a host AI player is registered and marked active.
+    pub fn is_ai_active(&self, player_id: u32) -> bool {
+        self.ai_players
+            .get(&player_id)
+            .map(|p| p.is_active)
+            .unwrap_or(false)
+    }
 
-        // Clear any transient state and reinitialize
+    /// Configured difficulty for a registered host AI player.
+    pub fn ai_difficulty(&self, player_id: u32) -> Option<AIDifficulty> {
+        self.ai_players.get(&player_id).map(|p| p.difficulty)
+    }
+
+    /// Teams of all registered host AI players (for template rebind).
+    pub fn registered_teams(&self) -> Vec<Team> {
+        let mut teams = Vec::new();
+        for ai in self.ai_players.values() {
+            if !teams.contains(&ai.team) {
+                teams.push(ai.team);
+            }
+        }
+        teams
+    }
+
+    /// Rebind host AI after world objects were wiped (map load / preserve path).
+    ///
+    /// Keeps registration, difficulty, `is_active`, personality, and base layout
+    /// template names. Drops stale object/factory IDs so rebuild soup can run
+    /// again without burning `max_rebuilds`, and reopens early-base timers.
+    pub fn rebind_after_world_reset(&mut self) {
+        log::info!(
+            "AI Manager: rebinding {} AI player(s) after world reset",
+            self.ai_players.len()
+        );
         for ai_player in self.ai_players.values_mut() {
-            // Reset timing-based state
+            for building in &mut ai_player.building_queue {
+                // Map load clears objects; this is not a combat loss — restore rebuild budget.
+                building.object_id = None;
+                building.is_built = false;
+                building.rebuild_count = 0;
+            }
+            for team in &mut ai_player.team_queue {
+                team.completed = false;
+                for order in &mut team.work_orders {
+                    order.factory_id = None;
+                    order.num_completed = 0;
+                }
+            }
+            ai_player.defensive_units.clear();
+            ai_player.attack_in_progress = false;
+            // Timing: allow next host AI tick to act immediately.
             ai_player.last_update_time = 0.0;
             ai_player.resource_check_time = 0.0;
             ai_player.enemy_check_time = 0.0;
             ai_player.next_building_time = 0.0;
             ai_player.next_team_time = 0.0;
             ai_player.last_attack_time = 0.0;
-
-            // Clear temporary lists that shouldn't persist
-            ai_player.defensive_units.clear();
-
             log::debug!(
-                "  Reinitialized AI player {} ({})",
+                "  Rebound AI player {} ({}) active={} difficulty={:?}",
                 ai_player.player_id,
-                ai_player.team.get_name()
+                ai_player.team.get_name(),
+                ai_player.is_active,
+                ai_player.difficulty
             );
         }
+        // Negative so the first post-load host update is not rate-limited away.
+        self.last_update_time = -1.0;
+    }
 
-        self.last_update_time = 0.0;
+    /// Called when a game is loaded from save
+    pub fn on_game_loaded(&mut self) {
+        log::info!("AI Manager: Game loaded, reinitializing AI state...");
+        // Save restore also wipes live object pointers in practice; share map-load rebind.
+        self.rebind_after_world_reset();
         log::info!("AI Manager: Game load initialization complete");
     }
 
@@ -1228,7 +1277,8 @@ impl AIManager {
 
 #[cfg(test)]
 mod cpp_parity_tests {
-    use super::AIPlayer;
+    use super::{AIDifficulty, AIManager, AIPlayer};
+    use crate::game_logic::{ObjectId, Team};
 
     /// Gate-only early-attack intervals must not reappear; keep 60s spacing number.
     #[test]
@@ -1239,5 +1289,35 @@ mod cpp_parity_tests {
             AIPlayer::ATTACK_RECHECK_SECONDS >= 30.0,
             "must not use gate-only early-attack shortcut (<30s)"
         );
+    }
+
+    #[test]
+    fn rebind_after_world_reset_keeps_difficulty_active_and_restores_rebuild_budget() {
+        let mut mgr = AIManager::new();
+        mgr.add_ai_player(1, Team::GLA, AIDifficulty::Hard);
+        mgr.set_ai_active(1, true);
+        {
+            let ai = mgr.ai_players.get_mut(&1).expect("ai");
+            if let Some(b) = ai.building_queue.first_mut() {
+                b.object_id = Some(ObjectId(42));
+                b.rebuild_count = b.max_rebuilds;
+                b.is_built = true;
+            }
+            ai.defensive_units.push(ObjectId(7));
+            ai.attack_in_progress = true;
+        }
+
+        mgr.rebind_after_world_reset();
+
+        assert!(mgr.is_ai_active(1));
+        assert_eq!(mgr.ai_difficulty(1), Some(AIDifficulty::Hard));
+        let ai = mgr.ai_players.get(&1).expect("ai after rebind");
+        assert!(ai.defensive_units.is_empty());
+        assert!(!ai.attack_in_progress);
+        let b = ai.building_queue.first().expect("layout retained");
+        assert!(b.object_id.is_none());
+        assert_eq!(b.rebuild_count, 0);
+        assert!(!b.is_built);
+        assert!(!b.template_name.is_empty());
     }
 }
