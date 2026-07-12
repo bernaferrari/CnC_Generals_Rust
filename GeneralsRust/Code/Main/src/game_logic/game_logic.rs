@@ -17614,6 +17614,144 @@ mod tests {
         assert!(completed[0].objects_hit >= 1);
     }
 
+    /// Residual: America Paradrop / Airborne DoSpecialPower queues a drop and
+    /// spawns infantry near the target after approach delay.
+    /// Fail-closed: not full OCL cargo plane / parachute container path.
+    #[test]
+    fn america_paradrop_host_path_queues_and_spawns_infantry() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_paradrop::{
+            HostParadropKind, HostParadropPhase, AMERICA_PARADROP_UNIT_COUNT,
+            PARADROP_RESIDUAL_TEMPLATE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(200.0, 0.0, 100.0);
+        let objects_before = game_logic.get_objects().len();
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Paradrop,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .host_paradrops()
+                .honesty_queue_ok(HostParadropKind::AmericaParadrop),
+            "Paradrop must queue a pending host mission"
+        );
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert!(caster.special_power_cooldown_remaining > 0.0);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponParadrop"),
+            "activation must queue SuperweaponParadrop audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "no infantry before drop delay"
+        );
+        assert!(!game_logic
+            .host_paradrops()
+            .honesty_complete_ok(HostParadropKind::AmericaParadrop));
+
+        game_logic.frame = 89;
+        game_logic.update_paradrops();
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "still no infantry one frame before drop"
+        );
+
+        game_logic.frame = 90;
+        game_logic.update_paradrops();
+
+        assert!(
+            game_logic
+                .host_paradrops()
+                .honesty_complete_ok(HostParadropKind::AmericaParadrop),
+            "Paradrop must complete with spawned units"
+        );
+        assert!(
+            game_logic
+                .host_paradrops()
+                .honesty_host_path_ok(HostParadropKind::AmericaParadrop),
+            "host path honesty requires completed drop with units"
+        );
+
+        let completed = game_logic
+            .host_paradrops()
+            .completed_of_kind(HostParadropKind::AmericaParadrop);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostParadropPhase::Completed);
+        assert_eq!(
+            completed[0].spawned_unit_ids.len(),
+            AMERICA_PARADROP_UNIT_COUNT as usize,
+            "must spawn residual America Paradrop1 infantry count"
+        );
+
+        let mut near_target = 0_u32;
+        for id in &completed[0].spawned_unit_ids {
+            let obj = game_logic.find_object(*id).expect("spawned infantry");
+            assert_eq!(obj.team, Team::USA);
+            assert!(
+                obj.thing.template.name == PARADROP_RESIDUAL_TEMPLATE
+                    || obj.thing.template.name.contains("Infantry")
+                    || obj.thing.template.name.contains("Ranger"),
+                "spawned residual infantry template, got {}",
+                obj.thing.template.name
+            );
+            let pos = obj.get_position();
+            let dx = pos.x - target.x;
+            let dz = pos.z - target.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist <= 80.0 {
+                near_target += 1;
+            }
+        }
+        assert_eq!(
+            near_target, AMERICA_PARADROP_UNIT_COUNT,
+            "all paradrop infantry must appear near target location"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "ParadropLanding"),
+            "drop must queue ParadropLanding audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before + AMERICA_PARADROP_UNIT_COUNT as usize
+        );
+    }
+
     /// Residual: GLA SCUD Storm host path queues and completes.
     #[test]
     fn scud_storm_host_path_queues_and_completes() {
