@@ -1188,6 +1188,22 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     /// Draw this module. C++ `DrawModule::doDrawModule(transformMtx)`.
     fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {}
 
+    /// Enable/disable shadow rendering for this module.
+    /// C++ `DrawModule::setShadowsEnabled(Bool)`.
+    fn set_shadows_enabled(&mut self, _enable: bool) {}
+
+    /// Allocate shadow resources if not present (Options screen).
+    /// C++ `DrawModule::allocateShadows()`.
+    ///
+    /// Fail-closed residual: status/enable bookkeeping only — not full shadow mesh GPU alloc.
+    fn allocate_shadows(&mut self) {}
+
+    /// Release shadow resources (Options screen).
+    /// C++ `DrawModule::releaseShadows()`.
+    ///
+    /// Fail-closed residual: does not free GPU shadow meshes that were never allocated.
+    fn release_shadows(&mut self) {}
+
     /// Replace the team indicator color.
     /// C++ `ObjectDrawInterface::replaceIndicatorColor(color)`.
     fn replace_indicator_color(&mut self, _color: Option<(u8, u8, u8)>) {}
@@ -1707,7 +1723,11 @@ impl BasicDrawable {
             position: Vector3::zero(),
             instance_transform: Matrix4::identity(),
             instance_scale: 1.0,
-            status: DrawableStatus::NONE,
+            // C++ creates with DRAWABLE_STATUS_NONE; first Drawable::draw() then
+            // setShadowsEnabled for living non-stealth-detected objects. Seed SHADOWS
+            // here so shadow enable is observable after create without requiring a full
+            // render pass / GPU shadow mesh (matches GameLogic Drawable residual).
+            status: DrawableStatus::SHADOWS,
             tint_status: TintStatus::NONE,
             prev_tint_status: TintStatus::NONE,
             visible: true,
@@ -1844,21 +1864,44 @@ impl BasicDrawable {
         self.model_condition_flags.set(index, false);
     }
 
-    /// C++ parity helpers used by options flow to toggle shadow resources.
+    /// C++ parity: `Drawable::getShadowsEnabled()`.
+    pub fn get_shadows_enabled(&self) -> bool {
+        self.status.has(DrawableStatus::SHADOWS)
+    }
+
+    /// C++ parity: `Drawable::setShadowsEnabled(Bool)` (Drawable.cpp:857-869).
+    ///
+    /// Sets DRAWABLE_STATUS_SHADOWS and dispatches to draw modules. Fail-closed:
+    /// modules do not allocate GPU shadow meshes here.
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         if enable {
             self.status.set(DrawableStatus::SHADOWS);
         } else {
             self.status.clear(DrawableStatus::SHADOWS);
         }
+        for dm in &mut self.draw_modules {
+            dm.set_shadows_enabled(enable);
+        }
     }
 
+    /// C++ parity: `Drawable::allocateShadows()` — Options screen resource create.
+    ///
+    /// Fail-closed residual: notifies draw modules only; does **not** set status bits
+    /// (use `set_shadows_enabled`) and does **not** allocate full shadow mesh GPU resources.
     pub fn allocate_shadows(&mut self) {
-        self.set_shadows_enabled(true);
+        for dm in &mut self.draw_modules {
+            dm.allocate_shadows();
+        }
     }
 
+    /// C++ parity: `Drawable::releaseShadows()` — Options screen resource free.
+    ///
+    /// Fail-closed residual: notifies draw modules only; does not clear status bits
+    /// and does not free GPU meshes that were never allocated.
     pub fn release_shadows(&mut self) {
-        self.set_shadows_enabled(false);
+        for dm in &mut self.draw_modules {
+            dm.release_shadows();
+        }
     }
 
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
@@ -3599,9 +3642,24 @@ impl Drawable for BasicDrawable {
             return;
         }
 
-        // C++ parity: Drawable::draw() toggles shadows per-frame based on stealth look.
-        // Shadows are enabled unless the drawable is visibly detected by the enemy.
-        self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
+        // C++ parity: Drawable::draw() (Drawable.cpp:2629-2630):
+        // if (getObject() && !getObject()->isEffectivelyDead())
+        //     setShadowsEnabled(m_stealthLook != STEALTHLOOK_VISIBLE_DETECTED);
+        // Without a bound object we keep the create-time enable (seeded SHADOWS).
+        if let Some(obj_id) = self.object_id {
+            let effectively_dead = OBJECT_REGISTRY
+                .get_object(obj_id)
+                .and_then(|obj_arc| {
+                    obj_arc
+                        .read()
+                        .ok()
+                        .map(|guard| guard.is_effectively_dead())
+                })
+                .unwrap_or(false);
+            if !effectively_dead {
+                self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
+            }
+        }
 
         // C++ parity: Drawable::draw() validates position (Drawable.cpp:2634 validatePos()).
         // Skip rendering if position contains NaN or is unreasonably large.
@@ -5915,13 +5973,118 @@ mod tests {
     }
 
     #[test]
+    fn test_shadow_status_enabled_after_create() {
+        // Residual: shadow enable is observable after create without GPU mesh alloc.
+        let drawable = BasicDrawable::new(DrawableId(1));
+        assert!(
+            drawable.get_shadows_enabled(),
+            "create-time DRAWABLE_STATUS_SHADOWS must be set"
+        );
+        assert!(drawable.get_status().has(DrawableStatus::SHADOWS));
+    }
+
+    #[test]
     fn test_shadow_toggle_helpers() {
         let mut drawable = BasicDrawable::new(DrawableId(1));
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.set_shadows_enabled(false);
+        assert!(!drawable.get_shadows_enabled());
         assert!(!drawable.get_status().has(DrawableStatus::SHADOWS));
-        drawable.allocate_shadows();
+
+        drawable.set_shadows_enabled(true);
+        assert!(drawable.get_shadows_enabled());
         assert!(drawable.get_status().has(DrawableStatus::SHADOWS));
+
+        // allocate/release are Options-screen resource hooks and must not flip status
+        // (C++ Drawable::allocateShadows/releaseShadows only touch draw modules).
+        drawable.set_shadows_enabled(false);
+        drawable.allocate_shadows();
+        assert!(
+            !drawable.get_shadows_enabled(),
+            "allocate_shadows must not set status bits"
+        );
+        drawable.set_shadows_enabled(true);
         drawable.release_shadows();
-        assert!(!drawable.get_status().has(DrawableStatus::SHADOWS));
+        assert!(
+            drawable.get_shadows_enabled(),
+            "release_shadows must not clear status bits"
+        );
+    }
+
+    #[test]
+    fn test_model_condition_change_preserves_shadow_status() {
+        // Model condition swaps must not clear shadow enable (C++ keeps m_shadowEnabled
+        // and only reallocates mesh resources on condition change).
+        let mut drawable = BasicDrawable::new(DrawableId(42));
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.react_to_body_damage_state_change(
+            gamelogic::common::types::BodyDamageType::Damaged,
+        );
+        assert!(
+            drawable.get_shadows_enabled(),
+            "damage model condition must not clear SHADOWS status"
+        );
+
+        drawable.react_to_body_damage_state_change(
+            gamelogic::common::types::BodyDamageType::Rubble,
+        );
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.set_shadows_enabled(false);
+        drawable.react_to_body_damage_state_change(
+            gamelogic::common::types::BodyDamageType::Pristine,
+        );
+        assert!(
+            !drawable.get_shadows_enabled(),
+            "explicit disable must survive model condition updates"
+        );
+    }
+
+    #[test]
+    fn test_set_shadows_enabled_dispatches_to_draw_modules() {
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+        static ENABLED: AtomicBool = AtomicBool::new(true);
+        static ALLOC_CALLS: AtomicU32 = AtomicU32::new(0);
+        static RELEASE_CALLS: AtomicU32 = AtomicU32::new(0);
+
+        ENABLED.store(true, Ordering::SeqCst);
+        ALLOC_CALLS.store(0, Ordering::SeqCst);
+        RELEASE_CALLS.store(0, Ordering::SeqCst);
+
+        #[derive(Debug)]
+        struct ShadowDispatchModule;
+        impl DrawModule for ShadowDispatchModule {
+            fn set_shadows_enabled(&mut self, enable: bool) {
+                ENABLED.store(enable, Ordering::SeqCst);
+            }
+            fn allocate_shadows(&mut self) {
+                ALLOC_CALLS.fetch_add(1, Ordering::SeqCst);
+            }
+            fn release_shadows(&mut self) {
+                RELEASE_CALLS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mut drawable = BasicDrawable::new(DrawableId(7));
+        drawable.add_draw_module(Box::new(ShadowDispatchModule));
+
+        drawable.set_shadows_enabled(false);
+        assert!(!ENABLED.load(Ordering::SeqCst));
+        assert!(!drawable.get_shadows_enabled());
+
+        drawable.set_shadows_enabled(true);
+        assert!(ENABLED.load(Ordering::SeqCst));
+        assert!(drawable.get_shadows_enabled());
+
+        drawable.allocate_shadows();
+        drawable.release_shadows();
+        assert_eq!(ALLOC_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(RELEASE_CALLS.load(Ordering::SeqCst), 1);
+        // Status remains enable-controlled, not allocate/release-controlled.
+        assert!(drawable.get_shadows_enabled());
     }
 
     #[test]
