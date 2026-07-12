@@ -27,6 +27,8 @@ pub struct ThingTemplate {
     /// Host primary weapon stats when the template defines combat capability.
     /// Prefer this over ad-hoc `Weapon::default()` injection at create time.
     pub primary_weapon: Option<Weapon>,
+    /// Weapon.ini / Object INI primary weapon template name (resolved via WeaponStore).
+    pub primary_weapon_name: Option<String>,
 }
 
 impl ThingTemplate {
@@ -46,6 +48,7 @@ impl ThingTemplate {
             experience_value: 0.0,
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             primary_weapon: None,
+            primary_weapon_name: None,
         }
     }
 
@@ -55,21 +58,79 @@ impl ThingTemplate {
         self
     }
 
-    /// Resolve weapon for a newly created combat unit: template first, then
-    /// a kind-based fallback for infantry/vehicle/aircraft without explicit stats.
+    /// Record the Weapon.ini template name for store lookup at create time.
+    pub fn set_primary_weapon_name(&mut self, name: &str) -> &mut Self {
+        let n = name.trim();
+        if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
+            self.primary_weapon_name = Some(n.to_string());
+        }
+        self
+    }
+
+    /// Resolve weapon for a newly created combat unit:
+    /// 1) explicit host stats, 2) WeaponStore by name, 3) kind-based default fallback.
     pub fn resolve_primary_weapon(&self) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
+        }
+        if let Some(name) = self.primary_weapon_name.as_deref() {
+            if let Some(w) = Self::weapon_from_store(name) {
+                return Some(w);
+            }
         }
         if self.is_kind_of(KindOf::Infantry)
             || self.is_kind_of(KindOf::Vehicle)
             || self.is_kind_of(KindOf::Aircraft)
             || self.is_kind_of(KindOf::Attackable)
         {
-            // Last-resort host combat stats until full Weapon.ini binding is wired.
+            // Last-resort host combat stats when no template/store weapon is usable.
             return Some(Weapon::default());
         }
         None
+    }
+
+    /// Convert a gamelogic WeaponStore template into Main host Weapon stats.
+    /// Returns None if store is missing or stats are unusable (0 dmg/range).
+    pub fn weapon_from_store(name: &str) -> Option<Weapon> {
+        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask};
+        const FPS: f32 = 30.0;
+        let wt = with_weapon_store(|store| store.find_weapon_template(name).cloned()).ok()??;
+        if wt.primary_damage <= 0.0 || wt.attack_range <= 0.0 {
+            return None;
+        }
+        let delay_frames = wt
+            .min_delay_between_shots
+            .max(wt.max_delay_between_shots)
+            .max(0) as f32;
+        let reload_time = if delay_frames > 0.0 {
+            delay_frames / FPS
+        } else {
+            1.0
+        };
+        let pre_attack_delay = (wt.pre_attack_delay.max(0) as f32) / FPS;
+        let projectile_speed = if wt.weapon_speed >= 999_999.0 {
+            0.0
+        } else {
+            wt.weapon_speed
+        };
+        Some(Weapon {
+            damage: wt.primary_damage,
+            range: wt.attack_range,
+            min_range: wt.minimum_attack_range.max(0.0),
+            reload_time,
+            last_fire_time: 0.0,
+            ammo: if wt.clip_size > 0 {
+                Some(wt.clip_size as u32)
+            } else {
+                None
+            },
+            can_target_air: wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE)
+                || wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_INFANTRY),
+            can_target_ground: wt.anti_mask.contains(WeaponAntiMask::GROUND)
+                || !wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE),
+            projectile_speed,
+            pre_attack_delay,
+        })
     }
 
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
@@ -109,6 +170,42 @@ impl ThingTemplate {
         } else {
             format!("{}.w3d", model_name)
         }
+    }
+}
+
+#[cfg(test)]
+mod weapon_resolve_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_primary_weapon_beats_store_and_default() {
+        let mut t = ThingTemplate::new("Armed");
+        t.add_kind_of(KindOf::Infantry);
+        t.set_primary_weapon(Weapon {
+            damage: 40.0,
+            range: 80.0,
+            reload_time: 0.5,
+            ..Weapon::default()
+        });
+        t.set_primary_weapon_name("DoesNotExistInStoreHopefully");
+        let w = t.resolve_primary_weapon().expect("weapon");
+        assert!((w.damage - 40.0).abs() < 0.01);
+        assert!((w.range - 80.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn infantry_without_weapon_gets_kind_fallback() {
+        let mut t = ThingTemplate::new("BareInfantry");
+        t.add_kind_of(KindOf::Infantry);
+        let w = t.resolve_primary_weapon().expect("fallback");
+        assert!((w.damage - Weapon::default().damage).abs() < 0.01);
+    }
+
+    #[test]
+    fn structure_without_weapon_stays_unarmed() {
+        let mut t = ThingTemplate::new("BareStructure");
+        t.add_kind_of(KindOf::Structure);
+        assert!(t.resolve_primary_weapon().is_none());
     }
 }
 
