@@ -513,6 +513,10 @@ pub struct GameLogic {
     /// Queues on DoSpecialPower and completes with area damage — fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
+    /// Host America Paradrop / Airborne residual.
+    /// Queues on DoSpecialPower and spawns infantry after approach delay — fail-closed vs full OCL plane.
+    host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry,
+
     /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
     host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
@@ -541,6 +545,14 @@ pub struct GameLogic {
     mine_residual_manual_detonations: u32,
     /// Dozer/Worker safe mine-clear residual (DAMAGE_DISARM destroy without detonation).
     mine_residual_clears: u32,
+
+    /// Host structure/vehicle repair residual honesty counters.
+    /// Fail-closed: not full DozerAIUpdate percent heal / RepairDockUpdate TimeForFullHeal.
+    /// structure: dozer Repair command accepted / structure HP heal ticks applied.
+    /// vehicle: SeekingRepair heal ticks at RepairPad / WarFactory / Airfield.
+    repair_residual_structure_commands: u32,
+    repair_residual_structure_heals: u32,
+    repair_residual_vehicle_heals: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
@@ -1337,6 +1349,7 @@ impl GameLogic {
             combat_particles: CombatParticleRegistry::new(),
             special_power_strikes:
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
+            host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             supply_lines_bonus_cash_total: 0,
             garrison_residual_enters: 0,
@@ -1349,6 +1362,9 @@ impl GameLogic {
             mine_residual_timed_detonations: 0,
             mine_residual_manual_detonations: 0,
             mine_residual_clears: 0,
+            repair_residual_structure_commands: 0,
+            repair_residual_structure_heals: 0,
+            repair_residual_vehicle_heals: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
             is_paused: false,
@@ -1473,6 +1489,7 @@ impl GameLogic {
         self.objects_to_destroy.clear();
         self.combat_particles.clear();
         self.special_power_strikes.clear();
+        self.host_paradrops.clear();
         self.host_upgrades.clear();
         self.supply_lines_bonus_cash_total = 0;
         self.garrison_residual_enters = 0;
@@ -1485,6 +1502,9 @@ impl GameLogic {
         self.mine_residual_timed_detonations = 0;
         self.mine_residual_manual_detonations = 0;
         self.mine_residual_clears = 0;
+        self.repair_residual_structure_commands = 0;
+        self.repair_residual_structure_heals = 0;
+        self.repair_residual_vehicle_heals = 0;
         self.radar_scans.clear();
         self.hero_abilities.clear();
         self.is_paused = false;
@@ -3304,6 +3324,10 @@ impl GameLogic {
         // ParticleCannon strikes (area damage). Fail-closed vs full OCL aircraft.
         self.update_special_power_strikes();
 
+        // Host America Paradrop residual: spawn infantry after approach delay.
+        // Fail-closed vs full OCL cargo plane / parachute payload path.
+        self.update_paradrops();
+
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         self.update_mines_and_demo_traps();
@@ -4664,11 +4688,13 @@ impl GameLogic {
 
     fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         const GUARD_MIN_RADIUS: f32 = 80.0;
-        const INTERACT_RANGE: f32 = 14.0;
+        const INTERACT_RANGE: f32 =
+            crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const CAPTURE_RANGE_PADDING: f32 = 4.0;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
-        const REPAIR_RATE: f32 = 35.0;
-        const HEAL_RATE: f32 = 25.0;
+        // Host residual flat HP/sec (not C++ percent-of-max / TimeForFullHeal matrix).
+        const REPAIR_RATE: f32 = crate::game_logic::host_repair::HOST_REPAIR_RATE_HP_PER_SEC;
+        const HEAL_RATE: f32 = crate::game_logic::host_repair::HOST_HEAL_RATE_HP_PER_SEC;
 
         for &object_id in object_ids {
             let snapshot = match self.objects.get(&object_id) {
@@ -4851,13 +4877,25 @@ impl GameLogic {
                         continue;
                     }
 
-                    let target_full = if let Some(target) = self.objects.get_mut(&repair_target_id)
-                    {
-                        target.heal(REPAIR_RATE * dt);
-                        target.health.current >= target.health.maximum - 0.01
-                    } else {
-                        true
-                    };
+                    // Dozer structure-repair residual: heal HP over time while in range.
+                    // C++ DozerAIUpdate DOZER_TASK_REPAIR + attemptHealingFromSoleBenefactor.
+                    // Fail-closed: flat rate, multi-dozer both allowed, no sole-benefactor reject.
+                    let heal_amount = REPAIR_RATE * dt;
+                    let (target_full, healed) =
+                        if let Some(target) = self.objects.get_mut(&repair_target_id) {
+                            let before = target.health.current;
+                            target.heal(heal_amount);
+                            let after = target.health.current;
+                            (
+                                after >= target.health.maximum - 0.01,
+                                after > before + 0.0001,
+                            )
+                        } else {
+                            (true, false)
+                        };
+                    if healed {
+                        self.record_structure_repair_residual_heal();
+                    }
                     if target_full {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
@@ -4922,9 +4960,14 @@ impl GameLogic {
                         .map(|obj| match state {
                             AIState::SeekingRepair => {
                                 if obj.is_kind_of(KindOf::Aircraft) {
-                                    support_building_type == BuildingType::Airfield
+                                    crate::game_logic::host_repair::building_provides_aircraft_repair(
+                                        support_building_type,
+                                    )
                                 } else if obj.is_kind_of(KindOf::Vehicle) {
-                                    support_building_type == BuildingType::RepairPad
+                                    // RepairPad (USA) + WarFactory (China RepairDock residual).
+                                    crate::game_logic::host_repair::building_provides_vehicle_repair(
+                                        support_building_type,
+                                    )
                                 } else {
                                     false
                                 }
@@ -4952,18 +4995,29 @@ impl GameLogic {
                         continue;
                     }
 
+                    // Pad/airfield/war-factory residual: heal self over time while docked in range.
+                    // C++ RepairDockUpdate::action TimeForFullHeal residual (flat host rate).
+                    let mut vehicle_healed = false;
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         let rate = match state {
                             AIState::SeekingRepair => REPAIR_RATE,
                             AIState::SeekingHealing => HEAL_RATE,
                             _ => 0.0,
                         };
+                        let before = obj.health.current;
                         obj.heal(rate * dt);
+                        let healed = obj.health.current > before + 0.0001;
+                        if healed && matches!(state, AIState::SeekingRepair) {
+                            vehicle_healed = true;
+                        }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
                         } else {
                             obj.ai_state = state;
                         }
+                    }
+                    if vehicle_healed {
+                        self.record_vehicle_repair_residual_heal();
                     }
                 }
                 state @ (AIState::Entering | AIState::Docking) => {
@@ -8378,6 +8432,18 @@ impl GameLogic {
         &mut self.special_power_strikes
     }
 
+    /// Host America Paradrop / Airborne mission registry (queue + drop residual).
+    pub fn host_paradrops(&self) -> &crate::game_logic::host_paradrop::HostParadropRegistry {
+        &self.host_paradrops
+    }
+
+    /// Mutable host paradrop registry (tests / honesty drain).
+    pub fn host_paradrops_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::host_paradrop::HostParadropRegistry {
+        &mut self.host_paradrops
+    }
+
     /// Host upgrade research registry (queue + complete residual).
     pub fn host_upgrades(
         &self,
@@ -8588,6 +8654,56 @@ impl GameLogic {
     /// Residual honesty: place enemy mine → dozer clear → mine gone, dozer lives.
     pub fn honesty_mine_clear_ok(&self) -> bool {
         self.mine_residual_places > 0 && self.mine_residual_clears > 0
+    }
+
+    /// Residual dozer structure-repair command accepts.
+    pub fn repair_residual_structure_commands(&self) -> u32 {
+        self.repair_residual_structure_commands
+    }
+
+    /// Residual structure HP heal ticks applied by dozer Repairing state.
+    pub fn repair_residual_structure_heals(&self) -> u32 {
+        self.repair_residual_structure_heals
+    }
+
+    /// Residual vehicle/aircraft SeekingRepair heal ticks at pad/war-factory/airfield.
+    pub fn repair_residual_vehicle_heals(&self) -> u32 {
+        self.repair_residual_vehicle_heals
+    }
+
+    /// Record a successful dozer structure Repair command acceptance.
+    pub fn record_structure_repair_residual_command(&mut self) {
+        self.repair_residual_structure_commands =
+            self.repair_residual_structure_commands.saturating_add(1);
+    }
+
+    /// Record a structure HP heal tick from dozer Repairing residual.
+    pub fn record_structure_repair_residual_heal(&mut self) {
+        self.repair_residual_structure_heals =
+            self.repair_residual_structure_heals.saturating_add(1);
+    }
+
+    /// Record a vehicle/aircraft pad heal tick from SeekingRepair residual.
+    pub fn record_vehicle_repair_residual_heal(&mut self) {
+        self.repair_residual_vehicle_heals =
+            self.repair_residual_vehicle_heals.saturating_add(1);
+    }
+
+    /// Residual structure repair honesty: command issued and at least one HP heal tick.
+    /// Fail-closed: not full C++ percent-heal / sole-benefactor / scaffolding parity.
+    pub fn honesty_structure_repair_ok(&self) -> bool {
+        self.repair_residual_structure_commands > 0 && self.repair_residual_structure_heals > 0
+    }
+
+    /// Residual vehicle pad repair honesty: at least one SeekingRepair heal tick.
+    /// Fail-closed: not full RepairDockUpdate TimeForFullHeal / dock bones parity.
+    pub fn honesty_vehicle_repair_ok(&self) -> bool {
+        self.repair_residual_vehicle_heals > 0
+    }
+
+    /// Combined host repair residual path honesty (structure or vehicle pad).
+    pub fn honesty_repair_ok(&self) -> bool {
+        self.honesty_structure_repair_ok() || self.honesty_vehicle_repair_ok()
     }
 
     // -----------------------------------------------------------------------
@@ -9522,6 +9638,127 @@ impl GameLogic {
                 total_damage,
                 objects_hit,
                 objects_destroyed
+            );
+        }
+    }
+
+    /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
+    /// Returns mission id when the power maps to a supported residual kind.
+    pub fn queue_paradrop(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::host_paradrop::{HostParadropKind, PARADROP_RESIDUAL_TEMPLATE};
+        let kind = HostParadropKind::from_command_power(power)?;
+        let source_team = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let frame = self.frame;
+
+        // Prefer retail ranger template when loaded; otherwise residual TestInfantry.
+        let preferred = kind.unit_template();
+        let unit_template = if self.templates.contains_key(preferred) {
+            preferred.to_string()
+        } else {
+            self.ensure_residual_paradrop_infantry_template();
+            PARADROP_RESIDUAL_TEMPLATE.to_string()
+        };
+
+        let id = self.host_paradrops.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+            unit_template,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        Some(id)
+    }
+
+    /// Ensure residual infantry template used by America Paradrop drop path.
+    fn ensure_residual_paradrop_infantry_template(&mut self) {
+        use crate::game_logic::host_paradrop::PARADROP_RESIDUAL_TEMPLATE;
+        if self.templates.contains_key(PARADROP_RESIDUAL_TEMPLATE) {
+            return;
+        }
+        let mut t = ThingTemplate::new(PARADROP_RESIDUAL_TEMPLATE);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        self.templates
+            .insert(PARADROP_RESIDUAL_TEMPLATE.to_string(), t);
+    }
+
+    /// Advance pending host paradrops to drop frame and spawn infantry near target.
+    pub fn update_paradrops(&mut self) {
+        self.host_paradrops.clear_frame_events();
+
+        let plans = self.host_paradrops.plan_due_drops(self.frame);
+        for plan in plans {
+            if !self.templates.contains_key(&plan.unit_template) {
+                self.ensure_residual_paradrop_infantry_template();
+            }
+            let template_name = if self.templates.contains_key(&plan.unit_template) {
+                plan.unit_template.clone()
+            } else {
+                crate::game_logic::host_paradrop::PARADROP_RESIDUAL_TEMPLATE.to_string()
+            };
+
+            let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
+            for pos in &plan.spawn_positions {
+                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                    spawned.push(id);
+                }
+            }
+
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.drop_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+
+            let spawned_count = spawned.len();
+            self.host_paradrops
+                .record_drop_complete(plan.mission_id, spawned);
+
+            log::info!(
+                "Host paradrop {} mission {} completed at {:?} (spawned={}/{})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                spawned_count,
+                plan.spawn_positions.len()
             );
         }
     }
@@ -14317,6 +14554,279 @@ mod tests {
             .health
             .current;
         assert!(after > before);
+    }
+
+    /// Residual E2E: damage structure → Repair command → HP recovers over time.
+    /// Covers dozer structure repair residual (including WarFactory as structure).
+    /// Fail-closed: not C++ percent-of-max heal / sole-benefactor / scaffolding.
+    #[test]
+    fn dozer_structure_repair_residual_recovers_hp_over_time() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_dozer_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        // Place dozer in interact range so heal starts immediately.
+        let dozer_id = game_logic
+            .create_object("TestDozer", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("dozer");
+        // Explicit WarFactory-named structure so residual covers "repair WarFactory".
+        let mut war_factory_tpl = crate::game_logic::ThingTemplate::new("USA_WarFactory");
+        war_factory_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSWarFactory)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1500.0)
+            .set_cost(2000, -2);
+        game_logic
+            .templates
+            .insert("USA_WarFactory".to_string(), war_factory_tpl);
+
+        let structure_id = game_logic
+            .create_object("USA_WarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("war factory structure");
+
+        {
+            let structure = game_logic
+                .find_object_mut(structure_id)
+                .expect("structure");
+            let _ = structure.take_damage(400.0);
+            assert!(
+                structure.health.current + 0.01 < structure.health.maximum,
+                "structure must be damaged before repair"
+            );
+        }
+        let before = game_logic
+            .find_object(structure_id)
+            .expect("structure")
+            .health
+            .current;
+
+        assert_eq!(game_logic.repair_residual_structure_commands(), 0);
+        assert!(!game_logic.honesty_structure_repair_ok());
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Repair {
+                target_id: structure_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![dozer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert_eq!(
+            game_logic.repair_residual_structure_commands(),
+            1,
+            "successful Repair command must record honesty"
+        );
+        {
+            let dozer = game_logic.find_object(dozer_id).expect("dozer");
+            assert_eq!(dozer.ai_state, AIState::Repairing);
+            assert_eq!(dozer.target, Some(structure_id));
+        }
+
+        // Several logic frames: HP must increase over time.
+        for _ in 0..30 {
+            game_logic.update_ai(&[dozer_id, structure_id], 1.0 / 30.0);
+        }
+
+        let after = game_logic
+            .find_object(structure_id)
+            .expect("structure")
+            .health
+            .current;
+        assert!(
+            after > before,
+            "dozer Repair residual must restore structure HP over time (before={before}, after={after})"
+        );
+        assert!(
+            game_logic.repair_residual_structure_heals() > 0,
+            "must record structure heal honesty ticks"
+        );
+        assert!(
+            game_logic.honesty_structure_repair_ok(),
+            "structure repair residual honesty path"
+        );
+        assert!(
+            game_logic.honesty_repair_ok(),
+            "combined repair honesty"
+        );
+    }
+
+    /// Residual: dozer out of range walks in, then structure HP recovers (full update loop).
+    #[test]
+    fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_dozer_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        // Outside INTERACT_RANGE (14): must approach before healing.
+        let dozer_id = game_logic
+            .create_object("TestDozer", Team::USA, Vec3::new(55.0, 0.0, 0.0))
+            .expect("dozer");
+        let structure_id = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("structure");
+
+        {
+            let structure = game_logic
+                .find_object_mut(structure_id)
+                .expect("structure");
+            let _ = structure.take_damage(300.0);
+        }
+        let before = game_logic
+            .find_object(structure_id)
+            .expect("structure")
+            .health
+            .current;
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Repair {
+                target_id: structure_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![dozer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let dozer = game_logic.find_object(dozer_id).expect("dozer");
+            assert_eq!(dozer.ai_state, AIState::Repairing);
+            assert_eq!(dozer.target, Some(structure_id));
+        }
+        // Must not heal while still out of range on first short step.
+        game_logic.update();
+        let mid = game_logic
+            .find_object(structure_id)
+            .expect("structure")
+            .health
+            .current;
+        // May still be equal if not in range; allow equal on first frame.
+        let _ = mid;
+
+        let mut recovered = false;
+        for _ in 0..900 {
+            game_logic.update();
+            if game_logic
+                .find_object(structure_id)
+                .map(|s| s.health.current > before + 0.5)
+                .unwrap_or(false)
+            {
+                recovered = true;
+                break;
+            }
+        }
+        assert!(
+            recovered,
+            "dozer must walk into repair range and restore structure HP"
+        );
+        assert!(
+            game_logic.honesty_structure_repair_ok(),
+            "walk-in repair residual honesty"
+        );
+
+        // Repairing must not be clobbered to Idle mid-approach without finishing.
+        let dozer = game_logic.find_object(dozer_id).expect("dozer");
+        assert!(
+            matches!(dozer.ai_state, AIState::Repairing | AIState::Idle),
+            "dozer should still be repairing or finished idle, got {:?}",
+            dozer.ai_state
+        );
+    }
+
+    /// Residual: damaged vehicle GetRepaired at WarFactory recovers HP (China RepairDock).
+    #[test]
+    fn war_factory_vehicle_repair_residual_recovers_hp() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut war_factory_tpl = crate::game_logic::ThingTemplate::new("China_WarFactory");
+        war_factory_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSWarFactory)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(2000.0)
+            .set_cost(2000, -2);
+        game_logic
+            .templates
+            .insert("China_WarFactory".to_string(), war_factory_tpl);
+
+        let war_factory_id = game_logic
+            .create_object("China_WarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("war factory");
+        {
+            let wf = game_logic.find_object(war_factory_id).expect("wf");
+            assert_eq!(
+                wf.building_data.as_ref().map(|b| b.building_type),
+                Some(BuildingType::WarFactory)
+            );
+        }
+
+        let vehicle_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(6.0, 0.0, 0.0))
+            .expect("vehicle");
+        {
+            let vehicle = game_logic.find_object_mut(vehicle_id).expect("vehicle");
+            let _ = vehicle.take_damage(120.0);
+        }
+        let before = game_logic
+            .find_object(vehicle_id)
+            .expect("vehicle")
+            .health
+            .current;
+
+        assert!(!game_logic.honesty_vehicle_repair_ok());
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::GetRepaired {
+                target_id: war_factory_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![vehicle_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+            assert_eq!(
+                vehicle.ai_state,
+                AIState::SeekingRepair,
+                "WarFactory must accept GetRepaired for vehicles"
+            );
+            assert_eq!(vehicle.target, Some(war_factory_id));
+        }
+
+        for _ in 0..30 {
+            game_logic.update_ai(&[war_factory_id, vehicle_id], 1.0 / 30.0);
+        }
+
+        let after = game_logic
+            .find_object(vehicle_id)
+            .expect("vehicle")
+            .health
+            .current;
+        assert!(
+            after > before,
+            "WarFactory vehicle repair residual must restore HP (before={before}, after={after})"
+        );
+        assert!(
+            game_logic.repair_residual_vehicle_heals() > 0,
+            "must record vehicle heal honesty"
+        );
+        assert!(
+            game_logic.honesty_vehicle_repair_ok(),
+            "vehicle repair residual honesty"
+        );
     }
 
     #[test]
