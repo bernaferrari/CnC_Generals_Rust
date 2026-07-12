@@ -256,8 +256,16 @@ pub enum SpecialPowerType {
     ParticleCannon,
     RadarScan,
     ScudStorm,
+    /// USA Spy Satellite Scan residual — temporary FOW reveal at location.
+    SpySatellite,
+    /// USA CIA Intelligence residual (SpyVision) — optional FOW residual path.
+    /// Fail-closed: not full setUnitsVisionSpied enemy-vision module.
+    CiaIntelligence,
     SpyDrone,
     SuperweaponCountermeasures,
+    /// China Dragon Tank FireWall / Firestorm residual (FIRE_WEAPON secondary path).
+    /// Creates a line of fire damage zones toward the target location.
+    FireWall,
     Invalid,
 }
 

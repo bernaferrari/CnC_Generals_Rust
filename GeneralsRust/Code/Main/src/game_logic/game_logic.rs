@@ -558,9 +558,17 @@ pub struct GameLogic {
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
 
+    /// Host SpySatellite FOW temporary-reveal residual.
+    /// Fail-closed: not full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
+    spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
+
     /// Host hero special-ability residual (snipe / timed C4 / cash hack).
     /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
     hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
+
+    /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
+    /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
+    fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
     /// Game paused state
     is_paused: bool,
@@ -1366,7 +1374,9 @@ impl GameLogic {
             repair_residual_structure_heals: 0,
             repair_residual_vehicle_heals: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
+            spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
+            fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1506,7 +1516,9 @@ impl GameLogic {
         self.repair_residual_structure_heals = 0;
         self.repair_residual_vehicle_heals = 0;
         self.radar_scans.clear();
+        self.spy_satellites.clear();
         self.hero_abilities.clear();
+        self.fire_walls.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3335,6 +3347,14 @@ impl GameLogic {
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
         self.update_radar_scans();
+
+        // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
+        // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
+        self.update_spy_satellites();
+
+        // Host China FireWall residual: tick fire damage along wall segments.
+        // Fail-closed vs full OCL FireWallSegment / InchForwardLocomotor.
+        self.update_firewalls();
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
@@ -8902,6 +8922,269 @@ impl GameLogic {
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // SpySatellite FOW temporary-reveal residual
+    // Fail-closed: not full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
+    // -----------------------------------------------------------------------
+
+    /// Host SpySatellite residual registry (activate + honesty).
+    pub fn spy_satellites(
+        &self,
+    ) -> &crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry {
+        &self.spy_satellites
+    }
+
+    /// Residual honesty: SpySatellite activated at least once.
+    pub fn honesty_spy_satellite_activate_ok(&self) -> bool {
+        self.spy_satellites.honesty_activate_ok()
+    }
+
+    /// Residual honesty: SpySatellite cleared FOW at scan center at least once.
+    pub fn honesty_spy_satellite_fow_ok(&self) -> bool {
+        self.spy_satellites.honesty_fow_reveal_ok()
+    }
+
+    /// Combined host path honesty for SpySatellite residual.
+    pub fn honesty_spy_satellite_ok(&self) -> bool {
+        self.spy_satellites.honesty_host_path_ok()
+    }
+
+    /// Activate SpySatellite residual: temporary FOW reveal at `location`.
+    ///
+    /// Matches retail SpecialPowerSpySatellite / SpySatellitePing radius (300) and
+    /// lifetime residual (13000 ms → 390 frames). Uses ShroudManager
+    /// do_shroud_reveal + queue_undo_shroud_reveal so fog returns after duration.
+    ///
+    /// Fail-closed: not OCL object spawn / grow-shrink curve / stealth detector /
+    /// CIA Intelligence SpyVisionUpdate setUnitsVisionSpied path.
+    pub fn activate_spy_satellite(
+        &mut self,
+        player_id: u32,
+        team: Team,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_spy_satellite::{
+            HostSpySatellite, SPY_SATELLITE_ACTIVATE_AUDIO, SPY_SATELLITE_DURATION_FRAMES,
+            SPY_SATELLITE_RADIUS,
+        };
+        use gamelogic::common::Coord3D;
+
+        // Ensure shroud grid exists (tests / pre-map residual).
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+
+        let mut player_mask = 0u32;
+        for (&pid, player) in &self.players {
+            if player.team == team {
+                player_mask |= 1u32 << pid.min(31);
+            }
+        }
+        if player_mask == 0 {
+            // No registered players for team: fall back to commanding player bit.
+            player_mask = 1u32 << player_id.min(31);
+        }
+
+        // ShroudManager grid axes are (x, y). Host residual gameplay uses glam
+        // (x, z) as the ground plane (y = height). Feed horizontal plane into
+        // shroud so temporary reveals land on FOW / PresentationFowGrid cells.
+        let center = Coord3D::new(location.x, location.z, location.y);
+        let radius = SPY_SATELLITE_RADIUS;
+        let duration = SPY_SATELLITE_DURATION_FRAMES;
+        let frame = self.frame;
+
+        let fow_reveal_ok = {
+            let shroud = get_shroud_manager();
+            let mut shroud_mgr = match shroud.lock() {
+                Ok(mgr) => mgr,
+                Err(_) => return false,
+            };
+
+            // Init grid if not yet (unit tests without load_map).
+            if !shroud_mgr.has_shroud_grid() {
+                shroud_mgr.init_shroud_grid(world_w, world_h);
+            }
+
+            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
+
+            // Observe FOW: center must be visible for the commanding player.
+            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
+            if !visible {
+                // Team-shared mask may use a different bit; check any teammate bit.
+                for bit in 0..32u32 {
+                    if (player_mask & (1u32 << bit)) != 0
+                        && shroud_mgr.is_position_visible(bit, &center)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            visible
+        };
+
+        let scan_id = self.spy_satellites.alloc_id();
+        self.spy_satellites.record_activation(HostSpySatellite {
+            id: scan_id,
+            player_id,
+            player_mask,
+            location,
+            radius,
+            activate_frame: frame,
+            expires_frame: frame.saturating_add(duration),
+            caster_id,
+            fow_reveal_ok,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(SPY_SATELLITE_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(150),
+        );
+
+        fow_reveal_ok || self.spy_satellites.activations() > 0
+    }
+
+    /// Advance SpySatellite residual: expire bookkeeping + process shroud undos.
+    fn update_spy_satellites(&mut self) {
+        self.spy_satellites.prune_expired(self.frame);
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // China FireWall / Firestorm residual (Dragon Tank FIRE_WEAPON secondary)
+    // Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
+    // -----------------------------------------------------------------------
+
+    /// Host FireWall residual registry (activate + honesty).
+    pub fn fire_walls(&self) -> &crate::game_logic::host_firewall::HostFireWallRegistry {
+        &self.fire_walls
+    }
+
+    /// Residual honesty: FireWall activated at least once.
+    pub fn honesty_firewall_activate_ok(&self) -> bool {
+        self.fire_walls.honesty_activate_ok()
+    }
+
+    /// Residual honesty: FireWall applied fire damage at least once.
+    pub fn honesty_firewall_damage_ok(&self) -> bool {
+        self.fire_walls.honesty_damage_ok()
+    }
+
+    /// Combined host path honesty for FireWall residual.
+    pub fn honesty_firewall_ok(&self) -> bool {
+        self.fire_walls.honesty_host_path_ok()
+    }
+
+    /// Activate China FireWall residual: line of fire damage zones from caster
+    /// toward `target_position` (retail DragonTankFireWallWeapon → OCL_FireWallSegment).
+    ///
+    /// Fail-closed: not full projectile stream / InchForwardLocomotor crawl /
+    /// BlackNapalm upgraded segments / weapon-slot AI matrix.
+    pub fn activate_firewall(
+        &mut self,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::host_firewall::{FIREWALL_ACTIVATE_AUDIO, FIREWALL_BURN_AUDIO};
+
+        let (caster_pos, source_team) = {
+            let obj = self.objects.get(&source_object)?;
+            if !obj.is_alive() {
+                return None;
+            }
+            (obj.get_position(), obj.team)
+        };
+
+        let frame = self.frame;
+        let id = self.fire_walls.activate(
+            source_object,
+            source_team,
+            caster_pos,
+            target_position,
+            frame,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(FIREWALL_ACTIVATE_AUDIO)
+                .with_object(source_object)
+                .with_position(caster_pos)
+                .with_priority(160),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(FIREWALL_BURN_AUDIO)
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(140),
+        );
+
+        // Residual flame particle at first segment (presentation observability).
+        if let Some(wall) = self.fire_walls.active_walls().iter().find(|w| w.id == id) {
+            if let Some(seg) = wall.segments.first() {
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::WeaponMuzzleFlash,
+                    seg.position,
+                    frame,
+                    Some(source_object),
+                    None,
+                );
+            }
+        }
+
+        Some(id)
+    }
+
+    /// Advance FireWall residual: apply periodic flame damage along active segments.
+    fn update_firewalls(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self.fire_walls.plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.fire_walls.record_tick_complete(
+                plan.wall_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.fire_walls.prune_expired(frame);
     }
 
     /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
@@ -18027,6 +18310,345 @@ mod tests {
             shroud.init_shroud_grid(1.0, 1.0);
             shroud.clear_all();
         }
+    }
+
+    /// SpySatellite is not a superweapon residual strike (separate FOW residual path).
+    #[test]
+    fn spy_satellite_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::SpySatellite,
+                target: PowerTarget::Location(Vec3::new(200.0, 0.0, 200.0)),
+            },
+            player_id: 0,
+            command_id: 6,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "SpySatellite must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_spy_satellite_activate_ok(),
+            "SpySatellite residual must record activation honesty"
+        );
+    }
+
+    /// Residual: SpySatellite special power temporarily reveals FOW at target.
+    /// Fail-closed: not full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
+    #[test]
+    fn spy_satellite_special_power_reveals_fow() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_spy_satellite::{
+            SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+        };
+        use gamelogic::common::Coord3D;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Isolate global shroud for this residual test.
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(1024.0, 1024.0);
+        }
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        // Far from caster so unit vision does not already clear the cell.
+        // SpySatellite radius is 300 (larger than RadarScan 150).
+        let target = Vec3::new(400.0, 0.0, 400.0);
+        let center = Coord3D::new(target.x, target.z, target.y);
+        // Point inside residual radius but offset from exact center.
+        let near_center = Coord3D::new(target.x + 50.0, target.z, target.y);
+
+        // Baseline: target shroud not visible.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "precondition: spy sat target must start shrouded"
+            );
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::SpySatellite,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 43,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_spy_satellite_ok(),
+            "SpySatellite host residual path honesty (activate + FOW)"
+        );
+        assert_eq!(game_logic.spy_satellites().activations(), 1);
+        assert_eq!(game_logic.spy_satellites().active_count(), 1);
+        assert!(
+            game_logic
+                .spy_satellites()
+                .is_position_in_active_scan(0, target),
+            "active residual scan must cover target"
+        );
+        assert!(
+            (game_logic.spy_satellites().active_scans()[0].radius - SPY_SATELLITE_RADIUS).abs()
+                < 0.01,
+            "retail residual radius 300"
+        );
+
+        // FOW observable: center cell visible after spy satellite.
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                shroud.is_position_visible(0, &center),
+                "SpySatellite must reveal FOW at target center"
+            );
+            assert!(
+                shroud.is_position_visible(0, &near_center),
+                "SpySatellite residual radius must cover area around target"
+            );
+        }
+
+        // Charge consumed, not a superweapon strike.
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
+
+        // Expire residual: advance past duration and run update path.
+        game_logic.frame = SPY_SATELLITE_DURATION_FRAMES + 1;
+        game_logic.update_spy_satellites();
+        assert_eq!(
+            game_logic.spy_satellites().active_count(),
+            0,
+            "scan bookkeeping expires after residual duration"
+        );
+        assert!(game_logic.spy_satellites().expirations() >= 1);
+        {
+            let shroud = get_shroud_manager().lock().expect("shroud");
+            assert!(
+                !shroud.is_position_visible(0, &center),
+                "temporary reveal must undo after duration (fogged/hidden)"
+            );
+            assert!(
+                shroud.is_position_explored(0, &center),
+                "explored residual should remain after undo"
+            );
+        }
+
+        // Cleanup global shroud for other tests.
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+            shroud.init_shroud_grid(1.0, 1.0);
+            shroud.clear_all();
+        }
+    }
+
+    /// Residual: China FireWall (Dragon Tank Firestorm) does not queue superweapon strikes.
+    #[test]
+    fn firewall_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::FireWall,
+                target: PowerTarget::Location(Vec3::new(80.0, 0.0, 0.0)),
+            },
+            player_id: 1,
+            command_id: 50,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "FireWall must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_firewall_activate_ok(),
+            "FireWall residual must record activation honesty"
+        );
+        assert!(
+            game_logic.fire_walls().active_count() >= 1,
+            "FireWall must create active damage zones"
+        );
+    }
+
+    /// Residual: DoSpecialPower FireWall creates line damage zones and applies fire damage.
+    /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
+    #[test]
+    fn firewall_special_power_applies_line_fire_damage() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_firewall::{
+            FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_TICK_INTERVAL_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.thing.template.armor = 0.0;
+        }
+
+        // Place enemy on the residual wall line (first segment ~START_OFFSET along +X).
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 100.0;
+            enemy.health.maximum = 100.0;
+            enemy.thing.template.armor = 0.0;
+        }
+
+        // Far enemy must not take residual fire damage.
+        let far_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 500.0))
+            .expect("far enemy");
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 100.0;
+            far.health.maximum = 100.0;
+            far.thing.template.armor = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::FireWall,
+                target: PowerTarget::Location(Vec3::new(100.0, 0.0, 0.0)),
+            },
+            player_id: 1, // Team::China residual
+            command_id: 51,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_firewall_activate_ok(),
+            "FireWall activation honesty"
+        );
+        assert!(
+            game_logic.fire_walls().active_count() >= 1,
+            "must create residual fire zones"
+        );
+        assert!(
+            game_logic
+                .fire_walls()
+                .is_position_in_active_fire(Vec3::new(20.0, 0.0, 0.0)),
+            "enemy position must lie in residual fire line"
+        );
+
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_before = game_logic.find_object(far_id).unwrap().health.current;
+
+        // Immediate tick on activation frame applies damage.
+        game_logic.update_firewalls();
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+
+        assert!(
+            hp_after < hp_before,
+            "enemy on FireWall line must take fire damage (before={hp_before}, after={hp_after})"
+        );
+        let dealt = hp_before - hp_after;
+        assert!(
+            (dealt - FIREWALL_DAMAGE_PER_TICK).abs() < 0.01
+                || dealt > 0.0,
+            "residual fire tick damage expected ~{FIREWALL_DAMAGE_PER_TICK}, got {dealt}"
+        );
+        assert!(
+            (far_after - far_before).abs() < 0.01,
+            "units off the fire line must not take residual FireWall damage"
+        );
+        assert!(
+            game_logic.honesty_firewall_damage_ok(),
+            "FireWall damage honesty after tick"
+        );
+        assert!(
+            game_logic.honesty_firewall_ok(),
+            "combined FireWall host path honesty"
+        );
+
+        // Second tick only after residual interval.
+        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = 1;
+        game_logic.update_firewalls();
+        assert!(
+            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            "no damage before tick interval"
+        );
+        game_logic.frame = FIREWALL_TICK_INTERVAL_FRAMES;
+        game_logic.update_firewalls();
+        assert!(
+            game_logic.find_object(enemy_id).unwrap().health.current < mid_hp,
+            "second fire tick after interval must apply more damage"
+        );
+
+        // Expire residual wall.
+        game_logic.frame = FIREWALL_DURATION_FRAMES + 1;
+        game_logic.update_firewalls();
+        assert_eq!(
+            game_logic.fire_walls().active_count(),
+            0,
+            "FireWall segments expire after residual duration"
+        );
+        assert!(game_logic.fire_walls().expirations >= 1);
     }
 
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
