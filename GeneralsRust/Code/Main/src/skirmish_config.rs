@@ -309,4 +309,157 @@ mod tests {
         assert_eq!(cfg.slots[1].faction, "GLA");
         assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Medium"));
     }
+
+    /// Host skirmish residual: apply config → load_map must keep players 0/1 cash,
+    /// Medium GLA AI registration/difficulty/active, GLA_* templates, and allow
+    /// set_ai_active + a non-panicking AI update. Prefer retail Lone Eagle; if the
+    /// map is missing, still prove rebind on the synthetic host world.
+    #[test]
+    fn skirmish_players_and_ai_survive_load_map_preserve_path() {
+        const MAP_CANDIDATES: &[&str] = &[
+            "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "Maps/Lone Eagle/Lone Eagle.map",
+            "Lone Eagle",
+        ];
+        let map_identity = MAP_CANDIDATES
+            .iter()
+            .find(|p| {
+                std::path::Path::new(p).is_file()
+                    || crate::game_logic::script_loader::find_map_file(p).is_some()
+            })
+            .copied()
+            .unwrap_or("Lone Eagle");
+
+        let cfg = golden_skirmish_config(map_identity);
+        let mut logic = GameLogic::new();
+        apply_skirmish_config(&mut logic, &cfg).expect("apply skirmish");
+        logic.ensure_ai_faction_templates(Team::USA);
+        logic.ensure_ai_faction_templates(Team::GLA);
+
+        assert_eq!(
+            logic.get_player(0).map(|p| p.resources.supplies),
+            Some(10_000)
+        );
+        assert_eq!(
+            logic.get_player(1).map(|p| p.resources.supplies),
+            Some(10_000)
+        );
+        assert_eq!(
+            logic.host_ai_difficulty(1),
+            Some(crate::ai::AIDifficulty::Medium)
+        );
+        assert!(logic.is_host_ai_active(1));
+        assert!(logic.templates.contains_key("GLA_CommandCenter"));
+        assert!(logic.templates.contains_key("GLA_Barracks"));
+        assert!(logic.templates.contains_key("GLA_Soldier"));
+
+        // Stale object_id on the AI build queue (map wipe residual) without spending cash.
+        {
+            // Touch AI queue via public relocate (re-seeds layout) then rebind will clear refs.
+            logic.relocate_host_ai_base(1, glam::Vec3::new(200.0, 0.0, 200.0));
+        }
+
+        // Snapshot immediately before load — preserve path must not rewrite cash/slots.
+        let cash0 = logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .expect("human cash before load");
+        let cash1 = logic
+            .get_player(1)
+            .map(|p| p.resources.supplies)
+            .expect("ai cash before load");
+        let players_before = logic.get_players().len();
+        let ai_before = logic.host_ai_player_count();
+
+        let loaded = logic.load_map(map_identity);
+        if !loaded {
+            // Map missing in this workspace: still exercise explicit rebind residual.
+            logic.rebind_host_ai_after_map_load();
+        }
+
+        assert!(
+            logic.get_player(0).is_some() && logic.get_player(1).is_some(),
+            "players 0 and 1 must survive load_map preserve / rebind"
+        );
+        assert!(
+            logic.get_players().len() >= players_before,
+            "host player slots must not shrink on load_map"
+        );
+        assert!(
+            logic.host_ai_player_count() >= ai_before,
+            "host AI count must not shrink on load_map"
+        );
+        let cash0_after = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+        let cash1_after = logic.get_player(1).map(|p| p.resources.supplies).unwrap_or(0);
+        assert_eq!(
+            cash0_after, cash0,
+            "human cash must be unchanged across load_map preserve (before={cash0} after={cash0_after})"
+        );
+        assert_eq!(
+            cash1_after, cash1,
+            "AI cash must be unchanged across load_map preserve (before={cash1} after={cash1_after})"
+        );
+        // Slot identity proves preserve (map wipe path would rename to PlayerN defaults).
+        assert_eq!(
+            logic.get_player(0).map(|p| p.name.as_str()),
+            Some("Player")
+        );
+        assert_eq!(
+            logic.get_player(1).map(|p| p.name.as_str()),
+            Some("GLA AI")
+        );
+        assert_eq!(
+            logic.get_player(0).map(|p| p.color_rgb),
+            Some((0, 0, 200))
+        );
+        assert_eq!(
+            logic.get_player(1).map(|p| p.color_rgb),
+            Some((200, 0, 0))
+        );
+        assert!(
+            logic.host_ai_player_count() >= 1,
+            "host AI registration must survive load_map"
+        );
+        assert_eq!(
+            logic.host_ai_difficulty(1),
+            Some(crate::ai::AIDifficulty::Medium),
+            "Medium difficulty must be retained across load_map"
+        );
+        assert!(
+            logic.is_host_ai_active(1),
+            "AI is_active must remain true after rebind"
+        );
+        // set_ai_active must still work (toggle off then on).
+        logic.set_ai_active(1, false);
+        assert!(!logic.is_host_ai_active(1));
+        logic.set_ai_active(1, true);
+        assert!(logic.is_host_ai_active(1));
+
+        // Templates required by host AI rebuild soup must still be present.
+        for name in [
+            "GLA_CommandCenter",
+            "GLA_SupplyStash",
+            "GLA_ArmsDealer",
+            "GLA_Barracks",
+            "GLA_Soldier",
+            "GLA_Technical",
+        ] {
+            assert!(
+                logic.templates.contains_key(name),
+                "AI template {name} must survive load_map / rebind"
+            );
+        }
+
+        // Non-panicking AI update after rebind (rebuild soup path).
+        for _ in 0..15 {
+            logic.update();
+        }
+        // Fail-closed: do not require retail AI parity — only that update ran and
+        // AI is still registered/active with cashed players.
+        assert!(logic.is_host_ai_active(1));
+        assert!(logic.get_player(0).is_some());
+        assert!(logic.get_player(1).is_some());
+        let _ = loaded; // true when Lone Eagle (or other candidate) resolved on disk
+    }
 }

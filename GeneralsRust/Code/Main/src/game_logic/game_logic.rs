@@ -1455,6 +1455,10 @@ impl GameLogic {
         self.runtime_road_segments.clear();
         self.pathfinding_height_samples = None;
         self.weather_state = RuntimeWeatherState::default();
+        // Host AI is match-scoped. Wipe so rematch / start_new_game cannot leave
+        // orphan AI slots with stale object_ids while players were cleared above.
+        // load_map does not call reset, so preserve_host_players still keeps AI.
+        self.ai_manager = AIManager::new();
         log::debug!("GameLogic::reset() complete");
     }
 
@@ -2950,6 +2954,13 @@ impl GameLogic {
             map_name,
             scripts_started.elapsed().as_secs_f32()
         );
+
+        // Skirmish/SP: map spawn clears world objects. Rebind host AI (stale
+        // object/factory refs, rebuild budget) and re-ensure GLA_*/faction templates
+        // without wiping players, cash, difficulty, or is_active.
+        if matches!(self.game_mode, GameMode::Skirmish | GameMode::SinglePlayer) {
+            self.rebind_host_ai_after_map_load();
+        }
 
         self.map_loaded = true;
         report_progress(0.96, "Map load complete");
@@ -8022,6 +8033,41 @@ impl GameLogic {
         self.ai_manager.add_ai_player(player_id, team, difficulty);
     }
 
+    /// After `load_map` wipes world objects, rebind host AI rebuild soup and
+    /// re-ensure faction structure/unit templates used by the AI build path.
+    ///
+    /// Preserves: registered AI players, difficulty, `is_active`, base layout
+    /// template names, and host `players` (cash/slots). Does **not** claim full
+    /// C++ AI parity — only keeps the host AI update path non-panicking and able
+    /// to issue builds after a skirmish preserve load.
+    pub fn rebind_host_ai_after_map_load(&mut self) {
+        let mut teams = self.ai_manager.registered_teams();
+        for player in self.players.values() {
+            if player.team != Team::Neutral && !teams.contains(&player.team) {
+                teams.push(player.team);
+            }
+        }
+        for team in teams {
+            self.ensure_ai_faction_templates(team);
+        }
+        self.ai_manager.rebind_after_world_reset();
+        log::info!(
+            "Host AI rebound after map load: ai_players={}, host_players={}",
+            self.ai_manager.ai_players.len(),
+            self.players.len()
+        );
+    }
+
+    /// Whether a host AI player is registered and currently active.
+    pub fn is_host_ai_active(&self, player_id: u32) -> bool {
+        self.ai_manager.is_ai_active(player_id)
+    }
+
+    /// Configured host AI difficulty, if the player is a registered AI opponent.
+    pub fn host_ai_difficulty(&self, player_id: u32) -> Option<AIDifficulty> {
+        self.ai_manager.ai_difficulty(player_id)
+    }
+
     /// Ensure faction templates the host AI build/produce paths require are registered.
     pub fn ensure_ai_faction_templates(&mut self, team: Team) {
         // Prefer real WeaponStore stats (seeded/INI) over hard-coded Weapon::default().
@@ -10526,6 +10572,94 @@ mod tests {
         assert_eq!(
             game_logic.last_radar_event_position(),
             Some(Vec3::new(42.0, 7.0, 0.0))
+        );
+    }
+
+    /// Host AI residual: after a skirmish world wipe (objects.clear like load_map),
+    /// rebind restores rebuild budget / templates so AI update does not panic and
+    /// can issue builds again. Players + cash + difficulty stay intact.
+    #[test]
+    fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        logic.clear_all_players();
+
+        let mut human = Player::new(0, Team::USA, "Player", true);
+        human.resources.supplies = 10_000;
+        logic.add_player(human);
+        let mut ai = Player::new(1, Team::GLA, "GLA AI", false);
+        ai.resources.supplies = 10_000;
+        logic.add_player(ai);
+        logic.add_ai_opponent(1, Team::GLA, AIDifficulty::Medium);
+        logic.set_ai_active(1, true);
+
+        // Force stale build refs: mark first GLA structure as "in progress" on AI queue.
+        {
+            let mut mgr = std::mem::take(&mut logic.ai_manager);
+            if let Some(ai_player) = mgr.ai_players.get_mut(&1) {
+                if let Some(b) = ai_player.building_queue.first_mut() {
+                    b.object_id = Some(ObjectId(9999));
+                    b.rebuild_count = b.max_rebuilds; // would block rebuild without rebind
+                    b.is_built = false;
+                }
+            }
+            logic.ai_manager = mgr;
+        }
+
+        // Simulate load_map object wipe while preserving host players.
+        logic.objects.clear();
+        assert_eq!(logic.get_players().len(), 2);
+        assert_eq!(
+            logic.get_player(0).map(|p| p.resources.supplies),
+            Some(10_000)
+        );
+        assert_eq!(
+            logic.get_player(1).map(|p| p.resources.supplies),
+            Some(10_000)
+        );
+
+        // Strip AI templates then rebind (must reinstall GLA_*).
+        logic.templates.retain(|k, _| !k.starts_with("GLA_"));
+        assert!(!logic.templates.contains_key("GLA_CommandCenter"));
+
+        logic.rebind_host_ai_after_map_load();
+
+        assert!(logic.templates.contains_key("GLA_CommandCenter"));
+        assert!(logic.templates.contains_key("GLA_Soldier"));
+        assert!(logic.is_host_ai_active(1));
+        assert_eq!(
+            logic.host_ai_difficulty(1),
+            Some(AIDifficulty::Medium)
+        );
+        // Rebuild budget restored (stale maxed rebuild_count cleared).
+        {
+            let mgr = &logic.ai_manager;
+            let ai_player = mgr.ai_players.get(&1).expect("ai");
+            let first = ai_player.building_queue.first().expect("layout");
+            assert!(first.object_id.is_none());
+            assert_eq!(first.rebuild_count, 0);
+            assert!(!first.is_built);
+        }
+
+        logic.set_ai_active(1, false);
+        assert!(!logic.is_host_ai_active(1));
+        logic.set_ai_active(1, true);
+        assert!(logic.is_host_ai_active(1));
+
+        // Non-panicking multi-frame AI update after rebind.
+        for _ in 0..20 {
+            logic.update();
+        }
+        assert!(logic.host_ai_player_count() >= 1);
+        assert!(logic.get_player(0).is_some() && logic.get_player(1).is_some());
+        // AI should be able to start at least one structure once rebuild budget is open.
+        assert!(
+            logic.host_ai_activity_count() >= 1
+                || logic
+                    .get_objects()
+                    .values()
+                    .any(|o| o.team == Team::GLA && o.is_kind_of(KindOf::Structure)),
+            "AI rebuild soup should progress after rebind"
         );
     }
 
