@@ -652,6 +652,27 @@ fn live_rangers(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectId> {
         .collect()
 }
 
+/// All live USA production rangers currently in the world (includes late spawns).
+fn collect_live_produced_rangers(logic: &GameLogic) -> Vec<ObjectId> {
+    logic
+        .get_objects()
+        .values()
+        .filter(|o| o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name))
+        .map(|o| o.id)
+        .collect()
+}
+
+/// Union of known ranger ids with any newly produced live rangers.
+fn live_rangers_expanded(logic: &GameLogic, rangers: &[ObjectId]) -> Vec<ObjectId> {
+    let mut live = live_rangers(logic, rangers);
+    for id in collect_live_produced_rangers(logic) {
+        if !live.contains(&id) {
+            live.push(id);
+        }
+    }
+    live
+}
+
 /// Weapon range for a ranger (default Weapon range 100).
 fn ranger_weapon_range(logic: &GameLogic, rid: ObjectId) -> f32 {
     logic
@@ -829,7 +850,8 @@ fn fight_enemies_with_rangers(
     }
 
     for round in 0..max_rounds {
-        let live = live_rangers(logic, rangers);
+        // Include late barracks spawns so attrition does not end the clear early.
+        let live = live_rangers_expanded(logic, rangers);
         if live.is_empty() {
             break;
         }
@@ -1495,19 +1517,21 @@ fn run_map_world_skirmish(
         for rname in &ranger_candidates {
             ensure_human_economy(logic, 15_000, 500);
             // More rangers compensate for store damage (~5) vs prior floor (40).
+            // 16 rangers: store damage (~5) / flashbang secondary (~35) must clear
+            // multi-CC maps while enemy AI may still hold a second base.
             let queue_cmd = command(
                 4,
                 0,
                 CommandType::QueueUnitCreate {
                     template_name: rname.clone(),
-                    quantity: 12,
+                    quantity: 16,
                 },
                 vec![bid],
             );
             let queue_ok = system.execute_command(&queue_cmd, logic) == CommandResult::Success
                 || {
                     let mut any = false;
-                    for _ in 0..12 {
+                    for _ in 0..16 {
                         any |= logic.enqueue_production(bid, rname.clone());
                     }
                     any
@@ -1527,8 +1551,8 @@ fn run_map_world_skirmish(
             if got_two {
                 produced = true;
                 ranger_name_used = rname.clone();
-                // Prefer a full squad so store damage (~5) can clear multi-structure maps.
-                let _ = run_until(logic, 900, |g| {
+                // Prefer a full squad so store damage can clear multi-structure maps.
+                let _ = run_until(logic, 1200, |g| {
                     g.get_objects()
                         .values()
                         .filter(|o| {
@@ -1537,7 +1561,7 @@ fn run_map_world_skirmish(
                                 && is_produced_ranger(&o.template_name)
                         })
                         .count()
-                        >= 8
+                        >= 10
                 });
                 break;
             }
@@ -1609,23 +1633,26 @@ fn run_map_world_skirmish(
     } else {
         2000
     };
-    // Pause AI rebuild during the clear so pure-march rangers are not racing an
-    // infinite production queue (teleport residual previously masked this).
-    logic.set_ai_active(1, false);
+    // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
+    // not racing production queues or structure auto-counterfire. set_ai_active
+    // alone left residual unit AI free to re-acquire and kill the squad.
+    logic.pause_skirmish_ai_and_clear_combat(1);
+    // Keep barracks producing during the clear so attrition can be replaced.
+    if let Some(bid) = barracks_id {
+        if !ranger_name_used.is_empty() {
+            ensure_human_economy(logic, 15_000, 500);
+            for _ in 0..8 {
+                let _ = logic.enqueue_production(bid, ranger_name_used.clone());
+            }
+        }
+    }
     let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
         fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
     // If a straggler remains (common: distant GLA_CC), one more pure-march sweep.
     let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
         if !all_cleared {
             let remaining = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
-            let live: Vec<_> = logic
-                .get_objects()
-                .values()
-                .filter(|o| {
-                    o.team == Team::USA && o.is_alive() && is_produced_ranger(&o.template_name)
-                })
-                .map(|o| o.id)
-                .collect();
+            let live = collect_live_produced_rangers(logic);
             if remaining.is_some() && !live.is_empty() {
                 let (f2, c2, t2, s2, d2) =
                     fight_enemies_with_rangers(logic, &live, remaining, fight_rounds);
