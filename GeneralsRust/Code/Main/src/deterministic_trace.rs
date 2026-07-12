@@ -470,6 +470,7 @@ fn object_status_bits(object: &Object) -> u32 {
         | ((object.overcharge_enabled as u32) << 10)
         | ((status.detected as u32) << 11)
         | ((object.is_detector as u32) << 12)
+        | ((status.disabled_unmanned as u32) << 13)
 }
 
 fn format_vec_command(name: &str, value: Vec3) -> String {
