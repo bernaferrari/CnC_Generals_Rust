@@ -7,10 +7,12 @@
 //! 4. SinglePlayer logic frames advance
 //! 5. Host-safe full `load_map` (Lone Eagle) for object world when available
 //!
-//! Retail campaign maps (MD_USA01, GC_*) currently hang the full object-spawn
-//! load path and dense `initialize_scripts` install is deferred for the gate.
-//! This module fail-closes `retail_campaign_map_loaded` unless a full campaign
-//! map load succeeds, while still proving the mission path advances.
+//! Retail campaign maps (MD_USA01, GC_*) previously hung after full `load_map`
+//! when dense scripts ran CALL_SUBROUTINE under a non-reentrant ScriptEngine
+//! lock. That deadlock is fixed; full object spawn (~2846 placements) is fine.
+//! Default residual still prefers a host-safe map load so gates stay fast;
+//! set `GEN_CAMPAIGN_FULL_LOAD=1` to load the retail campaign map itself and
+//! flip `retail_campaign_map_loaded` when it succeeds.
 //!
 //! `campaign_playable_claim` is true only when the production SinglePlayer path
 //! starts, scripts tick, frames advance, and victory evaluation runs without
@@ -79,7 +81,8 @@ pub struct GoldenCampaignResult {
     pub victory_eval_ok: bool,
     pub mission_completed: bool,
     /// True when a retail MD_*/GC_* campaign map fully loaded via `load_map`.
-    /// Fail-closed residual: currently expected false (object-spawn hang risk).
+    /// Default residual uses host-safe maps (false). True when
+    /// `GEN_CAMPAIGN_FULL_LOAD=1` successfully loads MD_*/GC_*.
     pub retail_campaign_map_loaded: bool,
     /// True when production SP path advanced with scripts + victory path.
     /// Does **not** claim full retail campaign playthrough.
@@ -193,10 +196,21 @@ fn count_scripts_in_map(path: &Path) -> (bool, usize) {
 /// Run the campaign residual path.
 ///
 /// When `map_name` is provided, it is preferred for campaign script resolution.
-/// Full `load_map` uses host-safe candidates by default (retail campaign maps hang
-/// on dense object spawn); set `GEN_CAMPAIGN_FULL_LOAD=1` to attempt the campaign
-/// map itself.
+/// Full `load_map` uses host-safe candidates by default (fast residual gates).
+/// Set `GEN_CAMPAIGN_FULL_LOAD=1` to load the retail campaign map itself
+/// (MD_USA01 object spawn + budgeted scripts; no longer hangs).
 pub fn run_golden_campaign(map_name: Option<&str>, frames: u32) -> GoldenCampaignResult {
+    let force_full = std::env::var("GEN_CAMPAIGN_FULL_LOAD").ok().as_deref() == Some("1");
+    run_golden_campaign_ex(map_name, frames, force_full)
+}
+
+/// Same as [`run_golden_campaign`] with an explicit full-retail-load flag
+/// (avoids env races in unit tests).
+pub fn run_golden_campaign_ex(
+    map_name: Option<&str>,
+    frames: u32,
+    force_full_campaign: bool,
+) -> GoldenCampaignResult {
     let frames = frames.max(1);
     let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
 
@@ -220,8 +234,6 @@ pub fn run_golden_campaign(map_name: Option<&str>, frames: u32) -> GoldenCampaig
 
     // Victory override key: use a stable mission map name that load_map/configure can match
     // for host-safe loads, and the campaign identity when full-loading retail.
-    let force_full_campaign =
-        std::env::var("GEN_CAMPAIGN_FULL_LOAD").ok().as_deref() == Some("1");
 
     let host_resolved = if force_full_campaign {
         campaign_resolved.clone().or_else(|| resolve_first_existing(HOST_SAFE_MAP_CANDIDATES))
@@ -472,11 +484,46 @@ mod tests {
             format_campaign_report(&result)
         );
         assert_eq!(result.status, "success");
-        // Honesty residual: full retail campaign object load is not required for claim.
-        // When maps hang, retail_campaign_map_loaded stays false (fail-closed).
+        // Honesty residual: default path uses host-safe map; full retail load is
+        // opt-in via GEN_CAMPAIGN_FULL_LOAD (and no longer hangs).
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
         assert!(report.contains("retail_campaign_map_loaded="));
+    }
+
+    #[test]
+    fn campaign_full_load_opt_in_does_not_hang() {
+        // Only run the heavy path when maps are present. Uses explicit
+        // force_full_campaign (not env) so parallel residual tests stay fast.
+        let map = resolve_path_candidate(
+            "windows_game/extracted_big_files/MapsZH/Maps/MD_USA01/MD_USA01.map",
+        )
+        .or_else(|| resolve_path_candidate("MD_USA01"));
+        let Some(map_path) = map else {
+            eprintln!("MD_USA01 not present; skipping full-load residual");
+            return;
+        };
+
+        let result =
+            run_golden_campaign_ex(Some(map_path.to_str().unwrap_or("MD_USA01")), 3, true);
+        let report = format_campaign_report(&result);
+        assert!(
+            result.campaign_playable_claim,
+            "full-load residual must stay playable: {report}"
+        );
+        assert!(
+            result.host_map_loaded,
+            "full-load must load campaign map: {report}"
+        );
+        assert!(
+            result.retail_campaign_map_loaded,
+            "force_full_campaign should flip retail_campaign_map_loaded: {report}"
+        );
+        assert!(
+            result.object_count > 100,
+            "retail map should spawn many objects, got {}: {report}",
+            result.object_count
+        );
     }
 
     #[test]
