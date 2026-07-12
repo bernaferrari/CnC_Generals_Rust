@@ -1033,9 +1033,30 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
+            // Classify residual exit before mutating unit state.
+            // Prefer AI state; fall back to container kind when only contained_by is set.
+            let (was_garrisoned, was_transport) = if let Some(unit) =
+                self.game_logic.get_object(unit_id)
+            {
+                let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
+                let docked = matches!(unit.ai_state, AIState::Docked);
+                if garrisoned || docked {
+                    (garrisoned, docked)
+                } else if unit.contained_by.is_some() || container_id.is_some() {
+                    let cid = unit.contained_by.or(container_id);
+                    let is_structure = cid
+                        .and_then(|id| self.game_logic.get_object(id))
+                        .map(|c| c.is_kind_of(KindOf::Structure))
+                        .unwrap_or(false);
+                    (is_structure, !is_structure)
+                } else {
+                    (false, false)
+                }
+            } else {
+                (false, false)
+            };
+
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
-                let was_garrisoned = matches!(unit.ai_state, AIState::Garrisoned)
-                    || unit.contained_by.is_some();
                 unit.stop_moving();
                 unit.set_position(drop_position);
                 unit.contained_by = None;
@@ -1045,6 +1066,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.status.attacking = false;
                 if was_garrisoned {
                     self.game_logic.record_garrison_residual_exit();
+                } else if was_transport {
+                    self.game_logic.record_transport_residual_unload();
                 }
                 debug!(
                     "Unit {} exiting transport/garrison near {:?}",
