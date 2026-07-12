@@ -50,9 +50,14 @@ pub struct GoldenSkirmishResult {
     /// enemy object (not the synthetic GoldenEnemyCC-only path). Fail-closed:
     /// does not flip `playable_claim` by itself.
     pub map_combat_ok: bool,
-    /// Same-world after load_map: DozerConstruct → produce → AttackObject on map
-    /// enemy. Still fail-closed for playable_claim (not full retail match).
+    /// Same-world after load_map: DozerConstruct → QueueUnitCreate on the loaded
+    /// map world (host-buildable Barracks + GoldenRanger). Still fail-closed for
+    /// playable_claim (not full retail match / not main victory path).
     pub same_world_production_ok: bool,
+    /// Same-world after load_map: produced rangers kill a map enemy structure via
+    /// AttackObject/`update_combat` only (no take_damage / re-team). Fail-closed
+    /// for playable_claim while main victory still runs on synthetic host soup.
+    pub same_world_victory_ok: bool,
     /// Host skirmish players/AI preserved across load_map (no player wipe).
     pub players_preserved_on_load: bool,
     pub status: String,
@@ -177,14 +182,16 @@ struct MapProbeResult {
     map_loaded: bool,
     map_combat_ok: bool,
     same_world_production_ok: bool,
+    same_world_victory_ok: bool,
     players_preserved_on_load: bool,
 }
 
 /// Load retail map on a skirmish-configured world and prove:
 /// 1) host players/AI survive load_map
 /// 2) AttackObject damages map-spawned enemies
-/// 3) DozerConstruct → QueueUnitCreate → AttackObject on same world
-/// Fail-closed: never sets playable_claim.
+/// 3) DozerConstruct → QueueUnitCreate on same world
+/// 4) Produced units kill a map enemy structure (same-world victory slice)
+/// Fail-closed: never sets playable_claim / never claims main synthetic_combat=false.
 fn probe_map_load_and_combat(map_identity: &str) -> MapProbeResult {
     let mut probe = GameLogic::new();
     let cfg = golden_skirmish_config(map_identity);
@@ -193,6 +200,7 @@ fn probe_map_load_and_combat(map_identity: &str) -> MapProbeResult {
             map_loaded: false,
             map_combat_ok: false,
             same_world_production_ok: false,
+            same_world_victory_ok: false,
             players_preserved_on_load: false,
         };
     }
@@ -212,6 +220,7 @@ fn probe_map_load_and_combat(map_identity: &str) -> MapProbeResult {
             map_loaded: false,
             map_combat_ok: false,
             same_world_production_ok: false,
+            same_world_victory_ok: false,
             players_preserved_on_load: false,
         };
     }
@@ -224,8 +233,15 @@ fn probe_map_load_and_combat(map_identity: &str) -> MapProbeResult {
         && probe.host_ai_player_count() >= ai_before;
     // Re-assert AI after load (AI manager is independent of player wipe, but keep active).
     probe.set_ai_active(1, true);
+    // Re-install host build/combat templates: load_map synthesizes asset-definition
+    // templates (e.g. USA_Barracks with non-zero power cost) that can break host
+    // DozerConstruct affordability without a power plant. Golden host templates keep
+    // zero-power build costs so the same-world probe is honest and deterministic.
+    install_templates(&mut probe);
     if let Some(p) = probe.get_player_mut(0) {
         p.resources.supplies = p.resources.supplies.max(25_000);
+        // Power headroom so asset-cost structures would also afford if used.
+        p.power_available = p.power_available.max(500);
     }
 
     let enemy = probe
@@ -239,77 +255,100 @@ fn probe_map_load_and_combat(map_identity: &str) -> MapProbeResult {
         })
         .map(|o| (o.id, o.get_position()));
 
-    let mut map_combat_ok = false;
-    if let Some((enemy_id, enemy_pos)) = enemy {
-        let ranger_template = if probe.templates.contains_key("USA_Ranger") {
-            "USA_Ranger"
-        } else {
-            "GoldenRanger"
-        };
-        let mut ranger_ids = Vec::new();
-        for i in 0..4 {
-            let offset = Vec3::new(15.0 + i as f32 * 3.0, 0.0, 0.0);
-            if let Some(id) = probe.create_object(ranger_template, Team::USA, enemy_pos + offset) {
-                ranger_ids.push(id);
-            }
-        }
-        if !ranger_ids.is_empty() {
-            let hp_before = probe
-                .get_object(enemy_id)
-                .map(|o| o.health.current)
-                .unwrap_or(0.0);
-            for round in 0..200u32 {
-                let live: Vec<_> = ranger_ids
-                    .iter()
-                    .copied()
-                    .filter(|id| probe.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
-                    .collect();
-                if live.is_empty() {
-                    break;
+    // Same-world production + victory FIRST so we do not burn the only map enemy
+    // with create_object rangers before QueueUnitCreate can prove a kill.
+    let (same_world_production_ok, same_world_victory_ok) =
+        probe_same_world_production_and_victory(&mut probe, enemy.map(|(id, _)| id));
+
+    // map_combat_ok: AttackObject damaged/killed a map-spawned enemy. Same-world
+    // victory already proves that; otherwise fall back to create_object rangers.
+    let mut map_combat_ok = same_world_victory_ok;
+    if !map_combat_ok {
+        let enemy_now = probe
+            .get_objects()
+            .values()
+            .find(|o| {
+                o.team != Team::USA
+                    && o.team != Team::Neutral
+                    && o.is_alive()
+                    && (o.is_kind_of(KindOf::Structure) || o.is_kind_of(KindOf::CommandCenter))
+            })
+            .map(|o| (o.id, o.get_position()));
+        if let Some((enemy_id, enemy_pos)) = enemy_now {
+            let ranger_template = "GoldenRanger";
+            let mut ranger_ids = Vec::new();
+            for i in 0..4 {
+                let offset = Vec3::new(15.0 + i as f32 * 3.0, 0.0, 0.0);
+                if let Some(id) =
+                    probe.create_object(ranger_template, Team::USA, enemy_pos + offset)
+                {
+                    ranger_ids.push(id);
                 }
-                if !probe
+            }
+            if !ranger_ids.is_empty() {
+                let hp_before = probe
+                    .get_object(enemy_id)
+                    .map(|o| o.health.current)
+                    .unwrap_or(0.0);
+                for round in 0..200u32 {
+                    let live: Vec<_> = ranger_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| probe.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
+                        .collect();
+                    if live.is_empty() {
+                        break;
+                    }
+                    if !probe
+                        .get_object(enemy_id)
+                        .map(|o| o.is_alive())
+                        .unwrap_or(false)
+                    {
+                        break;
+                    }
+                    probe.queue_command(command(
+                        100 + round,
+                        0,
+                        CommandType::AttackObject {
+                            target_id: enemy_id,
+                        },
+                        live,
+                    ));
+                    run_frames(&mut probe, 3);
+                }
+                let hp_after = probe
+                    .get_object(enemy_id)
+                    .map(|o| o.health.current)
+                    .unwrap_or(0.0);
+                let dead = !probe
                     .get_object(enemy_id)
                     .map(|o| o.is_alive())
-                    .unwrap_or(false)
-                {
-                    break;
-                }
-                probe.queue_command(command(
-                    100 + round,
-                    0,
-                    CommandType::AttackObject {
-                        target_id: enemy_id,
-                    },
-                    live,
-                ));
-                run_frames(&mut probe, 3);
+                    .unwrap_or(false);
+                map_combat_ok = dead || hp_after < hp_before;
             }
-            let hp_after = probe
-                .get_object(enemy_id)
-                .map(|o| o.health.current)
-                .unwrap_or(0.0);
-            let dead = !probe
-                .get_object(enemy_id)
-                .map(|o| o.is_alive())
-                .unwrap_or(false);
-            map_combat_ok = dead || hp_after < hp_before;
         }
     }
-
-    // Same-world production: DozerConstruct barracks → QueueUnitCreate → AttackObject.
-    let same_world_production_ok =
-        probe_same_world_production(&mut probe, enemy.map(|(id, _)| id));
 
     MapProbeResult {
         map_loaded: true,
         map_combat_ok,
         same_world_production_ok,
+        same_world_victory_ok,
         players_preserved_on_load,
     }
 }
 
-/// DozerConstruct barracks → produce unit → AttackObject on map enemy (same probe world).
-fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>) -> bool {
+/// DozerConstruct barracks → produce unit → kill map enemy with produced units.
+/// Returns (production_ok, victory_ok). Victory requires a kill (not mere damage).
+fn probe_same_world_production_and_victory(
+    probe: &mut GameLogic,
+    enemy_id: Option<ObjectId>,
+) -> (bool, bool) {
+    // Host golden Barracks: Structure + FSBarracks + zero power cost (asset USA_Barracks
+    // can carry power drain after load_map synthesis and fail spend_resources).
+    let barracks_name = "Barracks";
+    let unit_name = "GoldenRanger";
+
     let base = probe
         .get_objects()
         .values()
@@ -321,6 +360,9 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
         .map(|o| o.get_position())
         .unwrap_or(Vec3::new(50.0, 0.0, 50.0));
 
+    // Seed a power plant so production is not energy-throttled on the map world.
+    let _power = probe.create_object("GoldenPower", Team::USA, base + Vec3::new(-24.0, 0.0, 0.0));
+
     let dozer_id = probe
         .get_objects()
         .values()
@@ -331,23 +373,27 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
         })
         .map(|o| o.id)
         .or_else(|| {
-            let name = if probe.templates.contains_key("USA_Dozer") {
-                "USA_Dozer"
-            } else {
-                "GoldenDozer"
-            };
-            probe.create_object(name, Team::USA, base + Vec3::new(25.0, 0.0, 0.0))
+            probe.create_object(
+                "GoldenDozer",
+                Team::USA,
+                base + Vec3::new(25.0, 0.0, 0.0),
+            )
         });
     let Some(dozer_id) = dozer_id else {
-        return false;
+        return (false, false);
     };
 
-    let barracks_name = if probe.templates.contains_key("USA_Barracks") {
-        "USA_Barracks"
-    } else {
-        "Barracks"
-    };
+    // Place dozer at build site so pathfinding on large maps does not stall Constructing.
     let barracks_pos = base + Vec3::new(40.0, 0.0, 0.0);
+    if let Some(d) = probe.get_object_mut(dozer_id) {
+        d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
+    }
+
+    if let Some(p) = probe.get_player_mut(0) {
+        p.resources.supplies = p.resources.supplies.max(25_000);
+        p.power_available = p.power_available.max(500);
+    }
+
     probe.queue_command(command(
         200,
         0,
@@ -357,17 +403,21 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
         },
         vec![dozer_id],
     ));
+    // Process immediately so the under-construction object exists before frames.
+    probe.process_commands();
 
-    let constructed = run_until(probe, 240, |g| {
+    let constructed = run_until(probe, 300, |g| {
         g.get_objects().values().any(|o| {
             o.team == Team::USA
                 && o.is_alive()
                 && o.is_constructed()
-                && (o.template_name.contains("Barracks") || o.is_kind_of(KindOf::FSBarracks))
+                && (o.template_name == barracks_name
+                    || o.template_name.contains("Barracks")
+                    || o.is_kind_of(KindOf::FSBarracks))
         })
     });
     if !constructed {
-        return false;
+        return (false, false);
     }
 
     let Some(bid) = probe
@@ -377,48 +427,83 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
             o.team == Team::USA
                 && o.is_alive()
                 && o.is_constructed()
-                && (o.template_name.contains("Barracks") || o.is_kind_of(KindOf::FSBarracks))
+                && (o.template_name == barracks_name
+                    || o.template_name.contains("Barracks")
+                    || o.is_kind_of(KindOf::FSBarracks))
         })
         .map(|o| o.id)
     else {
-        return false;
+        return (false, false);
     };
 
-    let unit_name = if probe.templates.contains_key("USA_Ranger") {
-        "USA_Ranger"
-    } else {
-        "GoldenRanger"
-    };
     let system = CommandSystem::new();
+    // Enough rangers to clear structure-scale map enemy HP (e.g. GLA_CC ~1800).
     let q = command(
         201,
         0,
         CommandType::QueueUnitCreate {
             template_name: unit_name.into(),
-            quantity: 2,
+            quantity: 8,
         },
         vec![bid],
     );
-    let queued = matches!(
-        system.execute_command(&q, probe),
-        CommandResult::Success
-    ) || probe.enqueue_production(bid, unit_name.into());
+    let queued = matches!(system.execute_command(&q, probe), CommandResult::Success)
+        || {
+            let mut any = false;
+            for _ in 0..8 {
+                any |= probe.enqueue_production(bid, unit_name.into());
+            }
+            any
+        };
     if !queued {
-        return false;
+        return (false, false);
     }
 
-    let produced = run_until(probe, 300, |g| {
+    let produced = run_until(probe, 480, |g| {
         g.get_objects()
             .values()
-            .any(|o| o.team == Team::USA && o.template_name == unit_name && o.is_alive())
+            .filter(|o| o.team == Team::USA && o.template_name == unit_name && o.is_alive())
+            .count()
+            >= 2
+    });
+    // Drain remaining production wave.
+    let _ = run_until(probe, 480, |g| {
+        g.get_objects()
+            .values()
+            .filter(|o| o.team == Team::USA && o.template_name == unit_name && o.is_alive())
+            .count()
+            >= 4
     });
     if !produced {
-        return false;
+        return (false, false);
     }
 
+    let production_ok = true;
+
+    // Resolve enemy: prefer original id if still alive, else any non-USA structure.
+    let enemy_id = enemy_id
+        .filter(|id| {
+            probe
+                .get_object(*id)
+                .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                .unwrap_or(false)
+        })
+        .or_else(|| {
+            probe
+                .get_objects()
+                .values()
+                .find(|o| {
+                    o.team != Team::USA
+                        && o.team != Team::Neutral
+                        && o.is_alive()
+                        && (o.is_kind_of(KindOf::Structure) || o.is_kind_of(KindOf::CommandCenter))
+                })
+                .map(|o| o.id)
+        });
+
     let Some(enemy_id) = enemy_id else {
-        // No map enemy — production alone is partial credit.
-        return true;
+        // Produced on map world but no enemy left (map combat may have cleared it).
+        return (production_ok, false);
     };
 
     let rangers: Vec<_> = probe
@@ -427,36 +512,36 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
         .filter(|o| o.team == Team::USA && o.template_name == unit_name && o.is_alive())
         .map(|o| o.id)
         .collect();
-    // Pull rangers into default weapon range if the map spawn is far.
+    if rangers.is_empty() {
+        return (production_ok, false);
+    }
+
+    // Pull produced rangers into weapon range — no take_damage, no re-team.
     if let Some(ep) = probe.get_object(enemy_id).map(|o| o.get_position()) {
-        for rid in &rangers {
+        for (i, rid) in rangers.iter().enumerate() {
             if let Some(r) = probe.get_object_mut(*rid) {
                 let d = r.get_position().distance(ep);
                 if d > 90.0 {
-                    r.set_position(ep + Vec3::new(20.0, 0.0, 0.0));
+                    r.set_position(ep + Vec3::new(18.0 + i as f32 * 2.0, 0.0, 0.0));
                 }
             }
         }
     }
 
-    let hp0 = probe
-        .get_object(enemy_id)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    for round in 0..120u32 {
+    for round in 0..400u32 {
+        if !probe
+            .get_object(enemy_id)
+            .map(|o| o.is_alive())
+            .unwrap_or(false)
+        {
+            break;
+        }
         let live: Vec<_> = rangers
             .iter()
             .copied()
             .filter(|id| probe.get_object(*id).map(|o| o.is_alive()).unwrap_or(false))
             .collect();
         if live.is_empty() {
-            break;
-        }
-        if !probe
-            .get_object(enemy_id)
-            .map(|o| o.is_alive())
-            .unwrap_or(false)
-        {
             break;
         }
         probe.queue_command(command(
@@ -469,15 +554,12 @@ fn probe_same_world_production(probe: &mut GameLogic, enemy_id: Option<ObjectId>
         ));
         run_frames(probe, 3);
     }
-    let hp1 = probe
-        .get_object(enemy_id)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    let dead = !probe
+
+    let victory_ok = !probe
         .get_object(enemy_id)
         .map(|o| o.is_alive())
         .unwrap_or(false);
-    dead || hp1 < hp0
+    (production_ok, victory_ok)
 }
 
 fn run_until<F>(logic: &mut GameLogic, max_frames: usize, mut cond: F) -> bool
@@ -529,12 +611,14 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
             map_loaded: false,
             map_combat_ok: false,
             same_world_production_ok: false,
+            same_world_victory_ok: false,
             players_preserved_on_load: false,
         }
     };
     let map_loaded = map_probe.map_loaded;
     let map_combat_ok = map_probe.map_combat_ok;
     let same_world_production_ok = map_probe.same_world_production_ok;
+    let same_world_victory_ok = map_probe.same_world_victory_ok;
     let players_preserved_on_load = map_probe.players_preserved_on_load;
     // Combat world: golden templates + host AI on. apply_skirmish installs
     // ensure_ai_faction_templates (GLA_CommandCenter, etc.). Keep those templates
@@ -903,9 +987,13 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && logic.templates.contains_key("GLA_SupplyStash")
         && logic.templates.contains_key("GLA_ArmsDealer");
 
-    // When a retail map is present, require map-army combat + player preserve for success.
+    // When a retail map is present, require map-army combat, same-world production,
+    // same-world victory (produced units kill map enemy), and player preserve.
+    // Main combat/victory still synthetic — playable_claim stays false.
     let map_combat_required_ok = !map_loaded || map_combat_ok;
     let map_players_required_ok = !map_loaded || players_preserved_on_load;
+    let map_same_world_prod_required_ok = !map_loaded || same_world_production_ok;
+    let map_same_world_victory_required_ok = !map_loaded || same_world_victory_ok;
     let status = if config_applied
         && frames_advanced > 0
         && moved_units
@@ -920,6 +1008,8 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         && ai_structure_templates_retained
         && map_combat_required_ok
         && map_players_required_ok
+        && map_same_world_prod_required_ok
+        && map_same_world_victory_required_ok
     {
         "success".into()
     } else {
@@ -952,6 +1042,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         ai_structure_templates_retained,
         map_combat_ok,
         same_world_production_ok,
+        same_world_victory_ok,
         players_preserved_on_load,
         status,
     }
@@ -959,7 +1050,7 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} players_preserved={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={}",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -984,6 +1075,7 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.ai_structure_templates_retained,
         r.map_combat_ok,
         r.same_world_production_ok,
+        r.same_world_victory_ok,
         r.players_preserved_on_load
     )
 }
@@ -1032,6 +1124,16 @@ mod tests {
                 "skirmish players/AI/cash must survive load_map: {}",
                 format_golden_report(&result)
             );
+            assert!(
+                result.same_world_production_ok,
+                "map-loaded path must DozerConstruct→produce on same world: {}",
+                format_golden_report(&result)
+            );
+            assert!(
+                result.same_world_victory_ok,
+                "map-loaded path must kill map enemy via produced rangers: {}",
+                format_golden_report(&result)
+            );
         }
         assert_eq!(
             result.checkpoint_hashes[0], result.checkpoint_hashes[1],
@@ -1059,10 +1161,20 @@ mod tests {
             "retail map must load on probe: {}",
             result.map_identity
         );
-        // Map load is a separate probe; combat is host-world. Full slice still required.
+        // Map probes prove same-world prod/combat/victory; main combat is still synthetic.
         assert!(
-            result.victory && !result.playable_claim,
+            result.victory && !result.playable_claim && result.synthetic_combat,
             "victory on synthetic host path without playable_claim: {}",
+            format_golden_report(&result)
+        );
+        assert!(
+            result.same_world_production_ok,
+            "same-world production on loaded map: {}",
+            format_golden_report(&result)
+        );
+        assert!(
+            result.same_world_victory_ok,
+            "same-world victory (produced units kill map enemy): {}",
             format_golden_report(&result)
         );
         assert!(result.save_load_ok, "save/load round-trip");
