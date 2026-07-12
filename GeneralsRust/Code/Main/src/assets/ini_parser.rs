@@ -52,6 +52,10 @@ pub struct ObjectDefinition {
     /// Primary weapon template name from Object INI (`Weapon = PRIMARY Name`).
     pub primary_weapon: Option<String>,
 
+    /// Secondary weapon template name from Object INI (`Weapon = SECONDARY Name`).
+    /// Fail-closed residual: not full WeaponSet upgrade matrices.
+    pub secondary_weapon: Option<String>,
+
     /// Other attributes from INI
     pub attributes: HashMap<String, String>,
 }
@@ -72,6 +76,7 @@ impl ObjectDefinition {
             scale: 1.0,
             owner: None,
             primary_weapon: None,
+            secondary_weapon: None,
             attributes: HashMap::new(),
         }
     }
@@ -198,19 +203,23 @@ impl IniParser {
                             obj.scale = value.parse().unwrap_or(1.0);
                         }
                         "owner" => obj.owner = Some(value.to_string()),
-                        // Object INI: Weapon = PRIMARY AmericaRangerGun (SECONDARY must not wipe PRIMARY)
+                        // Object INI: Weapon = PRIMARY / SECONDARY / TERTIARY Name
+                        // PRIMARY and SECONDARY are independent slots; later lines must not wipe earlier ones.
                         "weapon" => {
                             let mut parts = value.split_whitespace();
                             if let Some(slot) = parts.next() {
-                                if slot.eq_ignore_ascii_case("PRIMARY") {
-                                    if let Some(wname) = parts.next() {
-                                        if !wname.eq_ignore_ascii_case("None") {
+                                if let Some(wname) = parts.next() {
+                                    if !wname.eq_ignore_ascii_case("None") {
+                                        if slot.eq_ignore_ascii_case("PRIMARY") {
                                             obj.primary_weapon = Some(wname.to_string());
+                                        } else if slot.eq_ignore_ascii_case("SECONDARY") {
+                                            obj.secondary_weapon = Some(wname.to_string());
                                         }
+                                        // TERTIARY intentionally ignored (fail-closed residual).
                                     }
                                 }
                             }
-                            // Keep raw attribute for diagnostics; do not overwrite primary_weapon.
+                            // Keep raw attribute for diagnostics; last "Weapon =" wins in attributes map.
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
                         // Texture references (various formats used in C&C)
@@ -524,6 +533,32 @@ End
             def.primary_weapon.as_deref(),
             Some("AmericaRangerMachineGun"),
             "PRIMARY must stick when SECONDARY follows"
+        );
+        assert_eq!(
+            def.secondary_weapon.as_deref(),
+            Some("AmericaRangerFlashBangGrenade"),
+            "SECONDARY must be recorded independently of PRIMARY"
+        );
+    }
+
+    #[test]
+    fn parses_secondary_none_does_not_register() {
+        let ini_content = r#"
+Object GLA_Scorpion
+  Type = Vehicle
+  Weapon = PRIMARY ScorpionTankGun
+  Weapon = SECONDARY None
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "weapon_secondary_none.ini")
+            .unwrap();
+        let def = parser.get_definition("GLA_Scorpion").expect("def");
+        assert_eq!(def.primary_weapon.as_deref(), Some("ScorpionTankGun"));
+        assert!(
+            def.secondary_weapon.is_none(),
+            "SECONDARY None must fail-closed (no name)"
         );
     }
 }

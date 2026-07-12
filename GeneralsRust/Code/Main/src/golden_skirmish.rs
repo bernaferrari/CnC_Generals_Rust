@@ -539,6 +539,11 @@ fn prepare_retail_usa_host_templates(logic: &mut GameLogic) {
                     t.set_primary_weapon_name(wname);
                 }
             }
+            if t.secondary_weapon.is_none() && t.secondary_weapon_name.is_none() {
+                if let Some(wname) = crate::game_logic::secondary_weapon_name_for_unit(name) {
+                    t.set_secondary_weapon_name(wname);
+                }
+            }
         }
         // Dozer must construct.
         if *name == "USA_Dozer" {
@@ -642,6 +647,14 @@ fn ranger_weapon_range(logic: &GameLogic, rid: ObjectId) -> f32 {
         .unwrap_or(100.0)
 }
 
+/// Horizontal (XZ) distance — ground combat range ignores height so terrain-Y
+/// does not keep pure-march rangers permanently OOR after a successful approach.
+fn horiz_distance(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    (dx * dx + dz * dz).sqrt()
+}
+
 /// True when at least one live ranger is inside weapon range of `target_pos`.
 fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_pos: Vec3) -> bool {
     rangers.iter().any(|rid| {
@@ -649,7 +662,7 @@ fn any_ranger_in_weapon_range(logic: &GameLogic, rangers: &[ObjectId], target_po
             .get_object(*rid)
             .map(|r| {
                 r.is_alive()
-                    && r.get_position().distance(target_pos)
+                    && horiz_distance(r.get_position(), target_pos)
                         <= ranger_weapon_range(logic, *rid) * 0.95
             })
             .unwrap_or(false)
@@ -821,12 +834,13 @@ fn fight_enemies_with_rangers(
                 for (i, rid) in live.iter().enumerate() {
                     if let Some(r) = logic.get_object_mut(*rid) {
                         if r.is_alive() {
-                            let d = r.get_position().distance(ep);
+                            let d = horiz_distance(r.get_position(), ep);
                             let wr = r.weapon.as_ref().map(|w| w.range).unwrap_or(100.0);
                             if d > wr * 0.9 {
-                                r.set_position(
-                                    ep + Vec3::new(18.0 + i as f32 * 2.0, 0.0, 0.0),
-                                );
+                                // Keep height of target so range stays honest after pull.
+                                let mut pull = ep + Vec3::new(18.0 + i as f32 * 2.0, 0.0, 0.0);
+                                pull.y = ep.y;
+                                r.set_position(pull);
                             }
                         }
                     }

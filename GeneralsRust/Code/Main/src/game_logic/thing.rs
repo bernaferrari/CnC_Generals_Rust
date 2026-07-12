@@ -29,6 +29,10 @@ pub struct ThingTemplate {
     pub primary_weapon: Option<Weapon>,
     /// Weapon.ini / Object INI primary weapon template name (resolved via WeaponStore).
     pub primary_weapon_name: Option<String>,
+    /// Host secondary weapon stats (Weapon = SECONDARY Name). Optional; no kind fallback.
+    pub secondary_weapon: Option<Weapon>,
+    /// Weapon.ini / Object INI secondary weapon template name (resolved via WeaponStore).
+    pub secondary_weapon_name: Option<String>,
 }
 
 impl ThingTemplate {
@@ -49,6 +53,8 @@ impl ThingTemplate {
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             primary_weapon: None,
             primary_weapon_name: None,
+            secondary_weapon: None,
+            secondary_weapon_name: None,
         }
     }
 
@@ -63,6 +69,22 @@ impl ThingTemplate {
         let n = name.trim();
         if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
             self.primary_weapon_name = Some(n.to_string());
+        }
+        self
+    }
+
+    /// Attach host secondary weapon stats (damage/range/reload) to this template.
+    pub fn set_secondary_weapon(&mut self, weapon: Weapon) -> &mut Self {
+        self.secondary_weapon = Some(weapon);
+        self
+    }
+
+    /// Record the Weapon.ini secondary template name for store lookup at create time.
+    /// Fail-closed: "None"/empty does not register a secondary slot.
+    pub fn set_secondary_weapon_name(&mut self, name: &str) -> &mut Self {
+        let n = name.trim();
+        if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
+            self.secondary_weapon_name = Some(n.to_string());
         }
         self
     }
@@ -89,6 +111,23 @@ impl ThingTemplate {
         {
             // Last-resort host combat stats when no template/store weapon is usable.
             return Some(Weapon::default());
+        }
+        None
+    }
+
+    /// Resolve secondary weapon for a newly created combat unit.
+    /// Fail-closed (not full WeaponSet):
+    /// 1) explicit host stats, 2) WeaponStore by name.
+    /// No kind-based `Weapon::default()` fallback — units without SECONDARY stay unarmed there.
+    pub fn resolve_secondary_weapon(&self) -> Option<Weapon> {
+        if let Some(w) = &self.secondary_weapon {
+            return Some(w.clone());
+        }
+        if let Some(name) = self.secondary_weapon_name.as_deref() {
+            let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+            if let Some(w) = Self::weapon_from_store(name) {
+                return Some(w);
+            }
         }
         None
     }
@@ -227,6 +266,47 @@ mod weapon_resolve_tests {
         );
         assert!((w.damage - 5.0).abs() < 0.01);
         assert!((w.range - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn secondary_weapon_name_resolves_non_default_store_stats() {
+        // Prove SECONDARY store bind path (Ranger flashbang residual).
+        let mut t = ThingTemplate::new("USA_Ranger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .set_secondary_weapon_name(super::super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
+        let w = t.resolve_secondary_weapon().expect("store-bound secondary");
+        assert!(
+            (w.damage - Weapon::default().damage).abs() > 0.01,
+            "secondary store path must not yield host default damage; got {}",
+            w.damage
+        );
+        // Retail RangerFlashBangGrenadeWeapon PrimaryDamage 35, AttackRange 175.
+        assert!((w.damage - 35.0).abs() < 0.01);
+        assert!((w.range - 175.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn secondary_without_name_stays_none_even_for_infantry() {
+        // Fail-closed: no kind-based default for secondary slots.
+        let mut t = ThingTemplate::new("BareInfantry");
+        t.add_kind_of(KindOf::Infantry);
+        assert!(t.resolve_secondary_weapon().is_none());
+    }
+
+    #[test]
+    fn explicit_secondary_weapon_beats_store() {
+        let mut t = ThingTemplate::new("Armed");
+        t.set_secondary_weapon(Weapon {
+            damage: 99.0,
+            range: 50.0,
+            reload_time: 1.0,
+            ..Weapon::default()
+        });
+        t.set_secondary_weapon_name("DoesNotExistInStoreHopefully");
+        let w = t.resolve_secondary_weapon().expect("weapon");
+        assert!((w.damage - 99.0).abs() < 0.01);
+        assert!((w.range - 50.0).abs() < 0.01);
     }
 }
 

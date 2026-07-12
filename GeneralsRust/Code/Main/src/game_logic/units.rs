@@ -104,7 +104,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(60.0)
         .set_cost(80, 0)
         .set_model("airanger") // USA Ranger infantry
-        .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+        .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
     templates.insert("USA_Ranger".to_string(), usa_ranger);
 
     let mut usa_dozer = ThingTemplate::new("USA_Dozer");
@@ -124,7 +125,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(250.0)
         .set_cost(600, 0)
         .set_model("avhummer") // USA Humvee
-        .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON);
+        .set_primary_weapon_name(super::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(super::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
     templates.insert("USA_Humvee".to_string(), usa_humvee);
 
     let mut usa_crusader = ThingTemplate::new("USA_Crusader");
