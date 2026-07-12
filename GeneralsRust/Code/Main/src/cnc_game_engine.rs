@@ -1124,6 +1124,9 @@ pub struct CnCGameEngine {
     // because Main already handles input/audio/effects separately.
     #[cfg(feature = "game_client")]
     game_client: game_client::core::game_client::GameClient,
+    /// ControlBar selection panel (portrait + health). Presentation-fed; WND load optional.
+    #[cfg(feature = "game_client")]
+    control_bar: game_client::gui::control_bar::ControlBar,
 
     // Game state
     game_logic: GameLogic,
@@ -3768,6 +3771,8 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             game_client: game_client::core::game_client::GameClient::new()
                 .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?,
+            #[cfg(feature = "game_client")]
+            control_bar: game_client::gui::control_bar::ControlBar::new(),
 
             game_logic,
             last_presentation_frame: None,
@@ -5720,10 +5725,15 @@ impl CnCGameEngine {
             }
         }
 
-        // Update HUD from presentation when available (resources + minimap + selection health).
+        // Update HUD + ControlBar selection panel from presentation when available
+        // (resources + minimap + selection health). ControlBar health is snapshot-owned.
         if self.current_state == GameState::InGame {
             if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_game_hud(&mut self.game_hud);
+                #[cfg(feature = "game_client")]
+                {
+                    pres.apply_to_control_bar(&mut self.control_bar);
+                }
             } else if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                 let money = player.resources.supplies as i32;
                 let power = player.power_available;
@@ -5890,7 +5900,17 @@ impl CnCGameEngine {
             return false;
         };
         pres.apply_to_game_hud(&mut self.game_hud);
+        #[cfg(feature = "game_client")]
+        {
+            pres.apply_to_control_bar(&mut self.control_bar);
+        }
         true
+    }
+
+    /// ControlBar selection panel health from last presentation (headless-safe).
+    #[cfg(feature = "game_client")]
+    pub fn control_bar_selection_health(&self) -> Option<(f32, f32)> {
+        self.control_bar.selection_panel_health()
     }
 
     /// After map load / load-game / skirmish StartGame: seed PresentationFrame + HUD so
@@ -5903,6 +5923,10 @@ impl CnCGameEngine {
             local_id,
             &mut self.game_hud,
         );
+        #[cfg(feature = "game_client")]
+        {
+            pres.apply_to_control_bar(&mut self.control_bar);
+        }
         let mut ui = GameUIState::default();
         pres.apply_to_ui_state(&mut ui);
         self.last_ui_state = Some(ui);
@@ -5925,11 +5949,16 @@ impl CnCGameEngine {
             // Production presentation consumer: when a post-logic snapshot exists,
             // selection health + minimap unit identity come from that owned feed.
             // Live update_ui_state still supplies radar/build-queue residuals; identity
-            // fields are overwritten by apply_to_ui_state.
+            // fields are overwritten by apply_to_ui_state. ControlBar selection panel
+            // health is also presentation-owned (not live OBJECT_REGISTRY).
             let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
-            if let Some(pres) = self.last_presentation_frame.as_ref() {
+            if let Some(pres) = self.last_presentation_frame.clone() {
                 pres.apply_to_ui_state(&mut ui_state);
                 pres.apply_to_game_hud(&mut self.game_hud);
+                #[cfg(feature = "game_client")]
+                {
+                    pres.apply_to_control_bar(&mut self.control_bar);
+                }
             }
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
