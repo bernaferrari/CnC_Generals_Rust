@@ -7,7 +7,9 @@
 //! is owned values with no live borrows into the world.
 
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
-use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
+use crate::game_logic::{
+    CombatParticleKind, CombatParticleSystemEntry, GameLogic, KindOf, ObjectId, Team,
+};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -113,6 +115,44 @@ pub enum PresentationEvent {
     ConstructionComplete { id: ObjectId, template: String },
     Victory { winner_player: Option<u32> },
     RadarMessage { team: Team, text: String },
+    /// Combat residual: particle system spawned (host registry id + template).
+    ParticleSystemSpawned {
+        id: u32,
+        kind: CombatParticleKind,
+        template_name: String,
+        position: Vec3,
+    },
+}
+
+/// Snapshot-owned combat particle system for presentation/client observe path.
+/// Fail-closed: not full W3D GPU particle parity (hq-gq7n residual).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationParticleSystem {
+    pub id: u32,
+    pub kind: CombatParticleKind,
+    pub template_name: String,
+    pub position: Vec3,
+    pub source_object: Option<ObjectId>,
+    pub target_object: Option<ObjectId>,
+    pub spawned_frame: u32,
+    pub active: bool,
+    pub client_system_id: Option<u32>,
+}
+
+impl PresentationParticleSystem {
+    pub fn from_combat_entry(entry: &CombatParticleSystemEntry) -> Self {
+        Self {
+            id: entry.id,
+            kind: entry.kind,
+            template_name: entry.template_name.clone(),
+            position: entry.position,
+            source_object: entry.source_object,
+            target_object: entry.target_object,
+            spawned_frame: entry.spawned_frame,
+            active: entry.active,
+            client_system_id: entry.client_system_id,
+        }
+    }
 }
 
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
@@ -131,6 +171,8 @@ pub struct PresentationFrame {
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
+    /// Active combat particle systems from host registry (observe path for client).
+    pub particle_systems: Vec<PresentationParticleSystem>,
 }
 
 impl PresentationFrame {
@@ -187,6 +229,32 @@ impl PresentationFrame {
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
 
+        // Combat particle residual: freeze host registry for client/presentation observe.
+        let particle_systems: Vec<PresentationParticleSystem> = logic
+            .combat_particles()
+            .systems_snapshot()
+            .iter()
+            .map(PresentationParticleSystem::from_combat_entry)
+            .collect();
+
+        let mut events = Vec::new();
+        for (id, team) in logic.combat_particles().destroyed_this_frame() {
+            events.push(PresentationEvent::ObjectDestroyed {
+                id: *id,
+                team: *team,
+            });
+        }
+        for pid in logic.combat_particles().spawned_this_frame() {
+            if let Some(entry) = logic.combat_particles().get(*pid) {
+                events.push(PresentationEvent::ParticleSystemSpawned {
+                    id: entry.id,
+                    kind: entry.kind,
+                    template_name: entry.template_name.clone(),
+                    position: entry.position,
+                });
+            }
+        }
+
         Self {
             frame: LogicFrame(logic.get_frame()),
             objects,
@@ -195,10 +263,11 @@ impl PresentationFrame {
             local_power,
             local_color_rgb,
             selected,
-            events: Vec::new(),
+            events,
             match_over: false,
             victory_label: None,
             fow_shell_bypass,
+            particle_systems,
         }
     }
 
@@ -281,6 +350,16 @@ impl PresentationFrame {
     /// All alive presentation objects including engine-bridged (for FOW/id lists).
     pub fn alive_renderables(&self) -> impl Iterator<Item = &RenderableObject> {
         self.objects.iter().filter(|o| !o.destroyed)
+    }
+
+    /// Active combat particle systems on this frame (host registry snapshot).
+    pub fn active_particle_systems(&self) -> impl Iterator<Item = &PresentationParticleSystem> {
+        self.particle_systems.iter().filter(|p| p.active)
+    }
+
+    /// True when at least one combat particle system is registered and active.
+    pub fn has_active_particles(&self) -> bool {
+        self.particle_systems.iter().any(|p| p.active)
     }
 
     /// Selected unit identity (health/name/type) from snapshot only.
@@ -1067,5 +1146,87 @@ mod tests {
             assert!(bar.get_portrait_state().is_visible);
             assert_eq!(bar.get_portrait_state().selected_count, 1);
         }
+    }
+
+    /// Residual (hq-gq7n): after combat kill, PresentationFrame exposes particle
+    /// systems from the host registry (observe path for client / HUD).
+    #[test]
+    fn presentation_frame_observes_combat_kill_particle_systems() {
+        use crate::game_logic::{CombatParticleKind, ThingTemplate, Weapon};
+
+        let mut logic = GameLogic::new();
+        let mut tank = ThingTemplate::new("FxTank");
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(50.0);
+        logic.templates.insert("FxTank".into(), tank);
+
+        let attacker = logic
+            .create_object("FxTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let victim = logic
+            .create_object("FxTank", Team::GLA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .expect("victim");
+
+        {
+            let a = logic.get_object_mut(attacker).expect("attacker");
+            a.attack_target(victim);
+            a.weapon = Some(Weapon {
+                damage: 9999.0,
+                range: 100.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let v = logic.get_object_mut(victim).expect("victim");
+            v.health.current = 5.0;
+            v.health.maximum = 5.0;
+        }
+
+        // Advance one full host step so combat fires and destroy list runs.
+        logic.update();
+
+        assert!(
+            logic.find_object(victim).is_none(),
+            "victim should be destroyed after combat step"
+        );
+        assert!(
+            logic.combat_particles().active_count() > 0,
+            "host particle registry must hold systems after kill"
+        );
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            snap.has_active_particles(),
+            "PresentationFrame must expose active particle systems after combat kill"
+        );
+        assert!(
+            snap.particle_systems
+                .iter()
+                .any(|p| p.kind == CombatParticleKind::DeathExplosion
+                    && p.template_name == "MediumExplosion"),
+            "death explosion particle must be on presentation frame: {:?}",
+            snap.particle_systems
+                .iter()
+                .map(|p| (&p.template_name, p.kind))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            snap.events.iter().any(|e| matches!(
+                e,
+                PresentationEvent::ParticleSystemSpawned { .. }
+            )),
+            "presentation events should include ParticleSystemSpawned"
+        );
+        assert!(
+            snap.events.iter().any(|e| matches!(
+                e,
+                PresentationEvent::ObjectDestroyed { id, .. } if *id == victim
+            )),
+            "presentation events should include ObjectDestroyed for victim"
+        );
     }
 }

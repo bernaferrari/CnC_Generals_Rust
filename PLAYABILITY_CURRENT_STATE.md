@@ -13,6 +13,28 @@
   - `cargo check -q -p game-client-rust --features internal`
 - The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
 
+## Residual Host Playability — Combat Particle Feedback (2026-07-12)
+**Closed (host-testable kill/fire → particle registry observe path):**
+1. Host `CombatParticleRegistry` on Main `GameLogic` registers real particle-system
+   entries (stable id + template + position) on weapon fire and combat death.
+2. Death path (`process_destroy_list`) spawns `MediumExplosion` + `SmokePlume`; fire path
+   spawns `MuzzleFlash` + optional `BulletImpact`.
+3. With `game_client`, entries mirror into `ParticleSystemManager` via combat presets
+   (`create_preset_system_xyz`) so client registry is non-empty after kill/fire.
+4. `PresentationFrame` freezes `particle_systems` and emits
+   `ParticleSystemSpawned` / `ObjectDestroyed` events for client/HUD observation.
+5. Tests (not log-only):
+   - `combat_kill_spawns_particle_system_registry_entries`
+   - `combat_fire_without_kill_still_spawns_muzzle_particle`
+   - `presentation_frame_observes_combat_kill_particle_systems`
+   - `create_preset_system_at_registers_combat_death_and_muzzle_entries`
+
+**Still residual (fail-closed, not claimed):**
+- Full W3D GPU particle render/compute parity (Main GPU ParticleSystemManager path)
+- Full ParticleSystems.ini / FXList.ini retail coverage for every combat FX
+- Bone-attached / slave systems / LOD culling for combat residual path
+- Network particle replication (network deferred)
+
 ## Residual Host Playability — Combat March Honesty (2026-07-12)
 - Map-world golden skirmish prefers pure `assign_unit_path` / Move march into weapon range,
   then `AttackObject`. Narrow `set_position` range pull remains only after per-focus stall.

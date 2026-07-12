@@ -633,6 +633,64 @@ impl ParticleSystemManager {
         template
     }
 
+    /// Register (or replace) a full template instance under its name.
+    ///
+    /// Used by combat residual presets and FX paths that must not depend on
+    /// ParticleSystems.ini already being loaded.
+    pub fn register_template(&mut self, template: Arc<ParticleSystemTemplate>) {
+        let name = template.name().to_string();
+        self.templates.insert(name, template);
+    }
+
+    /// Ensure a combat/FX preset template is registered by name.
+    ///
+    /// Looks up existing templates first, then falls back to
+    /// [`crate::effects::particle_presets::get_preset_by_name`].
+    pub fn ensure_preset_template(
+        &mut self,
+        name: &str,
+    ) -> Option<Arc<ParticleSystemTemplate>> {
+        if let Some(existing) = self.find_template(name) {
+            return Some(existing);
+        }
+        let preset = crate::effects::particle_presets::get_preset_by_name(name)?;
+        self.templates.insert(name.to_string(), preset.clone());
+        Some(preset)
+    }
+
+    /// Create a particle system from a known combat/FX preset name at a position.
+    ///
+    /// Residual combat path: death/fire feedback without requiring full INI load.
+    pub fn create_preset_system_at(
+        &mut self,
+        template_name: &str,
+        pos: Point3<f32>,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        self.ensure_preset_template(template_name)
+            .ok_or_else(|| ParticleSystemError::TemplateNotFound(template_name.to_string()))?;
+        let id = self.create_particle_system_at(template_name, pos)?;
+        if let Some(system) = self.find_particle_system_mut(id) {
+            system.start();
+        }
+        Ok(id)
+    }
+
+    /// Host/combat residual entry point without requiring nalgebra at the call site.
+    pub fn create_preset_system_xyz(
+        &mut self,
+        template_name: &str,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        self.create_preset_system_at(template_name, Point3::new(x, y, z))
+    }
+
+    /// Number of active particle systems currently registered.
+    pub fn active_system_count(&self) -> usize {
+        self.active_systems.len()
+    }
+
     /// Create a particle system from template
     pub fn create_particle_system(
         &mut self,
@@ -1685,5 +1743,37 @@ mod tests {
                 .particle_count(),
             1
         );
+    }
+
+    /// Residual combat path: death/fire presets create real registry entries
+    /// without ParticleSystems.ini (fail-closed: not full W3D GPU parity).
+    #[test]
+    fn create_preset_system_at_registers_combat_death_and_muzzle_entries() {
+        let mut manager = ParticleSystemManager::new();
+        assert_eq!(manager.active_system_count(), 0);
+
+        let death_id = manager
+            .create_preset_system_at("MediumExplosion", Point3::new(10.0, 0.0, 20.0))
+            .expect("death explosion preset");
+        let smoke_id = manager
+            .create_preset_system_at("SmokePlume", Point3::new(10.0, 0.0, 20.0))
+            .expect("death smoke preset");
+        let muzzle_id = manager
+            .create_preset_system_at("MuzzleFlash", Point3::new(0.0, 0.0, 0.0))
+            .expect("muzzle flash preset");
+
+        assert_eq!(manager.active_system_count(), 3);
+        assert!(manager.find_particle_system(death_id).is_some());
+        assert!(manager.find_particle_system(smoke_id).is_some());
+        assert!(manager.find_particle_system(muzzle_id).is_some());
+
+        let death = manager.find_particle_system(death_id).unwrap();
+        assert_eq!(death.position(), Point3::new(10.0, 0.0, 20.0));
+        assert!(!death.is_stopped(), "preset system should be started");
+
+        // Unknown preset still fails closed (no silent empty placeholder success).
+        assert!(manager
+            .create_preset_system_at("TotallyUnknownCombatFx", Point3::origin())
+            .is_err());
     }
 }
