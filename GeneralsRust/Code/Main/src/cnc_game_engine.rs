@@ -5885,10 +5885,11 @@ impl CnCGameEngine {
         }
 
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
-            let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
             // Production presentation consumer: when a post-logic snapshot exists,
-            // HUD/UI frame identity for credits/selection comes from that owned
-            // feed rather than a second parallel sim authority.
+            // selection health + minimap unit identity come from that owned feed.
+            // Live update_ui_state still supplies radar/build-queue residuals; identity
+            // fields are overwritten by apply_to_ui_state.
+            let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
             if let Some(pres) = self.last_presentation_frame.as_ref() {
                 pres.apply_to_ui_state(&mut ui_state);
                 pres.apply_to_game_hud(&mut self.game_hud);
