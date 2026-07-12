@@ -883,6 +883,7 @@ impl<'a> CommandExecutor<'a> {
             // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon).
             // ClusterMines residual places a ring of land mines at target.
             // RadarScan residual temporarily reveals FOW at target (RadarVanPing).
+            // Paradrop residual queues America Airborne infantry drop at target.
             if let Some(pos) = target_position {
                 if *power_type == SpecialPowerType::ClusterMines {
                     let team = self
@@ -906,6 +907,14 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                     ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::Paradrop {
+                    if self
+                        .game_logic
+                        .queue_paradrop(power_type, unit_id, pos)
+                        .is_none()
+                    {
                         continue;
                     }
                 } else {
@@ -1180,6 +1189,9 @@ impl<'a> CommandExecutor<'a> {
     // === Utility Commands ===
 
     fn execute_repair(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // Host residual: dozer/worker repairs damaged structure over time
+        // (C++ DozerAIUpdate::privateRepair → DOZER_TASK_REPAIR).
+        // Fail-closed: not sole-benefactor reject / scaffolding / percent INI matrix.
         let (
             target_team,
             target_pos,
@@ -1216,6 +1228,7 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            self.game_logic.record_structure_repair_residual_command();
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1223,6 +1236,8 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_get_repaired(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // Host residual: damaged vehicle → RepairPad or WarFactory (China RepairDock);
+        // aircraft → Airfield. Fail-closed: not full dock bones / TimeForFullHeal matrix.
         let (
             target_team,
             target_pos,
@@ -1257,9 +1272,13 @@ impl<'a> CommandExecutor<'a> {
                 let is_aircraft = unit.is_kind_of(KindOf::Aircraft);
                 let is_vehicle = unit.is_kind_of(KindOf::Vehicle);
                 let supports_unit = if is_aircraft {
-                    target_building_type == crate::game_logic::BuildingType::Airfield
+                    crate::game_logic::host_repair::building_provides_aircraft_repair(
+                        target_building_type,
+                    )
                 } else if is_vehicle {
-                    target_building_type == crate::game_logic::BuildingType::RepairPad
+                    crate::game_logic::host_repair::building_provides_vehicle_repair(
+                        target_building_type,
+                    )
                 } else {
                     false
                 };

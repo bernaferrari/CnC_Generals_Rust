@@ -251,6 +251,8 @@ pub enum SpecialPowerType {
     IonCannon,
     NapalmStrike,
     NuclearMissile,
+    /// USA America Airborne / SuperweaponParadropAmerica residual.
+    Paradrop,
     ParticleCannon,
     RadarScan,
     ScudStorm,
@@ -1395,9 +1397,20 @@ impl CommandSystem {
         target: &Object,
         game_logic: &GameLogic,
     ) -> bool {
+        // Host residual: dozer/worker → damaged ally/neutral structure (not under construction).
+        // Fail-closed: not full ActionManager canRepairObject edge matrix.
+        if !target.is_kind_of(crate::game_logic::KindOf::Structure)
+            || !target.is_alive()
+            || target.status.under_construction
+            || !target.is_damaged()
+        {
+            return false;
+        }
         for &unit_id in units {
             if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.can_repair() && unit.team == target.team && target.is_damaged() {
+                if unit.can_repair()
+                    && (unit.team == target.team || target.team == Team::Neutral)
+                {
                     return true;
                 }
             }
@@ -1480,7 +1493,8 @@ impl CommandSystem {
 
                 let can_use_service = match target_building_type {
                     BuildingType::HealPad => unit.is_kind_of(KindOf::Infantry),
-                    BuildingType::RepairPad => {
+                    // USA RepairPad + China WarFactory RepairDock residual.
+                    BuildingType::RepairPad | BuildingType::WarFactory => {
                         unit.is_kind_of(KindOf::Vehicle) && !unit.is_kind_of(KindOf::Aircraft)
                     }
                     BuildingType::Airfield => unit.is_kind_of(KindOf::Aircraft),
@@ -1619,14 +1633,19 @@ impl CommandableObject for Object {
             .map(|b| {
                 matches!(
                     b.building_type,
-                    BuildingType::RepairPad | BuildingType::Airfield
+                    // RepairPad + Airfield + WarFactory (China RepairDock residual).
+                    BuildingType::RepairPad
+                        | BuildingType::Airfield
+                        | BuildingType::WarFactory
                 )
             })
             .unwrap_or_else(|| {
                 matches!(self.object_type, crate::game_logic::ObjectType::Building)
                     && (self.template_name.contains("Repair")
                         || self.template_name.contains("Service")
-                        || self.template_name.contains("Airfield"))
+                        || self.template_name.contains("Airfield")
+                        || self.template_name.contains("WarFactory")
+                        || self.template_name.contains("War Factory"))
             })
     }
 

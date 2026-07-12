@@ -1,5 +1,36 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Structure / Vehicle Repair (2026-07-12)
+**Closed (host-testable damage → Repair / GetRepaired → HP recovers):**
+1. **Dozer structure repair** (`CommandType::Repair`):
+   - `CommandExecutor::execute_repair` accepts dozer/worker on damaged ally/neutral structure
+     (not under construction) → `AIState::Repairing` + destination.
+   - `GameLogic::update_support_states` Repairing branch: approach within interact range (14),
+     then heal structure HP over time (`HOST_REPAIR_RATE_HP_PER_SEC` flat residual).
+   - `stop_moving` preserves Repairing on arrival; `update_combat` skips fire/chase while Repairing.
+   - Covers WarFactory-as-structure (dozer repairs a damaged WarFactory).
+2. **Vehicle pad / WarFactory repair** (`CommandType::GetRepaired`):
+   - Damaged vehicles accept RepairPad **or WarFactory** (China `RepairDockUpdate` residual).
+   - Aircraft accept Airfield.
+   - `AIState::SeekingRepair` → approach → self-heal over time at same residual rate.
+3. Honesty counters (`host_repair.rs` helpers + GameLogic):
+   - `repair_residual_structure_commands` / `repair_residual_structure_heals`
+   - `repair_residual_vehicle_heals`
+   - `honesty_structure_repair_ok` / `honesty_vehicle_repair_ok` / `honesty_repair_ok`
+4. Tests (not log-only):
+   - `dozer_structure_repair_residual_recovers_hp_over_time`
+   - `dozer_structure_repair_residual_walk_into_range_recovers_hp`
+   - `war_factory_vehicle_repair_residual_recovers_hp`
+   - existing `repairing_state_heals_target_in_range` / repair command suite
+   - unit tests in `host_repair.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full C++ `RepairHealthPercentPerSecond` INI matrix / sole-benefactor healing reject
+- Full `RepairDockUpdate` `TimeForFullHeal` dock bones / drone heal
+- Bridge scaffolding gate during repair
+- Multi-dozer task queue / `privateRepair` accept-same-bridge matrix
+- Network repair replication (network deferred)
+
 ## Residual Host Playability — Mine / Demo Trap / Demo Charge (2026-07-12)
 **Closed (host-testable place → enemy trigger damage / timed detonation):**
 1. Host residual on Main `GameLogic` + `Object.mine_data` (`host_mines.rs`):
