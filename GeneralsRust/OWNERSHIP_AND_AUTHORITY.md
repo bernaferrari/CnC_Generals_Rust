@@ -108,6 +108,30 @@ Still residual (not claimed by shell_smoke):
 | Bone attach / slave cascade for combat residual | Drawable bone query + ParticleSystem slaves |
 | Network particle replication | Network deferred |
 
+### Combat audio residual notes (2026-07)
+
+**Closed (host combat fire/death → audio request path — not full Miles retail):**
+
+1. Host `GameLogic::update_combat` queues `AudioEventRequest("WeaponFire")`
+   with object id + muzzle position when a weapon slot fires.
+2. Host `process_destroy_list` queues `UnitDie` / `BuildingDie` with corpse
+   position when an object is destroyed.
+3. `process_audio_events` still drains into `AudioManagerSubsystem` (same as UI
+   cues). Fail-closed: request exists even when SoundEffectsTable has no path.
+4. FXList `SoundFXNugget` falls back to `dispatch_positional_sound` when the
+   GameClient FX audio hook is not registered (was silent no-op).
+5. Tests: `combat_fire_queues_weapon_fire_audio_event`,
+   `combat_kill_queues_unit_die_audio_event`.
+
+**Still residual (fail-closed):**
+
+| Residual | Why still live |
+|----------|----------------|
+| Per-weapon INI FireSound names on host combat path | Host Weapon lacks fire_sound field; uses generic WeaponFire |
+| Full Miles / device handle parity | Audio device backend + event info tables |
+| Spatial attenuation / shroud for combat residual | GameAudio locality + shroud resolvers |
+| Death scream / voice bank selection by unit type | ThingTemplate audio fields + speech channel |
+
 ### Presentation unit-render residual notes (2026-07)
 
 **Closed (unit identity for main mesh pass):**
@@ -159,12 +183,26 @@ Still residual (not claimed by shell_smoke):
 4. Tests: exclusive damage bits set/cleared; non-damage flags survive; icon UI region/caption
    remain observable after `draw_icon_ui`.
 
+**Closed (drawable shadow enable/status observability):**
+
+1. GameClient `BasicDrawable` and GameLogic `Drawable` seed `DRAWABLE_STATUS_SHADOWS`
+   on create so shadow enable is observable without a full render pass.
+2. `get_shadows_enabled` / `set_shadows_enabled` match C++ status-bit semantics;
+   GameClient also dispatches enable to draw modules (C++ `Drawable::setShadowsEnabled`).
+3. `allocate_shadows` / `release_shadows` match C++ Options-screen hooks: notify modules
+   only — they do **not** flip status bits (status is owned by `set_shadows_enabled`).
+4. Model-condition / body-damage updates preserve existing shadow status.
+5. GameClient `render` toggles shadows for living bound objects from stealth look
+   (C++ `Drawable::draw`).
+6. Tests: create-time SHADOWS bit; enable toggle; allocate/release leave status alone;
+   condition change preserves status; module dispatch for enable/alloc/release.
+
 **Still residual (fail-closed — not claimed as full drawable/animation parity):**
 
 | Residual | Notes |
 |----------|-------|
 | Full W3D mesh/animation swap on condition change | Draw modules still partial; bits are authoritative input only |
 | Anim2D retail icon assets for heal/bomb/etc. | Overlay flags computed; asset binding incomplete |
-| Shadow mesh allocation beyond status bit toggle | `allocate_shadows`/`release_shadows` toggle status only |
+| Full shadow mesh GPU allocation (volumetric/projected) | Enable/status wired; `allocate_shadows` does not create GPU meshes |
 | Full dual Drawable (GameLogic vs GameClient) unification | Two ports still co-exist; condition bits mirrored via body path |
 
