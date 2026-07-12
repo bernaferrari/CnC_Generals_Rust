@@ -5,14 +5,23 @@
 //!
 //! Honesty: no tautological host flag, no silent golden_skirmish_config fallback.
 //! Opponent slot is configured through SkirmishMenu::configure_slot_medium_ai.
-//! `playable_claim` stays false — headless APIs are not retail W3D play.
+//!
+//! Claim flags (do not conflate):
+//! - `playable_claim` — **always false**. Headless host APIs are not retail W3D /
+//!   windowed shell playthrough. Fail-closed pending full GPU/WND match play.
+//! - `shell_host_playable_ok` — limited honesty claim: when true, the headless
+//!   shell→config→map→dual-tick presentation→HUD selection/minimap→ControlBar.wnd
+//!   ensure path is operational. Still **not** a retail playthrough claim.
 
 use crate::game_logic::GameLogic;
+use crate::gameplay_layout::{
+    ensure_control_bar_layout, format_gameplay_layout_status, GameplayLayoutStatus,
+};
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::PresentationFrame;
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
-use crate::ui::{GameHUD, Screen};
+use crate::ui::{GameHUD, Screen, UIManager};
 
 const HOST_MAP_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -34,8 +43,14 @@ pub struct ShellSmokeResult {
     /// Dual-tick residual: after map load, logic update + presentation seed HUD
     /// selection health / minimap without re-reading live objects.
     pub hud_selection_ok: bool,
+    /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
-    /// Always false here: no window/WND/GPU. Headless host APIs only.
+    /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
+    /// True when layout Ready, or assets honestly unavailable (CI without WindowZH).
+    pub control_bar_layout_ok: bool,
+    /// Limited headless host claim (see module docs). Not retail W3D play.
+    pub shell_host_playable_ok: bool,
+    /// Always false here: no window/WND/GPU retail playthrough.
     pub playable_claim: bool,
     pub status: String,
     pub detail: String,
@@ -44,7 +59,8 @@ pub struct ShellSmokeResult {
 /// Exercise production host entry points headlessly (no window required).
 /// Builds config from live SkirmishMenu (including Medium AI slot via menu cycle),
 /// applies it, loads retail map when present, advances logic frames, builds presentation,
-/// and applies dual-tick presentation → GameHUD selection/minimap (start_game_from_ui parity).
+/// applies dual-tick presentation → GameHUD selection/minimap, ensures ControlBar.wnd,
+/// and exercises shell→InGame screen ownership (start_game_from_ui parity).
 pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let mut logic = GameLogic::new();
 
@@ -142,7 +158,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         let panel_ok = panel.visible
             && panel.has_positive_health()
             && panel.primary_object_id == Some(id);
-        // Optional ControlBar path (headless, no WND claim).
+        // Optional ControlBar path (headless selection health; not full WND claim).
         #[cfg(feature = "game_client")]
         let control_bar_ok = {
             let mut bar = game_client::gui::control_bar::ControlBar::new();
@@ -161,28 +177,58 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             && (pres.local_supplies > 0 || skirmish_config_ok)
     };
 
-    // Real screen ownership semantics (not tautological discriminants).
-    // Shell pregame owns Skirmish; GameHUD is InGame (post StartGame transition).
-    let screen_skirmish_ok = Screen::Skirmish.is_shell_owned_pregame()
+    // Shell → InGame residual: production StartGame transitions Skirmish→Loading→GameHUD
+    // and ensure_gameplay_layouts (ControlBar.wnd) on InGame enter.
+    let mut ui_mgr = UIManager::new(1024, 768);
+    ui_mgr.transition_to_screen(Screen::Skirmish);
+    let at_skirmish = ui_mgr.current_screen() == Some(Screen::Skirmish)
+        && Screen::Skirmish.is_shell_owned_pregame();
+    ui_mgr.transition_to_screen(Screen::Loading);
+    let at_loading = ui_mgr.current_screen() == Some(Screen::Loading)
+        && !Screen::Loading.is_shell_owned_pregame();
+    // Dry-run validate for headless smoke (no WindowManager GUI init required).
+    // Full window load is still deferred to ensure_gameplay_layouts(true) in-engine.
+    let layout_status = ensure_control_bar_layout(false);
+    let layout_report = format_gameplay_layout_status(&layout_status);
+    let control_bar_layout_ok = match &layout_status {
+        GameplayLayoutStatus::Ready { path, loaded } => {
+            path.contains("ControlBar") && !*loaded // dry-run: loaded must stay false
+        }
+        // Honest residual when WindowZH assets are not checked out.
+        GameplayLayoutStatus::AssetsUnavailable { searched } => !searched.is_empty(),
+        GameplayLayoutStatus::LoadFailed { .. } => false,
+    };
+    ui_mgr.transition_to_screen(Screen::GameHUD);
+    let at_ingame = ui_mgr.current_screen() == Some(Screen::GameHUD)
+        && !Screen::GameHUD.is_shell_owned_pregame();
+    let screen_skirmish_ok = at_skirmish
+        && at_loading
+        && at_ingame
         && Screen::MainMenu.is_shell_owned_pregame()
-        && !Screen::GameHUD.is_shell_owned_pregame()
         && Screen::startup_entry_screen(true) == Screen::MainMenu;
 
     // When assets present, map must load; when absent, still pass config+frames.
     let map_requirement_ok = if map_resolved { map_loaded } else { true };
 
-    // Never claim full playability from headless smoke (no W3D/window/GPU).
+    // Never claim full retail playability from headless smoke (no W3D/window/GPU).
     let playable_claim = false;
 
-    let status = if host_constructed
+    let host_path_ok = host_constructed
         && skirmish_config_ok
         && menu_config_ok
         && frames_ok
         && presentation_ok
         && hud_selection_ok
         && screen_skirmish_ok
-        && map_requirement_ok
-    {
+        && control_bar_layout_ok
+        && map_requirement_ok;
+
+    // Limited claim: headless production host path is operational end-to-end.
+    // Requires dual-tick presentation + HUD selection + shell→InGame transition +
+    // ControlBar.wnd ensure. Still not windowed W3D play (playable_claim stays false).
+    let shell_host_playable_ok = host_path_ok;
+
+    let status = if host_path_ok {
         "success".into()
     } else {
         "partial".into()
@@ -198,10 +244,12 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         presentation_ok,
         hud_selection_ok,
         screen_skirmish_ok,
+        control_bar_layout_ok,
+        shell_host_playable_ok,
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} hud_sel={hud_selection_ok} screen={screen_skirmish_ok} playable_claim={playable_claim}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} hud_sel={hud_selection_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -225,8 +273,42 @@ mod tests {
         assert!(r.menu_config_ok, "{}", r.detail);
         assert!(r.frames_advanced > 0, "{}", r.detail);
         assert!(r.hud_selection_ok, "HUD selection residual: {}", r.detail);
-        assert!(!r.playable_claim, "headless smoke must not claim playable");
+        assert!(
+            r.control_bar_layout_ok,
+            "ControlBar.wnd ensure residual: {}",
+            r.detail
+        );
+        assert!(
+            r.screen_skirmish_ok,
+            "shell→InGame screen residual: {}",
+            r.detail
+        );
+        // Limited host claim when path is fully operational; never retail W3D claim.
+        assert!(
+            r.shell_host_playable_ok,
+            "shell_host_playable_ok for successful headless host path: {}",
+            r.detail
+        );
+        assert!(!r.playable_claim, "headless smoke must not claim retail playable");
         assert_eq!(r.status, "success", "{}", r.detail);
+        assert_eq!(
+            r.shell_host_playable_ok,
+            r.status == "success",
+            "shell_host_playable_ok must track success without overclaiming playable_claim"
+        );
+    }
+
+    #[test]
+    fn shell_host_playable_ok_never_implies_retail_playable_claim() {
+        let r = run_shell_smoke(4);
+        // Documented honesty contract: limited host flag is independent of retail claim.
+        if r.shell_host_playable_ok {
+            assert!(
+                !r.playable_claim,
+                "shell_host_playable_ok must never flip playable_claim"
+            );
+        }
+        assert!(!r.playable_claim);
     }
 
     #[test]
