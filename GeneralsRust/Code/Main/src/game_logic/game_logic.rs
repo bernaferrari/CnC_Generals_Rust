@@ -497,6 +497,10 @@ pub struct GameLogic {
     /// Residual hq-gq7n: not full W3D GPU parity; PresentationFrame can observe entries.
     combat_particles: CombatParticleRegistry,
 
+    /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon).
+    /// Queues on DoSpecialPower and completes with area damage — fail-closed vs full retail.
+    special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1282,6 +1286,8 @@ impl GameLogic {
             victory_conditions: VictoryConditions::new(),
             objects_to_destroy: VecDeque::new(),
             combat_particles: CombatParticleRegistry::new(),
+            special_power_strikes:
+                crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1403,6 +1409,7 @@ impl GameLogic {
         self.frame = 0;
         self.objects_to_destroy.clear();
         self.combat_particles.clear();
+        self.special_power_strikes.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3215,6 +3222,10 @@ impl GameLogic {
 
         // Special power cooldown/timer updates
         update_special_powers();
+
+        // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
+        // ParticleCannon strikes (area damage). Fail-closed vs full OCL aircraft.
+        self.update_special_power_strikes();
 
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
@@ -7863,6 +7874,138 @@ impl GameLogic {
     /// Mutable access for tests / presentation drain of frame events.
     pub fn combat_particles_mut(&mut self) -> &mut CombatParticleRegistry {
         &mut self.combat_particles
+    }
+
+    /// Host superweapon strike registry (queue + complete residual).
+    pub fn special_power_strikes(
+        &self,
+    ) -> &crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry {
+        &self.special_power_strikes
+    }
+
+    /// Mutable host superweapon strike registry (tests / presentation drain).
+    pub fn special_power_strikes_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry {
+        &mut self.special_power_strikes
+    }
+
+    /// Queue a host residual superweapon strike from DoSpecialPower.
+    /// Returns strike id when the power maps to a supported residual kind.
+    pub fn queue_special_power_strike(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        let kind = HostSuperweaponKind::from_command_power(power)?;
+        let source_team = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let frame = self.frame;
+        let id = self.special_power_strikes.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+        );
+
+        // Activation audio residual (observable request path).
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(180),
+        );
+        // Launch-site combat particle residual (not full OCL aircraft).
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        Some(id)
+    }
+
+    /// Advance pending host superweapon strikes to impact and apply area damage.
+    pub fn update_special_power_strikes(&mut self) {
+        self.special_power_strikes.clear_frame_events();
+
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_impacts(self.frame, &object_positions);
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut objects_hit = 0_u32;
+            let mut objects_destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let destroyed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    objects_hit += 1;
+                    if destroyed {
+                        objects_destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            // Impact feedback residual: explosion particle + audio at epicenter.
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.impact_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(200),
+            );
+
+            self.special_power_strikes.record_impact_complete(
+                plan.strike_id,
+                total_damage,
+                objects_hit,
+                objects_destroyed,
+            );
+
+            log::info!(
+                "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
+                plan.kind.label(),
+                plan.strike_id,
+                plan.target_position,
+                total_damage,
+                objects_hit,
+                objects_destroyed
+            );
+        }
     }
 
     pub fn get_frame(&self) -> u32 {
@@ -14934,5 +15077,384 @@ mod tests {
             game_logic.find_object(target_id).is_none(),
             "target must be removed after kill"
         );
+    }
+
+    /// Residual: host DaisyCutter / FuelAirBomb DoSpecialPower queues a strike
+    /// and completes with area damage (honesty: queue + complete, fail-closed
+    /// vs full retail OCL aircraft / MOAB upgrade parity).
+    #[test]
+    fn daisy_cutter_host_path_queues_and_completes_area_damage() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{HostStrikePhase, HostSuperweaponKind};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        let far_enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(500.0, 0.0, 0.0))
+            .expect("far enemy");
+        let friend_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("friend");
+
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 500.0;
+            enemy.health.maximum = 500.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let friend = game_logic.find_object_mut(friend_id).expect("friend");
+            friend.health.current = 500.0;
+            friend.health.maximum = 500.0;
+            friend.thing.template.armor = 0.0;
+        }
+        {
+            let far = game_logic.find_object_mut(far_enemy_id).expect("far");
+            far.health.current = 500.0;
+            far.health.maximum = 500.0;
+            far.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(50.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::DaisyCutter,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        // Queue honesty: strike pending, caster on cooldown + SpecialAbility.
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::DaisyCutter),
+            "DaisyCutter must queue a pending host strike"
+        );
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert!(caster.special_power_cooldown_remaining > 0.0);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponDaisyCutter"),
+            "activation must queue SuperweaponDaisyCutter audio"
+        );
+
+        // Before impact delay: no damage.
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = 89;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no damage before impact frame"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::DaisyCutter));
+
+        // At impact: area damage + complete honesty.
+        game_logic.frame = 90;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::DaisyCutter),
+            "DaisyCutter must complete on impact frame"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::DaisyCutter),
+            "host path honesty requires completed strike"
+        );
+
+        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        // Epicenter damage is large enough to kill residual test tank or leave 0.
+        assert!(
+            enemy_after.is_none()
+                || enemy_after == Some(0.0)
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy at epicenter must take lethal DaisyCutter residual damage"
+        );
+        assert!(
+            game_logic
+                .find_object(friend_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "friendly units must not take DaisyCutter residual damage"
+        );
+        assert!(
+            game_logic
+                .find_object(far_enemy_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside radius must be untouched"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "DaisyCutterExplosion"),
+            "impact must queue DaisyCutterExplosion audio"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "impact must register DeathExplosion particle residual"
+        );
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::DaisyCutter);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostStrikePhase::Completed);
+        assert!(completed[0].objects_hit >= 1);
+        assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
+    /// Residual: A10 (Airstrike) host path queues and completes.
+    #[test]
+    fn a10_strike_host_path_queues_and_completes() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 200.0;
+            enemy.health.maximum = 200.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Airstrike,
+                target: PowerTarget::Location(Vec3::new(20.0, 0.0, 0.0)),
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(game_logic
+            .special_power_strikes()
+            .honesty_queue_ok(HostSuperweaponKind::A10Strike));
+
+        game_logic.frame = 60;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::A10Strike),
+            "A10 host path must complete"
+        );
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::A10Strike);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].total_damage_applied > 0.0);
+        assert!(completed[0].objects_hit >= 1);
+    }
+
+    /// Residual: GLA SCUD Storm host path queues and completes.
+    #[test]
+    fn scud_storm_host_path_queues_and_completes() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 800.0;
+            enemy.health.maximum = 800.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::ScudStorm,
+                target: PowerTarget::Object(enemy_id),
+            },
+            player_id: 2, // Team::GLA
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(game_logic
+            .special_power_strikes()
+            .honesty_queue_ok(HostSuperweaponKind::ScudStorm));
+
+        // SCUD impact delay = 150 frames.
+        game_logic.frame = 150;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::ScudStorm),
+            "SCUD Storm host path must complete"
+        );
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::ScudStorm);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].objects_hit >= 1);
+        assert!(completed[0].total_damage_applied > 0.0);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "ScudStormImpact"),
+            "SCUD impact audio residual required"
+        );
+    }
+
+    /// Residual: ParticleCannon (Particle Uplink residual) host path.
+    #[test]
+    fn particle_cannon_host_path_queues_and_completes() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 1000.0;
+            enemy.health.maximum = 1000.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::ParticleCannon,
+                target: PowerTarget::Location(Vec3::new(10.0, 0.0, 0.0)),
+            },
+            player_id: 1, // Team::China
+            command_id: 4,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(game_logic
+            .special_power_strikes()
+            .honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
+
+        game_logic.frame = 120;
+        game_logic.update_special_power_strikes();
+        assert!(game_logic
+            .special_power_strikes()
+            .honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
+    }
+
+    /// RadarScan remains charge-consume only (no superweapon residual strike).
+    #[test]
+    fn radar_scan_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::RadarScan,
+                target: PowerTarget::None,
+            },
+            player_id: 0,
+            command_id: 5,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "non-superweapon special powers must not enqueue residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
     }
 }
