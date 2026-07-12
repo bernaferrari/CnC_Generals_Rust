@@ -161,7 +161,13 @@ impl PresentationFrame {
 
     /// Apply presentation identity fields onto a HUD/UI state (production consumer path).
     /// Does not re-borrow GameLogic — uses only owned snapshot data.
+    ///
+    /// Overwrites **selection IDs, selected unit health/name, and minimap unit dots**
+    /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
+    /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        use crate::ui::{color_for_player, MinimapDot, UnitDisplayInfo};
+
         ui.credits = self.local_supplies as i32;
         ui.power_generated = self.local_power.max(0);
         ui.power_used = 0;
@@ -169,6 +175,95 @@ impl PresentationFrame {
         ui.player_id = self.local_player_id;
         ui.selected_units = self.selected.clone();
         ui.match_over = self.match_over;
+
+        // Selected unit identity (health/name/type) from snapshot only.
+        let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
+            self.objects.iter().map(|o| (o.id, o)).collect();
+        let mut selected_infos = Vec::with_capacity(self.selected.len());
+        for id in &self.selected {
+            if let Some(ro) = by_id.get(id) {
+                if ro.destroyed {
+                    continue;
+                }
+                selected_infos.push(UnitDisplayInfo {
+                    object_id: ro.id,
+                    name: ro.template_name.clone(),
+                    health_current: ro.health_current,
+                    health_maximum: ro.health_max.max(1.0),
+                    unit_type: if ro.is_structure {
+                        "Structure".into()
+                    } else if ro.is_unit {
+                        "Unit".into()
+                    } else {
+                        "Object".into()
+                    },
+                    current_order: "Idle".into(),
+                });
+            }
+        }
+        // Also include objects marked selected on the snapshot when player list is empty.
+        if selected_infos.is_empty() {
+            for ro in self.objects.iter().filter(|o| o.selected && !o.destroyed) {
+                selected_infos.push(UnitDisplayInfo {
+                    object_id: ro.id,
+                    name: ro.template_name.clone(),
+                    health_current: ro.health_current,
+                    health_maximum: ro.health_max.max(1.0),
+                    unit_type: if ro.is_structure {
+                        "Structure".into()
+                    } else if ro.is_unit {
+                        "Unit".into()
+                    } else {
+                        "Object".into()
+                    },
+                    current_order: "Idle".into(),
+                });
+            }
+        }
+        ui.selected_unit_infos = selected_infos;
+
+        // Minimap dots from snapshot positions/teams (normalized into frame bounds).
+        let alive: Vec<&RenderableObject> = self.objects.iter().filter(|o| !o.destroyed).collect();
+        let (world_min_x, world_max_x, world_min_z, world_max_z) = if alive.is_empty() {
+            (-100.0, 100.0, -100.0, 100.0)
+        } else {
+            let mut min_x = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut min_z = f32::MAX;
+            let mut max_z = f32::MIN;
+            for o in &alive {
+                min_x = min_x.min(o.position.x);
+                max_x = max_x.max(o.position.x);
+                min_z = min_z.min(o.position.z);
+                max_z = max_z.max(o.position.z);
+            }
+            // Pad so single-unit maps still normalize.
+            if (max_x - min_x).abs() < 1.0 {
+                min_x -= 50.0;
+                max_x += 50.0;
+            }
+            if (max_z - min_z).abs() < 1.0 {
+                min_z -= 50.0;
+                max_z += 50.0;
+            }
+            (min_x, max_x, min_z, max_z)
+        };
+        let span_x = (world_max_x - world_min_x).max(1.0);
+        let span_z = (world_max_z - world_min_z).max(1.0);
+        let mut dots = Vec::with_capacity(alive.len());
+        for ro in alive {
+            let nx = ((ro.position.x - world_min_x) / span_x).clamp(0.0, 1.0);
+            let nz = ((ro.position.z - world_min_z) / span_z).clamp(0.0, 1.0);
+            let color = match ro.team {
+                Team::USA => color_for_player(1),
+                Team::China => color_for_player(0),
+                Team::GLA => color_for_player(4),
+                Team::Neutral => color_for_player(7),
+            };
+            let size = if ro.is_structure { 4.0 } else { 2.0 };
+            dots.push(MinimapDot::normalized(nx, nz, color, size));
+        }
+        ui.minimap_unit_dots = dots;
     }
 
     /// Resource triple for GameHud::update_resources (credits, power, max_power).
@@ -335,6 +430,64 @@ mod tests {
                 *oid == id && (*x - 9.0).abs() < 0.01 && (*z + 4.0).abs() < 0.01
             }),
             "minimap units must come from snapshot positions"
+        );
+    }
+
+    #[test]
+    fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
+        // Production path: live update_ui_state may run first; apply_to_ui_state must
+        // replace selection health + minimap dots with snapshot-owned values.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HudIdentity");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("HudIdUnit");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("HudIdUnit".into(), t);
+        let id = logic
+            .create_object("HudIdUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        // Live world mutates after snapshot (would poison a re-read).
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
+            o.health.current = 3.0;
+        }
+
+        // Simulate production: live walk first, then presentation overlay.
+        let mut ui = logic.update_ui_state(0);
+        snap.apply_to_ui_state(&mut ui);
+
+        assert!(
+            ui.selected_units.contains(&id),
+            "selection ids from snapshot"
+        );
+        let info = ui
+            .selected_unit_infos
+            .iter()
+            .find(|u| u.object_id == id)
+            .expect("selected_unit_infos from snapshot");
+        assert!(
+            (info.health_current - 100.0).abs() < 0.01,
+            "health must be snapshot 100, not live 3: {}",
+            info.health_current
+        );
+        assert!(
+            !ui.minimap_unit_dots.is_empty(),
+            "minimap dots filled from presentation objects"
+        );
+        assert_eq!(
+            ui.minimap_unit_dots.len(),
+            snap.objects.iter().filter(|o| !o.destroyed).count()
         );
     }
 }
