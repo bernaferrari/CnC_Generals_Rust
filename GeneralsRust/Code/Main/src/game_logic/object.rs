@@ -455,7 +455,27 @@ impl Object {
     /// C++ parity (Object::isDisabled): returns true if the object is in any
     /// disabled state that prevents it from acting (attacking, producing, etc.)
     pub fn is_disabled(&self) -> bool {
-        self.status.disabled_underpowered || self.status.under_construction
+        self.status.disabled_underpowered
+            || self.status.disabled_unmanned
+            || self.status.under_construction
+    }
+
+    /// C++ DISABLED_UNMANNED residual (Jarmen Kell kill-pilot snipe).
+    pub fn is_unmanned(&self) -> bool {
+        self.status.disabled_unmanned
+    }
+
+    /// Apply kill-pilot residual: vehicle becomes unmanned (no HP change).
+    /// Caller is responsible for team transfer (typically Neutral).
+    pub fn apply_kill_pilot_unmanned(&mut self) {
+        self.status.disabled_unmanned = true;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
     }
 
     pub fn can_attack(&self) -> bool {
@@ -902,6 +922,7 @@ impl Object {
     pub fn can_move(&self) -> bool {
         self.is_mobile()
             && self.is_alive()
+            && !self.status.disabled_unmanned
             && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 

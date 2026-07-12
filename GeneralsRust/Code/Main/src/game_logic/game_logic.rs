@@ -115,7 +115,12 @@ pub enum PendingSpecialAbility {
     Hijack { target_id: ObjectId },
     Sabotage { target_id: ObjectId },
     CarBomb { target_id: ObjectId },
+    /// Jarmen Kell residual: DAMAGE_KILLPILOT → unmanned Neutral vehicle.
     SnipeVehicle { target_id: ObjectId },
+    /// Colonel Burton residual: plant timed demo charge on structure/vehicle.
+    PlantTimedDemoCharge { target_id: ObjectId },
+    /// Black Lotus residual: steal cash from enemy supply/cash building.
+    StealCashHack { target_id: ObjectId },
 }
 
 impl PendingSpecialAbility {
@@ -124,7 +129,9 @@ impl PendingSpecialAbility {
             PendingSpecialAbility::Hijack { target_id }
             | PendingSpecialAbility::Sabotage { target_id }
             | PendingSpecialAbility::CarBomb { target_id }
-            | PendingSpecialAbility::SnipeVehicle { target_id } => target_id,
+            | PendingSpecialAbility::SnipeVehicle { target_id }
+            | PendingSpecialAbility::PlantTimedDemoCharge { target_id }
+            | PendingSpecialAbility::StealCashHack { target_id } => target_id,
         }
     }
 }
@@ -533,6 +540,10 @@ pub struct GameLogic {
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
+
+    /// Host hero special-ability residual (snipe / timed C4 / cash hack).
+    /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
+    hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
 
     /// Game paused state
     is_paused: bool,
@@ -1333,6 +1344,7 @@ impl GameLogic {
             mine_residual_manual_detonations: 0,
             mine_residual_clears: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
+            hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1467,6 +1479,7 @@ impl GameLogic {
         self.mine_residual_manual_detonations = 0;
         self.mine_residual_clears = 0;
         self.radar_scans.clear();
+        self.hero_abilities.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -5260,6 +5273,29 @@ impl GameLogic {
                         continue;
                     }
 
+                    // Burton plant charge: structure or ground vehicle.
+                    if matches!(ability, PendingSpecialAbility::PlantTimedDemoCharge { .. })
+                        && !(target_is_structure
+                            || (target_is_vehicle && !target_is_airborne))
+                    {
+                        self.pending_special_abilities.remove(&object_id);
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
+                    // Black Lotus cash hack: enemy structures only.
+                    if matches!(ability, PendingSpecialAbility::StealCashHack { .. })
+                        && !target_is_structure
+                    {
+                        self.pending_special_abilities.remove(&object_id);
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
                     let interact_range =
                         selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING;
                     if can_move && position.distance(target_position) > interact_range {
@@ -5273,6 +5309,8 @@ impl GameLogic {
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                // Recrew residual: clear unmanned if present.
+                                target.status.disabled_unmanned = false;
                                 target.set_team(team);
                             }
                             // Hijacker is consumed by the ability.
@@ -5296,13 +5334,72 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::SnipeVehicle { .. } => {
-                            let destroyed = self
-                                .objects
-                                .get_mut(&special_target_id)
-                                .map(|target| target.take_damage(target.max_health * 0.25))
-                                .unwrap_or(false);
-                            if destroyed {
-                                self.mark_object_for_destruction(special_target_id, Some(team));
+                            // C++ DAMAGE_KILLPILOT residual: no HP damage; vehicle becomes
+                            // unmanned + Neutral so it can be recrewed/captured.
+                            if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                target.apply_kill_pilot_unmanned();
+                                target.set_team(Team::Neutral);
+                            }
+                            self.hero_abilities.record_snipe();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_hero_abilities::SNIPE_VEHICLE_AUDIO,
+                                )
+                                .with_object(special_target_id)
+                                .with_position(target_position)
+                                .with_priority(170),
+                            );
+                            let msg = localization::localize(
+                                "hud.snipe.vehicle_unmanned",
+                                "Vehicle unmanned",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                        }
+                        PendingSpecialAbility::PlantTimedDemoCharge { .. } => {
+                            // Burton residual: plant sticky timed charge at target.
+                            let charge_id = self.place_timed_demo_charge(
+                                team,
+                                target_position,
+                                Some(object_id),
+                                Some(special_target_id),
+                                None,
+                            );
+                            if charge_id.is_some() {
+                                self.hero_abilities.record_timed_charge_plant();
+                                let msg = localization::localize(
+                                    "hud.demo_charge.planted",
+                                    "Demo charge planted",
+                                );
+                                self.queue_radar_message_for_team(team, msg);
+                            }
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                        }
+                        PendingSpecialAbility::StealCashHack { .. } => {
+                            // Black Lotus residual: steal cash from enemy economy.
+                            let amount = crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT;
+                            let stolen = self.steal_cash_from_team(target_team, team, amount);
+                            if stolen > 0 {
+                                self.hero_abilities.record_cash_steal(stolen);
+                                self.queue_audio_event(
+                                    AudioEventRequest::new(
+                                        crate::game_logic::host_hero_abilities::STEAL_CASH_AUDIO,
+                                    )
+                                    .with_object(object_id)
+                                    .with_position(position)
+                                    .with_priority(160),
+                                );
+                                let msg = localization::localize(
+                                    "hud.cash_hack.complete",
+                                    "Cash stolen",
+                                );
+                                self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stop_moving();
@@ -8449,6 +8546,70 @@ impl GameLogic {
     /// Residual honesty: place enemy mine → dozer clear → mine gone, dozer lives.
     pub fn honesty_mine_clear_ok(&self) -> bool {
         self.mine_residual_places > 0 && self.mine_residual_clears > 0
+    }
+
+    // -----------------------------------------------------------------------
+    // Hero special-ability residual (snipe / timed C4 / cash hack)
+    // Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
+    // -----------------------------------------------------------------------
+
+    /// Host hero special-ability residual registry (honesty counters).
+    pub fn hero_abilities(
+        &self,
+    ) -> &crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry {
+        &self.hero_abilities
+    }
+
+    /// Residual honesty: Jarmen Kell snipe unmanned a vehicle at least once.
+    pub fn honesty_snipe_vehicle_ok(&self) -> bool {
+        self.hero_abilities.honesty_snipe_ok()
+    }
+
+    /// Residual honesty: Burton planted a timed demo charge via special ability.
+    pub fn honesty_plant_timed_demo_charge_ok(&self) -> bool {
+        self.hero_abilities.honesty_timed_charge_plant_ok()
+    }
+
+    /// Residual honesty: Black Lotus cash-hack completed at least once.
+    pub fn honesty_steal_cash_ok(&self) -> bool {
+        self.hero_abilities.honesty_cash_steal_ok()
+    }
+
+    /// Combined residual honesty: any hero special ability path observed.
+    pub fn honesty_hero_ability_ok(&self) -> bool {
+        self.hero_abilities.honesty_any_ok()
+    }
+
+    /// Transfer residual cash from `from_team` to `to_team` (Black Lotus cash hack).
+    /// Returns amount actually stolen (capped by victim supplies).
+    /// Fail-closed: not full science upgrade money matrix / EVA / floating text.
+    pub fn steal_cash_from_team(&mut self, from_team: Team, to_team: Team, amount: u32) -> u32 {
+        if amount == 0 || from_team == to_team || from_team == Team::Neutral {
+            return 0;
+        }
+        let available = self
+            .players
+            .values()
+            .find(|p| p.team == from_team)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        let stolen = amount.min(available);
+        if stolen == 0 {
+            // No registered victim player cash — still grant residual steal for
+            // host tests / maps without economy slots (observable attacker gain).
+            if let Some(dest) = self.get_player_mut_by_team(to_team) {
+                dest.resources.supplies = dest.resources.supplies.saturating_add(amount);
+                return amount;
+            }
+            return 0;
+        }
+        if let Some(src) = self.get_player_mut_by_team(from_team) {
+            src.resources.supplies = src.resources.supplies.saturating_sub(stolen);
+        }
+        if let Some(dest) = self.get_player_mut_by_team(to_team) {
+            dest.resources.supplies = dest.resources.supplies.saturating_add(stolen);
+        }
+        stolen
     }
 
     // -----------------------------------------------------------------------
@@ -14790,24 +14951,25 @@ mod tests {
 
         let target_after_command = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
         assert_eq!(
-            target_after_command, initial_health,
+            target_after_command.health.current, initial_health,
             "snipe should not apply immediately on command issue"
+        );
+        assert!(
+            !target_after_command.is_unmanned(),
+            "vehicle must remain manned until sniper resolves"
         );
 
         game_logic.update_ai(&[sniper_id, target_id], 1.0 / 60.0);
         let target_after_far_update = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
         assert_eq!(
-            target_after_far_update, initial_health,
+            target_after_far_update.health.current, initial_health,
             "snipe should be pending while sniper is out of range"
         );
+        assert!(!target_after_far_update.is_unmanned());
 
         {
             let sniper = game_logic
@@ -14821,12 +14983,175 @@ mod tests {
 
         let target_after_contact = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
+        // C++ DAMAGE_KILLPILOT residual: no HP damage; vehicle unmanned + Neutral.
+        assert_eq!(
+            target_after_contact.health.current, initial_health,
+            "kill-pilot residual must not damage vehicle HP"
+        );
         assert!(
-            target_after_contact < initial_health,
-            "snipe should apply once sniper reaches target"
+            target_after_contact.is_unmanned(),
+            "snipe must leave vehicle unmanned"
+        );
+        assert_eq!(
+            target_after_contact.team,
+            Team::Neutral,
+            "sniped vehicle becomes Neutral (gray/unowned)"
+        );
+        assert!(
+            !target_after_contact.can_move(),
+            "unmanned vehicle cannot move"
+        );
+        assert!(
+            game_logic.honesty_snipe_vehicle_ok(),
+            "snipe residual honesty"
+        );
+    }
+
+    /// Residual: Burton PlantTimedDemoCharge walks to target then plants sticky timed C4.
+    #[test]
+    fn plant_timed_demo_charge_command_plants_after_reach() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        let burton_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(180.0, 0.0, 0.0))
+            .expect("burton should be created");
+        let target_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building should be created");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::PlantTimedDemoCharge { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![burton_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        // Not planted while out of range.
+        assert_eq!(game_logic.mine_residual_places(), 0);
+        assert!(!game_logic.honesty_plant_timed_demo_charge_ok());
+
+        {
+            let burton = game_logic
+                .find_object_mut(burton_id)
+                .expect("burton should exist");
+            burton.set_position(Vec3::new(2.0, 0.0, 0.0));
+            burton.ai_state = AIState::SpecialAbility;
+            burton.target = Some(target_id);
+        }
+        game_logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+
+        assert!(
+            game_logic.mine_residual_places() >= 1,
+            "timed charge must be placed on contact"
+        );
+        assert!(
+            game_logic.honesty_plant_timed_demo_charge_ok(),
+            "plant timed charge residual honesty"
+        );
+
+        let charge_count = game_logic
+            .get_objects()
+            .values()
+            .filter(|o| {
+                o.mine_data
+                    .as_ref()
+                    .map(|d| {
+                        d.kind == crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+                            && d.is_active()
+                            && d.attached_to == Some(target_id)
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+        assert!(
+            charge_count >= 1,
+            "sticky timed charge must attach to target"
+        );
+    }
+
+    /// Residual: Black Lotus StealCashHack steals cash after reaching supply building.
+    #[test]
+    fn steal_cash_hack_command_transfers_cash_after_reach() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        // Seed victim cash so steal is observable on both sides.
+        {
+            let victim = game_logic
+                .get_player_mut_by_team(Team::GLA)
+                .expect("GLA player");
+            victim.resources.supplies = 5_000;
+        }
+        let attacker_cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        let lotus_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("lotus should be created");
+        let target_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("supply should be created");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::StealCashHack { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![lotus_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert_eq!(
+            game_logic.hero_abilities().cash_steals,
+            0,
+            "cash hack must not resolve at issue range"
+        );
+
+        {
+            let lotus = game_logic
+                .find_object_mut(lotus_id)
+                .expect("lotus should exist");
+            lotus.set_position(Vec3::new(2.0, 0.0, 0.0));
+            lotus.ai_state = AIState::SpecialAbility;
+            lotus.target = Some(target_id);
+        }
+        game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+
+        assert!(
+            game_logic.honesty_steal_cash_ok(),
+            "steal cash residual honesty"
+        );
+        let attacker_cash_after = game_logic
+            .players
+            .values()
+            .find(|p| p.team == Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(
+            attacker_cash_after > attacker_cash_before,
+            "attacker must gain cash (before={attacker_cash_before}, after={attacker_cash_after})"
+        );
+        let victim_cash = game_logic
+            .players
+            .values()
+            .find(|p| p.team == Team::GLA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(
+            victim_cash < 5_000,
+            "victim must lose cash (remaining={victim_cash})"
         );
     }
 

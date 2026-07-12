@@ -196,6 +196,12 @@ impl<'a> CommandExecutor<'a> {
             CommandType::SnipeVehicle { target_id } => {
                 self.execute_snipe_vehicle(&command.selected_units, *target_id)
             }
+            CommandType::PlantTimedDemoCharge { target_id } => {
+                self.execute_plant_timed_demo_charge(&command.selected_units, *target_id)
+            }
+            CommandType::StealCashHack { target_id } => {
+                self.execute_steal_cash_hack(&command.selected_units, *target_id)
+            }
             CommandType::SwitchWeapons => self.execute_switch_weapons(&command.selected_units),
             CommandType::ToggleOvercharge => {
                 self.execute_toggle_overcharge(&command.selected_units)
@@ -1750,7 +1756,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_snipe_vehicle(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_vehicle, target_is_airborne) =
+        let (target_team, target_pos, target_alive, target_is_vehicle, target_is_airborne, target_unmanned) =
             match self.game_logic.get_object(target_id) {
                 Some(target) => (
                     target.team,
@@ -1758,11 +1764,17 @@ impl<'a> CommandExecutor<'a> {
                     target.is_alive(),
                     target.is_kind_of(KindOf::Vehicle),
                     target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                    target.is_unmanned(),
                 ),
                 None => return CommandResult::InvalidTarget,
             };
 
-        if !target_alive || !target_is_vehicle || target_is_airborne || target_team == Team::Neutral
+        // Kill-pilot residual only applies to manned enemy ground vehicles.
+        if !target_alive
+            || !target_is_vehicle
+            || target_is_airborne
+            || target_unmanned
+            || target_team == Team::Neutral
         {
             return CommandResult::InvalidTarget;
         }
@@ -1796,6 +1808,131 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.queue_pending_special_ability(
                 unit_id,
                 PendingSpecialAbility::SnipeVehicle { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: plant timed demo charge on enemy structure/vehicle.
+    fn execute_plant_timed_demo_charge(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (target_team, target_pos, target_alive, target_is_structure, target_is_vehicle, target_is_airborne) =
+            match self.game_logic.get_object(target_id) {
+                Some(target) => (
+                    target.team,
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Structure),
+                    target.is_kind_of(KindOf::Vehicle),
+                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        let valid_target = target_alive
+            && target_team != Team::Neutral
+            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        if !valid_target {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Black Lotus residual: steal cash from enemy supply/cash building.
+    fn execute_steal_cash_hack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (target_team, target_pos, target_alive, target_is_structure) =
+            match self.game_logic.get_object(target_id) {
+                Some(target) => (
+                    target.team,
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Structure),
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        if !target_alive || !target_is_structure || target_team == Team::Neutral {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::StealCashHack { target_id },
             );
         }
 

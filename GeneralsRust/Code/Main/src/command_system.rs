@@ -177,6 +177,14 @@ pub enum CommandType {
     SnipeVehicle {
         target_id: ObjectId,
     },
+    /// Colonel Burton residual: plant timed demo charge on structure/vehicle.
+    PlantTimedDemoCharge {
+        target_id: ObjectId,
+    },
+    /// Black Lotus residual: steal cash from enemy supply/cash building.
+    StealCashHack {
+        target_id: ObjectId,
+    },
     SwitchWeapons,
     ToggleOvercharge,
 
