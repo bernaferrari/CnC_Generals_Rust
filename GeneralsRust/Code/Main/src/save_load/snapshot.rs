@@ -12,9 +12,22 @@
 //! - secondary-only uses a zero-damage primary pad so secondary stays at index 1
 //! - `ObjectStatusSnapshot.active_weapon_slot` survives player weapon-toggle
 //!
+//! # Special-power strike residual (2026-07-12)
+//!
+//! Host `HostSpecialPowerStrikeRegistry` queues DaisyCutter / A10 / ScudStorm /
+//! ParticleCannon impacts with a multi-frame delay. Without snapshot persistence,
+//! save mid-flight dropped the pending strike and impact never fired after load.
+//!
+//! Closed residual layout:
+//! - `WorldSnapshot.special_power_strikes` stores `next_id` + all strike records
+//!   (queued / completed / cancelled), including absolute `impact_frame`
+//! - restore rebinds registry so remaining delay continues and area damage still applies
+//! - `WorldSnapshot.combat_particles` optionally stores active host particle systems
+//!   (template name + pose + spawn frame; not full W3D GPU particle state)
+//!
 //! Still residual (fail-closed, not claimed):
-//! - `CombatParticleRegistry` host systems not in `WorldSnapshot`
-//! - `HostSpecialPowerStrikeRegistry` pending strikes not in `WorldSnapshot`
+//! - Full retail OCL / aircraft / beam / multiplayer superweapon Xfer tables
+//! - Client `ParticleSystemManager` GPU rebind after load (host registry only)
 //! - `HostUpgradeRegistry` in-flight research queue not in `WorldSnapshot`
 //!   (completed unlocks that already mutated objects/players do survive)
 //! - Full C++ per-module WeaponSet / SpecialPowerModule Xfer tables
@@ -62,6 +75,52 @@ pub struct WorldSnapshot {
     // AI state
     pub ai_players: Vec<AIPlayerSnapshot>,
     pub global_ai_state: GlobalAIStateSnapshot,
+
+    /// Host superweapon strike queue (DaisyCutter / A10 / … residual).
+    /// Absolute impact frames must survive so mid-flight loads still detonate.
+    #[serde(default)]
+    pub special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+
+    /// Host combat particle registry residual (active systems only path).
+    /// Fail-closed: not full client W3D particle GPU state.
+    #[serde(default)]
+    pub combat_particles: CombatParticleRegistrySnapshot,
+}
+
+/// Snapshot of [`HostSpecialPowerStrikeRegistry`] for save/load residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecialPowerStrikeRegistrySnapshot {
+    /// Next allocator id after restore.
+    pub next_id: u32,
+    /// All strike records (queued / completed / cancelled), sorted by id on capture.
+    pub strikes: Vec<HostSpecialPowerStrike>,
+}
+
+impl Default for SpecialPowerStrikeRegistrySnapshot {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            strikes: Vec::new(),
+        }
+    }
+}
+
+/// Snapshot of [`CombatParticleRegistry`] for save/load residual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CombatParticleRegistrySnapshot {
+    /// Next allocator id after restore.
+    pub next_id: u32,
+    /// Active + inactive host particle system entries (presentation residual).
+    pub systems: Vec<CombatParticleSystemEntry>,
+}
+
+impl Default for CombatParticleRegistrySnapshot {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            systems: Vec::new(),
+        }
+    }
 }
 
 /// Complete object state snapshot
@@ -688,6 +747,16 @@ impl Snapshot for WorldSnapshot {
 
         xfer.xfer_marker_label("GlobalAIState")?;
         self.global_ai_state.xfer(xfer)?;
+
+        // Residual: host superweapon strike queue + combat particle registry.
+        // Appended after GlobalAIState so earlier Xfer layouts stay stable until
+        // a save that writes these markers. Empty defaults on missing streams
+        // are handled by callers using Default; binary Xfer always pairs them.
+        xfer.xfer_marker_label("SpecialPowerStrikes")?;
+        self.special_power_strikes.xfer(xfer)?;
+
+        xfer.xfer_marker_label("CombatParticles")?;
+        self.combat_particles.xfer(xfer)?;
 
         Ok(())
     }
@@ -2385,6 +2454,191 @@ impl XferData for GlobalAIStateSnapshot {
     }
 }
 
+impl XferData for HostSuperweaponKind {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            HostSuperweaponKind::DaisyCutter => 0u32,
+            HostSuperweaponKind::A10Strike => 1,
+            HostSuperweaponKind::ScudStorm => 2,
+            HostSuperweaponKind::ParticleCannon => 3,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => HostSuperweaponKind::DaisyCutter,
+            1 => HostSuperweaponKind::A10Strike,
+            2 => HostSuperweaponKind::ScudStorm,
+            3 => HostSuperweaponKind::ParticleCannon,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid HostSuperweaponKind discriminant: {other}"
+                )));
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for HostStrikePhase {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            HostStrikePhase::Queued => 0u32,
+            HostStrikePhase::Completed => 1,
+            HostStrikePhase::Cancelled => 2,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => HostStrikePhase::Queued,
+            1 => HostStrikePhase::Completed,
+            2 => HostStrikePhase::Cancelled,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid HostStrikePhase discriminant: {other}"
+                )));
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for HostSpecialPowerStrike {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostSpecialPowerStrike")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("Kind")?;
+        self.kind.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        self.target_position.xfer(xfer)?;
+        xfer.xfer_marker_label("ActivateFrame")?;
+        xfer.xfer_u32(&mut self.activate_frame)?;
+        xfer.xfer_marker_label("ImpactFrame")?;
+        xfer.xfer_u32(&mut self.impact_frame)?;
+        xfer.xfer_marker_label("Phase")?;
+        self.phase.xfer(xfer)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("ObjectsHit")?;
+        xfer.xfer_u32(&mut self.objects_hit)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        Ok(())
+    }
+}
+
+impl XferData for SpecialPowerStrikeRegistrySnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("SpecialPowerStrikeRegistrySnapshot")?;
+        xfer.xfer_marker_label("NextId")?;
+        xfer.xfer_u32(&mut self.next_id)?;
+        xfer.xfer_marker_label("Strikes")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.strikes,
+            HostSpecialPowerStrike {
+                id: 0,
+                kind: HostSuperweaponKind::DaisyCutter,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                target_position: Vec3::ZERO,
+                activate_frame: 0,
+                impact_frame: 0,
+                phase: HostStrikePhase::Queued,
+                total_damage_applied: 0.0,
+                objects_hit: 0,
+                objects_destroyed: 0,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for CombatParticleKind {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            CombatParticleKind::DeathExplosion => 0u32,
+            CombatParticleKind::DeathSmoke => 1,
+            CombatParticleKind::WeaponMuzzleFlash => 2,
+            CombatParticleKind::WeaponImpact => 3,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => CombatParticleKind::DeathExplosion,
+            1 => CombatParticleKind::DeathSmoke,
+            2 => CombatParticleKind::WeaponMuzzleFlash,
+            3 => CombatParticleKind::WeaponImpact,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid CombatParticleKind discriminant: {other}"
+                )));
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for CombatParticleSystemEntry {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("CombatParticleSystemEntry")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("Kind")?;
+        self.kind.xfer(xfer)?;
+        xfer.xfer_marker_label("TemplateName")?;
+        self.template_name.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        xfer_option(xfer, &mut self.source_object, ObjectId(0))?;
+        xfer.xfer_marker_label("TargetObject")?;
+        xfer_option(xfer, &mut self.target_object, ObjectId(0))?;
+        xfer.xfer_marker_label("SpawnedFrame")?;
+        xfer.xfer_u32(&mut self.spawned_frame)?;
+        xfer.xfer_marker_label("Active")?;
+        xfer.xfer_bool(&mut self.active)?;
+        xfer.xfer_marker_label("ClientSystemId")?;
+        // Option<u32> residual — client rebind may drop this after load.
+        let mut has_client = self.client_system_id.is_some();
+        xfer.xfer_bool(&mut has_client)?;
+        if has_client {
+            let mut id = self.client_system_id.unwrap_or(0);
+            xfer.xfer_u32(&mut id)?;
+            self.client_system_id = Some(id);
+        } else {
+            self.client_system_id = None;
+        }
+        Ok(())
+    }
+}
+
+impl XferData for CombatParticleRegistrySnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("CombatParticleRegistrySnapshot")?;
+        xfer.xfer_marker_label("NextId")?;
+        xfer.xfer_u32(&mut self.next_id)?;
+        xfer.xfer_marker_label("Systems")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.systems,
+            CombatParticleSystemEntry {
+                id: 0,
+                kind: CombatParticleKind::DeathExplosion,
+                template_name: String::new(),
+                position: Vec3::ZERO,
+                source_object: None,
+                target_object: None,
+                spawned_frame: 0,
+                active: false,
+                client_system_id: None,
+            },
+        )?;
+        Ok(())
+    }
+}
+
 /// Snapshot builder for creating world snapshots from current game state
 pub struct SnapshotBuilder {
     // Access to game systems for snapshot creation
@@ -2429,6 +2683,8 @@ impl SnapshotBuilder {
             pathfinding_cache: self.snapshot_pathfinding_cache(game_logic)?,
             ai_players: Vec::new(),
             global_ai_state: self.snapshot_global_ai_state(game_logic)?,
+            special_power_strikes: self.snapshot_special_power_strikes(game_logic)?,
+            combat_particles: self.snapshot_combat_particles(game_logic)?,
         };
 
         log::info!(
@@ -2466,6 +2722,8 @@ impl SnapshotBuilder {
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
         self.restore_experience_tracker(&snapshot.experience_tracker, game_logic)?;
         self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
+        self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
+        self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
 
         log::info!("World restoration complete");
         Ok(())
@@ -3646,6 +3904,53 @@ impl SnapshotBuilder {
         Ok(())
     }
 
+    /// Capture pending/completed host superweapon strikes so mid-flight loads
+    /// still impact after remaining delay frames elapse.
+    fn snapshot_special_power_strikes(
+        &self,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<SpecialPowerStrikeRegistrySnapshot> {
+        let reg = game_logic.special_power_strikes();
+        Ok(SpecialPowerStrikeRegistrySnapshot {
+            next_id: reg.next_id(),
+            strikes: reg.strikes_snapshot(),
+        })
+    }
+
+    fn restore_special_power_strikes(
+        &self,
+        snapshot: &SpecialPowerStrikeRegistrySnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        game_logic
+            .special_power_strikes_mut()
+            .restore_from_snapshot(snapshot.next_id, snapshot.strikes.clone());
+        Ok(())
+    }
+
+    /// Capture host combat particle registry residual (not full GPU particles).
+    fn snapshot_combat_particles(
+        &self,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<CombatParticleRegistrySnapshot> {
+        let reg = game_logic.combat_particles();
+        Ok(CombatParticleRegistrySnapshot {
+            next_id: reg.next_id(),
+            systems: reg.systems_snapshot(),
+        })
+    }
+
+    fn restore_combat_particles(
+        &self,
+        snapshot: &CombatParticleRegistrySnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        game_logic
+            .combat_particles_mut()
+            .restore_from_snapshot(snapshot.next_id, snapshot.systems.clone());
+        Ok(())
+    }
+
     fn restore_experience_tracker(
         &self,
         exp_tracker_snapshot: &ExperienceTrackerSnapshot,
@@ -3888,6 +4193,8 @@ impl Default for WorldSnapshot {
             pathfinding_cache: PathfindingCacheSnapshot::default(),
             ai_players: Vec::new(),
             global_ai_state: GlobalAIStateSnapshot::default(),
+            special_power_strikes: SpecialPowerStrikeRegistrySnapshot::default(),
+            combat_particles: CombatParticleRegistrySnapshot::default(),
         }
     }
 }
@@ -4655,5 +4962,292 @@ mod tests {
         assert_eq!(secondary.ammo, Some(2));
         assert_eq!(unit.active_weapon_slot, 1);
         assert!(unit.weapon.is_some());
+    }
+
+    fn ensure_strike_test_tank(logic: &mut GameLogic) {
+        let mut t = ThingTemplate::new("StrikeTestTank");
+        t.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        logic.templates.insert("StrikeTestTank".to_string(), t);
+    }
+
+    /// Residual: DaisyCutter queued mid-flight must survive snapshot and still
+    /// apply area damage once the restored impact frame is reached.
+    #[test]
+    fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
+        use crate::command_system::SpecialPowerType;
+
+        let mut source = GameLogic::new();
+        ensure_strike_test_tank(&mut source);
+
+        let caster_id = source
+            .create_object("StrikeTestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = source
+            .create_object("StrikeTestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = source.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 500.0;
+            enemy.health.maximum = 500.0;
+            enemy.thing.template.armor = 0.0;
+        }
+
+        // Activate at frame 0 → DaisyCutter impact at frame 90.
+        source.set_current_frame(0);
+        let strike_id = source
+            .queue_special_power_strike(
+                &SpecialPowerType::DaisyCutter,
+                caster_id,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("DaisyCutter must queue");
+
+        // Mid-flight: save before impact.
+        source.set_current_frame(45);
+        source.update_special_power_strikes();
+        assert_eq!(
+            source.special_power_strikes().pending_count(),
+            1,
+            "strike must still be queued mid-flight"
+        );
+        assert!(
+            source
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::DaisyCutter)
+        );
+        let health_mid = source.find_object(enemy_id).unwrap().health.current;
+        assert!((health_mid - 500.0).abs() < 0.1, "no damage mid-flight");
+
+        // Combat particle residual from activation should be present for snapshot.
+        assert!(
+            source.combat_particles().system_count() >= 1,
+            "activation should spawn combat particle residual"
+        );
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("snapshot mid-flight DaisyCutter");
+        assert_eq!(snapshot.special_power_strikes.strikes.len(), 1);
+        assert_eq!(
+            snapshot.special_power_strikes.strikes[0].phase,
+            HostStrikePhase::Queued
+        );
+        assert_eq!(snapshot.special_power_strikes.strikes[0].impact_frame, 90);
+        assert!(
+            !snapshot.combat_particles.systems.is_empty(),
+            "combat particles must be captured in WorldSnapshot"
+        );
+
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore mid-flight DaisyCutter");
+
+        assert_eq!(restored.get_current_frame(), 45);
+        assert_eq!(restored.special_power_strikes().pending_count(), 1);
+        let restored_strike = restored
+            .special_power_strikes()
+            .get(strike_id)
+            .expect("pending strike must survive load");
+        assert_eq!(restored_strike.impact_frame, 90);
+        assert_eq!(restored_strike.phase, HostStrikePhase::Queued);
+        assert!(
+            restored.combat_particles().system_count() >= 1,
+            "combat particle registry must restore active systems"
+        );
+
+        // Still before impact after load: no damage.
+        restored.set_current_frame(89);
+        restored.update_special_power_strikes();
+        assert!((restored.find_object(enemy_id).unwrap().health.current - 500.0).abs() < 0.1);
+        assert!(!restored
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::DaisyCutter));
+
+        // Impact after remaining delay: damage applied.
+        restored.set_current_frame(90);
+        restored.update_special_power_strikes();
+        assert!(
+            restored
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::DaisyCutter),
+            "DaisyCutter must complete after mid-flight load"
+        );
+        let enemy_after = restored.find_object(enemy_id).map(|o| o.health.current);
+        assert!(
+            enemy_after.is_none()
+                || enemy_after == Some(0.0)
+                || restored
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed || o.health.current < 500.0)
+                    .unwrap_or(true),
+            "enemy must take DaisyCutter residual damage after load (got {enemy_after:?})"
+        );
+        let completed = restored
+            .special_power_strikes()
+            .get(strike_id)
+            .expect("completed strike");
+        assert_eq!(completed.phase, HostStrikePhase::Completed);
+        assert!(completed.total_damage_applied > 0.0);
+        assert!(completed.objects_hit >= 1);
+    }
+
+    /// Residual: A10 strike mid-flight save/load continues remaining delay and impacts.
+    #[test]
+    fn special_power_a10_mid_flight_save_load_still_impacts() {
+        use crate::command_system::SpecialPowerType;
+
+        let mut source = GameLogic::new();
+        ensure_strike_test_tank(&mut source);
+
+        let caster_id = source
+            .create_object("StrikeTestTank", Team::USA, Vec3::ZERO)
+            .expect("caster");
+        let enemy_id = source
+            .create_object("StrikeTestTank", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = source.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 200.0;
+            enemy.health.maximum = 200.0;
+            enemy.thing.template.armor = 0.0;
+        }
+
+        // A10 delay is 60 frames.
+        source.set_current_frame(100);
+        let strike_id = source
+            .queue_special_power_strike(
+                &SpecialPowerType::Airstrike,
+                caster_id,
+                Vec3::new(15.0, 0.0, 0.0),
+            )
+            .expect("A10 must queue");
+        assert_eq!(
+            source.special_power_strikes().get(strike_id).unwrap().impact_frame,
+            160
+        );
+
+        source.set_current_frame(130);
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("A10 mid-flight snapshot");
+
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("A10 restore");
+
+        assert_eq!(restored.get_current_frame(), 130);
+        assert!(restored
+            .special_power_strikes()
+            .honesty_queue_ok(HostSuperweaponKind::A10Strike));
+
+        restored.set_current_frame(159);
+        restored.update_special_power_strikes();
+        assert!((restored.find_object(enemy_id).unwrap().health.current - 200.0).abs() < 0.1);
+
+        restored.set_current_frame(160);
+        restored.update_special_power_strikes();
+        assert!(
+            restored
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::A10Strike),
+            "A10 must complete after mid-flight load"
+        );
+        let health = restored
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            health < 200.0 || restored.find_object(enemy_id).is_none(),
+            "A10 residual damage must apply post-load (health={health})"
+        );
+    }
+
+    /// Bincode / SaveFileManager path also keeps pending strikes.
+    #[test]
+    fn save_file_roundtrip_preserves_pending_special_power_strike() {
+        use crate::command_system::SpecialPowerType;
+        use crate::save_load::{
+            GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
+        };
+        use std::time::{Duration, SystemTime};
+
+        let save_dir = tempfile::TempDir::new().expect("temp save dir");
+        let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+        manager.init().expect("save manager init");
+
+        let mut source = GameLogic::new();
+        ensure_strike_test_tank(&mut source);
+        let caster = source
+            .create_object("StrikeTestTank", Team::USA, Vec3::ZERO)
+            .expect("caster");
+        let enemy = source
+            .create_object("StrikeTestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let e = source.find_object_mut(enemy).unwrap();
+            e.health.current = 300.0;
+            e.health.maximum = 300.0;
+            e.thing.template.armor = 0.0;
+        }
+        source.set_current_frame(0);
+        source
+            .queue_special_power_strike(
+                &SpecialPowerType::DaisyCutter,
+                caster,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("queue");
+        source.set_current_frame(30);
+
+        let info = SaveGameInfo {
+            filename: "special_power_strike_rt".to_string(),
+            display_name: "Special Power Strike Roundtrip".to_string(),
+            description: "residual pending strike save/load".to_string(),
+            map_name: "ResidualMap".to_string(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").to_string(),
+            play_time: Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        manager
+            .save_game("special_power_strike_rt", &source, &info)
+            .expect("save");
+
+        let mut loaded = GameLogic::new();
+        loaded.templates = source.templates.clone();
+        manager
+            .load_game("special_power_strike_rt", &mut loaded)
+            .expect("load");
+
+        assert_eq!(loaded.get_current_frame(), 30);
+        assert_eq!(loaded.special_power_strikes().pending_count(), 1);
+        loaded.set_current_frame(90);
+        loaded.update_special_power_strikes();
+        assert!(
+            loaded
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::DaisyCutter),
+            "file-loaded strike must complete"
+        );
+        let health = loaded
+            .find_object(enemy)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            health < 300.0 || loaded.find_object(enemy).is_none(),
+            "damage after file load (health={health})"
+        );
     }
 }

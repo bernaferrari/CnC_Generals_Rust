@@ -2,7 +2,11 @@
 //!
 //! Residual (hq-gq7n slice): weapon fire and death create *real* particle-system
 //! registry entries that PresentationFrame / client can observe — not log-only
-//! placeholders. Fail-closed: not full W3D GPU particle parity.
+//! placeholders. Active host systems are also captured in
+//! `WorldSnapshot.combat_particles` for save/load residual.
+//!
+//! Fail-closed: not full W3D GPU particle parity or client ParticleSystemManager
+//! rebind after load.
 
 use super::{ObjectId, Team};
 use glam::Vec3;
@@ -78,6 +82,30 @@ impl CombatParticleRegistry {
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
         self.next_id = 1;
+    }
+
+    /// Allocator cursor for next system id (survives save/load).
+    pub fn next_id(&self) -> u32 {
+        self.next_id
+    }
+
+    /// Replace registry contents from a save/load snapshot.
+    ///
+    /// Frame-local drains (`destroyed_this_frame` / `spawned_this_frame`) are
+    /// cleared. Client mirror ids are preserved as stored (may be stale after
+    /// load — presentation rebinds residual, not full GPU particle parity).
+    pub fn restore_from_snapshot(
+        &mut self,
+        next_id: u32,
+        systems: impl IntoIterator<Item = CombatParticleSystemEntry>,
+    ) {
+        self.clear();
+        let mut max_id = 0_u32;
+        for entry in systems {
+            max_id = max_id.max(entry.id);
+            self.systems.insert(entry.id, entry);
+        }
+        self.next_id = next_id.max(max_id.saturating_add(1)).max(1);
     }
 
     pub fn active_count(&self) -> usize {
@@ -326,5 +354,28 @@ mod tests {
         assert!(!entry.template_name.is_empty());
         assert_eq!(reg.system_count(), 1);
         assert_eq!(reg.spawned_this_frame(), &[id]);
+    }
+
+    #[test]
+    fn restore_from_snapshot_preserves_active_systems() {
+        let mut reg = CombatParticleRegistry::new();
+        let id = reg.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            Vec3::new(3.0, 0.0, 4.0),
+            12,
+            Some(ObjectId(1)),
+            None,
+        );
+        let snap = reg.systems_snapshot();
+        let next = reg.next_id();
+
+        let mut loaded = CombatParticleRegistry::new();
+        loaded.restore_from_snapshot(next, snap);
+        assert_eq!(loaded.active_count(), 1);
+        let entry = loaded.get(id).expect("restored system");
+        assert!(entry.active);
+        assert_eq!(entry.kind, CombatParticleKind::WeaponMuzzleFlash);
+        assert!((entry.position.x - 3.0).abs() < f32::EPSILON);
+        assert_eq!(loaded.next_id(), next);
     }
 }
