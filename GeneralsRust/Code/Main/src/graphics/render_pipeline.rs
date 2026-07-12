@@ -611,6 +611,16 @@ impl RenderPipeline {
         self.presentation_frame = frame;
     }
 
+    /// Pure unit-identity collection for the main mesh pass (no GameLogic borrow).
+    ///
+    /// Production `collect_render_items` uses this when a presentation frame is set.
+    /// FOW alpha / shell bypass / W3D mesh asset load remain outside this helper.
+    pub fn collect_unit_render_inputs_from_presentation(
+        frame: &crate::presentation_frame::PresentationFrame,
+    ) -> Vec<crate::presentation_frame::UnitRenderInput> {
+        frame.unit_render_inputs()
+    }
+
     /// Backward-compatible: store IDs-only by building a minimal frame is not needed;
     /// prefer set_presentation_frame. Kept as thin alias for call sites.
     pub fn set_presentation_object_ids(&mut self, ids: Option<Vec<ObjectID>>) {
@@ -1160,13 +1170,18 @@ impl RenderPipeline {
     /// Integrates FOW visibility filtering.
     ///
     /// # Presentation boundary (host path)
-    /// When `presentation_frame` is set, **identity / transform / model key / aliveness**
-    /// come from the immutable snapshot first. Remaining live `GameLogic` borrows are
-    /// intentional residuals only:
-    /// - mesh asset resolve / template model load
-    /// - FOW visibility batch
-    /// - `engine_object_id` skip for RenderBridge drawables
-    /// - selection radius / cull sphere fallback when snapshot lacks bounds
+    /// When `presentation_frame` is set, the **main unit mesh pass** iterates
+    /// `PresentationFrame::unit_render_inputs()` only:
+    /// position / orientation / team / model_key / selected / selection_radius /
+    /// aliveness / engine_bridged — all snapshot-owned.
+    ///
+    /// Remaining live `GameLogic` borrows are intentional residuals only:
+    /// - shell FOW bypass (`isInShellGame`)
+    /// - live fallback when no presentation frame is set (boot/loading)
+    /// - mesh asset resolve still uses GraphicsSystem / AssetManager (not object state)
+    ///
+    /// FOW visibility alpha is pipeline state (not unit identity). Terrain passes
+    /// remain outside this unit collect.
     /// Do **not** re-read live position/orientation/health/team/selected/model_key when
     /// presentation owns those fields.
     fn collect_render_items(
@@ -1182,50 +1197,75 @@ impl RenderPipeline {
     ) -> Result<()> {
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
-        // Snapshot ownership: when presentation is present, iterate its IDs and use
-        // presentation transforms/model keys rather than re-querying live object state
-        // for those fields.
+        // Snapshot ownership: when presentation is present, drive the main unit
+        // mesh pass from unit_render_inputs (no live object identity re-read).
         let presentation = self.presentation_frame.take();
-        let mut object_ids: Vec<ObjectID> = if let Some(ref pres) = presentation {
-            pres.renderable_object_ids()
+        let presentation_unit_pass = presentation.is_some();
+
+        // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
+        let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
+            if let Some(ref pres) = presentation {
+                pres.unit_render_inputs()
+            } else {
+                Vec::new()
+            };
+
+        // Live fallback identity list when presentation is absent (boot/loading).
+        let mut live_object_ids: Vec<ObjectID> = if presentation_unit_pass {
+            Vec::new()
         } else {
             game_logic.get_objects().keys().copied().collect()
         };
-        let pres_by_id: std::collections::HashMap<
-            ObjectID,
-            &crate::presentation_frame::RenderableObject,
-        > = presentation
-            .as_ref()
-            .map(|p| p.objects.iter().map(|o| (o.id, o)).collect())
-            .unwrap_or_default();
-        trace!(
-            "collect_render_items processing {} objects (presentation={})",
-            object_ids.len(),
-            !pres_by_id.is_empty()
-        );
-        if allow_sync_model_loads {
-            object_ids.sort_unstable();
+
+        // FOW batch needs IDs of candidates we may draw.
+        let mut fow_ids: Vec<ObjectID> = if presentation_unit_pass {
+            unit_inputs.iter().map(|u| u.id).collect()
         } else {
-            // Prefer presentation-owned positions for distance sort so the client
-            // does not re-borrow live transforms when a snapshot is available.
-            let mut object_ids_with_distance: Vec<(ObjectID, f32)> = object_ids
+            live_object_ids.clone()
+        };
+
+        trace!(
+            "collect_render_items processing {} units (presentation_unit_pass={})",
+            if presentation_unit_pass {
+                unit_inputs.len()
+            } else {
+                live_object_ids.len()
+            },
+            presentation_unit_pass
+        );
+
+        if allow_sync_model_loads {
+            if presentation_unit_pass {
+                unit_inputs.sort_by_key(|u| u.id.0);
+            } else {
+                live_object_ids.sort_unstable();
+            }
+            fow_ids.sort_unstable();
+        } else if presentation_unit_pass {
+            // Distance sort from snapshot positions only — no live transform re-read.
+            unit_inputs.sort_by(|a, b| {
+                let da = a.position.distance_squared(camera_position);
+                let db = b.position.distance_squared(camera_position);
+                da.partial_cmp(&db)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            fow_ids = unit_inputs.iter().map(|u| u.id).collect();
+        } else {
+            let mut object_ids_with_distance: Vec<(ObjectID, f32)> = live_object_ids
                 .iter()
                 .copied()
                 .map(|object_id| {
-                    let distance_squared = if let Some(ro) = pres_by_id.get(&object_id) {
-                        ro.position.distance_squared(camera_position)
-                    } else {
-                        game_logic
-                            .get_objects()
-                            .get(&object_id)
-                            .map(|obj| {
-                                gameplay_to_render_transform(obj.get_transform_matrix())
-                                    .w_axis
-                                    .truncate()
-                                    .distance_squared(camera_position)
-                            })
-                            .unwrap_or(f32::INFINITY)
-                    };
+                    let distance_squared = game_logic
+                        .get_objects()
+                        .get(&object_id)
+                        .map(|obj| {
+                            gameplay_to_render_transform(obj.get_transform_matrix())
+                                .w_axis
+                                .truncate()
+                                .distance_squared(camera_position)
+                        })
+                        .unwrap_or(f32::INFINITY);
                     (object_id, distance_squared)
                 })
                 .collect();
@@ -1235,13 +1275,15 @@ impl RenderPipeline {
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a_id.cmp(b_id))
             });
-            object_ids = object_ids_with_distance
+            live_object_ids = object_ids_with_distance
                 .into_iter()
                 .map(|(object_id, _)| object_id)
                 .collect();
+            fow_ids = live_object_ids.clone();
         }
         let object_ids_elapsed = object_ids_started.elapsed();
 
+        // Residual: shell FOW bypass still consults GameLogic (not unit identity).
         let bypass_fow = game_logic.isInShellGame();
         let mut alive_objects = 0usize;
         let mut fow_filtered = 0usize;
@@ -1251,53 +1293,85 @@ impl RenderPipeline {
         let visibilities = if bypass_fow {
             std::collections::HashMap::new()
         } else {
-            self.get_batch_fow_visibility(&object_ids)
+            self.get_batch_fow_visibility(&fow_ids)
         };
         let visibility_elapsed = visibility_started.elapsed();
 
         let view_proj = *projection_matrix * *view_matrix;
         let frustum_planes = extract_frustum_planes(&view_proj);
 
-        // Process each object with FOW filtering in stable ID order.
-        // When a PresentationFrame is set, aliveness/transform/model_key come from the
-        // immutable snapshot first; GameLogic is only used for mesh resolve, FOW bridge
-        // skips, and fallback when presentation is absent.
         let mut render_model_load_elapsed = Duration::ZERO;
         let mut render_item_build_elapsed = Duration::ZERO;
-        for object_id in object_ids {
-            let object = game_logic.get_objects().get(&object_id);
-            let pres_obj = pres_by_id.get(&object_id).copied();
 
-            // Presentation owns aliveness when present; otherwise live object.
-            let is_alive = if let Some(ro) = pres_obj {
-                !ro.destroyed
-            } else {
-                object.map(|o| o.is_alive()).unwrap_or(false)
+        // --- Main unit mesh pass: presentation-owned inputs when available ---
+        // Live object identity is only resolved when presentation_unit_pass is false.
+        enum UnitPassSource {
+            Presentation(crate::presentation_frame::UnitRenderInput),
+            Live(ObjectID),
+        }
+        let pass_sources: Vec<UnitPassSource> = if presentation_unit_pass {
+            unit_inputs
+                .into_iter()
+                .map(UnitPassSource::Presentation)
+                .collect()
+        } else {
+            live_object_ids
+                .into_iter()
+                .map(UnitPassSource::Live)
+                .collect()
+        };
+
+        for source in pass_sources {
+            // Resolve unit-identity fields without live re-read when presentation owns them.
+            let (
+                object_id,
+                world_matrix,
+                model_name_owned,
+                template_name_owned,
+                selection_radius,
+                model_hint_owned,
+            ) = match &source {
+                UnitPassSource::Presentation(u) => {
+                    // engine_bridged already filtered in unit_render_inputs; keep guard.
+                    if u.engine_bridged {
+                        continue;
+                    }
+                    let m = u.world_matrix();
+                    (
+                        u.id,
+                        gameplay_to_render_transform(m),
+                        u.model_key.clone(),
+                        u.template_name.clone(),
+                        u.selection_radius,
+                        Some(u.model_key.clone()),
+                    )
+                }
+                UnitPassSource::Live(id) => {
+                    let Some(object) = game_logic.get_objects().get(id) else {
+                        continue;
+                    };
+                    if !object.is_alive() {
+                        continue;
+                    }
+                    // Live residual: engine_object_id skip when no presentation frame.
+                    #[cfg(feature = "game_client")]
+                    if object.engine_object_id.is_some() {
+                        continue;
+                    }
+                    (
+                        *id,
+                        gameplay_to_render_transform(object.get_transform_matrix()),
+                        object.get_template().get_model_name().to_string(),
+                        object.template_name.clone(),
+                        object.selection_radius.max(5.0),
+                        object.get_template().model_name.clone(),
+                    )
+                }
             };
-            if !is_alive {
-                continue;
-            }
-
-            // Objects bridged to GameEngine ObjectFactory render exclusively via
-            // RenderBridge (drain_render_bridge_submissions). Skipping them here
-            // prevents double-rendering and ensures drawables drive their visuals.
-            #[cfg(feature = "game_client")]
-            if object
-                .map(|o| o.engine_object_id.is_some())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-
-            // Presentation-only draw is allowed: snapshot owns identity when live
-            // object is missing (e.g. same-frame destroy race, or mesh-only path).
-            if object.is_none() && pres_obj.is_none() {
-                continue;
-            }
 
             alive_objects += 1;
 
-            // Check FOW visibility - skip objects that have never been seen
+            // Residual FOW filter (pipeline state, not unit identity re-read).
             if !bypass_fow && !self.should_render_object(object_id) {
                 fow_filtered += 1;
                 trace!(
@@ -1308,32 +1382,9 @@ impl RenderPipeline {
                 continue;
             }
 
-            // Prefer presentation-owned transform/model when available (immutable client feed).
-            let (world_matrix, model_name_owned) = if let Some(ro) = pres_obj {
-                let m = Mat4::from_translation(ro.position) * Mat4::from_rotation_y(ro.orientation);
-                let name = ro
-                    .model_key
-                    .clone()
-                    .unwrap_or_else(|| ro.template_name.clone());
-                (gameplay_to_render_transform(m), name)
-            } else if let Some(object) = object {
-                (
-                    gameplay_to_render_transform(object.get_transform_matrix()),
-                    object.get_template().get_model_name().to_string(),
-                )
-            } else {
-                continue;
-            };
             let world_position = world_matrix.w_axis.truncate();
             let model_name = model_name_owned.as_str();
-            let template_name_for_cull = pres_obj
-                .map(|ro| ro.template_name.as_str())
-                .or_else(|| object.map(|o| o.template_name.as_str()))
-                .unwrap_or(model_name);
-            let selection_radius = pres_obj
-                .map(|ro| ro.selection_radius)
-                .or_else(|| object.map(|o| o.selection_radius))
-                .unwrap_or(10.0);
+            let template_name_for_cull = template_name_owned.as_str();
             let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
                 graphics_system,
                 model_name,
@@ -1350,21 +1401,9 @@ impl RenderPipeline {
                 continue;
             }
 
-            let template_name_owned: String = pres_obj
-                .map(|ro| ro.template_name.clone())
-                .or_else(|| object.map(|o| o.template_name.clone()))
-                .unwrap_or_else(|| model_name_owned.clone());
-            let model_hint = if pres_obj.is_some() {
-                Some(model_name)
-            } else if let Some(object) = object {
-                object
-                    .get_template()
-                    .model_name
-                    .as_deref()
-                    .or(Some(model_name))
-            } else {
-                Some(model_name)
-            };
+            let model_hint = model_hint_owned
+                .as_deref()
+                .or(Some(model_name));
 
             let model_load_started = Instant::now();
             let render_model_load_result = Self::ensure_render_model_loaded(
@@ -1553,9 +1592,8 @@ impl RenderPipeline {
                 }
                 RenderModelLoadResult::Failed => {
                     if self.debug_last_missing_model_samples.len() < 16 {
-                        let explicit = object
-                            .and_then(|o| o.get_template().model_name.clone())
-                            .unwrap_or_default();
+                        // Prefer presentation/live-resolved model hint (no re-read of Object).
+                        let explicit = model_hint_owned.as_deref().unwrap_or("");
                         self.debug_last_missing_model_samples.push(format!(
                             "{}:{} explicit_model={}",
                             template_name_owned,
@@ -1563,7 +1601,7 @@ impl RenderPipeline {
                             if explicit.is_empty() {
                                 "<none>"
                             } else {
-                                explicit.as_str()
+                                explicit
                             }
                         ));
                     }
@@ -4158,6 +4196,68 @@ mod tests {
         assert_eq!(
             RenderPipeline::compare_render_items(&b, &a),
             std::cmp::Ordering::Less
+        );
+    }
+
+    #[test]
+    fn unit_render_collection_uses_presentation_frame_without_logic() {
+        // Criterion: main unit mesh identity comes from PresentationFrame only.
+        // Not full W3D retail — proves collect path does not need GameLogic for
+        // position/model/selected when a frame is available.
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("UnitMeshPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("PresMeshUnit");
+        t.set_health(55.0);
+        t.set_model("avhummer");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("PresMeshUnit".into(), t);
+        let id = logic
+            .create_object(
+                "PresMeshUnit",
+                Team::USA,
+                Vec3::new(15.0, 0.0, -3.0),
+            )
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+            o.selection_radius = 14.0;
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        // Poison live world — unit collect must ignore it.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(Vec3::new(777.0, 0.0, 777.0));
+            o.selected = false;
+            o.status.selected = false;
+        }
+
+        let inputs = RenderPipeline::collect_unit_render_inputs_from_presentation(&snap);
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].id, id);
+        assert!((inputs[0].position.x - 15.0).abs() < 0.01);
+        assert!((inputs[0].position.z + 3.0).abs() < 0.01);
+        assert_eq!(inputs[0].model_key, "avhummer");
+        assert_eq!(inputs[0].template_name, "PresMeshUnit");
+        assert!(inputs[0].selected);
+        assert!((inputs[0].selection_radius - 14.0).abs() < 0.01);
+        assert!(!inputs[0].engine_bridged);
+
+        // Structural: production collect prefers presentation unit pass.
+        let src = include_str!("render_pipeline.rs");
+        assert!(
+            src.contains("unit_render_inputs()"),
+            "collect_render_items must iterate presentation unit_render_inputs"
+        );
+        assert!(
+            src.contains("presentation_unit_pass"),
+            "collect_render_items must gate live identity behind presentation_unit_pass"
         );
     }
 }

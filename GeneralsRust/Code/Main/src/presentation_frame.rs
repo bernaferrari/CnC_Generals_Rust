@@ -20,6 +20,8 @@ pub struct RenderableObject {
     pub id: ObjectId,
     pub template_name: String,
     pub team: Team,
+    /// Team tint for presentation-only draw (RGBA 0..1), mirrors Object::team_color.
+    pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
     pub health_current: f32,
@@ -29,9 +31,65 @@ pub struct RenderableObject {
     pub under_construction: bool,
     pub is_structure: bool,
     pub is_unit: bool,
+    /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
+    /// mesh pass does not re-read live ThingTemplate during GPU collect.
     pub model_key: Option<String>,
     /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
     pub selection_radius: f32,
+    /// True when bridged to GameEngine ObjectFactory (`engine_object_id`).
+    /// Presentation-owned so the unit mesh pass can skip double-draw without
+    /// locking live GameLogic for identity.
+    pub engine_bridged: bool,
+}
+
+/// Snapshot-owned unit mesh/position/selection input for the main unit render pass.
+///
+/// Built only from `PresentationFrame` — no live `GameLogic` borrow. FOW alpha and
+/// W3D asset resolve remain outside this type (see residual notes).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitRenderInput {
+    pub id: ObjectId,
+    pub template_name: String,
+    pub model_key: String,
+    pub team: Team,
+    pub team_color: [f32; 4],
+    pub position: Vec3,
+    pub orientation: f32,
+    pub selected: bool,
+    pub selection_radius: f32,
+    pub is_structure: bool,
+    pub is_unit: bool,
+    /// Skip main mesh pass when RenderBridge owns this drawable.
+    pub engine_bridged: bool,
+}
+
+impl UnitRenderInput {
+    pub fn from_renderable(ro: &RenderableObject) -> Self {
+        let model_key = ro
+            .model_key
+            .clone()
+            .unwrap_or_else(|| ro.template_name.clone());
+        Self {
+            id: ro.id,
+            template_name: ro.template_name.clone(),
+            model_key,
+            team: ro.team,
+            team_color: ro.team_color,
+            position: ro.position,
+            orientation: ro.orientation,
+            selected: ro.selected,
+            selection_radius: ro.selection_radius.max(5.0),
+            is_structure: ro.is_structure,
+            is_unit: ro.is_unit,
+            engine_bridged: ro.engine_bridged,
+        }
+    }
+
+    /// World matrix for the unit mesh pass (translation + Y rotation).
+    pub fn world_matrix(&self) -> glam::Mat4 {
+        glam::Mat4::from_translation(self.position)
+            * glam::Mat4::from_rotation_y(self.orientation)
+    }
 }
 
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
@@ -67,10 +125,13 @@ impl PresentationFrame {
             let is_unit = obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Aircraft);
+            // Prefer explicit template model name so mesh resolve matches live collect path.
+            let model_key = Some(obj.get_template().get_model_name().to_string());
             objects.push(RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
+                team_color: obj.team_color,
                 // Use accessors so presentation matches authoritative transform state.
                 position: obj.get_position(),
                 orientation: obj.get_orientation(),
@@ -81,8 +142,9 @@ impl PresentationFrame {
                 under_construction: obj.status.under_construction,
                 is_structure,
                 is_unit,
-                model_key: Some(obj.template_name.clone()),
+                model_key,
                 selection_radius: obj.selection_radius.max(5.0),
+                engine_bridged: obj.engine_object_id.is_some(),
             });
         }
         // Stable presentation order for determinism (by ObjectId).
@@ -152,14 +214,31 @@ impl PresentationFrame {
     }
 
     /// Stable object-id list for the production render collect path.
-    /// Presentation is the frame identity; GameLogic is only used to resolve
-    /// mesh/transform for those IDs when still present.
+    /// Presentation owns unit identity; FOW / mesh asset load may still consult
+    /// other systems (not live object transform re-read).
     pub fn renderable_object_ids(&self) -> Vec<ObjectId> {
         self.objects
             .iter()
             .filter(|o| !o.destroyed)
             .map(|o| o.id)
             .collect()
+    }
+
+    /// Main unit mesh pass inputs from the snapshot only (no GameLogic borrow).
+    ///
+    /// Filters destroyed and engine-bridged objects (RenderBridge owns those).
+    /// Callers use this to drive mesh/position/selection without locking the sim.
+    pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && !o.engine_bridged)
+            .map(UnitRenderInput::from_renderable)
+            .collect()
+    }
+
+    /// All alive presentation objects including engine-bridged (for FOW/id lists).
+    pub fn alive_renderables(&self) -> impl Iterator<Item = &RenderableObject> {
+        self.objects.iter().filter(|o| !o.destroyed)
     }
 
     /// Selected unit identity (health/name/type) from snapshot only.
@@ -577,6 +656,114 @@ mod tests {
             "selection_radius must be snapshot-owned for presentation-only cull: {}",
             ro.selection_radius
         );
+    }
+
+    #[test]
+    fn presentation_build_includes_unit_render_fields_and_positions() {
+        // Criterion: unit mesh/position/selection inputs are snapshot-owned so the
+        // main unit pass can iterate PresentationFrame without GameLogic.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("UnitRenderFields");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("MeshUnit");
+        t.set_health(60.0);
+        t.set_model("AVTank");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("MeshUnit".into(), t);
+        let id = logic
+            .create_object("MeshUnit", Team::USA, glam::Vec3::new(3.0, 0.0, -8.0))
+            .expect("unit");
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+            o.selection_radius = 11.0;
+            o.team_color = [0.1, 0.2, 0.9, 1.0];
+            // Not bridged — main mesh pass owns draw.
+            o.engine_object_id = None;
+        }
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        assert!((ro.position.x - 3.0).abs() < 0.01);
+        assert!((ro.position.z + 8.0).abs() < 0.01);
+        assert_eq!(ro.team, Team::USA);
+        assert_eq!(ro.team_color, [0.1, 0.2, 0.9, 1.0]);
+        assert_eq!(ro.model_key.as_deref(), Some("AVTank"));
+        assert_eq!(ro.template_name, "MeshUnit");
+        assert!(ro.selected);
+        assert!(!ro.destroyed);
+        assert!(!ro.engine_bridged);
+        assert!((ro.selection_radius - 11.0).abs() < 0.01);
+
+        // unit_render_inputs is the production pure-frame collection path.
+        let inputs = snap.unit_render_inputs();
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].id, id);
+        assert_eq!(inputs[0].model_key, "AVTank");
+        assert!((inputs[0].position.x - 3.0).abs() < 0.01);
+        assert!(inputs[0].selected);
+        assert!(!inputs[0].engine_bridged);
+
+        // Mutate authority after snapshot — inputs must stay frozen.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
+            o.selected = false;
+            o.engine_object_id = Some(42);
+        }
+        let inputs_after = snap.unit_render_inputs();
+        assert_eq!(inputs_after.len(), 1);
+        assert!(
+            (inputs_after[0].position.x - 3.0).abs() < 0.01,
+            "unit render inputs must not re-read live GameLogic"
+        );
+        assert!(inputs_after[0].selected);
+        assert!(!inputs_after[0].engine_bridged);
+    }
+
+    #[test]
+    fn unit_render_inputs_skip_destroyed_and_engine_bridged() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("UnitRenderSkip");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("SkipUnit");
+        t.set_health(40.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("SkipUnit".into(), t);
+
+        let alive_id = logic
+            .create_object("SkipUnit", Team::China, glam::Vec3::new(1.0, 0.0, 1.0))
+            .expect("alive");
+        let dead_id = logic
+            .create_object("SkipUnit", Team::China, glam::Vec3::new(2.0, 0.0, 2.0))
+            .expect("dead");
+        let bridged_id = logic
+            .create_object("SkipUnit", Team::China, glam::Vec3::new(3.0, 0.0, 3.0))
+            .expect("bridged");
+        if let Some(o) = logic.get_object_mut(dead_id) {
+            o.status.destroyed = true;
+            o.health.current = 0.0;
+        }
+        if let Some(o) = logic.get_object_mut(bridged_id) {
+            o.engine_object_id = Some(99);
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let inputs = snap.unit_render_inputs();
+        assert_eq!(
+            inputs.len(),
+            1,
+            "only non-destroyed, non-bridged units enter main mesh pass"
+        );
+        assert_eq!(inputs[0].id, alive_id);
+        // IDs list still includes all alive (including bridged) for FOW/id residual.
+        let ids = snap.renderable_object_ids();
+        assert!(ids.contains(&alive_id));
+        assert!(ids.contains(&bridged_id));
+        assert!(!ids.contains(&dead_id));
     }
 
     #[test]

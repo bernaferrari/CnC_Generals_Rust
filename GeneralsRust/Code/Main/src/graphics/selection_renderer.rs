@@ -398,6 +398,9 @@ pub fn collect_selected_units_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
     let mut units = Vec::new();
+    // Prefer unit_render_inputs path for position/team/selection_radius (snapshot-owned).
+    // Fall back to selected flags on objects that may be engine-bridged (still drawn
+    // via selection overlay even when mesh pass skips them).
     for object in frame.objects.iter().filter(|o| o.selected && !o.destroyed) {
         let player_index = match object.team {
             crate::game_logic::Team::China => 0,
@@ -405,17 +408,32 @@ pub fn collect_selected_units_from_presentation(
             crate::game_logic::Team::GLA => 4,
             crate::game_logic::Team::Neutral => 7,
         };
-        let c = crate::ui::color_for_player(player_index);
-        let radius = if object.is_structure { 12.0 } else { 8.0 };
-        units.push(SelectedUnit {
-            position: object.position,
-            radius,
-            team_color: [
+        // Prefer snapshot team_color when set; else player palette.
+        let team_color = if object.team_color[3] > 0.0 {
+            [
+                object.team_color[0],
+                object.team_color[1],
+                object.team_color[2],
+                CIRCLE_ALPHA,
+            ]
+        } else {
+            let c = crate::ui::color_for_player(player_index);
+            [
                 c.r as f32 / 255.0,
                 c.g as f32 / 255.0,
                 c.b as f32 / 255.0,
                 CIRCLE_ALPHA,
-            ],
+            ]
+        };
+        let radius = object.selection_radius.max(if object.is_structure {
+            12.0
+        } else {
+            5.0
+        });
+        units.push(SelectedUnit {
+            position: object.position,
+            radius,
+            team_color,
         });
     }
     units
