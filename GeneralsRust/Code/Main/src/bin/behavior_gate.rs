@@ -86,8 +86,8 @@ fn main() {
     }
 
     if failed.is_empty() {
-        // Shell remains headless (no window/WND). Golden may set playable_claim when
-        // AI-on host combat/victory holds; still not multiplayer/campaign/windowed retail.
+        // Shell remains headless (no window/WND). Golden is synthetic_combat with
+        // playable_claim=false (fail-closed). Not multiplayer/campaign/windowed retail.
         println!(
             "behavior_gate: PASS (headless host APIs; golden synthetic_combat=true playable_claim=false; shell playable_claim=false; not retail playable)"
         );
