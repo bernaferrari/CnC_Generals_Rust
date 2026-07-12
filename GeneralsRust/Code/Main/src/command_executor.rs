@@ -1322,14 +1322,17 @@ impl<'a> CommandExecutor<'a> {
         }
 
         match Self::normalize_command_token(upgrade_name).as_str() {
-            "upgradeamericatowmissile" => 1200,
+            "upgradeamericatowmissile" => 800,
             "upgradeamericacompositearmor" => 2000,
             "upgradeamericarangercapturebuilding"
             | "upgradechinaredguardcapturebuilding"
             | "upgradeglarebelcapturebuilding"
             | "upgradeinfantrycapturebuilding" => 1000,
-            "upgradeamericaflashbanggrenade" => 800,
-            "upgradeamericasupplylines" => 1000,
+            // Retail Upgrade_AmericaRangerFlashBangGrenade BuildCost 800.
+            "upgradeamericaflashbanggrenade"
+            | "upgradeamericarangerflashbanggrenade" => 800,
+            // Retail Upgrade_AmericaSupplyLines BuildCost 800.
+            "upgradeamericasupplylines" => 800,
             "upgradeglaapbullets" => 2000,
             "upgradeglaworkershoes" => 500,
             "upgradechinanuclearengines" => 2000,
@@ -1374,6 +1377,8 @@ impl<'a> CommandExecutor<'a> {
             supplies: self.resolve_upgrade_cost_supplies(upgrade_name),
             power: 0,
         };
+        // Collect successful queues then record honesty (avoids borrow conflicts).
+        let mut recorded: Vec<(u32, crate::game_logic::Team, ObjectId)> = Vec::new();
         for &unit_id in units {
             let team = self
                 .game_logic
@@ -1385,11 +1390,21 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
                 if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
+                    let player_id = player.id;
                     if player.queue_upgrade(upgrade_name, &cost) {
                         any = true;
+                        recorded.push((player_id, team, unit_id));
                     }
                 }
             }
+        }
+        for (player_id, team, unit_id) in recorded {
+            self.game_logic.record_host_upgrade_queued(
+                player_id,
+                team,
+                upgrade_name,
+                Some(unit_id),
+            );
         }
         if any {
             CommandResult::Success
@@ -1409,6 +1424,7 @@ impl<'a> CommandExecutor<'a> {
             supplies: self.resolve_upgrade_cost_supplies(upgrade_name),
             power: 0,
         };
+        let mut cancelled_players: Vec<u32> = Vec::new();
         for &unit_id in units {
             let team = self
                 .game_logic
@@ -1420,9 +1436,17 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
                 if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
-                    refunded |= player.cancel_queued_upgrade(upgrade_name, &refund);
+                    let player_id = player.id;
+                    if player.cancel_queued_upgrade(upgrade_name, &refund) {
+                        refunded = true;
+                        cancelled_players.push(player_id);
+                    }
                 }
             }
+        }
+        for player_id in cancelled_players {
+            self.game_logic
+                .record_host_upgrade_cancelled(player_id, upgrade_name);
         }
         if refunded {
             CommandResult::Success
