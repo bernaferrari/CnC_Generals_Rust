@@ -5,10 +5,12 @@
 //! - Capture building research unlocks infantry capture ability
 //! - FlashBang research equips Ranger secondary grenade + upgrade tag
 //! - TOW Missile research equips Humvee secondary + upgrade tag
-//! - Supply Lines research tags supply centers (flag residual)
+//! - Supply Lines research tags supply centers **and** grants residual
+//!   drop-off cash boost (economy residual; C++ Chinook `UpgradedSupplyBoost`)
 //!
 //! Fail-closed: not full science tree, ProductionUpdate build-time parity,
-//! WeaponSetUpgrade module matrix, or multiplayer upgrade replication.
+//! WeaponSetUpgrade module matrix, per-unit INI `UpgradedSupplyBoost` matrix
+//! (Chinook 60 / WorkerShoes / GLA), or multiplayer upgrade replication.
 
 use super::{Team, ObjectId};
 use serde::{Deserialize, Serialize};
@@ -23,12 +25,31 @@ pub const UPGRADE_AMERICA_FLASHBANG: &str = "Upgrade_AmericaRangerFlashBangGrena
 pub const UPGRADE_AMERICA_TOW: &str = "Upgrade_AmericaTOWMissile";
 pub const UPGRADE_AMERICA_SUPPLY_LINES: &str = "Upgrade_AmericaSupplyLines";
 
+/// Residual drop-off cash boost when Supply Lines is unlocked for the player.
+///
+/// Matches C++ America Chinook `UpgradedSupplyBoost = 60` applied once per
+/// SupplyCenter dock action (`SupplyCenterDockUpdate::action` +
+/// `ChinookAIUpdate::getUpgradedSupplyBoost`). Host residual applies this
+/// player-level flat boost on resource return deposit (not per-box, not
+/// per-template matrix).
+pub const SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST: u32 = 60;
+
 /// Normalize upgrade identity the same way Player does (alphanumeric lower).
 pub fn normalize_upgrade_identity(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .flat_map(|c| c.to_lowercase())
         .collect()
+}
+
+/// Residual cash added on a supply-center deposit when Supply Lines is active.
+/// Fail-closed: 0 when the upgrade is not unlocked.
+pub fn residual_supply_lines_drop_off_boost(has_supply_lines: bool) -> u32 {
+    if has_supply_lines {
+        SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST
+    } else {
+        0
+    }
 }
 
 /// Host residual upgrade kinds with known observable unlocks.
@@ -40,7 +61,7 @@ pub enum HostUpgradeKind {
     FlashBangGrenade,
     /// Equips Humvee SECONDARY TOW missile weapon set.
     TowMissile,
-    /// Supply-lines research (tags supply centers; economy bonus residual deferred).
+    /// Supply-lines research: tags supply centers + residual drop-off cash boost.
     SupplyLines,
     /// Other / unknown upgrades (unlock flag only).
     Other,
@@ -331,6 +352,12 @@ impl HostUpgradeRegistry {
     pub fn honesty_capture_unlock_ok(&self) -> bool {
         self.honesty_complete_ok(HostUpgradeKind::CaptureBuilding)
     }
+
+    /// True if Supply Lines research completed (tag residual; economy boost is
+    /// tracked on GameLogic via `honesty_supply_lines_economy_ok`).
+    pub fn honesty_supply_lines_complete_ok(&self) -> bool {
+        self.honesty_complete_ok(HostUpgradeKind::SupplyLines)
+    }
 }
 
 /// Template names that receive FlashBang secondary when research completes.
@@ -465,6 +492,16 @@ mod tests {
         assert!(reg.honesty_queue_ok(HostUpgradeKind::SupplyLines));
         assert!(reg.record_cancel(UPGRADE_AMERICA_SUPPLY_LINES, 0));
         assert!(!reg.honesty_queue_ok(HostUpgradeKind::SupplyLines));
+    }
+
+    #[test]
+    fn supply_lines_drop_off_boost_fail_closed() {
+        assert_eq!(residual_supply_lines_drop_off_boost(false), 0);
+        assert_eq!(
+            residual_supply_lines_drop_off_boost(true),
+            SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST
+        );
+        assert!(SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST > 0);
     }
 
     #[test]
