@@ -617,13 +617,17 @@ impl AIPlayer {
                 let queued = game_logic.enqueue_production(factory_id, template_name.clone());
                 if let Some(team) = self.team_queue.get_mut(team_index) {
                     if let Some(work_order) = team.work_orders.get_mut(order_index) {
-                        work_order.factory_id = Some(factory_id);
+                        // Only bind factory on success — failed enqueue (wrong type,
+                        // full queue, cash) must retry next military tick.
                         if queued {
+                            work_order.factory_id = Some(factory_id);
                             work_order.num_completed = work_order
                                 .num_completed
                                 .saturating_add(1)
                                 .min(work_order.num_required);
                             produced = produced.saturating_add(1);
+                        } else {
+                            work_order.factory_id = None;
                         }
                     }
                 }
@@ -772,6 +776,19 @@ impl AIPlayer {
                 orders.push(AIWorkOrder::new("China_RedGuard".to_string(), 2, 80));
             }
             "GLA_TechnicalSquad" => {
+                // Barracks first: infantry produces even if ArmsDealer is still building.
+                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 2, 100));
+            }
+            "GLA_RebelSwarm" => {
+                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 4, 100));
+            }
+            "GLA_HitAndRun" => {
+                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 2, 80));
+                orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 2, 100));
+            }
+            "GLA_MassAssault" => {
+                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 4, 80));
                 orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 3, 100));
             }
             _ => {
