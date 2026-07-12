@@ -802,6 +802,35 @@ impl W3DLoader {
         self.parse_w3d_data_legacy(data, model_name)
     }
 
+    /// Parse a W3D model from already-loaded bytes (filesystem / archive residual path).
+    ///
+    /// Used by mesh asset resolve when assets are present without a full GPU/AssetManager
+    /// init. Fail-closed: not full material/animation retail parity.
+    pub fn load_model_from_bytes(&self, data: &[u8], model_name: &str) -> Result<W3DModel> {
+        let base_name = model_name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(model_name)
+            .trim()
+            .trim_end_matches(".w3d")
+            .trim_end_matches(".W3D");
+        if data.is_empty() {
+            return Err(anyhow!("empty W3D payload for '{}'", base_name));
+        }
+        self.parse_w3d_data(data, base_name.to_string())
+    }
+
+    /// Load a W3D model from a filesystem path when present (tests / residual resolve).
+    pub fn load_model_from_path(&self, path: &std::path::Path) -> Result<W3DModel> {
+        let data = std::fs::read(path)
+            .map_err(|e| anyhow!("failed to read W3D '{}': {e}", path.display()))?;
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model");
+        self.load_model_from_bytes(&data, name)
+    }
+
     // Non-parity companion/heuristic model-family merge path removed.
     // The active parser path is strict legacy chunk parsing (`parse_w3d_data_legacy`).
 

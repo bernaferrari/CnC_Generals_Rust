@@ -52,7 +52,8 @@ pub struct RenderableObject {
 /// Snapshot-owned unit mesh/position/selection/FOW input for the main unit render pass.
 ///
 /// Built only from `PresentationFrame` — no live `GameLogic` or shroud borrow.
-/// W3D asset resolve remains outside this type (see residual notes).
+/// W3D asset resolve uses `assets::mesh_asset_resolve` from `model_key`
+/// (see OWNERSHIP residual notes — fail-closed vs full material/animation parity).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnitRenderInput {
     pub id: ObjectId,
@@ -199,7 +200,11 @@ impl PresentationFrame {
                 || obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Aircraft);
             // Prefer explicit template model name so mesh resolve matches live collect path.
-            let model_key = Some(obj.get_template().get_model_name().to_string());
+            // Alias remap (airanger → airanger_s) keeps PresentationFrame model_key aligned
+            // with shipped W3D basenames for the residual mesh asset resolve path.
+            let model_key = Some(crate::assets::mesh_asset_resolve::model_key_from_template(
+                obj.get_template(),
+            ));
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
             } else {
@@ -817,6 +822,41 @@ mod tests {
             "selection_radius must be snapshot-owned for presentation-only cull: {}",
             ro.selection_radius
         );
+    }
+
+    #[test]
+    fn usa_ranger_presentation_model_key_non_empty_for_mesh_resolve() {
+        // Residual: USA_Ranger / common infantry must expose a non-empty model_key
+        // so mesh_asset_resolve can target AIRanger_S (or honest placeholder).
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("RangerMeshKey");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        // Prefer host setup template when present; otherwise inject retail-like key.
+        if !logic.templates.contains_key("USA_Ranger") {
+            let mut t = ThingTemplate::new("USA_Ranger");
+            t.set_health(60.0);
+            t.set_model("airanger"); // legacy alias must remap
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert("USA_Ranger".into(), t);
+        }
+        let id = logic
+            .create_object("USA_Ranger", Team::USA, glam::Vec3::new(1.0, 0.0, 2.0))
+            .expect("ranger");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
+        let key = ro.model_key.as_deref().unwrap_or("");
+        assert!(
+            !key.is_empty(),
+            "USA_Ranger presentation model_key must be non-empty for mesh resolve"
+        );
+        assert_eq!(
+            key.to_ascii_lowercase(),
+            "airanger_s",
+            "USA_Ranger model_key should alias to shipped AIRanger_S basename"
+        );
+        let inputs = snap.unit_render_inputs();
+        let unit = inputs.iter().find(|u| u.id == id).expect("unit input");
+        assert_eq!(unit.model_key.to_ascii_lowercase(), "airanger_s");
     }
 
     #[test]

@@ -57,7 +57,7 @@ OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
 ### Honest reading (do not overclaim)
 
 - **Proves**: single-host GameLogic authority, skirmish config propagation, production command/combat/save APIs, presentation snapshot fields, retail map load when assets exist.
-- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, full SAGE shroud parity, or full W3D mesh-asset retail (unit *identity* + unit FOW + compact local FOW *grid snapshot* for minimap/terrain texture are presentation-owned; GPU terrain FOW pass / dirty-rect streaming / asset load remain residual).
+- **Does not prove**: windowed shell/WND navigation, full GPU match playthrough, complete GameWorld migration, full SAGE shroud parity, or full W3D material/animation retail (unit *identity* + unit FOW + compact local FOW *grid snapshot* + CPU mesh key resolve/placeholder honesty are presentation/asset residuals closed; GPU terrain FOW pass / dirty-rect streaming / full archive deferred prewarm / retail GPU draw match remain residual).
 
 Gate honesty labels:
 
@@ -172,6 +172,22 @@ Still residual (not claimed by shell_smoke):
 5. Tests: grid matches bridge at build; stays frozen after live reveal; dual-build
    fingerprint; R8 encode; shell overlay inactive.
 
+**Closed (W3D mesh asset resolve — partial, fail-closed):**
+
+1. `assets::mesh_asset_resolve` maps presentation `model_key` /
+   `ThingTemplate::get_model_name` → canonical W3D key (aliases: `airanger` /
+   `USA_Ranger` → `airanger_s` for shipped `AIRanger_S.W3D`).
+2. Resolve order: GraphicsSystem cache → AssetManager load → filesystem
+   extracted/sample W3D → honest placeholder cube (`__fallback_cube__`) with
+   `MeshResolveHonesty` counters (loaded / placeholder / missing).
+3. `RenderPipeline::ensure_render_model_loaded` uses alias remap + residual
+   filesystem resolve; placeholder Ready only when missing-model debug cubes
+   are opt-in (production fail-closed for silent retail substitution).
+4. PresentationFrame freezes aliased model_key so unit mesh pass and residual
+   resolve share the same key without re-reading ThingTemplate.
+5. Tests: USA_Ranger non-empty key; airanger alias; placeholder honesty;
+   load AIRanger_S when assets present, graceful skip when not.
+
 **Still residual (not claimed as full presentation-only renderer / SAGE FOW):**
 
 | Residual | Why still live / other system |
@@ -180,7 +196,8 @@ Still residual (not claimed by shell_smoke):
 | GPU terrain FOW overlay pass wired every frame | `FowTerrainOverlay` exists; production pass still residual |
 | Stealth detection FOW variants mid-pass | Live stealth managers when presentation absent |
 | Terrain / heightmap / skybox / roads | Map/environment systems, not unit identity |
-| W3D mesh asset resolve / deferred model load | `GraphicsSystem` / `AssetManager` (immutable assets, not sim) |
+| Deferred model-load budget / full archive prewarm | Startup budget path still incremental |
+| Full W3D material / animation / GPU buffer parity | CPU mesh parse + cache only; not retail draw match |
 | RenderBridge drawable path | engine-bridged units drawn outside main mesh pass |
 | Full retail W3D GPU match / full SAGE FOW | Fail-closed: not claimed by this residual close |
 
