@@ -15,8 +15,9 @@
 //! # Special-power strike residual (2026-07-12)
 //!
 //! Host `HostSpecialPowerStrikeRegistry` queues DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon impacts with a multi-frame delay. Without snapshot persistence,
-//! save mid-flight dropped the pending strike and impact never fired after load.
+//! ParticleCannon / NuclearMissile impacts with a multi-frame delay (nuke also
+//! spawns residual radiation). Without snapshot persistence, save mid-flight
+//! dropped the pending strike and impact never fired after load.
 //!
 //! Closed residual layout:
 //! - `WorldSnapshot.special_power_strikes` stores `next_id` + all strike records
@@ -112,6 +113,22 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     pub next_id: u32,
     /// All strike records (queued / completed / cancelled), sorted by id on capture.
     pub strikes: Vec<HostSpecialPowerStrike>,
+    /// Next residual radiation field id (NuclearMissile).
+    #[serde(default = "default_next_radiation_id")]
+    pub next_radiation_id: u32,
+    /// Active residual radiation fields (NuclearMissile impact residual).
+    #[serde(default)]
+    pub radiation_fields: Vec<crate::game_logic::special_power_strikes::HostRadiationField>,
+    /// Lifetime radiation fields spawned (honesty after prune).
+    #[serde(default)]
+    pub radiation_fields_spawned_total: u32,
+    /// Lifetime radiation damage applications (honesty after prune).
+    #[serde(default)]
+    pub radiation_damage_applications_total: u32,
+}
+
+fn default_next_radiation_id() -> u32 {
+    1
 }
 
 impl Default for SpecialPowerStrikeRegistrySnapshot {
@@ -119,6 +136,10 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
         Self {
             next_id: 1,
             strikes: Vec::new(),
+            next_radiation_id: 1,
+            radiation_fields: Vec::new(),
+            radiation_fields_spawned_total: 0,
+            radiation_damage_applications_total: 0,
         }
     }
 }
@@ -2512,6 +2533,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::A10Strike => 1,
             HostSuperweaponKind::ScudStorm => 2,
             HostSuperweaponKind::ParticleCannon => 3,
+            HostSuperweaponKind::NuclearMissile => 4,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -2519,6 +2541,7 @@ impl XferData for HostSuperweaponKind {
             1 => HostSuperweaponKind::A10Strike,
             2 => HostSuperweaponKind::ScudStorm,
             3 => HostSuperweaponKind::ParticleCannon,
+            4 => HostSuperweaponKind::NuclearMissile,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"
@@ -2580,6 +2603,35 @@ impl XferData for HostSpecialPowerStrike {
     }
 }
 
+impl XferData for crate::game_logic::special_power_strikes::HostRadiationField {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostRadiationField")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SpawnFrame")?;
+        xfer.xfer_u32(&mut self.spawn_frame)?;
+        xfer.xfer_marker_label("ExpiresFrame")?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer.xfer_marker_label("NextTickFrame")?;
+        xfer.xfer_u32(&mut self.next_tick_frame)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("DamageApplications")?;
+        xfer.xfer_u32(&mut self.damage_applications)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        xfer.xfer_marker_label("ParentStrikeId")?;
+        xfer.xfer_u32(&mut self.parent_strike_id)?;
+        Ok(())
+    }
+}
+
 impl XferData for SpecialPowerStrikeRegistrySnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("SpecialPowerStrikeRegistrySnapshot")?;
@@ -2603,6 +2655,32 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 objects_destroyed: 0,
             },
         )?;
+        // NuclearMissile residual radiation fields (appended; older binary
+        // residual saves without these fields fail-closed on xfer).
+        xfer.xfer_marker_label("NextRadiationId")?;
+        xfer.xfer_u32(&mut self.next_radiation_id)?;
+        xfer.xfer_marker_label("RadiationFields")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.radiation_fields,
+            crate::game_logic::special_power_strikes::HostRadiationField {
+                id: 0,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                position: Vec3::ZERO,
+                spawn_frame: 0,
+                expires_frame: 0,
+                next_tick_frame: 0,
+                total_damage_applied: 0.0,
+                damage_applications: 0,
+                objects_destroyed: 0,
+                parent_strike_id: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("RadiationFieldsSpawnedTotal")?;
+        xfer.xfer_u32(&mut self.radiation_fields_spawned_total)?;
+        xfer.xfer_marker_label("RadiationDamageApplicationsTotal")?;
+        xfer.xfer_u32(&mut self.radiation_damage_applications_total)?;
         Ok(())
     }
 }
@@ -4072,6 +4150,10 @@ impl SnapshotBuilder {
         Ok(SpecialPowerStrikeRegistrySnapshot {
             next_id: reg.next_id(),
             strikes: reg.strikes_snapshot(),
+            next_radiation_id: reg.next_radiation_id(),
+            radiation_fields: reg.radiation_fields().to_vec(),
+            radiation_fields_spawned_total: reg.radiation_fields_spawned_total(),
+            radiation_damage_applications_total: reg.radiation_damage_applications_total(),
         })
     }
 
@@ -4082,7 +4164,14 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         game_logic
             .special_power_strikes_mut()
-            .restore_from_snapshot(snapshot.next_id, snapshot.strikes.clone());
+            .restore_from_snapshot_with_radiation(
+                snapshot.next_id,
+                snapshot.strikes.clone(),
+                snapshot.next_radiation_id,
+                snapshot.radiation_fields.clone(),
+                snapshot.radiation_fields_spawned_total,
+                snapshot.radiation_damage_applications_total,
+            );
         Ok(())
     }
 

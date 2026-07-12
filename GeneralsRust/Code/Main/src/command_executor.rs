@@ -845,7 +845,8 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
-        // Resolve impact position for residual superweapon path (DaisyCutter/A10/Scud/PUC).
+        // Resolve impact position for residual superweapon path
+        // (DaisyCutter/A10/Scud/PUC/NuclearMissile).
         let target_position: Option<Vec3> = match target {
             PowerTarget::Location(loc) => Some(*loc),
             PowerTarget::Object(id) => self
@@ -880,13 +881,30 @@ impl<'a> CommandExecutor<'a> {
             }
 
             // Host residual: queue superweapon strike that will complete with
-            // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon).
+            // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon /
+            // NuclearMissile + radiation residual).
             // ClusterMines residual places a ring of land mines at target.
             // RadarScan residual temporarily reveals FOW at target (RadarVanPing).
             // SpySatellite residual temporarily reveals FOW at target (SpySatellitePing).
+            // CiaIntelligence residual temporarily vision-spies all enemy units (SpyVision).
             // Paradrop residual queues America Airborne infantry drop at target.
             // FireWall residual creates a line of fire damage zones toward target.
-            if let Some(pos) = target_position {
+            //
+            // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
+            if *power_type == SpecialPowerType::CiaIntelligence {
+                let team = self
+                    .game_logic
+                    .get_object(unit_id)
+                    .map(|o| o.team)
+                    .unwrap_or(crate::game_logic::Team::Neutral);
+                if !self.game_logic.activate_cia_intelligence(
+                    self.current_player_id,
+                    team,
+                    Some(unit_id),
+                ) {
+                    continue;
+                }
+            } else if let Some(pos) = target_position {
                 if *power_type == SpecialPowerType::ClusterMines {
                     let team = self
                         .game_logic
