@@ -2644,14 +2644,27 @@ impl GameLogic {
                                 }
                             }
                         }
-                        // Seed players from map ownership if present.
+                        // Seed players from map ownership only when no skirmish/host
+                        // players were already configured. Wiping would destroy
+                        // apply_skirmish_config slots/AI on Lone Eagle-style loads.
                         if !map_player_to_team.is_empty() {
-                            self.players.clear();
-                            for (&pid, &team) in &map_player_to_team {
-                                let is_local = pid == 0;
-                                let name = format!("Player{}", pid + 1);
-                                self.players
-                                    .insert(pid, Player::new(pid, team, &name, is_local));
+                            let preserve_host_players = matches!(
+                                self.game_mode,
+                                GameMode::Skirmish | GameMode::SinglePlayer
+                            ) && !self.players.is_empty();
+                            if preserve_host_players {
+                                log::info!(
+                                    "Preserving {} host player(s) across map load (skirmish/SP config)",
+                                    self.players.len()
+                                );
+                            } else {
+                                self.players.clear();
+                                for (&pid, &team) in &map_player_to_team {
+                                    let is_local = pid == 0;
+                                    let name = format!("Player{}", pid + 1);
+                                    self.players
+                                        .insert(pid, Player::new(pid, team, &name, is_local));
+                                }
                             }
                         }
 
@@ -6252,6 +6265,44 @@ impl GameLogic {
             .filter(|&v| v > 0)
         {
             template.build_cost.supplies = cost;
+        }
+
+        // Primary weapon name from Object INI (Weapon = PRIMARY Foo) for WeaponStore bind.
+        if let Some(wname) = definition.primary_weapon.as_deref() {
+            template.set_primary_weapon_name(wname);
+        } else if let Some(raw) = Self::object_definition_attr(definition, "weapon") {
+            // Fallback: scan attribute "PRIMARY Name"
+            let mut parts = raw.split_whitespace();
+            if parts
+                .next()
+                .map(|s| s.eq_ignore_ascii_case("PRIMARY"))
+                .unwrap_or(false)
+            {
+                if let Some(wname) = parts.next() {
+                    template.set_primary_weapon_name(wname);
+                }
+            }
+        }
+
+        // Combat unit KindOf from object type / kindof string so store weapons can attach.
+        let otype = definition.object_type.to_ascii_lowercase();
+        if otype.contains("infantry") || kind_of.contains("infantry") {
+            template
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Attackable)
+                .add_kind_of(KindOf::Selectable);
+        }
+        if otype.contains("vehicle") || kind_of.contains("vehicle") {
+            template
+                .add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Attackable)
+                .add_kind_of(KindOf::Selectable);
+        }
+        if otype.contains("aircraft") || kind_of.contains("aircraft") {
+            template
+                .add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Attackable)
+                .add_kind_of(KindOf::Selectable);
         }
 
         template

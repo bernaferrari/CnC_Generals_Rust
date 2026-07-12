@@ -49,6 +49,9 @@ pub struct ObjectDefinition {
     /// Owner player (faction)
     pub owner: Option<String>,
 
+    /// Primary weapon template name from Object INI (`Weapon = PRIMARY Name`).
+    pub primary_weapon: Option<String>,
+
     /// Other attributes from INI
     pub attributes: HashMap<String, String>,
 }
@@ -68,6 +71,7 @@ impl ObjectDefinition {
             hit_points: None,
             scale: 1.0,
             owner: None,
+            primary_weapon: None,
             attributes: HashMap::new(),
         }
     }
@@ -194,6 +198,21 @@ impl IniParser {
                             obj.scale = value.parse().unwrap_or(1.0);
                         }
                         "owner" => obj.owner = Some(value.to_string()),
+                        // Object INI: Weapon = PRIMARY AmericaRangerGun (SECONDARY must not wipe PRIMARY)
+                        "weapon" => {
+                            let mut parts = value.split_whitespace();
+                            if let Some(slot) = parts.next() {
+                                if slot.eq_ignore_ascii_case("PRIMARY") {
+                                    if let Some(wname) = parts.next() {
+                                        if !wname.eq_ignore_ascii_case("None") {
+                                            obj.primary_weapon = Some(wname.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            // Keep raw attribute for diagnostics; do not overwrite primary_weapon.
+                            obj.attributes.insert(key.to_string(), value.to_string());
+                        }
                         // Texture references (various formats used in C&C)
                         _ if lower_key.contains("texture") => {
                             obj.textures.insert(key.to_string(), value.to_string());
@@ -484,5 +503,27 @@ End
         assert_eq!(count, 1);
         assert!(parser.get_definition("TestStructure").is_some());
         assert!(parser.get_definition("=").is_none());
+    }
+
+    #[test]
+    fn parses_primary_weapon_without_secondary_overwrite() {
+        let ini_content = r#"
+Object USA_Ranger
+  Type = Infantry
+  Weapon = PRIMARY AmericaRangerMachineGun
+  Weapon = SECONDARY AmericaRangerFlashBangGrenade
+  HitPoints = 120
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "weapon_primary.ini")
+            .unwrap();
+        let def = parser.get_definition("USA_Ranger").expect("def");
+        assert_eq!(
+            def.primary_weapon.as_deref(),
+            Some("AmericaRangerMachineGun"),
+            "PRIMARY must stick when SECONDARY follows"
+        );
     }
 }
