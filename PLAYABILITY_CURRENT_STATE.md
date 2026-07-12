@@ -40,8 +40,6 @@
    - `save_file_roundtrip_preserves_secondary_weapon` (SaveFileManager path)
 
 **Still residual (fail-closed, not claimed):**
-- Host `HostUpgradeRegistry` in-flight research queue not serialized
-  (completed unlocks already applied to objects/players do survive via object fields)
 - Full C++ per-module WeaponSet / SpecialPowerModule / particle Xfer tables
 - Network save/load (network deferred)
 
@@ -66,9 +64,33 @@
 **Still residual (fail-closed, not claimed):**
 - Full retail OCL aircraft / beam / multiplayer superweapon Xfer tables
 - Client `ParticleSystemManager` GPU rebind after load (host registry only)
-- Host `HostUpgradeRegistry` in-flight research queue still not in `WorldSnapshot`
 - Full C++ per-module SpecialPowerModule / particle Xfer tables
 - Network save/load (network deferred)
+
+## Residual Host Playability — Host Upgrade Research Save/Load Xfer (2026-07-12)
+**Closed (host-testable mid-flight upgrade research survives snapshot + file save/load):**
+1. Gap: `HostUpgradeRegistry` lived only on live `GameLogic` — `WorldSnapshot` never
+   captured pending research records/honesty. Player `queued_upgrades` already survived
+   via `PlayerSnapshot.research_queue`, but host residual queue honesty + entry
+   bookkeeping (source object, queue_frame, pending ids) was dropped mid-flight.
+2. Fix (fail-closed residual, not full retail Upgrade.ini BuildTime / ProductionUpdate):
+   - `WorldSnapshot.host_upgrades` stores `next_id` + all research records
+     (queued / completed / cancelled) including `queue_frame` / `complete_frame`
+   - `SnapshotBuilder` capture/restore + Xfer marker after `CombatParticles`
+   - `HostUpgradeRegistry::restore_from_snapshot` rebinds allocator, entries, and
+     `pending_index` so mid-research completes on the next update with unlocks
+3. Tests:
+   - `host_upgrade_capture_mid_flight_save_load_completes_unlock`
+   - `save_file_roundtrip_preserves_pending_host_upgrade`
+   - `restore_from_snapshot_keeps_pending_queue` in `host_upgrades.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full retail Upgrade.ini BuildTime (30s) research timers / ProductionUpdate door UI
+- Full science tree purchase / prerequisite graph / academy stats
+- Full WeaponSetUpgrade / CommandSetUpgrade module matrices for every unit
+- Object-type upgrades (`UPGRADE_TYPE_OBJECT`) vs player-type split beyond residual tags
+- Network upgrade replication (network deferred)
+- Economy effect of SupplyLines beyond tag observability
 
 ## Residual Host Playability — Upgrade Queue/Complete Host Path (2026-07-12)
 **Closed (host-testable QueueUpgrade → complete → observable unlock):**
@@ -87,10 +109,13 @@
 5. Honesty flags (registry API; do **not** claim full science/ProductionUpdate parity):
    - `honesty_queue_ok(kind)` / `honesty_complete_ok(kind)` / `honesty_host_path_ok(kind)`
    - `honesty_capture_unlock_ok` / `honesty_flashbang_equipped_ok`
-6. Tests (not log-only):
+6. Save/load: `WorldSnapshot.host_upgrades` persists in-flight research (see section above).
+7. Tests (not log-only):
    - `capture_building_upgrade_queue_complete_unlocks_capture_ability`
    - `flashbang_upgrade_queue_complete_equips_ranger_secondary`
    - `supply_lines_upgrade_queue_complete_tags_supply_center`
+   - `host_upgrade_capture_mid_flight_save_load_completes_unlock`
+   - `save_file_roundtrip_preserves_pending_host_upgrade`
    - module unit tests in `host_upgrades.rs`
    - existing `queued_upgrade_completes_during_simulation_update` still holds
 
