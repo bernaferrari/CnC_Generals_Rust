@@ -876,7 +876,7 @@ impl<'a> CommandExecutor<'a> {
             // Host residual: queue superweapon strike that will complete with
             // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon).
             // ClusterMines residual places a ring of land mines at target.
-            // Other powers (RadarScan, etc.) remain charge-consume only.
+            // RadarScan residual temporarily reveals FOW at target (RadarVanPing).
             if let Some(pos) = target_position {
                 if *power_type == SpecialPowerType::ClusterMines {
                     let team = self
@@ -886,6 +886,20 @@ impl<'a> CommandExecutor<'a> {
                         .unwrap_or(crate::game_logic::Team::Neutral);
                     let placed = self.game_logic.place_cluster_mines(team, pos, Some(unit_id));
                     if placed.is_empty() {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::RadarScan {
+                    let team = self
+                        .game_logic
+                        .get_object(unit_id)
+                        .map(|o| o.team)
+                        .unwrap_or(crate::game_logic::Team::Neutral);
+                    if !self.game_logic.activate_radar_scan(
+                        self.current_player_id,
+                        team,
+                        pos,
+                        Some(unit_id),
+                    ) {
                         continue;
                     }
                 } else {

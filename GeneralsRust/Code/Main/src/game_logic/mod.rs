@@ -14,6 +14,7 @@ pub mod script_loader;
 pub mod special_power_strikes;
 pub mod host_upgrades;
 pub mod host_mines;
+pub mod host_radar_scan;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -35,6 +36,10 @@ pub use host_upgrades::{
 };
 pub use host_mines::{
     HostMineData, HostMineDetonateReason, HostMineKind, HostMineDetonationPlan,
+};
+pub use host_radar_scan::{
+    HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
+    RADAR_SCAN_RADIUS,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
@@ -174,7 +179,11 @@ pub struct ObjectStatus {
     pub moving: bool,
     pub attacking: bool,
     pub airborne_target: bool,
+    /// C++ OBJECT_STATUS_STEALTHED residual.
     pub stealthed: bool,
+    /// C++ OBJECT_STATUS_DETECTED residual (revealed by detector / temporary reveal).
+    /// Stealthed + not detected => not targetable / not visible to enemies.
+    pub detected: bool,
     /// C++ DISABLED_UNDERPOWERED: set when player's power supply < demand.
     pub disabled_underpowered: bool,
 }

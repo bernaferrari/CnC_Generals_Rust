@@ -64,8 +64,8 @@ impl AIDecisionSystem {
         let mut nearest_enemy: Option<(ObjectId, f32)> = None;
 
         for (object_id, object) in game_logic.get_objects() {
-            // Skip if not an enemy
-            if object.team == team || !object.is_alive() || !object.is_attackable() {
+            // Skip if not an enemy (includes stealthed-undetected residual gate).
+            if !object.is_targetable_by_enemy_of(team) {
                 continue;
             }
 
@@ -107,8 +107,8 @@ impl AIDecisionSystem {
         let mut best_target: Option<(ObjectId, f32)> = None; // (id, score)
 
         for (object_id, object) in game_logic.get_objects() {
-            // Skip if not a valid target
-            if object.team == team || !object.is_alive() || !object.is_attackable() {
+            // Skip if not a valid target (stealthed+undetected are not targetable).
+            if !object.is_targetable_by_enemy_of(team) {
                 continue;
             }
 
@@ -197,6 +197,11 @@ impl AIDecisionSystem {
         // Don't attack friendly units
         if target.team == attacker.team {
             return AttackDecision::Hold;
+        }
+
+        // C++ residual: stealthed + not detected is not a valid victim.
+        if target.is_effectively_stealthed() {
+            return AttackDecision::FindNewTarget;
         }
 
         // Check if attacker can actually attack
