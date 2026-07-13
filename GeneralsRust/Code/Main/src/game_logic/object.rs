@@ -485,6 +485,47 @@ impl Object {
         self.ai_state = AIState::Idle;
     }
 
+    /// C++ OBJECT_STATUS_IS_CARBOMB residual.
+    pub fn is_car_bomb(&self) -> bool {
+        self.status.is_carbomb
+    }
+
+    /// C++ OBJECT_STATUS_HIJACKED residual.
+    pub fn is_hijacked(&self) -> bool {
+        self.status.hijacked
+    }
+
+    /// Apply ConvertToCarBomb residual onto this vehicle (caller sets team).
+    /// Binds SuicideCarBomb residual weapon and marks IS_CARBOMB.
+    pub fn apply_convert_to_car_bomb(&mut self) {
+        self.status.is_carbomb = true;
+        self.status.disabled_unmanned = false;
+        self.status.hijacked = false;
+        self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
+        self.secondary_weapon = None;
+        self.active_weapon_slot = 0;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+    }
+
+    /// Apply Hijack residual ownership mark (caller sets team).
+    pub fn apply_hijacked(&mut self) {
+        self.status.hijacked = true;
+        self.status.disabled_unmanned = false;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+    }
+
     pub fn can_attack(&self) -> bool {
         // Garrisoned units may still fire from the structure (residual
         // fire-from-garrison). Docked transport cargo and units mid-enter cannot.

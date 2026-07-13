@@ -1716,11 +1716,25 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let target_pos = match self.game_logic.get_object(target_id) {
-            Some(target) if target.is_alive() => target.get_position(),
+        // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
+        // not already IS_CARBOMB. Neutral civilian cars are valid.
+        let (target_pos, target_ok) = match self.game_logic.get_object(target_id) {
+            Some(target) if target.is_alive() => {
+                let is_vehicle = target.is_kind_of(KindOf::Vehicle);
+                let is_airborne = target.is_kind_of(KindOf::Aircraft)
+                    || target.status.airborne_target;
+                let already_bomb = target.status.is_carbomb;
+                (
+                    target.get_position(),
+                    is_vehicle && !is_airborne && !already_bomb,
+                )
+            }
             Some(_) => return CommandResult::InvalidTarget,
             None => return CommandResult::InvalidTarget,
         };
+        if !target_ok {
+            return CommandResult::InvalidTarget;
+        }
 
         let mut any = false;
         let mut issued_units = Vec::new();
