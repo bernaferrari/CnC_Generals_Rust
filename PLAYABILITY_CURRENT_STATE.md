@@ -1,3 +1,40 @@
+## Residual Host Playability — Stinger HiveStructureBody + CamoNetting Structure Reveal (2026-07-13)
+**Closed (host-testable HiveStructureBody/SpawnBehavior + CamoNetting structure StealthUpdate residual):**
+1. **HiveStructureBody + SpawnBehavior residual** (`GLAStingerSite` ModuleTag_04/06):
+   - SpawnNumber **3** residual soldiers (MaxHealth **100** each).
+   - Propagate residual (SMALL_ARMS / SNIPER / POISON / RADIATION / SURRENDER /
+     MICROWAVE class) damages active slave, not structure HP.
+   - Swallow residual (SNIPER / POISON / SURRENDER) eats damage when **0** slaves.
+   - HitStructure residual always damages the building body.
+   - SPAWNS_ARE_THE_WEAPONS residual: site cannot fire with **0** soldiers.
+   - SpawnReplaceDelay **30000**ms → **900** frames residual respawn.
+   - Host-testable: propagate preserves structure HP; kill slave; swallow at 0;
+     HitStructure damages; 0-soldier no-fire; respawn restores capacity.
+   - Fail-closed: not full physical slave objects / bone attach / getClosestSlave.
+2. **CamoNetting structure attack/damage reveal residual** (`StealthUpdate` +
+   `Upgrade_GLACamoNetting` on Tunnel Network / Stinger / Slth buildings):
+   - StealthForbiddenConditions residual: **ATTACKING** + **TAKING_DAMAGE**.
+   - StealthDelay **2500**ms → **75** frames re-cloak residual.
+   - Host-testable: damage uncloaks; attacking uncloaks; idle after delay re-cloaks.
+   - Fail-closed: not full USING_ABILITY / opacity / OrderIdleEnemiesToAttackMe /
+     sub-object camo net visual.
+3. Tests (not log-only):
+   - `stinger_hive_structure_body_and_spawn_respawn_residual`
+   - `camo_netting_structure_attack_and_damage_reveal_residual`
+   - updated `stinger_site_residual_dual_fire_and_ap_rockets` (SpawnNumber honesty)
+   - module unit tests in `host_base_defense` / `host_upgrades` (hive matrix /
+     StealthDelay residual honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BinaryDataStream laser drawable feedback for Patriot assist beams
+- Full AI turret pitch/yaw natural-position angle matrix (recenter frame gate closed)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
+- Full CamoNetting sub-object net visual / opacity drawable matrix
+- Network hive / camo-structure-stealth replication (network deferred)
+
 ## Residual Host Playability — Patriot AssistedTargeting + DemoTrap Mode (2026-07-13)
 **Closed (host-testable AssistedTargetingUpdate + DemoTrapUpdate weapon-slot mode residual):**
 1. **AssistedTargetingUpdate residual** (AmericaPatriotBattery ModuleTag_07):
@@ -31,6 +68,10 @@
 - Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
 - Full AmericaParachute sway / pitch-roll / DeliverPayload residual
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
+  (host residual closed 2026-07-13 — see Stinger HiveStructureBody + CamoNetting section)
+- Full CamoNetting structure attack reveal matrix
+  (host residual closed 2026-07-13 — see Stinger HiveStructureBody + CamoNetting section)
 - Network assist / demo-trap-mode replication (network deferred)
 
 ## Residual Host Playability — Delayed setBattlePlan ACTIVE + Turret Recenter (2026-07-13)
