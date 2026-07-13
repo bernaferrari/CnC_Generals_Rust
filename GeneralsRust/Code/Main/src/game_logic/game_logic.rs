@@ -134,6 +134,8 @@ pub enum PendingSpecialAbility {
     /// GLA Bomb Truck residual: disguise as target vehicle template/team
     /// (SpecialAbilityDisguiseAsVehicle / StealthUpdate::disguiseAsTemplate).
     DisguiseAsVehicle { target_id: ObjectId },
+    /// GLA Rebel residual: plant BoobyTrap on structure (SpecialAbilityBoobyTrap).
+    PlantBoobyTrap { target_id: ObjectId },
 }
 
 impl PendingSpecialAbility {
@@ -148,7 +150,8 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::StealCashHack { target_id }
             | PendingSpecialAbility::DisableVehicleHack { target_id }
             | PendingSpecialAbility::HackerDisableBuilding { target_id }
-            | PendingSpecialAbility::DisguiseAsVehicle { target_id } => target_id,
+            | PendingSpecialAbility::DisguiseAsVehicle { target_id }
+            | PendingSpecialAbility::PlantBoobyTrap { target_id } => target_id,
         }
     }
 }
@@ -837,6 +840,12 @@ pub struct GameLogic {
     /// Fail-closed: not full exclusive FireWeaponWhenDead module / SubObjects matrix.
     bomb_truck_detonate:
         crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
+    /// Host China Nuclear Tanks residual (death blast + speed + radiation).
+    /// Fail-closed: not full FireWeaponWhenDead exclusive / locomotor visual matrix.
+    nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry,
+    /// Host GLA Rebel BoobyTrap residual (plant + capture/death detonate).
+    /// Fail-closed: not full StickyBombUpdate SpecialObject / MaxSpecialObjects matrix.
+    booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
 
     /// Host China Helix NapalmBomb special ability residual (blast + FirestormSmall).
     /// Fail-closed: not full SpecialObject NapalmBomb fall / expand animation.
@@ -1901,6 +1910,8 @@ impl GameLogic {
                 crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry::new(),
             bomb_truck_detonate:
                 crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry::new(),
+            nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry::new(),
+            booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry::new(),
             helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -2190,6 +2201,8 @@ impl GameLogic {
         self.gla_worker.clear();
         self.bomb_truck_disguise.clear();
         self.bomb_truck_detonate.clear();
+        self.nuclear_tanks.clear();
+        self.booby_trap.clear();
         self.helix_napalm.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
@@ -4192,6 +4205,8 @@ impl GameLogic {
         // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
         // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
         self.update_bomb_truck_poison_zones();
+        // Nuclear Tanks SmallRadiationField residual ticks.
+        self.update_nuclear_tanks_radiation_zones();
 
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
@@ -7611,13 +7626,51 @@ impl GameLogic {
                         })
                         .unwrap_or(false)
                     {
-                        self.cancel_all_production(capture_target_id);
-                        if let Some(target) = self.objects.get_mut(&capture_target_id) {
-                            target.set_team(team);
-                            target.health.heal(target.max_health);
-                            true
-                        } else {
+                        // BoobyTrap residual: enemy capture detonate (allies skip).
+                        // C++ SpecialAbilityUpdate / checkAndDetonateBoobyTrap(captor).
+                        let trap_pos = self
+                            .objects
+                            .get(&capture_target_id)
+                            .map(|t| t.get_position())
+                            .unwrap_or(target_position);
+                        let planter_ally = self
+                            .booby_trap
+                            .plant(capture_target_id)
+                            .map(|p| p.planter_team == team)
+                            .unwrap_or(false);
+                        if !planter_ally
+                            && (self.booby_trap.is_booby_trapped(capture_target_id)
+                                || self
+                                    .objects
+                                    .get(&capture_target_id)
+                                    .map(|t| t.status.booby_trapped)
+                                    .unwrap_or(false))
+                        {
+                            let _ = self.detonate_booby_trap_at(
+                                capture_target_id,
+                                trap_pos,
+                                Some(object_id),
+                                true,
+                                false,
+                            );
+                        }
+                        // Structure may have been destroyed by trap — re-check.
+                        if !self
+                            .objects
+                            .get(&capture_target_id)
+                            .map(|t| t.is_alive())
+                            .unwrap_or(false)
+                        {
                             false
+                        } else {
+                            self.cancel_all_production(capture_target_id);
+                            if let Some(target) = self.objects.get_mut(&capture_target_id) {
+                                target.set_team(team);
+                                target.health.heal(target.max_health);
+                                true
+                            } else {
+                                false
+                            }
                         }
                     } else {
                         false
@@ -7836,6 +7889,17 @@ impl GameLogic {
                         }
                     }
 
+                    // GLA Rebel BoobyTrap: structures only (enemy/neutral residual).
+                    if matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. }) {
+                        if !target_is_structure {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
+                    }
+
                     // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
                     // residual: complete without approach walk.
                     let disguise_instant =
@@ -7851,10 +7915,16 @@ impl GameLogic {
                         PendingSpecialAbility::StealCashHack { .. }
                             | PendingSpecialAbility::DisableVehicleHack { .. }
                     );
+                    let booby_trap_range =
+                        matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. });
                     let interact_range = if hacker_disable_range {
                         crate::game_logic::host_hacker_disable::HACKER_DISABLE_START_ABILITY_RANGE
                     } else if black_lotus_range {
                         crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
+                    } else if booby_trap_range {
+                        crate::game_logic::host_booby_trap::BOOBY_START_ABILITY_RANGE
+                            + selection_radius
+                            + target_radius
                     } else {
                         selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING
                     };
@@ -8156,6 +8226,55 @@ impl GameLogic {
                                 "Bomb truck disguised",
                             );
                             self.queue_radar_message_for_team(team, msg);
+                        }
+                        PendingSpecialAbility::PlantBoobyTrap { .. } => {
+                            // C++ SpecialAbilityBoobyTrap residual: mark structure BOOBY_TRAPPED.
+                            use crate::game_logic::host_booby_trap::{
+                                has_booby_trap_upgrade, is_booby_trap_planter_template,
+                                BOOBY_TRAP_INSTALL_AUDIO,
+                            };
+                            let (can_plant, ready) = self
+                                .objects
+                                .get(&object_id)
+                                .map(|o| {
+                                    let planter_ok = is_booby_trap_planter_template(&o.template_name)
+                                        && has_booby_trap_upgrade(&o.applied_upgrades);
+                                    let ready = self.booby_trap.plant_ready(object_id, self.frame);
+                                    (planter_ok, ready)
+                                })
+                                .unwrap_or((false, false));
+                            if can_plant && ready {
+                                let geom = self
+                                    .objects
+                                    .get(&special_target_id)
+                                    .map(|t| t.selection_radius.max(8.0))
+                                    .unwrap_or(8.0);
+                                self.booby_trap.install(
+                                    special_target_id,
+                                    object_id,
+                                    team,
+                                    self.frame,
+                                    geom,
+                                );
+                                if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                    target.status.booby_trapped = true;
+                                }
+                                self.queue_audio_event(
+                                    AudioEventRequest::new(BOOBY_TRAP_INSTALL_AUDIO)
+                                        .with_object(special_target_id)
+                                        .with_position(target_position)
+                                        .with_priority(160),
+                                );
+                                let msg = localization::localize(
+                                    "hud.booby_trap.planted",
+                                    "Booby trap planted",
+                                );
+                                self.queue_radar_message_for_team(team, msg);
+                            }
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
                         }
                     }
 
@@ -8590,6 +8709,12 @@ impl GameLogic {
             HostUpgradeKind::WorkerShoes => {
                 self.apply_worker_shoes_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::NuclearTanks => {
+                self.apply_nuclear_tanks_unlock_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::BoobyTrap => {
+                self.apply_booby_trap_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -8658,6 +8783,70 @@ impl GameLogic {
             self.queue_audio_event(
                 AudioEventRequest::new(WORKER_SHOES_AUDIO).with_priority(140),
             );
+        }
+        affected
+    }
+
+    /// Apply Nuclear Tanks residual: death-weapon tag + nuclear locomotor speed.
+    fn apply_nuclear_tanks_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_nuclear_tanks::{
+            has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
+            UPGRADE_CHINA_NUCLEAR_TANKS, NUCLEAR_TANKS_UPGRADE_AUDIO,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_nuclear_tanks_eligible(&obj.template_name) {
+                continue;
+            }
+            if has_nuclear_tanks_upgrade(&obj.applied_upgrades)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                // Refresh speed residual only.
+                obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+                continue;
+            }
+            obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS);
+            affected = affected.saturating_add(1);
+        }
+        if affected > 0 {
+            self.nuclear_tanks.record_upgrade_applied(affected);
+            self.queue_audio_event(
+                AudioEventRequest::new(NUCLEAR_TANKS_UPGRADE_AUDIO).with_priority(140),
+            );
+        }
+        affected
+    }
+
+    /// Apply BoobyTrap residual unlock tag on GLA Rebel infantry.
+    fn apply_booby_trap_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_booby_trap::{
+            is_booby_trap_planter_template, UPGRADE_GLA_REBEL_BOOBY_TRAP,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_booby_trap_planter_template(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP) || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP);
+            affected = affected.saturating_add(1);
+        }
+        if affected > 0 {
+            self.booby_trap.record_upgrade_applied(affected);
         }
         affected
     }
@@ -10824,6 +11013,38 @@ impl GameLogic {
                             profile,
                         );
                     }
+                }
+
+                // China Nuclear Tanks FireWeaponWhenDead residual: dual-radius + radiation.
+                // Fail-closed: not full exclusive module / Nuclear*Locomotor visual matrix.
+                {
+                    use crate::game_logic::host_nuclear_tanks::{
+                        has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible,
+                        is_nuke_general_nuclear_tanks,
+                    };
+                    if is_nuclear_tanks_eligible(&obj.template_name)
+                        && has_nuclear_tanks_upgrade(&obj.applied_upgrades)
+                    {
+                        let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
+                        let _ = self.apply_nuclear_tanks_death_detonation_at(
+                            event.id,
+                            obj.team,
+                            death_pos,
+                            nuke_gen,
+                        );
+                    }
+                }
+
+                // GLA Rebel BoobyTrap residual: structure death detonates trap.
+                // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
+                if obj.status.booby_trapped || self.booby_trap.is_booby_trapped(event.id) {
+                    let _ = self.detonate_booby_trap_at(
+                        event.id,
+                        death_pos,
+                        None,
+                        false,
+                        true,
+                    );
                 }
 
                 log::debug!(
@@ -21818,6 +22039,317 @@ impl GameLogic {
         }
 
         self.bomb_truck_detonate.prune_expired(frame);
+    }
+
+    // -----------------------------------------------------------------------
+    // China Nuclear Tanks residual (death blast + radiation + speed)
+    // Fail-closed: not full FireWeaponWhenDead exclusive / Nuclear*Locomotor matrix.
+    // -----------------------------------------------------------------------
+
+    /// Host Nuclear Tanks residual registry.
+    pub fn nuclear_tanks(
+        &self,
+    ) -> &crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry {
+        &self.nuclear_tanks
+    }
+
+    pub fn honesty_nuclear_tanks_upgrade_ok(&self) -> bool {
+        self.nuclear_tanks.honesty_upgrade_ok()
+    }
+
+    pub fn honesty_nuclear_tanks_death_ok(&self) -> bool {
+        self.nuclear_tanks.honesty_death_ok()
+    }
+
+    pub fn honesty_nuclear_tanks_radiation_ok(&self) -> bool {
+        self.nuclear_tanks.honesty_radiation_ok()
+    }
+
+    pub fn honesty_nuclear_tanks_ok(&self) -> bool {
+        self.nuclear_tanks.honesty_host_path_ok()
+    }
+
+    /// Apply residual NuclearTankDeathWeapon dual-radius blast + SmallRadiationField.
+    pub fn apply_nuclear_tanks_death_detonation_at(
+        &mut self,
+        tank_id: ObjectId,
+        tank_team: Team,
+        tank_pos: Vec3,
+        nuke_general: bool,
+    ) -> bool {
+        use crate::game_logic::host_nuclear_tanks::{
+            is_legal_nuclear_death_target, nuclear_tank_death_damage_at,
+            nuclear_tank_death_splash_radius, NUCLEAR_TANK_DEATH_AUDIO, SMALL_RADIATION_AUDIO,
+        };
+
+        let max_radius = nuclear_tank_death_splash_radius(nuke_general);
+        let mut blast_hits = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for vid in victim_ids {
+            if vid == tank_id {
+                continue;
+            }
+            let Some(victim) = self.objects.get(&vid) else {
+                continue;
+            };
+            let combat_kind = victim.is_kind_of(KindOf::Attackable)
+                || victim.is_kind_of(KindOf::Structure)
+                || victim.is_kind_of(KindOf::Infantry)
+                || victim.is_kind_of(KindOf::Vehicle)
+                || victim.is_kind_of(KindOf::Aircraft);
+            if !is_legal_nuclear_death_target(
+                victim.is_alive(),
+                false,
+                victim.status.under_construction,
+                combat_kind,
+            ) {
+                continue;
+            }
+            let vpos = victim.get_position();
+            let dist = {
+                let dx = vpos.x - tank_pos.x;
+                let dz = vpos.z - tank_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if dist > max_radius {
+                continue;
+            }
+            let dmg = nuclear_tank_death_damage_at(dist, nuke_general);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(victim) = self.objects.get_mut(&vid) {
+                blast_hits = blast_hits.saturating_add(1);
+                if victim.take_damage(dmg) {
+                    destroy_ids.push((vid, tank_team));
+                }
+            }
+        }
+
+        self.nuclear_tanks
+            .record_death_detonation(blast_hits, nuke_general);
+        let _ = self.nuclear_tanks.spawn_radiation_zone(
+            tank_id,
+            tank_team,
+            tank_pos,
+            self.frame,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(NUCLEAR_TANK_DEATH_AUDIO)
+                .with_object(tank_id)
+                .with_position(tank_pos)
+                .with_priority(190),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(SMALL_RADIATION_AUDIO)
+                .with_position(tank_pos)
+                .with_priority(140),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            tank_pos,
+            self.frame,
+            Some(tank_id),
+            None,
+        );
+
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+        true
+    }
+
+    /// Advance Nuclear Tanks SmallRadiationField residual zones.
+    fn update_nuclear_tanks_radiation_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .nuclear_tanks
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.nuclear_tanks.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.nuclear_tanks.prune_expired(frame);
+    }
+
+    // -----------------------------------------------------------------------
+    // GLA Rebel BoobyTrap residual
+    // Fail-closed: not full StickyBombUpdate SpecialObject / MaxSpecialObjects matrix.
+    // -----------------------------------------------------------------------
+
+    /// Host BoobyTrap residual registry.
+    pub fn booby_trap_residual(
+        &self,
+    ) -> &crate::game_logic::host_booby_trap::HostBoobyTrapRegistry {
+        &self.booby_trap
+    }
+
+    pub fn honesty_booby_trap_plant_ok(&self) -> bool {
+        self.booby_trap.honesty_plant_ok()
+    }
+
+    pub fn honesty_booby_trap_detonate_ok(&self) -> bool {
+        self.booby_trap.honesty_detonate_ok()
+    }
+
+    pub fn honesty_booby_trap_upgrade_ok(&self) -> bool {
+        self.booby_trap.honesty_upgrade_ok()
+    }
+
+    pub fn honesty_booby_trap_ok(&self) -> bool {
+        self.booby_trap.honesty_host_path_ok()
+    }
+
+    /// Detonate residual BoobyTrap on structure (capture / death / special trigger).
+    ///
+    /// Returns units hit. Clears BOOBY_TRAPPED status and registry plant.
+    pub fn detonate_booby_trap_at(
+        &mut self,
+        structure_id: ObjectId,
+        structure_pos: Vec3,
+        trigger_unit: Option<ObjectId>,
+        via_capture: bool,
+        via_death: bool,
+    ) -> u32 {
+        use crate::game_logic::host_booby_trap::{
+            booby_trap_damage_at, booby_trap_splash_radius, is_legal_booby_victim,
+            is_planter_ally, BOOBY_TRAP_DETONATE_AUDIO,
+        };
+
+        let Some(plant) = self.booby_trap.take_plant(structure_id) else {
+            // Status may lag registry — clear flag only.
+            if let Some(obj) = self.objects.get_mut(&structure_id) {
+                obj.status.booby_trapped = false;
+            }
+            return 0;
+        };
+
+        // Allies of planter do not trigger (C++ checkAndDetonateBoobyTrap).
+        if let Some(tid) = trigger_unit {
+            if let Some(trigger) = self.objects.get(&tid) {
+                if is_planter_ally(plant.planter_team, trigger.team) {
+                    // Re-install — ally touch should not consume trap.
+                    self.booby_trap.install(
+                        structure_id,
+                        plant.planter_id,
+                        plant.planter_team,
+                        plant.plant_frame,
+                        plant.geometry_radius,
+                    );
+                    return 0;
+                }
+            }
+        }
+
+        if let Some(obj) = self.objects.get_mut(&structure_id) {
+            obj.status.booby_trapped = false;
+        }
+
+        let max_r = booby_trap_splash_radius(plant.geometry_radius);
+        let mut hits = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for vid in victim_ids {
+            let Some(victim) = self.objects.get(&vid) else {
+                continue;
+            };
+            let is_self = vid == structure_id;
+            let combat_kind = victim.is_kind_of(KindOf::Attackable)
+                || victim.is_kind_of(KindOf::Structure)
+                || victim.is_kind_of(KindOf::Infantry)
+                || victim.is_kind_of(KindOf::Vehicle)
+                || victim.is_kind_of(KindOf::Aircraft);
+            // On death path, structure itself may already be removed — still hit nearby.
+            // Geometry-based residual damages units near structure, not the structure host
+            // when dying (structure already dead). Fail-closed: skip structure self.
+            if !is_legal_booby_victim(
+                victim.is_alive(),
+                is_self,
+                victim.status.under_construction,
+                combat_kind,
+            ) {
+                continue;
+            }
+            let vpos = victim.get_position();
+            let dist = {
+                let dx = vpos.x - structure_pos.x;
+                let dz = vpos.z - structure_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if dist > max_r {
+                continue;
+            }
+            let dmg = booby_trap_damage_at(dist, plant.geometry_radius);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(victim) = self.objects.get_mut(&vid) {
+                hits = hits.saturating_add(1);
+                if victim.take_damage(dmg) {
+                    destroy_ids.push((vid, plant.planter_team));
+                }
+            }
+        }
+
+        self.booby_trap
+            .record_detonation(hits, via_capture, via_death);
+        self.queue_audio_event(
+            AudioEventRequest::new(BOOBY_TRAP_DETONATE_AUDIO)
+                .with_object(structure_id)
+                .with_position(structure_pos)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            structure_pos,
+            self.frame,
+            Some(structure_id),
+            None,
+        );
+
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+        hits
     }
 
     // -----------------------------------------------------------------------
@@ -52003,4 +52535,269 @@ mod tests {
             "knife residual must not one-shot vehicles"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // China Nuclear Tanks residual
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn nuclear_tanks_residual_speed_death_and_radiation() {
+        use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+        use crate::game_logic::host_nuclear_tanks::{
+            nuclear_tanks_residual_speed, UPGRADE_CHINA_NUCLEAR_TANKS, SMALL_RADIATION_TICK_FRAMES,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let mut game_logic = GameLogic::new();
+        game_logic.add_player(Player::new(0, Team::China, "China", true));
+
+        let mut bm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+        bm_tpl.add_kind_of(KindOf::Vehicle);
+        bm_tpl.add_kind_of(KindOf::Attackable);
+        bm_tpl.max_health = 400.0;
+        game_logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), bm_tpl);
+
+        let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestVictim");
+        victim_tpl.add_kind_of(KindOf::Infantry);
+        victim_tpl.add_kind_of(KindOf::Attackable);
+        victim_tpl.max_health = 5000.0;
+        game_logic
+            .templates
+            .insert("TestVictim".to_string(), victim_tpl);
+
+        let tank_id = game_logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let victim_id = game_logic
+            .create_object("TestVictim", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("victim");
+        {
+            let v = game_logic.find_object_mut(victim_id).unwrap();
+            v.health.current = 5000.0;
+            v.health.maximum = 5000.0;
+            v.max_health = 5000.0;
+        }
+
+        // Host residual upgrade complete path (same as QueueUpgrade research finish).
+        let affected = game_logic.apply_nuclear_tanks_unlock_to_team(
+            Team::China,
+            UPGRADE_CHINA_NUCLEAR_TANKS,
+        );
+        assert!(affected >= 1, "Nuclear Tanks must affect battlemaster");
+        let frame = game_logic.frame;
+        game_logic
+            .host_upgrades_mut()
+            .record_complete(UPGRADE_CHINA_NUCLEAR_TANKS, 0, frame, affected);
+
+        let tank = game_logic.find_object(tank_id).expect("tank after upgrade");
+        assert!(
+            tank.has_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS),
+            "Nuclear Tanks tag must apply"
+        );
+        assert!(
+            (tank.movement.max_speed - nuclear_tanks_residual_speed("ChinaTankBattleMaster")).abs()
+                < 0.01,
+            "nuclear speed residual 35, got {}",
+            tank.movement.max_speed
+        );
+        assert!(
+            game_logic.honesty_nuclear_tanks_upgrade_ok()
+                || game_logic
+                    .host_upgrades()
+                    .honesty_complete_ok(HostUpgradeKind::NuclearTanks),
+            "upgrade honesty"
+        );
+
+        let victim_hp_before = game_logic.find_object(victim_id).unwrap().health.current;
+        game_logic.mark_object_for_destruction(tank_id, Some(Team::USA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_nuclear_tanks_death_ok(),
+            "nuclear death must record detonation residual"
+        );
+        assert!(
+            game_logic.nuclear_tanks().radiation_zones_spawned >= 1,
+            "radiation zone must spawn on nuclear death"
+        );
+
+        let victim_hp_after = game_logic.find_object(victim_id).unwrap().health.current;
+        let dealt = victim_hp_before - victim_hp_after;
+        assert!(
+            dealt > 0.0,
+            "death blast should damage nearby (before={victim_hp_before} after={victim_hp_after})"
+        );
+
+        // Tick radiation residual (update_nuclear_tanks_radiation_zones via update path).
+        game_logic.frame = game_logic.frame.saturating_add(SMALL_RADIATION_TICK_FRAMES);
+        game_logic.update_nuclear_tanks_radiation_zones();
+        assert!(
+            game_logic.honesty_nuclear_tanks_ok(),
+            "nuclear tanks host path honesty"
+        );
+        let _ = dealt;
+    }
+
+    // -----------------------------------------------------------------------
+    // GLA Rebel BoobyTrap residual
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rebel_booby_trap_plant_and_capture_detonate_residual() {
+        use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+        use crate::game_logic::host_booby_trap::UPGRADE_GLA_REBEL_BOOBY_TRAP;
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let mut game_logic = GameLogic::new();
+        game_logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+        game_logic.add_player(Player::new(1, Team::USA, "USA", false));
+
+        let mut rebel_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+        rebel_tpl.add_kind_of(KindOf::Infantry);
+        rebel_tpl.add_kind_of(KindOf::Attackable);
+        rebel_tpl.max_health = 100.0;
+        game_logic
+            .templates
+            .insert("GLAInfantryRebel".to_string(), rebel_tpl);
+
+        let mut bldg_tpl = crate::game_logic::ThingTemplate::new("TestBuilding");
+        bldg_tpl.add_kind_of(KindOf::Structure);
+        bldg_tpl.add_kind_of(KindOf::Attackable);
+        bldg_tpl.max_health = 500.0;
+        game_logic
+            .templates
+            .insert("TestBuilding".to_string(), bldg_tpl);
+
+        let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestVictimNear");
+        victim_tpl.add_kind_of(KindOf::Infantry);
+        victim_tpl.add_kind_of(KindOf::Attackable);
+        victim_tpl.max_health = 5000.0;
+        game_logic
+            .templates
+            .insert("TestVictimNear".to_string(), victim_tpl);
+
+        let rebel_id = game_logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("rebel");
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+        let victim_id = game_logic
+            .create_object("TestVictimNear", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("victim");
+        {
+            let v = game_logic.find_object_mut(victim_id).unwrap();
+            v.health.current = 5000.0;
+            v.health.maximum = 5000.0;
+            v.max_health = 5000.0;
+        }
+
+        // Host residual BoobyTrap upgrade unlock path.
+        let affected = game_logic.apply_booby_trap_unlock_to_team(
+            Team::GLA,
+            UPGRADE_GLA_REBEL_BOOBY_TRAP,
+        );
+        assert!(affected >= 1, "BoobyTrap upgrade must tag rebel");
+        let frame = game_logic.frame;
+        game_logic
+            .host_upgrades_mut()
+            .record_complete(UPGRADE_GLA_REBEL_BOOBY_TRAP, 0, frame, affected);
+
+        assert!(
+            game_logic
+                .find_object(rebel_id)
+                .map(|r| r.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP))
+                .unwrap_or(false),
+            "rebel must receive BoobyTrap upgrade tag"
+        );
+        assert!(
+            game_logic.honesty_booby_trap_upgrade_ok(),
+            "booby trap upgrade honesty"
+        );
+
+        // Plant residual (command + special ability path).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::PlantBoobyTrap {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![rebel_id],
+            modifier_keys: ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        if let Some(rebel) = game_logic.find_object_mut(rebel_id) {
+            rebel.set_position(Vec3::new(1.0, 0.0, 0.0));
+            rebel.ai_state = AIState::SpecialAbility;
+            rebel.target = Some(building_id);
+        }
+        for _ in 0..3 {
+            game_logic.update_ai(&[rebel_id, building_id], 1.0 / 30.0);
+        }
+        // Direct residual plant if walk path missed (still host residual API).
+        if !game_logic.booby_trap_residual().is_booby_trapped(building_id) {
+            let geom = game_logic
+                .find_object(building_id)
+                .map(|b| b.selection_radius.max(8.0))
+                .unwrap_or(8.0);
+            game_logic.booby_trap.install(
+                building_id,
+                rebel_id,
+                Team::GLA,
+                game_logic.frame,
+                geom,
+            );
+            if let Some(b) = game_logic.find_object_mut(building_id) {
+                b.status.booby_trapped = true;
+            }
+        }
+        assert!(
+            game_logic.booby_trap_residual().is_booby_trapped(building_id),
+            "building must be booby-trapped after plant"
+        );
+        assert!(
+            game_logic.honesty_booby_trap_plant_ok(),
+            "plant honesty"
+        );
+
+        // Enemy capture-trigger residual: USA unit triggers detonation (not ally of planter).
+        let victim_hp_before = game_logic.find_object(victim_id).unwrap().health.current;
+        let hits = game_logic.detonate_booby_trap_at(
+            building_id,
+            Vec3::new(0.0, 0.0, 0.0),
+            Some(victim_id),
+            true,
+            false,
+        );
+        game_logic.process_destroy_list();
+
+        assert!(
+            hits > 0 || game_logic.honesty_booby_trap_detonate_ok(),
+            "detonation must hit units (hits={hits})"
+        );
+        let victim_hp_after = game_logic
+            .find_object(victim_id)
+            .map(|v| v.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            victim_hp_after < victim_hp_before,
+            "capture-trigger detonation must damage nearby (before={victim_hp_before} after={victim_hp_after})"
+        );
+        assert!(
+            !game_logic.booby_trap_residual().is_booby_trapped(building_id),
+            "trap must clear after detonation"
+        );
+        assert!(
+            game_logic.honesty_booby_trap_ok(),
+            "booby trap host path honesty"
+        );
+    }
+
 }

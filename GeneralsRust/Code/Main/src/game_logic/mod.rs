@@ -89,6 +89,8 @@ pub mod host_listening_outpost;
 pub mod host_troop_crawler;
 pub mod host_overlord_addons;
 pub mod host_overlord_gun;
+pub mod host_nuclear_tanks;
+pub mod host_booby_trap;
 pub mod host_nuke_cannon;
 pub mod terrain;
 pub mod thing;
@@ -613,6 +615,9 @@ pub struct ObjectStatus {
     /// Attackers shooting a painted target gain TARGET_FAERIE_FIRE 150% ROF.
     #[serde(default)]
     pub faerie_fire: bool,
+    /// C++ OBJECT_STATUS_BOOBY_TRAPPED residual (Rebel SpecialAbilityBoobyTrap).
+    #[serde(default)]
+    pub booby_trapped: bool,
 }
 
 /// Basic geometry information for objects
