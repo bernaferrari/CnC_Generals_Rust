@@ -1,3 +1,37 @@
+## Residual Host Playability — Laser General Tanks/Patriot + Tunnel Network Gun (2026-07-13)
+**Closed (host-testable Lazr tank lasers / Lazr Patriot dual-slot + TunnelNetworkGun residual):**
+1. **Laser General tank residual** (`Lazr_AmericaTankCrusader` / `Lazr_AmericaTankPaladin`):
+   - PRIMARY `Lazr_CrusaderTankGun` residual: PrimaryDamage **80** / radius **5**,
+     range **150**, Delay **2000**ms (60 frames). Instant laser residual.
+   - PRIMARY `Lazr_PaladinTankGun` residual: PrimaryDamage **70** / radius **3**,
+     range **150**, Delay **1000**ms (30 frames). Instant laser residual.
+   - Stock Crusader/Paladin residual still uses shell guns (**60**/2000ms).
+   - Composite Armor residual still applies to both chassis.
+2. **Laser General Patriot residual** (`Lazr_AmericaPatriotBattery` / Lazr_Patriot*):
+   - PRIMARY `Lazr_PatriotMissileWeapon` residual: PrimaryDamage **40** / r**3**,
+     range **225** (vs stock **30**).
+   - AA residual `Lazr_PatriotMissileWeaponAir` (retail TERTIARY collapsed to secondary):
+     PrimaryDamage **35** / r**3**, range **350** (vs stock **25**).
+   - Dual-slot base-defense auto-fire residual path (ground + AA).
+3. **Tunnel Network gun residual** (`GLATunnelNetwork` / Chem_/Demo_/Slth_ / sneak):
+   - PRIMARY `TunnelNetworkGun` residual: PrimaryDamage **15** / range **175** /
+     Delay **250**ms (8 frames). Ground residual only.
+   - Auto-acquire residual via base-defense residual fire path.
+   - Enter/exit residual remains closed (prior slice).
+
+**Tests:**
+- `lazr_tank_residual_laser_guns`
+- `lazr_patriot_residual_laser_dual_slot`
+- `tunnel_network_gun_residual_auto_fires`
+- host unit tests for laser tank / laser patriot / tunnel gun stats
+
+**Still residual (fail-closed, not claimed):**
+- Full LaserName / LaserBoneName drawable beam matrix for Lazr tanks / Patriot
+- Full Lazr Patriot AssistedTargetingModule SECONDARY assist clip / RequestAssistRange
+- Full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
+- Full GuardTunnelNetwork AI / CaveSystem / heal matrix
+- Network laser-general / tunnel-gun replication (network deferred)
+
 ## Residual Host Playability — China MiG + USA Fire Base (2026-07-13)
 **Closed (host-testable MiG napalm/BlackNapalm/Nuke + Fire Base howitzer residual):**
 1. **China MiG residual** (`ChinaJetMIG` / `China_MiG` / Tank_/Infa_/Boss_ + Nuke_):
@@ -746,6 +780,7 @@
 - Full TimeForFullHeal / healObjects tick while contained
 - Full CaveSystem multi-index / last-tunnel cave-in destroy matrix
 - Full ExitStart bone / multi-door exit interface
+- TunnelNetworkGun residual closed 2026-07-13 — see Laser General + Tunnel Network Gun section
 - Network tunnel-network replication (network deferred)
 
 ## Residual Host Playability — Pathfinder Stealth Detect + Scout/Hellfire Drones (2026-07-12)

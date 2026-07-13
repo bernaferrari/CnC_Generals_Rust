@@ -5,15 +5,18 @@
 //! - Enter any allied tunnel network structure
 //! - Exit / Evacuate at **any** allied tunnel (cross-tunnel residual path)
 //! - C++ valid container: all units except aircraft (Kris 2002 / srj aircraft skip)
+//! - Structure PRIMARY `TunnelNetworkGun` residual auto-fire (dmg **15** /
+//!   range **175** / Delay **250**ms → 8 frames) via base-defense residual path
 //!
 //! Fail-closed honesty:
 //! - Not full GuardTunnelNetwork AI / AITNGuard nemesis path
 //! - Not full TimeForFullHeal matrix / healObjects tick
 //! - Not CaveSystem multi-index / last-tunnel cave-in destroy matrix
 //! - Not full ExitStart bone / multi-door exit interface
+//! - Not full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
 //! - Not network tunnel-network replication (network deferred)
 
-use super::{ObjectId, Team};
+use super::{ObjectId, Team, Weapon};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -24,6 +27,17 @@ pub const MAX_TUNNEL_CAPACITY: usize = 10;
 /// Fail-closed: heal tick not required for enter/exit honesty.
 pub const TUNNEL_FULL_HEAL_FRAMES: u32 = 150;
 
+/// Retail TunnelNetworkGun primary weapon template name.
+pub const TUNNEL_NETWORK_GUN: &str = "TunnelNetworkGun";
+/// Retail TunnelNetworkGun PrimaryDamage.
+pub const TUNNEL_NETWORK_GUN_DAMAGE: f32 = 15.0;
+/// Retail TunnelNetworkGun AttackRange.
+pub const TUNNEL_NETWORK_GUN_RANGE: f32 = 175.0;
+/// Retail DelayBetweenShots 250ms → 8 frames @ 30 FPS.
+pub const TUNNEL_NETWORK_GUN_DELAY_FRAMES: u32 = 8;
+/// Residual fire audio (retail FireSound = HumveeWeapon).
+pub const TUNNEL_NETWORK_GUN_AUDIO: &str = "HumveeWeapon";
+
 /// Host residual honesty counters + per-team shared contain state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostTunnelNetworkRegistry {
@@ -33,6 +47,10 @@ pub struct HostTunnelNetworkRegistry {
     pub exits: u32,
     /// Exits where exit tunnel != entry tunnel (the key residual path).
     pub cross_exits: u32,
+    /// Residual TunnelNetworkGun auto-fire honesty shots.
+    pub gun_fires: u32,
+    /// Residual units hit by TunnelNetworkGun residual.
+    pub gun_units_hit: u32,
     /// Per-team shared passenger lists (C++ Player::TunnelTracker contain list).
     networks: HashMap<Team, TeamTunnelNetwork>,
 }
@@ -158,9 +176,38 @@ impl HostTunnelNetworkRegistry {
         self.cross_exits > 0
     }
 
+    /// Record residual TunnelNetworkGun auto-fire shot.
+    pub fn record_gun_fire(&mut self, hit: bool) {
+        self.gun_fires = self.gun_fires.saturating_add(1);
+        if hit {
+            self.gun_units_hit = self.gun_units_hit.saturating_add(1);
+        }
+    }
+
+    /// Residual honesty: TunnelNetworkGun auto-fire residual exercised.
+    pub fn honesty_gun_fire_ok(&self) -> bool {
+        self.gun_fires > 0 && self.gun_units_hit > 0
+    }
+
     /// Combined residual path honesty.
     pub fn honesty_any_ok(&self) -> bool {
-        self.honesty_enter_exit_ok() || self.honesty_cross_exit_ok()
+        self.honesty_enter_exit_ok() || self.honesty_cross_exit_ok() || self.honesty_gun_fire_ok()
+    }
+}
+
+/// Build residual TunnelNetworkGun weapon.
+pub fn tunnel_network_gun_weapon() -> Weapon {
+    Weapon {
+        damage: TUNNEL_NETWORK_GUN_DAMAGE,
+        range: TUNNEL_NETWORK_GUN_RANGE,
+        min_range: 0.0,
+        reload_time: TUNNEL_NETWORK_GUN_DELAY_FRAMES as f32 / 30.0,
+        last_fire_time: 0.0,
+        ammo: None,
+        can_target_air: false,
+        can_target_ground: true,
+        projectile_speed: 600.0,
+        pre_attack_delay: 0.0,
     }
 }
 
@@ -200,6 +247,20 @@ mod tests {
         assert!(!is_tunnel_network_template("GLATunnelNetworkNoSpawn"));
         assert!(!is_tunnel_network_template("GLA_Barracks"));
         assert!(!is_tunnel_network_template("TestBunker"));
+    }
+
+    #[test]
+    fn tunnel_network_gun_stats() {
+        let w = tunnel_network_gun_weapon();
+        assert!((w.damage - TUNNEL_NETWORK_GUN_DAMAGE).abs() < 0.01);
+        assert!((w.range - TUNNEL_NETWORK_GUN_RANGE).abs() < 0.01);
+        assert!((w.reload_time - (8.0 / 30.0)).abs() < 0.001);
+        assert!(w.can_target_ground);
+        assert!(!w.can_target_air);
+        let mut reg = HostTunnelNetworkRegistry::new();
+        assert!(!reg.honesty_gun_fire_ok());
+        reg.record_gun_fire(true);
+        assert!(reg.honesty_gun_fire_ok());
     }
 
     #[test]

@@ -1,17 +1,23 @@
 //! Host base-defense structure residual (Patriot / Gattling / Stinger auto-fire).
 //!
 //! Residual slice (playability):
-//! - Base defenses (USA Patriot, China Gattling Cannon, GLA Stinger Site, and
-//!   `FSBaseDefense` structures) auto-acquire and damage nearby enemies while
-//!   Idle without a manual `AttackObject` / player attack order.
+//! - Base defenses (USA Patriot, China Gattling Cannon, GLA Stinger Site,
+//!   GLA Tunnel Network gun, and `FSBaseDefense` structures) auto-acquire and
+//!   damage nearby enemies while Idle without a manual `AttackObject` / player
+//!   attack order.
 //! - Retail weapon names:
 //!   - `PatriotMissileWeapon` (dmg 30, range 225) + SECONDARY `PatriotMissileWeaponAir`
 //!     (dmg 25, range 350, AA)
+//!   - Laser General residual: `Lazr_PatriotMissileWeapon` (dmg **40** / r**3**)
+//!     + air residual `Lazr_PatriotMissileWeaponAir` (dmg **35** / r**3** / range **350**)
+//!     (retail SECONDARY assist slot collapsed; TERTIARY air → residual secondary)
 //!   - `GattlingBuildingGun` (dmg 10, range 225) + SECONDARY `GattlingBuildingGunAir`
 //!     (dmg 5, range 400, AA only)
 //!   - Stinger residual (SPAWNS_ARE_THE_WEAPONS abstraction): structure fires
 //!     `StingerMissileWeapon` (dmg 20, range 225) + SECONDARY `StingerMissileWeaponAir`
 //!     (dmg 30, range 400, AA) as the site's 3 slave soldiers would.
+//!   - GLA Tunnel Network residual: PRIMARY `TunnelNetworkGun` (dmg **15** /
+//!     range **175** / Delay **250**ms → 8 frames). Ground residual only.
 //! - China Gattling Cannon continuous-fire ramp residual (`FiringTracker`):
 //!   - ContinuousFireOne=**1** / Two=**5** / Coast=**2000**ms (60 frames)
 //!   - Base Delay **250**ms (8 frames) → MEAN **4** (200% RoF) → FAST **2** (300% RoF)
@@ -22,6 +28,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
+//! - Not full Lazr Patriot AssistedTargetingModule SECONDARY assist clip matrix
 //! - Not full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full AssistedTargetingModule Patriot assist clips / RequestAssistRange
@@ -36,13 +43,21 @@ use std::collections::HashSet;
 pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
 /// Retail Patriot secondary AA weapon template name.
 pub const PATRIOT_SECONDARY_WEAPON: &str = "PatriotMissileWeaponAir";
+/// Retail Laser General Patriot primary residual.
+pub const LAZR_PATRIOT_PRIMARY_WEAPON: &str = "Lazr_PatriotMissileWeapon";
+/// Retail Laser General Patriot AA residual (TERTIARY → residual secondary slot).
+pub const LAZR_PATRIOT_SECONDARY_WEAPON: &str = "Lazr_PatriotMissileWeaponAir";
 
 /// Retail PatriotMissileWeapon PrimaryDamage.
 pub const PATRIOT_GROUND_DAMAGE: f32 = 30.0;
+/// Retail Lazr_PatriotMissileWeapon PrimaryDamage residual.
+pub const LAZR_PATRIOT_GROUND_DAMAGE: f32 = 40.0;
 /// Retail PatriotMissileWeapon AttackRange.
 pub const PATRIOT_GROUND_RANGE: f32 = 225.0;
 /// Retail PatriotMissileWeaponAir PrimaryDamage.
 pub const PATRIOT_AIR_DAMAGE: f32 = 25.0;
+/// Retail Lazr_PatriotMissileWeaponAir PrimaryDamage residual.
+pub const LAZR_PATRIOT_AIR_DAMAGE: f32 = 35.0;
 /// Retail PatriotMissileWeaponAir AttackRange.
 pub const PATRIOT_AIR_RANGE: f32 = 350.0;
 /// Retail Patriot DelayBetweenShots 250ms → 8 frames @ 30 FPS (in-clip).
@@ -52,6 +67,8 @@ pub const PATRIOT_DELAY_FRAMES: u32 = 8;
 pub const PATRIOT_CLIP_RELOAD_FRAMES: u32 = 60;
 /// Residual fire audio for Patriot.
 pub const PATRIOT_FIRE_AUDIO: &str = "PatriotBatteryWeapon";
+/// Residual Laser General Patriot fire audio honesty.
+pub const LAZR_PATRIOT_FIRE_AUDIO: &str = "Lazr_WeaponFX_LaserCrusader";
 
 /// Retail Stinger soldier primary (structure residual abstraction).
 pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
@@ -134,6 +151,8 @@ pub fn is_base_defense_structure(
         || n.contains("basedefense")
         || n.contains("base_defense")
         || n.contains("firebase")
+        // GLA Tunnel Network gun residual (enter/exit residual already host-closed).
+        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name)
 }
 
 /// Whether template is a residual USA Patriot battery (ground + AA residual).
@@ -162,6 +181,7 @@ pub fn is_patriot_battery_structure(template_name: &str) -> bool {
             | "americapatriotbattery"
             | "patriotmissile"
             | "testpatriot"
+            | "testlazrpatriot"
     ) || (n.contains("patriot")
         && (n.contains("battery")
             || n.contains("system")
@@ -169,7 +189,8 @@ pub fn is_patriot_battery_structure(template_name: &str) -> bool {
             || n.starts_with("america")
             || n.starts_with("lazr_")
             || n.starts_with("airf_")
-            || n.starts_with("supw_")))
+            || n.starts_with("supw_")
+            || n.starts_with("testlazr")))
 }
 
 /// Whether template is a residual GLA Stinger Site (SPAWNS_ARE_THE_WEAPONS residual).
@@ -245,14 +266,34 @@ pub fn is_gattling_cannon_structure(template_name: &str) -> bool {
         || n == "testgatlingcannon"
 }
 
+/// Whether template is a Laser General Patriot residual (Lazr_ prefix).
+///
+/// Fail-closed: name residual (not full general production gate).
+pub fn is_laser_patriot_template(template_name: &str) -> bool {
+    if !is_patriot_battery_structure(template_name) {
+        return false;
+    }
+    let n = template_name.to_ascii_lowercase();
+    n.starts_with("lazr_")
+        || n.contains("lazr_patriot")
+        || n.contains("lazr_america")
+        || n == "testlazrpatriot"
+}
+
 /// Retail-ish residual weapon name for known host base-defense templates.
 pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
     if is_patriot_battery_structure(template_name) {
-        Some(PATRIOT_PRIMARY_WEAPON)
+        Some(if is_laser_patriot_template(template_name) {
+            LAZR_PATRIOT_PRIMARY_WEAPON
+        } else {
+            PATRIOT_PRIMARY_WEAPON
+        })
     } else if is_gattling_cannon_structure(template_name) {
         Some(GATTLING_BUILDING_PRIMARY_WEAPON)
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_PRIMARY_WEAPON)
+    } else if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
+        Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN)
     } else {
         None
     }
@@ -263,7 +304,11 @@ pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static
     if is_gattling_cannon_structure(template_name) {
         Some(GATTLING_BUILDING_SECONDARY_WEAPON)
     } else if is_patriot_battery_structure(template_name) {
-        Some(PATRIOT_SECONDARY_WEAPON)
+        Some(if is_laser_patriot_template(template_name) {
+            LAZR_PATRIOT_SECONDARY_WEAPON
+        } else {
+            PATRIOT_SECONDARY_WEAPON
+        })
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_SECONDARY_WEAPON)
     } else {
@@ -334,27 +379,49 @@ pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
     }
 }
 
-/// Build residual Patriot ground Weapon.
+/// Build residual Patriot ground Weapon (standard shell residual).
 pub fn patriot_ground_weapon() -> Weapon {
+    patriot_ground_weapon_for_template("AmericaPatriotBattery")
+}
+
+/// Build residual Patriot AA Weapon (standard shell residual).
+pub fn patriot_air_weapon() -> Weapon {
+    patriot_air_weapon_for_template("AmericaPatriotBattery")
+}
+
+/// Build residual Patriot ground Weapon for a specific battery template.
+pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
     Weapon {
-        damage: PATRIOT_GROUND_DAMAGE,
+        damage: if laser {
+            LAZR_PATRIOT_GROUND_DAMAGE
+        } else {
+            PATRIOT_GROUND_DAMAGE
+        },
         range: PATRIOT_GROUND_RANGE,
         min_range: 0.0,
-        // Fail-closed: effective cadence ≈ clip reload (ClipSize=4 residual not full matrix).
+        // Fail-closed: effective cadence ≈ clip reload (ClipSize residual not full matrix).
+        // Lazr ClipSize=3 residual collapses to same clip-reload honesty as stock.
         reload_time: delay_frames_to_reload_secs(PATRIOT_CLIP_RELOAD_FRAMES),
         last_fire_time: 0.0,
-        ammo: Some(4),
+        ammo: Some(if laser { 3 } else { 4 }),
         can_target_air: false,
         can_target_ground: true,
-        projectile_speed: 600.0,
+        // Instant laser residual vs missile residual.
+        projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
     }
 }
 
-/// Build residual Patriot AA Weapon.
-pub fn patriot_air_weapon() -> Weapon {
+/// Build residual Patriot AA Weapon for a specific battery template.
+pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
     Weapon {
-        damage: PATRIOT_AIR_DAMAGE,
+        damage: if laser {
+            LAZR_PATRIOT_AIR_DAMAGE
+        } else {
+            PATRIOT_AIR_DAMAGE
+        },
         range: PATRIOT_AIR_RANGE,
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(PATRIOT_CLIP_RELOAD_FRAMES),
@@ -362,7 +429,7 @@ pub fn patriot_air_weapon() -> Weapon {
         ammo: Some(4),
         can_target_air: true,
         can_target_ground: false,
-        projectile_speed: 600.0,
+        projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
     }
 }
@@ -586,6 +653,13 @@ mod tests {
             false
         ));
         assert!(!is_base_defense_structure("USA_SupplyCenter", true, false));
+        assert!(is_base_defense_structure("GLATunnelNetwork", true, false));
+        assert!(is_base_defense_structure("TestTunnelNetwork", true, false));
+        assert!(!is_base_defense_structure(
+            "GLASneakAttackTunnelNetworkStart",
+            true,
+            false
+        ));
     }
 
     #[test]
@@ -637,11 +711,39 @@ mod tests {
             secondary_weapon_name_for_defense("GLA_StingerSite"),
             Some(STINGER_SECONDARY_WEAPON)
         );
+        assert_eq!(
+            primary_weapon_name_for_defense("Lazr_AmericaPatriotBattery"),
+            Some(LAZR_PATRIOT_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_defense("Lazr_AmericaPatriotBattery"),
+            Some(LAZR_PATRIOT_SECONDARY_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_defense("GLATunnelNetwork"),
+            Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN)
+        );
         assert_eq!(primary_weapon_name_for_defense("USA_Ranger"), None);
         assert!(is_dual_slot_base_defense("USA_Patriot"));
+        assert!(is_dual_slot_base_defense("Lazr_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("GLA_StingerSite"));
         assert!(is_dual_slot_base_defense("China_GattlingCannon"));
         assert!(!is_dual_slot_base_defense("USA_Barracks"));
+        assert!(!is_dual_slot_base_defense("GLATunnelNetwork"));
+    }
+
+    #[test]
+    fn laser_patriot_weapon_stats() {
+        assert!(is_laser_patriot_template("Lazr_AmericaPatriotBattery"));
+        assert!(is_laser_patriot_template("TestLazrPatriot"));
+        assert!(!is_laser_patriot_template("AmericaPatriotBattery"));
+        let g = patriot_ground_weapon_for_template("Lazr_AmericaPatriotBattery");
+        assert!((g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.01);
+        let a = patriot_air_weapon_for_template("Lazr_AmericaPatriotBattery");
+        assert!((a.damage - LAZR_PATRIOT_AIR_DAMAGE).abs() < 0.01);
+        assert!(a.can_target_air);
+        let stock = patriot_ground_weapon();
+        assert!((stock.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
     }
 
     #[test]
