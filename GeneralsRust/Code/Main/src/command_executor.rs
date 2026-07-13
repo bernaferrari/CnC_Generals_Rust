@@ -888,6 +888,7 @@ impl<'a> CommandExecutor<'a> {
             // SpySatellite residual temporarily reveals FOW at target (SpySatellitePing).
             // CiaIntelligence residual temporarily vision-spies all enemy units (SpyVision).
             // Paradrop residual queues America Airborne infantry drop at target.
+            // Ambush residual queues GLA Rebel Ambush infantry spawn at target.
             // FireWall residual creates a line of fire damage zones toward target.
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
@@ -947,6 +948,14 @@ impl<'a> CommandExecutor<'a> {
                     if self
                         .game_logic
                         .queue_paradrop(power_type, unit_id, pos)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::Ambush {
+                    if self
+                        .game_logic
+                        .queue_ambush(power_type, unit_id, pos)
                         .is_none()
                     {
                         continue;
