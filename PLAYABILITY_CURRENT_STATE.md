@@ -1,3 +1,43 @@
+## Residual Host Playability — Particle Uplink SwathOfDeath + Spectre VoiceRapidFire (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 16 coast/SupW/structure):**
+1. **Particle Uplink SwathOfDeath residual** (`special_power_strikes` /
+   `ParticleUplinkCannonUpdate`):
+   - Retail SwathOfDeathDistance **200** / Amplitude **50**; DamageRadiusScalar
+     **3.4** honesty constant.
+   - Host residual: each damage pulse epicenter walks S-curve around click point
+     (`particle_swath_offset` / `particle_swath_epicenter`); first pulse at
+     `x = -distance/2`, mid pulse near click, lateral sine peaks ~amplitude.
+   - Fractional nextFactor pulse schedule residual:
+     `particle_next_pulse_frame = spawn + floor(pulses_made/total * duration)`.
+   - Honesty: `swath_applications` / `max_swath_offset` / `honesty_beam_swath_ok`.
+   - Host-testable: click-epicenter unit misses first pulse; mid swath hits; offset
+     honesty > 50.
+   - Fail-closed: not full building→target rotation matrix / manual driving /
+     outer-node lasers / remnant trail Objects / laser width grow GPU.
+2. **Spectre VoiceRapidFire residual** (`special_power_strikes` / FiringTracker):
+   - Retail `FiringTracker::speedUp` plays PerUnitSound `"VoiceRapidFire"` when
+     entering CONTINUOUS_FIRE_FAST.
+   - Host residual: `rapid_fire_voice_cues` increments on gattling/howitzer MEAN→FAST
+     transition; honesty `honesty_voice_rapid_fire_ok` + audio name residual
+     `SpectreGunshipVoiceRapidFire`.
+   - Fail-closed: not full audio bank stream / model-condition CONTINUOUS_FIRE_* anim.
+3. Tests (not log-only):
+   - `particle_uplink_swath_of_death_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam`
+   - updated `particle_cannon_impact_spawns_beam_and_ticks_damage`
+   - updated `spectre_continuous_fire_rof_residual_honesty` (VoiceRapidFire)
+   - all `special_power_strikes::` (**29**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / model-condition CONTINUOUS_FIRE_*
+- Full PUC outer-node lasers / manual beam driving / remnant trail Objects
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — Spectre Coast + SupW FuelAir + Structure Scatter (2026-07-13)
 **Closed (host-testable combat/power/economy residual not covered by wave 15 anthrax/ROF):**
 1. **Spectre ContinuousFireCoast residual** (`special_power_strikes` / FiringTracker):
@@ -7,8 +47,9 @@
    - After idle past coast: coolDown zeros consecutive + fire level (base ROF).
    - Host tracks `gattling_coast_until_frame` / `howitzer_coast_until_frame` +
      `*_coast_applications` honesty; post-coast restarts at base interval.
+   - VoiceRapidFire residual closed wave 16b (enter FAST honesty cue).
    - Fail-closed: not full model-condition CONTINUOUS_FIRE_* anim / howitzer shell
-     projectile Object / VoiceRapidFire.
+     projectile Object.
 2. **SupW FuelAir 900/r70 matrix residual** (`host_aurora_bomb`):
    - `HostAuroraBombKind::FuelAirSupW` = retail `SupW_FuelBombDetonationWeapon`
      Primary **900** / r**70** (AirF keeps **1000**/r**100**).
@@ -28,7 +69,7 @@
    - `spectre_continuous_fire_coast_cooldown_residual`
    - `supw_fuel_bomb_900_r70_matrix_residual_honesty`
    - `structure_geometry_scatter_residual`
-   - all `special_power_strikes::` (28)
+   - all `special_power_strikes::` (28 → 29 with swath residual)
    - aurora / oil / black market host unit + integration residual paths green
 
 **Still residual (fail-closed, not claimed):**
