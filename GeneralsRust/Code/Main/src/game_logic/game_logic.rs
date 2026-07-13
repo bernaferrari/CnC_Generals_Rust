@@ -906,6 +906,18 @@ pub struct GameLogic {
     tomahawk_residual_fires: u32,
     tomahawk_residual_units_hit: u32,
 
+    /// Host residual: China Overlord / Emperor main gun dual-radius + Uranium honesty.
+    /// Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
+    overlord_gun_residual_fires: u32,
+    overlord_gun_residual_units_hit: u32,
+    overlord_gun_residual_uranium_upgrades: u32,
+
+    /// Host residual: GLA Jarmen Kell sniper + AP Bullets honesty.
+    /// Fail-closed: not full secondary pilot-sniper AutoChoose matrix.
+    jarmen_kell_residual_fires: u32,
+    jarmen_kell_residual_units_hit: u32,
+    jarmen_kell_residual_ap_upgrades: u32,
+
     /// Host residual: China Battlemaster tank gun + Uranium / horde / nationalism honesty.
     /// Fail-closed: not full HordeUpdate RubOff / Nuclear Tanks death residual.
     battlemaster_residual_fires: u32,
@@ -1920,6 +1932,12 @@ impl GameLogic {
             scorpion_residual_missile_fires: 0,
             tomahawk_residual_fires: 0,
             tomahawk_residual_units_hit: 0,
+            overlord_gun_residual_fires: 0,
+            overlord_gun_residual_units_hit: 0,
+            overlord_gun_residual_uranium_upgrades: 0,
+            jarmen_kell_residual_fires: 0,
+            jarmen_kell_residual_units_hit: 0,
+            jarmen_kell_residual_ap_upgrades: 0,
             battlemaster_residual_fires: 0,
             battlemaster_residual_units_hit: 0,
             battlemaster_residual_uranium_upgrades: 0,
@@ -2202,6 +2220,12 @@ impl GameLogic {
         self.scorpion_residual_missile_fires = 0;
         self.tomahawk_residual_fires = 0;
         self.tomahawk_residual_units_hit = 0;
+        self.overlord_gun_residual_fires = 0;
+        self.overlord_gun_residual_units_hit = 0;
+        self.overlord_gun_residual_uranium_upgrades = 0;
+        self.jarmen_kell_residual_fires = 0;
+        self.jarmen_kell_residual_units_hit = 0;
+        self.jarmen_kell_residual_ap_upgrades = 0;
         self.battlemaster_residual_fires = 0;
         self.battlemaster_residual_units_hit = 0;
         self.battlemaster_residual_uranium_upgrades = 0;
@@ -5539,6 +5563,57 @@ impl GameLogic {
                     } {
                         let impact = target_position;
                         let (hits, _destroyed_any) = self.apply_tomahawk_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 15.0);
+                            }
+                        }
+                    } else if {
+                        // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
+                        use crate::game_logic::host_overlord_gun::{
+                            is_overlord_gun_chassis, should_apply_overlord_gun_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_overlord_gun_residual(
+                                    is_overlord_gun_chassis(&a.template_name),
+                                    a.has_overlord_gattling_residual(),
+                                )
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_overlord_gun_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 12.0);
+                            }
+                        }
+                    } else if {
+                        // GLA Jarmen Kell residual: primary sniper (intended-only).
+                        use crate::game_logic::host_jarmen_kell::{
+                            is_jarmen_kell_template, should_apply_jarmen_kell_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_jarmen_kell_residual(is_jarmen_kell_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
@@ -9949,6 +10024,26 @@ impl GameLogic {
                 object.weapon = Some(tomahawk_weapon());
             }
 
+            // Host residual: China Overlord / Emperor PRIMARY dual-radius tank gun.
+            // Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
+            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
+                use crate::game_logic::host_overlord_gun::{
+                    has_uranium_shells_upgrade, overlord_gun_weapon,
+                };
+                let uranium = has_uranium_shells_upgrade(&object.applied_upgrades);
+                object.weapon = Some(overlord_gun_weapon(uranium));
+            }
+
+            // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
+            // Fail-closed: pilot-snipe special remains host_hero_abilities.
+            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
+                use crate::game_logic::host_jarmen_kell::{
+                    has_ap_bullets_upgrade, jarmen_kell_weapon,
+                };
+                let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
+                object.weapon = Some(jarmen_kell_weapon(ap));
+            }
+
             // Host residual: China Red Guard PRIMARY machine gun residual.
             // Fail-closed: bayonet residual applied at fire-time for close infantry.
             if crate::game_logic::host_red_guard::is_red_guard_template(template_name) {
@@ -13988,6 +14083,42 @@ impl GameLogic {
         self.tomahawk_residual_units_hit
     }
 
+    /// Residual honesty: Overlord / Emperor main gun dual-radius / Uranium residual.
+    pub fn honesty_overlord_gun_ok(&self) -> bool {
+        self.overlord_gun_residual_fires > 0
+            || self.overlord_gun_residual_uranium_upgrades > 0
+    }
+
+    pub fn honesty_overlord_gun_uranium_ok(&self) -> bool {
+        self.overlord_gun_residual_uranium_upgrades > 0
+    }
+
+    pub fn overlord_gun_residual_fires(&self) -> u32 {
+        self.overlord_gun_residual_fires
+    }
+
+    pub fn overlord_gun_residual_units_hit(&self) -> u32 {
+        self.overlord_gun_residual_units_hit
+    }
+
+    /// Residual honesty: Jarmen Kell sniper / AP Bullets residual.
+    pub fn honesty_jarmen_kell_ok(&self) -> bool {
+        self.jarmen_kell_residual_fires > 0
+            || self.jarmen_kell_residual_ap_upgrades > 0
+    }
+
+    pub fn honesty_jarmen_kell_ap_ok(&self) -> bool {
+        self.jarmen_kell_residual_ap_upgrades > 0
+    }
+
+    pub fn jarmen_kell_residual_fires(&self) -> u32 {
+        self.jarmen_kell_residual_fires
+    }
+
+    pub fn jarmen_kell_residual_units_hit(&self) -> u32 {
+        self.jarmen_kell_residual_units_hit
+    }
+
     /// Residual honesty: Battlemaster tank gun / Uranium / horde / nationalism residual.
     pub fn honesty_battlemaster_ok(&self) -> bool {
         self.battlemaster_residual_fires > 0
@@ -16365,6 +16496,261 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
+    /// Apply Uranium Shells residual tag + rebind Overlord / Emperor main gun.
+    pub fn apply_overlord_gun_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_overlord_gun::{
+            has_uranium_shells_upgrade, is_overlord_gun_chassis, overlord_gun_weapon,
+            UPGRADE_CHINA_URANIUM_SHELLS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_overlord_gun_chassis(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
+        let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
+        let mut w = overlord_gun_weapon(uranium);
+        if let Some(old) = obj.weapon.as_ref() {
+            w.last_fire_time = old.last_fire_time;
+        }
+        obj.weapon = Some(w);
+        self.overlord_gun_residual_uranium_upgrades = self
+            .overlord_gun_residual_uranium_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Overlord / Emperor residual fire (dual-radius shell).
+    fn apply_overlord_gun_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_overlord_gun::{
+            has_uranium_shells_upgrade, is_legal_overlord_gun_splash_target,
+            is_overlord_gun_chassis, overlord_damage_at, OVERLORD_FIRE_AUDIO,
+            OVERLORD_SECONDARY_RADIUS,
+        };
+
+        let (source_team, has_uranium) = {
+            let Some(sid) = source else {
+                return (0, false);
+            };
+            let Some(obj) = self.objects.get(&sid) else {
+                return (0, false);
+            };
+            if !is_overlord_gun_chassis(&obj.template_name) {
+                return (0, false);
+            }
+            (
+                obj.team,
+                has_uranium_shells_upgrade(&obj.applied_upgrades),
+            )
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_overlord_gun_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= OVERLORD_SECONDARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = overlord_damage_at(if is_intended { 0.0 } else { dist }, has_uranium);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.overlord_gun_residual_fires = self.overlord_gun_residual_fires.saturating_add(1);
+        self.overlord_gun_residual_units_hit =
+            self.overlord_gun_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(OVERLORD_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply AP Bullets residual tag + rebind Jarmen Kell sniper.
+    pub fn apply_jarmen_kell_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_jarmen_kell::{
+            has_ap_bullets_upgrade, is_jarmen_kell_template, jarmen_kell_weapon,
+            UPGRADE_GLA_AP_BULLETS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_jarmen_kell_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_AP_BULLETS.to_string());
+        let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
+        let mut w = jarmen_kell_weapon(ap);
+        if let Some(old) = obj.weapon.as_ref() {
+            w.last_fire_time = old.last_fire_time;
+        }
+        obj.weapon = Some(w);
+        self.jarmen_kell_residual_ap_upgrades = self
+            .jarmen_kell_residual_ap_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Jarmen Kell residual fire (intended-only sniper).
+    fn apply_jarmen_kell_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_jarmen_kell::{
+            has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
+            jarmen_kell_damage_with_ap, JARMEN_KELL_FIRE_AUDIO,
+        };
+
+        let (source_team, damage) = {
+            let Some(sid) = source else {
+                return (0, false);
+            };
+            let Some(obj) = self.objects.get(&sid) else {
+                return (0, false);
+            };
+            if !is_jarmen_kell_template(&obj.template_name) {
+                return (0, false);
+            }
+            let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
+            let dmg = obj
+                .weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .unwrap_or_else(|| jarmen_kell_damage_with_ap(ap));
+            (obj.team, dmg)
+        };
+
+        let Some(tid) = intended_target else {
+            return (0, false);
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        if let Some(obj) = self.objects.get_mut(&tid) {
+            if source != Some(tid) {
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if is_legal_jarmen_kell_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    let destroyed = obj.take_damage(damage);
+                    hits = 1;
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((tid, Some(source_team)));
+                    }
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.jarmen_kell_residual_fires = self.jarmen_kell_residual_fires.saturating_add(1);
+        self.jarmen_kell_residual_units_hit =
+            self.jarmen_kell_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(JARMEN_KELL_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
 
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
@@ -48397,6 +48783,239 @@ mod tests {
     }
 
     /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
+    /// Residual: China Overlord main gun dual-radius + Uranium Shells.
+    #[test]
+    fn overlord_gun_residual_dual_radius_and_uranium() {
+        use crate::game_logic::host_overlord_gun::{
+            is_overlord_gun_chassis, OVERLORD_PRIMARY_DAMAGE, OVERLORD_RANGE, OVERLORD_TANK_GUN,
+            UPGRADE_CHINA_URANIUM_SHELLS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut ov_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+        ov_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0)
+            .set_primary_weapon_name(OVERLORD_TANK_GUN);
+        game_logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), ov_tpl);
+
+        let ov_id = game_logic
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("overlord");
+        {
+            let o = game_logic.find_object(ov_id).expect("overlord");
+            assert!(is_overlord_gun_chassis(&o.template_name));
+            let prim = o.weapon.as_ref().expect("gun");
+            assert!((prim.damage - OVERLORD_PRIMARY_DAMAGE).abs() < 0.01);
+            assert!((prim.range - OVERLORD_RANGE).abs() < 1.0);
+            assert!((prim.reload_time - 2.0).abs() < 0.1);
+            assert_eq!(prim.ammo, Some(2));
+        }
+
+        assert!(game_logic.apply_overlord_gun_uranium_upgrade(ov_id));
+        assert!(
+            game_logic.honesty_overlord_gun_uranium_ok(),
+            "overlord uranium residual honesty"
+        );
+        {
+            let o = game_logic.find_object(ov_id).expect("overlord");
+            assert!(o.has_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS));
+            let prim = o.weapon.as_ref().expect("uranium gun");
+            assert!((prim.damage - 100.0).abs() < 0.01);
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        let near_splash = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(104.0, 0.0, 0.0))
+            .expect("primary ring");
+        let mid_splash = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(108.0, 0.0, 0.0))
+            .expect("secondary ring");
+        {
+            let o = game_logic.find_object_mut(ov_id).unwrap();
+            o.attack_target(enemy);
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let near_hp_before = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let mid_hp_before = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(
+            &[ov_id, enemy, near_splash, mid_splash],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.overlord_gun_residual_fires() > 0,
+            "overlord residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_overlord_gun_ok(),
+            "overlord residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 80.0,
+            "overlord uranium primary residual ~100 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let near_hp_after = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "overlord primary radius residual must hit unit at 4 (before={near_hp_before} after={near_hp_after})"
+        );
+        let mid_hp_after = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            mid_hp_after < mid_hp_before,
+            "overlord secondary radius residual must hit unit at 8 (before={mid_hp_before} after={mid_hp_after})"
+        );
+    }
+
+    /// Residual: GLA Jarmen Kell sniper + AP Bullets.
+    #[test]
+    fn jarmen_kell_residual_sniper_and_ap_bullets() {
+        use crate::game_logic::host_jarmen_kell::{
+            is_jarmen_kell_template, JARMEN_KELL_DAMAGE, JARMEN_KELL_RANGE, JARMEN_KELL_RIFLE,
+            UPGRADE_GLA_AP_BULLETS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut kell_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
+        kell_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(JARMEN_KELL_RIFLE);
+        game_logic
+            .templates
+            .insert("GLAInfantryJarmenKell".to_string(), kell_tpl);
+
+        let kell_id = game_logic
+            .create_object(
+                "GLAInfantryJarmenKell",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("kell");
+        {
+            let k = game_logic.find_object(kell_id).expect("kell");
+            assert!(is_jarmen_kell_template(&k.template_name));
+            let prim = k.weapon.as_ref().expect("sniper");
+            assert!((prim.damage - JARMEN_KELL_DAMAGE).abs() < 0.01);
+            assert!((prim.range - JARMEN_KELL_RANGE).abs() < 1.0);
+            assert!((prim.reload_time - 1.0).abs() < 0.05);
+        }
+
+        assert!(game_logic.apply_jarmen_kell_ap_bullets_upgrade(kell_id));
+        assert!(
+            game_logic.honesty_jarmen_kell_ap_ok(),
+            "jarmen kell AP Bullets residual honesty"
+        );
+        {
+            let k = game_logic.find_object(kell_id).expect("kell");
+            assert!(k.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+            let prim = k.weapon.as_ref().expect("ap sniper");
+            assert!((prim.damage - 225.0).abs() < 0.01);
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        // Boost HP so ~225 AP sniper damage is measurable without one-shot wipe.
+        if let Some(e) = game_logic.find_object_mut(enemy) {
+            e.health.current = 500.0;
+            e.health.maximum = 500.0;
+        }
+        let nearby = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
+            .expect("nearby non-splash");
+        {
+            let k = game_logic.find_object_mut(kell_id).unwrap();
+            k.attack_target(enemy);
+            if let Some(w) = k.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let nearby_hp_before = game_logic
+            .find_object(nearby)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[kell_id, enemy, nearby], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.jarmen_kell_residual_fires() > 0,
+            "jarmen kell residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_jarmen_kell_ok(),
+            "jarmen kell residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            dealt > 150.0,
+            "jarmen kell AP sniper residual ~225 dmg (before={enemy_hp_before} after={enemy_hp_after} dealt={dealt})"
+        );
+        let nearby_hp_after = game_logic
+            .find_object(nearby)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (nearby_hp_after - nearby_hp_before).abs() < 0.01,
+            "jarmen kell sniper residual is intended-only (no splash) (before={nearby_hp_before} after={nearby_hp_after})"
+        );
+    }
+
     #[test]
     fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
         use crate::game_logic::host_battlemaster::{
