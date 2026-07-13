@@ -42,8 +42,9 @@
 //! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
 //! (host residual; full howitzer projectile Object deferred; MODELCONDITION
 //! CONTINUOUS_FIRE_* honesty residual closed) / ParticleUplinkCannonUpdate
-//! outer-node lasers + manual driving residual deferred; DamagePulseRemnant
-//! trail residual closed; swath sine residual closed). CarpetBomb residual is DropDelay-staggered multi-point
+//! outer-node lasers + full manual driving residual deferred; DamagePulseRemnant
+//! trail residual closed; swath sine residual closed; WidthGrow damage-radius
+//! + TotalScorchMarks/RevealRange residual closed). CarpetBomb residual is DropDelay-staggered multi-point
 //! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
@@ -262,6 +263,28 @@ pub const PARTICLE_DAMAGE_RADIUS_SCALAR: f32 = 3.4;
 pub const PARTICLE_SWATH_OF_DEATH_DISTANCE: f32 = 200.0;
 /// Retail SwathOfDeathAmplitude — lateral sine amplitude of swath residual.
 pub const PARTICLE_SWATH_OF_DEATH_AMPLITUDE: f32 = 50.0;
+/// Retail WidthGrowTime = 2000 ms → 60 frames @ 30 FPS.
+/// Laser radius ramps 0→full over this window (same value used for shrink/decay).
+pub const PARTICLE_WIDTH_GROW_FRAMES: u32 = (2000 * 30) / 1000;
+/// Retail OuterBeamWidth residual for OrbitalLaser honesty (26.0).
+/// Host full damage radius is [`PARTICLE_BEAM_RADIUS`]; OuterBeamWidth ×
+/// DamageRadiusScalar = 26 × 3.4 ≈ 88.4 is the full GPU laser matrix (fail-closed).
+pub const PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH: f32 = 26.0;
+/// Retail RevealRange = 50 — gratuitous vision at each scorch/GroundHitFX site.
+pub const PARTICLE_REVEAL_RANGE: f32 = 50.0;
+/// Retail TotalScorchMarks = 20 (also gates GroundHitFX / reveal cadence).
+pub const PARTICLE_TOTAL_SCORCH_MARKS: u32 = 20;
+/// Retail ScorchMarkScalar = 2.4 (scorch radius = laser radius × scalar).
+pub const PARTICLE_SCORCH_MARK_SCALAR: f32 = 2.4;
+/// Residual GroundHitFX name honesty (TotalScorchMarks determines call count).
+pub const PARTICLE_GROUND_HIT_FX: &str = "FX_ParticleUplinkCannon_BeamHitsGround";
+/// Retail ManualDrivingSpeed = 20 (logic units / frame residual honesty).
+/// Fail-closed: not full player retarget / override destination matrix.
+pub const PARTICLE_MANUAL_DRIVING_SPEED: f32 = 20.0;
+/// Retail ManualFastDrivingSpeed = 40.
+pub const PARTICLE_MANUAL_FAST_DRIVING_SPEED: f32 = 40.0;
+/// Retail DoubleClickToFastDriveDelay = 500 ms → 15 frames.
+pub const PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES: u32 = (500 * 30) / 1000;
 /// Residual ambient cue while beam is annihilating ground.
 pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSoundLoop";
 
@@ -312,6 +335,70 @@ pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
 /// Absolute residual damage epicenter for a pulse at field spawn position.
 pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) -> Vec3 {
     base + particle_swath_offset(pulses_made_before_this_pulse)
+}
+
+/// Laser width grow scalar residual (`LaserUpdate::m_currentWidthScalar`).
+///
+/// Retail: `scalar = (now - widenStart) / WidthGrowTime`, clamped to [0, 1].
+/// Host residual uses beam spawn as widenStart.
+pub fn particle_width_scalar(spawn_frame: u32, current_frame: u32) -> f32 {
+    if PARTICLE_WIDTH_GROW_FRAMES == 0 {
+        return 1.0;
+    }
+    if current_frame <= spawn_frame {
+        return 0.0;
+    }
+    let elapsed = current_frame.saturating_sub(spawn_frame) as f32;
+    (elapsed / (PARTICLE_WIDTH_GROW_FRAMES as f32)).clamp(0.0, 1.0)
+}
+
+/// Residual damage radius at `current_frame` under WidthGrow residual.
+///
+/// Full radius is [`PARTICLE_BEAM_RADIUS`] once grow completes. Early pulses
+/// use a smaller radius (retail laser radius × DamageRadiusScalar grow matrix).
+pub fn particle_beam_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 {
+    PARTICLE_BEAM_RADIUS * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Residual scorch mark radius under ScorchMarkScalar residual.
+///
+/// Retail: `scorchRadius = getCurrentLaserRadius() * ScorchMarkScalar`.
+/// Host residual: full scorch = PARTICLE_BEAM_RADIUS / DamageRadiusScalar
+/// * ScorchMarkScalar, scaled by current width scalar.
+pub fn particle_scorch_radius(spawn_frame: u32, current_frame: u32) -> f32 {
+    let laser_r = if PARTICLE_DAMAGE_RADIUS_SCALAR > 0.0 {
+        PARTICLE_BEAM_RADIUS / PARTICLE_DAMAGE_RADIUS_SCALAR
+    } else {
+        PARTICLE_BEAM_RADIUS
+    };
+    laser_r * PARTICLE_SCORCH_MARK_SCALAR * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Next absolute frame for the next scorch mark (fractional residual).
+///
+/// C++ after each scorch: `nextFactor = scorchMarksMade / totalScorchMarks`,
+/// `m_nextScorchMarkFrame = orbitalBirth + nextFactor * orbitalLifetime`.
+pub fn particle_next_scorch_frame(spawn_frame: u32, scorch_marks_made: u32) -> u32 {
+    if PARTICLE_TOTAL_SCORCH_MARKS == 0 {
+        return spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES);
+    }
+    let factor = (scorch_marks_made as f32) / (PARTICLE_TOTAL_SCORCH_MARKS as f32);
+    let offset = (factor * (PARTICLE_BEAM_DURATION_FRAMES as f32)).floor() as u32;
+    let next = spawn_frame.saturating_add(offset);
+    next.max(spawn_frame.saturating_add(1))
+}
+
+/// Map scorch mark index onto the SwathOfDeath pulse factor residual.
+///
+/// Host residual: scorch mark N uses pulse-equivalent index
+/// `N * TotalDamagePulses / TotalScorchMarks` so scorches walk the same S-curve.
+pub fn particle_scorch_pulse_index(scorch_marks_made_before: u32) -> u32 {
+    if PARTICLE_TOTAL_SCORCH_MARKS == 0 {
+        return 0;
+    }
+    ((scorch_marks_made_before as f32) * (PARTICLE_BEAM_TOTAL_PULSES as f32)
+        / (PARTICLE_TOTAL_SCORCH_MARKS as f32))
+        .floor() as u32
 }
 
 // --- Particle Uplink DamagePulseRemnant trail residual ---
@@ -1597,6 +1684,30 @@ pub struct HostParticleBeamField {
     /// Honesty: number of pulses that used a non-zero swath offset.
     #[serde(default)]
     pub swath_applications: u32,
+    /// Next absolute frame for TotalScorchMarks residual (GroundHitFX + reveal).
+    #[serde(default)]
+    pub next_scorch_frame: u32,
+    /// Scorch marks applied so far (retail TotalScorchMarks cap residual).
+    #[serde(default)]
+    pub scorch_marks_made: u32,
+    /// Honesty: doShroudReveal residual applications (RevealRange).
+    #[serde(default)]
+    pub reveal_applications: u32,
+    /// Honesty: GroundHitFX residual applications (matches scorch cadence).
+    #[serde(default)]
+    pub ground_hit_fx_applications: u32,
+    /// Honesty: peak width scalar reached this beam (WidthGrow residual).
+    #[serde(default)]
+    pub peak_width_scalar: f32,
+    /// Honesty: last residual damage radius used (WidthGrow residual).
+    #[serde(default)]
+    pub last_damage_radius: f32,
+    /// Last residual scorch epicenter (swath position at scorch).
+    #[serde(default)]
+    pub last_scorch_position: Vec3,
+    /// Honesty: last residual scorch radius.
+    #[serde(default)]
+    pub last_scorch_radius: f32,
 }
 
 impl HostParticleBeamField {
@@ -1607,6 +1718,17 @@ impl HostParticleBeamField {
 
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
         !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+
+    /// True when a scorch mark residual is due (and marks remain).
+    ///
+    /// Scorch schedule is independent of damage-pulse cap; it runs for the
+    /// beam orbital lifetime (`expires_frame` inclusive), matching retail
+    /// STATUS_FIRING scorch cadence.
+    pub fn is_due_scorch(&self, current_frame: u32) -> bool {
+        self.scorch_marks_made < PARTICLE_TOTAL_SCORCH_MARKS
+            && current_frame >= self.next_scorch_frame
+            && current_frame <= self.expires_frame
     }
 }
 
@@ -1626,6 +1748,22 @@ pub struct HostParticleBeamTickPlan {
     pub source_team: super::Team,
     pub position: Vec3,
     pub hits: Vec<HostParticleBeamDamageHit>,
+    /// Residual WidthGrow damage radius used for this pulse.
+    pub damage_radius: f32,
+    /// Residual width scalar used for this pulse.
+    pub width_scalar: f32,
+}
+
+/// Result of resolving one Particle Uplink scorch / reveal residual event.
+#[derive(Debug, Clone)]
+pub struct HostParticleScorchRevealEvent {
+    pub field_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub scorch_radius: f32,
+    pub reveal_range: f32,
+    pub scorch_mark_index: u32,
 }
 
 /// Residual DamagePulseRemnant trail field (`ParticleUplinkCannonTrailRemnant`).
@@ -3190,6 +3328,15 @@ impl HostSpecialPowerStrikeRegistry {
             last_swath_position: position,
             max_swath_offset: 0.0,
             swath_applications: 0,
+            // First scorch/reveal on beam-start frame (retail m_nextScorchMarkFrame = now).
+            next_scorch_frame: spawn_frame,
+            scorch_marks_made: 0,
+            reveal_applications: 0,
+            ground_hit_fx_applications: 0,
+            peak_width_scalar: 0.0,
+            last_damage_radius: 0.0,
+            last_scorch_position: position,
+            last_scorch_radius: 0.0,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -3202,11 +3349,13 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Retail damages all alive objects in beam radius (DamageRadiusScalar ×
     /// laser radius) at the SwathOfDeath epicenter. Host residual damages living
-    /// objects in [`PARTICLE_BEAM_RADIUS`] around the residual swath epicenter,
-    /// excluding the source launcher and same-team friendlies (host strike
-    /// convention). Fail-closed vs full building→target rotation matrix /
-    /// manual beam driving / laser width grow matrix. DamagePulseRemnant trail
-    /// residual spawns on each completed pulse ([`spawn_remnant_field`]).
+    /// objects in WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] around the residual
+    /// swath epicenter, excluding the source launcher and same-team friendlies
+    /// (host strike convention). Fail-closed vs full building→target rotation
+    /// matrix / manual beam driving / full GPU laser width matrix. WidthGrow
+    /// damage-radius residual scales radius 0→full over
+    /// [`PARTICLE_WIDTH_GROW_FRAMES`]. DamagePulseRemnant trail residual spawns
+    /// on each completed pulse ([`spawn_remnant_field`]).
     pub fn plan_due_beam_ticks(
         &self,
         current_frame: u32,
@@ -3219,6 +3368,9 @@ impl HostSpecialPowerStrikeRegistry {
             }
             // SwathOfDeath residual: walk S-curve around click epicenter.
             let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
+            // WidthGrow residual: damage radius ramps with laser width scalar.
+            let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
+            let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == field.source_object {
@@ -3229,7 +3381,7 @@ impl HostSpecialPowerStrikeRegistry {
                     continue;
                 }
                 let dist = horizontal_distance(pos, epicenter);
-                if dist <= PARTICLE_BEAM_RADIUS {
+                if dist <= damage_radius {
                     hits.push(HostParticleBeamDamageHit {
                         target_id: id,
                         damage: PARTICLE_BEAM_DAMAGE_PER_PULSE,
@@ -3243,6 +3395,8 @@ impl HostSpecialPowerStrikeRegistry {
                 source_team: field.source_team,
                 position: epicenter,
                 hits,
+                damage_radius,
+                width_scalar,
             });
         }
         plans.sort_by_key(|p| p.field_id);
@@ -3274,6 +3428,14 @@ impl HostSpecialPowerStrikeRegistry {
             if offset_len > 0.01 {
                 field.swath_applications = field.swath_applications.saturating_add(1);
             }
+
+            // WidthGrow residual honesty for the pulse that just applied.
+            let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
+            let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
+            if width_scalar > field.peak_width_scalar {
+                field.peak_width_scalar = width_scalar;
+            }
+            field.last_damage_radius = damage_radius;
 
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
@@ -3536,6 +3698,77 @@ impl HostSpecialPowerStrikeRegistry {
                 .any(|f| f.damage_applications > 0)
     }
 
+    /// Residual honesty: WidthGrow damage-radius residual ramped past a floor.
+    ///
+    /// True when any beam field reached width scalar ≥ 0.5 (half WidthGrowTime).
+    /// Fail-closed: not full GPU laser width matrix / OuterBeamWidth × scalar.
+    pub fn honesty_beam_width_grow_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| f.peak_width_scalar >= 0.5)
+            && PARTICLE_WIDTH_GROW_FRAMES == 60
+    }
+
+    /// Residual honesty: TotalScorchMarks residual applied at least one mark.
+    pub fn honesty_beam_scorch_ok(&self) -> bool {
+        (self.beam_fields.iter().any(|f| f.scorch_marks_made > 0)
+            || self
+                .beam_fields
+                .iter()
+                .any(|f| f.ground_hit_fx_applications > 0))
+            && PARTICLE_TOTAL_SCORCH_MARKS == 20
+            && PARTICLE_GROUND_HIT_FX.contains("BeamHitsGround")
+    }
+
+    /// Residual honesty: RevealRange residual applied at least once with scorch.
+    pub fn honesty_beam_reveal_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| f.reveal_applications > 0)
+            && (PARTICLE_REVEAL_RANGE - 50.0).abs() < 0.01
+    }
+
+    /// Apply due TotalScorchMarks / GroundHitFX / RevealRange residual events.
+    ///
+    /// Retail (STATUS_FIRING): when `m_nextScorchMarkFrame <= now`, spawn scorch,
+    /// run GroundHitFX, and doShroudReveal/undoShroudReveal at current target with
+    /// RevealRange. Host residual records honesty counters + last scorch position
+    /// (fail-closed vs full TheGameClient::addScorch GPU / partition shroud cells
+    /// without a wired ShroudManager hook from this registry).
+    pub fn apply_due_beam_scorch_reveals(
+        &mut self,
+        current_frame: u32,
+    ) -> Vec<HostParticleScorchRevealEvent> {
+        let mut events = Vec::new();
+        for field in &mut self.beam_fields {
+            // Catch up all due scorch marks (may be multi if frames skipped).
+            while field.is_due_scorch(current_frame) {
+                let pulse_idx = particle_scorch_pulse_index(field.scorch_marks_made);
+                let epicenter = particle_swath_epicenter(field.position, pulse_idx);
+                let scorch_r = particle_scorch_radius(field.spawn_frame, current_frame);
+                field.scorch_marks_made = field.scorch_marks_made.saturating_add(1);
+                field.ground_hit_fx_applications =
+                    field.ground_hit_fx_applications.saturating_add(1);
+                field.reveal_applications = field.reveal_applications.saturating_add(1);
+                field.last_scorch_position = epicenter;
+                field.last_scorch_radius = scorch_r;
+                let scheduled =
+                    particle_next_scorch_frame(field.spawn_frame, field.scorch_marks_made);
+                // Advance by schedule factor; allow multi-mark catch-up when
+                // frames were skipped (do not clamp to current+1 inside the loop).
+                field.next_scorch_frame =
+                    scheduled.max(field.next_scorch_frame.saturating_add(1));
+                events.push(HostParticleScorchRevealEvent {
+                    field_id: field.id,
+                    source_object: field.source_object,
+                    source_team: field.source_team,
+                    position: epicenter,
+                    scorch_radius: scorch_r,
+                    reveal_range: PARTICLE_REVEAL_RANGE,
+                    scorch_mark_index: field.scorch_marks_made,
+                });
+            }
+        }
+        events.sort_by_key(|e| (e.field_id, e.scorch_mark_index));
+        events
+    }
+
     /// Combined host path honesty: a completed strike exists for `kind`.
     /// NuclearMissile also requires residual radiation field spawn.
     /// AnthraxBomb also requires residual toxin field spawn.
@@ -3704,6 +3937,23 @@ mod tests {
         assert!((PARTICLE_SWATH_OF_DEATH_DISTANCE - 200.0).abs() < 0.1);
         assert!((PARTICLE_SWATH_OF_DEATH_AMPLITUDE - 50.0).abs() < 0.1);
         assert!((PARTICLE_DAMAGE_RADIUS_SCALAR - 3.4).abs() < 0.01);
+        // WidthGrow + RevealRange + ScorchMarks retail residual.
+        assert_eq!(PARTICLE_WIDTH_GROW_FRAMES, 60);
+        assert!((PARTICLE_REVEAL_RANGE - 50.0).abs() < 0.01);
+        assert_eq!(PARTICLE_TOTAL_SCORCH_MARKS, 20);
+        assert!((PARTICLE_SCORCH_MARK_SCALAR - 2.4).abs() < 0.01);
+        assert!((PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01);
+        assert!((PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01);
+        assert_eq!(PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES, 15);
+        assert!((particle_width_scalar(100, 100) - 0.0).abs() < 0.01);
+        assert!((particle_width_scalar(100, 130) - 0.5).abs() < 0.01);
+        assert!((particle_width_scalar(100, 160) - 1.0).abs() < 0.01);
+        assert!((particle_beam_damage_radius(100, 160) - PARTICLE_BEAM_RADIUS).abs() < 0.01);
+        assert_eq!(particle_next_scorch_frame(100, 0), 101);
+        assert_eq!(
+            particle_next_scorch_frame(100, 10),
+            100 + (0.5 * PARTICLE_BEAM_DURATION_FRAMES as f32).floor() as u32
+        );
         // First pulse (factor 0): cx = -distance/2.
         let o0 = particle_swath_offset(0);
         assert!((o0.x + PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5).abs() < 0.1);
@@ -3761,24 +4011,25 @@ mod tests {
         assert_eq!(reg.beam_fields()[0].parent_strike_id, id);
 
         // First beam pulse on spawn frame — uses SwathOfDeath epicenter.
+        // WidthGrow residual: radius 0 at spawn → only exact-epicenter unit hits.
         let beam_plans = reg.plan_due_beam_ticks(120, &objects);
         assert_eq!(beam_plans.len(), 1);
         assert!(
             (beam_plans[0].position.x - swath0.x).abs() < 0.1,
             "first pulse must use swath epicenter"
         );
-        assert_eq!(beam_plans[0].hits.len(), 2); // swath epicenter + mid-radius enemies
-        assert!(beam_plans[0].hits.iter().all(|h| {
-            (h.damage - PARTICLE_BEAM_DAMAGE_PER_PULSE).abs() < 0.01
-                && (h.target_id == ObjectId(2) || h.target_id == ObjectId(3))
-        }));
+        assert!((beam_plans[0].damage_radius - 0.0).abs() < 0.01);
+        assert!((beam_plans[0].width_scalar - 0.0).abs() < 0.01);
+        assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under width=0
+        assert_eq!(beam_plans[0].hits[0].target_id, ObjectId(2));
+        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
         assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
         assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
 
         reg.record_beam_tick_complete(
             beam_plans[0].field_id,
-            PARTICLE_BEAM_DAMAGE_PER_PULSE * 2.0,
-            2,
+            PARTICLE_BEAM_DAMAGE_PER_PULSE * 1.0,
+            1,
             0,
             120,
         );
@@ -3786,6 +4037,8 @@ mod tests {
         assert!(reg.honesty_beam_swath_ok());
         assert!(reg.beam_fields()[0].swath_applications >= 1);
         assert!(reg.beam_fields()[0].max_swath_offset > 50.0);
+        // WidthGrow residual: first pulse at spawn still records peak scalar 0.
+        assert!(reg.beam_fields()[0].peak_width_scalar < 0.01);
         // Fractional nextFactor: pulses_made=1 → factor 1/40 * 105 = 2.625 → floor 2.
         let expected_next = particle_next_pulse_frame(120, 1).max(121);
         assert_eq!(reg.beam_fields()[0].next_tick_frame, expected_next);
@@ -5266,6 +5519,152 @@ mod tests {
                 .all(|f| f.spawn_frame > spawn || f.is_expired(spawn + PARTICLE_REMNANT_DURATION_FRAMES)
                     || f.expires_frame > spawn + PARTICLE_REMNANT_DURATION_FRAMES)
                 || reg.remnant_fields().len() <= 1
+        );
+    }
+
+    #[test]
+    fn particle_uplink_width_grow_damage_radius_residual_honesty() {
+        // WidthGrowTime 2000ms → 60 frames; radius ramps 0→PARTICLE_BEAM_RADIUS.
+        assert_eq!(PARTICLE_WIDTH_GROW_FRAMES, 60);
+        assert!((PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::China,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+
+        // First-pulse swath epicenter at x=-100. Park unit 30 units from it.
+        let epic0 = particle_swath_epicenter(click, 0);
+        let near = epic0 + Vec3::new(30.0, 0.0, 0.0);
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
+            (ObjectId(2), near, Team::GLA, true),
+        ];
+
+        // Spawn frame: width scalar 0 → miss (radius 0).
+        let early = reg.plan_due_beam_ticks(spawn, &objects);
+        assert_eq!(early.len(), 1);
+        assert!(early[0].hits.is_empty());
+        assert!((early[0].damage_radius - 0.0).abs() < 0.01);
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+
+        // Advance to half grow (scalar 0.5 → radius 25) — still miss unit at 30.
+        let half = spawn + PARTICLE_WIDTH_GROW_FRAMES / 2;
+        // Force next tick due at half-grow frame.
+        if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            f.next_tick_frame = half;
+            // Keep pulses_made so swath stays at first epicenter for radius test.
+            f.pulses_made = 0;
+        }
+        let mid = reg.plan_due_beam_ticks(half, &objects);
+        assert_eq!(mid.len(), 1);
+        assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
+        assert!((mid[0].damage_radius - 25.0).abs() < 0.1);
+        assert!(
+            mid[0].hits.is_empty(),
+            "half-grow radius 25 must miss unit at dist 30"
+        );
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half);
+        assert!((reg.beam_fields()[0].peak_width_scalar - 0.5).abs() < 0.01);
+
+        // Full grow: radius 50 → hit unit at dist 30.
+        let full = spawn + PARTICLE_WIDTH_GROW_FRAMES;
+        if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            f.next_tick_frame = full;
+            f.pulses_made = 0; // keep first swath epicenter
+        }
+        let late = reg.plan_due_beam_ticks(full, &objects);
+        assert_eq!(late.len(), 1);
+        assert!((late[0].width_scalar - 1.0).abs() < 0.01);
+        assert!((late[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
+        assert_eq!(late[0].hits.len(), 1);
+        assert_eq!(late[0].hits[0].target_id, ObjectId(2));
+        reg.record_beam_tick_complete(
+            field_id,
+            PARTICLE_BEAM_DAMAGE_PER_PULSE,
+            1,
+            0,
+            full,
+        );
+        assert!(reg.honesty_beam_width_grow_ok());
+        assert!((reg.beam_fields()[0].peak_width_scalar - 1.0).abs() < 0.01);
+        assert!((reg.beam_fields()[0].last_damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
+    }
+
+    #[test]
+    fn particle_uplink_scorch_reveal_residual_honesty() {
+        // TotalScorchMarks 20 + RevealRange 50 + GroundHitFX residual.
+        assert_eq!(PARTICLE_TOTAL_SCORCH_MARKS, 20);
+        assert!((PARTICLE_REVEAL_RANGE - 50.0).abs() < 0.01);
+        assert!(PARTICLE_GROUND_HIT_FX.contains("BeamHitsGround"));
+        assert!((PARTICLE_SCORCH_MARK_SCALAR - 2.4).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(10.0, 0.0, 5.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        assert_eq!(reg.beam_fields()[0].scorch_marks_made, 0);
+        assert_eq!(reg.beam_fields()[0].next_scorch_frame, spawn);
+
+        // First scorch/reveal on spawn frame (retail m_nextScorchMarkFrame = now).
+        let events = reg.apply_due_beam_scorch_reveals(spawn);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].scorch_mark_index, 1);
+        assert!((events[0].reveal_range - PARTICLE_REVEAL_RANGE).abs() < 0.01);
+        // First scorch uses pulse index 0 → first swath epicenter.
+        let expected_pos = particle_swath_epicenter(click, 0);
+        assert!((events[0].position.x - expected_pos.x).abs() < 0.1);
+        assert!((events[0].position.z - expected_pos.z).abs() < 0.1);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.scorch_marks_made, 1);
+            assert_eq!(f.reveal_applications, 1);
+            assert_eq!(f.ground_hit_fx_applications, 1);
+            assert!(f.next_scorch_frame > spawn);
+        }
+        assert!(reg.honesty_beam_scorch_ok());
+        assert!(reg.honesty_beam_reveal_ok());
+
+        // Not due again until scheduled scorch frame.
+        let next = reg.beam_fields()[0].next_scorch_frame;
+        assert!(reg.apply_due_beam_scorch_reveals(next.saturating_sub(1)).is_empty());
+
+        // Catch-up: jump past several scorch slots → multiple residual events.
+        let late = spawn + PARTICLE_BEAM_DURATION_FRAMES;
+        let caught = reg.apply_due_beam_scorch_reveals(late);
+        assert!(caught.len() >= 5, "fractional scorch schedule catch-up, got {}", caught.len());
+        assert!(
+            reg.beam_fields()[0].scorch_marks_made <= PARTICLE_TOTAL_SCORCH_MARKS
+        );
+        assert_eq!(
+            reg.beam_fields()[0].reveal_applications,
+            reg.beam_fields()[0].scorch_marks_made
+        );
+        assert_eq!(
+            reg.beam_fields()[0].ground_hit_fx_applications,
+            reg.beam_fields()[0].scorch_marks_made
+        );
+
+        // Cap at TotalScorchMarks.
+        let _ = reg.apply_due_beam_scorch_reveals(late + 1000);
+        assert_eq!(
+            reg.beam_fields()[0].scorch_marks_made,
+            PARTICLE_TOTAL_SCORCH_MARKS
         );
     }
 

@@ -31445,6 +31445,47 @@ impl GameLogic {
             );
         }
 
+        // TotalScorchMarks / GroundHitFX / RevealRange residual (retail STATUS_FIRING).
+        // C++: doShroudReveal + undoShroudReveal at current target with RevealRange
+        // each scorch tick (instant "gratuitous vision" pulse, not duration reveal).
+        let scorch_events = self
+            .special_power_strikes
+            .apply_due_beam_scorch_reveals(frame);
+        if !scorch_events.is_empty() {
+            use crate::game_logic::special_power_strikes::PARTICLE_REVEAL_RANGE;
+            use gamelogic::common::Coord3D;
+            let world_w = self.world_width.max(1.0);
+            let world_h = self.world_height.max(1.0);
+            if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+                if !shroud_mgr.has_shroud_grid() {
+                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                }
+                for event in &scorch_events {
+                    let mut player_mask = 0u32;
+                    for (&pid, player) in &self.players {
+                        if player.team == event.source_team {
+                            player_mask |= 1u32 << pid.min(31);
+                        }
+                    }
+                    if player_mask == 0 {
+                        // No registered players for team: skip FOW write (honesty
+                        // counters already recorded on the beam field).
+                        continue;
+                    }
+                    // Host gameplay plane (x,z) → shroud (x,y).
+                    let center = Coord3D::new(event.position.x, event.position.z, event.position.y);
+                    let range = if event.reveal_range > 0.0 {
+                        event.reveal_range
+                    } else {
+                        PARTICLE_REVEAL_RANGE
+                    };
+                    // Retail: do + undo same frame (pulse reveal, not duration FOW).
+                    shroud_mgr.do_shroud_reveal(&center, range, player_mask);
+                    shroud_mgr.undo_shroud_reveal(&center, range, player_mask);
+                }
+            }
+        }
+
         self.special_power_strikes.prune_expired_beam(frame);
     }
 
