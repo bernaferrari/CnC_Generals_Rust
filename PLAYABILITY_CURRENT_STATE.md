@@ -1,3 +1,42 @@
+## Residual Host Playability — Scud Anthrax Upgrade + Spectre ContinuousFire ROF (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 13 dual-weapon / per-missile poison):**
+1. **ScudStorm anthrax-upgrade residual** (`special_power_strikes` / `ScudStormAnthraxTier`):
+   - Base `ScudStormDamageWeapon`: Primary **500** / Secondary **150** + LargePoison **15**.
+   - Anthrax Beta (`Upgrade_GLAAnthraxBeta` / `ScudStormDamageWeaponUpgraded`):
+     Secondary **200** + LargePoisonFieldWeaponUpgraded **25**/tick (radius **140**).
+   - Chem Gamma (`Chem_Upgrade_GLAAnthraxGamma` / `Chem_ScudStormDamageWeaponGamma`):
+     Primary **550** / Secondary **200** + poison **25**.
+   - Queue path selects tier from player unlocked sciences/upgrades; strike stores
+     `scud_anthrax_tier`; per-missile poison uses tier damage residual.
+   - Host-testable: secondary ring hit = 200 under Beta; poison field 25/tick.
+   - Fail-closed: not full ScudStormMissile projectile Object / PreAttack animation /
+     Chem particle bone matrix.
+2. **Spectre ContinuousFire ROF residual** (`special_power_strikes`):
+   - Gattling ContinuousFireOne/**1** / Two/**2**: base interval **3** frames → MEAN
+     ROF **200%** → **1** frame → FAST ROF **300%** → **1** frame.
+   - Howitzer ContinuousFireOne/**1** / Two/**2** on HowitzerFiringRate base **9**:
+     MEAN ROF **150%** → **6** frames; FAST ROF **200%** → **4** frames.
+   - Host tracks `gattling_consecutive` / `howitzer_consecutive` + peak fire levels;
+     honesty gates for MEAN reached.
+   - Fail-closed: not full FiringTracker coast cool-down / howitzer shell projectile
+     Object / model-condition continuous-fire flags.
+3. **Unit-host splash last_damage_source residual** (related combat residual):
+   - Many unit host splash / fire paths now call `take_damage_from(..., Some(source))`
+     so CashBounty killer residual prefers BodyModule last_damage_source.
+   - Fail-closed: not full DestructionEvent killer ObjectId matrix on every path.
+4. Tests (not log-only):
+   - `scud_storm_anthrax_upgrade_secondary_and_poison_residual`
+   - `spectre_continuous_fire_rof_residual_honesty`
+   - all `special_power_strikes::` (27)
+   - `scud_storm_host_path_queues_and_completes`
+   - `spectre_gunship_host_path_queues_orbit_damage_over_time`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / FiringTracker coast cool-down matrix
+- Full GameLogicRandomValueReal RNG stream
+- Network Scud anthrax / Spectre ROF replication (network deferred)
+
 ## Residual Host Playability — Spectre Gattling/Howitzer Dual Residual + Scud Per-Missile Poison (2026-07-13)
 **Closed (host-testable combat/power residual not covered by Scud multi-missile / Spectre OrbitTime / Aurora wave):**
 1. **Spectre dual-weapon orbit residual** (`special_power_strikes`):
@@ -9,7 +48,7 @@
      + same-team friendlies.
    - Host-testable: first insertion tick = 80+90 at reticle; gattling-only at +3;
      far units outside orbit untouched; honesty_gattling_ok.
-   - Fail-closed: not full projectile path / continuous-fire rate matrix / gunner Object.
+   - Fail-closed: not full projectile path / gunner Object (continuous-fire residual closed wave 15).
 2. **ScudStorm per-missile LargePoisonField residual**:
    - Each multi-missile wave spawns `OCL_PoisonFieldLarge` residual at wave
      epicenters (retail FireOCL each detonation), not only on final wave.
@@ -21,8 +60,8 @@
    - updated `spectre_gunship_host_path_queues_orbit_damage_over_time`
 
 **Still residual (fail-closed, not claimed):**
-- Full SpectreGunshipUpdate gattling continuous-fire bonuses / howitzer shell projectile
-- Full ScudStormMissile Object / PreAttack animation / anthrax-upgraded Secondary 200
+- Full SpectreHowitzerShell projectile / FiringTracker coast cool-down
+- Full ScudStormMissile Object / PreAttack animation
 - Full GameLogicRandomValueReal RNG stream
 - Network Spectre dual-weapon / Scud poison replication (network deferred)
 

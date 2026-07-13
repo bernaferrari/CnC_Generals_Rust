@@ -17920,7 +17920,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -18028,7 +18028,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -18183,7 +18183,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -18233,7 +18233,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -18319,7 +18319,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -18471,7 +18471,7 @@ impl GameLogic {
                 obj.status.under_construction,
                 combat_kind,
             ) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -18707,7 +18707,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -19110,7 +19110,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -19236,7 +19236,7 @@ impl GameLogic {
                 obj.status.under_construction,
                 true,
             ) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -19389,7 +19389,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -19629,7 +19629,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -19737,7 +19737,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -19883,7 +19883,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -20054,7 +20054,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -20175,7 +20175,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -20317,7 +20317,7 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -20407,7 +20407,7 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -20497,7 +20497,7 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -20605,7 +20605,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -20674,7 +20674,7 @@ impl GameLogic {
         if let Some(tid) = intended_target {
             if let Some(obj) = self.objects.get_mut(&tid) {
                 if obj.is_alive() && !obj.status.under_construction {
-                    let destroyed = obj.take_damage(BATTLE_DRONE_GUN_DAMAGE);
+                    let destroyed = obj.take_damage_from(BATTLE_DRONE_GUN_DAMAGE, source);
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -20894,7 +20894,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -21009,7 +21009,7 @@ impl GameLogic {
                     obj.status.under_construction,
                     combat_kind,
                 ) {
-                    let destroyed = obj.take_damage(damage);
+                    let destroyed = obj.take_damage_from(damage, source);
                     hits = 1;
                     if destroyed {
                         any_destroyed = true;
@@ -21246,7 +21246,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -21591,7 +21591,7 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage(damage);
+            let destroyed = obj.take_damage_from(damage, source);
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -21697,7 +21697,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -21831,7 +21831,7 @@ impl GameLogic {
 
             for (vid, dmg, _intended) in victims {
                 if let Some(obj) = self.objects.get_mut(&vid) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -21878,7 +21878,7 @@ impl GameLogic {
             let target_pos = target.get_position();
 
             if let Some(obj) = self.objects.get_mut(&target_id) {
-                let destroyed = obj.take_damage(damage);
+                let destroyed = obj.take_damage_from(damage, source);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -21954,7 +21954,7 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage(damage);
+            let destroyed = obj.take_damage_from(damage, source);
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -22038,7 +22038,7 @@ impl GameLogic {
                 obj.status.under_construction,
                 combat_kind,
             ) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -22220,7 +22220,7 @@ impl GameLogic {
         let mut hits = 0u32;
         let mut any_destroyed = false;
         if let Some(obj) = self.objects.get_mut(&target_id) {
-            let destroyed = obj.take_damage(damage);
+            let destroyed = obj.take_damage_from(damage, source);
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -22363,7 +22363,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -22481,7 +22481,7 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&id) {
                 let applied = dmg.min(obj.health.current.max(0.0));
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 damage_dealt += applied;
                 if destroyed {
@@ -22615,7 +22615,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -22926,7 +22926,7 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -22981,7 +22981,7 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage(dmg);
+                    let destroyed = obj.take_damage_from(dmg, source);
                     hits = hits.saturating_add(1);
                     if destroyed {
                         any_destroyed = true;
@@ -23006,7 +23006,7 @@ impl GameLogic {
                             obj.status.under_construction,
                             true,
                         ) {
-                            let destroyed = obj.take_damage(dmg);
+                            let destroyed = obj.take_damage_from(dmg, source);
                             hits = hits.saturating_add(1);
                             if destroyed {
                                 any_destroyed = true;
@@ -23146,7 +23146,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -23267,7 +23267,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -23346,7 +23346,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -23432,7 +23432,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage(dmg);
+                let destroyed = obj.take_damage_from(dmg, source);
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -27954,7 +27954,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -28121,7 +28121,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -28449,7 +28449,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -29181,7 +29181,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -29310,7 +29310,7 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -29456,7 +29456,7 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed = target.take_damage_from(hit.damage, None);
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -30915,7 +30915,8 @@ impl GameLogic {
         target_position: Vec3,
     ) -> Option<u32> {
         use crate::game_logic::special_power_strikes::{
-            ArtilleryBarrageScienceTier, HostSuperweaponKind, SpectreGunshipScienceTier,
+            ArtilleryBarrageScienceTier, HostSuperweaponKind, ScudStormAnthraxTier,
+            SpectreGunshipScienceTier,
         };
         let kind = HostSuperweaponKind::from_command_power(power)?;
         let source_team = self
@@ -30946,7 +30947,13 @@ impl GameLogic {
         } else {
             SpectreGunshipScienceTier::Level2
         };
-        let id = self.special_power_strikes.queue_with_tiers(
+        // ScudStorm anthrax-upgrade residual from unlocked Anthrax Beta/Gamma.
+        let scud_anthrax_tier = if kind == HostSuperweaponKind::ScudStorm {
+            ScudStormAnthraxTier::highest_from_upgrades(sciences.iter().map(|s| s.as_str()))
+        } else {
+            ScudStormAnthraxTier::Base
+        };
+        let id = self.special_power_strikes.queue_with_all_tiers(
             kind,
             source_object,
             source_team,
@@ -30954,6 +30961,7 @@ impl GameLogic {
             frame,
             artillery_tier,
             spectre_tier,
+            scud_anthrax_tier,
         );
 
         // Activation audio residual (observable request path).
@@ -34823,7 +34831,7 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage(hit.damage) {
+                if victim.take_damage_from(hit.damage, Some(source_id)) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -34885,7 +34893,7 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage(hit.damage) {
+                if victim.take_damage_from(hit.damage, Some(source_id)) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }

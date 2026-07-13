@@ -2828,6 +2828,15 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_ticks)?;
         xfer.xfer_marker_label("GattlingTicks")?;
         xfer.xfer_u32(&mut self.gattling_ticks)?;
+        // Continuous-fire residual bookkeeping (appended).
+        xfer.xfer_marker_label("GattlingConsecutive")?;
+        xfer.xfer_u32(&mut self.gattling_consecutive)?;
+        xfer.xfer_marker_label("HowitzerConsecutive")?;
+        xfer.xfer_u32(&mut self.howitzer_consecutive)?;
+        xfer.xfer_marker_label("GattlingFireLevel")?;
+        xfer.xfer_u8(&mut self.gattling_fire_level)?;
+        xfer.xfer_marker_label("HowitzerFireLevel")?;
+        xfer.xfer_u8(&mut self.howitzer_fire_level)?;
         Ok(())
     }
 }
@@ -2886,6 +2895,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 objects_destroyed: 0,
                 artillery_tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level1,
                 spectre_tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
+                scud_anthrax_tier: crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
                 multi_strike_applied: 0,
             },
         )?;
@@ -2965,6 +2975,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 parent_strike_id: 0,
                 howitzer_ticks: 0,
                 gattling_ticks: 0,
+                gattling_consecutive: 0,
+                howitzer_consecutive: 0,
+                gattling_fire_level: 0,
+                howitzer_fire_level: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
