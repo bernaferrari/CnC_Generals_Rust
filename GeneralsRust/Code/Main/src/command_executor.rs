@@ -199,6 +199,12 @@ impl<'a> CommandExecutor<'a> {
             CommandType::PlantTimedDemoCharge { target_id } => {
                 self.execute_plant_timed_demo_charge(&command.selected_units, *target_id)
             }
+            CommandType::PlantRemoteDemoCharge { target_id } => {
+                self.execute_plant_remote_demo_charge(&command.selected_units, *target_id)
+            }
+            CommandType::DetonateRemoteDemoCharges => {
+                self.execute_detonate_remote_demo_charges(&command.selected_units)
+            }
             CommandType::StealCashHack { target_id } => {
                 self.execute_steal_cash_hack(&command.selected_units, *target_id)
             }
@@ -2085,6 +2091,96 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: plant remote demo charge on enemy structure/vehicle.
+    /// Fail-closed: not full StickyBombUpdate attach bones / max-charge list.
+    fn execute_plant_remote_demo_charge(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        let (target_team, target_pos, target_alive, target_is_structure, target_is_vehicle, target_is_airborne) =
+            match self.game_logic.get_object(target_id) {
+                Some(target) => (
+                    target.team,
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Structure),
+                    target.is_kind_of(KindOf::Vehicle),
+                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        let valid_target = target_alive
+            && target_team != Team::Neutral
+            && (target_is_structure || (target_is_vehicle && !target_is_airborne));
+        if !valid_target {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::PlantRemoteDemoCharge { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Colonel Burton residual: detonate all remote charges planted by selected units.
+    /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (detonate special object list).
+    fn execute_detonate_remote_demo_charges(&mut self, units: &[ObjectId]) -> CommandResult {
+        let producers: Vec<ObjectId> = units
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.game_logic
+                    .get_object(*id)
+                    .map(|u| u.is_alive())
+                    .unwrap_or(false)
+            })
+            .collect();
+        if producers.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
+        let detonated = self.game_logic.detonate_remote_demo_charges(&producers);
+        if detonated > 0 {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

@@ -14,6 +14,7 @@ pub mod script_loader;
 pub mod special_power_strikes;
 pub mod host_upgrades;
 pub mod host_cash_bounty;
+pub mod host_black_market;
 pub mod host_mines;
 pub mod host_radar_scan;
 pub mod host_spy_satellite;
@@ -63,6 +64,12 @@ pub use host_cash_bounty::{
     cash_bounty_percent_for_science, compute_bounty_award, HostCashBountyRegistry,
     CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, SCIENCE_CASH_BOUNTY1,
     SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
+};
+pub use host_black_market::{
+    deposit_interval_frames_from_ms, is_black_market_structure, is_black_market_template,
+    is_legal_black_market_income_source, HostBlackMarketRegistry, BLACK_MARKET_DEPOSIT_AMOUNT,
+    BLACK_MARKET_DEPOSIT_AUDIO, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+    BLACK_MARKET_DEPOSIT_TIMING_MS,
 };
 pub use host_mines::{
     can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
