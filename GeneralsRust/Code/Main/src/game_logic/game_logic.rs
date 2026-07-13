@@ -749,6 +749,10 @@ pub struct GameLogic {
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
 
+    /// Host USA Strategy Center battle-plan residual (Bombardment / HoldTheLine / S&D).
+    /// Fail-closed: not full BattlePlanUpdate pack/unpack / paralyze / turret matrix.
+    battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry,
+
     /// Host Emergency Repair residual — SingleBurst ally vehicle heal in radius.
     /// Fail-closed: not full OCL RepairVehicles invisible marker / RepairCloud path.
     emergency_repairs: crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry,
@@ -1923,6 +1927,7 @@ impl GameLogic {
             microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
+            battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry::new(),
             emergency_repairs:
                 crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry::new(),
             cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry::new(),
@@ -5299,8 +5304,10 @@ impl GameLogic {
                         weapon_damage *= 1.1;
                     }
                     // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
+                    // Strategy Center Bombardment residual: BATTLEPLAN_BOMBARDMENT DAMAGE 120%.
                     if let Some(attacker) = self.objects.get(&attacker_id) {
                         weapon_damage *= attacker.frenzy_damage_multiplier();
+                        weapon_damage *= attacker.battle_plan_damage_multiplier();
                     }
 
                     fired_slot = Some(slot);
@@ -6497,8 +6504,10 @@ impl GameLogic {
                         weapon_damage *= 1.1;
                     }
                     // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
+                    // Strategy Center Bombardment residual: BATTLEPLAN_BOMBARDMENT DAMAGE 120%.
                     if let Some(attacker) = self.objects.get(&attacker_id) {
                         weapon_damage *= attacker.frenzy_damage_multiplier();
+                        weapon_damage *= attacker.battle_plan_damage_multiplier();
                     }
 
                     fired_slot = Some(if rocket_pod_ground { 1 } else { 0 });
@@ -21697,6 +21706,28 @@ impl GameLogic {
         self.frenzies.honesty_host_path_ok()
     }
 
+    /// Host USA Strategy Center battle-plan residual registry (select + honesty).
+    pub fn battle_plans(
+        &self,
+    ) -> &crate::game_logic::host_strategy_center::HostBattlePlanRegistry {
+        &self.battle_plans
+    }
+
+    /// Residual honesty: Strategy Center battle plan selected at least once.
+    pub fn honesty_battle_plan_select_ok(&self) -> bool {
+        self.battle_plans.honesty_select_ok()
+    }
+
+    /// Residual honesty: battle plan applied army residual buff at least once.
+    pub fn honesty_battle_plan_buff_ok(&self) -> bool {
+        self.battle_plans.honesty_buff_ok()
+    }
+
+    /// Combined host path honesty for Strategy Center battle-plan residual.
+    pub fn honesty_battle_plan_ok(&self) -> bool {
+        self.battle_plans.honesty_host_path_ok()
+    }
+
     /// Activate Frenzy / Rage residual: temporary ally attack buff in radius.
     ///
     /// Matches retail SuperweaponFrenzy → Frenzy_InvisibleMarker WeaponBonusUpdate:
@@ -21806,6 +21837,242 @@ impl GameLogic {
             frame,
             caster_id,
             None,
+        );
+
+        true
+    }
+
+    /// Select a USA Strategy Center battle plan residual and apply army bonuses.
+    ///
+    /// Matches retail BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan:
+    /// - Bombardment: BATTLEPLAN_BOMBARDMENT DAMAGE 120% on legal army members
+    /// - HoldTheLine: armor damage scalar 0.9 + center max-health ×2 residual
+    /// - SearchAndDestroy: RANGE 120% + sight 1.2; center detect residual
+    ///
+    /// Fail-closed: not full pack/unpack animation / 5000ms paralyze / turret path.
+    /// Returns true when the residual selection was recorded (even if 0 army buffs).
+    pub fn activate_battle_plan(
+        &mut self,
+        player_id: u32,
+        plan: crate::game_logic::host_strategy_center::HostBattlePlan,
+        strategy_center_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_strategy_center::{
+            is_dozer_template_name, is_drone_template_name, is_legal_battle_plan_member,
+            is_strategy_center_template, HostBattlePlanSelection,
+            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
+            STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
+        };
+
+        let frame = self.frame;
+
+        // Team residual from strategy center or player_id fallback.
+        let team = strategy_center_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .unwrap_or_else(|| match player_id {
+                0 => Team::USA,
+                1 => Team::China,
+                2 => Team::GLA,
+                _ => Team::Neutral,
+            });
+
+        // Clear previous residual battle-plan bonuses on same-team units first
+        // (plan switch residual; full 5000ms paralyze fail-closed).
+        let previous_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if obj.team == team && obj.has_battle_plan_bonus() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in previous_ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.clear_battle_plan_bonus();
+            }
+        }
+
+        // Reverse previous Strategy Center building residual (max-health / detect).
+        // Fail-closed: only undo last recorded selection's center building bonus.
+        if let Some(prev) = self
+            .battle_plans
+            .selections()
+            .iter()
+            .rev()
+            .find(|s| s.player_id == player_id && s.building_bonus)
+            .cloned()
+        {
+            if let Some(center_id) = prev.strategy_center_id {
+                if let Some(center) = self.objects.get_mut(&center_id) {
+                    match prev.plan {
+                        crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
+                            let ratio = if center.max_health > 0.0 {
+                                center.health.current / center.max_health
+                            } else {
+                                1.0
+                            };
+                            center.max_health /= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR
+                                .max(0.01);
+                            center.health.maximum = center.max_health;
+                            center.health.current =
+                                (center.max_health * ratio).clamp(0.0, center.max_health);
+                        }
+                        crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
+                        {
+                            if center.detection_range > 0.0 {
+                                center.detection_range /= STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR
+                                    .max(0.01);
+                            }
+                            // Fail-closed: clear residual detect unless template is innate detector.
+                            center.is_detector = false;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Snapshot legal army members.
+        let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                // Strategy Center is a structure — excluded from army ValidMember.
+                // Building bonuses applied separately below.
+                let is_structure = obj.is_kind_of(KindOf::Structure)
+                    || obj.object_type == ObjectType::Building;
+                let is_infantry = obj.is_kind_of(KindOf::Infantry)
+                    || obj.object_type == ObjectType::Infantry;
+                let is_vehicle =
+                    obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
+                let is_aircraft =
+                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
+                let is_dozer = is_dozer_template_name(&obj.template_name) || obj.is_worker();
+                let is_drone = is_drone_template_name(&obj.template_name);
+                let can_attack =
+                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                let same_team = obj.team == team;
+                if !is_legal_battle_plan_member(
+                    is_infantry,
+                    is_vehicle,
+                    can_attack,
+                    is_structure,
+                    is_aircraft,
+                    is_dozer,
+                    is_drone,
+                    true,
+                    same_team,
+                    under_construction,
+                ) {
+                    return None;
+                }
+                Some((
+                    *id,
+                    is_infantry,
+                    is_vehicle,
+                    can_attack,
+                    is_structure,
+                    is_aircraft,
+                    is_dozer,
+                    is_drone,
+                ))
+            })
+            .collect();
+
+        let mut buffs: u32 = 0;
+        for (id, _, _, _, _, _, _, _) in candidates {
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            target.apply_battle_plan_bonus(plan);
+            buffs = buffs.saturating_add(1);
+        }
+
+        // Strategy Center building residual bonuses.
+        let mut building_bonus = false;
+        if let Some(center_id) = strategy_center_id {
+            if let Some(center) = self.objects.get_mut(&center_id) {
+                let is_center = is_strategy_center_template(&center.template_name)
+                    || center.is_kind_of(KindOf::FSStrategyCenter);
+                if is_center && center.is_alive() {
+                    match plan {
+                        crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
+                            // StrategyCenterHoldTheLineMaxHealthScalar 2.0 PRESERVE_RATIO residual.
+                            let ratio = if center.max_health > 0.0 {
+                                center.health.current / center.max_health
+                            } else {
+                                1.0
+                            };
+                            center.max_health *= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR;
+                            center.health.maximum = center.max_health;
+                            center.health.current =
+                                (center.max_health * ratio).clamp(0.0, center.max_health);
+                            building_bonus = true;
+                        }
+                        crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
+                        {
+                            // StrategyCenterSearchAndDestroySightRangeScalar 2.0 + detect residual.
+                            let base = center.effective_detection_range().max(1.0);
+                            center.detection_range =
+                                base * STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
+                            center.is_detector = true;
+                            building_bonus = true;
+                        }
+                        crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
+                            // Bombardment residual building bonus is turret enable
+                            // (fail-closed animation path) — still count honesty.
+                            building_bonus = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        let selection_id = self.battle_plans.alloc_id();
+        let audio = plan.activate_audio();
+        let audio_pos = strategy_center_id
+            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .unwrap_or(Vec3::ZERO);
+
+        self.battle_plans.record_selection(HostBattlePlanSelection {
+            id: selection_id,
+            player_id,
+            plan,
+            activate_frame: frame,
+            strategy_center_id,
+            buffs,
+            building_bonus,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_position(audio_pos)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            audio_pos,
+            frame,
+            strategy_center_id,
+            None,
+        );
+
+        // Radar residual "Battle plan event" (script radar type 7 residual).
+        self.queue_radar_message_at(
+            format!("Battle plan: {:?}", plan),
+            audio_pos,
+            radar_notifications::RadarKind::Ally,
         );
 
         true
@@ -35689,6 +35956,319 @@ mod tests {
                 .unwrap()
                 .is_frenzy_buffed(),
             "caster ally in radius must receive Frenzy residual"
+        );
+    }
+
+    /// Residual: USA Strategy Center battle plans apply army residual bonuses.
+    ///
+    /// C++ BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan:
+    /// Bombardment DAMAGE 120%, HoldTheLine armor 0.9, SearchAndDestroy RANGE 120%.
+    /// Fail-closed: not full pack/unpack / paralyze / turret / vision-object matrix.
+    #[test]
+    fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_strategy_center::{
+            is_strategy_center_template, HostBattlePlan, BOMBARDMENT_DAMAGE_MULT,
+            HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR, SEARCH_AND_DESTROY_RANGE_MULT,
+            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_aircraft_template(&mut game_logic);
+
+        // Strategy Center residual template (structure + FS_STRATEGY_CENTER kind).
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0)
+            .set_cost(2500, 0);
+        sc_template.sight_range = 200.0;
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        assert!(is_strategy_center_template("AmericaStrategyCenter"));
+
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        let center_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        {
+            let center = game_logic.find_object_mut(center_id).expect("center");
+            center.special_power_ready = true;
+            center.special_power_cooldown_remaining = 0.0;
+            center.object_type = ObjectType::Building;
+        }
+
+        let ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("infantry");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("barracks");
+        let aircraft_id = game_logic
+            .create_object("TestAircraft", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("aircraft");
+
+        for id in [ally_id, infantry_id, enemy_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let air = game_logic.find_object_mut(aircraft_id).expect("air");
+            air.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert!(!game_logic.honesty_battle_plan_ok());
+        assert_eq!(game_logic.battle_plans().selection_count(), 0);
+
+        // --- Bombardment residual via DoSpecialPower ---
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::BattlePlanBombardment,
+                target: PowerTarget::None,
+            },
+            player_id: 0,
+            command_id: 501,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![center_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_battle_plan_select_ok(),
+            "Battle plan residual must record selection honesty"
+        );
+        assert!(
+            game_logic.honesty_battle_plan_buff_ok(),
+            "Battle plan residual must record army buff honesty"
+        );
+        assert!(
+            game_logic.honesty_battle_plan_ok(),
+            "Strategy Center host residual path honesty"
+        );
+        assert_eq!(game_logic.battle_plans().selection_count(), 1);
+        assert_eq!(
+            game_logic.battle_plans().active_plan_for_player(0),
+            Some(HostBattlePlan::Bombardment)
+        );
+
+        let ally = game_logic.find_object(ally_id).expect("ally");
+        assert!(
+            ally.weapon_bonus_battle_plan_bombardment,
+            "ally tank must receive Bombardment residual"
+        );
+        assert!(
+            (ally.battle_plan_damage_multiplier() - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001
+        );
+        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        assert!(
+            infantry.weapon_bonus_battle_plan_bombardment,
+            "ally infantry must receive Bombardment residual"
+        );
+        // Enemy residual: not buffed (same-team filter).
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "enemy must not receive battle plan residual"
+        );
+        // Structure residual: InvalidMember STRUCTURE.
+        assert!(
+            !game_logic
+                .find_object(barracks_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "structure must not receive army battle plan residual"
+        );
+        // Aircraft residual: InvalidMember AIRCRAFT.
+        assert!(
+            !game_logic
+                .find_object(aircraft_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "aircraft must not receive army battle plan residual"
+        );
+
+        // Observable combat effect: Bombardment ally deals 120% damage.
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+            ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        }
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+            enemy.thing.template.armor = 0.0;
+        }
+        game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+        let dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            (dealt - 24.0).abs() < 0.05,
+            "Bombardment residual must deal 120% damage (20 * 1.2 = 24), got {dealt}"
+        );
+
+        // --- HoldTheLine residual: armor damage scalar 0.9 + center max-health ×2 ---
+        {
+            let center = game_logic.find_object_mut(center_id).expect("center");
+            center.special_power_ready = true;
+            center.special_power_cooldown_remaining = 0.0;
+        }
+        let center_max_before = game_logic
+            .find_object(center_id)
+            .unwrap()
+            .max_health;
+        assert!(
+            game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(center_id)),
+            "HoldTheLine residual must activate"
+        );
+        let ally = game_logic.find_object(ally_id).expect("ally");
+        assert!(ally.weapon_bonus_battle_plan_hold_the_line);
+        assert!(!ally.weapon_bonus_battle_plan_bombardment);
+        assert!(
+            (ally.battle_plan_armor_damage_scalar() - HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR).abs()
+                < 0.001
+        );
+        let center = game_logic.find_object(center_id).expect("center");
+        assert!(
+            (center.max_health
+                - center_max_before * STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR)
+                .abs()
+                < 0.5,
+            "HoldTheLine residual must double Strategy Center max health"
+        );
+
+        // Observable armor effect: ally takes 90% damage under HoldTheLine.
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.thing.template.armor = 0.0;
+            ally.health.current = 100.0;
+            ally.max_health = 100.0;
+            ally.health.maximum = 100.0;
+        }
+        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            enemy.target = Some(ally_id);
+            enemy.ai_state = AIState::Attacking;
+            enemy.status.attacking = true;
+            enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+            ally.target = None;
+            ally.status.attacking = false;
+        }
+        game_logic.update_combat(&[enemy_id, ally_id], 1.0 / 30.0);
+        let ally_hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let taken = ally_hp_before - ally_hp_after;
+        assert!(
+            (taken - 18.0).abs() < 0.05,
+            "HoldTheLine residual must take 90% damage (20 * 0.9 = 18), got {taken}"
+        );
+
+        // --- SearchAndDestroy residual: RANGE 120% ---
+        {
+            let center = game_logic.find_object_mut(center_id).expect("center");
+            center.special_power_ready = true;
+            center.special_power_cooldown_remaining = 0.0;
+        }
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::SearchAndDestroy,
+            Some(center_id)
+        ));
+        let ally = game_logic.find_object(ally_id).expect("ally");
+        assert!(ally.weapon_bonus_battle_plan_search_and_destroy);
+        assert!(!ally.weapon_bonus_battle_plan_hold_the_line);
+        assert!(
+            (ally.battle_plan_range_multiplier() - SEARCH_AND_DESTROY_RANGE_MULT).abs() < 0.001
+        );
+        let center = game_logic.find_object(center_id).expect("center");
+        assert!(
+            center.is_detector,
+            "SearchAndDestroy residual must enable Strategy Center stealth detect"
+        );
+        // Range residual: ally can hit target beyond base 100 range up to 120.
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            ally.set_position(Vec3::new(0.0, 0.0, 0.0));
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+        }
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(110.0, 0.0, 0.0)); // 110 > 100 base, < 120 residual
+            enemy.thing.template.armor = 0.0;
+            enemy.health.current = 100.0;
+            enemy.target = None;
+            enemy.status.attacking = false;
+        }
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let sn_dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            sn_dealt > 0.5,
+            "SearchAndDestroy residual RANGE 120% must allow fire at 110 (> base 100), dealt {sn_dealt}"
         );
     }
 
