@@ -73,6 +73,8 @@ pub mod host_gla_rebel;
 pub mod host_rpg_trooper;
 pub mod host_terrorist;
 pub mod host_missile_defender;
+pub mod host_minigunner;
+pub mod host_colonel_burton;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;

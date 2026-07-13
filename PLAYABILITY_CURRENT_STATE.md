@@ -1,3 +1,34 @@
+## Residual Host Playability — China MiniGunner + Colonel Burton Combat (2026-07-13)
+**Closed (host-testable MiniGunner dual gun/ramp/chain/horde + Burton sniper/knife residual):**
+1. **MiniGunner residual** (`Infa_ChinaInfantryMiniGunner` / ChinaInfantryMiniGunner / variants):
+   - PRIMARY `Infa_MiniGunnerGun` residual: PrimaryDamage **10** / range **125** /
+     Delay **500**ms (15 frames) + SECONDARY `Infa_MiniGunnerGunAir` (10 / 350 / AA).
+   - Continuous-fire ramp residual (`FiringTracker` ContinuousFireOne=**6** / Two=**12** /
+     Coast=**1000**ms): Base **15** → MEAN **7** (200% RoF) → FAST **5** (300% RoF).
+   - Chain Guns PLAYER_UPGRADE residual (`Upgrade_ChinaChainGuns`): DAMAGE **125%** → **12.5**.
+   - Horde residual (China infantry HordeUpdate Radius **30** Count **5**): ROF **150%**
+     stacks with continuous fire; Nationalism **125%** while in horde.
+   - Honesty: `honesty_minigunner_ok` / ramp / aa / horde / nationalism / ground_fires.
+2. **Colonel Burton combat residual** (`AmericaInfantryColonelBurton` / SupW_/CINE_):
+   - PRIMARY `ColonelBurtonSniperRifleWeapon` residual: PrimaryDamage **40** / range **125** /
+     Delay **100**ms (3 frames). ClipSize **3** honesty (volley matrix fail-closed).
+   - Knife residual (`ColonelBurtonKnifeWeapon`): close-range infantry within **3** →
+     MELEE one-shot PrimaryDamage **10000** (vehicles still take sniper damage).
+   - Timed/remote demo charges already closed via host_mines / hero abilities (not re-opened).
+   - Honesty: `honesty_burton_ok` / knife / sniper_fires.
+3. Tests (not log-only):
+   - `minigunner_residual_gun_ramp_aa_horde_and_chain_guns`
+   - `colonel_burton_residual_sniper_and_knife`
+   - module unit tests in `host_minigunner.rs` / `host_colonel_burton.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full FiringTracker model-condition CONTINUOUS_FIRE_* animation matrix
+- Full MiniGunner bayonet tertiary / CaptureBuilding special residual
+- Full Burton ClipSize=3 in-clip DelayBetweenShots + ClipReload 500ms volley matrix
+- Full knife PreAttackDelay 833ms / PER_ATTACK anim lock matrix
+- Full StealthUpdate / ChemicalSuits / AdvancedTraining residual matrix
+- Network continuous-fire / sniper / knife replication (network deferred)
+
 ## Residual Host Playability — GLA Rebel + RPG Trooper (2026-07-13)
 **Closed (host-testable GLA Rebel gun/AP Bullets + RPG Trooper rocket/AP Rockets residual):**
 1. **Rebel residual** (`GLAInfantryRebel` / Chem_/Demo_/Slth_/GC_* / GLA_Soldier / TestRebel):
