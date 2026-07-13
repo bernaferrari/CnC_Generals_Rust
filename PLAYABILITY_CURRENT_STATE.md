@@ -1,3 +1,28 @@
+## Residual Host Playability — Demo PlusFire SUICIDED + CommandSetUpgrade (2026-07-13)
+**Closed (host-testable Demo_SuicideDynamitePackPlusFire intentional suicide + CommandSetUpgrade residual):**
+1. **PlusFire SUICIDED residual** (`Demo_SuicideDynamitePackPlusFire`):
+   - Intentional TertiarySuicide (`Demo_Command_TertiarySuicide` / `CommandType::DemoTertiarySuicide`)
+     on SuicideBomb-tagged non-terrorist Demo units applies Primary **500**/r**18** +
+     Secondary **300**/r**50**.
+   - Self is consumed; process_destroy_list skips `Demo_DestroyedWeapon` double-fire
+     (`demo_suicided_detonating` residual flag).
+   - Fail-closed: Terrorist SUICIDED path stays `Demo_SuicideDynamitePack` (700).
+2. **CommandSetUpgrade residual** (`CommandSetUpgrade` TriggeredBy SuicideBomb):
+   - QueueUpgrade → complete sets `command_set_override` to retail
+     `Demo_*CommandSetUpgrade` (e.g. `Demo_GLAInfantryRebelCommandSetUpgrade`).
+   - TertiarySuicide gated by upgrade tag + command_set_override residual.
+   - Post-research spawns inherit tag + command_set_override residual.
+3. Tests (not log-only):
+   - `demo_tertiary_suicide_plus_fire_command_set_residual`
+   - module unit tests: tertiary gate / command set names / PlusFire rings
+
+**Still residual (fail-closed, not claimed):**
+- Full PrerequisiteSciences rank tree / control-bar science visibility matrix
+- Full IsTrainable exclusive ExperienceTracker module matrix
+- Full SlowDeath SUICIDED fling / OCL poison particle bone matrix
+- Full control-bar CommandSet slot UI matrix (host residual is override + gate)
+- Network unit-training / suicide-bomb replication (network deferred)
+
 ## Residual Host Playability — SCIENCE Unit Training + Demo SuicideBomb (2026-07-13)
 **Closed (host-testable VeterancyGainCreate science spawn + Demo_Upgrade_SuicideBomb death residual):**
 1. **SCIENCE unit-training residual** (`VeterancyGainCreate`):
@@ -22,7 +47,9 @@
 - Full PrerequisiteSciences rank tree / control-bar science visibility matrix
 - Full IsTrainable exclusive ExperienceTracker module matrix
 - Full SUICIDED → `Demo_SuicideDynamitePackPlusFire` (500 primary) non-terrorist path
+  (host residual closed 2026-07-13 — see Demo PlusFire SUICIDED + CommandSetUpgrade section)
 - Full CommandSetUpgrade residual for suicide-bomb command sets
+  (host residual closed 2026-07-13 — see Demo PlusFire SUICIDED + CommandSetUpgrade section)
 - Network unit-training / suicide-bomb replication (network deferred)
 
 ## Residual Host Playability — SCIENCE_StealthFighter Gate + Chem/Demo Death Weapons (2026-07-13)
@@ -52,8 +79,8 @@
 - Full PrerequisiteSciences rank tree / control-bar science visibility matrix
 - Full SlowDeath SUICIDED fling / OCL poison particle bone matrix
 - Full Demo_SuicideDynamitePackPlusFire SUICIDED path for non-terrorist units
-  (host residual closed 2026-07-13 for Demo_DestroyedWeapon normal-death path —
-  see SCIENCE Unit Training + Demo SuicideBomb section)
+  (host residual closed 2026-07-13 — see Demo PlusFire SUICIDED + CommandSetUpgrade section;
+  Demo_DestroyedWeapon normal-death path closed earlier same day)
 - Full DemoTrapUpdate weapon-slot mode / PreAttack scoop animation
 - Network science-gate / death-weapon replication (network deferred)
 

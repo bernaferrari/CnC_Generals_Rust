@@ -3,17 +3,21 @@
 //! Residual slice (playability):
 //! - `Demo_Upgrade_SuicideBomb` QueueUpgrade → complete tags eligible Demo units /
 //!   structures with residual death-weapon readiness.
-//! - On death (non-SUICIDED residual path), tagged Demo units/structures apply
+//! - On normal death (non-SUICIDED residual path), tagged Demo units/structures apply
 //!   `Demo_DestroyedWeapon`: Primary **50**/r**60** + Secondary **10**/r**70**.
+//! - On intentional SUICIDED residual (`Demo_Command_TertiarySuicide` / tertiary
+//!   FIRE_WEAPON), non-terrorist SuicideBomb units apply
+//!   `Demo_SuicideDynamitePackPlusFire`: Primary **500**/r**18** + Secondary **300**/r**50**.
+//! - CommandSetUpgrade residual: upgrade complete sets `command_set_override` to
+//!   the `*CommandSetUpgrade` string so TertiarySuicide is host-enabled.
 //! - FireFX residual honesty: PlusFire detonation audio/particle path name.
 //! - Fail-closed: Terrorist SUICIDED residual remains `Demo_SuicideDynamitePack`
 //!   (700 primary) via host_terrorist — not switched here.
 //!
 //! Fail-closed honesty:
 //! - Not full FireWeaponWhenDead exclusive RequiresAllTriggers module matrix
-//! - Not full SUICIDED → Demo_SuicideDynamitePackPlusFire (500 primary) path for
-//!   non-terrorist units (host collapses to Demo_DestroyedWeapon on normal death)
-//! - Not full CommandSetUpgrade residual for suicide-bomb command sets
+//! - Not full SlowDeath SUICIDED fling / OCL poison particle bone matrix
+//! - Not full control-bar CommandSet slot UI matrix (host residual is override + gate)
 //! - Not network suicide-bomb replication (network deferred)
 
 use super::ObjectId;
@@ -47,6 +51,9 @@ pub const DEMO_PLUS_FIRE_SECONDARY_RADIUS: f32 = 50.0;
 
 /// Residual detonation audio (retail FireSound = CarBomberDie).
 pub const DEMO_SUICIDE_BOMB_AUDIO: &str = "CarBomberDie";
+
+/// Retail command button for intentional SUICIDED residual (FIRE_WEAPON tertiary).
+pub const DEMO_COMMAND_TERTIARY_SUICIDE: &str = "Demo_Command_TertiarySuicide";
 
 /// Normalize upgrade / template identity.
 pub fn normalize_identity(name: &str) -> String {
@@ -141,7 +148,7 @@ pub fn is_demo_suicide_bomb_eligible_template(template_name: &str) -> bool {
         || n.contains("testdemo")
 }
 
-/// Whether residual target receives Demo_DestroyedWeapon splash.
+/// Whether residual target receives Demo_DestroyedWeapon / PlusFire splash.
 pub fn is_legal_demo_destroyed_target(
     alive: bool,
     is_self: bool,
@@ -161,7 +168,7 @@ pub fn demo_destroyed_damage_at(distance: f32) -> f32 {
     }
 }
 
-/// Dual-ring residual damage at distance for PlusFire (SUICIDED residual honesty).
+/// Dual-ring residual damage at distance for PlusFire (SUICIDED residual).
 pub fn demo_plus_fire_damage_at(distance: f32) -> f32 {
     if distance <= DEMO_PLUS_FIRE_PRIMARY_RADIUS {
         DEMO_PLUS_FIRE_PRIMARY_DAMAGE
@@ -181,6 +188,69 @@ pub fn has_demo_suicide_bomb_upgrade(
         .any(|u| is_demo_suicide_bomb_upgrade(u))
 }
 
+/// Whether residual unit may issue Demo TertiarySuicide (CommandSetUpgrade gate).
+///
+/// Fail-closed:
+/// - Must be Demo SuicideBomb-eligible living combatant
+/// - Must already carry SuicideBomb upgrade tag (CommandSetUpgrade TriggeredBy)
+/// - Terrorists keep their own TerroristSuicideWeapon path (not TertiarySuicide)
+pub fn can_issue_demo_tertiary_suicide(
+    template_name: &str,
+    applied_upgrades: &std::collections::HashSet<String>,
+    alive: bool,
+    is_terrorist: bool,
+) -> bool {
+    alive
+        && !is_terrorist
+        && is_demo_suicide_bomb_eligible_template(template_name)
+        && has_demo_suicide_bomb_upgrade(applied_upgrades)
+}
+
+/// Residual CommandSetUpgrade string for a Demo template after SuicideBomb research.
+///
+/// Retail: `CommandSetUpgrade` modules swap to `Demo_*CommandSetUpgrade` which
+/// includes `Demo_Command_TertiarySuicide`. Host residual names the override
+/// for honesty / control-bar adapters without a full CommandSet table.
+pub fn demo_command_set_upgrade_for_template(template_name: &str) -> Option<String> {
+    if !is_demo_suicide_bomb_eligible_template(template_name) {
+        return None;
+    }
+    let n = template_name.to_ascii_lowercase();
+    // Prefer retail Demo_* names; map test aliases to residual upgrade sets.
+    if n.contains("tunnel") {
+        return Some("Demo_GLATunnelNetworkCommandSetUpgrade".to_string());
+    }
+    if n.contains("stinger") {
+        return Some("Demo_GLAStingerSiteCommandSetUpgrade".to_string());
+    }
+    if n.contains("jarmen") || n.contains("kell") {
+        return Some("Demo_GLAInfantryJarmenKellCommandSetUpgrade".to_string());
+    }
+    if n.contains("hijacker") {
+        return Some("Demo_GLAInfantryHijackerCommandSetUpgrade".to_string());
+    }
+    if n.contains("rpg") || n.contains("tunneldefender") || n.contains("tunnel_defender") {
+        return Some("Demo_GLAInfantryTunnelDefenderCommandSetUpgrade".to_string());
+    }
+    if n.contains("scorpion") {
+        return Some("Demo_GLATankScorpionCommandSetUpgrade".to_string());
+    }
+    if n.contains("rebel") || n == "testdemorebel" || n == "testdemosuicidebomb" {
+        return Some("Demo_GLAInfantryRebelCommandSetUpgrade".to_string());
+    }
+    // Generic residual override for other eligible Demo combatants / structures.
+    Some(format!("{template_name}CommandSetUpgrade"))
+}
+
+/// Whether residual command_set_override indicates TertiarySuicide is enabled.
+pub fn command_set_enables_tertiary_suicide(command_set_override: Option<&str>) -> bool {
+    let Some(cs) = command_set_override else {
+        return false;
+    };
+    let n = normalize_identity(cs);
+    n.contains("commandsetupgrade") || n.contains("tertiarysuicide")
+}
+
 /// Host residual honesty registry for Demo SuicideBomb.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostDemoSuicideBombRegistry {
@@ -188,6 +258,14 @@ pub struct HostDemoSuicideBombRegistry {
     pub units_tagged: u32,
     /// Death detonations resolved (Demo_DestroyedWeapon residual).
     pub death_detonations: u32,
+    /// Intentional SUICIDED detonations (Demo_SuicideDynamitePackPlusFire residual).
+    pub suicided_detonations: u32,
+    /// CommandSetUpgrade residual applications.
+    pub command_set_upgrades: u32,
+    /// TertiarySuicide commands issued (host residual).
+    pub tertiary_suicides_issued: u32,
+    /// TertiarySuicide commands rejected (fail-closed residual).
+    pub tertiary_suicides_denied: u32,
     /// Objects hit by residual blast.
     pub blast_hits: u32,
     /// Total residual blast damage dealt.
@@ -216,8 +294,34 @@ impl HostDemoSuicideBombRegistry {
         self.units_tagged = self.units_tagged.saturating_add(1);
     }
 
+    pub fn record_command_set_upgrade(&mut self, count: u32) {
+        self.command_set_upgrades = self.command_set_upgrades.saturating_add(count);
+    }
+
+    pub fn record_tertiary_suicide_issued(&mut self) {
+        self.tertiary_suicides_issued = self.tertiary_suicides_issued.saturating_add(1);
+    }
+
+    pub fn record_tertiary_suicide_denied(&mut self) {
+        self.tertiary_suicides_denied = self.tertiary_suicides_denied.saturating_add(1);
+    }
+
     pub fn record_death_detonation(&mut self, blast_hits: u32, blast_damage: f32, destroyed: u32) {
         self.death_detonations = self.death_detonations.saturating_add(1);
+        self.blast_hits = self.blast_hits.saturating_add(blast_hits);
+        if blast_damage > 0.0 {
+            self.blast_damage_dealt += blast_damage;
+        }
+        self.objects_destroyed = self.objects_destroyed.saturating_add(destroyed);
+    }
+
+    pub fn record_suicided_detonation(
+        &mut self,
+        blast_hits: u32,
+        blast_damage: f32,
+        destroyed: u32,
+    ) {
+        self.suicided_detonations = self.suicided_detonations.saturating_add(1);
         self.blast_hits = self.blast_hits.saturating_add(blast_hits);
         if blast_damage > 0.0 {
             self.blast_damage_dealt += blast_damage;
@@ -234,13 +338,30 @@ impl HostDemoSuicideBombRegistry {
         self.death_detonations > 0 && self.blast_hits > 0
     }
 
+    pub fn honesty_command_set_ok(&self) -> bool {
+        self.command_set_upgrades > 0
+    }
+
+    pub fn honesty_suicided_ok(&self) -> bool {
+        self.suicided_detonations > 0
+            && self.tertiary_suicides_issued > 0
+            && self.blast_hits > 0
+    }
+
     pub fn honesty_host_path_ok(&self) -> bool {
         // Full residual path: research + at least one death detonation.
         self.honesty_upgrade_ok() && self.honesty_death_ok()
     }
+
+    /// Full residual path for PlusFire + CommandSetUpgrade slice.
+    pub fn honesty_plus_fire_path_ok(&self) -> bool {
+        self.honesty_upgrade_ok()
+            && self.honesty_command_set_ok()
+            && self.honesty_suicided_ok()
+    }
 }
 
-/// One residual blast hit planned for Demo_DestroyedWeapon.
+/// One residual blast hit planned for Demo death weapons.
 #[derive(Debug, Clone, Copy)]
 pub struct HostDemoSuicideBombHit {
     pub target_id: ObjectId,
@@ -266,6 +387,35 @@ pub fn plan_demo_destroyed_hits(
             continue;
         }
         let dmg = demo_destroyed_damage_at(dist);
+        if dmg > 0.0 {
+            hits.push(HostDemoSuicideBombHit {
+                target_id: id,
+                damage: dmg,
+            });
+        }
+    }
+    hits
+}
+
+/// Plan residual Demo_SuicideDynamitePackPlusFire hits around a death position.
+pub fn plan_demo_plus_fire_hits(
+    source_id: ObjectId,
+    source_pos: Vec3,
+    candidates: &[(ObjectId, Vec3, bool, bool)],
+) -> Vec<HostDemoSuicideBombHit> {
+    let mut hits = Vec::new();
+    let max_r = DEMO_PLUS_FIRE_SECONDARY_RADIUS;
+    for &(id, pos, alive, under_construction) in candidates {
+        if !is_legal_demo_destroyed_target(alive, id == source_id, under_construction) {
+            continue;
+        }
+        let dx = pos.x - source_pos.x;
+        let dz = pos.z - source_pos.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        if dist > max_r {
+            continue;
+        }
+        let dmg = demo_plus_fire_damage_at(dist);
         if dmg > 0.0 {
             hits.push(HostDemoSuicideBombHit {
                 target_id: id,
@@ -320,6 +470,75 @@ mod tests {
     }
 
     #[test]
+    fn plus_fire_and_command_set_honesty() {
+        let mut reg = HostDemoSuicideBombRegistry::new();
+        assert!(!reg.honesty_plus_fire_path_ok());
+        reg.record_upgrade_complete(1);
+        reg.record_command_set_upgrade(1);
+        reg.record_tertiary_suicide_issued();
+        reg.record_suicided_detonation(1, 500.0, 0);
+        assert!(reg.honesty_command_set_ok());
+        assert!(reg.honesty_suicided_ok());
+        assert!(reg.honesty_plus_fire_path_ok());
+    }
+
+    #[test]
+    fn tertiary_suicide_gate_matrix() {
+        let mut ups = std::collections::HashSet::new();
+        assert!(!can_issue_demo_tertiary_suicide(
+            "Demo_GLAInfantryRebel",
+            &ups,
+            true,
+            false
+        ));
+        ups.insert(UPGRADE_DEMO_SUICIDE_BOMB.to_string());
+        assert!(can_issue_demo_tertiary_suicide(
+            "Demo_GLAInfantryRebel",
+            &ups,
+            true,
+            false
+        ));
+        // Terrorist fail-closed.
+        assert!(!can_issue_demo_tertiary_suicide(
+            "Demo_GLAInfantryTerrorist",
+            &ups,
+            true,
+            true
+        ));
+        // Dead unit fail-closed.
+        assert!(!can_issue_demo_tertiary_suicide(
+            "Demo_GLAInfantryRebel",
+            &ups,
+            false,
+            false
+        ));
+        // Non-demo fail-closed.
+        assert!(!can_issue_demo_tertiary_suicide(
+            "GLAInfantryRebel",
+            &ups,
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn command_set_upgrade_names() {
+        assert_eq!(
+            demo_command_set_upgrade_for_template("Demo_GLAInfantryRebel").as_deref(),
+            Some("Demo_GLAInfantryRebelCommandSetUpgrade")
+        );
+        assert_eq!(
+            demo_command_set_upgrade_for_template("Demo_GLATunnelNetwork").as_deref(),
+            Some("Demo_GLATunnelNetworkCommandSetUpgrade")
+        );
+        assert!(demo_command_set_upgrade_for_template("GLAInfantryRebel").is_none());
+        assert!(command_set_enables_tertiary_suicide(Some(
+            "Demo_GLAInfantryRebelCommandSetUpgrade"
+        )));
+        assert!(!command_set_enables_tertiary_suicide(None));
+    }
+
+    #[test]
     fn plan_hits_skips_self_and_dead() {
         let src = ObjectId(1);
         let alive = ObjectId(2);
@@ -336,5 +555,22 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].target_id, alive);
         assert!((hits[0].damage - 50.0).abs() < 0.01);
+
+        // PlusFire primary ring is smaller (18); 10 units still primary 500.
+        let plus = plan_demo_plus_fire_hits(
+            src,
+            Vec3::ZERO,
+            &[(alive, Vec3::new(10.0, 0.0, 0.0), true, false)],
+        );
+        assert_eq!(plus.len(), 1);
+        assert!((plus[0].damage - 500.0).abs() < 0.01);
+        // Secondary ring at 25.
+        let plus2 = plan_demo_plus_fire_hits(
+            src,
+            Vec3::ZERO,
+            &[(alive, Vec3::new(25.0, 0.0, 0.0), true, false)],
+        );
+        assert_eq!(plus2.len(), 1);
+        assert!((plus2[0].damage - 300.0).abs() < 0.01);
     }
 }

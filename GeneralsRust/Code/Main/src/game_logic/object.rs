@@ -323,6 +323,17 @@ pub struct Object {
     /// Fail-closed: not multi-exit / napalm bomb special ability matrix.
     #[serde(default)]
     pub is_helix_transport: bool,
+
+    /// Host residual: C++ Object::m_commandSetStringOverride (CommandSetUpgrade).
+    /// Demo SuicideBomb residual swaps to `*CommandSetUpgrade` including
+    /// `Demo_Command_TertiarySuicide`. Fail-closed: not full control-bar matrix.
+    #[serde(default)]
+    pub command_set_override: Option<String>,
+
+    /// Host residual: intentional SUICIDED death already applied PlusFire blast.
+    /// Suppresses Demo_DestroyedWeapon double-fire on process_destroy_list.
+    #[serde(default)]
+    pub demo_suicided_detonating: bool,
 }
 
 /// AI behavior states
@@ -477,6 +488,8 @@ impl Object {
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
+            command_set_override: None,
+            demo_suicided_detonating: false,
         }
     }
 
@@ -577,6 +590,8 @@ impl Object {
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
+            command_set_override: None,
+            demo_suicided_detonating: false,
         }
     }
 

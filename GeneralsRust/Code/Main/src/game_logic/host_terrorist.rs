@@ -15,8 +15,9 @@
 //! Fail-closed honesty:
 //! - Not full ConvertToCarBombCrateCollide matrix (separate host_car_bomb residual)
 //! - Not full SlowDeath SUICIDED fling / OCL poison particle bone matrix
-//! - Not Demo_SuicideDynamitePackPlusFire SUICIDED path (see host_demo_suicide_bomb
-//!   for Demo_DestroyedWeapon normal-death residual)
+//! - Not Demo_SuicideDynamitePackPlusFire SUICIDED path for non-terrorists
+//!   (host residual closed in host_demo_suicide_bomb TertiarySuicide path;
+//!   terrorists stay on Demo_SuicideDynamitePack 700 primary)
 //! - Not network suicide replication (network deferred)
 
 use super::Weapon;

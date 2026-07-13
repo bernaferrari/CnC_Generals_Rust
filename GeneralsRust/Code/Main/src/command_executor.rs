@@ -205,6 +205,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::DetonateRemoteDemoCharges => {
                 self.execute_detonate_remote_demo_charges(&command.selected_units)
             }
+            CommandType::DemoTertiarySuicide => {
+                self.execute_demo_tertiary_suicide(&command.selected_units)
+            }
             CommandType::StealCashHack { target_id } => {
                 self.execute_steal_cash_hack(&command.selected_units, *target_id)
             }
@@ -2461,6 +2464,23 @@ impl<'a> CommandExecutor<'a> {
         }
         let detonated = self.game_logic.detonate_remote_demo_charges(&producers);
         if detonated > 0 {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Demo SuicideBomb residual: intentional SUICIDED PlusFire detonation.
+    ///
+    /// Fail-closed: requires SuicideBomb CommandSetUpgrade residual tag.
+    fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if self.game_logic.issue_demo_tertiary_suicide(unit_id) {
+                any = true;
+            }
+        }
+        if any {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
