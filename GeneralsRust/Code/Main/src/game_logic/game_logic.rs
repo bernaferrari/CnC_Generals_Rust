@@ -560,8 +560,9 @@ pub struct GameLogic {
     combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
-    /// NuclearMissile / AnthraxBomb). Queues on DoSpecialPower and completes with area damage —
-    /// NuclearMissile also spawns residual radiation; AnthraxBomb also spawns residual toxin.
+    /// NuclearMissile / AnthraxBomb / SpectreGunship). Queues on DoSpecialPower and completes
+    /// with area damage — NuclearMissile also spawns residual radiation; AnthraxBomb also
+    /// spawns residual toxin; SpectreGunship spawns residual orbit damage ticks.
     /// Fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
@@ -642,6 +643,10 @@ pub struct GameLogic {
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
     emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
+
+    /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
+    /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
+    frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
 
     /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
@@ -1496,6 +1501,7 @@ impl GameLogic {
             propaganda_residual_buffs: 0,
             ecm_residual_jams: 0,
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
+            frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
             point_defense_next_ready_frame: HashMap::new(),
@@ -1657,6 +1663,7 @@ impl GameLogic {
         self.propaganda_residual_buffs = 0;
         self.ecm_residual_jams = 0;
         self.emp_pulses.clear();
+        self.frenzies.clear();
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
         self.point_defense_next_ready_frame.clear();
@@ -3518,6 +3525,9 @@ impl GameLogic {
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
         // Activation is event-driven via DoSpecialPower (no continuous field).
 
+        // Host China Frenzy ("Rage") residual: FRENZY weapon-bonus timers tick in AI pass.
+        // Activation is event-driven via DoSpecialPower (no continuous generator field).
+
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
         self.update_radar_scans();
@@ -4183,10 +4193,11 @@ impl GameLogic {
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
-            // Expire DISABLED_HACKED / DISABLED_EMP residual timers.
+            // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_disabled_emp(self.frame);
+                obj.tick_weapon_bonus_frenzy(self.frame);
             }
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
@@ -4442,6 +4453,10 @@ impl GameLogic {
                     if overcharge {
                         weapon_damage *= 1.1;
                     }
+                    // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
+                    if let Some(attacker) = self.objects.get(&attacker_id) {
+                        weapon_damage *= attacker.frenzy_damage_multiplier();
+                    }
 
                     fired_slot = Some(slot);
 
@@ -4543,6 +4558,10 @@ impl GameLogic {
                         .unwrap_or(0.0);
                     if overcharge {
                         weapon_damage *= 1.1;
+                    }
+                    // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
+                    if let Some(attacker) = self.objects.get(&attacker_id) {
+                        weapon_damage *= attacker.frenzy_damage_multiplier();
                     }
 
                     fired_slot = Some(0);
@@ -9965,6 +9984,141 @@ impl GameLogic {
         true
     }
 
+    /// Host China Frenzy ("Rage") residual registry (activate + honesty).
+    pub fn frenzies(&self) -> &crate::game_logic::host_frenzy::HostFrenzyRegistry {
+        &self.frenzies
+    }
+
+    /// Residual honesty: Frenzy activated at least once.
+    pub fn honesty_frenzy_activate_ok(&self) -> bool {
+        self.frenzies.honesty_activate_ok()
+    }
+
+    /// Residual honesty: Frenzy applied attack buff at least once.
+    pub fn honesty_frenzy_buff_ok(&self) -> bool {
+        self.frenzies.honesty_buff_ok()
+    }
+
+    /// Combined host path honesty for Frenzy / Rage residual.
+    pub fn honesty_frenzy_ok(&self) -> bool {
+        self.frenzies.honesty_host_path_ok()
+    }
+
+    /// Activate Frenzy / Rage residual: temporary ally attack buff in radius.
+    ///
+    /// Matches retail SuperweaponFrenzy → Frenzy_InvisibleMarker WeaponBonusUpdate:
+    /// - Radius residual 200 (RadiusCursorRadius / BonusRange)
+    /// - BonusDuration 10000/20000/30000 ms by level (FRENZY_ONE/TWO/THREE)
+    /// - DAMAGE 110% / 120% / 130% while buffed
+    /// - Allies (same-team residual), CAN_ATTACK residual, not STRUCTURE
+    ///
+    /// Fail-closed: not full OCL marker object / science upgrade matrix / particle.
+    /// Returns true when the residual activation was recorded (even if 0 targets).
+    pub fn activate_frenzy(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        level: crate::game_logic::host_frenzy::HostFrenzyLevel,
+    ) -> bool {
+        use crate::game_logic::host_frenzy::{
+            in_frenzy_radius_2d, is_legal_frenzy_target, HostFrenzy, FRENZY_ACTIVATE_AUDIO,
+            HOST_FRENZY_RADIUS,
+        };
+
+        let frame = self.frame;
+        let duration = level.duration_frames();
+        let until = frame.saturating_add(duration);
+        let center = (location.x, location.z);
+
+        // Caster team residual (same-team ally filter).
+        let caster_team = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .unwrap_or_else(|| match player_id {
+                0 => Team::USA,
+                1 => Team::China,
+                2 => Team::GLA,
+                _ => Team::Neutral,
+            });
+
+        // Snapshot candidates (avoid borrow conflicts while mutating).
+        let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let pos = obj.get_position();
+                if !in_frenzy_radius_2d(center, (pos.x, pos.z), HOST_FRENZY_RADIUS) {
+                    return None;
+                }
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                let same_team = obj.team == caster_team;
+                // Residual CAN_ATTACK: has weapon binding or can_attack residual path.
+                let can_attack = obj.can_attack()
+                    || obj.weapon.is_some()
+                    || obj.secondary_weapon.is_some();
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                Some((*id, is_structure, same_team, can_attack, under_construction))
+            })
+            .collect();
+
+        let mut buffs: u32 = 0;
+        for (id, is_structure, same_team, can_attack, under_construction) in candidates {
+            if !is_legal_frenzy_target(
+                is_structure,
+                true,
+                same_team,
+                can_attack,
+                under_construction,
+            ) {
+                continue;
+            }
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let was_buffed = target.weapon_bonus_frenzy;
+            target.apply_weapon_bonus_frenzy(level.as_u8(), until);
+            // Count new grants and refreshes as residual buff events for honesty.
+            if !was_buffed || target.weapon_bonus_frenzy {
+                buffs = buffs.saturating_add(1);
+            }
+        }
+
+        let frenzy_id = self.frenzies.alloc_id();
+        self.frenzies.record_activation(HostFrenzy {
+            id: frenzy_id,
+            player_id,
+            location,
+            radius: HOST_FRENZY_RADIUS,
+            level,
+            activate_frame: frame,
+            expire_frame: until,
+            caster_id,
+            buffs,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(FRENZY_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            location,
+            frame,
+            caster_id,
+            None,
+        );
+
+        true
+    }
+
     /// Host China ECM Tank / jammer residual: jam enemy weapons in radius.
     ///
     /// Retail inspiration:
@@ -11819,8 +11973,11 @@ impl GameLogic {
     /// Advance pending host superweapon strikes to impact and apply area damage.
     /// NuclearMissile residual also ticks radiation fields after impact.
     /// AnthraxBomb residual also ticks toxin fields after impact.
+    /// SpectreGunship residual also ticks orbit fields after orbit insertion.
     pub fn update_special_power_strikes(&mut self) {
-        use crate::game_logic::special_power_strikes::{ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO};
+        use crate::game_logic::special_power_strikes::{
+            ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
+        };
 
         self.special_power_strikes.clear_frame_events();
 
@@ -11911,6 +12068,21 @@ impl GameLogic {
                 );
             }
 
+            // SpectreGunship residual: orbit ambient cue on insertion.
+            if plan.kind.spawns_orbit_field()
+                && !self
+                    .special_power_strikes
+                    .orbit_spawned_this_frame()
+                    .is_empty()
+            {
+                self.queue_audio_event(
+                    AudioEventRequest::new(SPECTRE_ORBIT_AUDIO)
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(150),
+                );
+            }
+
             log::info!(
                 "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
                 plan.kind.label(),
@@ -11926,6 +12098,8 @@ impl GameLogic {
         self.update_nuclear_radiation_fields();
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         self.update_anthrax_toxin_fields();
+        // SpectreGunship residual orbit damage ticks (after insertion).
+        self.update_spectre_orbit_fields();
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
@@ -12028,6 +12202,57 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_toxin(frame);
+    }
+
+    /// Tick residual Spectre orbit fields spawned at orbit insertion.
+    /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
+    fn update_spectre_orbit_fields(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_orbit_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.special_power_strikes.record_orbit_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.special_power_strikes.prune_expired_orbit(frame);
     }
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
@@ -19465,6 +19690,231 @@ mod tests {
         );
     }
 
+    /// Residual: Frenzy ("Rage") special power buffs ally units in radius.
+    ///
+    /// C++ SuperweaponFrenzy → Frenzy_InvisibleMarker WeaponBonusUpdate
+    /// doTempWeaponBonus(FRENZY_ONE, BonusDuration=10000ms) on allies CAN_ATTACK
+    /// non-STRUCTURE. Host residual applies DAMAGE 110% while buffed.
+    /// Fail-closed: not full OCL marker / science tiers / FrenzyCloud particles.
+    #[test]
+    fn frenzy_residual_buffs_allies_and_boosts_damage() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_frenzy::{HostFrenzyLevel, HOST_FRENZY_RADIUS};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // Caster + ally on China (retail Frenzy faction residual).
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(500.0, 0.0, 500.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        let ally_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        let far_ally_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far ally");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Bind residual weapons so combat damage is measurable.
+        for id in [ally_id, far_ally_id, enemy_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert!(!game_logic.honesty_frenzy_ok());
+        assert_eq!(game_logic.frenzies().activation_count(), 0);
+        assert!(!game_logic.find_object(ally_id).unwrap().is_frenzy_buffed());
+
+        let impact = Vec3::new(0.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Frenzy,
+                target: PowerTarget::Location(impact),
+            },
+            // player_id residual unused for team filter when caster present.
+            player_id: 1,
+            command_id: 88,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_frenzy_activate_ok(),
+            "Frenzy residual must record activation honesty"
+        );
+        assert!(
+            game_logic.honesty_frenzy_buff_ok(),
+            "Frenzy residual must record buff honesty"
+        );
+        assert!(
+            game_logic.honesty_frenzy_ok(),
+            "Frenzy host residual path honesty"
+        );
+        assert_eq!(game_logic.frenzies().activation_count(), 1);
+        assert!(
+            (game_logic.frenzies().activations()[0].radius - HOST_FRENZY_RADIUS).abs() < 0.01,
+            "retail residual radius 200"
+        );
+        assert_eq!(
+            game_logic.frenzies().activations()[0].level,
+            HostFrenzyLevel::One
+        );
+
+        // In-radius ally: FRENZY residual buff + 110% damage mult.
+        let ally = game_logic.find_object(ally_id).expect("ally");
+        assert!(
+            ally.is_frenzy_buffed(),
+            "in-radius ally must receive FRENZY residual buff"
+        );
+        assert_eq!(ally.weapon_bonus_frenzy_level, 1);
+        assert!((ally.frenzy_damage_multiplier() - 1.10).abs() < 0.001);
+        assert_eq!(
+            ally.weapon_bonus_frenzy_until_frame,
+            game_logic.frame + HostFrenzyLevel::One.duration_frames()
+        );
+
+        // Out-of-radius ally: unaffected.
+        let far = game_logic.find_object(far_ally_id).expect("far");
+        assert!(
+            !far.is_frenzy_buffed(),
+            "out-of-radius ally must not receive Frenzy residual"
+        );
+
+        // Enemy residual: not buffed (same-team filter).
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            !enemy.is_frenzy_buffed(),
+            "enemy must not receive Frenzy residual"
+        );
+
+        // Structure residual: ForbiddenAffectKindOf STRUCTURE.
+        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        assert!(
+            !barracks.is_frenzy_buffed(),
+            "structure must not receive Frenzy residual"
+        );
+
+        // Observable combat effect: frenzied ally deals 110% damage.
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+            // Place in range without path chase residual.
+            ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        }
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        }
+        game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+        let dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            (dealt - 22.0).abs() < 0.05,
+            "Frenzy residual must deal 110% damage (20 * 1.1 = 22), got {dealt}"
+        );
+
+        // Expire residual timer → buff clears.
+        let until = game_logic
+            .find_object(ally_id)
+            .expect("ally")
+            .weapon_bonus_frenzy_until_frame;
+        assert!(until > game_logic.frame);
+        game_logic.frame = until;
+        game_logic.update_ai(&[ally_id], 1.0 / 60.0);
+        let recovered = game_logic.find_object(ally_id).expect("ally");
+        assert!(
+            !recovered.is_frenzy_buffed(),
+            "FRENZY residual must clear after BonusDuration"
+        );
+        assert!((recovered.frenzy_damage_multiplier() - 1.0).abs() < f32::EPSILON);
+    }
+
+    /// Frenzy is not a superweapon residual strike (separate buff residual path).
+    #[test]
+    fn frenzy_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            // Caster can self-buff residual (WeaponBonusUpdate iterates all allies
+            // including source when legal CAN_ATTACK). Ensure weapon so can_attack.
+            caster.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Frenzy,
+                target: PowerTarget::Location(Vec3::new(0.0, 0.0, 0.0)),
+            },
+            player_id: 1,
+            command_id: 9,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "Frenzy must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_frenzy_activate_ok(),
+            "Frenzy residual must record activation honesty"
+        );
+        assert!(
+            game_logic.find_object(caster_id).unwrap().is_frenzy_buffed(),
+            "caster ally in radius must receive Frenzy residual"
+        );
+    }
+
     /// Residual: ConvertToCarbomb walks to vehicle → IS_CARBOMB + team defect;
     /// converter consumed. Does NOT detonate/kill the vehicle on contact.
     #[test]
@@ -22228,6 +22678,192 @@ mod tests {
         assert_eq!(completed.len(), 1);
         assert!(completed[0].objects_hit >= 1);
         assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
+    /// Residual: SpectreGunship (USA SPECIAL_SPECTRE_GUNSHIP) queues delayed orbit
+    /// insertion then periodic damage ticks in AttackAreaRadius.
+    /// Fail-closed: not full SpectreGunshipUpdate OCL / gattling / howitzer projectile.
+    #[test]
+    fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{
+            HostSuperweaponKind, SPECTRE_ORBIT_AUDIO, SPECTRE_ORBIT_DAMAGE_PER_TICK,
+            SPECTRE_ORBIT_TICK_INTERVAL_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        let far_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(800.0, 0.0, 0.0))
+            .expect("far enemy");
+
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            // Enough HP for multiple howitzer residual ticks.
+            enemy.health.current = 500.0;
+            enemy.health.maximum = 500.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 500.0;
+            far.health.maximum = 500.0;
+            far.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(40.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::SpectreGunship,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0, // Team::USA (from_player_id)
+            command_id: 60,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::SpectreGunship),
+            "SpectreGunship must queue a pending host strike"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponSpectreGunship"),
+            "activation must queue SuperweaponSpectreGunship audio"
+        );
+        assert!(
+            game_logic.special_power_strikes().orbit_fields().is_empty(),
+            "orbit field must not spawn before insertion frame"
+        );
+
+        // Before insertion delay: no damage.
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = 89;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no orbit damage before insertion frame 90"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::SpectreGunship));
+
+        // At insertion: orbit field spawn + first damage tick.
+        game_logic.frame = 90;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::SpectreGunship),
+            "SpectreGunship must complete on insertion frame"
+        );
+        assert!(
+            game_logic.special_power_strikes().honesty_orbit_ok(),
+            "SpectreGunship must spawn residual orbit field"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::SpectreGunship),
+            "host path honesty requires complete insertion + orbit spawn"
+        );
+
+        let enemy_after = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_after < health_before,
+            "enemy in orbit radius must take residual howitzer tick damage (before={health_before}, after={enemy_after})"
+        );
+        assert!(
+            (health_before - enemy_after - SPECTRE_ORBIT_DAMAGE_PER_TICK).abs() < 0.1
+                || enemy_after == 0.0,
+            "first tick damage should match SPECTRE_ORBIT_DAMAGE_PER_TICK residual"
+        );
+        // Far unit untouched.
+        assert!(
+            game_logic
+                .find_object(far_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside AttackAreaRadius must be untouched"
+        );
+
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SpectreGunshipVoiceArrive"),
+            "insertion must queue SpectreGunshipVoiceArrive audio"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == SPECTRE_ORBIT_AUDIO),
+            "insertion must queue Spectre orbit ambient residual"
+        );
+
+        // Second orbit tick after interval: more residual damage over time.
+        let mid_hp = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .expect("enemy still alive for second tick");
+        game_logic.frame = 90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
+        game_logic.update_special_power_strikes();
+        let later_hp = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            later_hp < mid_hp - SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
+                || later_hp == 0.0
+                || game_logic.find_object(enemy_id).is_none(),
+            "second orbit tick must apply residual damage over time (mid={mid_hp}, later={later_hp})"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_orbit_damage_ok(),
+            "orbit damage honesty after tick"
+        );
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::SpectreGunship);
+        assert_eq!(completed.len(), 1);
+        // No one-shot impact blast; orbit residual owns damage applications.
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .orbit_damage_applications_total()
+                >= 2
+        );
 
         game_logic.process_destroy_list();
     }

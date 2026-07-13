@@ -26,6 +26,7 @@ pub mod host_propaganda;
 pub mod host_base_defense;
 pub mod host_ecm_jam;
 pub mod host_emp_pulse;
+pub mod host_frenzy;
 pub mod host_point_defense;
 pub mod host_neutron_shell;
 pub mod host_paradrop;
@@ -103,6 +104,10 @@ pub use host_ecm_jam::{
 pub use host_emp_pulse::{
     is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,
     EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+};
+pub use host_frenzy::{
+    is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry,
+    FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS,
 };
 pub use host_point_defense::{
     is_missile_name_residual, is_point_defense_carrier, is_primary_intercept_target,
