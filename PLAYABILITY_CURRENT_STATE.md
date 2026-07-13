@@ -1,3 +1,152 @@
+## Residual Host Playability — Wave 56: CarpetBomb/Cruise/Artillery residual deepen (2026-07-13)
+**Closed (host-testable residual in `special_power_strikes`):**
+1. **CarpetBomb residual pack deepen**:
+   - DropDelay stagger: USA/China **300**ms → **9**f; AirF **130**ms → **4**f.
+   - DropVariance residual **30/40/0** (X/Y/Z) honesty + applications.
+   - AmericaJetB52 / B52Locomotor PreferredHeight **100**, Speed **125**.
+   - Science/faction bomb counts: USA **15** / AirF **12** / China **10** + line length residual.
+   - DeliveryDistance **400/500/350**, FireFX **FX_CarpetBomb**, Transport names residual.
+   - Application counters armed at queue + FireFX per bomb wave.
+2. **CruiseMissile / MOAB residual pack deepen**:
+   - Loft: DistanceToTravelBeforeTurning **200**, SpecialSpeedTime **1500**ms → **45**f,
+     HeightDie InitialDelay **1000**ms → **30**f, TargetHeight **10**, loft composite **75**f.
+   - Projectile object **CruiseMissile**, OCL **SUPERWEAPON_CruiseMissile**,
+     DeathWeapon **MOABDetonationWeapon**, FireFX **WeaponFX_MOAB_Blast**.
+   - MOAB Primary **2000**/r**150** + ShockWave **250**/r**200**/taper **0.33** +
+     MOABFlame **5**/r**100** residual honesty + impact applications.
+3. **ArtilleryBarrage residual pack deepen**:
+   - FormationSize science tiers **12/24/36** retained + applications.
+   - DelayDeliveryMin **0** / Max **3000**ms → **90**f, WeaponErrorRadius **100**.
+   - ChinaArtilleryCannon transport honesty: PreferredHeight **500**,
+     DeliveryDistance **250**, DecalRadius **125**, Locomotor
+     ChinaArtilleryBarrageCannonLocomotor Speed **150**, shell/weapon names.
+4. **NuclearMissile radiation residual pack deepen**:
+   - SuspendFXDelay **10000**ms → **300**f, FireFX **WeaponFX_LargeRadiationFieldWeapon**,
+     DamageType **RADIATION**, OCL_NukeRadiationField / object body residual.
+5. **AnthraxBomb poison residual pack deepen**:
+   - FireFX **WeaponFX_LargePoisonFieldWeaponUpgraded**, DeathType **POISONED_BETA**,
+     WeaponSpeed **600**, OCL_PoisonFieldAnthraxBomb residual + parent-strike applications.
+6. Snapshot/Xfer: HostRadiationField + HostToxinField residual pack counters appended;
+   HostSpecialPowerStrike default constructors include Wave 56 honesty fields.
+7. Tests / gates (not log-only):
+   - carpet/cruise/artillery/nuke/anthrax residual pack wave56 honesty tests
+   - special_power_strikes lib: **95** ok
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS** (pending gate run)
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS** (pending)
+
+**Still residual (fail-closed, not claimed):**
+- Full AmericaJetB52 DeliverPayloadAIUpdate pathfinder / flight Object
+- Full NeutronMissileUpdate door/loft physics projectile Object
+- Full ChinaArtilleryCannon transport Object / live shell drawable
+- Full HazardousMaterialArmor / cleanup-hazard radiation stack
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 55: host_toxin_tractor + host_microwave + host_neutron_shell residual peels (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / host_ecm / host_hacker / host_pathfinder):**
+1. **Toxin Tractor residual pack** (`host_toxin_tractor`):
+   - Contaminate puddle: MediumPoisonField **2**/r**80**/30s/**15**f tick;
+     upgraded/gamma **2.5**/tick; Small death field base r**12** / upgraded r**7.5**;
+     OCL Medium/Upgraded/Gamma + MinShots **4**, ContinuousFireCoast **300**ms → **9**f,
+     OCLLifetimePerSecond **10000**, MaxCap **180000**ms → **5400**f;
+     field HP **100**/**120**, geometry r**40**.
+   - Spray weapon residual: Secondary **2**/r**75**/range **15**, Delay **200**ms → **6**f;
+     salvage spray matrix Base/PlusOne/PlusTwo × anthrax (2/2.5/3, 2.5/3/4, 2.5/3.5/4.5).
+   - Upgrade anthrax residual: stream salvage Beta **12.5/15/20**, Gamma **20.5/24.5/28.5**;
+     DeathType POISONED/BETA/GAMMA; death weapons/OCL names; stream Clip **30**,
+     Delay/ClipReload **40**ms → **2**f, WeaponSpeed **600**, garrison Yes.
+   - Clean-up interaction residual: CLEANUP_HAZARD name gate +
+     `clear_fields_in_radius` / HazardousMaterialArmor / HazardFieldCoreWeapon.
+   - Honesty: `honesty_toxin_tractor_residual_pack_ok` + layer honesty tests.
+   - Fail-closed: not full FireOCL continuous-coast live timer / stream projectile draw.
+2. **Microwave residual pack** (`host_microwave`):
+   - Cook radius: Disabler **200**, Clearer **125**, Emitter r**100** dmg **8**.
+   - Disable residual: SUBDUAL_BUILDING pulse **50**, Delay **100**ms → **3**f,
+     FireSoundLoop **120**ms → **4**f, Laser MicrowaveDisableStream / WEAPON02.
+   - Ally filter residual: INI ALLIES ENEMIES NEUTRALS; host `HOST_MICROWAVE_AFFECTS_ALLIES=false`.
+   - Weapon residual: KILL_GARRISONED **1**/shot, emitter Delay **250**ms → **8**f,
+     MICROWAVE/BURNED, VehicleDisabler residual disabled.
+   - Honesty: `honesty_microwave_residual_pack_ok` + counters.
+   - Fail-closed: not full SubdualDamageHelper drain / emitter particle volume.
+3. **Neutron Shell residual pack** (`host_neutron_shell`):
+   - Neutron blast: BlastRadius **70**, AffectAirborne **No**, AffectAllies default **Yes**;
+     shell primary dmg **1**/r**10**.
+   - Shell projectile: AttackRange **350**, Min **150**, Delay **10000**ms → **300**f,
+     WeaponSpeed **200**, Projectile NeutronCannonShell; flight FirstHeight **50** /
+     SecondHeight **150** / indent **30%**/**70%**, DetonateCallsKill **Yes**.
+   - Kill infantry residual: KillInfantry/Unman/KillVehicle matrix + registry counters.
+   - Honesty: `honesty_neutron_shell_residual_pack_ok` + layer honesty tests.
+   - Fail-closed: not full live DumbProjectileBehavior bezier / WeaponSet UI toggle.
+4. **CleanupHazardUpdate scan residual** (`host_cleanup_area`, toxin-related):
+   - ScanRate **1000**ms → **30**f, ScanRange **100**, WeaponSlot PRIMARY;
+     AmbulanceCleanHazardWeapon dmg **100**/r**50**, Delay/ClipReload **40**ms → **2**f,
+     Clip **30**, HAZARD_CLEANUP, CleanupStreamProjectile.
+   - Honesty: `honesty_cleanup_hazard_scan_residual_ok`.
+5. Tests / gates (not log-only):
+   - `toxin_residual_pack_honesty` / salvage matrix / cleanup clear
+   - `microwave_residual_pack_honesty` / ally filter / emitter delay
+   - `neutron_residual_pack_honesty` / blast / projectile / infantry
+   - `cleanup_hazard_scan_residual_pack_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full FireOCLAfterWeaponCooldown continuous-coast live timer / stream FX bones
+- Full SubdualDamageHelper accumulate/heal + MicrowaveDisableStream GPU laser
+- Full NeutronCannonShell live flight path / command-button weapon-set UI
+- Full CleanupHazardUpdate idle auto-scan loop / CleanupStream projectile draw
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 54: host_ecm_jam + host_hacker_disable + host_pathfinder residual (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / host_toxin / host_microwave):**
+1. **ECM jam residual pack** (`host_ecm_jam`):
+   - ECMTankMissileJammer: PrimaryDamageRadius **150**, PrimaryDamage **100**,
+     AttackRange **15**, MinAttackRange **10**, Delay **650**ms → **20**f,
+     DamageType SUBDUAL_MISSILE, FireFX FX_ECMTankMissileJammerPulse.
+   - ECMTankVehicleDisabler: AttackRange **200**, PrimaryDamage **24**,
+     Delay **100**ms → **3**f, DamageType SUBDUAL_VEHICLE, Laser ECMDisableStream,
+     FireSound FrequencyJammerWeaponLoop.
+   - FireWeaponUpdate ExclusiveWeaponDelay **1000**ms → **30**f.
+   - SubdualDamageCap **600**, HealRate **500**ms → **15**f, HealAmount **50**.
+   - Vehicle list residual: China / Tank_ / Nuke_ / Infa_ ChinaTankECM.
+   - KindOf vehicle-disabler filter (ground vehicle, not aircraft).
+   - Honesty: `honesty_ecm_jam_residual_pack_ok` + radius/weapon/subdual/list tests.
+2. **Hacker disable residual pack** (`host_hacker_disable`):
+   - EffectDuration **2000**ms → **60**f, StartAbilityRange **150**,
+     ReloadTime **500**ms → **15**f.
+   - UnpackTime **7300**ms → **219**f, PackTime **5133**ms → **154**f,
+     PreparationTime **3000**ms → **90**f, PersistentPrepTime **333**ms → **10**f.
+   - SpecialObject BinaryDataStream / DisableFX DisabledEffectBinaryShower0.
+   - Weapon HackerDisableBuildingHack AttackRange **75**, DamageType HACK.
+   - SuperweaponCashHack SCIENCE_CashHack tiers: default **1000**,
+     tier2 **2000**, tier3 **4000**, Reload **240000**ms → **7200**f.
+   - Honesty: `honesty_hacker_disable_residual_pack_ok` + cash-hack tier tests.
+3. **Pathfinder residual pack** (`host_pathfinder`):
+   - SCIENCE_Pathfinder gate residual (SCIENCE_AMERICA + SCIENCE_Rank3).
+   - StealthUpdate: StealthDelay **0**, InnateStealth **Yes**, Forbidden **MOVING**,
+     FriendlyOpacity **30–80%**, PulseFrequency **500**ms → **15**f,
+     MoveThresholdSpeed **3**, OrderIdleEnemiesOnReveal **Yes**.
+   - StealthDetectorUpdate: DetectionRate **500**ms → **15**f,
+     CanDetectWhileGarrisoned/Contained **No**, detect range → Vision **200**.
+   - Sniper AP upgrade DAMAGE **125%**; no pack/unpack residual.
+   - Honesty: `honesty_pathfinder_residual_pack_ok` + stealth-while-attacking tests.
+4. **GPS Scrambler grow-radius residual** (`host_gps_scrambler` thin peel):
+   - GrantStealth StartRadius **20**, FinalRadius **100**, GrowRate **10**/frame →
+     **8** grow updates to final.
+   - Reload **240000**ms → **7200**f (Slth **180000**ms → **5400**f).
+   - OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker.
+   - Honesty: `honesty_gps_scrambler_residual_pack_ok` + grow sequence tests.
+5. Tests / gates (not log-only):
+   - ecm_jam / hacker / pathfinder residual honesty suites
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full subdual damage accumulate / SubdualDamageHelper heal drain / laser attach
+- Full SpecialAbilityUpdate BinaryDataStream continuous prep / CashHack floating text
+- Full StealthUpdate pulse / FriendlyOpacity drawable interleave / science UI graph
+- Full GPSScrambler particle GPU path / flashAsSelected
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 51: host_mines + host_emp_pulse residual peels (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics / host_frenzy / host_propaganda / host_heal):**
 1. **Mines residual pack** (`host_mines`):
