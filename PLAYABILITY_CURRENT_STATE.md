@@ -1,3 +1,32 @@
+## Residual Host Playability — Eject DieMux + PilotFindVehicle CollideModule (2026-07-13)
+**Closed (host-testable EjectPilotDie DeathTypes/ExemptStatus + CollideModule residual):**
+1. **DieMux residual** (`EjectPilotDie` / `DieMuxData`):
+   - `DeathTypes = ALL -CRUSHED -SPLATTED`: Crushed / Splatted residual deaths
+     do **not** eject (`HostDeathType` on `ObjectStatus`).
+   - `ExemptStatus = HIJACKED`: hijacked vehicles do **not** eject.
+   - Normal combat residual death still ejects (Veteran+ gates preserved).
+   - Fail-closed: not full DeathType enum / multi-bit status matrix.
+2. **PilotFindVehicle CollideModule residual** (`VeterancyCrateCollide`):
+   - wouldLikeToCollideWith host gates: RequiredKindOf VEHICLE / ForbiddenKindOf
+     DOZER, not significantly above terrain, not airborne locomotor, trainable,
+     canGainExpForLevel(pilot levels) — Heroic vehicle rejects Veteran pilot.
+   - Nearest valid Rookie unmanned still Enter → recrew residual.
+   - Fail-closed: not full same-player PartitionFilter (Neutral unmanned allowed).
+3. Tests (not log-only):
+   - `eject_pilot_die_mux_death_types_and_hijacked_residual`
+   - `pilot_find_vehicle_collide_module_would_like_residual`
+   - module unit tests in `host_usa_pilot` (death types / collide gates / honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+  (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
+- Full AmericaParachute container OpenClose / DeliverPayload fall-physics matrix
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full same-player PartitionFilter for PilotFindVehicle (host Neutral unmanned path)
+- Network die-mux / collide-module replication (network deferred)
+
 ## Residual Host Playability — Air Parachute Eject + USA Infantry AutoFindHealing (2026-07-13)
 **Closed (host-testable EjectPilotDie air OCL + non-pilot AutoFindHealing residual):**
 1. **Air OCL parachute residual** (`EjectPilotDie` / `isSignificantlyAboveTerrain`):
@@ -26,6 +55,7 @@
   (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
 - Full AmericaParachute container OpenClose / DeliverPayload fall-physics matrix
 - Full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
+  (host residual closed 2026-07-13 — see Eject DieMux + PilotFindVehicle CollideModule)
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
 - Network air-eject / infantry-auto-heal replication (network deferred)
 

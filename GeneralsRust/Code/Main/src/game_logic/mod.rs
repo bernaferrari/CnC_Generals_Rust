@@ -472,8 +472,10 @@ pub use host_upgrades::{
 };
 pub use host_usa_pilot::{
     can_eject_pilot_on_death, is_eject_pilot_eligible_template, is_pilot_template,
-    is_recrewable_unmanned_vehicle, should_recrew_on_enter, HostUsaPilotRegistry,
-    EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_RECREW_AUDIO,
+    is_recrewable_unmanned_vehicle, meets_eject_pilot_death_types_gate,
+    meets_eject_pilot_exempt_status_gate, pilot_collide_would_like_to_collide_with,
+    should_recrew_on_enter, HostDeathType, HostUsaPilotRegistry, EJECT_PILOT_TEMPLATE,
+    PILOT_EJECT_AUDIO, PILOT_RECREW_AUDIO,
 };
 pub use host_usa_tanks::{
     is_composite_armor_unit_template, is_crusader_template, is_laser_general_tank_template,
@@ -700,6 +702,10 @@ pub struct ObjectStatus {
     /// AmericaParachute host residual). Pilot sinks until ground.
     #[serde(default)]
     pub parachuting: bool,
+    /// Residual death type for DieMux DeathTypes filters (EjectPilotDie etc).
+    /// Default Normal (combat residual). Set to Crushed/Splatted for crush deaths.
+    #[serde(default)]
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 /// Basic geometry information for objects

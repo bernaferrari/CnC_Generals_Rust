@@ -31,16 +31,38 @@
 //!   terrain (C++ `isSignificantlyAboveTerrain` / OCL_EjectPilotViaParachute),
 //!   pilot spawns elevated + parachuting residual sink until ground.
 //!
+//! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
+//!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
+//!   hijacked vehicles do **not** eject.
+//! - **PilotFindVehicle CollideModule residual**: `VeterancyCrateCollide`
+//!   wouldLikeToCollideWith host gates — RequiredKindOf VEHICLE /
+//!   ForbiddenKindOf DOZER, not significantly above terrain, not airborne
+//!   locomotor, trainable, can gain exp for pilot levels (Heroic max).
+//!
 //! Fail-closed honesty:
 //! - Not full AmericaParachute container OpenClose / fall-physics matrix
-//! - Not full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
 //! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
 //!   (C++ early-return makes busy path unreachable — host matches idle-only)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
+//! - Not full same-player PartitionFilter (host allows Neutral unmanned recrew)
 //! - Not network recrew / pilot-eject replication (network deferred)
 
 use super::VeterancyLevel;
 use serde::{Deserialize, Serialize};
+
+/// Residual death type for DieMuxData DeathTypes residual (EjectPilotDie etc).
+///
+/// Host residual of C++ DeathType enum subset used by DeathTypes filters.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HostDeathType {
+    /// Default combat / generic residual death (passes ALL -CRUSHED -SPLATTED).
+    #[default]
+    Normal,
+    /// DEATH_CRUSHED residual — blocked by EjectPilotDie DeathTypes filter.
+    Crushed,
+    /// DEATH_SPLATTED residual — blocked by EjectPilotDie DeathTypes filter.
+    Splatted,
+}
 
 /// Retail pilot template family residual.
 pub const PILOT_RECREW_AUDIO: &str = "PilotEnterVehicle";
@@ -229,10 +251,30 @@ pub fn meets_eject_pilot_veterancy_gate(level: VeterancyLevel) -> bool {
     !matches!(level, VeterancyLevel::Rookie)
 }
 
+/// Retail `DeathTypes = ALL -CRUSHED -SPLATTED` residual gate.
+///
+/// C++ DieMuxData::isDieApplicable → getDamageTypeFlag(m_deathTypes, deathType).
+/// DEATH_CRUSHED / DEATH_SPLATTED do not eject (crushed under tank / splat).
+pub fn meets_eject_pilot_death_types_gate(death_type: HostDeathType) -> bool {
+    !matches!(
+        death_type,
+        HostDeathType::Crushed | HostDeathType::Splatted
+    )
+}
+
+/// Retail `ExemptStatus = HIJACKED` residual gate.
+///
+/// C++ DieMuxData::isDieApplicable → if object has HIJACKED status bits, skip.
+/// Hijacked vehicles do not eject a pilot (driver already replaced).
+pub fn meets_eject_pilot_exempt_status_gate(is_hijacked: bool) -> bool {
+    !is_hijacked
+}
+
 /// Whether residual EjectPilotDie should fire on death.
 ///
 /// Fail-closed: eligible template, not unmanned, not under construction,
-/// vehicle kind residual (not structure / aircraft), VeterancyLevels ALL -REGULAR.
+/// vehicle kind residual (not structure / aircraft), VeterancyLevels ALL -REGULAR,
+/// DeathTypes ALL -CRUSHED -SPLATTED, ExemptStatus HIJACKED.
 pub fn can_eject_pilot_on_death(
     is_eligible_template: bool,
     is_unmanned: bool,
@@ -240,6 +282,8 @@ pub fn can_eject_pilot_on_death(
     is_vehicle: bool,
     is_aircraft: bool,
     meets_veterancy_gate: bool,
+    meets_death_types_gate: bool,
+    meets_exempt_status_gate: bool,
 ) -> bool {
     is_eligible_template
         && !is_unmanned
@@ -247,6 +291,8 @@ pub fn can_eject_pilot_on_death(
         && is_vehicle
         && !is_aircraft
         && meets_veterancy_gate
+        && meets_death_types_gate
+        && meets_exempt_status_gate
 }
 
 /// Whether PilotFindVehicleUpdate residual may auto-scan this pilot.
@@ -273,14 +319,72 @@ pub fn vehicle_meets_pilot_find_min_health(health: f32, max_health: f32, min_rat
 
 /// Whether a candidate vehicle is a valid PilotFindVehicle target residual.
 ///
-/// Host residual: recrewable unmanned path (not full VeterancyCrate same-team
-/// exp-gain matrix). MinHealth + range gates preserved.
+/// Host residual: recrewable unmanned path + CollideModule wouldLikeToCollideWith
+/// gates (MinHealth + range preserved).
 pub fn is_pilot_find_vehicle_target(
     recrewable: bool,
     health_ok: bool,
     in_scan_range: bool,
 ) -> bool {
     recrewable && health_ok && in_scan_range
+}
+
+/// C++ `VeterancyCrateCollide::isValidToExecute` / wouldLikeToCollideWith residual
+/// gates used by PilotFindVehicleUpdate module iterate.
+///
+/// Host residual of:
+/// - RequiredKindOf = VEHICLE / ForbiddenKindOf = DOZER
+/// - not effectively dead
+/// - not isSignificantlyAboveTerrain
+/// - not isUsingAirborneLocomotor (IsPilot path)
+/// - ExperienceTracker isTrainable + canGainExpForLevel(pilot levels)
+///
+/// Fail-closed: not full same-player PartitionFilter (host Neutral unmanned path);
+/// not full AI goal-object enter check from executeCrateBehavior.
+pub fn pilot_collide_would_like_to_collide_with(
+    is_alive: bool,
+    is_vehicle: bool,
+    is_dozer: bool,
+    is_significantly_above_terrain: bool,
+    is_airborne_locomotor: bool,
+    is_trainable: bool,
+    can_gain_exp_for_pilot_levels: bool,
+) -> bool {
+    is_alive
+        && is_vehicle
+        && !is_dozer
+        && !is_significantly_above_terrain
+        && !is_airborne_locomotor
+        && is_trainable
+        && can_gain_exp_for_pilot_levels
+}
+
+/// C++ `VeterancyCrateCollide::getLevelsToGain` with AddsOwnerVeterancy residual.
+/// Pilot veterancy rank (Regular=0 → levels 0 blocked; Veteran=1, Elite=2, Heroic=3).
+pub fn pilot_levels_to_gain(pilot_level: VeterancyLevel) -> u8 {
+    veterancy_rank(pilot_level)
+}
+
+/// C++ ExperienceTracker::canGainExpForLevel residual.
+///
+/// Vehicle can absorb `levels` only if resulting rank stays within Heroic (3).
+/// Fail-closed: Heroic vehicle cannot gain further levels → wouldLikeToCollideWith false.
+pub fn vehicle_can_gain_exp_for_levels(vehicle_level: VeterancyLevel, levels: u8) -> bool {
+    if levels == 0 {
+        return false;
+    }
+    (veterancy_rank(vehicle_level) as u16 + levels as u16) <= 3
+}
+
+/// Combined PilotFindVehicle scan target residual (recrewable + MinHealth + range
+/// + CollideModule wouldLikeToCollideWith).
+pub fn is_pilot_find_vehicle_collide_target(
+    recrewable: bool,
+    health_ok: bool,
+    in_scan_range: bool,
+    collide_ok: bool,
+) -> bool {
+    is_pilot_find_vehicle_target(recrewable, health_ok, in_scan_range) && collide_ok
 }
 
 /// Whether current frame is a PilotFindVehicle scan tick residual.
@@ -496,6 +600,15 @@ pub struct HostUsaPilotRegistry {
     /// AutoFindHealingUpdate residual orders issued by non-pilot infantry.
     #[serde(default)]
     pub infantry_auto_heal_orders: u32,
+    /// DeathTypes CRUSHED/SPLATTED residual blocks on EjectPilotDie.
+    #[serde(default)]
+    pub eject_death_type_blocks: u32,
+    /// ExemptStatus HIJACKED residual blocks on EjectPilotDie.
+    #[serde(default)]
+    pub eject_hijacked_blocks: u32,
+    /// PilotFindVehicle CollideModule wouldLikeToCollideWith residual rejects.
+    #[serde(default)]
+    pub find_vehicle_collide_rejects: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -557,6 +670,19 @@ impl HostUsaPilotRegistry {
         self.auto_heal_orders = self.auto_heal_orders.saturating_add(1);
     }
 
+    pub fn record_eject_death_type_block(&mut self) {
+        self.eject_death_type_blocks = self.eject_death_type_blocks.saturating_add(1);
+    }
+
+    pub fn record_eject_hijacked_block(&mut self) {
+        self.eject_hijacked_blocks = self.eject_hijacked_blocks.saturating_add(1);
+    }
+
+    pub fn record_find_vehicle_collide_reject(&mut self) {
+        self.find_vehicle_collide_rejects =
+            self.find_vehicle_collide_rejects.saturating_add(1);
+    }
+
     /// Residual honesty: at least one recrew completed.
     pub fn honesty_recrew_ok(&self) -> bool {
         self.recrews > 0
@@ -615,6 +741,26 @@ impl HostUsaPilotRegistry {
     /// Residual honesty: non-pilot infantry AutoFindHealing residual issued.
     pub fn honesty_infantry_auto_heal_ok(&self) -> bool {
         self.infantry_auto_heal_orders > 0
+    }
+
+    /// Residual honesty: DeathTypes CRUSHED/SPLATTED gate blocked at least once.
+    pub fn honesty_eject_death_type_gate_ok(&self) -> bool {
+        self.eject_death_type_blocks > 0
+    }
+
+    /// Residual honesty: ExemptStatus HIJACKED gate blocked at least once.
+    pub fn honesty_eject_hijacked_gate_ok(&self) -> bool {
+        self.eject_hijacked_blocks > 0
+    }
+
+    /// Residual honesty: DieMux residual (death type or hijacked) blocked eject.
+    pub fn honesty_eject_die_mux_ok(&self) -> bool {
+        self.eject_death_type_blocks > 0 || self.eject_hijacked_blocks > 0
+    }
+
+    /// Residual honesty: CollideModule residual rejected at least one candidate.
+    pub fn honesty_find_vehicle_collide_ok(&self) -> bool {
+        self.find_vehicle_collide_rejects > 0
     }
 
     /// Combined pilot residual honesty (recrew or eject path).
@@ -713,27 +859,93 @@ mod tests {
 
     #[test]
     fn eject_on_death_gate() {
+        // eligible, not unmanned, not construction, vehicle, not aircraft,
+        // vet gate, death types ok, not hijacked
         assert!(can_eject_pilot_on_death(
-            true, false, false, true, false, true
+            true, false, false, true, false, true, true, true
         ));
         assert!(!can_eject_pilot_on_death(
-            true, true, false, true, false, true
+            true, true, false, true, false, true, true, true
         )); // unmanned
         assert!(!can_eject_pilot_on_death(
-            true, false, true, true, false, true
+            true, false, true, true, false, true, true, true
         )); // construction
         assert!(!can_eject_pilot_on_death(
-            false, false, false, true, false, true
+            false, false, false, true, false, true, true, true
         )); // ineligible
         assert!(!can_eject_pilot_on_death(
-            true, false, false, false, false, true
+            true, false, false, false, false, true, true, true
         )); // not vehicle
         assert!(!can_eject_pilot_on_death(
-            true, false, false, true, true, true
+            true, false, false, true, true, true, true, true
         )); // aircraft
         assert!(!can_eject_pilot_on_death(
-            true, false, false, true, false, false
+            true, false, false, true, false, false, true, true
         )); // REGULAR / Rookie blocked
+        assert!(!can_eject_pilot_on_death(
+            true, false, false, true, false, true, false, true
+        )); // DeathTypes CRUSHED/SPLATTED
+        assert!(!can_eject_pilot_on_death(
+            true, false, false, true, false, true, true, false
+        )); // ExemptStatus HIJACKED
+    }
+
+    #[test]
+    fn eject_death_types_and_exempt_status_gates() {
+        assert!(meets_eject_pilot_death_types_gate(HostDeathType::Normal));
+        assert!(!meets_eject_pilot_death_types_gate(HostDeathType::Crushed));
+        assert!(!meets_eject_pilot_death_types_gate(HostDeathType::Splatted));
+        assert!(meets_eject_pilot_exempt_status_gate(false));
+        assert!(!meets_eject_pilot_exempt_status_gate(true));
+    }
+
+    #[test]
+    fn pilot_collide_would_like_to_collide_gates() {
+        assert!(pilot_collide_would_like_to_collide_with(
+            true, true, false, false, false, true, true
+        ));
+        assert!(!pilot_collide_would_like_to_collide_with(
+            false, true, false, false, false, true, true
+        )); // dead
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, false, false, false, false, true, true
+        )); // not vehicle
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, true, true, false, false, true, true
+        )); // dozer
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, true, false, true, false, true, true
+        )); // above terrain
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, true, false, false, true, true, true
+        )); // airborne locomotor
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, true, false, false, false, false, true
+        )); // not trainable
+        assert!(!pilot_collide_would_like_to_collide_with(
+            true, true, false, false, false, true, false
+        )); // cannot gain exp
+
+        // Pilot VETERAN (levels=1) can enter Rookie..Elite; not Heroic.
+        assert_eq!(pilot_levels_to_gain(VeterancyLevel::Veteran), 1);
+        assert_eq!(pilot_levels_to_gain(VeterancyLevel::Elite), 2);
+        assert_eq!(pilot_levels_to_gain(VeterancyLevel::Heroic), 3);
+        assert_eq!(pilot_levels_to_gain(VeterancyLevel::Rookie), 0);
+        assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 1));
+        assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Elite, 1));
+        assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Heroic, 1));
+        assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 0));
+        // Elite vehicle + Elite pilot levels (2) → 2+2=4 > 3 blocked.
+        assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Elite, 2));
+        // Rookie + Heroic pilot levels (3) → ok.
+        assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 3));
+
+        assert!(is_pilot_find_vehicle_collide_target(
+            true, true, true, true
+        ));
+        assert!(!is_pilot_find_vehicle_collide_target(
+            true, true, true, false
+        ));
     }
 
     #[test]
@@ -894,6 +1106,16 @@ mod tests {
         assert!(reg.honesty_infantry_auto_heal_ok());
         assert_eq!(reg.infantry_auto_heal_orders, 1);
         assert_eq!(reg.auto_heal_orders, 2);
+        reg.record_eject_death_type_block();
+        assert!(reg.honesty_eject_death_type_gate_ok());
+        assert!(reg.honesty_eject_die_mux_ok());
+        reg.record_eject_hijacked_block();
+        assert!(reg.honesty_eject_hijacked_gate_ok());
+        assert_eq!(reg.eject_death_type_blocks, 1);
+        assert_eq!(reg.eject_hijacked_blocks, 1);
+        reg.record_find_vehicle_collide_reject();
+        assert!(reg.honesty_find_vehicle_collide_ok());
+        assert_eq!(reg.find_vehicle_collide_rejects, 1);
     }
 
     #[test]

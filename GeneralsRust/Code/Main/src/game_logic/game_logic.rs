@@ -11915,10 +11915,12 @@ impl GameLogic {
                 // Air path: isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute residual.
                 // Ground path: OCL_EjectPilotOnGround residual.
                 // VeterancyLevels = ALL -REGULAR residual: Rookie does not eject.
+                // DeathTypes = ALL -CRUSHED -SPLATTED; ExemptStatus = HIJACKED residual.
                 {
                     use crate::game_logic::host_usa_pilot::{
                         air_eject_spawn_height, can_eject_pilot_on_death,
-                        is_eject_pilot_eligible_template, meets_eject_pilot_veterancy_gate,
+                        is_eject_pilot_eligible_template, meets_eject_pilot_death_types_gate,
+                        meets_eject_pilot_exempt_status_gate, meets_eject_pilot_veterancy_gate,
                         uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
                     };
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
@@ -11929,15 +11931,44 @@ impl GameLogic {
                         || obj.construction_percent + 0.001 < 1.0;
                     let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
                     let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
+                    let death_types_gate =
+                        meets_eject_pilot_death_types_gate(obj.status.death_type);
+                    let exempt_status_gate =
+                        meets_eject_pilot_exempt_status_gate(obj.status.hijacked);
                     // Honesty: record REGULAR-gate blocks when all other gates pass.
                     if eligible_template
                         && !obj.is_unmanned()
                         && !under_construction
                         && is_vehicle
                         && !is_aircraft
+                        && death_types_gate
+                        && exempt_status_gate
                         && !vet_gate
                     {
                         self.usa_pilot.record_eject_veterancy_block();
+                    }
+                    // Honesty: DeathTypes / ExemptStatus blocks when other gates pass.
+                    if eligible_template
+                        && !obj.is_unmanned()
+                        && !under_construction
+                        && is_vehicle
+                        && !is_aircraft
+                        && vet_gate
+                        && exempt_status_gate
+                        && !death_types_gate
+                    {
+                        self.usa_pilot.record_eject_death_type_block();
+                    }
+                    if eligible_template
+                        && !obj.is_unmanned()
+                        && !under_construction
+                        && is_vehicle
+                        && !is_aircraft
+                        && vet_gate
+                        && death_types_gate
+                        && !exempt_status_gate
+                    {
+                        self.usa_pilot.record_eject_hijacked_block();
                     }
                     if can_eject_pilot_on_death(
                         eligible_template,
@@ -11946,6 +11977,8 @@ impl GameLogic {
                         is_vehicle,
                         is_aircraft,
                         vet_gate,
+                        death_types_gate,
+                        exempt_status_gate,
                     ) {
                         let pilot_team = obj.team;
                         let air_path =
@@ -24651,6 +24684,26 @@ impl GameLogic {
         self.usa_pilot.honesty_infantry_auto_heal_ok()
     }
 
+    /// Residual honesty: EjectPilotDie DeathTypes CRUSHED/SPLATTED gate blocked.
+    pub fn honesty_pilot_eject_death_type_gate_ok(&self) -> bool {
+        self.usa_pilot.honesty_eject_death_type_gate_ok()
+    }
+
+    /// Residual honesty: EjectPilotDie ExemptStatus HIJACKED gate blocked.
+    pub fn honesty_pilot_eject_hijacked_gate_ok(&self) -> bool {
+        self.usa_pilot.honesty_eject_hijacked_gate_ok()
+    }
+
+    /// Residual honesty: DieMux residual (death type or hijacked) blocked eject.
+    pub fn honesty_pilot_eject_die_mux_ok(&self) -> bool {
+        self.usa_pilot.honesty_eject_die_mux_ok()
+    }
+
+    /// Residual honesty: PilotFindVehicle CollideModule residual rejected a target.
+    pub fn honesty_pilot_find_vehicle_collide_ok(&self) -> bool {
+        self.usa_pilot.honesty_find_vehicle_collide_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
@@ -24661,14 +24714,17 @@ impl GameLogic {
     ///
     /// C++ PilotFindVehicleUpdate: human players sleep forever; AI issues
     /// `aiEnter` on closest valid target. Host residual maps valid targets onto
-    /// the recrewable-unmanned path (not full VeterancyCrate same-team matrix).
+    /// the recrewable-unmanned path + VeterancyCrateCollide wouldLikeToCollideWith
+    /// gates (not above terrain / not airborne / trainable / can gain exp).
     /// When no vehicle found: one-shot base-center fallback (`m_didMoveToBase`).
-    /// Fail-closed: not full CollideModule wouldLikeToCollideWith iterate.
+    /// Fail-closed: not full same-player PartitionFilter (Neutral unmanned allowed).
     fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            is_pilot_find_vehicle_target, is_pilot_template, is_recrewable_unmanned_vehicle,
-            pilot_find_vehicle_scan_eligible, pilot_find_vehicle_scan_frame,
-            should_pilot_base_center_fallback, vehicle_meets_pilot_find_min_health,
+            is_pilot_find_vehicle_collide_target, is_pilot_template,
+            is_recrewable_unmanned_vehicle, pilot_collide_would_like_to_collide_with,
+            pilot_find_vehicle_scan_eligible, pilot_find_vehicle_scan_frame, pilot_levels_to_gain,
+            should_pilot_base_center_fallback, uses_air_eject_ocl,
+            vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
             PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
 
@@ -24695,14 +24751,18 @@ impl GameLogic {
                     obj.team,
                     obj.selection_radius,
                     obj.status.pilot_did_move_to_base,
+                    obj.experience.level,
                 )
             }
             _ => return,
         };
-        let (pilot_pos, pilot_team, pilot_radius, did_move_to_base) = snapshot;
+        let (pilot_pos, pilot_team, pilot_radius, did_move_to_base, pilot_level) = snapshot;
+        let levels_to_gain = pilot_levels_to_gain(pilot_level);
 
-        // Scan nearest recrewable unmanned vehicle in range with MinHealth residual.
+        // Scan nearest recrewable unmanned vehicle in range with MinHealth +
+        // CollideModule wouldLikeToCollideWith residual.
         let mut best: Option<(ObjectId, f32, Vec3)> = None;
+        let mut collide_rejects: u32 = 0;
         for (vid, vehicle) in &self.objects {
             if *vid == pilot_id || !vehicle.is_alive() {
                 continue;
@@ -24733,11 +24793,39 @@ impl GameLogic {
             // 2D range residual (FROM_CENTER_2D).
             let dist = ((pilot_pos.x - vpos.x).powi(2) + (pilot_pos.z - vpos.z).powi(2)).sqrt();
             let in_range = dist <= PILOT_FIND_VEHICLE_SCAN_RANGE;
-            if !is_pilot_find_vehicle_target(recrewable, health_ok, in_range) {
+            // CollideModule residual: isSignificantlyAboveTerrain / airborne /
+            // trainable / canGainExpForLevel.
+            let above_terrain = uses_air_eject_ocl(vpos.y, vehicle.status.airborne_target);
+            let airborne_locomotor = is_air;
+            // Host residual: ground vehicles are trainable by default (not full
+            // IsTrainable module matrix).
+            let is_trainable = is_vehicle && !is_air;
+            let can_gain = vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
+            let collide_ok = pilot_collide_would_like_to_collide_with(
+                true,
+                is_vehicle,
+                is_dozer,
+                above_terrain,
+                airborne_locomotor,
+                is_trainable,
+                can_gain,
+            );
+            // Track CollideModule rejects that otherwise pass recrew/MinHealth/range
+            // (honesty for residual gate, not full matrix).
+            if recrewable && health_ok && in_range && !collide_ok {
+                collide_rejects = collide_rejects.saturating_add(1);
+                continue;
+            }
+            if !is_pilot_find_vehicle_collide_target(recrewable, health_ok, in_range, collide_ok) {
                 continue;
             }
             if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
                 best = Some((*vid, dist, vpos));
+            }
+        }
+        if collide_rejects > 0 {
+            for _ in 0..collide_rejects {
+                self.usa_pilot.record_find_vehicle_collide_reject();
             }
         }
 
@@ -38926,6 +39014,293 @@ mod tests {
             game_logic.usa_pilot_residual().ejections,
             2,
             "Elite vehicle must eject pilot residual"
+        );
+    }
+
+    /// Residual: EjectPilotDie DeathTypes ALL -CRUSHED -SPLATTED + ExemptStatus HIJACKED.
+    ///
+    /// C++ DieMuxData::isDieApplicable → DeathTypes / ExemptStatus filters.
+    /// Crushed / splatted deaths and hijacked vehicles do not eject.
+    /// Fail-closed: not full DeathType enum matrix beyond crush/splat residual.
+    #[test]
+    fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
+        use crate::game_logic::host_usa_pilot::{HostDeathType, EJECT_PILOT_TEMPLATE};
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        // CRUSHED death residual → no eject.
+        let crushed_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("crushed humvee");
+        {
+            let h = game_logic.find_object_mut(crushed_id).expect("crushed");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.death_type = HostDeathType::Crushed;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(crushed_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_pilot_eject_death_type_gate_ok(),
+            "DeathTypes CRUSHED residual must record block honesty"
+        );
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            0,
+            "CRUSHED death must not eject pilot"
+        );
+        assert_eq!(
+            game_logic
+                .objects
+                .values()
+                .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+                .count(),
+            0,
+            "no pilot spawn on crushed residual"
+        );
+
+        // SPLATTED death residual → no eject.
+        let splat_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("splat humvee");
+        {
+            let h = game_logic.find_object_mut(splat_id).expect("splat");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.death_type = HostDeathType::Splatted;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(splat_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().eject_death_type_blocks,
+            2,
+            "SPLATTED death must also record death-type block"
+        );
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            0,
+            "SPLATTED death must not eject pilot"
+        );
+
+        // HIJACKED residual → no eject.
+        let hijack_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(160.0, 0.0, 160.0),
+            )
+            .expect("hijacked humvee");
+        {
+            let h = game_logic.find_object_mut(hijack_id).expect("hijacked");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.apply_hijacked();
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(hijack_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert!(
+            game_logic.honesty_pilot_eject_hijacked_gate_ok(),
+            "ExemptStatus HIJACKED residual must record block honesty"
+        );
+        assert!(
+            game_logic.honesty_pilot_eject_die_mux_ok(),
+            "DieMux residual honesty must fire for death-type or hijacked"
+        );
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            0,
+            "HIJACKED vehicle must not eject pilot"
+        );
+
+        // Normal combat death residual still ejects.
+        let normal_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(240.0, 0.0, 240.0),
+            )
+            .expect("normal humvee");
+        {
+            let h = game_logic.find_object_mut(normal_id).expect("normal");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.death_type = HostDeathType::Normal;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(normal_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            1,
+            "Normal combat death must still eject pilot residual"
+        );
+        assert!(
+            game_logic
+                .objects
+                .values()
+                .any(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE),
+            "normal death residual must spawn pilot"
+        );
+    }
+
+    /// Residual: PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith gates.
+    ///
+    /// C++ VeterancyCrateCollide: skip significantly-above-terrain / airborne /
+    /// non-trainable / cannot-gain-exp targets. Host residual: Heroic unmanned
+    /// vehicle is rejected (pilot levels cannot promote past Heroic); elevated
+    /// unmanned vehicle is rejected by isSignificantlyAboveTerrain residual.
+    /// Fail-closed: not full same-player PartitionFilter (Neutral unmanned ok).
+    #[test]
+    fn pilot_find_vehicle_collide_module_would_like_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            significantly_above_terrain_threshold, PILOT_FIND_VEHICLE_SCAN_FRAMES,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
+            p.ai_state = AIState::Idle;
+        }
+
+        // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
+        let heroic_id = game_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(5.0, 0.0, 0.0))
+            .expect("heroic tank");
+        {
+            let t = game_logic.find_object_mut(heroic_id).expect("heroic");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Heroic;
+            t.health.current = t.max_health;
+        }
+
+        // Elevated unmanned tank further out — isSignificantlyAboveTerrain residual rejects.
+        // Do not set airborne_target: recrewable path still treats it as ground vehicle,
+        // but CollideModule residual blocks via height gate alone.
+        let elevated_id = game_logic
+            .create_object(
+                "TestTank",
+                Team::Neutral,
+                Vec3::new(12.0, significantly_above_terrain_threshold() + 10.0, 0.0),
+            )
+            .expect("elevated tank");
+        {
+            let t = game_logic.find_object_mut(elevated_id).expect("elevated");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Rookie;
+            t.health.current = t.max_health;
+        }
+
+        // Valid Rookie unmanned tank within Enter residual range (~selection radii + 4).
+        let ok_id = game_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .expect("ok tank");
+        {
+            let t = game_logic.find_object_mut(ok_id).expect("ok");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Rookie;
+            t.health.current = t.max_health;
+        }
+
+        assert!(!game_logic.honesty_pilot_find_vehicle_ok());
+        game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        game_logic.update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_pilot_find_vehicle_collide_ok(),
+            "CollideModule residual must reject Heroic / elevated candidates"
+        );
+        assert!(
+            game_logic.usa_pilot_residual().find_vehicle_collide_rejects >= 2,
+            "expect ≥2 CollideModule residual rejects (heroic + elevated), got {}",
+            game_logic.usa_pilot_residual().find_vehicle_collide_rejects
+        );
+        assert!(
+            game_logic.honesty_pilot_find_vehicle_ok(),
+            "PilotFindVehicle residual must still Enter valid Rookie vehicle"
+        );
+
+        // Complete Enter if not finished same-frame.
+        if game_logic
+            .find_object(pilot_id)
+            .map(|p| !p.status.destroyed)
+            .unwrap_or(false)
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            assert_eq!(
+                p.target,
+                Some(ok_id),
+                "must skip Heroic/elevated and target valid Rookie vehicle"
+            );
+            game_logic.update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0);
+        }
+
+        let ok = game_logic.find_object(ok_id).expect("ok after recrew");
+        assert!(!ok.is_unmanned(), "valid vehicle must be recrewed");
+        assert_eq!(ok.team, Team::USA, "recrew transfers pilot team");
+        assert!(
+            game_logic.find_object(heroic_id).unwrap().is_unmanned(),
+            "Heroic residual must remain unmanned (CollideModule reject)"
+        );
+        assert!(
+            game_logic.find_object(elevated_id).unwrap().is_unmanned(),
+            "elevated residual must remain unmanned (CollideModule reject)"
+        );
+        assert!(
+            game_logic
+                .find_object(pilot_id)
+                .map(|p| p.status.destroyed)
+                .unwrap_or(true),
+            "pilot consumed after CollideModule-gated auto-recrew residual"
         );
     }
 
