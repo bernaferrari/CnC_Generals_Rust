@@ -14,21 +14,24 @@
 //!   ensure path is operational. Still **not** a retail playthrough claim.
 //!
 //! Residual honesty (do **not** flip `playable_claim`):
-//! - `dual_tick_presentation_ok` — seed + logic update + presentation apply order
+//! - `dual_tick_presentation_ok` — seed + logic update + multi-consumer presentation apply
 //! - `minimap_fow_presentation_ok` — FOW grid snapshot usable for minimap texture path
 //! - `laser_segment_upload_ok` — presentation → CPU SegLine pack residual (incl. synthetic)
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
+//! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
 use crate::game_logic::GameLogic;
 use crate::gameplay_layout::{
-    control_bar_layout_honesty, format_gameplay_layout_status, GameplayLayoutStatus,
+    control_bar_layout_honesty, format_control_bar_honesty, GameplayLayoutStatus,
 };
 use crate::graphics::laser_segment_upload::{pack_and_mark_upload_ready, LaserSegmentUpload};
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::{PresentationFrame, PresentationLaserBeam};
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
-use crate::ui::{GameHUD, Screen, UIManager};
+use crate::ui::{
+    GameHUD, GameUIState, RTSInterface, Screen, UIManager, UnitCommandPanel,
+};
 
 const HOST_MAP_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -65,6 +68,13 @@ pub struct ShellSmokeResult {
     pub control_bar_path_resolved: bool,
     /// ControlBar.wnd structural validate (FILE_VERSION / WINDOW / ControlBar tokens).
     pub control_bar_wnd_validated: bool,
+    /// Headless WindowManager parse materialised GameWindows (assets present path).
+    /// False when WindowZH missing or parse deferred — still honest residual.
+    pub control_bar_window_loaded: bool,
+    /// Window count from headless WindowManager load (0 when not loaded).
+    pub control_bar_window_count: usize,
+    /// Dual-tick residual: selection panel applied to HUD + UIState + RTS + command panel.
+    pub selection_consumers_ok: bool,
     /// Limited headless host claim (see module docs). Not retail W3D play.
     pub shell_host_playable_ok: bool,
     /// Always false here: no window/WND/GPU retail playthrough.
@@ -120,16 +130,34 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     };
 
     // Immediate post-map seed (matches start_game_from_ui seed before first dual-tick).
+    // Multi-consumer residual: HUD + UIState + RTS + unit command panel share snapshot.
     let mut hud = GameHUD::new();
-    let seed_pres = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+    let mut ui_state = GameUIState::default();
+    let mut rts = RTSInterface::new();
+    let mut command_panel = UnitCommandPanel::new();
+    let seed_pres = PresentationFrame::build_and_apply_for_shell_consumers(
+        &logic,
+        0,
+        &mut hud,
+        &mut ui_state,
+        &mut rts,
+        &mut command_panel,
+    );
     let seed_ok = seed_pres.frame.0 == logic.get_frame()
         && (seed_pres.alive_object_count() > 0 || !map_loaded);
 
     let frame_before = logic.get_frame();
     for _ in 0..frames.max(1) {
-        // Dual-tick: authority step then presentation/HUD apply (production order).
+        // Dual-tick: authority step then multi-consumer presentation apply.
         logic.update();
-        let _ = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+        let _ = PresentationFrame::build_and_apply_for_shell_consumers(
+            &logic,
+            0,
+            &mut hud,
+            &mut ui_state,
+            &mut rts,
+            &mut command_panel,
+        );
     }
     let frames_advanced = logic.get_frame().saturating_sub(frame_before);
     let frames_ok = frames_advanced > 0;
@@ -150,7 +178,14 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         }
     }
 
-    let pres = PresentationFrame::build_and_apply_for_hud(&logic, 0, &mut hud);
+    let pres = PresentationFrame::build_and_apply_for_shell_consumers(
+        &logic,
+        0,
+        &mut hud,
+        &mut ui_state,
+        &mut rts,
+        &mut command_panel,
+    );
     let presentation_ok = seed_ok
         && pres.frame.0 == logic.get_frame()
         && (pres.alive_object_count() > 0 || !map_loaded)
@@ -183,8 +218,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && synth_pack.honesty.segments_packed >= 20
         && synth_pack.honesty.beams_packed == 2;
 
-    // HUD + ControlBar selection panel health from presentation after dual-tick.
-    let hud_selection_ok = if let Some(id) = select_id {
+    // HUD + multi-consumer selection panel health from presentation after dual-tick.
+    let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
         let snap_infos = pres.selected_unit_display_infos();
         let hud_hit = infos.iter().any(|u| {
@@ -210,12 +245,26 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         };
         #[cfg(not(feature = "game_client"))]
         let control_bar_ok = true;
-        hud_hit && snap_hit && ids_ok && minimap_ok && panel_ok && control_bar_ok
+        let ui_ok = ui_state.selection_panel.has_positive_health()
+            && ui_state.selection_panel.primary_object_id == Some(id);
+        let rts_ok = rts.selection_panel().has_positive_health() && rts.selected_ids().contains(&id);
+        let cmd_ok = command_panel.is_visible()
+            && command_panel.selection_panel().has_positive_health()
+            && command_panel.selected_ids().contains(&id);
+        let consumers_ok = ui_ok && rts_ok && cmd_ok && control_bar_ok;
+        (
+            hud_hit && snap_hit && ids_ok && minimap_ok && panel_ok && control_bar_ok,
+            consumers_ok,
+        )
     } else {
         // No objects (absent-map synthetic host): still require resource apply path.
-        hud.selected_unit_ids().is_empty()
+        let empty_ok = hud.selected_unit_ids().is_empty()
             && !hud.selection_panel().visible
-            && (pres.local_supplies > 0 || skirmish_config_ok)
+            && (pres.local_supplies > 0 || skirmish_config_ok);
+        let consumers_empty = !ui_state.selection_panel.visible
+            && rts.selected_ids().is_empty()
+            && !command_panel.is_visible();
+        (empty_ok, empty_ok && consumers_empty)
     };
 
     // Shell → InGame residual: production StartGame transitions Skirmish→Loading→GameHUD
@@ -227,21 +276,33 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     ui_mgr.transition_to_screen(Screen::Loading);
     let at_loading = ui_mgr.current_screen() == Some(Screen::Loading)
         && !Screen::Loading.is_shell_owned_pregame();
-    // Dry-run validate for headless smoke (no WindowManager GUI init required).
-    // Full window load is still deferred to ensure_gameplay_layouts(true) in-engine.
+    // Attempt headless WindowManager load when game_client is enabled (ShowControlBar
+    // residual). AssetsUnavailable remains honest when WindowZH is not checked out.
+    // This is **not** windowed W3D retail — only layout script → window tree.
+    #[cfg(feature = "game_client")]
+    let layout_honesty = control_bar_layout_honesty(true);
+    #[cfg(not(feature = "game_client"))]
     let layout_honesty = control_bar_layout_honesty(false);
     let layout_status = layout_honesty.status.clone();
-    let layout_report = format_gameplay_layout_status(&layout_status);
+    let layout_report = format_control_bar_honesty(&layout_honesty);
     let control_bar_path_resolved = layout_honesty.path_resolved;
     let control_bar_wnd_validated = layout_honesty.wnd_validated;
+    let control_bar_window_loaded = layout_honesty.window_loaded;
+    let control_bar_window_count = layout_honesty.window_count;
     let control_bar_layout_ok = match &layout_status {
         GameplayLayoutStatus::Ready { path, loaded } => {
-            path.contains("ControlBar") && !*loaded // dry-run: loaded must stay false
+            // Ready after structural validate. Prefer WindowManager load when assets
+            // present (`loaded=true`); validated-only (`loaded=false`) is still ok.
+            path.contains("ControlBar")
                 && control_bar_wnd_validated
+                && (*loaded == control_bar_window_loaded)
+                && (!*loaded || control_bar_window_count > 0)
         }
         // Honest residual when WindowZH assets are not checked out.
         GameplayLayoutStatus::AssetsUnavailable { searched } => {
-            !searched.is_empty() && layout_honesty.assets_unavailable
+            !searched.is_empty()
+                && layout_honesty.assets_unavailable
+                && !control_bar_window_loaded
         }
         GameplayLayoutStatus::LoadFailed { .. } => false,
     };
@@ -266,12 +327,14 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && frames_ok
         && presentation_ok
         && hud_selection_ok
+        && selection_consumers_ok
+        && dual_tick_presentation_ok
         && screen_skirmish_ok
         && control_bar_layout_ok
         && map_requirement_ok;
 
     // Limited claim: headless production host path is operational end-to-end.
-    // Requires dual-tick presentation + HUD selection + shell→InGame transition +
+    // Requires dual-tick presentation + multi-consumer selection + shell→InGame +
     // ControlBar.wnd ensure. Still not windowed W3D play (playable_claim stays false).
     let shell_host_playable_ok = host_path_ok;
 
@@ -297,11 +360,14 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         control_bar_layout_ok,
         control_bar_path_resolved,
         control_bar_wnd_validated,
+        control_bar_window_loaded,
+        control_bar_window_count,
+        selection_consumers_ok,
         shell_host_playable_ok,
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -345,11 +411,31 @@ mod tests {
             "ControlBar.wnd ensure residual: {}",
             r.detail
         );
-        // When WindowZH is present, path+validate honesty must be true.
+        assert!(
+            r.selection_consumers_ok,
+            "multi-consumer selection panel residual: {}",
+            r.detail
+        );
+        // When WindowZH is present, path+validate honesty must be true; prefer
+        // headless WindowManager load (not required for CI without assets).
         if r.control_bar_path_resolved {
             assert!(
                 r.control_bar_wnd_validated,
                 "ControlBar structural validate residual: {}",
+                r.detail
+            );
+            #[cfg(feature = "game_client")]
+            if r.control_bar_window_loaded {
+                assert!(
+                    r.control_bar_window_count > 0,
+                    "WindowManager load must materialise windows: {}",
+                    r.detail
+                );
+            }
+        } else {
+            assert!(
+                !r.control_bar_window_loaded && r.control_bar_window_count == 0,
+                "missing assets must not claim window load: {}",
                 r.detail
             );
         }

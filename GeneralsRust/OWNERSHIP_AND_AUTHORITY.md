@@ -68,7 +68,9 @@ Gate honesty labels:
 | shell `shell_host_playable_ok` | Limited claim: headless shell→config→map→dual-tick presentation→HUD selection/minimap→ControlBar.wnd ensure→InGame screen is operational. **Not** full retail play |
 | shell `control_bar_layout_ok` | ControlBar.wnd resolve/validate ran (Ready, or honest AssetsUnavailable when WindowZH missing) |
 | shell `control_bar_path_resolved` / `control_bar_wnd_validated` | Path found + structural FILE_VERSION/WINDOW/ControlBar sniff |
-| shell `dual_tick_presentation_ok` | Seed + logic update + presentation apply order after StartGame |
+| shell `control_bar_window_loaded` / `control_bar_window_count` | Headless WindowManager parse of ControlBar.wnd when assets present (not windowed W3D) |
+| shell `selection_consumers_ok` | Dual-tick selection panel applied to HUD + UIState + RTS + unit command panel |
+| shell `dual_tick_presentation_ok` | Seed + logic update + multi-consumer presentation apply order after StartGame |
 | shell `minimap_fow_presentation_ok` | Presentation FOW grid residual usable for minimap texture path |
 | shell `laser_segment_upload_ok` | Presentation → CPU SegLine pack residual (empty + synthetic geometry) |
 | `synthetic_combat=true` (golden) | Combat/victory on synthetic host world, not Lone Eagle armies |
@@ -82,15 +84,16 @@ Closed toward shell_smoke honesty without overclaiming retail W3D:
 1. **Dual-tick after StartGame** — map load seeds PresentationFrame; each smoke frame does logic update then `build_and_apply_for_hud` (parity with `start_game_from_ui` / engine dual-tick order). Host-testable flag: `dual_tick_presentation_ok`.
 2. **HUD selection + minimap from presentation** — selection panel health and minimap unit identity come from the snapshot, not live object re-read in the HUD apply path.
 3. **Minimap FOW from presentation** — `PresentationFrame.fow_grid` residual usable for minimap R8 path (`minimap_fow_presentation_ok`); production minimap prefers presentation grid over live shroud lock.
-4. **ControlBar.wnd ensure** — shell_smoke calls `control_bar_layout_honesty(false)` on the shell→Loading→GameHUD transition (structural validate: FILE_VERSION / WINDOW / ControlBar tokens; dry-run `loaded=false`). Flags: `control_bar_layout_ok`, `control_bar_path_resolved`, `control_bar_wnd_validated`.
+4. **ControlBar.wnd ensure + headless WindowManager load** — shell_smoke calls `control_bar_layout_honesty(true)` (with `game_client`) on shell→Loading→GameHUD: structural validate (FILE_VERSION / WINDOW / ControlBar) and headless `WindowManager::load_window` when WindowZH is present. Flags: `control_bar_layout_ok`, `control_bar_path_resolved`, `control_bar_wnd_validated`, `control_bar_window_loaded`, `control_bar_window_count`. AssetsUnavailable remains honest without WindowZH.
 5. **WGPU laser segment upload residual (CPU pack)** — presentation freezes assist laser Line3D segments; `LaserSegmentUpload` packs interleaved vertex bytes + honesty; synthetic assist-pair exercises non-empty geometry. Flag: `laser_segment_upload_ok`. Fail-closed: not live `Queue::write_buffer` / texture sample.
 6. **Screen ownership** — UIManager exercises Skirmish → Loading → GameHUD; pregame shell ownership flags are checked for real screen values.
-7. **`shell_host_playable_ok` vs `playable_claim`** — success sets the limited host flag; `playable_claim` stays false so gates cannot be misread as “windowed retail match is playable.”
+7. **Multi-consumer selection panel** — dual-tick `build_and_apply_for_shell_consumers` feeds GameHUD + GameUIState + RTSInterface + UnitCommandPanel (+ ControlBar when game_client). Flag: `selection_consumers_ok`.
+8. **`shell_host_playable_ok` vs `playable_claim`** — success sets the limited host flag; `playable_claim` stays false so gates cannot be misread as “windowed retail match is playable.”
 
 Still residual (not claimed by shell_smoke):
 
 - Windowed shell/WND navigation and GPU match playthrough
-- Full ControlBar.wnd parse via WindowManager without GUI init (loaded=true)
+- Live ControlBar.wnd draw callbacks / image assets / gadget interaction (headless tree only)
 - Live WGPU SegLineRenderer buffer write + EXBinaryStream32.tga sample for assist lasers
 - Full W3D retail match playthrough (GPU present, mesh assets, drawables)
 

@@ -11,19 +11,23 @@ fn main() {
         && r.shell_host_playable_ok
         && r.control_bar_layout_ok
         && r.hud_selection_ok
+        && r.selection_consumers_ok
         && r.screen_skirmish_ok
         && r.dual_tick_presentation_ok
         && r.minimap_fow_presentation_ok
         && r.laser_segment_upload_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} dual_tick={} hud_sel={} minimap_fow={} laser_upload={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
             r.control_bar_wnd_validated,
+            r.control_bar_window_loaded,
+            r.control_bar_window_count,
             r.dual_tick_presentation_ok,
             r.hud_selection_ok,
+            r.selection_consumers_ok,
             r.minimap_fow_presentation_ok,
             r.laser_segment_upload_ok,
             r.screen_skirmish_ok,
@@ -32,12 +36,14 @@ fn main() {
         std::process::exit(0);
     }
     eprintln!(
-        "shell_smoke_gate: FAIL status={} playable_claim={} shell_host_playable_ok={} control_bar={} dual_tick={} laser={} {}",
+        "shell_smoke_gate: FAIL status={} playable_claim={} shell_host_playable_ok={} control_bar={} cb_loaded={} dual_tick={} sel_consumers={} laser={} {}",
         r.status,
         r.playable_claim,
         r.shell_host_playable_ok,
         r.control_bar_layout_ok,
+        r.control_bar_window_loaded,
         r.dual_tick_presentation_ok,
+        r.selection_consumers_ok,
         r.laser_segment_upload_ok,
         r.detail
     );
