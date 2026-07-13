@@ -71,6 +71,13 @@ pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
 /// Retail MicrowaveTankBuildingClearer residual (KILL_GARRISONED damage type).
 pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingClearer";
 
+/// Retail Comanche primary / rocket-pod residual weapons.
+pub const COMANCHE_PRIMARY_WEAPON: &str = "Comanche20mmCannonWeapon";
+pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
+
+/// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
+pub const SENTRY_DRONE_GUN_WEAPON: &str = "SentryDroneGun";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -140,6 +147,20 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "SupW_AmericaTankMicrowave"
         | "TestMicrowave"
         | "TestMicrowaveTank" => Some(MICROWAVE_BUILDING_CLEARER_WEAPON),
+        // AmericaVehicleComanche residual primary cannon.
+        "AmericaVehicleComanche"
+        | "USA_Comanche"
+        | "TestComanche"
+        | "AirF_AmericaVehicleComanche"
+        | "SupW_AmericaVehicleComanche"
+        | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_PRIMARY_WEAPON),
+        // Sentry gun is PLAYER_UPGRADE only — no primary until research residual.
+        "AmericaVehicleSentryDrone"
+        | "USA_SentryDrone"
+        | "TestSentryDrone"
+        | "AirF_AmericaVehicleSentryDrone"
+        | "SupW_AmericaVehicleSentryDrone"
+        | "Lazr_AmericaVehicleSentryDrone" => None,
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
@@ -168,6 +189,13 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
                 return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
             }
+            if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
+                return Some(COMANCHE_PRIMARY_WEAPON);
+            }
+            // Sentry without gun upgrade has no residual primary (fail-closed).
+            if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
+                return None;
+            }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
     }
@@ -183,10 +211,18 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
         | "TestNukeCannon" => Some(NUKE_CANNON_NEUTRON_WEAPON),
+        // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
+        "AmericaVehicleComanche"
+        | "USA_Comanche"
+        | "TestComanche"
+        | "AirF_AmericaVehicleComanche"
+        | "SupW_AmericaVehicleComanche"
+        | "Lazr_AmericaVehicleComanche" => None,
         _ => {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 Some(NUKE_CANNON_NEUTRON_WEAPON)
             } else {
+                // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
             }
         }
@@ -440,6 +476,37 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 999_999.0,
+        },
+        // Comanche20mmCannonWeapon PRIMARY — PrimaryDamage 6, AttackRange 200,
+        // DelayBetweenShots 100ms → 3 frames @ 30 FPS.
+        SeedWeapon {
+            name: COMANCHE_PRIMARY_WEAPON,
+            primary_damage: 6.0,
+            attack_range: 200.0,
+            delay_frames: 3,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // ComancheRocketPodWeapon residual SECONDARY (retail TERTIARY).
+        // PrimaryDamage 30, AttackRange 200, Delay 200ms → 6 frames.
+        // Area damage applied by host residual (primary/secondary rings).
+        SeedWeapon {
+            name: COMANCHE_ROCKET_POD_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 200.0,
+            delay_frames: 6,
+            clip_size: 20,
+            weapon_speed: 99999.0,
+        },
+        // SentryDroneGun PRIMARY after PLAYER_UPGRADE — PrimaryDamage 8, Range 150,
+        // Delay 200ms → 6 frames.
+        SeedWeapon {
+            name: SENTRY_DRONE_GUN_WEAPON,
+            primary_damage: 8.0,
+            attack_range: 150.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 600.0,
         },
     ];
 
