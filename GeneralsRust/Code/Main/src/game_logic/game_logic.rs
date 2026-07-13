@@ -23164,26 +23164,336 @@ impl GameLogic {
         self.battle_plans.honesty_door_active_ok()
     }
 
+    /// Residual honesty: delayed setBattlePlan applied after unpack ACTIVE.
+    pub fn honesty_battle_plan_delayed_active_ok(&self) -> bool {
+        self.battle_plans.honesty_delayed_active_apply_ok()
+    }
+
+    /// Residual honesty: setBattlePlan(NONE) pack-clear residual fired.
+    pub fn honesty_battle_plan_pack_clear_ok(&self) -> bool {
+        self.battle_plans.honesty_pack_clear_ok()
+    }
+
+    /// Residual honesty: Bombardment turret recenter residual before pack.
+    pub fn honesty_battle_plan_turret_recenter_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_recenter_ok()
+    }
+
     /// Tick BattlePlanUpdate pack/unpack door residual (AnimationTime frames).
     ///
-    /// Advances OPENING → WAITING_TO_CLOSE and CLOSING → IDLE → UNPACKING.
-    /// Fail-closed: army setBattlePlan buffs apply immediately on select, not
-    /// deferred until unpack completes (not full delayed ACTIVE matrix).
+    /// Advances OPENING → WAITING_TO_CLOSE (BecameActive → setBattlePlan) and
+    /// CLOSING → IDLE → UNPACKING. Packing start clears army effects
+    /// (setBattlePlan NONE + paralyze). Recenter residual may delay pack.
     fn tick_battle_plan_door_residuals(&mut self) {
+        use crate::game_logic::host_strategy_center::HostBattlePlanDoorEvent;
+
         let frame = self.frame;
         let events = self.battle_plans.tick_door_residuals(frame);
-        for (center_id, audio) in events {
-            let pos = self
-                .objects
-                .get(&center_id)
-                .map(|o| o.get_position())
-                .unwrap_or(Vec3::ZERO);
-            self.queue_audio_event(
-                AudioEventRequest::new(audio)
-                    .with_position(pos)
-                    .with_priority(170),
-            );
+        for event in events {
+            match event {
+                HostBattlePlanDoorEvent::Audio { center_id, event } => {
+                    let pos = self
+                        .objects
+                        .get(&center_id)
+                        .map(|o| o.get_position())
+                        .unwrap_or(Vec3::ZERO);
+                    self.queue_audio_event(
+                        AudioEventRequest::new(event)
+                            .with_position(pos)
+                            .with_priority(170),
+                    );
+                }
+                HostBattlePlanDoorEvent::BecameActive {
+                    center_id,
+                    player_id,
+                    plan,
+                } => {
+                    self.apply_battle_plan_set_battle_plan(
+                        player_id,
+                        Some(plan),
+                        Some(center_id),
+                        false, // paralyze only on NONE
+                    );
+                    self.battle_plans.record_delayed_active_apply();
+                }
+                HostBattlePlanDoorEvent::BeganPacking {
+                    center_id,
+                    player_id,
+                } => {
+                    // C++ setStatus(PACKING) → setBattlePlan(NONE) + paralyzeTroop.
+                    self.apply_battle_plan_set_battle_plan(
+                        player_id,
+                        None,
+                        Some(center_id),
+                        true,
+                    );
+                    self.battle_plans.record_pack_clear();
+                }
+                HostBattlePlanDoorEvent::BeganRecenter { .. } => {
+                    // Counter already recorded in begin_door_residual.
+                }
+            }
         }
+    }
+
+    /// C++ BattlePlanUpdate::setBattlePlan residual (army + building effects).
+    ///
+    /// `plan = None` → PLANSTATUS_NONE (clear previous + optional paralyze).
+    /// `plan = Some(...)` → apply army/building residuals for that plan.
+    fn apply_battle_plan_set_battle_plan(
+        &mut self,
+        player_id: u32,
+        plan: Option<crate::game_logic::host_strategy_center::HostBattlePlan>,
+        strategy_center_id: Option<ObjectId>,
+        paralyze_on_none: bool,
+    ) {
+        use crate::game_logic::host_strategy_center::{
+            battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
+            is_legal_battle_plan_member, is_strategy_center_template,
+            strategy_center_stealth_detection_range_when_enabled,
+            strategy_center_stealth_detector_enabled_for_plan, HostBattlePlan,
+            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
+            STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
+        };
+
+        let frame = self.frame;
+        let paralyze_until = battle_plan_paralyze_until_frame(frame);
+
+        let team = strategy_center_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .unwrap_or_else(|| match player_id {
+                0 => Team::USA,
+                1 => Team::China,
+                2 => Team::GLA,
+                _ => Team::Neutral,
+            });
+
+        let prev_plan = self.battle_plans.active_plan_for_player(player_id);
+
+        // --- Clear previous army residual bonuses ---
+        let previous_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if obj.team == team && obj.has_battle_plan_bonus() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in previous_ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.clear_battle_plan_bonus();
+            }
+        }
+
+        // Reverse previous Strategy Center building residual from active plan.
+        let mut disabled_stealth_detector = false;
+        if let (Some(prev), Some(center_id)) = (prev_plan, strategy_center_id) {
+            if let Some(center) = self.objects.get_mut(&center_id) {
+                match prev {
+                    HostBattlePlan::HoldTheLine => {
+                        let ratio = if center.max_health > 0.0 {
+                            center.health.current / center.max_health
+                        } else {
+                            1.0
+                        };
+                        center.max_health /=
+                            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR.max(0.01);
+                        center.health.maximum = center.max_health;
+                        center.health.current =
+                            (center.max_health * ratio).clamp(0.0, center.max_health);
+                    }
+                    HostBattlePlan::SearchAndDestroy => {
+                        center.detection_range = 0.0;
+                        center.is_detector = false;
+                        disabled_stealth_detector = true;
+                        let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
+                    }
+                    HostBattlePlan::Bombardment => {
+                        center.weapon = None;
+                        center.secondary_weapon = None;
+                        center.stop_attack();
+                    }
+                }
+            }
+        }
+        if disabled_stealth_detector {
+            self.battle_plans.record_stealth_detector_disable();
+        }
+
+        // Clear plan-affecting-army bookkeeping.
+        self.battle_plans.clear_active_plan(player_id);
+
+        // PLANSTATUS_NONE: paralyze troops residual (C++ setBattlePlan NONE).
+        if plan.is_none() {
+            if paralyze_on_none {
+                let candidates: Vec<ObjectId> = self
+                    .objects
+                    .iter()
+                    .filter_map(|(id, obj)| {
+                        if !obj.is_alive() {
+                            return None;
+                        }
+                        let is_structure = obj.is_kind_of(KindOf::Structure)
+                            || obj.object_type == ObjectType::Building;
+                        let is_infantry = obj.is_kind_of(KindOf::Infantry)
+                            || obj.object_type == ObjectType::Infantry;
+                        let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
+                            || obj.object_type == ObjectType::Vehicle;
+                        let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
+                            || obj.object_type == ObjectType::Aircraft;
+                        let is_dozer =
+                            is_dozer_template_name(&obj.template_name) || obj.is_worker();
+                        let is_drone = is_drone_template_name(&obj.template_name);
+                        let can_attack = obj.can_attack()
+                            || obj.weapon.is_some()
+                            || obj.secondary_weapon.is_some();
+                        let under_construction = obj.status.under_construction
+                            || obj.construction_percent + 0.001 < 1.0;
+                        let same_team = obj.team == team;
+                        if !is_legal_battle_plan_member(
+                            is_infantry,
+                            is_vehicle,
+                            can_attack,
+                            is_structure,
+                            is_aircraft,
+                            is_dozer,
+                            is_drone,
+                            true,
+                            same_team,
+                            under_construction,
+                        ) {
+                            return None;
+                        }
+                        Some(*id)
+                    })
+                    .collect();
+                let mut paralyzed: u32 = 0;
+                for id in candidates {
+                    if let Some(target) = self.objects.get_mut(&id) {
+                        if target.is_alive() {
+                            target.apply_disabled_paralyzed(paralyze_until);
+                            paralyzed = paralyzed.saturating_add(1);
+                        }
+                    }
+                }
+                if paralyzed > 0 {
+                    self.battle_plans
+                        .record_effect_application(0, false, paralyzed);
+                }
+            }
+            return;
+        }
+
+        let plan = match plan {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Apply army residual bonuses.
+        let candidates: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let is_structure = obj.is_kind_of(KindOf::Structure)
+                    || obj.object_type == ObjectType::Building;
+                let is_infantry = obj.is_kind_of(KindOf::Infantry)
+                    || obj.object_type == ObjectType::Infantry;
+                let is_vehicle =
+                    obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
+                let is_aircraft =
+                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
+                let is_dozer = is_dozer_template_name(&obj.template_name) || obj.is_worker();
+                let is_drone = is_drone_template_name(&obj.template_name);
+                let can_attack =
+                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                let same_team = obj.team == team;
+                if !is_legal_battle_plan_member(
+                    is_infantry,
+                    is_vehicle,
+                    can_attack,
+                    is_structure,
+                    is_aircraft,
+                    is_dozer,
+                    is_drone,
+                    true,
+                    same_team,
+                    under_construction,
+                ) {
+                    return None;
+                }
+                Some(*id)
+            })
+            .collect();
+
+        let mut buffs: u32 = 0;
+        for id in candidates {
+            if let Some(target) = self.objects.get_mut(&id) {
+                if target.is_alive() {
+                    target.apply_battle_plan_bonus(plan);
+                    buffs = buffs.saturating_add(1);
+                }
+            }
+        }
+
+        // Strategy Center building residual bonuses.
+        let mut building_bonus = false;
+        let mut enabled_stealth_detector = false;
+        if let Some(center_id) = strategy_center_id {
+            if let Some(center) = self.objects.get_mut(&center_id) {
+                let is_center = is_strategy_center_template(&center.template_name)
+                    || center.is_kind_of(KindOf::FSStrategyCenter);
+                if is_center && center.is_alive() {
+                    match plan {
+                        HostBattlePlan::HoldTheLine => {
+                            let ratio = if center.max_health > 0.0 {
+                                center.health.current / center.max_health
+                            } else {
+                                1.0
+                            };
+                            center.max_health *= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR;
+                            center.health.maximum = center.max_health;
+                            center.health.current =
+                                (center.max_health * ratio).clamp(0.0, center.max_health);
+                            building_bonus = true;
+                        }
+                        HostBattlePlan::SearchAndDestroy => {
+                            if strategy_center_stealth_detector_enabled_for_plan(plan) {
+                                center.detection_range =
+                                    strategy_center_stealth_detection_range_when_enabled();
+                                center.is_detector = true;
+                                enabled_stealth_detector = true;
+                            }
+                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
+                            building_bonus = true;
+                        }
+                        HostBattlePlan::Bombardment => {
+                            // C++ enableTurret(true) after unpack ACTIVE.
+                            center.weapon = Some(
+                                crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
+                            );
+                            center.secondary_weapon = None;
+                            building_bonus = true;
+                        }
+                    }
+                }
+            }
+        }
+        if enabled_stealth_detector {
+            self.battle_plans.record_stealth_detector_enable();
+        }
+
+        self.battle_plans.set_active_plan(player_id, plan);
+        self.battle_plans
+            .record_effect_application(buffs, building_bonus, 0);
+        let _ = frame;
     }
 
     /// Activate Frenzy / Rage residual: temporary ally attack buff in radius.
@@ -23300,22 +23610,24 @@ impl GameLogic {
         true
     }
 
-    /// Select a USA Strategy Center battle plan residual and apply army bonuses.
+    /// Select a USA Strategy Center battle plan residual (intent → door residual).
     ///
-    /// Matches retail BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan:
-    /// - Bombardment: BATTLEPLAN_BOMBARDMENT DAMAGE 120% on legal army members
-    /// - HoldTheLine: armor damage scalar 0.9 + center max-health ×2 residual
-    /// - SearchAndDestroy: RANGE 120% + sight 1.2; center StealthDetector residual
-    ///   (DetectionRange **500**, InitiallyDisabled until S&D enables module)
-    /// - BattlePlanChangeParalyzeTime: DISABLED_PARALYZED for 5000ms (150 frames)
-    ///   on legal army members when a plan is activated/changed
-    /// - Pack/unpack door residual: OPENING / WAITING_TO_CLOSE / CLOSING over
-    ///   AnimationTime **7000**ms → **210** frames (buffs still immediate host residual)
+    /// C++ BattlePlanUpdate::initiateIntentToDoSpecialPower sets desired plan;
+    /// army buffs / building bonuses / turret / StealthDetector apply only when
+    /// door residual reaches ACTIVE (setBattlePlan after unpack). Plan switch
+    /// packs first (setBattlePlan NONE + paralyze), then unpacks new plan.
     ///
-    /// Fail-closed: not full delayed ACTIVE-after-unpack setBattlePlan ordering /
-    /// turret recenter / VisionObjectName path (createVisionObject disabled retail).
-    /// Bombardment residual enables StrategyCenterGun turret auto-fire.
-    /// Returns true when the residual selection was recorded (even if 0 army buffs).
+    /// Residual slice:
+    /// - Bombardment: DAMAGE 120% + StrategyCenterGun after ACTIVE
+    /// - HoldTheLine: armor 0.9 + center max-health ×2 after ACTIVE
+    /// - SearchAndDestroy: RANGE 120% + StealthDetector 500 after ACTIVE
+    /// - BattlePlanChangeParalyzeTime: 150 frames on PACKING (NONE transition)
+    /// - AnimationTime **7000**ms → **210** frames pack/unpack
+    /// - Bombardment non-natural turret → recenter **30** frames before pack
+    ///
+    /// Fail-closed: not full AI turret pitch/yaw natural-position matrix /
+    /// VisionObjectName spawn (createVisionObject disabled retail).
+    /// Returns true when the residual selection was recorded.
     pub fn activate_battle_plan(
         &mut self,
         player_id: u32,
@@ -23323,262 +23635,120 @@ impl GameLogic {
         strategy_center_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_strategy_center::{
-            battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
-            is_legal_battle_plan_member, is_strategy_center_template,
-            strategy_center_stealth_detection_range_when_enabled,
-            strategy_center_stealth_detector_enabled_for_plan, HostBattlePlanSelection,
-            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
-            STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
+            strategy_center_turret_is_natural, HostBattlePlanDoorEvent, HostBattlePlanSelection,
         };
 
         let frame = self.frame;
-        let paralyze_until = battle_plan_paralyze_until_frame(frame);
-
-        // Team residual from strategy center or player_id fallback.
-        let team = strategy_center_id
-            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
-            .unwrap_or_else(|| match player_id {
-                0 => Team::USA,
-                1 => Team::China,
-                2 => Team::GLA,
-                _ => Team::Neutral,
-            });
-
-        // C++ BattlePlanUpdate: paralyze only on transition through PLANSTATUS_NONE
-        // (pack before a *change*). First residual select has no prior plan → no paralyze.
-        let had_prior_plan = self.battle_plans.active_plan_for_player(player_id).is_some();
-
-        // Clear previous residual battle-plan bonuses on same-team units first
-        // (plan switch residual; BattlePlanChangeParalyze applied after buffs when switching).
-        let previous_ids: Vec<ObjectId> = self
-            .objects
-            .iter()
-            .filter_map(|(id, obj)| {
-                if obj.team == team && obj.has_battle_plan_bonus() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for id in previous_ids {
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.clear_battle_plan_bonus();
-            }
-        }
-
-        // Reverse previous Strategy Center building residual (max-health / detect).
-        // Fail-closed: only undo last recorded selection's center building bonus.
-        let mut disabled_stealth_detector = false;
-        if let Some(prev) = self
-            .battle_plans
-            .selections()
-            .iter()
-            .rev()
-            .find(|s| s.player_id == player_id && s.building_bonus)
-            .cloned()
-        {
-            if let Some(center_id) = prev.strategy_center_id {
-                if let Some(center) = self.objects.get_mut(&center_id) {
-                    match prev.plan {
-                        crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
-                            let ratio = if center.max_health > 0.0 {
-                                center.health.current / center.max_health
-                            } else {
-                                1.0
-                            };
-                            center.max_health /= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR
-                                .max(0.01);
-                            center.health.maximum = center.max_health;
-                            center.health.current =
-                                (center.max_health * ratio).clamp(0.0, center.max_health);
-                        }
-                        crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
-                        {
-                            // StealthDetectorUpdate residual: setSDEnabled(false).
-                            // DetectionRange residual was absolute 500 — clear override.
-                            center.detection_range = 0.0;
-                            // Fail-closed: clear residual detect unless template is innate detector.
-                            center.is_detector = false;
-                            disabled_stealth_detector = true;
-                            // Building vision residual uses detection_range path above (fail-closed).
-                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
-                        }
-                        crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
-                            // Disable Bombardment turret residual (C++ enableTurret false).
-                            center.weapon = None;
-                            center.secondary_weapon = None;
-                            center.stop_attack();
-                        }
-                    }
-                }
-            }
-        }
-        if disabled_stealth_detector {
-            self.battle_plans.record_stealth_detector_disable();
-        }
-
-        // Snapshot legal army members.
-        let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool, bool)> = self
-            .objects
-            .iter()
-            .filter_map(|(id, obj)| {
-                if !obj.is_alive() {
-                    return None;
-                }
-                // Strategy Center is a structure — excluded from army ValidMember.
-                // Building bonuses applied separately below.
-                let is_structure = obj.is_kind_of(KindOf::Structure)
-                    || obj.object_type == ObjectType::Building;
-                let is_infantry = obj.is_kind_of(KindOf::Infantry)
-                    || obj.object_type == ObjectType::Infantry;
-                let is_vehicle =
-                    obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
-                let is_aircraft =
-                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
-                let is_dozer = is_dozer_template_name(&obj.template_name) || obj.is_worker();
-                let is_drone = is_drone_template_name(&obj.template_name);
-                let can_attack =
-                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
-                let under_construction =
-                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                let same_team = obj.team == team;
-                if !is_legal_battle_plan_member(
-                    is_infantry,
-                    is_vehicle,
-                    can_attack,
-                    is_structure,
-                    is_aircraft,
-                    is_dozer,
-                    is_drone,
-                    true,
-                    same_team,
-                    under_construction,
-                ) {
-                    return None;
-                }
-                Some((
-                    *id,
-                    is_infantry,
-                    is_vehicle,
-                    can_attack,
-                    is_structure,
-                    is_aircraft,
-                    is_dozer,
-                    is_drone,
-                ))
-            })
-            .collect();
-
-        let mut buffs: u32 = 0;
-        let mut paralyzed: u32 = 0;
-        for (id, _, _, _, _, _, _, _) in &candidates {
-            let Some(target) = self.objects.get_mut(id) else {
-                continue;
-            };
-            if !target.is_alive() {
-                continue;
-            }
-            target.apply_battle_plan_bonus(plan);
-            buffs = buffs.saturating_add(1);
-            // C++ BattlePlanUpdate::paralyzeTroop on PLANSTATUS_NONE transition:
-            // setDisabledUntil(DISABLED_PARALYZED, now + BattlePlanChangeParalyzeTime).
-            // Host residual: only when switching from a prior active plan.
-            if had_prior_plan {
-                target.apply_disabled_paralyzed(paralyze_until);
-                paralyzed = paralyzed.saturating_add(1);
-            }
-        }
-
-        // Strategy Center building residual bonuses.
-        let mut building_bonus = false;
-        let mut enabled_stealth_detector = false;
-        if let Some(center_id) = strategy_center_id {
-            if let Some(center) = self.objects.get_mut(&center_id) {
-                let is_center = is_strategy_center_template(&center.template_name)
-                    || center.is_kind_of(KindOf::FSStrategyCenter);
-                if is_center && center.is_alive() {
-                    match plan {
-                        crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
-                            // StrategyCenterHoldTheLineMaxHealthScalar 2.0 PRESERVE_RATIO residual.
-                            let ratio = if center.max_health > 0.0 {
-                                center.health.current / center.max_health
-                            } else {
-                                1.0
-                            };
-                            center.max_health *= STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR;
-                            center.health.maximum = center.max_health;
-                            center.health.current =
-                                (center.max_health * ratio).clamp(0.0, center.max_health);
-                            building_bonus = true;
-                        }
-                        crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
-                        {
-                            // StealthDetectorUpdate residual (ModuleTag_16):
-                            // DetectionRange = 500, InitiallyDisabled = Yes → setSDEnabled(true).
-                            // VisionRange * StrategyCenterSearchAndDestroySightRangeScalar is
-                            // separate (shroud/sight); host residual uses DetectionRange absolute.
-                            if strategy_center_stealth_detector_enabled_for_plan(plan) {
-                                center.detection_range =
-                                    strategy_center_stealth_detection_range_when_enabled();
-                                center.is_detector = true;
-                                enabled_stealth_detector = true;
-                            }
-                            // Building sight residual fail-closed beyond detector enable path.
-                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
-                            building_bonus = true;
-                        }
-                        crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
-                            // Bombardment residual building bonus: enable StrategyCenterGun
-                            // turret (C++ enableTurret(true)). Fail-closed: not full
-                            // natural-position recenter / delayed pack matrix.
-                            center.weapon = Some(
-                                crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
-                            );
-                            center.secondary_weapon = None;
-                            building_bonus = true;
-                        }
-                    }
-                }
-            }
-        }
-        if enabled_stealth_detector {
-            self.battle_plans.record_stealth_detector_enable();
-        }
-
-        let selection_id = self.battle_plans.alloc_id();
         let audio = plan.activate_audio();
         let audio_pos = strategy_center_id
             .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
             .unwrap_or(Vec3::ZERO);
 
-        self.battle_plans.record_selection(HostBattlePlanSelection {
-            id: selection_id,
+        // No Strategy Center object: fail-closed immediate apply (no door residual).
+        let Some(center_id) = strategy_center_id else {
+            self.apply_battle_plan_set_battle_plan(player_id, Some(plan), None, false);
+            let selection_id = self.battle_plans.alloc_id();
+            self.battle_plans.record_selection(
+                HostBattlePlanSelection {
+                    id: selection_id,
+                    player_id,
+                    plan,
+                    activate_frame: frame,
+                    strategy_center_id: None,
+                    buffs: 0,
+                    building_bonus: false,
+                    paralyzed: 0,
+                },
+                true,
+            );
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_position(audio_pos)
+                    .with_priority(180),
+            );
+            return true;
+        };
+
+        // Turret natural residual for Bombardment pack gate.
+        let turret_natural = {
+            let center = self.objects.get(&center_id);
+            match center {
+                Some(c) => {
+                    let is_attacking =
+                        c.status.attacking || matches!(c.ai_state, AIState::Attacking);
+                    let has_target = c.target.is_some();
+                    let now_secs = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    let last_fire_age = c.weapon.as_ref().map(|w| {
+                        // last_fire_time is seconds residual; convert to frames @ 30 FPS.
+                        let age_secs = (now_secs - w.last_fire_time).max(0.0);
+                        (age_secs * 30.0).floor() as u32
+                    });
+                    strategy_center_turret_is_natural(is_attacking, has_target, last_fire_age)
+                }
+                None => true,
+            }
+        };
+
+        // Record selection intent (buffs deferred until BecameActive).
+        let selection_id = self.battle_plans.alloc_id();
+        self.battle_plans.record_selection(
+            HostBattlePlanSelection {
+                id: selection_id,
+                player_id,
+                plan,
+                activate_frame: frame,
+                strategy_center_id: Some(center_id),
+                buffs: 0,
+                building_bonus: false,
+                paralyzed: 0,
+            },
+            false, // not active until unpack complete
+        );
+
+        // Start door residual (UNPACKING or PACKING / recenter).
+        let door_events = self.battle_plans.begin_door_residual(
+            center_id,
             player_id,
             plan,
-            activate_frame: frame,
-            strategy_center_id,
-            buffs,
-            building_bonus,
-            paralyzed,
-        });
-
-        // Pack/unpack door model-condition residual (AnimationTime 7000ms → 210 frames).
-        // Fail-closed: army/building setBattlePlan effects apply immediately above;
-        // door residual tracks OPENING → WAITING_TO_CLOSE → CLOSING independently.
-        if let Some(center_id) = strategy_center_id {
-            if let Some(unpack_or_pack_audio) =
-                self.battle_plans
-                    .begin_door_residual(center_id, player_id, plan, frame)
-            {
-                self.queue_audio_event(
-                    AudioEventRequest::new(unpack_or_pack_audio)
-                        .with_position(audio_pos)
-                        .with_priority(170),
-                );
+            frame,
+            turret_natural,
+        );
+        for event in door_events {
+            match event {
+                HostBattlePlanDoorEvent::Audio {
+                    center_id: cid,
+                    event: name,
+                } => {
+                    let pos = self
+                        .objects
+                        .get(&cid)
+                        .map(|o| o.get_position())
+                        .unwrap_or(audio_pos);
+                    self.queue_audio_event(
+                        AudioEventRequest::new(name)
+                            .with_position(pos)
+                            .with_priority(170),
+                    );
+                }
+                HostBattlePlanDoorEvent::BeganPacking {
+                    center_id: cid,
+                    player_id: pid,
+                } => {
+                    // Immediate pack clear + paralyze (setBattlePlan NONE).
+                    self.apply_battle_plan_set_battle_plan(pid, None, Some(cid), true);
+                    self.battle_plans.record_pack_clear();
+                }
+                HostBattlePlanDoorEvent::BeganRecenter { .. } => {
+                    // Counter recorded in begin_door_residual.
+                }
+                HostBattlePlanDoorEvent::BecameActive { .. } => {
+                    // Not emitted from begin_door_residual.
+                }
             }
         }
 
+        // C++ announcement audio + radar event fire when UNPACKING starts
+        // (and on first select). Host residual: always on select intent.
         self.queue_audio_event(
             AudioEventRequest::new(audio)
                 .with_position(audio_pos)
@@ -23588,11 +23758,9 @@ impl GameLogic {
             CombatParticleKind::WeaponImpact,
             audio_pos,
             frame,
-            strategy_center_id,
+            Some(center_id),
             None,
         );
-
-        // Radar residual "Battle plan event" (script radar type 7 residual).
         self.queue_radar_message_at(
             format!("Battle plan: {:?}", plan),
             audio_pos,
@@ -38437,11 +38605,26 @@ mod tests {
         );
     }
 
+    /// Advance Strategy Center door residual through AnimationTime frames to ACTIVE.
+    fn advance_battle_plan_door_to_active(game_logic: &mut GameLogic) {
+        use crate::game_logic::host_strategy_center::BATTLE_PLAN_ANIMATION_FRAMES;
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+    }
+
+    /// Advance pack (210) then unpack (210) for a plan switch residual.
+    fn advance_battle_plan_switch_to_active(game_logic: &mut GameLogic) {
+        advance_battle_plan_door_to_active(game_logic); // pack complete → unpack
+        advance_battle_plan_door_to_active(game_logic); // unpack complete → ACTIVE
+    }
+
     /// Residual: USA Strategy Center battle plans apply army residual bonuses.
     ///
-    /// C++ BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan:
+    /// C++ BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan after unpack ACTIVE:
     /// Bombardment DAMAGE 120%, HoldTheLine armor 0.9, SearchAndDestroy RANGE 120%.
-    /// Fail-closed: not full pack/unpack / paralyze / turret / vision-object matrix.
+    /// Fail-closed: not full turret pitch matrix / vision-object residual.
     #[test]
     fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
@@ -38545,13 +38728,31 @@ mod tests {
             game_logic.honesty_battle_plan_select_ok(),
             "Battle plan residual must record selection honesty"
         );
+        // Delayed ACTIVE residual: buffs not applied until unpack completes.
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "army buffs must wait for unpack ACTIVE residual"
+        );
+        assert_eq!(
+            game_logic.battle_plans().active_plan_for_player(0),
+            None,
+            "plan_affecting_army residual only after ACTIVE"
+        );
+        advance_battle_plan_door_to_active(&mut game_logic);
         assert!(
             game_logic.honesty_battle_plan_buff_ok(),
-            "Battle plan residual must record army buff honesty"
+            "Battle plan residual must record army buff honesty after ACTIVE"
         );
         assert!(
             game_logic.honesty_battle_plan_ok(),
             "Strategy Center host residual path honesty"
+        );
+        assert!(
+            game_logic.honesty_battle_plan_delayed_active_ok(),
+            "delayed setBattlePlan ACTIVE residual honesty"
         );
         assert_eq!(game_logic.battle_plans().selection_count(), 1);
         assert_eq!(
@@ -38562,7 +38763,7 @@ mod tests {
         let ally = game_logic.find_object(ally_id).expect("ally");
         assert!(
             ally.weapon_bonus_battle_plan_bombardment,
-            "ally tank must receive Bombardment residual"
+            "ally tank must receive Bombardment residual after ACTIVE"
         );
         assert!(
             (ally.battle_plan_damage_multiplier() - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001
@@ -38641,6 +38842,16 @@ mod tests {
             game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(center_id)),
             "HoldTheLine residual must activate"
         );
+        // Pack clears Bombardment immediately; new buffs after pack+unpack ACTIVE.
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "PACKING residual must clear prior army buffs"
+        );
+        assert!(game_logic.honesty_battle_plan_pack_clear_ok());
+        advance_battle_plan_switch_to_active(&mut game_logic);
         let ally = game_logic.find_object(ally_id).expect("ally");
         assert!(ally.weapon_bonus_battle_plan_hold_the_line);
         assert!(!ally.weapon_bonus_battle_plan_bombardment);
@@ -38654,7 +38865,7 @@ mod tests {
                 - center_max_before * STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR)
                 .abs()
                 < 0.5,
-            "HoldTheLine residual must double Strategy Center max health"
+            "HoldTheLine residual must double Strategy Center max health after ACTIVE"
         );
 
         // Observable armor effect: ally takes 90% damage under HoldTheLine.
@@ -38706,6 +38917,7 @@ mod tests {
             HostBattlePlan::SearchAndDestroy,
             Some(center_id)
         ));
+        advance_battle_plan_switch_to_active(&mut game_logic);
         let ally = game_logic.find_object(ally_id).expect("ally");
         assert!(ally.weapon_bonus_battle_plan_search_and_destroy);
         assert!(!ally.weapon_bonus_battle_plan_hold_the_line);
@@ -38715,7 +38927,7 @@ mod tests {
         let center = game_logic.find_object(center_id).expect("center");
         assert!(
             center.is_detector,
-            "SearchAndDestroy residual must enable Strategy Center stealth detect"
+            "SearchAndDestroy residual must enable Strategy Center stealth detect after ACTIVE"
         );
         // Range residual: ally can hit target beyond base 100 range up to 120.
         // Plan-switch BattlePlanChangeParalyze residual freezes troops for 150 frames;
@@ -38756,9 +38968,9 @@ mod tests {
 
     /// Residual: BattlePlanChangeParalyzeTime freezes legal army members on plan *switch*.
     ///
-    /// C++ BattlePlanUpdate::paralyzeTroop on PLANSTATUS_NONE transition:
+    /// C++ BattlePlanUpdate::paralyzeTroop on PLANSTATUS_NONE (PACKING) transition:
     /// DISABLED_PARALYZED for 5000 ms (150 frames). First select does not paralyze;
-    /// changing plan does. Fail-closed: not full pack/unpack animation order.
+    /// changing plan (BeganPacking) does.
     #[test]
     fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         use crate::game_logic::host_strategy_center::{
@@ -38811,12 +39023,13 @@ mod tests {
             });
         }
 
-        // First select: buffs apply, no BattlePlanChangeParalyze residual.
+        // First select: unpack → ACTIVE applies buffs; no BattlePlanChangeParalyze.
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::Bombardment,
             Some(center_id)
         ));
+        advance_battle_plan_door_to_active(&mut game_logic);
         assert!(!game_logic.honesty_battle_plan_paralyze_ok());
         assert_eq!(game_logic.battle_plans().paralyze_count(), 0);
         assert!(
@@ -38827,7 +39040,7 @@ mod tests {
             "first select must not paralyze army"
         );
 
-        // Plan switch: DISABLED_PARALYZED for 150 frames on legal members.
+        // Plan switch: PACKING → setBattlePlan(NONE) paralyzes legal members.
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::HoldTheLine,
@@ -38835,7 +39048,7 @@ mod tests {
         ));
         assert!(
             game_logic.honesty_battle_plan_paralyze_ok(),
-            "plan change must record BattlePlanChangeParalyze honesty"
+            "plan change PACKING residual must record BattlePlanChangeParalyze honesty"
         );
         assert!(game_logic.battle_plans().paralyze_count() >= 2);
         {
@@ -40616,15 +40829,20 @@ mod tests {
 
         assert!(!game_logic.honesty_battle_plan_turret_fire_ok());
 
-        // Activate Bombardment → equip StrategyCenterGun.
+        // Activate Bombardment → equip StrategyCenterGun only after unpack ACTIVE.
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::Bombardment,
             Some(sc_id),
         ));
+        assert!(
+            game_logic.find_object(sc_id).unwrap().weapon.is_none(),
+            "turret must not equip during UNPACKING residual"
+        );
+        advance_battle_plan_door_to_active(&mut game_logic);
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
-            let w = sc.weapon.as_ref().expect("Bombardment must equip StrategyCenterGun");
+            let w = sc.weapon.as_ref().expect("Bombardment ACTIVE must equip StrategyCenterGun");
             assert!(
                 (w.damage - STRATEGY_CENTER_GUN_DAMAGE).abs() < 0.001,
                 "StrategyCenterGun damage residual 200"
@@ -40669,7 +40887,17 @@ mod tests {
             "min-range residual must not target close enemy as primary"
         );
 
-        // Switch to HoldTheLine → turret disabled residual.
+        // Switch to HoldTheLine → PACKING clears turret residual immediately.
+        // Ensure turret is natural so pack starts without recenter delay.
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+            if let Some(w) = sc.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+        }
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::HoldTheLine,
@@ -40679,7 +40907,7 @@ mod tests {
             let sc = game_logic.find_object(sc_id).expect("sc");
             assert!(
                 sc.weapon.is_none(),
-                "leaving Bombardment must disable StrategyCenterGun residual"
+                "PACKING residual must disable StrategyCenterGun"
             );
         }
     }
@@ -40756,7 +40984,7 @@ mod tests {
             "InitiallyDisabled residual must not detect before S&D"
         );
 
-        // Activate SearchAndDestroy → DetectionRange 500 + is_detector.
+        // Activate SearchAndDestroy → DetectionRange 500 + is_detector after ACTIVE.
         assert!(!game_logic.honesty_battle_plan_stealth_detector_ok());
         assert!(game_logic.activate_battle_plan(
             0,
@@ -40764,8 +40992,13 @@ mod tests {
             Some(sc_id),
         ));
         assert!(
+            !game_logic.find_object(sc_id).unwrap().is_detector,
+            "StealthDetector must wait for unpack ACTIVE residual"
+        );
+        advance_battle_plan_door_to_active(&mut game_logic);
+        assert!(
             game_logic.honesty_battle_plan_stealth_detector_ok(),
-            "S&D must record StealthDetector enable honesty"
+            "S&D ACTIVE must record StealthDetector enable honesty"
         );
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
@@ -40793,7 +41026,7 @@ mod tests {
             "far stealthed enemy beyond 500 must remain undetected"
         );
 
-        // Leave S&D → setSDEnabled(false) residual.
+        // Leave S&D → PACKING setSDEnabled(false) residual.
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::Bombardment,
@@ -40801,10 +41034,10 @@ mod tests {
         ));
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
-            assert!(!sc.is_detector, "leaving S&D must disable StealthDetector");
+            assert!(!sc.is_detector, "PACKING residual must disable StealthDetector");
             assert!(
                 sc.detection_range.abs() < 0.1,
-                "leaving S&D must clear DetectionRange residual"
+                "PACKING residual must clear DetectionRange residual"
             );
         }
         assert!(
@@ -40832,7 +41065,7 @@ mod tests {
     /// Retail AnimationTime **7000**ms → **210** frames; TransitionIdleTime **0**.
     /// DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy.
     /// OPENING → WAITING_TO_CLOSE after 210 frames; plan switch → CLOSING then
-    /// new OPENING. Fail-closed: army buffs still apply immediately on select.
+    /// new OPENING. Army buffs apply only on ACTIVE (delayed setBattlePlan residual).
     #[test]
     fn strategy_center_battle_plan_door_animation_residual() {
         use crate::game_logic::host_strategy_center::{
@@ -40877,7 +41110,7 @@ mod tests {
 
         assert!(!game_logic.honesty_battle_plan_door_ok());
 
-        // First select Bombardment: door OPENING residual + immediate army buffs.
+        // First select Bombardment: door OPENING residual; army buffs deferred.
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::Bombardment,
@@ -40899,22 +41132,28 @@ mod tests {
                 game_logic.frame + BATTLE_PLAN_ANIMATION_FRAMES
             );
         }
-        // Fail-closed residual: army buffs apply immediately (not delayed unpack).
         assert!(
-            game_logic
+            !game_logic
                 .find_object(ally_id)
                 .unwrap()
                 .weapon_bonus_battle_plan_bombardment,
-            "army buff residual still immediate host path"
+            "army buff residual must wait for unpack ACTIVE"
         );
         assert!(!game_logic.honesty_battle_plan_door_active_ok());
 
-        // Advance AnimationTime frames → WAITING_TO_CLOSE residual.
+        // Advance AnimationTime frames → WAITING_TO_CLOSE + setBattlePlan.
         game_logic.frame = game_logic.frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
         game_logic.tick_battle_plan_door_residuals();
         assert!(
             game_logic.honesty_battle_plan_door_active_ok(),
             "door residual must reach ACTIVE after AnimationTime"
+        );
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "ACTIVE residual must apply Bombardment army buffs"
         );
         {
             let state = game_logic
@@ -40925,7 +41164,7 @@ mod tests {
             assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
         }
 
-        // Plan switch → PACKING door1 CLOSING residual.
+        // Plan switch → PACKING door1 CLOSING residual; clears buffs immediately.
         let pack_frame = game_logic.frame;
         assert!(game_logic.activate_battle_plan(
             0,
@@ -40944,12 +41183,12 @@ mod tests {
                 pack_frame + BATTLE_PLAN_ANIMATION_FRAMES
             );
         }
-        // Immediate army buff switch residual (HoldTheLine).
         assert!(
-            game_logic
+            !game_logic
                 .find_object(ally_id)
                 .unwrap()
-                .weapon_bonus_battle_plan_hold_the_line
+                .has_battle_plan_bonus(),
+            "PACKING residual must clear army buffs (setBattlePlan NONE)"
         );
 
         // Pack complete (TransitionIdleTime 0) → unpack HoldTheLine DOOR_2 OPENING.
@@ -40969,6 +41208,13 @@ mod tests {
             .frame
             .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
         game_logic.tick_battle_plan_door_residuals();
+        // HoldTheLine now ACTIVE.
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_hold_the_line
+        );
         assert!(game_logic.activate_battle_plan(
             0,
             HostBattlePlan::SearchAndDestroy,
@@ -40994,6 +41240,166 @@ mod tests {
             assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
             assert_eq!(state.door, HostBattlePlanDoor::Door3Opening);
         }
+    }
+
+    /// Residual: delayed ACTIVE-after-unpack setBattlePlan + Bombardment recenter.
+    ///
+    /// C++ setStatus(ACTIVE) → setBattlePlan(plan); setStatus(PACKING) →
+    /// setBattlePlan(NONE)+paralyze. Leaving Bombardment with non-natural turret
+    /// recenters (30 frames) before pack.
+    #[test]
+    fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, HostBattlePlanTransition, BATTLE_PLAN_ANIMATION_FRAMES,
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        let ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        {
+            let u = game_logic.find_object_mut(ally_id).expect("ally");
+            u.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert!(!game_logic.honesty_battle_plan_delayed_active_ok());
+        assert!(!game_logic.honesty_battle_plan_turret_recenter_ok());
+
+        // Select Bombardment — no buffs until ACTIVE.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        assert!(!game_logic.find_object(ally_id).unwrap().has_battle_plan_bonus());
+        advance_battle_plan_door_to_active(&mut game_logic);
+        assert!(game_logic.honesty_battle_plan_delayed_active_ok());
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment
+        );
+        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
+
+        // Make turret non-natural (attacking residual) then switch plan.
+        let fire_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.ai_state = AIState::Attacking;
+            sc.status.attacking = true;
+            sc.target = Some(ally_id);
+            if let Some(w) = sc.weapon.as_mut() {
+                w.last_fire_time = fire_time;
+            }
+        }
+        let switch_frame = game_logic.frame;
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::HoldTheLine,
+            Some(sc_id),
+        ));
+        assert!(
+            game_logic.honesty_battle_plan_turret_recenter_ok(),
+            "non-natural Bombardment turret must start recenter residual"
+        );
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door");
+            assert!(state.centering_turret);
+            assert_eq!(state.status, HostBattlePlanTransition::Active);
+            assert_eq!(
+                state.next_ready_frame,
+                switch_frame + BATTLE_PLAN_TURRET_RECENTER_FRAMES
+            );
+        }
+        // During recenter: Bombardment buffs still active (not packed yet).
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "recenter residual must not clear army buffs until pack"
+        );
+        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
+
+        // Recenter complete → PACKING clears buffs + paralyzes.
+        game_logic.frame = switch_frame.saturating_add(BATTLE_PLAN_TURRET_RECENTER_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(game_logic.honesty_battle_plan_pack_clear_ok());
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door");
+            assert_eq!(state.status, HostBattlePlanTransition::Packing);
+            assert!(!state.centering_turret);
+        }
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .has_battle_plan_bonus(),
+            "PACKING after recenter must clear army buffs"
+        );
+        assert!(game_logic.find_object(sc_id).unwrap().weapon.is_none());
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "PACKING residual must paralyze army (setBattlePlan NONE)"
+        );
+
+        // Pack+unpack → HoldTheLine ACTIVE.
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_hold_the_line,
+            "HoldTheLine buffs after full pack+unpack ACTIVE residual"
+        );
+        assert_eq!(
+            game_logic.battle_plans().active_plan_for_player(0),
+            Some(HostBattlePlan::HoldTheLine)
+        );
     }
 
     /// Residual: Emergency Repair special power heals damaged ally vehicles in radius.
