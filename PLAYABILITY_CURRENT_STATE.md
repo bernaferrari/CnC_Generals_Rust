@@ -1,3 +1,86 @@
+## Residual Host Playability — Wave 63: helix/fire-base/worker/radar/buggy/quad/overlord residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Helix minigun residual pack** (`host_helix_minigun`):
+   - Weapon residual: PrimaryDamage **6**, radius **0**, AttackRange **115**,
+     Delay **100**ms → **3**f, DamageType **COMANCHE_VULCAN**, DeathType **NORMAL**,
+     ClipSize **0**, FireFX **WeaponFX_Comanche20mmCannonFire**,
+     AntiAirborneVehicle **No** / AntiAirborneInfantry **Yes**.
+   - Body residual: MaxHealth **300**, Vision **200**, Shroud **600**,
+     BuildCost **1500**, BuildTime **20**s → **600**f.
+   - Honesty: `honesty_helix_minigun_residual_pack_ok` + layer honesty tests.
+2. **Fire Base residual pack** (`host_fire_base`):
+   - Weapon residual: Primary **75**/r**10**, range **275**/min **50**,
+     Delay **2000**ms → **60**f, ScatterRadiusVsInfantry **15**,
+     DamageType **EXPLOSION**, WeaponSpeed **300**, MinWeaponSpeed **75**,
+     ScaleWeaponSpeed **Yes**, Projectile **GenericTankShell**,
+     DetonationFX **FX_FireBaseHowitzerExplosion**.
+   - Body residual: MaxHealth **1000**, Vision/Shroud **360**, BuildCost **1000**,
+     BuildTime **25**s → **750**f, EnergyProduction **0**.
+   - Honesty: `honesty_fire_base_residual_pack_ok` + layer honesty tests.
+3. **GLA Worker residual pack** (`host_gla_worker`):
+   - Shoes residual: FastHuman **25** → WorkerShoes **30**, UpgradedSupplyBoost **8**.
+   - Body residual: MaxHealth **100**, Vision **100**, Shroud **200**, BuildCost **200**,
+     BuildTime **3**s → **90**f, TransportSlotCount **1**.
+   - Supply residual: MaxBoxes **1**, SupplyCenterActionDelay **150**ms → **5**f,
+     mine-disarm weapon **WorkerMineDisarmingWeapon**.
+   - Honesty: `honesty_gla_worker_residual_pack_ok` + layer honesty tests.
+4. **Radar residual pack** (`host_radar`):
+   - Provider residual: CommandCenter (not Fake*) + RadarVan online path.
+   - Radar Van body residual: MaxHealth **200**, Vision **200**, Shroud **500**,
+     BuildCost **500**, BuildTime **10**s → **300**f, TransportSlotCount **3**.
+   - Grant residual: Upgrade_GLARadar + DisableProof **Yes**.
+   - Scan residual: SpecialPowerRadarVanScan Reload **30000**ms → **900**f,
+     RadiusCursor **150**, Upgrade_GLARadarVanScan unpause gate.
+   - Honesty: `honesty_radar_residual_pack_ok` + layer honesty tests.
+5. **Rocket Buggy residual pack** (`host_rocket_buggy`):
+   - Rocket residual: Primary **20**/r**0** + Secondary **5**/r**10**,
+     range **300**/min **50**, Delay **200**ms → **6**f, Clip **6**/**12**,
+     ClipReload **6000**ms → **180**f, AutoReloadWhenIdle **6100**ms → **183**f,
+     WeaponSpeed **600**, Projectile **RocketBuggyMissile**, AP Rockets **125%**.
+   - Body residual: MaxHealth **120**, Vision **180**, Shroud **300**, BuildCost **900**,
+     BuildTime **10**s → **300**f, TransportSlotCount **3**.
+   - Honesty: `honesty_rocket_buggy_residual_pack_ok` + layer honesty tests.
+6. **Quad Cannon residual pack** (`host_quad_cannon`):
+   - Ground residual: **10**/range **150**/Delay **100**ms → **3**f;
+     salvage tier1 **8**/50ms→**2**f; tier2 **8**/25ms→**1**f.
+   - Air residual: **5**/range **350**, AntiGround **No**, AA vehicle/infantry **Yes**,
+     DamageType **SMALL_ARMS**, AP Bullets **125%**.
+   - Body residual: MaxHealth **300**, Vision **150**, Shroud **300**, BuildCost **700**,
+     BuildTime **6**s → **180**f, TransportSlotCount **3**.
+   - Honesty: `honesty_quad_cannon_residual_pack_ok` + layer honesty tests.
+7. **Overlord gun residual pack** (`host_overlord_gun`):
+   - Gun residual: Primary **80**/r**5** + Secondary **20**/r**10**, range **175**,
+     ClipSize **2**, DelayBetweenShots **300**ms → **9**f (honesty),
+     ClipReload **2000**ms → **60**f, ScatterRadiusVsInfantry **10**,
+     DamageType **ARMOR_PIERCING**, Projectile **OverlordTankShell**.
+   - Uranium residual: Upgrade_ChinaUraniumShells DAMAGE **125%** → **100**/**25**.
+   - Body residual: MaxHealth **1100**, Vision **150**, Shroud **200**, BuildCost **2000**,
+     BuildTime **20**s → **600**f, TransportSlotCount **3**.
+   - Nuclear Tanks residual name honesty: Upgrade_ChinaNuclearTanks +
+     NuclearTankDeathWeapon (fail-closed not full death weapon matrix).
+   - Honesty: `honesty_overlord_gun_residual_pack_ok` + layer honesty tests.
+8. Tests / gates (not log-only):
+   - `helix_minigun_residual_pack_honesty_wave63`
+   - `fire_base_residual_pack_honesty_wave63`
+   - `gla_worker_residual_pack_honesty_wave63`
+   - `radar_residual_pack_honesty_wave63`
+   - `rocket_buggy_residual_pack_honesty_wave63`
+   - `quad_cannon_residual_pack_honesty_wave63`
+   - `overlord_gun_residual_pack_honesty_wave63`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full ChinookAIUpdate rotor wash / Helix dual-stream gattling fire matrix
+- Full SPAWNS_ARE_THE_WEAPONS / HiveStructureBody Fire Base garrison matrix
+- Full WorkerAIUpdate BoredTime auto-task + SupplyWarehouse delay matrix
+- Full RadarUpgrade extend-animation / capture-shared radar edge cases
+- Full Rocket Buggy projectile flight / AutoReloadWhenIdle live timer matrix
+- Full Quad Cannon SalvageCrate W3D turret subobject swap matrix
+- Full Overlord dual-volley cadence + Nuclear Tanks death weapon matrix
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 65: ThingFactory object packs + CSF load residual peel (2026-07-13)
 
 **Closed (host-testable residual peels):**
