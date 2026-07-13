@@ -35,8 +35,13 @@
 //!   `AssistingClipSize` **4** shots of the assist weapon (retail SECONDARY
 //!   `PatriotMissileAssistWeapon` / Lazr / SupW variants, AttackRange **450**).
 //!   Host residual processes the assist clip over DelayBetweenShots **250**ms
-//!   (**8** frames) cadence. Fail-closed: not full BinaryDataStream laser
-//!   drawable feedback (`LaserFromAssisted` / `LaserToTarget`).
+//!   (**8** frames) cadence.
+//!
+//! - **BinaryDataStream laser residual** (`LaserFromAssisted` / `LaserToTarget`):
+//!   On assist accept, host residual spawns two short-lived feedback beams using
+//!   retail template `PatriotBinaryDataStream` (DeletionUpdate **600**ms → **18**
+//!   frames): requestor→assistant and assistant→victim. Fail-closed: not full
+//!   W3DLaserDraw / LaserUpdate client drawable (arc / scroll / texture).
 //!
 //! - **HiveStructureBody + SpawnBehavior residual** (GLAStingerSite):
 //!   SpawnNumber **3** residual soldiers (MaxHealth **100** each). Propagate
@@ -49,7 +54,7 @@
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
-//! - Not full BinaryDataStream laser drawable feedback for assist beams
+//! - Not full W3DLaserDraw / LaserUpdate client drawable for assist beams
 //! - Not full SpawnBehavior physical slave objects / bone attach / getClosestSlave matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
@@ -123,6 +128,105 @@ pub const LAZR_PATRIOT_ASSIST_WEAPON: &str = "Lazr_PatriotMissileAssistWeapon";
 pub const SUPW_PATRIOT_ASSIST_WEAPON: &str = "SupW_PatriotMissileAssistWeapon";
 /// Residual BinaryDataStream laser honesty cue (not full LaserUpdate drawable).
 pub const PATRIOT_ASSIST_LASER_AUDIO: &str = "PatriotBinaryDataStream";
+/// Retail `LaserFromAssisted` / `LaserToTarget` ThingTemplate name.
+pub const PATRIOT_BINARY_DATA_STREAM: &str = "PatriotBinaryDataStream";
+/// Retail PatriotBinaryDataStream DeletionUpdate Min/MaxLifetime **600**ms → **18** frames @ 30 FPS.
+pub const PATRIOT_ASSIST_LASER_LIFETIME_FRAMES: u32 = 18;
+
+/// Kind of residual assist feedback laser (AssistedTargetingUpdate::makeFeedbackLaser).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatriotAssistLaserKind {
+    /// `LaserFromAssisted`: stream from the requestor to the assisting Patriot.
+    FromAssisted,
+    /// `LaserToTarget`: stream from the assisting Patriot to the victim.
+    ToTarget,
+}
+
+/// Host residual BinaryDataStream laser beam (not full LaserUpdate drawable).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResidualPatriotAssistLaser {
+    pub kind: PatriotAssistLaserKind,
+    pub from_id: ObjectId,
+    pub to_id: ObjectId,
+    pub from_x: f32,
+    pub from_y: f32,
+    pub from_z: f32,
+    pub to_x: f32,
+    pub to_y: f32,
+    pub to_z: f32,
+    /// Absolute logic frame when DeletionUpdate residual expires the beam.
+    pub expires_frame: u32,
+}
+
+impl ResidualPatriotAssistLaser {
+    /// Retail template name residual for both assist laser kinds.
+    pub fn template_name(&self) -> &'static str {
+        PATRIOT_BINARY_DATA_STREAM
+    }
+
+    /// Whether the residual beam is still live at `frame`.
+    pub fn is_active_at(&self, frame: u32) -> bool {
+        frame < self.expires_frame
+    }
+}
+
+/// Absolute frame when a residual assist laser expires (start + 18 frames).
+pub fn patriot_assist_laser_expires_frame(start_frame: u32) -> u32 {
+    start_frame.saturating_add(PATRIOT_ASSIST_LASER_LIFETIME_FRAMES.max(1))
+}
+
+/// Build the two residual BinaryDataStream lasers spawned on assist accept.
+///
+/// C++ `AssistedTargetingUpdate::assistAttack`:
+/// - `makeFeedbackLaser(LaserFromAssisted, requestingObject, me)`
+/// - `makeFeedbackLaser(LaserToTarget, me, victimObject)`
+pub fn make_patriot_assist_lasers(
+    requester_id: ObjectId,
+    assistant_id: ObjectId,
+    victim_id: ObjectId,
+    requester_pos: (f32, f32, f32),
+    assistant_pos: (f32, f32, f32),
+    victim_pos: (f32, f32, f32),
+    start_frame: u32,
+) -> [ResidualPatriotAssistLaser; 2] {
+    let expires = patriot_assist_laser_expires_frame(start_frame);
+    [
+        ResidualPatriotAssistLaser {
+            kind: PatriotAssistLaserKind::FromAssisted,
+            from_id: requester_id,
+            to_id: assistant_id,
+            from_x: requester_pos.0,
+            from_y: requester_pos.1,
+            from_z: requester_pos.2,
+            to_x: assistant_pos.0,
+            to_y: assistant_pos.1,
+            to_z: assistant_pos.2,
+            expires_frame: expires,
+        },
+        ResidualPatriotAssistLaser {
+            kind: PatriotAssistLaserKind::ToTarget,
+            from_id: assistant_id,
+            to_id: victim_id,
+            from_x: assistant_pos.0,
+            from_y: assistant_pos.1,
+            from_z: assistant_pos.2,
+            to_x: victim_pos.0,
+            to_y: victim_pos.1,
+            to_z: victim_pos.2,
+            expires_frame: expires,
+        },
+    ]
+}
+
+/// Retain only residual assist lasers still active at `frame`.
+pub fn expire_patriot_assist_lasers(
+    lasers: &mut Vec<ResidualPatriotAssistLaser>,
+    frame: u32,
+) -> u32 {
+    let before = lasers.len();
+    lasers.retain(|l| l.is_active_at(frame));
+    (before.saturating_sub(lasers.len())) as u32
+}
 
 // --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
 /// Retail EMPPatriotEffectSpheroid EffectRadius residual.
@@ -1398,6 +1502,35 @@ mod tests {
         assert_eq!(pending.next_shot_frame, 10);
         assert!((pending.damage() - 25.0).abs() < 0.01);
         assert!(!pending.is_supw());
+
+        // BinaryDataStream laser residual (LaserFromAssisted + LaserToTarget).
+        assert_eq!(PATRIOT_BINARY_DATA_STREAM, "PatriotBinaryDataStream");
+        assert_eq!(PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, 18);
+        assert_eq!(patriot_assist_laser_expires_frame(10), 28);
+        let beams = make_patriot_assist_lasers(
+            ObjectId(1),
+            ObjectId(2),
+            ObjectId(3),
+            (0.0, 0.0, 0.0),
+            (100.0, 0.0, 0.0),
+            (50.0, 0.0, 0.0),
+            10,
+        );
+        assert_eq!(beams[0].kind, PatriotAssistLaserKind::FromAssisted);
+        assert_eq!(beams[0].from_id, ObjectId(1));
+        assert_eq!(beams[0].to_id, ObjectId(2));
+        assert_eq!(beams[0].template_name(), PATRIOT_BINARY_DATA_STREAM);
+        assert!(beams[0].is_active_at(10));
+        assert!(beams[0].is_active_at(27));
+        assert!(!beams[0].is_active_at(28));
+        assert_eq!(beams[1].kind, PatriotAssistLaserKind::ToTarget);
+        assert_eq!(beams[1].from_id, ObjectId(2));
+        assert_eq!(beams[1].to_id, ObjectId(3));
+        let mut live = beams.to_vec();
+        assert_eq!(expire_patriot_assist_lasers(&mut live, 27), 0);
+        assert_eq!(live.len(), 2);
+        assert_eq!(expire_patriot_assist_lasers(&mut live, 28), 2);
+        assert!(live.is_empty());
     }
 
     #[test]
