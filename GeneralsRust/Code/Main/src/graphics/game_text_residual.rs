@@ -259,41 +259,64 @@ pub enum ResidualLanguageId {
     French,
     Spanish,
     Italian,
+    /// LANGUAGE_ID_JAPANESE residual (path table honesty; may lack live ZH packs).
+    Japanese,
+    /// LANGUAGE_ID_JABBER residual (debug locale; shares English CSF pack paths).
+    Jabber,
+    /// LANGUAGE_ID_KOREAN residual (path table honesty; may lack live ZH packs).
+    Korean,
+    /// LANGUAGE_ID_UNKNOWN residual (fail-closed English CSF pack path residual).
+    Unknown,
 }
 
 impl ResidualLanguageId {
-    /// All residual locales with CSF path tables in C++ GameTextManager.
+    /// All residual LanguageId discriminants with CSF path tables (Language.h order).
     ///
     /// Includes LANGUAGE_ID_UK residual which maps to English folder/pack paths
-    /// (UK does not ship a separate EnglishUK generals.csf in ZH extracts).
-    pub const ALL: [ResidualLanguageId; 6] = [
+    /// (UK does not ship a separate EnglishUK generals.csf in ZH extracts),
+    /// plus Japanese/Jabber/Korean/Unknown residual discriminants.
+    pub const ALL: [ResidualLanguageId; 10] = [
         ResidualLanguageId::English,
         ResidualLanguageId::Uk,
         ResidualLanguageId::German,
         ResidualLanguageId::French,
         ResidualLanguageId::Spanish,
         ResidualLanguageId::Italian,
+        ResidualLanguageId::Japanese,
+        ResidualLanguageId::Jabber,
+        ResidualLanguageId::Korean,
+        ResidualLanguageId::Unknown,
     ];
 
     /// Retail language folder name residual (`Data/<Name>/generals.csf`).
     pub fn folder_name(self) -> &'static str {
         match self {
-            ResidualLanguageId::English | ResidualLanguageId::Uk => "English",
+            ResidualLanguageId::English
+            | ResidualLanguageId::Uk
+            | ResidualLanguageId::Jabber
+            | ResidualLanguageId::Unknown => "English",
             ResidualLanguageId::German => "German",
             ResidualLanguageId::French => "French",
             ResidualLanguageId::Spanish => "Spanish",
             ResidualLanguageId::Italian => "Italian",
+            ResidualLanguageId::Japanese => "Japanese",
+            ResidualLanguageId::Korean => "Korean",
         }
     }
 
     /// Retail ZH big-file language root residual (`EnglishZH`, `GermanZH`, …).
     pub fn zh_root(self) -> &'static str {
         match self {
-            ResidualLanguageId::English | ResidualLanguageId::Uk => "EnglishZH",
+            ResidualLanguageId::English
+            | ResidualLanguageId::Uk
+            | ResidualLanguageId::Jabber
+            | ResidualLanguageId::Unknown => "EnglishZH",
             ResidualLanguageId::German => "GermanZH",
             ResidualLanguageId::French => "FrenchZH",
             ResidualLanguageId::Spanish => "SpanishZH",
             ResidualLanguageId::Italian => "ItalianZH",
+            ResidualLanguageId::Japanese => "JapaneseZH",
+            ResidualLanguageId::Korean => "KoreanZH",
         }
     }
 
@@ -306,6 +329,10 @@ impl ResidualLanguageId {
             ResidualLanguageId::French => 3,
             ResidualLanguageId::Spanish => 4,
             ResidualLanguageId::Italian => 5,
+            ResidualLanguageId::Japanese => 6,
+            ResidualLanguageId::Jabber => 7,
+            ResidualLanguageId::Korean => 8,
+            ResidualLanguageId::Unknown => 9,
         }
     }
 }
@@ -318,8 +345,14 @@ pub fn residual_csf_relatives(language: ResidualLanguageId) -> Vec<String> {
         format!("windows_game/extracted_big_files/{root}/Data/{folder}/generals.csf"),
         format!("windows_game/extracted_big_files_v2/{root}/Data/{folder}/generals.csf"),
     ];
-    // English/UK also have W3DEnglishZH residual pack paths (parity with GameClient).
-    if language == ResidualLanguageId::English || language == ResidualLanguageId::Uk {
+    // English-family residual packs also have W3DEnglishZH paths (parity with GameClient).
+    if matches!(
+        language,
+        ResidualLanguageId::English
+            | ResidualLanguageId::Uk
+            | ResidualLanguageId::Jabber
+            | ResidualLanguageId::Unknown
+    ) {
         paths.push(
             "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.csf".to_string(),
         );
@@ -360,8 +393,13 @@ pub fn exercise_multi_locale_csf_residual() -> (bool, u32, u32) {
         let folder = lang.folder_name();
         let path_ok = relatives.iter().any(|p| {
             p.contains(&format!("Data/{folder}/generals.csf"))
-                || ((lang == ResidualLanguageId::English || lang == ResidualLanguageId::Uk)
-                    && p.contains("Data/English/generals.csf"))
+                || (matches!(
+                    lang,
+                    ResidualLanguageId::English
+                        | ResidualLanguageId::Uk
+                        | ResidualLanguageId::Jabber
+                        | ResidualLanguageId::Unknown
+                ) && p.contains("Data/English/generals.csf"))
         });
         if path_ok && !relatives.is_empty() {
             path_count = path_count.saturating_add(1);
@@ -372,7 +410,13 @@ pub fn exercise_multi_locale_csf_residual() -> (bool, u32, u32) {
     }
     let multi_ok = path_count == ResidualLanguageId::ALL.len() as u32
         && residual_csf_relatives(ResidualLanguageId::English).len() >= 4
-        && residual_csf_relatives(ResidualLanguageId::German).len() >= 2;
+        && residual_csf_relatives(ResidualLanguageId::German).len() >= 2
+        && residual_csf_relatives(ResidualLanguageId::Japanese).len() >= 2
+        && residual_csf_relatives(ResidualLanguageId::Korean).len() >= 2
+        && ResidualLanguageId::Japanese.language_id() == 6
+        && ResidualLanguageId::Jabber.language_id() == 7
+        && ResidualLanguageId::Korean.language_id() == 8
+        && ResidualLanguageId::Unknown.language_id() == 9;
     (multi_ok, path_count, live_found)
 }
 
@@ -550,14 +594,14 @@ mod tests {
         assert!(ex.honesty.printf_format_ok, "caption={}", ex.formatted_caption);
         assert!(ex.honesty.display_string_measure_ok);
         assert!(ex.honesty.multi_locale_path_ok, "multi-locale path table");
-        assert_eq!(ex.honesty.multi_locale_path_count, 6);
+        assert_eq!(ex.honesty.multi_locale_path_count, 10);
         assert!(ex.honesty.honesty_ok());
         assert_eq!(ex.formatted_caption, "$150");
     }
 
     #[test]
     fn multi_locale_csf_path_residual_table() {
-        assert_eq!(ResidualLanguageId::ALL.len(), 6);
+        assert_eq!(ResidualLanguageId::ALL.len(), 10);
         assert_eq!(ResidualLanguageId::German.folder_name(), "German");
         assert_eq!(ResidualLanguageId::French.zh_root(), "FrenchZH");
         assert_eq!(ResidualLanguageId::Uk.folder_name(), "English");
@@ -565,6 +609,17 @@ mod tests {
         assert_eq!(ResidualLanguageId::English.language_id(), 0);
         assert_eq!(ResidualLanguageId::Uk.language_id(), 1);
         assert_eq!(ResidualLanguageId::German.language_id(), 2);
+        assert_eq!(ResidualLanguageId::Japanese.language_id(), 6);
+        assert_eq!(ResidualLanguageId::Jabber.language_id(), 7);
+        assert_eq!(ResidualLanguageId::Korean.language_id(), 8);
+        assert_eq!(ResidualLanguageId::Unknown.language_id(), 9);
+        assert_eq!(ResidualLanguageId::Japanese.folder_name(), "Japanese");
+        assert_eq!(ResidualLanguageId::Japanese.zh_root(), "JapaneseZH");
+        assert_eq!(ResidualLanguageId::Korean.folder_name(), "Korean");
+        assert_eq!(ResidualLanguageId::Korean.zh_root(), "KoreanZH");
+        // Jabber/Unknown fail-closed share English CSF pack residual paths.
+        assert_eq!(ResidualLanguageId::Jabber.folder_name(), "English");
+        assert_eq!(ResidualLanguageId::Unknown.zh_root(), "EnglishZH");
         let en = residual_csf_relatives(ResidualLanguageId::English);
         assert!(en.iter().any(|p| p.contains("EnglishZH")));
         assert!(en.iter().any(|p| p.contains("W3DEnglishZH")));
@@ -573,8 +628,12 @@ mod tests {
         assert!(uk.iter().any(|p| p.contains("W3DEnglishZH")));
         let de = residual_csf_relatives(ResidualLanguageId::German);
         assert!(de.iter().any(|p| p.contains("GermanZH/Data/German/generals.csf")));
+        let ja = residual_csf_relatives(ResidualLanguageId::Japanese);
+        assert!(ja.iter().any(|p| p.contains("JapaneseZH/Data/Japanese/generals.csf")));
+        let ko = residual_csf_relatives(ResidualLanguageId::Korean);
+        assert!(ko.iter().any(|p| p.contains("KoreanZH/Data/Korean/generals.csf")));
         let (ok, count, _live) = exercise_multi_locale_csf_residual();
         assert!(ok);
-        assert_eq!(count, 6);
+        assert_eq!(count, 10);
     }
 }
