@@ -128,6 +128,9 @@ pub enum PendingSpecialAbility {
     StealCashHack { target_id: ObjectId },
     /// Black Lotus residual: DISABLED_HACKED on enemy ground vehicle for EffectDuration.
     DisableVehicleHack { target_id: ObjectId },
+    /// China Hacker residual: DISABLED_HACKED on enemy structure for EffectDuration.
+    /// SpecialAbilityHackerDisableBuilding.
+    HackerDisableBuilding { target_id: ObjectId },
     /// GLA Bomb Truck residual: disguise as target vehicle template/team
     /// (SpecialAbilityDisguiseAsVehicle / StealthUpdate::disguiseAsTemplate).
     DisguiseAsVehicle { target_id: ObjectId },
@@ -144,6 +147,7 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::PlantRemoteDemoCharge { target_id }
             | PendingSpecialAbility::StealCashHack { target_id }
             | PendingSpecialAbility::DisableVehicleHack { target_id }
+            | PendingSpecialAbility::HackerDisableBuilding { target_id }
             | PendingSpecialAbility::DisguiseAsVehicle { target_id } => target_id,
         }
     }
@@ -914,6 +918,16 @@ pub struct GameLogic {
     /// Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
     rebel_residual_fires: u32,
     rebel_residual_ap_upgrades: u32,
+
+    /// Host residual: USA Ranger rifle + FlashBang splash honesty.
+    /// Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
+    ranger_residual_rifle_fires: u32,
+    ranger_residual_flashbang_fires: u32,
+    ranger_residual_units_hit: u32,
+
+    /// Host residual: China Hacker DisableBuilding honesty.
+    /// Fail-closed: not full unpack/prep/persistent stream matrix.
+    hacker_disable_building_count: u32,
 
     /// Host residual: China MiniGunner ground/AA + continuous fire + chain guns + horde.
     /// Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary matrix.
@@ -1897,6 +1911,10 @@ impl GameLogic {
             tank_hunter_tnt_last_frame: HashMap::new(),
             rebel_residual_fires: 0,
             rebel_residual_ap_upgrades: 0,
+            ranger_residual_rifle_fires: 0,
+            ranger_residual_flashbang_fires: 0,
+            ranger_residual_units_hit: 0,
+            hacker_disable_building_count: 0,
             minigunner_residual_ground_fires: 0,
             minigunner_residual_aa_fires: 0,
             minigunner_residual_ramp_mean: 0,
@@ -2166,6 +2184,10 @@ impl GameLogic {
         self.tank_hunter_tnt_last_frame.clear();
         self.rebel_residual_fires = 0;
         self.rebel_residual_ap_upgrades = 0;
+        self.ranger_residual_rifle_fires = 0;
+        self.ranger_residual_flashbang_fires = 0;
+        self.ranger_residual_units_hit = 0;
+        self.hacker_disable_building_count = 0;
         self.minigunner_residual_ground_fires = 0;
         self.minigunner_residual_aa_fires = 0;
         self.minigunner_residual_ramp_mean = 0;
@@ -5616,6 +5638,30 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
+                        use crate::game_logic::host_ranger::{
+                            is_ranger_template, should_apply_ranger_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_ranger_residual(is_ranger_template(&a.template_name))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let flash_slot = slot == 1;
+                        let (hits, _destroyed_any) = self.apply_ranger_residual_at(
+                            target_position,
+                            Some(attacker_id),
+                            Some(target_id),
+                            flash_slot,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
+                    } else if {
                         // China MiniGunner residual: ground gun or AA secondary hit.
                         use crate::game_logic::host_minigunner::{
                             is_minigunner_template, should_apply_minigunner_residual,
@@ -7463,12 +7509,31 @@ impl GameLogic {
                         continue;
                     }
 
+                    // China Hacker DisableBuilding: enemy structures only; skip already-hacked.
+                    if matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. }) {
+                        if !target_is_structure || target_is_hacked {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
+                    }
+
                     // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
                     // residual: complete without approach walk.
                     let disguise_instant =
                         matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
-                    let interact_range =
-                        selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING;
+                    // Hacker DisableBuilding residual: StartAbilityRange 150 (not melee pad).
+                    let hacker_disable_range = matches!(
+                        ability,
+                        PendingSpecialAbility::HackerDisableBuilding { .. }
+                    );
+                    let interact_range = if hacker_disable_range {
+                        crate::game_logic::host_hacker_disable::HACKER_DISABLE_START_ABILITY_RANGE
+                    } else {
+                        selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING
+                    };
                     if !disguise_instant
                         && can_move
                         && position.distance(target_position) > interact_range
@@ -7702,6 +7767,34 @@ impl GameLogic {
                             let msg = localization::localize(
                                 "hud.vehicle_hack.disabled",
                                 "Vehicle disabled",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                        }
+                        PendingSpecialAbility::HackerDisableBuilding { .. } => {
+                            // C++ SpecialAbilityUpdate SPECIAL_HACKER_DISABLE_BUILDING:
+                            // setDisabledUntil(DISABLED_HACKED, now + EffectDuration 2000ms).
+                            use crate::game_logic::host_hacker_disable::{
+                                hacker_disable_until_frame, HACKER_DISABLE_BUILDING_AUDIO,
+                            };
+                            let until = hacker_disable_until_frame(self.frame);
+                            if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                target.apply_disabled_hacked(until);
+                            }
+                            self.hacker_disable_building_count =
+                                self.hacker_disable_building_count.saturating_add(1);
+                            self.queue_audio_event(
+                                AudioEventRequest::new(HACKER_DISABLE_BUILDING_AUDIO)
+                                    .with_object(special_target_id)
+                                    .with_position(target_position)
+                                    .with_priority(170),
+                            );
+                            let msg = localization::localize(
+                                "hud.hacker.building_disabled",
+                                "Building disabled",
                             );
                             self.queue_radar_message_for_team(team, msg);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -9525,6 +9618,21 @@ impl GameLogic {
                 use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
                 let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
                 object.weapon = Some(rebel_weapon(ap));
+            }
+
+            // Host residual: USA Ranger PRIMARY rifle residual (+ secondary flashbang if set).
+            // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
+            if crate::game_logic::host_ranger::is_ranger_template(template_name) {
+                use crate::game_logic::host_ranger::{
+                    has_flashbang_equipped, ranger_flashbang_weapon, ranger_rifle_weapon,
+                };
+                object.weapon = Some(ranger_rifle_weapon());
+                // Secondary only when store-bound (secondary_weapon_name) or upgrade tag.
+                if object.secondary_weapon.is_some()
+                    || has_flashbang_equipped(false, &object.applied_upgrades)
+                {
+                    object.secondary_weapon = Some(ranger_flashbang_weapon());
+                }
             }
 
             // Host residual: China MiniGunner dual ground/AA + continuous fire ramp.
@@ -13558,6 +13666,37 @@ impl GameLogic {
         self.rebel_residual_fires > 0 || self.rebel_residual_ap_upgrades > 0
     }
 
+    /// Residual honesty: USA Ranger rifle and/or FlashBang residual fire observed.
+    pub fn honesty_ranger_ok(&self) -> bool {
+        self.ranger_residual_rifle_fires > 0 || self.ranger_residual_flashbang_fires > 0
+    }
+
+    /// Residual honesty: Ranger FlashBang dual-radius residual fired.
+    pub fn honesty_ranger_flashbang_ok(&self) -> bool {
+        self.ranger_residual_flashbang_fires > 0
+    }
+
+    pub fn ranger_residual_rifle_fires(&self) -> u32 {
+        self.ranger_residual_rifle_fires
+    }
+
+    pub fn ranger_residual_flashbang_fires(&self) -> u32 {
+        self.ranger_residual_flashbang_fires
+    }
+
+    pub fn ranger_residual_units_hit(&self) -> u32 {
+        self.ranger_residual_units_hit
+    }
+
+    /// Residual honesty: China Hacker DisableBuilding residual observed.
+    pub fn honesty_hacker_disable_building_ok(&self) -> bool {
+        self.hacker_disable_building_count > 0
+    }
+
+    pub fn hacker_disable_building_count(&self) -> u32 {
+        self.hacker_disable_building_count
+    }
+
     pub fn honesty_rebel_ap_ok(&self) -> bool {
         self.rebel_residual_ap_upgrades > 0
     }
@@ -16185,6 +16324,151 @@ impl GameLogic {
     }
 
     /// Apply GLA Rebel residual fire: intended-only gun damage residual.
+    /// Apply USA Ranger residual fire: rifle intended-only or FlashBang dual-radius splash.
+    fn apply_ranger_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        flashbang_slot: bool,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_ranger::{
+            flashbang_damage_at, is_legal_ranger_target, FLASHBANG_SECONDARY_RADIUS,
+            RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_FIRE_AUDIO,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+
+        if flashbang_slot {
+            // Dual-radius flashbang residual (Primary 35/10 + Secondary 10/40).
+            let victims: Vec<(ObjectId, f32, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if obj.team == source_team {
+                        return None;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_ranger_target(
+                        obj.is_alive(),
+                        source == Some(*id),
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    let dx = pos.x - impact.x;
+                    let dz = pos.z - impact.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    let is_intended = intended_target == Some(*id);
+                    // Scan only intended + secondary ring (primary is subset).
+                    if !is_intended && dist > FLASHBANG_SECONDARY_RADIUS {
+                        return None;
+                    }
+                    let dmg = flashbang_damage_at(is_intended, dist);
+                    if dmg <= 0.0 {
+                        return None;
+                    }
+                    Some((*id, dmg, is_intended))
+                })
+                .collect();
+
+            for (vid, dmg, _intended) in victims {
+                if let Some(obj) = self.objects.get_mut(&vid) {
+                    let destroyed = obj.take_damage(dmg);
+                    hits = hits.saturating_add(1);
+                    if destroyed {
+                        any_destroyed = true;
+                        self.mark_object_for_destruction(vid, Some(source_team));
+                    }
+                }
+            }
+
+            self.ranger_residual_flashbang_fires =
+                self.ranger_residual_flashbang_fires.saturating_add(1);
+            self.ranger_residual_units_hit =
+                self.ranger_residual_units_hit.saturating_add(hits);
+
+            self.queue_audio_event(
+                AudioEventRequest::new(RANGER_FLASHBANG_FIRE_AUDIO)
+                    .with_position(impact)
+                    .with_priority(155),
+            );
+        } else {
+            // Rifle residual: intended-only PrimaryDamage 5.
+            let damage = source
+                .and_then(|sid| self.objects.get(&sid))
+                .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+                .unwrap_or(RANGER_RIFLE_DAMAGE);
+
+            let Some(target_id) = intended_target else {
+                return (0, false);
+            };
+            let Some(target) = self.objects.get(&target_id) else {
+                return (0, false);
+            };
+            let combat_kind = target.is_kind_of(KindOf::Attackable)
+                || target.is_kind_of(KindOf::Structure)
+                || target.is_kind_of(KindOf::Infantry)
+                || target.is_kind_of(KindOf::Vehicle)
+                || target.is_kind_of(KindOf::Aircraft);
+            if !is_legal_ranger_target(
+                target.is_alive(),
+                source == Some(target_id),
+                target.status.under_construction,
+                combat_kind,
+            ) {
+                return (0, false);
+            }
+            let target_pos = target.get_position();
+
+            if let Some(obj) = self.objects.get_mut(&target_id) {
+                let destroyed = obj.take_damage(damage);
+                hits = 1;
+                if destroyed {
+                    any_destroyed = true;
+                    self.mark_object_for_destruction(target_id, Some(source_team));
+                }
+            }
+
+            self.ranger_residual_rifle_fires =
+                self.ranger_residual_rifle_fires.saturating_add(1);
+            self.ranger_residual_units_hit =
+                self.ranger_residual_units_hit.saturating_add(hits);
+
+            self.queue_audio_event(
+                AudioEventRequest::new(RANGER_RIFLE_FIRE_AUDIO)
+                    .with_position(target_pos)
+                    .with_priority(150),
+            );
+        }
+
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
     fn apply_rebel_residual_at(
         &mut self,
         impact: Vec3,
@@ -47090,6 +47374,327 @@ mod tests {
         assert!(
             dmg_dealt >= 5.0 - 0.1,
             "AP residual fire should deal at least base damage, got {dmg_dealt}"
+        );
+    }
+
+    /// Residual: USA Ranger rifle + FlashBang dual-radius splash polish.
+    /// Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
+    #[test]
+    fn ranger_residual_rifle_and_flashbang_splash() {
+        use crate::game_logic::host_ranger::{
+            is_ranger_template, FLASHBANG_PRIMARY_DAMAGE, FLASHBANG_SECONDARY_DAMAGE,
+            RANGER_FLASHBANG_WEAPON, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_RANGE,
+            RANGER_RIFLE_WEAPON, UPGRADE_AMERICA_FLASHBANG,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut ranger_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(RANGER_RIFLE_WEAPON)
+            .set_secondary_weapon_name(RANGER_FLASHBANG_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), ranger_tpl);
+
+        let ranger_id = game_logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        {
+            let ranger = game_logic.find_object(ranger_id).expect("ranger");
+            assert!(is_ranger_template(&ranger.template_name));
+            let w = ranger.weapon.as_ref().expect("rifle residual");
+            assert!(
+                (w.damage - RANGER_RIFLE_DAMAGE).abs() < 0.5,
+                "base rifle damage residual 5, got {}",
+                w.damage
+            );
+            assert!((w.range - RANGER_RIFLE_RANGE).abs() < 1.0);
+            assert!(
+                (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
+                "base rifle reload residual ~0.1s (3 frames), got {}",
+                w.reload_time
+            );
+            assert!(!w.can_target_air && w.can_target_ground);
+            let s = ranger
+                .secondary_weapon
+                .as_ref()
+                .expect("flashbang secondary residual");
+            assert!(
+                (s.damage - FLASHBANG_PRIMARY_DAMAGE).abs() < 0.5,
+                "flashbang primary damage residual 35, got {}",
+                s.damage
+            );
+            assert!((s.range - 175.0).abs() < 1.0);
+            assert!((s.min_range - 20.0).abs() < 0.5);
+        }
+
+        // Rifle residual vs vehicle: force primary by making secondary not ready
+        // (generic PreferredAgainst damage heuristic would otherwise pick flashbang).
+        let vehicle = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("vehicle");
+        {
+            let ranger = game_logic.find_object_mut(ranger_id).unwrap();
+            ranger.attack_target(vehicle);
+            if let Some(w) = ranger.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = ranger.secondary_weapon.as_mut() {
+                // Not ready this frame → residual rifle path (slot 0).
+                w.last_fire_time = 1000.0;
+                w.reload_time = 100.0;
+                w.min_range = 0.0;
+            }
+            ranger.apply_upgrade_tag(UPGRADE_AMERICA_FLASHBANG);
+        }
+        let vehicle_hp_before = game_logic
+            .find_object(vehicle)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[ranger_id, vehicle], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.ranger_residual_rifle_fires() > 0,
+            "ranger rifle residual fire honesty"
+        );
+        assert!(game_logic.honesty_ranger_ok());
+        let vehicle_hp_after = game_logic
+            .find_object(vehicle)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            vehicle_hp_after < vehicle_hp_before,
+            "ranger rifle residual must damage vehicle (before={vehicle_hp_before} after={vehicle_hp_after})"
+        );
+        let rifle_dmg = vehicle_hp_before - vehicle_hp_after;
+        assert!(
+            rifle_dmg >= RANGER_RIFLE_DAMAGE - 0.1,
+            "rifle residual damage ~5, got {rifle_dmg}"
+        );
+
+        // FlashBang residual vs infantry cluster: intended primary 35 + radius splash.
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy infantry");
+        let splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
+            .expect("splash infantry");
+        {
+            let ranger = game_logic.find_object_mut(ranger_id).unwrap();
+            ranger.attack_target(enemy);
+            // Prefer secondary vs infantry (PreferredAgainst residual).
+            if let Some(w) = ranger.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = ranger.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[ranger_id, enemy, splash], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.ranger_residual_flashbang_fires() > 0,
+            "ranger flashbang residual fire honesty"
+        );
+        assert!(game_logic.honesty_ranger_flashbang_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "flashbang residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let fb_dmg = enemy_hp_before - enemy_hp_after;
+        assert!(
+            fb_dmg >= FLASHBANG_PRIMARY_DAMAGE - 0.5,
+            "flashbang intended residual damage ~35, got {fb_dmg}"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "flashbang dual-radius residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+        let splash_dmg = splash_hp_before - splash_hp_after;
+        // 5 units away → primary ring (radius 10) takes full 35.
+        assert!(
+            splash_dmg >= FLASHBANG_PRIMARY_DAMAGE - 0.5
+                || splash_dmg >= FLASHBANG_SECONDARY_DAMAGE - 0.5,
+            "splash residual damage expected primary/secondary ring, got {splash_dmg}"
+        );
+        assert!(
+            game_logic.ranger_residual_units_hit() >= 2,
+            "flashbang residual should hit intended + splash"
+        );
+    }
+
+    /// Residual: China Hacker DisableBuilding → DISABLED_HACKED on enemy structure.
+    /// Fail-closed: not full unpack/prep/persistent stream matrix.
+    #[test]
+    fn hacker_disable_building_command_disables_after_reach() {
+        use crate::game_logic::host_hacker_disable::{
+            is_hacker_disable_unit, HACKER_DISABLE_EFFECT_DURATION_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut hacker_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryHacker");
+        hacker_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("ChinaInfantryHacker".to_string(), hacker_tpl);
+
+        // player_id 0 residual ownership maps to USA when no player exists —
+        // mirror disable_vehicle_hack residual tests (USA actor vs enemy target).
+        let hacker_id = game_logic
+            .create_object(
+                "ChinaInfantryHacker",
+                Team::USA,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("hacker");
+        {
+            let h = game_logic.find_object(hacker_id).expect("hacker");
+            assert!(is_hacker_disable_unit(&h.template_name));
+        }
+        let target_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+
+        let initial_health = game_logic
+            .find_object(target_id)
+            .expect("building")
+            .health
+            .current;
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::HackerDisableBuilding { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![hacker_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let hacker = game_logic.find_object(hacker_id).expect("hacker");
+            assert_eq!(
+                hacker.ai_state,
+                AIState::SpecialAbility,
+                "disable building must enter SpecialAbility on issue"
+            );
+            assert_eq!(hacker.target, Some(target_id));
+        }
+        assert!(
+            !game_logic
+                .find_object(target_id)
+                .expect("building")
+                .is_hacked_disabled(),
+            "disable building must not apply immediately on command issue"
+        );
+        assert!(!game_logic.honesty_hacker_disable_building_ok());
+
+        // Out of StartAbilityRange 150 residual: stays pending.
+        game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+        assert!(
+            !game_logic
+                .find_object(target_id)
+                .expect("building")
+                .is_hacked_disabled(),
+            "disable building stays pending out of range"
+        );
+
+        // Walk into residual StartAbilityRange.
+        {
+            let hacker = game_logic.find_object_mut(hacker_id).expect("hacker");
+            hacker.set_position(Vec3::new(10.0, 0.0, 0.0));
+            hacker.ai_state = AIState::SpecialAbility;
+            hacker.target = Some(target_id);
+        }
+        game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+
+        let building_after = game_logic.find_object(target_id).expect("building");
+        assert_eq!(
+            building_after.health.current, initial_health,
+            "disable building residual must not damage HP"
+        );
+        assert_eq!(
+            building_after.team,
+            Team::GLA,
+            "disable building must not change ownership"
+        );
+        assert!(
+            building_after.is_hacked_disabled(),
+            "building must be DISABLED_HACKED"
+        );
+        assert!(
+            building_after.is_disabled(),
+            "hacked building must count as is_disabled (production stop residual)"
+        );
+        assert!(
+            game_logic.honesty_hacker_disable_building_ok(),
+            "hacker disable building residual honesty"
+        );
+        assert_eq!(game_logic.hacker_disable_building_count(), 1);
+
+        // Expire residual timer → building recovers.
+        let until = building_after.status.disabled_hacked_until_frame;
+        assert!(
+            until >= game_logic.frame.saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES.saturating_sub(1)),
+            "EffectDuration residual ~60 frames (got until={until} frame={})",
+            game_logic.frame
+        );
+        assert!(until > game_logic.frame);
+        game_logic.frame = until;
+        game_logic.update_ai(&[target_id], 1.0 / 60.0);
+        let recovered = game_logic.find_object(target_id).expect("building");
+        assert!(
+            !recovered.is_hacked_disabled(),
+            "DISABLED_HACKED must clear after EffectDuration 2000ms"
+        );
+        assert!(
+            !recovered.is_disabled() || recovered.status.under_construction,
+            "recovered building is not disabled"
         );
     }
 
