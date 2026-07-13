@@ -639,6 +639,10 @@ pub struct GameLogic {
     /// jams: weapons_jammed grants applied to enemy/neutral units in radius.
     ecm_residual_jams: u32,
 
+    /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
+    /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
+    emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
+
     /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
     base_defense_residual_fires: u32,
@@ -1479,6 +1483,7 @@ impl GameLogic {
             propaganda_residual_heals: 0,
             propaganda_residual_buffs: 0,
             ecm_residual_jams: 0,
+            emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             base_defense_residual_fires: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
@@ -1634,6 +1639,7 @@ impl GameLogic {
         self.propaganda_residual_heals = 0;
         self.propaganda_residual_buffs = 0;
         self.ecm_residual_jams = 0;
+        self.emp_pulses.clear();
         self.base_defense_residual_fires = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
@@ -3483,6 +3489,9 @@ impl GameLogic {
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
 
+        // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
+        // Activation is event-driven via DoSpecialPower (no continuous field).
+
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
         self.update_radar_scans();
@@ -3745,6 +3754,11 @@ impl GameLogic {
 
         for (_id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
+                continue;
+            }
+            // C++ isDisabled residual: EMP / hacked / underpowered / unmanned
+            // structures do not advance production while disabled.
+            if obj.is_disabled() {
                 continue;
             }
             if let Some(building) = obj.building_data.as_mut() {
@@ -4143,9 +4157,10 @@ impl GameLogic {
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
-            // Expire DISABLED_HACKED residual timers (Black Lotus vehicle hack).
+            // Expire DISABLED_HACKED / DISABLED_EMP residual timers.
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
+                obj.tick_disabled_emp(self.frame);
             }
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
@@ -9354,6 +9369,198 @@ impl GameLogic {
         self.ecm_residual_jams > 0
     }
 
+    /// Host EMP Pulse residual registry (activate + honesty).
+    pub fn emp_pulses(&self) -> &crate::game_logic::host_emp_pulse::HostEmpPulseRegistry {
+        &self.emp_pulses
+    }
+
+    /// Residual honesty: EmpPulse activated at least once.
+    pub fn honesty_emp_pulse_activate_ok(&self) -> bool {
+        self.emp_pulses.honesty_activate_ok()
+    }
+
+    /// Residual honesty: EmpPulse applied DISABLED_EMP at least once.
+    pub fn honesty_emp_pulse_disable_ok(&self) -> bool {
+        self.emp_pulses.honesty_disable_ok()
+    }
+
+    /// Combined host path honesty for EmpPulse residual.
+    pub fn honesty_emp_pulse_ok(&self) -> bool {
+        self.emp_pulses.honesty_host_path_ok()
+    }
+
+    /// Activate EmpPulse residual: temporarily disable vehicles/structures in radius.
+    ///
+    /// Matches retail SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate:
+    /// - Radius residual 200 (RadiusCursorRadius / default EffectRadius)
+    /// - DisabledDuration 30000 ms → 900 logic frames (DISABLED_EMP)
+    /// - Vehicles + faction structures disabled; airborne aircraft killed residual
+    ///
+    /// Fail-closed: not full OCL bomb / spheroid drawable / spark particle path.
+    /// Returns true when the residual activation was recorded (even if 0 targets).
+    pub fn activate_emp_pulse(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_emp_pulse::{
+            in_emp_pulse_radius_2d, is_emp_hardened_name, is_legal_emp_disable_target,
+            should_emp_kill_airborne, HostEmpPulse, EMP_PULSE_ACTIVATE_AUDIO,
+            EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+        };
+
+        let frame = self.frame;
+        let until = frame.saturating_add(EMP_PULSE_DISABLED_DURATION_FRAMES);
+        let center = (location.x, location.z);
+
+        // Snapshot candidates (avoid borrow conflicts while mutating).
+        let candidates: Vec<(
+            ObjectId,
+            bool, // is_vehicle
+            bool, // is_faction_structure
+            bool, // is_aircraft
+            bool, // is_airborne
+            bool, // is_spawns_are_weapons (name residual)
+            bool, // under_construction
+            bool, // emp_hardened
+            f32,
+            f32,
+        )> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                // Residual: never EMP the caster object itself.
+                if caster_id == Some(*id) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                if !in_emp_pulse_radius_2d(center, (pos.x, pos.z), HOST_EMP_PULSE_RADIUS) {
+                    return None;
+                }
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                let is_faction_structure = is_structure && obj.is_faction_structure();
+                let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
+                let is_airborne = obj.status.airborne_target || is_aircraft && {
+                    // Host residual: treat Aircraft KindOf above ground as airborne
+                    // when airborne_target is set; ground aircraft use status only.
+                    obj.status.airborne_target
+                };
+                let is_spawns = obj
+                    .template_name
+                    .to_ascii_lowercase()
+                    .contains("spawnsaretheweapons")
+                    || obj.template_name.to_ascii_lowercase().contains("stinger");
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                let emp_hardened = is_emp_hardened_name(&obj.template_name);
+                Some((
+                    *id,
+                    is_vehicle,
+                    is_faction_structure,
+                    is_aircraft,
+                    is_airborne,
+                    is_spawns,
+                    under_construction,
+                    emp_hardened,
+                    pos.x,
+                    pos.z,
+                ))
+            })
+            .collect();
+
+        let mut disables: u32 = 0;
+        let mut airborne_kills: u32 = 0;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+
+        for (
+            id,
+            is_vehicle,
+            is_faction_structure,
+            is_aircraft,
+            is_airborne,
+            is_spawns,
+            under_construction,
+            emp_hardened,
+            _tx,
+            _tz,
+        ) in candidates
+        {
+            if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
+                destroy_ids.push(id);
+                airborne_kills = airborne_kills.saturating_add(1);
+                continue;
+            }
+
+            if !is_legal_emp_disable_target(
+                is_vehicle,
+                is_faction_structure,
+                is_spawns,
+                true,
+                under_construction,
+                emp_hardened,
+            ) {
+                continue;
+            }
+
+            // Ground aircraft / vehicles / faction structures: DISABLED_EMP.
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let was_emp = target.status.disabled_emp;
+            target.apply_disabled_emp(until);
+            if !was_emp {
+                disables = disables.saturating_add(1);
+            } else {
+                // Refresh still counts as a residual disable grant for honesty.
+                disables = disables.saturating_add(1);
+            }
+        }
+
+        for id in destroy_ids {
+            // Source team residual: use caster team if available for kill credit.
+            let killer_team = caster_id
+                .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+                .unwrap_or(Team::Neutral);
+            self.mark_object_for_destruction(id, Some(killer_team));
+        }
+
+        let pulse_id = self.emp_pulses.alloc_id();
+        self.emp_pulses.record_activation(HostEmpPulse {
+            id: pulse_id,
+            player_id,
+            location,
+            radius: HOST_EMP_PULSE_RADIUS,
+            activate_frame: frame,
+            disable_until_frame: until,
+            caster_id,
+            disables,
+            airborne_kills,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(EMP_PULSE_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            location,
+            frame,
+            caster_id,
+            None,
+        );
+
+        true
+    }
+
     /// Host China ECM Tank / jammer residual: jam enemy weapons in radius.
     ///
     /// Retail inspiration:
@@ -9382,7 +9589,10 @@ impl GameLogic {
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
                     return None;
                 }
-                if obj.status.disabled_unmanned || obj.status.disabled_hacked {
+                if obj.status.disabled_unmanned
+                    || obj.status.disabled_hacked
+                    || obj.status.disabled_emp
+                {
                     return None;
                 }
                 let pos = obj.get_position();
@@ -18624,6 +18834,231 @@ mod tests {
             "walk-in to ECM radius must jam weapons"
         );
         assert!(game_logic.honesty_ecm_jam_ok());
+    }
+
+    /// Residual: EmpPulse special power disables vehicles in radius (DISABLED_EMP).
+    ///
+    /// C++ SuperweaponEMPPulse → EMPPulseEffectSpheroid EMPUpdate::doDisableAttack
+    /// setDisabledUntil(DISABLED_EMP, now + DisabledDuration=30000ms).
+    /// Fail-closed: not full OCL bomb / spheroid drawable / spark particles.
+    #[test]
+    fn emp_pulse_residual_disables_vehicles_in_radius() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_emp_pulse::{
+            EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // player_id 0 maps to Team::USA when no Player registry entry exists.
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        let vehicle_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("vehicle");
+        let far_vehicle_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far vehicle");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("infantry");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Give vehicle a weapon so can_attack residual is meaningful.
+        for id in [vehicle_id, far_vehicle_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        let vehicle_hp = game_logic
+            .find_object(vehicle_id)
+            .expect("vehicle")
+            .health
+            .current;
+
+        assert!(!game_logic.honesty_emp_pulse_ok());
+        assert_eq!(game_logic.emp_pulses().activation_count(), 0);
+
+        let impact = Vec3::new(0.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::EmpPulse,
+                target: PowerTarget::Location(impact),
+            },
+            player_id: 0,
+            command_id: 77,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_emp_pulse_activate_ok(),
+            "EmpPulse residual must record activation honesty"
+        );
+        assert!(
+            game_logic.honesty_emp_pulse_disable_ok(),
+            "EmpPulse residual must record disable honesty"
+        );
+        assert!(
+            game_logic.honesty_emp_pulse_ok(),
+            "EmpPulse host residual path honesty"
+        );
+        assert_eq!(game_logic.emp_pulses().activation_count(), 1);
+        assert!(
+            (game_logic.emp_pulses().activations()[0].radius - HOST_EMP_PULSE_RADIUS).abs() < 0.01,
+            "retail residual radius 200"
+        );
+
+        // In-radius vehicle: DISABLED_EMP, cannot move/attack, no HP damage.
+        let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+        assert!(
+            vehicle.is_emp_disabled(),
+            "in-radius vehicle must be DISABLED_EMP"
+        );
+        assert!(vehicle.is_disabled());
+        assert!(!vehicle.can_move(), "EMP vehicle cannot move");
+        assert!(!vehicle.can_attack(), "EMP vehicle cannot attack");
+        assert_eq!(
+            vehicle.health.current, vehicle_hp,
+            "EMP residual must not damage vehicle HP"
+        );
+        assert_eq!(
+            vehicle.status.disabled_emp_until_frame,
+            game_logic.frame + EMP_PULSE_DISABLED_DURATION_FRAMES
+        );
+
+        // Out-of-radius vehicle: unaffected.
+        let far = game_logic.find_object(far_vehicle_id).expect("far");
+        assert!(
+            !far.is_emp_disabled(),
+            "out-of-radius vehicle must not be EMP'd"
+        );
+        assert!(far.can_move());
+        assert!(far.can_attack());
+
+        // Infantry residual: not disabled (EMPUpdate skips non-vehicle/structure).
+        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        assert!(
+            !infantry.is_emp_disabled(),
+            "infantry must not receive DISABLED_EMP residual"
+        );
+
+        // Faction structure residual: disabled.
+        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        assert!(
+            barracks.is_emp_disabled(),
+            "faction barracks must be DISABLED_EMP"
+        );
+
+        // Combat path: EMP'd vehicle must not fire.
+        {
+            let vehicle = game_logic.find_object_mut(vehicle_id).expect("vehicle");
+            vehicle.target = Some(far_vehicle_id);
+            vehicle.ai_state = AIState::Attacking;
+            vehicle.status.attacking = true;
+        }
+        let far_hp_before = game_logic
+            .find_object(far_vehicle_id)
+            .expect("far")
+            .health
+            .current;
+        game_logic.update_combat(&[vehicle_id, far_vehicle_id], 1.0 / 30.0);
+        let far_hp_after = game_logic
+            .find_object(far_vehicle_id)
+            .expect("far")
+            .health
+            .current;
+        assert_eq!(
+            far_hp_before, far_hp_after,
+            "EMP'd vehicle must not damage via combat residual"
+        );
+
+        // Expire residual timer → vehicle recovers.
+        let until = game_logic
+            .find_object(vehicle_id)
+            .expect("vehicle")
+            .status
+            .disabled_emp_until_frame;
+        assert!(until > game_logic.frame);
+        game_logic.frame = until;
+        game_logic.update_ai(&[vehicle_id, barracks_id], 1.0 / 60.0);
+        let recovered = game_logic.find_object(vehicle_id).expect("vehicle");
+        assert!(
+            !recovered.is_emp_disabled(),
+            "DISABLED_EMP must clear after DisabledDuration"
+        );
+        assert!(recovered.can_move(), "recovered vehicle can move again");
+        assert!(recovered.can_attack(), "recovered vehicle can attack again");
+        let barracks_recovered = game_logic.find_object(barracks_id).expect("barracks");
+        assert!(
+            !barracks_recovered.is_emp_disabled(),
+            "structure EMP must clear after duration"
+        );
+    }
+
+    /// EmpPulse is not a superweapon residual strike (separate disable residual path).
+    #[test]
+    fn emp_pulse_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        // player_id 0 → Team::USA residual ownership.
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+        // Place a target so disable honesty can trip (caster is skipped as self).
+        let _target = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("target");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::EmpPulse,
+                target: PowerTarget::Location(Vec3::new(0.0, 0.0, 0.0)),
+            },
+            player_id: 0,
+            command_id: 8,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "EmpPulse must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_emp_pulse_activate_ok(),
+            "EmpPulse residual must record activation honesty"
+        );
     }
 
     /// Residual: ConvertToCarbomb walks to vehicle → IS_CARBOMB + team defect;

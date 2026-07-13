@@ -1064,6 +1064,10 @@ mod tests {
             HostSuperweaponKind::from_command_power(&SpecialPowerType::CiaIntelligence),
             None
         );
+        assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::EmpPulse),
+            None
+        );
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub mod host_heal;
 pub mod host_propaganda;
 pub mod host_base_defense;
 pub mod host_ecm_jam;
+pub mod host_emp_pulse;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
@@ -96,6 +97,10 @@ pub use host_base_defense::{
 };
 pub use host_ecm_jam::{
     is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS,
+};
+pub use host_emp_pulse::{
+    is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,
+    EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
 };
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
@@ -268,6 +273,13 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
     #[serde(default)]
     pub disabled_hacked_until_frame: u32,
+    /// C++ DISABLED_EMP residual (EMPUpdate / SuperweaponEMPPulse).
+    /// Vehicle/structure stays alive but cannot move/attack/produce until frame expires.
+    #[serde(default)]
+    pub disabled_emp: bool,
+    /// Absolute host logic frame when DISABLED_EMP expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_emp_until_frame: u32,
     /// Host ECM tank / jammer residual: weapons cannot fire while inside jam radius.
     /// C++ DISABLED_SUBDUED cannot-fire residual (Microwave/ECM vehicle disabler).
     /// Fail-closed: continuous aura (not full subdual damage accumulate/heal).
