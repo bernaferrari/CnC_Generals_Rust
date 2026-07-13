@@ -17,6 +17,8 @@
 //! - `dual_tick_presentation_ok` — seed + logic update + multi-consumer presentation apply
 //! - `minimap_fow_presentation_ok` — FOW grid snapshot usable for minimap texture path
 //! - `laser_segment_upload_ok` — presentation → CPU SegLine pack residual (incl. synthetic)
+//! - `floating_text_layout_ok` — presentation → CPU InGameUI floating-text layout residual
+//! - `world_anim_presentation_ok` — MoneyPickUp Anim2D residual frozen on presentation
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
@@ -24,9 +26,14 @@ use crate::game_logic::GameLogic;
 use crate::gameplay_layout::{
     control_bar_layout_honesty, format_control_bar_honesty, GameplayLayoutStatus,
 };
+use crate::graphics::floating_text_layout::{
+    pack_floating_text_and_mark_ready, FloatingTextLayout,
+};
 use crate::graphics::laser_segment_upload::{pack_and_mark_upload_ready, LaserSegmentUpload};
 use crate::map_frame_scenario::resolve_first_map;
-use crate::presentation_frame::{PresentationFrame, PresentationLaserBeam};
+use crate::presentation_frame::{
+    PresentationFloatingText, PresentationFrame, PresentationLaserBeam, PresentationWorldAnim,
+};
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
 use crate::ui::{
@@ -59,6 +66,10 @@ pub struct ShellSmokeResult {
     pub minimap_fow_presentation_ok: bool,
     /// Laser residual: presentation → CPU SegLine vertex pack (+ synthetic non-empty pack).
     pub laser_segment_upload_ok: bool,
+    /// Floating-text residual: presentation freeze + CPU layout pack (+ synthetic).
+    pub floating_text_layout_ok: bool,
+    /// MoneyPickUp Anim2D residual: presentation freeze honesty (empty or template ok).
+    pub world_anim_presentation_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -218,6 +229,23 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && synth_pack.honesty.segments_packed >= 20
         && synth_pack.honesty.beams_packed == 2;
 
+    // InGameUI floating text + MoneyPickUp Anim2D residual (CPU layout; no live GPU).
+    // Empty host texts → honest empty pack; synthetic cash exercises geometry.
+    let ft_empty = pack_floating_text_and_mark_ready(&pres);
+    let mut ft_synth_frame = pres.clone();
+    ft_synth_frame.floating_texts = vec![PresentationFloatingText::synthetic_cash(100, pres.frame.0)];
+    ft_synth_frame.world_anims = vec![PresentationWorldAnim::synthetic_money_pickup(pres.frame.0)];
+    let ft_synth = FloatingTextLayout::pack_from_presentation(&ft_synth_frame);
+    let floating_text_layout_ok = presentation_ok
+        && pres.floating_text_presentation_ok()
+        && ft_empty.honesty.honesty_cpu_pack_ok()
+        && ft_empty.honesty.honesty_upload_ready_ok()
+        && ft_empty.honesty.honesty_retail_params_ok()
+        && ft_synth.honesty.honesty_geometry_ok()
+        && ft_synth.honesty.texts_packed == 1
+        && ft_synth.honesty.world_anims_observed == 1;
+    let world_anim_presentation_ok = presentation_ok && pres.world_anim_presentation_ok();
+
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
@@ -356,6 +384,8 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         hud_selection_ok,
         minimap_fow_presentation_ok,
         laser_segment_upload_ok,
+        floating_text_layout_ok,
+        world_anim_presentation_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -367,7 +397,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} floating_text={floating_text_layout_ok} world_anim={world_anim_presentation_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -404,6 +434,16 @@ mod tests {
         assert!(
             r.laser_segment_upload_ok,
             "laser segment CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
+            r.floating_text_layout_ok,
+            "floating text CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.world_anim_presentation_ok,
+            "world anim presentation residual: {}",
             r.detail
         );
         assert!(
