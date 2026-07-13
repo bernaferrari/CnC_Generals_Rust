@@ -146,6 +146,12 @@ pub const REBEL_BIKER_MG: &str = "GLARebelBikerMachineGun";
 pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon";
 pub const BIKER_KELL_SNIPER: &str = "GLABikerKellSniperRifle";
 pub const TERRORIST_SUICIDE_WEAPON: &str = "TerroristSuicideWeapon";
+/// Retail FireWeaponWhenDead residual for infantry Terrorist.
+pub const SUICIDE_DYNAMITE_PACK: &str = "SuicideDynamitePack";
+
+/// Retail USA Missile Defender residual weapons.
+pub const MISSILE_DEFENDER_MISSILE_WEAPON: &str = "MissileDefenderMissileWeapon";
+pub const MISSILE_DEFENDER_LASER_GUIDED_WEAPON: &str = "MissileDefenderLaserGuidedMissileWeapon";
 
 /// Retail China Dragon Tank flame residual weapons.
 pub const DRAGON_TANK_FLAME_WEAPON: &str = "DragonTankFlameWeapon";
@@ -188,6 +194,16 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
     match template_name {
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(RANGER_PRIMARY_WEAPON),
         "GLA_Soldier" | "GLA_Rebel" | "GLAInfantryRebel" => Some(GLA_REBEL_PRIMARY_WEAPON),
+        "GLA_Terrorist"
+        | "GLAInfantryTerrorist"
+        | "TestTerrorist"
+        | "Chem_GLAInfantryTerrorist"
+        | "Demo_GLAInfantryTerrorist"
+        | "Slth_GLAInfantryTerrorist" => Some(TERRORIST_SUICIDE_WEAPON),
+        "USA_MissileDefender"
+        | "AmericaInfantryMissileDefender"
+        | "TestMissileDefender"
+        | "SupW_AmericaInfantryMissileDefender" => Some(MISSILE_DEFENDER_MISSILE_WEAPON),
         "China_RedGuard" | "China_Soldier" | "ChinaInfantryRedguard" => {
             Some(REDGUARD_PRIMARY_WEAPON)
         }
@@ -434,6 +450,14 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
             }
+            if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
+                return Some(TERRORIST_SUICIDE_WEAPON);
+            }
+            if crate::game_logic::host_missile_defender::is_missile_defender_template(
+                template_name,
+            ) {
+                return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
+            }
             if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
                 return Some(BATTLE_MASTER_TANK_GUN);
             }
@@ -473,6 +497,10 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
 pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(RANGER_SECONDARY_WEAPON),
+        "USA_MissileDefender"
+        | "AmericaInfantryMissileDefender"
+        | "TestMissileDefender"
+        | "SupW_AmericaInfantryMissileDefender" => Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON),
         "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
             Some(HUMVEE_SECONDARY_WEAPON)
         }
@@ -554,6 +582,10 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             } else if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name)
             {
                 Some(STINGER_SECONDARY_WEAPON)
+            } else if crate::game_logic::host_missile_defender::is_missile_defender_template(
+                template_name,
+            ) {
+                Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
             } else {
                 // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
@@ -1171,11 +1203,38 @@ fn seed_known_host_weapons() -> usize {
         // TerroristSuicideWeapon residual — host binds as short-range suicide flag.
         SeedWeapon {
             name: TERRORIST_SUICIDE_WEAPON,
-            primary_damage: 700.0,
+            primary_damage: 500.0,
             attack_range: 5.0,
             delay_frames: 1,
             clip_size: 1,
             weapon_speed: 999_999.0,
+        },
+        // SuicideDynamitePack residual — FireWeaponWhenDead for infantry Terrorist.
+        SeedWeapon {
+            name: SUICIDE_DYNAMITE_PACK,
+            primary_damage: 500.0,
+            attack_range: 5.0,
+            delay_frames: 1,
+            clip_size: 1,
+            weapon_speed: 999_999.0,
+        },
+        // MissileDefenderMissileWeapon — dmg 40, range 175, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: MISSILE_DEFENDER_MISSILE_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 175.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
+        // MissileDefenderLaserGuidedMissileWeapon — dmg 40, range 300, Delay 500ms → 15 frames.
+        SeedWeapon {
+            name: MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 300.0,
+            delay_frames: 15,
+            clip_size: 0,
+            weapon_speed: 600.0,
         },
         // DragonTankFlameWeapon — dmg 10, range 75, Delay 40ms → 2 frames, splash residual.
         SeedWeapon {
