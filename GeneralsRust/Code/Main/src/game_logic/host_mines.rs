@@ -3,7 +3,7 @@
 //! Residual slice (playability):
 //! - Place land mines (ChinaStandardMine / ClusterMines special power residual)
 //! - Place GLA demo traps (proximity detonation when enemies enter range)
-//!   - Standard: `DemoTrapDetonationWeapon` Primary **600**/r**25**
+//!   - Standard: `DemoTrapDetonationWeapon` Primary **600**/r**25** + Secondary **400**/r**50**
 //!   - Chem Beta: `Chem_DemoTrapDetonationWeaponBeta` Primary **250**/r**25** +
 //!     Secondary **100**/r**50** + MediumPoisonFieldUpgraded residual
 //!   - Chem Gamma: `Chem_DemoTrapDetonationWeaponGamma` same rings + gamma poison field
@@ -19,14 +19,26 @@
 //!   - DefaultProximityMode **Yes** → starts in Proximity (SECONDARY residual)
 //!   - Manual mode (TERTIARY residual) disables proximity scan
 //!   - Detonation slot (PRIMARY residual) → manual detonate residual
-//!   - Fail-closed: not full PreAttack scoop animation / weapon-lock UI matrix
+//!   - TriggerDetonationRange **40**, DetonateWhenKilled **Yes**,
+//!     AutoDetonationWithFriendsInvolved **Yes**, DestructionDelay **1000**ms → **30**f
+//!
+//! Wave 51 residual pack (retail INI honesty):
+//! - DozerMineDisarmingWeapon: AttackRange **5**, PreAttackDelay **1200**ms → **36**f,
+//!   ClipReloadTime **4000**ms → **120**f, ContinueAttackRange **100**
+//! - WorkerMineDisarmingWeapon: AttackRange **5**, PreAttackDelay **1000**ms → **30**f,
+//!   DelayBetweenShots **1000**ms → **30**f, ContinueAttackRange **100**
+//! - Burton MaxSpecialObjects: RemoteC4 **8**, TimedC4 **10**, Unique targets **Yes**,
+//!   UnpackTime **5500**ms → **165**f, FleeRangeAfterCompletion **100**
+//! - SUPERWEAPON_ClusterMines OCL: DropVariance **X:20 Y:20 Z:0**, DeliveryDistance **140**,
+//!   DeliveryDecalRadius / RadiusCursorRadius **100**, DistanceAroundObject **80**,
+//!   NumVirtualMines **8**, payload ClusterMinesBomb → ChinaClusterMine
 //!
 //! Fail-closed honesty:
 //! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
 //! - Not full DemoTrapUpdate PreAttack scoop animation / weapon-lock UI matrix
 //! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
-//! - Not full StickyBombUpdate attach bones / geometry-based splash / max-charge list
-//! - Not full OCL ClusterMinesBomb aircraft path
+//! - Not full StickyBombUpdate attach bones / geometry-based splash / live max-charge list
+//! - Not full OCL ClusterMinesBomb aircraft path / GenerateMinefieldBehavior SmartBorder
 
 use super::ObjectId;
 use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
@@ -449,8 +461,39 @@ pub enum HostMineDetonateReason {
 }
 
 /// Cluster-mine ring residual (not full OCL scatter density).
+/// Host placement ring uses a residual subset of retail NumVirtualMines / DistanceAroundObject.
 pub const CLUSTER_MINE_COUNT: usize = 6;
 pub const CLUSTER_MINE_RING_RADIUS: f32 = 40.0;
+
+/// Retail ChinaClusterMine MinefieldBehavior NumVirtualMines residual.
+pub const CLUSTER_MINE_NUM_VIRTUAL: u32 = 8;
+
+/// Retail ClusterMinesBomb GenerateMinefieldBehavior DistanceAroundObject residual.
+pub const CLUSTER_MINES_DISTANCE_AROUND_OBJECT: f32 = 80.0;
+
+/// Retail SUPERWEAPON_ClusterMines DeliverPayload DropVariance residual (X/Y/Z).
+pub const CLUSTER_MINES_DROP_VARIANCE: (f32, f32, f32) = (20.0, 20.0, 0.0);
+
+/// Retail SUPERWEAPON_ClusterMines DeliveryDistance residual.
+pub const CLUSTER_MINES_DELIVERY_DISTANCE: f32 = 140.0;
+
+/// Retail SUPERWEAPON_ClusterMines DeliveryDecalRadius residual.
+pub const CLUSTER_MINES_DELIVERY_DECAL_RADIUS: f32 = 100.0;
+
+/// Retail SuperweaponClusterMines RadiusCursorRadius residual.
+pub const CLUSTER_MINES_RADIUS_CURSOR: f32 = 100.0;
+
+/// Retail SUPERWEAPON_ClusterMines Transport residual.
+pub const CLUSTER_MINES_OCL_TRANSPORT: &str = "ChinaJetCargoPlane";
+
+/// Retail payload bomb / mine template residual names.
+pub const CLUSTER_MINES_BOMB_TEMPLATE: &str = "ClusterMinesBomb";
+pub const CLUSTER_MINES_MINE_TEMPLATE: &str = "ChinaClusterMine";
+
+/// Retail SuperweaponClusterMines ReloadTime residual (msec).
+pub const SUPERWEAPON_CLUSTER_MINES_RELOAD_MS: u32 = 240_000;
+/// ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const SUPERWEAPON_CLUSTER_MINES_RELOAD_FRAMES: u32 = 7_200;
 
 /// DozerMineDisarmingWeapon / WorkerMineDisarmingWeapon AttackRange residual.
 pub const DOZER_MINE_CLEAR_RANGE: f32 = 5.0;
@@ -459,8 +502,61 @@ pub const DOZER_MINE_CLEAR_RANGE: f32 = 5.0;
 /// Also used as idle dozer auto-acquire scan radius residual (not full BoredRange).
 pub const DOZER_MINE_CLEAR_SCAN_RANGE: f32 = 100.0;
 
+/// Retail DozerMineDisarmingWeapon PreAttackDelay residual (msec).
+pub const DOZER_MINE_CLEAR_PRE_ATTACK_MS: u32 = 1_200;
+/// PreAttackDelay 1200ms → 36 frames @ 30 FPS.
+pub const DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES: u32 = 36;
+
+/// Retail DozerMineDisarmingWeapon ClipReloadTime residual (msec).
+pub const DOZER_MINE_CLEAR_CLIP_RELOAD_MS: u32 = 4_000;
+/// ClipReloadTime 4000ms → 120 frames @ 30 FPS.
+pub const DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES: u32 = 120;
+
+/// Retail WorkerMineDisarmingWeapon PreAttackDelay residual (msec).
+pub const WORKER_MINE_CLEAR_PRE_ATTACK_MS: u32 = 1_000;
+/// PreAttackDelay 1000ms → 30 frames @ 30 FPS.
+pub const WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES: u32 = 30;
+
+/// Retail WorkerMineDisarmingWeapon DelayBetweenShots residual (msec).
+pub const WORKER_MINE_CLEAR_DELAY_MS: u32 = 1_000;
+/// DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
+pub const WORKER_MINE_CLEAR_DELAY_FRAMES: u32 = 30;
+
 /// Audio residual when a dozer/worker safely disarms a mine (FXList MineClearedByDozer).
 pub const MINE_CLEARED_AUDIO: &str = "MineClearedByDozer";
+
+// --- DemoTrapUpdate residual (FactionBuilding GLADemoTrap) ---
+
+/// Retail DemoTrapUpdate DefaultProximityMode residual.
+pub const DEMO_TRAP_DEFAULT_PROXIMITY_MODE: bool = true;
+/// Retail DemoTrapUpdate TriggerDetonationRange residual.
+pub const DEMO_TRAP_TRIGGER_RANGE: f32 = 40.0;
+/// Retail SlowDeathBehavior DestructionDelay residual (msec) — warning fuse.
+pub const DEMO_TRAP_DESTRUCTION_DELAY_MS: u32 = 1_000;
+/// DestructionDelay 1000ms → 30 frames @ 30 FPS.
+pub const DEMO_TRAP_DESTRUCTION_DELAY_FRAMES: u32 = 30;
+/// Retail DemoTrapUpdate DetonateWhenKilled residual.
+pub const DEMO_TRAP_DETONATE_WHEN_KILLED: bool = true;
+/// Retail DemoTrapUpdate AutoDetonationWithFriendsInvolved residual.
+pub const DEMO_TRAP_AUTO_DETONATE_WITH_FRIENDS: bool = true;
+
+// --- Burton SpecialAbilityUpdate MaxSpecialObjects residual ---
+
+/// Retail ColonelBurton RemoteC4Charge MaxSpecialObjects residual.
+pub const BURTON_MAX_REMOTE_CHARGES: u32 = 8;
+/// Retail ColonelBurton TimedC4Charge MaxSpecialObjects residual.
+pub const BURTON_MAX_TIMED_CHARGES: u32 = 10;
+/// Retail UniqueSpecialObjectTargets residual (one charge per target).
+pub const BURTON_UNIQUE_CHARGE_TARGETS: bool = true;
+/// Retail UnpackTime residual for plant charge (msec).
+pub const BURTON_CHARGE_UNPACK_TIME_MS: u32 = 5_500;
+/// UnpackTime 5500ms → 165 frames @ 30 FPS.
+pub const BURTON_CHARGE_UNPACK_TIME_FRAMES: u32 = 165;
+/// Retail FleeRangeAfterCompletion residual.
+pub const BURTON_FLEE_RANGE_AFTER_CHARGE: f32 = 100.0;
+/// Retail SpecialObject remote / timed residual names.
+pub const BURTON_REMOTE_CHARGE_OBJECT: &str = "RemoteC4Charge";
+pub const BURTON_TIMED_CHARGE_OBJECT: &str = "TimedC4Charge";
 
 /// Whether residual unit can clear mines (C++ KINDOF_DOZER / Worker + DISARM weapon residual).
 /// Fail-closed: not full weapon-set / AntiMine bit matrix.
@@ -550,6 +646,39 @@ pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Op
     }
 }
 
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn mine_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / MINE_LOGIC_FPS)).round() as u32
+}
+
+/// Whether a producer may place another remote charge (MaxSpecialObjects residual).
+pub fn can_place_remote_charge(active_remote_count: u32) -> bool {
+    active_remote_count < BURTON_MAX_REMOTE_CHARGES
+}
+
+/// Whether a producer may place another timed charge (MaxSpecialObjects residual).
+pub fn can_place_timed_charge(active_timed_count: u32) -> bool {
+    active_timed_count < BURTON_MAX_TIMED_CHARGES
+}
+
+/// Apply SUPERWEAPON_ClusterMines DropVariance residual to a delivery center.
+///
+/// Unit-sample residual (not full GameLogicRandom stream): sample in [-var, +var]
+/// via a deterministic host unit sample in [0, 1].
+pub fn apply_cluster_mines_drop_variance(center: Vec3, unit_x: f32, unit_y: f32) -> Vec3 {
+    let (vx, vy, vz) = CLUSTER_MINES_DROP_VARIANCE;
+    let ux = unit_x.clamp(0.0, 1.0);
+    let uy = unit_y.clamp(0.0, 1.0);
+    Vec3::new(
+        center.x + (ux * 2.0 - 1.0) * vx,
+        center.y + 0.0 * vz, // Z variance residual is 0 in retail OCL
+        center.z + (uy * 2.0 - 1.0) * vy,
+    )
+}
+
 /// Positions for a residual cluster-mine ring around `center`.
 pub fn cluster_mine_positions(center: Vec3, count: usize, ring_radius: f32) -> Vec<Vec3> {
     if count == 0 {
@@ -565,6 +694,109 @@ pub fn cluster_mine_positions(center: Vec3, count: usize, ring_radius: f32) -> V
         ));
     }
     out
+}
+
+/// Wave 51 residual honesty: DemoTrap DefaultProximity / trigger / death fuse constants.
+pub fn honesty_demo_trap_mode_residual_ok() -> bool {
+    DEMO_TRAP_DEFAULT_PROXIMITY_MODE
+        && (DEMO_TRAP_TRIGGER_RANGE - 40.0).abs() < 0.01
+        && DEMO_TRAP_DESTRUCTION_DELAY_MS == 1_000
+        && DEMO_TRAP_DESTRUCTION_DELAY_FRAMES
+            == mine_ms_to_frames(DEMO_TRAP_DESTRUCTION_DELAY_MS)
+        && DEMO_TRAP_DETONATE_WHEN_KILLED
+        && DEMO_TRAP_AUTO_DETONATE_WITH_FRIENDS
+        && HostMineData::demo_trap().demo_trap_mode == DemoTrapMode::Proximity
+        && HostMineData::demo_trap().proximity_enabled
+        && (HostMineKind::DemoTrap.default_trigger_range() - DEMO_TRAP_TRIGGER_RANGE).abs() < 0.01
+}
+
+/// Wave 51 residual honesty: dozer/worker disarm distance + pre-attack/reload frames.
+pub fn honesty_mine_clear_residual_ok() -> bool {
+    (DOZER_MINE_CLEAR_RANGE - 5.0).abs() < 0.01
+        && (DOZER_MINE_CLEAR_SCAN_RANGE - 100.0).abs() < 0.01
+        && DOZER_MINE_CLEAR_PRE_ATTACK_MS == 1_200
+        && DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES
+            == mine_ms_to_frames(DOZER_MINE_CLEAR_PRE_ATTACK_MS)
+        && DOZER_MINE_CLEAR_CLIP_RELOAD_MS == 4_000
+        && DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES
+            == mine_ms_to_frames(DOZER_MINE_CLEAR_CLIP_RELOAD_MS)
+        && WORKER_MINE_CLEAR_PRE_ATTACK_MS == 1_000
+        && WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES
+            == mine_ms_to_frames(WORKER_MINE_CLEAR_PRE_ATTACK_MS)
+        && WORKER_MINE_CLEAR_DELAY_MS == 1_000
+        && WORKER_MINE_CLEAR_DELAY_FRAMES == mine_ms_to_frames(WORKER_MINE_CLEAR_DELAY_MS)
+        && !MINE_CLEARED_AUDIO.is_empty()
+}
+
+/// Wave 51 residual honesty: Chem/Demo dual-ring secondary weapon constants.
+pub fn honesty_demo_trap_weapon_rings_residual_ok() -> bool {
+    let std = DemoTrapProfile::Standard;
+    let chem = DemoTrapProfile::ChemBeta;
+    let gamma = DemoTrapProfile::ChemGamma;
+    let demo = DemoTrapProfile::Demo;
+    (std.primary_damage() - 600.0).abs() < 0.01
+        && (std.primary_radius() - 25.0).abs() < 0.01
+        && (std.secondary_damage() - 400.0).abs() < 0.01
+        && (std.secondary_radius() - 50.0).abs() < 0.01
+        && (chem.primary_damage() - 250.0).abs() < 0.01
+        && (chem.secondary_damage() - 100.0).abs() < 0.01
+        && (gamma.primary_damage() - 250.0).abs() < 0.01
+        && (gamma.secondary_damage() - 100.0).abs() < 0.01
+        && gamma.spawns_poison()
+        && chem.spawns_poison()
+        && (demo.primary_damage() - 700.0).abs() < 0.01
+        && (demo.secondary_damage() - 500.0).abs() < 0.01
+        && demo.uses_dual_ring()
+        && chem.uses_dual_ring()
+        && !std.uses_dual_ring()
+        && (demo_trap_damage_at(DemoTrapProfile::Demo, 0.0) - 700.0).abs() < 0.01
+        && (demo_trap_damage_at(DemoTrapProfile::Demo, 30.0) - 500.0).abs() < 0.01
+        && (demo_trap_damage_at(DemoTrapProfile::ChemBeta, 30.0) - 100.0).abs() < 0.01
+}
+
+/// Wave 51 residual honesty: Burton sticky max-count residual.
+pub fn honesty_burton_charge_max_residual_ok() -> bool {
+    BURTON_MAX_REMOTE_CHARGES == 8
+        && BURTON_MAX_TIMED_CHARGES == 10
+        && BURTON_UNIQUE_CHARGE_TARGETS
+        && BURTON_CHARGE_UNPACK_TIME_MS == 5_500
+        && BURTON_CHARGE_UNPACK_TIME_FRAMES
+            == mine_ms_to_frames(BURTON_CHARGE_UNPACK_TIME_MS)
+        && (BURTON_FLEE_RANGE_AFTER_CHARGE - 100.0).abs() < 0.01
+        && BURTON_REMOTE_CHARGE_OBJECT == "RemoteC4Charge"
+        && BURTON_TIMED_CHARGE_OBJECT == "TimedC4Charge"
+        && can_place_remote_charge(0)
+        && can_place_remote_charge(7)
+        && !can_place_remote_charge(8)
+        && can_place_timed_charge(9)
+        && !can_place_timed_charge(10)
+}
+
+/// Wave 51 residual honesty: ClusterMines DropVariance + OCL residual constants.
+pub fn honesty_cluster_mines_ocl_residual_ok() -> bool {
+    CLUSTER_MINES_DROP_VARIANCE == (20.0, 20.0, 0.0)
+        && (CLUSTER_MINES_DELIVERY_DISTANCE - 140.0).abs() < 0.01
+        && (CLUSTER_MINES_DELIVERY_DECAL_RADIUS - 100.0).abs() < 0.01
+        && (CLUSTER_MINES_RADIUS_CURSOR - 100.0).abs() < 0.01
+        && (CLUSTER_MINES_DISTANCE_AROUND_OBJECT - 80.0).abs() < 0.01
+        && CLUSTER_MINE_NUM_VIRTUAL == 8
+        && CLUSTER_MINE_COUNT > 0
+        && CLUSTER_MINE_COUNT as u32 <= CLUSTER_MINE_NUM_VIRTUAL
+        && CLUSTER_MINES_OCL_TRANSPORT == "ChinaJetCargoPlane"
+        && CLUSTER_MINES_BOMB_TEMPLATE == "ClusterMinesBomb"
+        && CLUSTER_MINES_MINE_TEMPLATE == "ChinaClusterMine"
+        && SUPERWEAPON_CLUSTER_MINES_RELOAD_MS == 240_000
+        && SUPERWEAPON_CLUSTER_MINES_RELOAD_FRAMES
+            == mine_ms_to_frames(SUPERWEAPON_CLUSTER_MINES_RELOAD_MS)
+}
+
+/// Combined Wave 51 mines residual honesty pack.
+pub fn honesty_mines_residual_pack_ok() -> bool {
+    honesty_demo_trap_mode_residual_ok()
+        && honesty_mine_clear_residual_ok()
+        && honesty_demo_trap_weapon_rings_residual_ok()
+        && honesty_burton_charge_max_residual_ok()
+        && honesty_cluster_mines_ocl_residual_ok()
 }
 
 /// Simple distance falloff: full damage inside half-radius, linear to edge.
@@ -728,5 +960,75 @@ mod tests {
         assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
         assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
         assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
+    }
+
+    #[test]
+    fn demo_trap_mode_residual_honesty() {
+        assert!(honesty_demo_trap_mode_residual_ok());
+        assert_eq!(
+            DEMO_TRAP_DESTRUCTION_DELAY_FRAMES,
+            mine_ms_to_frames(DEMO_TRAP_DESTRUCTION_DELAY_MS)
+        );
+        let mut d = HostMineData::demo_trap();
+        assert_eq!(d.demo_trap_mode, DemoTrapMode::Proximity);
+        assert!(d.set_demo_trap_mode(DemoTrapMode::Manual));
+        assert!(!d.proximity_enabled);
+        assert!(d.set_demo_trap_mode(DemoTrapMode::Proximity));
+        assert!(d.proximity_enabled);
+    }
+
+    #[test]
+    fn mine_clear_disarm_distance_time_residual_honesty() {
+        assert!(honesty_mine_clear_residual_ok());
+        assert_eq!(DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, 36);
+        assert_eq!(DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES, 120);
+        assert_eq!(WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES, 30);
+        assert_eq!(WORKER_MINE_CLEAR_DELAY_FRAMES, 30);
+        assert!((DOZER_MINE_CLEAR_RANGE - 5.0).abs() < 0.01);
+        assert!((DOZER_MINE_CLEAR_SCAN_RANGE - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn demo_trap_weapon_secondary_rings_residual_honesty() {
+        assert!(honesty_demo_trap_weapon_rings_residual_ok());
+        // Chem / Demo dual-ring residual.
+        assert!((demo_trap_damage_at(DemoTrapProfile::ChemGamma, 10.0) - 250.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::ChemGamma, 40.0) - 100.0).abs() < 0.01);
+        assert_eq!(demo_trap_damage_at(DemoTrapProfile::ChemGamma, 60.0), 0.0);
+        // Standard secondary damage constant residual (soft falloff host path).
+        assert!((DemoTrapProfile::Standard.secondary_damage() - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn burton_sticky_max_count_residual_honesty() {
+        assert!(honesty_burton_charge_max_residual_ok());
+        assert!(!can_place_remote_charge(BURTON_MAX_REMOTE_CHARGES));
+        assert!(!can_place_timed_charge(BURTON_MAX_TIMED_CHARGES));
+        assert_eq!(BURTON_CHARGE_UNPACK_TIME_FRAMES, 165);
+    }
+
+    #[test]
+    fn cluster_mines_drop_variance_ocl_residual_honesty() {
+        assert!(honesty_cluster_mines_ocl_residual_ok());
+        let center = Vec3::new(100.0, 0.0, 200.0);
+        // unit 0.5 → no offset residual mid-sample
+        let mid = apply_cluster_mines_drop_variance(center, 0.5, 0.5);
+        assert!((mid.x - 100.0).abs() < 0.01);
+        assert!((mid.z - 200.0).abs() < 0.01);
+        // unit 1.0 → +variance on X/Y residual
+        let hi = apply_cluster_mines_drop_variance(center, 1.0, 1.0);
+        assert!((hi.x - 120.0).abs() < 0.01);
+        assert!((hi.z - 220.0).abs() < 0.01);
+        // unit 0.0 → -variance
+        let lo = apply_cluster_mines_drop_variance(center, 0.0, 0.0);
+        assert!((lo.x - 80.0).abs() < 0.01);
+        assert!((lo.z - 180.0).abs() < 0.01);
+        // Z variance residual is 0
+        assert!((hi.y - center.y).abs() < 0.01);
+    }
+
+    #[test]
+    fn mines_residual_pack_honesty() {
+        assert!(honesty_mines_residual_pack_ok());
     }
 }
