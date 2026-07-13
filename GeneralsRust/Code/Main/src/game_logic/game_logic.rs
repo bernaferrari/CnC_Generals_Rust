@@ -1129,6 +1129,8 @@ pub struct GameLogic {
     stinger_hive_residual_respawns: u32,
     /// CamoNetting structure StealthUpdate residual: attack/damage reveals.
     camo_netting_structure_residual_reveals: u32,
+    /// OrderIdleEnemiesToAttackMeUponReveal residual wake count (CamoNetting).
+    camo_netting_order_idle_enemies_count: u32,
     /// CamoNetting structure StealthUpdate residual: StealthDelay re-cloaks.
     camo_netting_structure_residual_recloaks: u32,
 
@@ -2161,6 +2163,7 @@ impl GameLogic {
             stinger_hive_residual_swallows: 0,
             stinger_hive_residual_respawns: 0,
             camo_netting_structure_residual_reveals: 0,
+            camo_netting_order_idle_enemies_count: 0,
             camo_netting_structure_residual_recloaks: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
@@ -2496,6 +2499,7 @@ impl GameLogic {
         self.stinger_hive_residual_swallows = 0;
         self.stinger_hive_residual_respawns = 0;
         self.camo_netting_structure_residual_reveals = 0;
+        self.camo_netting_order_idle_enemies_count = 0;
         self.camo_netting_structure_residual_recloaks = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
@@ -14831,6 +14835,11 @@ impl GameLogic {
             );
             attacker.turret_angle_deg = aim_a;
             attacker.turret_pitch_deg = aim_p;
+            // Fire cancels idle-scan residual; next idle interval starts after coast.
+            attacker.turret_idle_scanning = false;
+            attacker.turret_idle_scan_next_frame = self.frame.saturating_add(
+                crate::game_logic::host_strategy_center::BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+            );
         }
 
         for (id, killer) in destroy_ids {
@@ -16616,6 +16625,7 @@ impl GameLogic {
     pub fn honesty_camo_netting_structure_stealth_ok(&self) -> bool {
         self.camo_netting_structure_residual_reveals > 0
             || self.camo_netting_structure_residual_recloaks > 0
+            || self.camo_netting_order_idle_enemies_count > 0
     }
 
     pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
@@ -16624,6 +16634,15 @@ impl GameLogic {
 
     pub fn camo_netting_structure_residual_recloaks(&self) -> u32 {
         self.camo_netting_structure_residual_recloaks
+    }
+
+    /// Residual honesty: OrderIdleEnemiesToAttackMeUponReveal residual woke ≥1 unit.
+    pub fn honesty_camo_netting_order_idle_enemies_ok(&self) -> bool {
+        self.camo_netting_order_idle_enemies_count > 0
+    }
+
+    pub fn camo_netting_order_idle_enemies_count(&self) -> u32 {
+        self.camo_netting_order_idle_enemies_count
     }
 
     /// Residual honesty: USA Patriot dual ground/AA residual exercised.
@@ -23680,6 +23699,133 @@ impl GameLogic {
         })
     }
 
+    /// Residual honesty: TurretAI idle-scan residual started (Bombardment ACTIVE).
+    pub fn honesty_strategy_center_turret_idle_scan_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_idle_scan_ok()
+    }
+
+    /// Tick TurretAI idle-scan residual for Bombardment ACTIVE Strategy Centers.
+    ///
+    /// C++ TurretAIIdleState → TurretAIIdleScanState: after Min/MaxIdleScanInterval,
+    /// rotate toward NaturalTurretAngle ± idle scan offset (MaxIdleScanAngle **60**),
+    /// pitch holds NaturalTurretPitch. Host residual is deterministic (scan index
+    /// alternates interval and signed mid offset). Busy gun (attacking / target /
+    /// recenter) defers the next scan; fire path reschedules after coast.
+    fn tick_strategy_center_turret_idle_scan(&mut self) {
+        use crate::game_logic::host_strategy_center::{
+            idle_scan_desired_angle_deg, idle_scan_interval_frames, step_turret_toward_angles,
+            turret_angles_at, HostBattlePlan, HostBattlePlanTransition,
+            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, is_strategy_center_template,
+        };
+
+        let frame = self.frame;
+        // Bombardment ACTIVE centers (door residual WaitingToClose / Active).
+        let centers: Vec<ObjectId> = self
+            .battle_plans
+            .door_states()
+            .iter()
+            .filter(|s| {
+                s.status == HostBattlePlanTransition::Active
+                    && s.door_plan == Some(HostBattlePlan::Bombardment)
+                    && !s.centering_turret
+            })
+            .map(|s| s.center_id)
+            .collect();
+
+        let mut started = 0u32;
+        let mut completed = 0u32;
+        for cid in centers {
+            let Some(obj) = self.objects.get(&cid) else {
+                continue;
+            };
+            if !obj.is_alive() || !is_strategy_center_template(&obj.template_name) {
+                continue;
+            }
+            if obj.weapon.is_none() {
+                continue;
+            }
+            let busy = obj.status.attacking
+                || obj.target.is_some()
+                || matches!(
+                    obj.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                );
+            // Snapshot scan state.
+            let mut scanning = obj.turret_idle_scanning;
+            let mut desired = obj.turret_idle_scan_desired_angle_deg;
+            let mut next_frame = obj.turret_idle_scan_next_frame;
+            let mut scan_index = obj.turret_idle_scan_index;
+            let mut angle = obj.turret_angle_deg;
+            let mut pitch = obj.turret_pitch_deg;
+
+            if busy {
+                // Busy residual: cancel mid-scan; keep next_frame so scan resumes later.
+                scanning = false;
+            } else if scanning {
+                let (a, p) = step_turret_toward_angles(
+                    angle,
+                    pitch,
+                    desired,
+                    STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+                );
+                angle = a;
+                pitch = p;
+                if turret_angles_at(
+                    angle,
+                    pitch,
+                    desired,
+                    STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+                ) {
+                    // Scan complete residual: reschedule next interval.
+                    scanning = false;
+                    scan_index = scan_index.saturating_add(1);
+                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                    completed = completed.saturating_add(1);
+                }
+            } else if next_frame > 0 && frame >= next_frame {
+                // Start idle-scan residual toward natural + offset.
+                desired = idle_scan_desired_angle_deg(scan_index);
+                scanning = true;
+                started = started.saturating_add(1);
+                // First step this frame.
+                let (a, p) = step_turret_toward_angles(
+                    angle,
+                    pitch,
+                    desired,
+                    STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+                );
+                angle = a;
+                pitch = p;
+                if turret_angles_at(
+                    angle,
+                    pitch,
+                    desired,
+                    STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+                ) {
+                    scanning = false;
+                    scan_index = scan_index.saturating_add(1);
+                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                    completed = completed.saturating_add(1);
+                }
+            }
+
+            if let Some(obj) = self.objects.get_mut(&cid) {
+                obj.turret_idle_scanning = scanning;
+                obj.turret_idle_scan_desired_angle_deg = desired;
+                obj.turret_idle_scan_next_frame = next_frame;
+                obj.turret_idle_scan_index = scan_index;
+                obj.turret_angle_deg = angle;
+                obj.turret_pitch_deg = pitch;
+            }
+        }
+        for _ in 0..started {
+            self.battle_plans.record_turret_idle_scan_start();
+        }
+        for _ in 0..completed {
+            self.battle_plans.record_turret_idle_scan_complete();
+        }
+    }
+
     /// Residual honesty: AmericaParachute low-altitude open fudge residual.
     pub fn honesty_pilot_parachute_open_fudge_ok(&self) -> bool {
         self.usa_pilot.honesty_parachute_open_fudge_ok()
@@ -23743,6 +23889,7 @@ impl GameLogic {
     /// CLOSING → IDLE → UNPACKING. Packing start clears army effects
     /// (setBattlePlan NONE + paralyze). Recenter residual may delay pack.
     /// While recentering, steps Strategy Center turret pitch/yaw toward natural.
+    /// Also ticks TurretAI idle-scan residual for Bombardment ACTIVE centers.
     fn tick_battle_plan_door_residuals(&mut self) {
         use crate::game_logic::host_strategy_center::{
             step_turret_toward_natural, HostBattlePlanDoorEvent,
@@ -23758,11 +23905,16 @@ impl GameLogic {
             .collect();
         for cid in centering {
             if let Some(obj) = self.objects.get_mut(&cid) {
+                // Recenter cancels idle-scan residual.
+                obj.turret_idle_scanning = false;
                 let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
                 obj.turret_angle_deg = a;
                 obj.turret_pitch_deg = p;
             }
         }
+
+        // TurretAI idle-scan residual (Bombardment ACTIVE, idle gun).
+        self.tick_strategy_center_turret_idle_scan();
 
         let frame = self.frame;
         let events = self.battle_plans.tick_door_residuals(frame);
@@ -23894,6 +24046,9 @@ impl GameLogic {
                         center.weapon = None;
                         center.secondary_weapon = None;
                         center.stop_attack();
+                        // Cancel TurretAI idle-scan residual when gun unequips.
+                        center.turret_idle_scanning = false;
+                        center.turret_idle_scan_next_frame = 0;
                     }
                 }
             }
@@ -24064,6 +24219,13 @@ impl GameLogic {
                                 crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
                             );
                             center.secondary_weapon = None;
+                            // TurretAI idle-scan residual: schedule first idle scan
+                            // after MinIdleScanInterval (scan_index 0 → 15 frames).
+                            center.turret_idle_scan_index = 0;
+                            center.turret_idle_scanning = false;
+                            center.turret_idle_scan_next_frame = frame.saturating_add(
+                                crate::game_logic::host_strategy_center::idle_scan_interval_frames(0),
+                            );
                             building_bonus = true;
                         }
                     }
@@ -28217,11 +28379,13 @@ impl GameLogic {
         }
 
         // GLA CamoNetting structure residual: StealthForbiddenConditions =
-        // ATTACKING + TAKING_DAMAGE, StealthDelay 2500ms re-cloak.
+        // ATTACKING + USING_ABILITY + TAKING_DAMAGE, StealthDelay 2500ms re-cloak,
+        // OrderIdleEnemiesToAttackMeUponReveal residual on uncloak.
         {
             use crate::game_logic::host_upgrades::{
-                camo_netting_stealth_allowed_frame, camo_netting_structure_stealth_desired,
-                is_camo_netting_structure_template, UPGRADE_GLA_CAMO_NETTING,
+                camo_netting_order_idle_enemy_in_range, camo_netting_stealth_allowed_frame,
+                camo_netting_structure_stealth_desired, is_camo_netting_structure_template,
+                UPGRADE_GLA_CAMO_NETTING,
             };
             let struct_ids: Vec<ObjectId> = self
                 .objects
@@ -28238,6 +28402,7 @@ impl GameLogic {
                 .collect();
             let mut recloaks = 0u32;
             let mut reveals = 0u32;
+            let mut revealed_ids: Vec<ObjectId> = Vec::new();
             for sid in struct_ids {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
@@ -28252,10 +28417,14 @@ impl GameLogic {
                         obj.ai_state,
                         AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                     );
+                // C++ OBJECT_STATUS_IS_USING_ABILITY residual.
+                let using_ability = obj.status.using_ability
+                    || matches!(obj.ai_state, AIState::SpecialAbility);
                 let Some(desired) = camo_netting_structure_stealth_desired(
                     obj.innate_stealth,
                     obj.is_alive(),
                     attacking,
+                    using_ability,
                     frame,
                     obj.stealth_allowed_frame,
                 ) else {
@@ -28275,6 +28444,69 @@ impl GameLogic {
                         obj.stealth_delay_pending = false;
                     }
                     reveals = reveals.saturating_add(1);
+                    revealed_ids.push(sid);
+                }
+            }
+            // OrderIdleEnemiesToAttackMeUponReveal residual: idle enemy units
+            // that can see the revealed structure wake and attempt to target it.
+            for rid in revealed_ids {
+                let Some(victim) = self.objects.get(&rid) else {
+                    continue;
+                };
+                let v_team = victim.team;
+                let v_pos = victim.get_position();
+                let candidates: Vec<(ObjectId, f32, f32, bool)> = self
+                    .objects
+                    .iter()
+                    .filter(|(_, o)| {
+                        o.is_alive()
+                            && o.team != v_team
+                            && o.team != Team::Neutral
+                            && !matches!(o.object_type, ObjectType::Building | ObjectType::Projectile)
+                            && !o.is_kind_of(KindOf::Structure)
+                            && !o.is_kind_of(KindOf::Worker)
+                            && !o.is_worker()
+                    })
+                    .map(|(id, o)| {
+                        let dx = o.get_position().x - v_pos.x;
+                        let dz = o.get_position().z - v_pos.z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        let vision = {
+                            let sr = o.get_template().sight_range;
+                            if sr > 0.0 {
+                                sr
+                            } else {
+                                150.0
+                            }
+                        };
+                        let can_attack = o.weapon.is_some()
+                            || o.is_kind_of(KindOf::Attackable)
+                            || o.can_attack()
+                            || matches!(
+                                o.object_type,
+                                ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft
+                            );
+                        (*id, dist, vision, can_attack)
+                    })
+                    .collect();
+                for (eid, dist, vision, can_attack) in candidates {
+                    let Some(enemy) = self.objects.get_mut(&eid) else {
+                        continue;
+                    };
+                    let idle = matches!(enemy.ai_state, AIState::Idle) && enemy.target.is_none();
+                    if !camo_netting_order_idle_enemy_in_range(
+                        enemy.is_alive(),
+                        idle,
+                        can_attack,
+                        dist,
+                        vision,
+                    ) {
+                        continue;
+                    }
+                    enemy.target = Some(rid);
+                    enemy.ai_state = AIState::Attacking;
+                    self.camo_netting_order_idle_enemies_count =
+                        self.camo_netting_order_idle_enemies_count.saturating_add(1);
                 }
             }
             self.camo_netting_structure_residual_recloaks = self
@@ -41618,6 +41850,169 @@ mod tests {
         );
     }
 
+    /// Residual: Strategy Center TurretAI idle-scan Min/MaxIdleScanAngle residual.
+    ///
+    /// Retail: MinIdleScanInterval **500**ms → **15** frames, Max **1000**ms →
+    /// **30** frames, MinIdleScanAngle **0**, MaxIdleScanAngle **60**. Bombardment
+    /// ACTIVE idle gun schedules scan, rotates toward NaturalTurretAngle ± offset,
+    /// then reschedules. Fail-closed: not full TurretAI mood-target / bone matrix.
+    #[test]
+    fn strategy_center_turret_idle_scan_residual() {
+        use crate::game_logic::host_strategy_center::{
+            idle_scan_desired_angle_deg, idle_scan_interval_frames, turret_angles_are_natural,
+            HostBattlePlan, STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+            STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        if !game_logic.players.contains_key(&0) {
+            game_logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        }
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+
+        assert!(!game_logic.honesty_strategy_center_turret_idle_scan_ok());
+
+        // Activate Bombardment → ACTIVE equips gun + schedules first idle scan.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        advance_battle_plan_door_to_active(&mut game_logic);
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(sc.weapon.is_some(), "Bombardment ACTIVE equips gun");
+            assert!(
+                turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "idle scan residual starts at natural angles"
+            );
+            // BecameActive schedules next = frame + MinIdleScanInterval (15).
+            assert!(
+                sc.turret_idle_scan_next_frame > 0,
+                "first idle-scan residual must be scheduled"
+            );
+            assert!(!sc.turret_idle_scanning);
+            let _ = STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES;
+        }
+
+        // Ensure idle: no target / not attacking; force scan due this frame.
+        let due_frame = game_logic.frame;
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+            sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+            sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+            sc.turret_idle_scan_next_frame = due_frame;
+            sc.turret_idle_scan_index = 0;
+            sc.turret_idle_scanning = false;
+        }
+
+        // One tick should start idle scan toward natural+30 = -60.
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(
+            game_logic.honesty_strategy_center_turret_idle_scan_ok(),
+            "idle-scan residual must record start honesty"
+        );
+        assert_eq!(game_logic.battle_plans().turret_idle_scan_start_count(), 1);
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            let desired = idle_scan_desired_angle_deg(0);
+            assert!((desired - (-60.0)).abs() < 0.01);
+            // Stepped toward desired: from -90 toward -60 at 2 deg/frame → -88.
+            assert!(
+                (sc.turret_angle_deg
+                    - (STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
+                        + STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME))
+                    .abs()
+                    < 0.01,
+                "idle-scan residual must step toward desired angle, got {}",
+                sc.turret_angle_deg
+            );
+            assert!(
+                !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "idle-scan leaves natural"
+            );
+            assert!(sc.turret_idle_scanning, "must be mid idle-scan residual");
+        }
+
+        // Advance enough frames for remaining ~28° at 2 deg/frame.
+        let desired = idle_scan_desired_angle_deg(0);
+        for _ in 0..30 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.tick_battle_plan_door_residuals();
+            let sc = game_logic.find_object(sc_id).unwrap();
+            if !sc.turret_idle_scanning
+                && game_logic.battle_plans().turret_idle_scan_complete_count() > 0
+            {
+                break;
+            }
+        }
+        assert!(
+            game_logic.battle_plans().turret_idle_scan_complete_count() >= 1,
+            "idle-scan residual must complete and reschedule"
+        );
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !sc.turret_idle_scanning,
+                "scan complete residual clears scanning flag"
+            );
+            // Rescheduled: scan_index 1 → MaxIdleScanInterval 30.
+            assert!(
+                sc.turret_idle_scan_next_frame
+                    >= game_logic.frame.saturating_add(idle_scan_interval_frames(1) - 1),
+                "complete residual must reschedule next idle scan, next={} frame={}",
+                sc.turret_idle_scan_next_frame,
+                game_logic.frame
+            );
+            assert!(
+                (sc.turret_angle_deg - desired).abs() < 0.5 || sc.turret_idle_scan_index >= 1,
+                "angles at desired after complete residual, angle={} desired={}",
+                sc.turret_angle_deg,
+                desired
+            );
+        }
+
+        // Busy residual: attacking cancels mid-scan.
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.turret_idle_scanning = true;
+            sc.turret_idle_scan_desired_angle_deg = idle_scan_desired_angle_deg(1);
+            sc.status.attacking = true;
+            sc.ai_state = AIState::Attacking;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !sc.turret_idle_scanning,
+                "busy residual must cancel idle-scan"
+            );
+        }
+    }
+
     /// Residual: AmericaParachute OpenDist freefall → open residual path.
     ///
     /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
@@ -53285,12 +53680,95 @@ mod tests {
             "attacking residual must break CamoNetting structure stealth"
         );
 
+        // USING_ABILITY residual: forbids stealth while OBJECT_STATUS_IS_USING_ABILITY.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.status.stealthed = true;
+            s.stealth_allowed_frame = 0;
+            s.stealth_delay_pending = false;
+            s.status.attacking = false;
+            s.ai_state = AIState::Idle;
+            s.status.using_ability = true;
+        }
+        game_logic.frame = 3;
+        game_logic.update_stealth_and_detection();
+        assert!(
+            !game_logic
+                .find_object(stinger_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(true),
+            "USING_ABILITY residual must break CamoNetting structure stealth"
+        );
+        // Clear ability so re-cloak path can exercise.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.status.using_ability = false;
+        }
+
+        // OrderIdleEnemiesToAttackMeUponReveal residual: idle enemy in vision
+        // wakes and targets the revealed structure.
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy tank");
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.ai_state = AIState::Idle;
+            e.target = None;
+            e.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 200.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            // Ensure vision covers the tunnel at x=0 (enemy at x=30).
+            e.get_template(); // touch template path
+        }
+        // Force tunnel stealthed then damage-reveal so OrderIdle residual fires.
+        {
+            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            t.status.stealthed = true;
+            t.status.attacking = false;
+            t.status.using_ability = false;
+            t.ai_state = AIState::Idle;
+            t.stealth_allowed_frame = 0;
+            t.stealth_delay_pending = false;
+            t.status.attacking = true; // force uncloak this frame
+        }
+        let order_before = game_logic.camo_netting_order_idle_enemies_count();
+        game_logic.frame = 4;
+        game_logic.update_stealth_and_detection();
+        assert!(
+            !game_logic
+                .find_object(tunnel_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(true),
+            "reveal residual must uncloak for OrderIdle path"
+        );
+        assert!(
+            game_logic.camo_netting_order_idle_enemies_count() > order_before
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|e| e.target == Some(tunnel_id))
+                    .unwrap_or(false),
+            "OrderIdleEnemies residual must wake idle enemy on reveal"
+        );
+        assert!(
+            game_logic
+                .find_object(enemy_id)
+                .map(|e| e.target == Some(tunnel_id) && e.ai_state == AIState::Attacking)
+                .unwrap_or(false)
+                || game_logic.honesty_camo_netting_order_idle_enemies_ok(),
+            "idle enemy residual must attempt to target revealed structure"
+        );
+
         // Idle + StealthDelay elapsed → re-cloak residual.
         game_logic.frame = 10 + CAMO_NETTING_STEALTH_DELAY_FRAMES;
         let recloak_frame = game_logic.frame;
         {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
             t.status.attacking = false;
+            t.status.using_ability = false;
             t.ai_state = AIState::Idle;
             t.target = None;
             t.status.stealthed = false;

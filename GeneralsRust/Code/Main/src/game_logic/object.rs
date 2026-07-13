@@ -369,6 +369,19 @@ pub struct Object {
     /// Natural for Strategy Center = **45** (NaturalTurretPitch).
     #[serde(default = "default_strategy_center_turret_pitch")]
     pub turret_pitch_deg: f32,
+    /// TurretAI idle-scan residual: absolute frame when next idle scan may start.
+    /// 0 = not scheduled (or just completed without reschedule).
+    #[serde(default)]
+    pub turret_idle_scan_next_frame: u32,
+    /// TurretAI idle-scan residual: true while rotating toward desired angle.
+    #[serde(default)]
+    pub turret_idle_scanning: bool,
+    /// TurretAI idle-scan residual: desired absolute yaw while scanning.
+    #[serde(default)]
+    pub turret_idle_scan_desired_angle_deg: f32,
+    /// TurretAI idle-scan residual: deterministic scan index (interval/offset seed).
+    #[serde(default)]
+    pub turret_idle_scan_index: u32,
 
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
     /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
@@ -547,6 +560,10 @@ impl Object {
             hive_slave_respawn_frame: 0,
             turret_angle_deg: default_strategy_center_turret_angle(),
             turret_pitch_deg: default_strategy_center_turret_pitch(),
+            turret_idle_scan_next_frame: 0,
+            turret_idle_scanning: false,
+            turret_idle_scan_desired_angle_deg: 0.0,
+            turret_idle_scan_index: 0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -660,6 +677,10 @@ impl Object {
             hive_slave_respawn_frame: 0,
             turret_angle_deg: default_strategy_center_turret_angle(),
             turret_pitch_deg: default_strategy_center_turret_pitch(),
+            turret_idle_scan_next_frame: 0,
+            turret_idle_scanning: false,
+            turret_idle_scan_desired_angle_deg: 0.0,
+            turret_idle_scan_index: 0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,

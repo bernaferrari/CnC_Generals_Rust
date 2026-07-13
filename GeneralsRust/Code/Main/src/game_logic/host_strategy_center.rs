@@ -52,8 +52,15 @@
 //!   **60** deg/s → **2** deg/frame, FirePitch **45**. Fire aims residual
 //!   angles at target; recenter steps toward natural each frame.
 //!
+//! - **TurretAI idle-scan residual** (Bombardment ACTIVE idle gun):
+//!   MinIdleScanInterval **500**ms → **15** frames, MaxIdleScanInterval
+//!   **1000**ms → **30** frames, MinIdleScanAngle **0**, MaxIdleScanAngle
+//!   **60** deg off NaturalTurretAngle. Idle residual schedules scan, rotates
+//!   toward natural ± offset, then reschedules. Deterministic host residual
+//!   (alternate min/max interval + signed mid/max offset by scan index).
+//!
 //! Fail-closed honesty:
-//! - Not full TurretAI state machine / idle-scan angle matrix / bone pitch
+//! - Not full TurretAI state machine / bone pitch matrix / mood-target scan
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -202,6 +209,94 @@ pub const STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME: f32 =
 /// Angle equality residual epsilon (deg).
 pub const STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG: f32 = 0.05;
 
+// --- TurretAI idle-scan residual (Strategy Center AIUpdateInterface Turret) ---
+
+/// Retail MinIdleScanInterval 500ms → 15 frames @ 30 FPS.
+pub const STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES: u32 = 15;
+/// Retail MaxIdleScanInterval 1000ms → 30 frames @ 30 FPS.
+pub const STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES: u32 = 30;
+/// Retail MinIdleScanAngle (deg off natural).
+pub const STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG: f32 = 0.0;
+/// Retail MaxIdleScanAngle (deg off natural).
+pub const STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG: f32 = 60.0;
+
+/// Deterministic residual idle-scan interval for scan index `n`.
+///
+/// C++ `GameLogicRandomValue(min, max)` residual; host alternates min/max.
+pub fn idle_scan_interval_frames(scan_index: u32) -> u32 {
+    if scan_index % 2 == 0 {
+        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES
+    } else {
+        STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES
+    }
+}
+
+/// Deterministic residual idle-scan angle offset (deg off natural) for scan index `n`.
+///
+/// C++ picks `minA + rand(0, maxA-minA)` then random sign. Host residual uses
+/// mid-span angle (**30**) with alternating sign so both directions exercise.
+pub fn idle_scan_desired_offset_deg(scan_index: u32) -> f32 {
+    let span = STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG;
+    let mid = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG + span * 0.5;
+    if scan_index % 2 == 0 {
+        mid
+    } else {
+        -mid
+    }
+}
+
+/// Absolute residual idle-scan target yaw = NaturalTurretAngle + offset.
+pub fn idle_scan_desired_angle_deg(scan_index: u32) -> f32 {
+    normalize_angle_deg(
+        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + idle_scan_desired_offset_deg(scan_index),
+    )
+}
+
+/// Whether residual turret angles match a target pitch/yaw (eps gate).
+pub fn turret_angles_at(
+    angle_deg: f32,
+    pitch_deg: f32,
+    target_angle_deg: f32,
+    target_pitch_deg: f32,
+) -> bool {
+    shortest_angle_delta_deg(angle_deg, target_angle_deg).abs()
+        <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG
+        && (pitch_deg - target_pitch_deg).abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG
+}
+
+/// Step residual turret angles one frame toward an arbitrary pitch/yaw target.
+///
+/// Shared by recenter (natural) and idle-scan residual rotation.
+pub fn step_turret_toward_angles(
+    angle_deg: f32,
+    pitch_deg: f32,
+    target_angle_deg: f32,
+    target_pitch_deg: f32,
+) -> (f32, f32) {
+    let da = shortest_angle_delta_deg(angle_deg, target_angle_deg);
+    let step_a = da
+        .abs()
+        .min(STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME)
+        * da.signum();
+    let new_angle = if da.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        normalize_angle_deg(target_angle_deg)
+    } else {
+        normalize_angle_deg(angle_deg + step_a)
+    };
+
+    let dp = target_pitch_deg - pitch_deg;
+    let step_p = dp
+        .abs()
+        .min(STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME)
+        * dp.signum();
+    let new_pitch = if dp.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        target_pitch_deg
+    } else {
+        pitch_deg + step_p
+    };
+    (new_angle, new_pitch)
+}
+
 /// Residual pack/unpack audio event names (retail *PlanPack/UnpackSoundName).
 pub const BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO: &str = "StrategyCenter_BombardmentPlanUnpackSound";
 pub const BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO: &str = "StrategyCenter_BombardmentPlanPackSound";
@@ -329,28 +424,12 @@ pub fn turret_angles_are_natural(angle_deg: f32, pitch_deg: f32) -> bool {
 
 /// Step residual turret angles one frame toward natural (recenterTurret residual).
 pub fn step_turret_toward_natural(angle_deg: f32, pitch_deg: f32) -> (f32, f32) {
-    let da = shortest_angle_delta_deg(angle_deg, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG);
-    let step_a = da
-        .abs()
-        .min(STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME)
-        * da.signum();
-    let new_angle = if da.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
-        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
-    } else {
-        normalize_angle_deg(angle_deg + step_a)
-    };
-
-    let dp = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG - pitch_deg;
-    let step_p = dp
-        .abs()
-        .min(STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME)
-        * dp.signum();
-    let new_pitch = if dp.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
-        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
-    } else {
-        pitch_deg + step_p
-    };
-    (new_angle, new_pitch)
+    step_turret_toward_angles(
+        angle_deg,
+        pitch_deg,
+        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+    )
 }
 
 /// Frames needed to recenter residual angles at TurretTurn/PitchRate.
@@ -903,6 +982,12 @@ pub struct HostBattlePlanRegistry {
     /// Bombardment turret recenter residual starts before pack.
     #[serde(default)]
     pub turret_recenter_count: u32,
+    /// TurretAI idle-scan residual starts (Bombardment ACTIVE idle).
+    #[serde(default)]
+    pub turret_idle_scan_start_count: u32,
+    /// TurretAI idle-scan residual completions (angles reached desired).
+    #[serde(default)]
+    pub turret_idle_scan_complete_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -971,9 +1056,31 @@ impl HostBattlePlanRegistry {
         self.turret_recenter_count
     }
 
+    pub fn turret_idle_scan_start_count(&self) -> u32 {
+        self.turret_idle_scan_start_count
+    }
+
+    pub fn turret_idle_scan_complete_count(&self) -> u32 {
+        self.turret_idle_scan_complete_count
+    }
+
     pub fn record_turret_fire(&mut self, units_hit: u32) {
         self.turret_fire_count = self.turret_fire_count.saturating_add(1);
         self.turret_units_hit = self.turret_units_hit.saturating_add(units_hit);
+    }
+
+    pub fn record_turret_idle_scan_start(&mut self) {
+        self.turret_idle_scan_start_count = self.turret_idle_scan_start_count.saturating_add(1);
+    }
+
+    pub fn record_turret_idle_scan_complete(&mut self) {
+        self.turret_idle_scan_complete_count =
+            self.turret_idle_scan_complete_count.saturating_add(1);
+    }
+
+    /// Residual honesty: TurretAI idle-scan residual started at least once.
+    pub fn honesty_turret_idle_scan_ok(&self) -> bool {
+        self.turret_idle_scan_start_count > 0
     }
 
     pub fn record_stealth_detector_enable(&mut self) {
@@ -1371,6 +1478,26 @@ mod tests {
             BATTLE_PLAN_TURRET_RECENTER_FRAMES
         );
         assert_eq!(strategy_center_turret_recenter_frames(false, -30.0, 45.0), 30);
+
+        // TurretAI idle-scan residual matrix (Min/MaxIdleScanAngle/Interval).
+        assert_eq!(STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, 15);
+        assert_eq!(STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES, 30);
+        assert!((STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG - 0.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG - 60.0).abs() < 0.001);
+        assert_eq!(idle_scan_interval_frames(0), 15);
+        assert_eq!(idle_scan_interval_frames(1), 30);
+        assert_eq!(idle_scan_interval_frames(2), 15);
+        assert!((idle_scan_desired_offset_deg(0) - 30.0).abs() < 0.001);
+        assert!((idle_scan_desired_offset_deg(1) - (-30.0)).abs() < 0.001);
+        // Desired absolute yaw = natural (-90) + offset.
+        assert!((idle_scan_desired_angle_deg(0) - (-60.0)).abs() < 0.001);
+        assert!((idle_scan_desired_angle_deg(1) - (-120.0)).abs() < 0.001);
+        // Idle-scan step toward desired: from natural toward -60 at 2 deg/frame.
+        let (sa, sp) = step_turret_toward_angles(-90.0, 45.0, -60.0, 45.0);
+        assert!((sa - (-88.0)).abs() < 0.001);
+        assert!((sp - 45.0).abs() < 0.001);
+        assert!(turret_angles_at(-60.0, 45.0, -60.0, 45.0));
+        assert!(!turret_angles_at(-90.0, 45.0, -60.0, 45.0));
     }
 
     #[test]
