@@ -25,6 +25,7 @@ pub mod host_spy_satellite;
 pub mod host_cia_intelligence;
 pub mod host_hero_abilities;
 pub mod host_car_bomb;
+pub mod host_bomb_truck_disguise;
 pub mod host_repair;
 pub mod host_heal;
 pub mod host_propaganda;
@@ -448,6 +449,10 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_HIJACKED residual (ConvertToHijackedVehicleCrateCollide).
     #[serde(default)]
     pub hijacked: bool,
+    /// C++ OBJECT_STATUS_DISGUISED residual (Bomb Truck StealthUpdate disguise).
+    /// Disguised units are not pure-stealth invisible; enemies see disguise team.
+    #[serde(default)]
+    pub disguised: bool,
 }
 
 /// Basic geometry information for objects

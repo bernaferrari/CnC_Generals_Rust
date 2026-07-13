@@ -211,6 +211,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::DisableVehicleHack { target_id } => {
                 self.execute_disable_vehicle_hack(&command.selected_units, *target_id)
             }
+            CommandType::DisguiseAsVehicle { target_id } => {
+                self.execute_disguise_as_vehicle(&command.selected_units, *target_id)
+            }
             CommandType::SwitchWeapons => self.execute_switch_weapons(&command.selected_units),
             CommandType::ToggleOvercharge => {
                 self.execute_toggle_overcharge(&command.selected_units)
@@ -2418,6 +2421,92 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.queue_pending_special_ability(
                 unit_id,
                 PendingSpecialAbility::DisableVehicleHack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// GLA Bomb Truck residual: SpecialAbilityDisguiseAsVehicle.
+    ///
+    /// C++ residual: any ground vehicle target (ally/enemy/neutral) except
+    /// bomb trucks / trains / aircraft. Completes without approach walk
+    /// (StartAbilityRange = 1e6). Fail-closed: not full drawable model swap.
+    fn execute_disguise_as_vehicle(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_bomb_truck_disguise::{
+            is_bomb_truck_template, is_legal_disguise_target,
+        };
+
+        let (
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_is_bomb_truck,
+            target_template,
+            target_pos,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                is_bomb_truck_template(&target.template_name),
+                target.template_name.clone(),
+                target.get_position(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        if !is_legal_disguise_target(
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_is_bomb_truck,
+            &target_template,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    unit.is_alive()
+                        && is_bomb_truck_template(&unit.template_name)
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                // Instant residual — still set destination for AI consistency.
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::DisguiseAsVehicle { target_id },
             );
         }
 

@@ -203,6 +203,14 @@ pub struct Object {
     /// C++ InnateStealth residual: re-cloak when forbidden conditions clear.
     pub innate_stealth: bool,
 
+    /// C++ StealthUpdate disguise residual (Bomb Truck DisguisesAsTeam).
+    /// Template the unit is currently disguised as (None when not disguised).
+    #[serde(default)]
+    pub disguise_as_template: Option<String>,
+    /// Team residual the unit appears as to non-allied viewers while disguised.
+    #[serde(default)]
+    pub disguise_as_team: Option<Team>,
+
     /// Host residual: bitmask of player indices currently vision-spying this unit
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
     /// Fail-closed: not full looking_mask partition maintenance.
@@ -348,6 +356,8 @@ impl Object {
             stealth_breaks_on_attack: true,
             stealth_breaks_on_move: false,
             innate_stealth: false,
+            disguise_as_template: None,
+            disguise_as_team: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
@@ -426,6 +436,8 @@ impl Object {
             stealth_breaks_on_attack: true,
             stealth_breaks_on_move: false,
             innate_stealth: false,
+            disguise_as_template: None,
+            disguise_as_team: None,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
@@ -929,10 +941,52 @@ impl Object {
         }
     }
 
-    /// C++ residual: STEALTHED && !DETECTED && !DISGUISED (disguise not residual).
+    /// C++ residual: STEALTHED && !DETECTED && !DISGUISED.
     /// Stealthed-and-undetected units are not legal auto/manual attack targets.
+    /// Disguised units are visible as their disguise team (not pure-stealth hide).
     pub fn is_effectively_stealthed(&self) -> bool {
-        self.status.stealthed && !self.status.detected
+        self.status.stealthed && !self.status.detected && !self.status.disguised
+    }
+
+    /// C++ OBJECT_STATUS_DISGUISED residual.
+    pub fn is_disguised(&self) -> bool {
+        self.status.disguised
+    }
+
+    /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsTemplate).
+    /// Stores disguise template/team and sets DISGUISED + STEALTHED residual.
+    pub fn apply_disguise(&mut self, template_name: &str, as_team: Team) {
+        if self.status.destroyed {
+            return;
+        }
+        self.status.disguised = true;
+        self.status.stealthed = true;
+        self.status.detected = false;
+        self.detection_expires_frame = 0;
+        self.disguise_as_template = Some(template_name.to_string());
+        self.disguise_as_team = Some(as_team);
+    }
+
+    /// Clear disguise residual (reveal). Also clears STEALTHED residual for
+    /// DisguisesAsTeam casters (C++ clearStatus STEALTHED on finish reveal).
+    pub fn clear_disguise(&mut self) {
+        self.status.disguised = false;
+        self.disguise_as_template = None;
+        self.disguise_as_team = None;
+        // Bomb truck disguise path ends stealth when fully revealed.
+        self.status.stealthed = false;
+        self.status.detected = false;
+        self.detection_expires_frame = 0;
+    }
+
+    /// Apparent team residual for a viewer (see host_bomb_truck_disguise).
+    pub fn apparent_team_to(&self, viewer_team: Team) -> Team {
+        crate::game_logic::host_bomb_truck_disguise::apparent_team_for_viewer(
+            self.team,
+            self.disguise_as_team,
+            self.status.disguised,
+            viewer_team,
+        )
     }
 
     /// Effective detection radius for this unit when `is_detector`.
@@ -962,7 +1016,12 @@ impl Object {
     }
 
     /// Break stealth entirely (fire / script residual).
+    /// Also clears disguise residual (attack reveal path for bomb truck).
     pub fn break_stealth(&mut self) {
+        if self.status.disguised {
+            self.clear_disguise();
+            return;
+        }
         self.status.stealthed = false;
         self.status.detected = false;
         self.detection_expires_frame = 0;
@@ -1003,10 +1062,20 @@ impl Object {
     }
 
     /// Whether an enemy of `attacker_team` may target this object.
-    /// C++ WeaponSet::getCanAttackObject stealth gate residual.
+    /// C++ WeaponSet::getCanAttackObject stealth gate residual + disguise
+    /// relationship residual (disguised units appear as disguise team).
     pub fn is_targetable_by_enemy_of(&self, attacker_team: Team) -> bool {
         if !self.is_alive() || !self.is_attackable() {
             return false;
+        }
+        // Disguise residual: auto-target uses apparent team (allies of disguise skip).
+        if self.status.disguised {
+            return crate::game_logic::host_bomb_truck_disguise::is_auto_targetable_as_enemy(
+                self.team,
+                self.disguise_as_team,
+                true,
+                attacker_team,
+            ) && !self.is_effectively_stealthed();
         }
         if self.team == attacker_team {
             return false;
