@@ -426,6 +426,13 @@ pub struct Object {
     /// Heat-vision second material pass opacity residual (0 or 1 host residual).
     #[serde(default)]
     pub camo_heat_vision_opacity: f32,
+    /// CamoNetting sub-object net mesh residual shown (Upgrade_GLACamoNetting applied).
+    /// Fail-closed: not full W3D SubObjectsUpgrade / mesh GPU draw.
+    #[serde(default)]
+    pub camo_net_sub_object_shown: bool,
+    /// CamoNetting sub-object residual observer-visible (StealthLook ≠ Invisible).
+    #[serde(default)]
+    pub camo_net_sub_object_observer_visible: bool,
 
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
     /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
@@ -619,6 +626,8 @@ impl Object {
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
             camo_heat_vision_opacity: 0.0,
+            camo_net_sub_object_shown: false,
+            camo_net_sub_object_observer_visible: false,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -747,6 +756,8 @@ impl Object {
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
             camo_heat_vision_opacity: 0.0,
+            camo_net_sub_object_shown: false,
+            camo_net_sub_object_observer_visible: false,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,

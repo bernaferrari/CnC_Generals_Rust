@@ -867,6 +867,76 @@ pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
     (opacity, next_phase)
 }
 
+// --- CamoNetting sub-object net mesh residual (presentation state, not GPU) ---
+
+/// Residual honesty mesh name for structure camo-net sub-object presentation.
+///
+/// Retail CamoNetting is StealthUpgrade (not SubObjectsUpgrade), but drawable
+/// presentation consumers still need a host residual "net mesh" show/hide +
+/// opacity state analogous to a sub-object toggle. Fail-closed: not W3D mesh
+/// GPU / SubObjectsUpgrade ShowSubObjects path.
+pub const CAMO_NETTING_SUB_OBJECT_MESH_NAME: &str = "CamoNet";
+
+/// Host residual of a CamoNetting structure net-mesh sub-object presentation.
+///
+/// Maps upgrade + StealthLook + FriendlyOpacity into a CPU-side descriptor
+/// for presentation consumers. Fail-closed: not full W3D heat-vision GPU pass.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostCamoNetSubObject {
+    /// Residual mesh name honesty (`CamoNet`).
+    pub mesh_name: &'static str,
+    /// True when Upgrade_GLACamoNetting is applied (sub-object "shown").
+    pub shown: bool,
+    /// Effective opacity residual (FriendlyOpacity / pulse while cloaked).
+    pub opacity: f32,
+    /// Heat-vision second material pass residual active.
+    pub heat_vision_pass: bool,
+    /// StealthLook residual ordinal (host of Drawable::setStealthLook).
+    pub stealth_look: HostCamoStealthLook,
+}
+
+/// Build CamoNetting sub-object net mesh residual presentation state.
+///
+/// - Upgrade not applied → shown=false (no net mesh residual)
+/// - Upgrade applied → shown=true; opacity from FriendlyOpacity residual
+/// - Detected residual → heat_vision_pass (second material pass opacity 1)
+///
+/// Fail-closed: not full W3D sub-object bone hide/show GPU matrix.
+pub fn camo_netting_sub_object_state(
+    upgrade_applied: bool,
+    stealthed: bool,
+    detected: bool,
+    observer_is_friendly: bool,
+    friendly_opacity: f32,
+) -> HostCamoNetSubObject {
+    let look = camo_netting_stealth_look(stealthed, detected, observer_is_friendly);
+    let heat = camo_netting_heat_vision_opacity(look) > 0.5;
+    let opacity = if upgrade_applied {
+        friendly_opacity
+            .clamp(CAMO_NETTING_FRIENDLY_OPACITY_MIN, CAMO_NETTING_FRIENDLY_OPACITY_MAX)
+    } else {
+        CAMO_NETTING_FRIENDLY_OPACITY_MAX
+    };
+    HostCamoNetSubObject {
+        mesh_name: CAMO_NETTING_SUB_OBJECT_MESH_NAME,
+        shown: upgrade_applied,
+        opacity,
+        heat_vision_pass: upgrade_applied && heat,
+        stealth_look: look,
+    }
+}
+
+/// Whether residual net mesh should be presentation-visible to an observer.
+///
+/// Invisible StealthLook (enemy, undetected) → mesh residual hidden to that
+/// observer. Friendly / detected residual → mesh can render with opacity.
+pub fn camo_netting_sub_object_observer_visible(state: &HostCamoNetSubObject) -> bool {
+    if !state.shown {
+        return false;
+    }
+    !matches!(state.stealth_look, HostCamoStealthLook::Invisible)
+}
+
 /// Whether a CamoNetting residual structure should be stealthed this frame.
 ///
 /// Host residual of StealthUpdate::allowedToStealth for structures:
@@ -875,7 +945,7 @@ pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
 /// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
 /// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
 ///
-/// Fail-closed: not full sub-object camo net mesh visual (StealthLook residual closed).
+/// Fail-closed: not full W3D sub-object net mesh GPU (host sub-object state closed).
 pub fn camo_netting_structure_stealth_desired(
     innate_stealth: bool,
     is_alive: bool,
@@ -1106,6 +1176,34 @@ mod camo_netting_and_gamma_tests {
         assert!(
             (camo_netting_heat_vision_opacity(HostCamoStealthLook::Invisible) - 0.0).abs() < 0.001
         );
+
+        // CamoNetting sub-object net mesh residual (presentation, not GPU).
+        assert_eq!(CAMO_NETTING_SUB_OBJECT_MESH_NAME, "CamoNet");
+        let no_upg = camo_netting_sub_object_state(false, false, false, false, 1.0);
+        assert!(!no_upg.shown);
+        assert!(!camo_netting_sub_object_observer_visible(&no_upg));
+        let cloaked = camo_netting_sub_object_state(
+            true,
+            true,
+            false,
+            true,
+            CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+        );
+        assert!(cloaked.shown);
+        assert_eq!(cloaked.mesh_name, "CamoNet");
+        assert!((cloaked.opacity - 0.5).abs() < 0.001);
+        assert!(!cloaked.heat_vision_pass);
+        assert_eq!(cloaked.stealth_look, HostCamoStealthLook::VisibleFriendly);
+        assert!(camo_netting_sub_object_observer_visible(&cloaked));
+        let detected = camo_netting_sub_object_state(true, true, true, false, 1.0);
+        assert!(detected.shown);
+        assert!(detected.heat_vision_pass);
+        assert_eq!(detected.stealth_look, HostCamoStealthLook::VisibleDetected);
+        assert!(camo_netting_sub_object_observer_visible(&detected));
+        let invisible = camo_netting_sub_object_state(true, true, false, false, 0.5);
+        assert!(invisible.shown);
+        assert_eq!(invisible.stealth_look, HostCamoStealthLook::Invisible);
+        assert!(!camo_netting_sub_object_observer_visible(&invisible));
     }
 
     #[test]
