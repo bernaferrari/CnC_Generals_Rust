@@ -936,6 +936,31 @@ impl Object {
         }
     }
 
+    /// C++ goInvulnerable residual (OCL InvulnerableTime post-eject).
+    pub fn is_eject_invulnerable(&self) -> bool {
+        self.status.eject_invulnerable
+    }
+
+    /// Apply InvulnerableTime residual until `until_frame` (absolute host logic frame).
+    /// Refresh extends the timer if a later expiry is provided.
+    pub fn apply_eject_invulnerable(&mut self, until_frame: u32) {
+        self.status.eject_invulnerable = true;
+        if until_frame > self.status.eject_invulnerable_until_frame {
+            self.status.eject_invulnerable_until_frame = until_frame;
+        }
+    }
+
+    /// Expire InvulnerableTime when the host frame passes the residual timer.
+    pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {
+        if self.status.eject_invulnerable
+            && self.status.eject_invulnerable_until_frame > 0
+            && current_frame >= self.status.eject_invulnerable_until_frame
+        {
+            self.status.eject_invulnerable = false;
+            self.status.eject_invulnerable_until_frame = 0;
+        }
+    }
+
     /// Whether Frenzy / Rage temporary attack buff residual is active.
     pub fn is_frenzy_buffed(&self) -> bool {
         self.weapon_bonus_frenzy
@@ -1264,6 +1289,10 @@ impl Object {
 
     pub fn take_damage(&mut self, damage: f32) -> bool {
         if self.status.destroyed {
+            return false;
+        }
+        // OCL InvulnerableTime residual (post-eject pilot shield).
+        if self.status.eject_invulnerable {
             return false;
         }
 

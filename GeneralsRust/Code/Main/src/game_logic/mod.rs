@@ -685,6 +685,13 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_BOOBY_TRAPPED residual (Rebel SpecialAbilityBoobyTrap).
     #[serde(default)]
     pub booby_trapped: bool,
+    /// Host residual: OCL_EjectPilotOnGround InvulnerableTime post-eject shield.
+    /// C++ goInvulnerable / UNDETECTED_DEFECTOR residual (damage blocked host-side).
+    #[serde(default)]
+    pub eject_invulnerable: bool,
+    /// Absolute host logic frame when eject InvulnerableTime expires (0 = inactive).
+    #[serde(default)]
+    pub eject_invulnerable_until_frame: u32,
 }
 
 /// Basic geometry information for objects

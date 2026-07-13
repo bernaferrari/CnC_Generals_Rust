@@ -11,12 +11,15 @@
 //!   Crusader / Paladin / Avenger / Microwave + general variants) spawn
 //!   `AmericaInfantryPilot` on death via OCL_EjectPilotOnGround residual path.
 //!   Fail-closed: unmanned vehicles do not eject (no pilot left).
+//! - **InvulnerableTime residual**: OCL_EjectPilotOnGround `InvulnerableTime = 2000`
+//!   ms → **60 frames**. Post-eject pilot residual blocks damage (host of C++
+//!   `goInvulnerable` / undetected-defector relationship shield).
 //!
 //! Fail-closed honesty:
 //! - Not full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
 //! - Not full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
 //! - Not full AutoFindHealingUpdate hospital path residual
-//! - Not full InvulnerableTime post-eject invulnerability matrix
+//! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
 
 use super::VeterancyLevel;
@@ -30,6 +33,28 @@ pub const EJECT_PILOT_TEMPLATE: &str = "AmericaInfantryPilot";
 
 /// Residual eject audio (VoiceEject / SoundEject fail-closed host cue).
 pub const PILOT_EJECT_AUDIO: &str = "VoiceEject";
+
+/// Retail OCL_EjectPilotOnGround InvulnerableTime (ms).
+pub const EJECT_PILOT_INVULNERABLE_MS: u32 = 2000;
+
+/// Logic frames per second (host fixed step).
+pub const EJECT_PILOT_LOGIC_FPS: f32 = 30.0;
+
+/// Retail InvulnerableTime → frames at 30 FPS (2000 / (1000/30) = 60).
+pub const EJECT_PILOT_INVULNERABLE_FRAMES: u32 = 60;
+
+/// Convert InvulnerableTime ms → logic frames (30 FPS residual).
+pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / EJECT_PILOT_LOGIC_FPS)).round() as u32
+}
+
+/// Absolute host frame when post-eject InvulnerableTime residual expires.
+pub fn eject_pilot_invulnerable_until_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(EJECT_PILOT_INVULNERABLE_FRAMES.max(1))
+}
 
 /// Whether template is a residual USA Pilot infantry.
 ///
@@ -194,6 +219,12 @@ pub struct HostUsaPilotRegistry {
     /// Successful EjectPilotDie residual pilot spawns on vehicle death.
     #[serde(default)]
     pub ejections: u32,
+    /// Post-eject InvulnerableTime residual grants applied.
+    #[serde(default)]
+    pub invulnerable_grants: u32,
+    /// Residual damage attempts blocked by InvulnerableTime.
+    #[serde(default)]
+    pub invulnerable_blocks: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -216,6 +247,14 @@ impl HostUsaPilotRegistry {
         self.ejections = self.ejections.saturating_add(1);
     }
 
+    pub fn record_invulnerable_grant(&mut self) {
+        self.invulnerable_grants = self.invulnerable_grants.saturating_add(1);
+    }
+
+    pub fn record_invulnerable_block(&mut self) {
+        self.invulnerable_blocks = self.invulnerable_blocks.saturating_add(1);
+    }
+
     /// Residual honesty: at least one recrew completed.
     pub fn honesty_recrew_ok(&self) -> bool {
         self.recrews > 0
@@ -229,6 +268,16 @@ impl HostUsaPilotRegistry {
     /// Residual honesty: at least one EjectPilotDie pilot spawn.
     pub fn honesty_eject_ok(&self) -> bool {
         self.ejections > 0
+    }
+
+    /// Residual honesty: InvulnerableTime residual granted on eject.
+    pub fn honesty_invulnerable_ok(&self) -> bool {
+        self.invulnerable_grants > 0
+    }
+
+    /// Residual honesty: InvulnerableTime blocked at least one damage attempt.
+    pub fn honesty_invulnerable_block_ok(&self) -> bool {
+        self.invulnerable_blocks > 0
     }
 
     /// Combined pilot residual honesty (recrew or eject path).
@@ -337,5 +386,27 @@ mod tests {
         assert!(reg.honesty_eject_ok());
         assert!(reg.honesty_pilot_ok());
         assert_eq!(reg.ejections, 1);
+    }
+
+    #[test]
+    fn invulnerable_time_frames_match_retail() {
+        assert_eq!(EJECT_PILOT_INVULNERABLE_MS, 2000);
+        assert_eq!(EJECT_PILOT_INVULNERABLE_FRAMES, 60);
+        assert_eq!(eject_pilot_invulnerable_frames_from_ms(2000), 60);
+        assert_eq!(eject_pilot_invulnerable_until_frame(10), 70);
+        assert_eq!(eject_pilot_invulnerable_frames_from_ms(0), 0);
+    }
+
+    #[test]
+    fn invulnerable_honesty_flags() {
+        let mut reg = HostUsaPilotRegistry::new();
+        assert!(!reg.honesty_invulnerable_ok());
+        reg.record_invulnerable_grant();
+        assert!(reg.honesty_invulnerable_ok());
+        assert!(!reg.honesty_invulnerable_block_ok());
+        reg.record_invulnerable_block();
+        assert!(reg.honesty_invulnerable_block_ok());
+        assert_eq!(reg.invulnerable_grants, 1);
+        assert_eq!(reg.invulnerable_blocks, 1);
     }
 }
