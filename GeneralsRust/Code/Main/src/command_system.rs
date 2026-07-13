@@ -278,6 +278,10 @@ pub enum SpecialPowerType {
     /// Delayed plane-drop blast + residual toxin field ticks.
     /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
     AnthraxBomb,
+    /// China EMP Pulse residual (SPECIAL_EMP_PULSE / SuperweaponEMPPulse).
+    /// Temporarily disables vehicles/structures in radius (DISABLED_EMP).
+    /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
+    EmpPulse,
     Invalid,
 }
 
