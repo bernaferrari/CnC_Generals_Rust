@@ -27,6 +27,8 @@ pub mod host_base_defense;
 pub mod host_ecm_jam;
 pub mod host_emp_pulse;
 pub mod host_frenzy;
+pub mod host_leaflet_drop;
+pub mod host_sneak_attack;
 pub mod host_point_defense;
 pub mod host_neutron_shell;
 pub mod host_paradrop;
@@ -108,6 +110,17 @@ pub use host_emp_pulse::{
 pub use host_frenzy::{
     is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry,
     FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS,
+};
+pub use host_leaflet_drop::{
+    is_legal_leaflet_disable_target, HostLeafletDropKind, HostLeafletDropMission,
+    HostLeafletDropPhase, HostLeafletDropRegistry, HOST_LEAFLET_RADIUS,
+    LEAFLET_DELAY_FRAMES, LEAFLET_DISABLED_DURATION_FRAMES,
+};
+pub use host_sneak_attack::{
+    is_legal_sneak_shockwave_target, HostSneakAttackKind, HostSneakAttackMission,
+    HostSneakAttackPhase, HostSneakAttackRegistry, GLA_SNEAK_TUNNEL_TEMPLATE,
+    HOST_SNEAK_ATTACK_RADIUS, SNEAK_ATTACK_RESIDUAL_TEMPLATE, SNEAK_ATTACK_SHOCKWAVE_DAMAGE,
+    SNEAK_ATTACK_SHOCKWAVE_RADIUS, SNEAK_ATTACK_SPAWN_DELAY_FRAMES,
 };
 pub use host_point_defense::{
     is_missile_name_residual, is_point_defense_carrier, is_primary_intercept_target,

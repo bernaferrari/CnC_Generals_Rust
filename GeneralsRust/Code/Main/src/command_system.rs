@@ -292,6 +292,14 @@ pub enum SpecialPowerType {
     /// Temporary ally attack buff in radius (WEAPONBONUSCONDITION_FRENZY_*).
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     Frenzy,
+    /// USA Leaflet Drop residual (SPECIAL_LEAFLET_DROP / SuperweaponLeafletDrop).
+    /// Delayed disable of enemy infantry/vehicles in radius (DISABLED_EMP residual).
+    /// Fail-closed: not full OCL B52 / LeafletContainer / LeafletFX particle path.
+    LeafletDrop,
+    /// GLA Sneak Attack residual (SPECIAL_SNEAK_ATTACK / SuperweaponSneakAttack).
+    /// Delayed tunnel structure spawn at target + residual shockwave damage.
+    /// Fail-closed: not full OCL Start animation / multi-shockwave / TunnelContain path.
+    SneakAttack,
     Invalid,
 }
 

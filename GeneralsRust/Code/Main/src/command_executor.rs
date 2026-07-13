@@ -896,6 +896,8 @@ impl<'a> CommandExecutor<'a> {
             // FireWall residual creates a line of fire damage zones toward target.
             // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
             // Frenzy residual buffs ally attack damage in radius (FRENZY_ONE/TWO/THREE).
+            // LeafletDrop residual delays then disables enemy infantry/vehicles (DISABLED_EMP).
+            // SneakAttack residual delays then spawns a GLA tunnel + shockwave damage.
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             if *power_type == SpecialPowerType::CiaIntelligence {
@@ -981,6 +983,22 @@ impl<'a> CommandExecutor<'a> {
                     if self
                         .game_logic
                         .queue_ambush(power_type, unit_id, pos)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::LeafletDrop {
+                    if self
+                        .game_logic
+                        .queue_leaflet_drop(power_type, unit_id, pos)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::SneakAttack {
+                    if self
+                        .game_logic
+                        .queue_sneak_attack(power_type, unit_id, pos)
                         .is_none()
                     {
                         continue;
