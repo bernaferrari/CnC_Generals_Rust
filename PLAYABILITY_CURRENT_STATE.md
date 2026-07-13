@@ -1,3 +1,29 @@
+## Residual Host Playability — Eject VeterancyLevels Gate + PilotFindVehicle (2026-07-13)
+**Closed (host-testable EjectPilotDie VeterancyLevels + PilotFindVehicleUpdate residual):**
+1. **VeterancyLevels residual** (`EjectPilotDie` / DieMux `VeterancyLevels = ALL -REGULAR`):
+   - Rookie / LEVEL_REGULAR eligible vehicles do **not** eject pilots on death.
+   - Veteran / Elite / Heroic residual still ejects `AmericaInfantryPilot`.
+   - Honesty records REGULAR-gate blocks vs successful ejects.
+   - Fail-closed: not full DeathTypes / ExemptStatus DieMux matrix.
+2. **PilotFindVehicleUpdate residual** (`AmericaInfantryPilot` ModuleTag_07):
+   - AI-only idle pilot auto-scan (C++ human → sleep forever; host `is_local` gate).
+   - ScanRate **1000**ms → **30** frames; ScanRange **300**; MinHealth **0.5**.
+   - Nearest recrewable unmanned vehicle meeting MinHealth → Enter → recrew path.
+   - Fail-closed: not full base-center fallback / VeterancyCrate same-team exp matrix.
+3. Tests (not log-only):
+   - `eject_pilot_veterancy_levels_all_minus_regular_residual`
+   - `pilot_find_vehicle_ai_auto_scan_min_health_residual`
+   - module unit tests in `host_usa_pilot` (vet gate / find-vehicle gates / honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+- Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+- Full PilotFindVehicleUpdate base-center fallback / CollideModule matrix
+- Full AutoFindHealingUpdate hospital path residual
+- Network eject-vet-gate / pilot-find-vehicle replication (network deferred)
+
 ## Residual Host Playability — Bombardment Turret + Eject InvulnerableTime (2026-07-13)
 **Closed (host-testable StrategyCenterGun Bombardment turret + OCL InvulnerableTime residual):**
 1. **Bombardment turret residual** (`BattlePlanUpdate::enableTurret` / StrategyCenterGun):
@@ -23,7 +49,9 @@
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
 - Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
 - Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+  (host residual closed 2026-07-13 — see Eject VeterancyLevels Gate + PilotFindVehicle section)
 - Full EjectPilotDie VeterancyLevels ALL -REGULAR gate residual
+  (host residual closed 2026-07-13 — see Eject VeterancyLevels Gate + PilotFindVehicle section)
 - Network battle-plan turret / eject-invuln replication (network deferred)
 
 ## Residual Host Playability — BattlePlan Paralyze + EjectPilotDie (2026-07-13)
@@ -55,6 +83,9 @@
 - Full InvulnerableTime post-eject residual (host residual closed 2026-07-13 —
   see Bombardment Turret + Eject InvulnerableTime section)
 - Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+  (host residual closed 2026-07-13 — see Eject VeterancyLevels Gate + PilotFindVehicle section)
+- Full EjectPilotDie VeterancyLevels ALL -REGULAR gate residual
+  (host residual closed 2026-07-13 — see Eject VeterancyLevels Gate + PilotFindVehicle section)
 - Network battle-plan paralyze / eject-pilot replication (network deferred)
 
 ## Residual Host Playability — Demo PlusFire SUICIDED + CommandSetUpgrade (2026-07-13)
