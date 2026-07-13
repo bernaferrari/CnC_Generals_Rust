@@ -38,6 +38,9 @@ pub mod host_gps_scrambler;
 pub mod host_leaflet_drop;
 pub mod host_sneak_attack;
 pub mod host_point_defense;
+pub mod host_avenger;
+pub mod host_usa_tanks;
+pub mod host_humvee;
 pub mod host_microwave;
 pub mod host_neutron_shell;
 pub mod host_bunker_buster;
@@ -62,6 +65,8 @@ pub mod host_technical;
 pub mod host_toxin_tractor;
 pub mod host_marauder;
 pub mod host_combat_cycle;
+pub mod host_dragon_tank;
+pub mod host_gattling_tank;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -193,6 +198,17 @@ pub use host_point_defense::{
     pdl_delay_frames, pdl_damage, pdl_fire_range, pdl_scan_range, AVENGER_PDL_FIRE_RANGE,
     PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO,
 };
+pub use host_avenger::{
+    is_avenger_template, HostAvengerRegistry, AVENGER_AIR_LASER, AVENGER_TARGET_DESIGNATOR,
+    FAERIE_FIRE_ROF_MULTIPLIER,
+};
+pub use host_usa_tanks::{
+    is_composite_armor_unit_template, is_crusader_template, is_paladin_template,
+    CRUSADER_TANK_GUN, PALADIN_TANK_GUN, UPGRADE_AMERICA_COMPOSITE_ARMOR,
+};
+pub use host_humvee::{
+    is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS,
+};
 pub use host_neutron_shell::{
     is_nuke_cannon_template, neutron_effect_for_target, should_apply_neutron_blast, NeutronEffect,
     HOST_NEUTRON_BLAST_RADIUS, NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
@@ -284,6 +300,19 @@ pub use host_combat_cycle::{
     is_combat_cycle_template, rider_from_template_name, should_apply_combat_cycle_residual,
     CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS, REBEL_BIKER_MG, REBEL_MG_DAMAGE,
     TUNNEL_DEFENDER_BIKER_ROCKET,
+};
+pub use host_dragon_tank::{
+    dragon_flame_damage_at, dragon_flame_stats, dragon_flame_weapon, dragon_flame_weapon_name,
+    has_black_napalm_upgrade, is_dragon_tank_template, should_apply_dragon_flame_residual,
+    DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
+    DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
+};
+pub use host_gattling_tank::{
+    gattling_air_weapon, gattling_delay_frames_for_level, gattling_ground_weapon,
+    gattling_on_shot_fired, has_chain_guns_upgrade, is_gattling_tank_template,
+    preferred_gattling_slot, GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES,
+    GATTLING_GROUND_DAMAGE, GATTLING_GROUND_RANGE, GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
+    UPGRADE_CHINA_CHAIN_GUNS,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
@@ -471,6 +500,10 @@ pub struct ObjectStatus {
     /// Disguised units are not pure-stealth invisible; enemies see disguise team.
     #[serde(default)]
     pub disguised: bool,
+    /// C++ OBJECT_STATUS_FAERIE_FIRE residual (AvengerTargetDesignator paint).
+    /// Attackers shooting a painted target gain TARGET_FAERIE_FIRE 150% ROF.
+    #[serde(default)]
+    pub faerie_fire: bool,
 }
 
 /// Basic geometry information for objects

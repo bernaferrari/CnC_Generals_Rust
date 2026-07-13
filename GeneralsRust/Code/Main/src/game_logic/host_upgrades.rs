@@ -28,6 +28,7 @@ pub const UPGRADE_CHINA_NEUTRON_SHELLS: &str = "Upgrade_ChinaNeutronShells";
 pub const UPGRADE_AMERICA_BUNKER_BUSTERS: &str = "Upgrade_AmericaBunkerBusters";
 pub const UPGRADE_COMANCHE_ROCKET_PODS: &str = "Upgrade_ComancheRocketPods";
 pub const UPGRADE_AMERICA_SENTRY_DRONE_GUN: &str = "Upgrade_AmericaSentryDroneGun";
+pub const UPGRADE_AMERICA_COMPOSITE_ARMOR: &str = "Upgrade_AmericaCompositeArmor";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -77,6 +78,8 @@ pub enum HostUpgradeKind {
     SentryDroneGun,
     /// GLA Camouflage: grants residual stealth to Rebel infantry (StealthUpgrade).
     Camouflage,
+    /// America Composite Armor: +100 MaxHealth on Crusader / Paladin residual.
+    CompositeArmor,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -104,6 +107,8 @@ impl HostUpgradeKind {
         } else if n.contains("camouflage") || n.contains("camoflage") {
             // Retail spelling is Camouflage; allow common misspelling residual.
             HostUpgradeKind::Camouflage
+        } else if n.contains("compositearmor") || n.contains("compositearmour") {
+            HostUpgradeKind::CompositeArmor
         } else {
             HostUpgradeKind::Other
         }
@@ -120,6 +125,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::ComancheRocketPods => "ComancheRocketPods",
             HostUpgradeKind::SentryDroneGun => "SentryDroneGun",
             HostUpgradeKind::Camouflage => "Camouflage",
+            HostUpgradeKind::CompositeArmor => "CompositeArmor",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -139,6 +145,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::ComancheRocketPods
             | HostUpgradeKind::SentryDroneGun
             | HostUpgradeKind::Camouflage
+            | HostUpgradeKind::CompositeArmor
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -517,6 +524,10 @@ mod tests {
         assert_eq!(
             HostUpgradeKind::from_name(UPGRADE_AMERICA_SENTRY_DRONE_GUN),
             HostUpgradeKind::SentryDroneGun
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name(UPGRADE_AMERICA_COMPOSITE_ARMOR),
+            HostUpgradeKind::CompositeArmor
         );
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
