@@ -1,3 +1,56 @@
+## Residual Host Playability — CreateAtEdge Flight + Crate Bone Attach + Money Floating Text (2026-07-13)
+**Closed (host-testable CreateAtEdge cargo-plane flight + AmericaCrateParachute bones + floating cash text residual):**
+1. **CreateAtEdge AmericaJetCargoPlane flight residual** (`host_deliver_payload`):
+   - Edge spawn residual via closest-edge on residual map extent (XZ) at
+     PreferredHeight **100** (StartAtPreferredHeight **Yes**).
+   - B52Locomotor Speed **125**/sec → **~4.167**/frame approach toward target.
+   - `isCloseEnoughToTarget` residual: DeliveryDistance **410** (+ PreOpen when inbound).
+   - Flight phases: EdgeSpawn → Approaching → InDeliveryBand → DoorOpening →
+     Delivering → Departing/Complete.
+   - Door residual: DoorDelay → MODELCONDITION `DOOR_1_OPENING` / `AVCargoPln_A2`.
+   - Honesty: model `AVCargoPln`, ExitBone `WeaponA01`, ExitPitchRate **30**,
+     StartAtMaxSpeed **Yes**, MaxAttempts **4**.
+   - Host-testable: edge spawn Y=100; approach into band; door open; complete departs.
+   - Fail-closed: not full aircraft Object / pathfinder re-approach / calcMinTurnRadius
+     / off-map recover / W3D door GPU.
+2. **AmericaCrateParachute bone attach residual** (`host_deliver_payload`):
+   - PARA_COG / PARA_ATTCH pristine bone residual (GeometryHeight **10** layout).
+   - Crate hang height-fallback: SupplyDropZoneCrate GeometryHeight **12** (no PARA_MAN).
+   - Open-chute sway residual about PARA_COG (presentation; logic hang unswayed).
+   - Built each open-chute residual tick for cargo crates.
+   - Host-testable: COG above ATTCH; hang below origin; open sway non-zero.
+   - Fail-closed: not full W3D pristine bone extract / container Object GPU.
+3. **Money floating cash text residual** (`host_money_crate`):
+   - Host `+$N` presentation at crate pos + Z offset **20** (green RGBA 0,255,0,255).
+   - GameText key honesty `GUI:AddCash` (caption not fully localized).
+   - Recorded on unit MoneyCrateCollide residual collect (with MoneyPickUp Anim2D).
+   - Host-testable: floating text on pickup; amount/color/key constants.
+   - Fail-closed: not full InGameUI draw / Unicode GameText / EVA voice events.
+4. Tests (not log-only):
+   - `create_at_edge_closest_edge_and_preferred_height`
+   - `is_close_enough_delivery_band_inbound_preopen`
+   - `cargo_plane_flight_create_at_edge_approach_and_door`
+   - `crate_parachute_bone_attach_residual`
+   - updated `supply_drop_zone_residual_credits_cash_on_interval` (CreateAtEdge + bones)
+   - updated `money_crate_collide_unit_pickup_residual` (floating text)
+   - updated `money_crate_above_terrain_and_forbidden_kindof_residual` (bones + float)
+   - host_money_crate floating text unit tests
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate pathfinder
+  re-approach / calcMinTurnRadius / off-map recover (edge spawn + approach band +
+  door residual closed 2026-07-13)
+- Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
+  supply OCL has none)
+- Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
+  (PARA_COG/PARA_ATTCH host residual closed 2026-07-13)
+- Full CollideModule partition / Anim2DCollection GPU / InGameUI floating text draw
+  (MoneyPickUp + floating cash presentation residual closed 2026-07-13)
+- Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
+- Full W3D pristine bone extract for cargo plane doors (DOOR_1 condition residual closed)
+- Network DeliverPayload / MoneyCrate / CreateAtEdge flight replication
+  (network deferred)
+
 ## Residual Host Playability — Crate Parachute Fall + MoneyPickUp Anim2D + Carpet DropVariance (2026-07-13)
 **Closed (host-testable AmericaCrateParachute fall-physics + MoneyPickUp Anim2D + CarpetBomb DropVariance residual):**
 1. **AmericaCrateParachute cargo fall-physics residual** (`host_deliver_payload`):
@@ -38,20 +91,21 @@
    - host_money_crate MoneyPickUp unit tests
 
 **Still residual (fail-closed, not claimed):**
-- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
-  state machine / approach geometry (constants + DoorDelay/DropDelay stagger +
-  crate parachute fall residual closed 2026-07-13)
+- Full CreateAtEdge AmericaJetCargoPlane Object / pathfinder re-approach /
+  calcMinTurnRadius / off-map recover (edge spawn + DeliveryDistance band + door
+  residual closed 2026-07-13 — see CreateAtEdge Flight + Crate Bone Attach section)
 - Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
   supply OCL has none)
-- Full AmericaCrateParachute container Object / W3D bone attach matrix
-  (OpenDist freefall/open/land host residual closed 2026-07-13)
-- Full CollideModule partition / Anim2DCollection GPU / EVA floating text
-  (MoneyPickUp presentation + ForbiddenKindOf PROJECTILE + above-terrain host
-  residual closed 2026-07-13)
+- Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
+  (OpenDist freefall/open/land + PARA_COG/PARA_ATTCH host residual closed 2026-07-13
+  — see CreateAtEdge Flight + Crate Bone Attach section)
+- Full CollideModule partition / Anim2DCollection GPU / InGameUI floating text draw
+  (MoneyPickUp + floating cash + ForbiddenKindOf + above-terrain residual closed
+  2026-07-13 — see CreateAtEdge Flight + Crate Bone Attach section)
 - Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
-- Full W3D pristine bone extract for cargo plane doors
-- Network DeliverPayload / MoneyCrate / carpet DropVariance replication
-  (network deferred)
+- Full W3D door GPU for cargo plane (DOOR_1 condition residual closed 2026-07-13)
+- Network DeliverPayload / MoneyCrate / CreateAtEdge / carpet DropVariance
+  replication (network deferred)
 
 ## Residual Host Playability — DropDelay Stagger + MoneyCrateCollide + Campaign.ini Table (2026-07-13)
 **Closed (host-testable DeliverPayload DropDelay stagger + MoneyCrateCollide + Campaign.ini residual):**
