@@ -9,15 +9,25 @@
 //!   spawns MediumPoisonField DoT (2 dmg / radius 80 / 30s / 500ms ticks).
 //!   Anthrax Beta/Gamma → spray **2.5** + upgraded MediumPoisonField (**2.5**/tick).
 //! - Death residual: `ToxinShellWeapon` → SmallPoisonField (2 dmg / radius 12 /
-//!   10s lifetime). Anthrax Beta/Gamma → **2.5**/tick residual.
+//!   10s lifetime). Anthrax Beta/Gamma → **2.5**/tick / radius **7.5**.
 //! - Chem General toxin trucks start at Anthrax Beta baseline (retail upgraded
 //!   WeaponSet) until `Chem_Upgrade_GLAAnthraxGamma` is researched.
-//! - Salvage PlusOne/PlusTwo residual: primary damage bump (12.5 / 15).
+//! - Salvage PlusOne/PlusTwo residual: stream + spray damage matrix (retail Weapon.ini).
+//!
+//! Wave 55 residual pack (retail Weapon.ini / GLAVehicle / System.ini honesty):
+//! - Contaminate puddle: Medium field dmg/radius/duration/tick + OCL names +
+//!   FireOCLAfterWeaponCooldown MinShots **4**, ContinuousFireCoast **300**ms → **9**f,
+//!   OCLLifetimePerSecond **10000**, OCLLifetimeMaxCap **180000**
+//! - Stream residual: ClipSize **30**, ClipReload **40**ms, WeaponSpeed **600**,
+//!   FireSoundLoopTime **80**ms, AllowAttackGarrisonedBldgs Yes
+//! - Spray residual: salvage PlusOne/PlusTwo damage matrix (2/2.5/3 + anthrax tiers)
+//! - Upgrade anthrax residual: Beta/Gamma stream salvage matrix + death types
+//! - Clean-up interaction residual: KindOf CLEANUP_HAZARD / field HP / clear-in-radius
 //!
 //! Fail-closed honesty:
-//! - Not full FireOCLAfterWeaponCooldown MinShots=4 continuous-coast timer matrix
+//! - Not full FireOCLAfterWeaponCooldown continuous-coast live timer matrix
 //! - Not full stream projectile drawing / spigot bone / turret pitch matrix
-//! - Not full gamma particle bones / PlusOne-Two anthrax salvage matrix
+//! - Not full gamma particle bones / HazardousMaterialArmor damage stack
 //! - Not network toxin replication (network deferred)
 
 use super::ObjectId;
@@ -56,10 +66,33 @@ pub const TOXIN_STREAM_DELAY_FRAMES: u32 = 2;
 /// Contaminate spray residual (SecondaryDamage / radius / AttackRange).
 pub const TOXIN_SPRAY_DAMAGE: f32 = 2.0;
 pub const TOXIN_SPRAY_DAMAGE_UPGRADED: f32 = 2.5;
+/// Retail ToxinTruckSprayerPlusOne SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_PLUS_ONE: f32 = 2.5;
+/// Retail ToxinTruckSprayerPlusTwo SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_PLUS_TWO: f32 = 3.0;
+/// Retail ToxinTruckSprayerUpgradedPlusOne SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_UPGRADED_PLUS_ONE: f32 = 3.0;
+/// Retail ToxinTruckSprayerUpgradedPlusTwo SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_UPGRADED_PLUS_TWO: f32 = 4.0;
+/// Retail Chem_ToxinTruckSprayerGammaPlusOne SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_GAMMA_PLUS_ONE: f32 = 3.5;
+/// Retail Chem_ToxinTruckSprayerGammaPlusTwo SecondaryDamage.
+pub const TOXIN_SPRAY_DAMAGE_GAMMA_PLUS_TWO: f32 = 4.5;
 pub const TOXIN_SPRAY_RADIUS: f32 = 75.0;
 pub const TOXIN_SPRAY_RANGE: f32 = 15.0;
 /// DelayBetweenShots 200ms → 6 frames @ 30 FPS.
 pub const TOXIN_SPRAY_DELAY_FRAMES: u32 = 6;
+/// Retail ContinuousFireCoast 300ms → 9 frames (ceil) — spray field spawn coast residual.
+pub const TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_MS: u32 = 300;
+pub const TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES: u32 = 9;
+/// Retail FireOCLAfterWeaponCooldown MinShotsToCreateOCL residual.
+pub const TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL: u32 = 4;
+/// Retail FireOCLAfterWeaponCooldown OCLLifetimePerSecond residual (msec).
+pub const TOXIN_SPRAY_OCL_LIFETIME_PER_SECOND_MS: u32 = 10_000;
+/// Retail FireOCLAfterWeaponCooldown OCLLifetimeMaxCap residual (msec).
+pub const TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_MS: u32 = 180_000;
+/// OCLLifetimeMaxCap 180000ms → 5400 frames @ 30 FPS.
+pub const TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_FRAMES: u32 = 5_400;
 
 /// MediumPoisonField residual (spray contamination OCL).
 pub const TOXIN_MED_FIELD_DAMAGE: f32 = 2.0;
@@ -70,24 +103,104 @@ pub const TOXIN_MED_FIELD_RADIUS: f32 = 80.0;
 pub const TOXIN_MED_FIELD_TICK_FRAMES: u32 = 15;
 /// Lifetime 30000ms → 900 frames.
 pub const TOXIN_MED_FIELD_DURATION_FRAMES: u32 = 900;
+/// Retail PoisonFieldMedium LifetimeUpdate Min/MaxLifetime residual (msec).
+pub const TOXIN_MED_FIELD_LIFETIME_MS: u32 = 30_000;
+/// Retail PoisonFieldMedium Body MaxHealth residual.
+pub const TOXIN_MED_FIELD_MAX_HEALTH: f32 = 100.0;
+/// Retail PoisonFieldUpgradedMedium / GammaMedium MaxHealth residual.
+pub const TOXIN_MED_FIELD_MAX_HEALTH_UPGRADED: f32 = 120.0;
+/// Retail PoisonFieldMedium GeometryMajorRadius residual.
+pub const TOXIN_MED_FIELD_GEOMETRY_RADIUS: f32 = 40.0;
 
 /// SmallPoisonField residual (death ToxinShellWeapon OCL).
 pub const TOXIN_SMALL_FIELD_DAMAGE: f32 = 2.0;
 /// Retail Chem_SmallPoisonFieldWeaponGamma PrimaryDamage residual.
 pub const TOXIN_SMALL_FIELD_DAMAGE_UPGRADED: f32 = 2.5;
+/// Retail SmallPoisonFieldWeapon PrimaryDamageRadius residual.
 pub const TOXIN_SMALL_FIELD_RADIUS: f32 = 12.0;
+/// Retail SmallPoisonFieldWeaponUpgraded / Chem_SmallPoisonFieldWeaponGamma radius.
+pub const TOXIN_SMALL_FIELD_RADIUS_UPGRADED: f32 = 7.5;
 /// Lifetime 10000ms → 300 frames.
 pub const TOXIN_SMALL_FIELD_DURATION_FRAMES: u32 = 300;
 pub const TOXIN_SMALL_FIELD_TICK_FRAMES: u32 = 15;
+/// Retail PoisonFieldSmall LifetimeUpdate residual (msec).
+pub const TOXIN_SMALL_FIELD_LIFETIME_MS: u32 = 10_000;
+/// Retail PoisonFieldSmall MaxHealth residual.
+pub const TOXIN_SMALL_FIELD_MAX_HEALTH: f32 = 100.0;
+/// Retail PoisonFieldUpgradedSmall / GammaSmall MaxHealth residual.
+pub const TOXIN_SMALL_FIELD_MAX_HEALTH_UPGRADED: f32 = 120.0;
+/// Retail PoisonFieldSmall GeometryMajorRadius residual.
+pub const TOXIN_SMALL_FIELD_GEOMETRY_RADIUS: f32 = 6.0;
+/// Retail PoisonFieldUpgradedSmall GeometryMajorRadius residual.
+pub const TOXIN_SMALL_FIELD_GEOMETRY_RADIUS_UPGRADED: f32 = 4.0;
 
 /// Salvage PlusOne / PlusTwo primary damage residual (non-anthrax path).
 pub const TOXIN_STREAM_DAMAGE_PLUS_ONE: f32 = 12.5;
 pub const TOXIN_STREAM_DAMAGE_PLUS_TWO: f32 = 15.0;
+/// Retail ToxinTruckGunUpgradedPlusOne PrimaryDamage.
+pub const TOXIN_STREAM_DAMAGE_UPGRADED_PLUS_ONE: f32 = 15.0;
+/// Retail ToxinTruckGunUpgradedPlusTwo PrimaryDamage.
+pub const TOXIN_STREAM_DAMAGE_UPGRADED_PLUS_TWO: f32 = 20.0;
+/// Retail Chem_ToxinTruckGunGammaPlusOne PrimaryDamage.
+pub const TOXIN_STREAM_DAMAGE_GAMMA_PLUS_ONE: f32 = 24.5;
+/// Retail Chem_ToxinTruckGunGammaPlusTwo PrimaryDamage.
+pub const TOXIN_STREAM_DAMAGE_GAMMA_PLUS_TWO: f32 = 28.5;
+
+/// Stream weapon residual (ToxinTruckGun).
+pub const TOXIN_STREAM_CLIP_SIZE: u32 = 30;
+/// ClipReloadTime 40ms residual.
+pub const TOXIN_STREAM_CLIP_RELOAD_MS: u32 = 40;
+/// ClipReloadTime 40ms → 2 frames @ 30 FPS (ceil).
+pub const TOXIN_STREAM_CLIP_RELOAD_FRAMES: u32 = 2;
+/// DelayBetweenShots 40ms residual.
+pub const TOXIN_STREAM_DELAY_MS: u32 = 40;
+/// WeaponSpeed residual (dist/sec).
+pub const TOXIN_STREAM_WEAPON_SPEED: f32 = 600.0;
+/// FireSoundLoopTime 80ms residual.
+pub const TOXIN_STREAM_FIRE_SOUND_LOOP_MS: u32 = 80;
+/// AllowAttackGarrisonedBldgs residual.
+pub const TOXIN_STREAM_ALLOW_ATTACK_GARRISONED: bool = true;
+/// Retail upgraded stream MinimumAttackRange residual.
+pub const TOXIN_STREAM_MIN_RANGE_UPGRADED: f32 = 10.0;
+
+/// Spray weapon residual timing.
+pub const TOXIN_SPRAY_DELAY_MS: u32 = 200;
+pub const TOXIN_SPRAY_WEAPON_SPEED: f32 = 600.0;
+pub const TOXIN_SPRAY_ACCEPTABLE_AIM_DELTA_DEG: f32 = 180.0;
+
+/// Contaminate OCL residual names (FireOCLAfterWeaponCooldown).
+pub const TOXIN_OCL_POISON_FIELD_MEDIUM: &str = "OCL_PoisonFieldMedium";
+pub const TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM: &str = "OCL_PoisonFieldUpgradedMedium";
+pub const TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM: &str = "OCL_PoisonFieldGammaMedium";
+pub const TOXIN_OCL_POISON_FIELD_SMALL: &str = "OCL_PoisonFieldSmall";
+pub const TOXIN_OCL_POISON_FIELD_UPGRADED_SMALL: &str = "OCL_PoisonFieldUpgradedSmall";
+pub const TOXIN_OCL_POISON_FIELD_GAMMA_SMALL: &str = "OCL_PoisonFieldGammaSmall";
+/// Death weapon residual names.
+pub const TOXIN_SHELL_WEAPON: &str = "ToxinShellWeapon";
+pub const TOXIN_SHELL_WEAPON_UPGRADED: &str = "ToxinShellWeaponUpgraded";
+pub const TOXIN_SHELL_WEAPON_GAMMA: &str = "Chem_ToxinShellWeaponGamma";
+
+/// DeathType residual names (Weapon.ini).
+pub const TOXIN_DEATH_TYPE_POISONED: &str = "POISONED";
+pub const TOXIN_DEATH_TYPE_POISONED_BETA: &str = "POISONED_BETA";
+pub const TOXIN_DEATH_TYPE_POISONED_GAMMA: &str = "POISONED_GAMMA";
+
+/// KindOf residual for poison fields (cleanup interaction).
+pub const TOXIN_FIELD_KINDOF_CLEANUP_HAZARD: &str = "CLEANUP_HAZARD";
+/// Armor residual on poison field objects.
+pub const TOXIN_FIELD_ARMOR: &str = "HazardousMaterialArmor";
+/// HazardFieldCoreWeapon residual (anti-stack blast at spawn).
+pub const TOXIN_FIELD_CORE_WEAPON: &str = "HazardFieldCoreWeapon";
+/// Anthrax pool ambient residual (upgraded/gamma fields).
+pub const TOXIN_ANTHRAX_POOL_AUDIO: &str = "AnthraxPoolAmbientLoop";
 
 /// Residual fire / ambient audio.
 pub const TOXIN_STREAM_AUDIO: &str = "ToxinTractorWeaponLoop";
 pub const TOXIN_SPRAY_AUDIO: &str = "ToxinTractorContaminate";
 pub const TOXIN_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
+
+/// Logic frames per second residual.
+pub const TOXIN_LOGIC_FPS: f32 = 30.0;
 
 /// Anthrax residual combat tier (Beta = stock upgrade; Gamma = Chem general).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -208,15 +321,33 @@ pub fn anthrax_tier_from_flags(
     }
 }
 
+/// Convert msec residual → logic frames @ 30 FPS (ceil for non-integer like Delay 40ms).
+pub fn toxin_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    let frames = (ms as f32) * TOXIN_LOGIC_FPS / 1000.0;
+    frames.ceil() as u32
+}
+
 /// Primary stream damage residual (salvage + anthrax tier).
+///
+/// Retail Weapon.ini matrix:
+/// - Base 10 / PlusOne 12.5 / PlusTwo 15
+/// - Beta 12.5 / 15 / 20
+/// - Gamma 20.5 / 24.5 / 28.5
 pub fn toxin_stream_damage(tier: ToxinTractorSalvageTier, anthrax: AnthraxResidualTier) -> f32 {
     match anthrax {
-        AnthraxResidualTier::Gamma => TOXIN_STREAM_DAMAGE_GAMMA,
-        AnthraxResidualTier::Beta => {
-            // Retail upgraded path already includes anthrax damage; salvage Plus residual
-            // fail-closed reuses upgraded base (not full PlusOne/Two anthrax matrix).
-            TOXIN_STREAM_DAMAGE_UPGRADED
-        }
+        AnthraxResidualTier::Gamma => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_STREAM_DAMAGE_GAMMA,
+            ToxinTractorSalvageTier::One => TOXIN_STREAM_DAMAGE_GAMMA_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_STREAM_DAMAGE_GAMMA_PLUS_TWO,
+        },
+        AnthraxResidualTier::Beta => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_STREAM_DAMAGE_UPGRADED,
+            ToxinTractorSalvageTier::One => TOXIN_STREAM_DAMAGE_UPGRADED_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_STREAM_DAMAGE_UPGRADED_PLUS_TWO,
+        },
         AnthraxResidualTier::None => match tier {
             ToxinTractorSalvageTier::Base => TOXIN_STREAM_DAMAGE,
             ToxinTractorSalvageTier::One => TOXIN_STREAM_DAMAGE_PLUS_ONE,
@@ -225,12 +356,39 @@ pub fn toxin_stream_damage(tier: ToxinTractorSalvageTier, anthrax: AnthraxResidu
     }
 }
 
-/// Contaminate spray secondary damage residual.
+/// Contaminate spray secondary damage residual (base salvage / no crate).
+///
+/// Compatibility wrapper — host combat path currently uses anthrax tier only.
 pub fn toxin_spray_damage(anthrax: AnthraxResidualTier) -> f32 {
+    toxin_spray_damage_with_salvage(ToxinTractorSalvageTier::Base, anthrax)
+}
+
+/// Contaminate spray SecondaryDamage residual (salvage + anthrax tier).
+///
+/// Retail Weapon.ini matrix:
+/// - Base 2 / PlusOne 2.5 / PlusTwo 3
+/// - Beta 2.5 / 3 / 4
+/// - Gamma 2.5 / 3.5 / 4.5
+pub fn toxin_spray_damage_with_salvage(
+    tier: ToxinTractorSalvageTier,
+    anthrax: AnthraxResidualTier,
+) -> f32 {
     match anthrax {
-        AnthraxResidualTier::None => TOXIN_SPRAY_DAMAGE,
-        // Chem gamma spray base is also 2.5 (Plus residual fail-closed).
-        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_SPRAY_DAMAGE_UPGRADED,
+        AnthraxResidualTier::None => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_SPRAY_DAMAGE,
+            ToxinTractorSalvageTier::One => TOXIN_SPRAY_DAMAGE_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_SPRAY_DAMAGE_PLUS_TWO,
+        },
+        AnthraxResidualTier::Beta => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_SPRAY_DAMAGE_UPGRADED,
+            ToxinTractorSalvageTier::One => TOXIN_SPRAY_DAMAGE_UPGRADED_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_SPRAY_DAMAGE_UPGRADED_PLUS_TWO,
+        },
+        AnthraxResidualTier::Gamma => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_SPRAY_DAMAGE_UPGRADED,
+            ToxinTractorSalvageTier::One => TOXIN_SPRAY_DAMAGE_GAMMA_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_SPRAY_DAMAGE_GAMMA_PLUS_TWO,
+        },
     }
 }
 
@@ -248,6 +406,105 @@ pub fn toxin_small_field_damage(anthrax: AnthraxResidualTier) -> f32 {
         AnthraxResidualTier::None => TOXIN_SMALL_FIELD_DAMAGE,
         AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_SMALL_FIELD_DAMAGE_UPGRADED,
     }
+}
+
+/// SmallPoisonField PrimaryDamageRadius residual (base 12 / upgraded+gamma 7.5).
+pub fn toxin_small_field_radius(anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_SMALL_FIELD_RADIUS,
+        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_SMALL_FIELD_RADIUS_UPGRADED,
+    }
+}
+
+/// Medium field MaxHealth residual.
+pub fn toxin_med_field_max_health(anthrax: AnthraxResidualTier) -> f32 {
+    if anthrax.is_upgraded() {
+        TOXIN_MED_FIELD_MAX_HEALTH_UPGRADED
+    } else {
+        TOXIN_MED_FIELD_MAX_HEALTH
+    }
+}
+
+/// Small field MaxHealth residual.
+pub fn toxin_small_field_max_health(anthrax: AnthraxResidualTier) -> f32 {
+    if anthrax.is_upgraded() {
+        TOXIN_SMALL_FIELD_MAX_HEALTH_UPGRADED
+    } else {
+        TOXIN_SMALL_FIELD_MAX_HEALTH
+    }
+}
+
+/// DeathType residual name for stream/spray/field.
+pub fn toxin_death_type_name(anthrax: AnthraxResidualTier) -> &'static str {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_DEATH_TYPE_POISONED,
+        AnthraxResidualTier::Beta => TOXIN_DEATH_TYPE_POISONED_BETA,
+        AnthraxResidualTier::Gamma => TOXIN_DEATH_TYPE_POISONED_GAMMA,
+    }
+}
+
+/// FireOCL residual for spray cooldown medium field.
+pub fn toxin_spray_ocl_name(anthrax: AnthraxResidualTier) -> &'static str {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_OCL_POISON_FIELD_MEDIUM,
+        AnthraxResidualTier::Beta => TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM,
+        AnthraxResidualTier::Gamma => TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM,
+    }
+}
+
+/// FireOCL residual for death small field.
+pub fn toxin_death_ocl_name(anthrax: AnthraxResidualTier) -> &'static str {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_OCL_POISON_FIELD_SMALL,
+        AnthraxResidualTier::Beta => TOXIN_OCL_POISON_FIELD_UPGRADED_SMALL,
+        AnthraxResidualTier::Gamma => TOXIN_OCL_POISON_FIELD_GAMMA_SMALL,
+    }
+}
+
+/// Death weapon residual name (FireWeaponWhenDead).
+pub fn toxin_death_weapon_name(anthrax: AnthraxResidualTier) -> &'static str {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_SHELL_WEAPON,
+        AnthraxResidualTier::Beta => TOXIN_SHELL_WEAPON_UPGRADED,
+        AnthraxResidualTier::Gamma => TOXIN_SHELL_WEAPON_GAMMA,
+    }
+}
+
+/// Poison-field ambient audio residual.
+pub fn toxin_field_ambient_audio(anthrax: AnthraxResidualTier) -> &'static str {
+    if anthrax.is_upgraded() {
+        TOXIN_ANTHRAX_POOL_AUDIO
+    } else {
+        TOXIN_POISON_AUDIO
+    }
+}
+
+/// Whether residual spray has fired enough shots to create contaminate OCL.
+pub fn toxin_spray_ready_for_ocl(continuous_shots: u32) -> bool {
+    continuous_shots >= TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL
+}
+
+/// Clean-up interaction residual: field epicenter within cleanup radius is clearable.
+///
+/// Retail poison fields carry KindOf CLEANUP_HAZARD + HazardousMaterialArmor;
+/// AmbulanceCleanHazardWeapon / CleanupArea clears them in PrimaryDamageRadius.
+pub fn toxin_field_clearable_by_cleanup(
+    field_pos: (f32, f32),
+    cleanup_center: (f32, f32),
+    cleanup_radius: f32,
+) -> bool {
+    in_radius_2d(cleanup_center, field_pos, cleanup_radius)
+}
+
+/// Name residual for cleanup-hazard kindof (fail-closed vs full KindOf mask).
+pub fn is_toxin_cleanup_hazard_name(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.contains("poisonfield")
+        || n.contains("poison_field")
+        || n.contains("cleanup_hazard")
+        || n.contains("cleanuphazard")
+        || n.contains("toxicpool")
+        || n.contains("anthraxpool")
 }
 
 /// Whether residual secondary is contaminate spray path (spawn medium field).
@@ -460,7 +717,7 @@ impl HostToxinTractorRegistry {
             source_object,
             source_team,
             position: death_pos,
-            radius: TOXIN_SMALL_FIELD_RADIUS,
+            radius: toxin_small_field_radius(anthrax),
             damage_per_tick: toxin_small_field_damage(anthrax),
             activate_frame,
             expires_frame: activate_frame.saturating_add(TOXIN_SMALL_FIELD_DURATION_FRAMES),
@@ -573,6 +830,27 @@ impl HostToxinTractorRegistry {
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_stream_ok() || self.honesty_spray_ok() || self.honesty_death_field_ok()
     }
+
+    /// Clear residual poison fields whose epicenters fall within cleanup radius.
+    ///
+    /// Wave 55 clean-up interaction residual (Ambulance / CleanupArea path).
+    pub fn clear_fields_in_radius(
+        &mut self,
+        center: (f32, f32),
+        cleanup_radius: f32,
+    ) -> u32 {
+        let before = self.active.len();
+        self.active.retain(|z| {
+            !toxin_field_clearable_by_cleanup(
+                (z.position.x, z.position.z),
+                center,
+                cleanup_radius,
+            )
+        });
+        let cleared = (before.saturating_sub(self.active.len())) as u32;
+        self.expirations = self.expirations.saturating_add(cleared);
+        cleared
+    }
 }
 
 /// 2D distance residual.
@@ -580,6 +858,144 @@ pub fn in_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius
+}
+
+// --- Wave 55 residual honesty packs (retail INI constants) ---
+
+/// Contaminate puddle poison field residual (amount/radius/duration/tick/OCL).
+pub fn honesty_toxin_contaminate_puddle_residual_ok() -> bool {
+    (TOXIN_MED_FIELD_DAMAGE - 2.0).abs() < 0.01
+        && (TOXIN_MED_FIELD_DAMAGE_UPGRADED - 2.5).abs() < 0.01
+        && (TOXIN_MED_FIELD_RADIUS - 80.0).abs() < 0.01
+        && TOXIN_MED_FIELD_TICK_FRAMES == 15
+        && TOXIN_MED_FIELD_DURATION_FRAMES == 900
+        && TOXIN_MED_FIELD_LIFETIME_MS == 30_000
+        && TOXIN_MED_FIELD_DURATION_FRAMES
+            == toxin_ms_to_frames(TOXIN_MED_FIELD_LIFETIME_MS)
+        && (TOXIN_MED_FIELD_MAX_HEALTH - 100.0).abs() < 0.01
+        && (TOXIN_MED_FIELD_MAX_HEALTH_UPGRADED - 120.0).abs() < 0.01
+        && (TOXIN_MED_FIELD_GEOMETRY_RADIUS - 40.0).abs() < 0.01
+        && (TOXIN_SMALL_FIELD_DAMAGE - 2.0).abs() < 0.01
+        && (TOXIN_SMALL_FIELD_DAMAGE_UPGRADED - 2.5).abs() < 0.01
+        && (TOXIN_SMALL_FIELD_RADIUS - 12.0).abs() < 0.01
+        && (TOXIN_SMALL_FIELD_RADIUS_UPGRADED - 7.5).abs() < 0.01
+        && TOXIN_SMALL_FIELD_DURATION_FRAMES == 300
+        && TOXIN_SMALL_FIELD_LIFETIME_MS == 10_000
+        && TOXIN_SMALL_FIELD_DURATION_FRAMES
+            == toxin_ms_to_frames(TOXIN_SMALL_FIELD_LIFETIME_MS)
+        && (toxin_small_field_radius(AnthraxResidualTier::None) - 12.0).abs() < 0.01
+        && (toxin_small_field_radius(AnthraxResidualTier::Beta) - 7.5).abs() < 0.01
+        && (toxin_small_field_radius(AnthraxResidualTier::Gamma) - 7.5).abs() < 0.01
+        && TOXIN_OCL_POISON_FIELD_MEDIUM == "OCL_PoisonFieldMedium"
+        && TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM == "OCL_PoisonFieldUpgradedMedium"
+        && TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM == "OCL_PoisonFieldGammaMedium"
+        && toxin_spray_ocl_name(AnthraxResidualTier::None) == TOXIN_OCL_POISON_FIELD_MEDIUM
+        && toxin_spray_ocl_name(AnthraxResidualTier::Beta)
+            == TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM
+        && toxin_spray_ocl_name(AnthraxResidualTier::Gamma)
+            == TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM
+}
+
+/// Spray weapon residual (coast / min shots / range / salvage matrix).
+pub fn honesty_toxin_spray_weapon_residual_ok() -> bool {
+    (TOXIN_SPRAY_DAMAGE - 2.0).abs() < 0.01
+        && (TOXIN_SPRAY_DAMAGE_UPGRADED - 2.5).abs() < 0.01
+        && (TOXIN_SPRAY_RADIUS - 75.0).abs() < 0.01
+        && (TOXIN_SPRAY_RANGE - 15.0).abs() < 0.01
+        && TOXIN_SPRAY_DELAY_MS == 200
+        && TOXIN_SPRAY_DELAY_FRAMES == toxin_ms_to_frames(TOXIN_SPRAY_DELAY_MS)
+        && TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_MS == 300
+        && TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES
+            == toxin_ms_to_frames(TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_MS)
+        && TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL == 4
+        && toxin_spray_ready_for_ocl(4)
+        && !toxin_spray_ready_for_ocl(3)
+        && TOXIN_SPRAY_OCL_LIFETIME_PER_SECOND_MS == 10_000
+        && TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_MS == 180_000
+        && TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_FRAMES
+            == toxin_ms_to_frames(TOXIN_SPRAY_OCL_LIFETIME_MAX_CAP_MS)
+        && (toxin_spray_damage_with_salvage(
+            ToxinTractorSalvageTier::Two,
+            AnthraxResidualTier::None,
+        ) - 3.0)
+            .abs()
+            < 0.01
+        && (toxin_spray_damage_with_salvage(
+            ToxinTractorSalvageTier::Two,
+            AnthraxResidualTier::Beta,
+        ) - 4.0)
+            .abs()
+            < 0.01
+        && (toxin_spray_damage_with_salvage(
+            ToxinTractorSalvageTier::Two,
+            AnthraxResidualTier::Gamma,
+        ) - 4.5)
+            .abs()
+            < 0.01
+        && (TOXIN_SPRAY_ACCEPTABLE_AIM_DELTA_DEG - 180.0).abs() < 0.01
+}
+
+/// Upgrade anthrax residual (stream salvage matrix + death types + OCL).
+pub fn honesty_toxin_anthrax_upgrade_residual_ok() -> bool {
+    (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Beta) - 12.5)
+        .abs()
+        < 0.01
+        && (toxin_stream_damage(ToxinTractorSalvageTier::One, AnthraxResidualTier::Beta) - 15.0)
+            .abs()
+            < 0.01
+        && (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Beta) - 20.0)
+            .abs()
+            < 0.01
+        && (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma)
+            - 20.5)
+            .abs()
+            < 0.01
+        && (toxin_stream_damage(ToxinTractorSalvageTier::One, AnthraxResidualTier::Gamma)
+            - 24.5)
+            .abs()
+            < 0.01
+        && (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma)
+            - 28.5)
+            .abs()
+            < 0.01
+        && toxin_death_type_name(AnthraxResidualTier::None) == TOXIN_DEATH_TYPE_POISONED
+        && toxin_death_type_name(AnthraxResidualTier::Beta) == TOXIN_DEATH_TYPE_POISONED_BETA
+        && toxin_death_type_name(AnthraxResidualTier::Gamma) == TOXIN_DEATH_TYPE_POISONED_GAMMA
+        && toxin_death_weapon_name(AnthraxResidualTier::None) == TOXIN_SHELL_WEAPON
+        && toxin_death_weapon_name(AnthraxResidualTier::Beta) == TOXIN_SHELL_WEAPON_UPGRADED
+        && toxin_death_weapon_name(AnthraxResidualTier::Gamma) == TOXIN_SHELL_WEAPON_GAMMA
+        && toxin_death_ocl_name(AnthraxResidualTier::Gamma) == TOXIN_OCL_POISON_FIELD_GAMMA_SMALL
+        && toxin_field_ambient_audio(AnthraxResidualTier::Beta) == TOXIN_ANTHRAX_POOL_AUDIO
+        && toxin_field_ambient_audio(AnthraxResidualTier::None) == TOXIN_POISON_AUDIO
+        && TOXIN_STREAM_CLIP_SIZE == 30
+        && TOXIN_STREAM_DELAY_MS == 40
+        && TOXIN_STREAM_DELAY_FRAMES == toxin_ms_to_frames(TOXIN_STREAM_DELAY_MS)
+        && TOXIN_STREAM_CLIP_RELOAD_FRAMES == toxin_ms_to_frames(TOXIN_STREAM_CLIP_RELOAD_MS)
+        && (TOXIN_STREAM_WEAPON_SPEED - 600.0).abs() < 0.01
+        && TOXIN_STREAM_ALLOW_ATTACK_GARRISONED
+        && (TOXIN_STREAM_MIN_RANGE_UPGRADED - 10.0).abs() < 0.01
+}
+
+/// Clean-up interaction residual (CLEANUP_HAZARD name + clear-in-radius).
+pub fn honesty_toxin_cleanup_interaction_residual_ok() -> bool {
+    TOXIN_FIELD_KINDOF_CLEANUP_HAZARD == "CLEANUP_HAZARD"
+        && TOXIN_FIELD_ARMOR == "HazardousMaterialArmor"
+        && TOXIN_FIELD_CORE_WEAPON == "HazardFieldCoreWeapon"
+        && is_toxin_cleanup_hazard_name("PoisonFieldMedium")
+        && is_toxin_cleanup_hazard_name("PoisonFieldUpgradedSmall")
+        && is_toxin_cleanup_hazard_name("Chem_PoisonFieldGammaMedium")
+        && !is_toxin_cleanup_hazard_name("GLAVehicleToxinTruck")
+        && !is_toxin_cleanup_hazard_name("USA_Ranger")
+        && toxin_field_clearable_by_cleanup((0.0, 0.0), (0.0, 0.0), 50.0)
+        && !toxin_field_clearable_by_cleanup((100.0, 0.0), (0.0, 0.0), 50.0)
+}
+
+/// Combined Wave 55 toxin residual honesty pack.
+pub fn honesty_toxin_tractor_residual_pack_ok() -> bool {
+    honesty_toxin_contaminate_puddle_residual_ok()
+        && honesty_toxin_spray_weapon_residual_ok()
+        && honesty_toxin_anthrax_upgrade_residual_ok()
+        && honesty_toxin_cleanup_interaction_residual_ok()
 }
 
 #[cfg(test)]
@@ -688,5 +1104,59 @@ mod tests {
         assert!(reg.honesty_host_path_ok());
         // gamma medium + base medium + death field
         assert_eq!(reg.active_count(), 3);
+    }
+
+    #[test]
+    fn toxin_residual_pack_honesty() {
+        assert!(honesty_toxin_contaminate_puddle_residual_ok());
+        assert!(honesty_toxin_spray_weapon_residual_ok());
+        assert!(honesty_toxin_anthrax_upgrade_residual_ok());
+        assert!(honesty_toxin_cleanup_interaction_residual_ok());
+        assert!(honesty_toxin_tractor_residual_pack_ok());
+    }
+
+    #[test]
+    fn toxin_salvage_anthrax_matrix_and_small_radius() {
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Beta) - 20.0)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma)
+                - 28.5)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (toxin_spray_damage_with_salvage(
+                ToxinTractorSalvageTier::One,
+                AnthraxResidualTier::Gamma
+            ) - 3.5)
+                .abs()
+                < 0.01
+        );
+        let mut reg = HostToxinTractorRegistry::new();
+        let _ = reg.spawn_death_field(
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            AnthraxResidualTier::Beta,
+        );
+        assert!((reg.active_zones()[0].radius - 7.5).abs() < 0.01);
+        let cleared = reg.clear_fields_in_radius((0.0, 0.0), 50.0);
+        assert_eq!(cleared, 1);
+        assert_eq!(reg.active_count(), 0);
+    }
+
+    #[test]
+    fn toxin_ms_to_frames_matches_retail_delays() {
+        assert_eq!(toxin_ms_to_frames(40), 2);
+        assert_eq!(toxin_ms_to_frames(200), 6);
+        assert_eq!(toxin_ms_to_frames(300), 9);
+        assert_eq!(toxin_ms_to_frames(500), 15);
+        assert_eq!(toxin_ms_to_frames(10_000), 300);
+        assert_eq!(toxin_ms_to_frames(30_000), 900);
     }
 }
