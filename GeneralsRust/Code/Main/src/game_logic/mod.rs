@@ -53,6 +53,7 @@ pub mod host_comanche_rocket_pods;
 pub mod host_sentry_drone;
 pub mod host_pathfinder;
 pub mod host_slave_drones;
+pub mod host_angry_mob;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -257,6 +258,13 @@ pub use host_slave_drones::{
     is_hellfire_drone_template, is_scout_drone_template, is_slave_drone_master_template,
     scout_detection_range, scout_spawn_is_detector, SlaveDroneKind, HELLFIRE_MISSILE_WEAPON,
     SCOUT_DETECTION_RANGE, UPGRADE_AMERICA_HELLFIRE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
+};
+pub use host_angry_mob::{
+    angry_mob_damage_for_tick, is_angry_mob_nexus_template, is_legal_angry_mob_damage_target,
+    HostAngryMobRegistry, HostAngryMobState, ANGRY_MOB_ATTACK_RANGE,
+    ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
+    ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES,
+    UPGRADE_GLA_ARM_THE_MOB,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
