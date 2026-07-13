@@ -1,5 +1,43 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Microwave Tank + King Raptor Laser (2026-07-12)
+**Closed (host-testable Microwave disable/clear + King Raptor PDL):**
+1. **Microwave Tank residual** (`MicrowaveTankBuildingDisabler` / `BuildingClearer`):
+   - AmericaTankMicrowave / *Microwave* residual sources, while **attacking** an
+     enemy/neutral structure within AttackRange residual **200**, apply
+     `DISABLED_SUBDUED` (`disabled_subdued` → `is_disabled()` so production
+     / powered functions stop while cooked).
+   - Clears when microwave stops targeting / leaves range / dies.
+   - Garrison clear residual (KILL_GARRISONED / PrimaryDamage **1** occupant per
+     shot, AttackRange **125**) via existing combat path +
+     `host_bunker_buster` clearer residual (no structure HP damage).
+   - Ally structures residual-skip (fail-closed vs retail RadiusDamageAffects ALLIES).
+   - Honesty: `honesty_microwave_disable_ok` / `honesty_microwave_ok` +
+     `honesty_kill_garrisoned_ok` for clear path.
+2. **King Raptor residual laser** (`PointDefenseLaserUpdate` dual modules):
+   - AirF_AmericaJetRaptor / TestKingRaptor residual carriers added to
+     `host_point_defense` PDL path (regular AmericaJetRaptor fail-closed skip).
+   - Dual lasers residual collapse: AirF_RaptorPointDefenseLaser +
+     AirF_PointDefenseLaser → fire range **65**, delay **4** frames
+     (250ms each dual-stream collapse), damage **100**, scan **200**.
+   - Intercepts enemy missiles / projectiles in fire range (same primary
+     residual as Paladin/Avenger).
+3. Tests (not log-only):
+   - `microwave_tank_residual_disables_enemy_structure`
+   - `microwave_tank_residual_skips_non_microwave`
+   - `kill_garrisoned_residual_microwave_clears_occupants`
+   - `king_raptor_residual_laser_intercepts_missile`
+   - `king_raptor_residual_skips_regular_raptor`
+   - unit tests in `host_microwave.rs` / `host_point_defense.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full subdual damage accumulate / SubdualDamageHelper heal drain matrix
+- Full MicrowaveDisableStream laser attach / FireWeaponUpdate emitter
+  infantry MICROWAVE field (MicrowaveTankEmitterWeapon)
+- Vehicle disabler (retail WeaponSet has MicrowaveTankVehicleDisabler commented out)
+- Full dual independent PointDefenseLaserUpdate scan-rate / PredictTargetVelocity
+- Network microwave / King Raptor PDL replication (network deferred)
+
 ## Residual Host Playability — Particle Uplink Continuous Beam + Cleanup Area (2026-07-12)
 **Closed (host-testable ParticleCannon multi-pulse beam + Ambulance CleanupArea):**
 1. **Particle Uplink continuous beam residual** (`ParticleUplinkCannonUpdate` host path):

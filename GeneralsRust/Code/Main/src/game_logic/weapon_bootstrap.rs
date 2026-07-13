@@ -132,9 +132,14 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "SupW_AmericaJetStealthFighter"
         | "Lazr_AmericaJetStealthFighter"
         | "AirF_AmericaJetStealthFighter" => Some(STEALTH_JET_MISSILE_WEAPON),
-        "AmericaVehicleMicrowaveTank"
+        "AmericaTankMicrowave"
+        | "AmericaVehicleMicrowaveTank"
         | "USA_MicrowaveTank"
-        | "TestMicrowave" => Some(MICROWAVE_BUILDING_CLEARER_WEAPON),
+        | "Lazr_AmericaTankMicrowave"
+        | "AirF_AmericaTankMicrowave"
+        | "SupW_AmericaTankMicrowave"
+        | "TestMicrowave"
+        | "TestMicrowaveTank" => Some(MICROWAVE_BUILDING_CLEARER_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {

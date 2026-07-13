@@ -1,12 +1,17 @@
-//! Host PointDefenseLaser intercept residual (Paladin / Avenger anti-missile laser).
+//! Host PointDefenseLaser intercept residual (Paladin / Avenger / King Raptor).
 //!
 //! Residual slice (playability):
-//! - Paladin / Avenger (and name residual variants) scan for interceptable
-//!   missiles / projectiles in residual fire range and destroy them without a
-//!   manual AttackObject order (C++ PointDefenseLaserUpdate scan + fire path).
+//! - Paladin / Avenger / King Raptor (and name residual variants) scan for
+//!   interceptable missiles / projectiles in residual fire range and destroy
+//!   them without a manual AttackObject order (C++ PointDefenseLaserUpdate
+//!   scan + fire path).
 //! - Retail Paladin: WeaponTemplate PaladinPointDefenseLaser, AttackRange 65,
 //!   DelayBetweenShots 1000ms, PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
 //!   ScanRange 120. Avenger dual lasers: AttackRange 100, Delay 500ms each.
+//! - Retail King Raptor (AirF_AmericaJetRaptor): dual PointDefenseLaserUpdate
+//!   modules (AirF_RaptorPointDefenseLaser + AirF_PointDefenseLaser), each
+//!   AttackRange 65 / Delay 250ms / PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
+//!   ScanRange 200. Residual collapses dual lasers into one fire stream.
 //!
 //! Fail-closed honesty:
 //! - Not full PointDefenseLaserUpdate velocity prediction / scan-rate matrix
@@ -37,16 +42,60 @@ pub const AVENGER_PDL_DELAY_FRAMES: u32 = 15;
 /// Retail AvengerPointDefenseLaser PrimaryDamage residual.
 pub const AVENGER_PDL_DAMAGE: f32 = 100.0;
 
+/// Retail AirF_RaptorPointDefenseLaser / AirF_PointDefenseLaser AttackRange residual.
+pub const KING_RAPTOR_PDL_FIRE_RANGE: f32 = 65.0;
+
+/// Retail King Raptor PointDefenseLaserUpdate ScanRange residual.
+pub const KING_RAPTOR_PDL_SCAN_RANGE: f32 = 200.0;
+
+/// Retail AirF_RaptorPointDefenseLaser PrimaryDamage residual.
+pub const KING_RAPTOR_PDL_DAMAGE: f32 = 100.0;
+
+/// Retail dual lasers DelayBetweenShots 250ms each → residual collapse to ~4 frames.
+/// (Two independent 250ms streams ≈ one shot every ~125ms @ 30 FPS.)
+pub const KING_RAPTOR_PDL_DELAY_FRAMES: u32 = 4;
+
 /// Activate / intercept audio residual (FXList WeaponFX_PaladinPointDefenseLaser).
 pub const PDL_INTERCEPT_AUDIO: &str = "PaladinPointDefenseLaserPulse";
 
-/// Whether template is a residual PointDefenseLaser carrier (Paladin / Avenger).
+/// Whether template is a residual King Raptor (Air Force General jet with PDL).
+///
+/// Retail: only `AirF_AmericaJetRaptor` has PointDefenseLaserUpdate — regular
+/// `AmericaJetRaptor` does **not**. Fail-closed name residual.
+pub fn is_king_raptor_carrier(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    // Explicit residual test / display names.
+    if n == "testkingraptor" || n.contains("kingraptor") {
+        return true;
+    }
+    // Projectile / laser beam objects are not the plane.
+    if n.contains("missile")
+        || n.contains("projectile")
+        || n.contains("laserbeam")
+        || n.contains("pointdefense")
+        || n.contains("shell")
+    {
+        return false;
+    }
+    // Air Force General King Raptor: AirF_AmericaJetRaptor / AirF_*Raptor*
+    // Fail-closed: regular AmericaJetRaptor (no AirF_ prefix) is NOT a PDL carrier.
+    if n.starts_with("airf_") && n.contains("raptor") {
+        return true;
+    }
+    false
+}
+
+/// Whether template is a residual PointDefenseLaser carrier
+/// (Paladin / Avenger / King Raptor).
 ///
 /// Fail-closed: name residual (not full INI PointDefenseLaserUpdate module matrix).
 pub fn is_point_defense_carrier(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     // Explicit residual test names.
-    if n == "testpaladin" || n == "testavenger" || n == "testpdl" {
+    if n == "testpaladin" || n == "testavenger" || n == "testpdl" || n == "testkingraptor" {
         return true;
     }
     // AmericaTankPaladin / USA_Paladin / Lazr_AmericaTankPaladin / …
@@ -55,6 +104,10 @@ pub fn is_point_defense_carrier(template_name: &str) -> bool {
     }
     // AmericaVehicleAvenger / USA_Avenger / SupW_AmericaVehicleAvenger / …
     if n.contains("avenger") {
+        return true;
+    }
+    // AirF_AmericaJetRaptor (King Raptor) dual residual lasers.
+    if is_king_raptor_carrier(template_name) {
         return true;
     }
     false
@@ -68,7 +121,9 @@ pub fn is_avenger_carrier(template_name: &str) -> bool {
 
 /// Residual fire range for a PDL carrier.
 pub fn pdl_fire_range(template_name: &str) -> f32 {
-    if is_avenger_carrier(template_name) {
+    if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_FIRE_RANGE
+    } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_FIRE_RANGE
     } else {
         PALADIN_PDL_FIRE_RANGE
@@ -77,7 +132,9 @@ pub fn pdl_fire_range(template_name: &str) -> f32 {
 
 /// Residual scan range (slightly larger than fire range; Paladin retail 120).
 pub fn pdl_scan_range(template_name: &str) -> f32 {
-    if is_avenger_carrier(template_name) {
+    if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_SCAN_RANGE
+    } else if is_avenger_carrier(template_name) {
         // Avenger has no separate ScanRange in residual; use fire range * 1.2.
         AVENGER_PDL_FIRE_RANGE * 1.2
     } else {
@@ -87,7 +144,9 @@ pub fn pdl_scan_range(template_name: &str) -> f32 {
 
 /// Residual damage per intercept shot.
 pub fn pdl_damage(template_name: &str) -> f32 {
-    if is_avenger_carrier(template_name) {
+    if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_DAMAGE
+    } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_DAMAGE
     } else {
         PALADIN_PDL_DAMAGE
@@ -96,7 +155,9 @@ pub fn pdl_damage(template_name: &str) -> f32 {
 
 /// Residual reload delay in logic frames.
 pub fn pdl_delay_frames(template_name: &str) -> u32 {
-    if is_avenger_carrier(template_name) {
+    if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_DELAY_FRAMES
+    } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_DELAY_FRAMES
     } else {
         PALADIN_PDL_DELAY_FRAMES
@@ -194,20 +255,43 @@ mod tests {
         assert!(is_point_defense_carrier("USA_Avenger"));
         assert!(is_point_defense_carrier("AmericaVehicleAvenger"));
         assert!(is_point_defense_carrier("TestAvenger"));
+        // King Raptor residual (Air Force General only).
+        assert!(is_point_defense_carrier("AirF_AmericaJetRaptor"));
+        assert!(is_point_defense_carrier("TestKingRaptor"));
+        assert!(is_king_raptor_carrier("AirF_AmericaJetRaptor"));
+        assert!(is_king_raptor_carrier("TestKingRaptor"));
+        // Regular Raptor has no PDL modules — fail-closed.
+        assert!(!is_point_defense_carrier("AmericaJetRaptor"));
+        assert!(!is_king_raptor_carrier("AmericaJetRaptor"));
         assert!(!is_point_defense_carrier("USA_Ranger"));
         assert!(!is_point_defense_carrier("USA_Patriot"));
         assert!(!is_point_defense_carrier("ChinaTankBattleMaster"));
         assert!(!is_point_defense_carrier("TestTank"));
+        assert!(!is_king_raptor_carrier("RaptorJetMissile"));
+        assert!(!is_king_raptor_carrier("AirF_RaptorPointDefenseLaserBeam"));
     }
 
     #[test]
-    fn avenger_vs_paladin_stats() {
+    fn avenger_vs_paladin_vs_king_raptor_stats() {
         assert!((pdl_fire_range("USA_Paladin") - PALADIN_PDL_FIRE_RANGE).abs() < 0.01);
         assert!((pdl_fire_range("USA_Avenger") - AVENGER_PDL_FIRE_RANGE).abs() < 0.01);
+        assert!(
+            (pdl_fire_range("AirF_AmericaJetRaptor") - KING_RAPTOR_PDL_FIRE_RANGE).abs() < 0.01
+        );
         assert_eq!(pdl_delay_frames("USA_Paladin"), PALADIN_PDL_DELAY_FRAMES);
         assert_eq!(pdl_delay_frames("USA_Avenger"), AVENGER_PDL_DELAY_FRAMES);
+        assert_eq!(
+            pdl_delay_frames("AirF_AmericaJetRaptor"),
+            KING_RAPTOR_PDL_DELAY_FRAMES
+        );
+        assert_eq!(
+            pdl_scan_range("AirF_AmericaJetRaptor") as i32,
+            KING_RAPTOR_PDL_SCAN_RANGE as i32
+        );
         assert!(is_avenger_carrier("AmericaVehicleAvenger"));
         assert!(!is_avenger_carrier("AmericaTankPaladin"));
+        assert!(!is_avenger_carrier("AirF_AmericaJetRaptor"));
+        assert!(is_king_raptor_carrier("TestKingRaptor"));
     }
 
     #[test]

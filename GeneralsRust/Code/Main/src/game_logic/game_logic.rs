@@ -684,6 +684,10 @@ pub struct GameLogic {
     /// jams: weapons_jammed grants applied to enemy/neutral units in radius.
     ecm_residual_jams: u32,
 
+    /// Host America Microwave Tank residual (DISABLED_SUBDUED on structures).
+    /// Fail-closed: not full subdual accumulate/heal / laser stream / emitter field.
+    microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry,
+
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
     emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
@@ -1591,6 +1595,7 @@ impl GameLogic {
             propaganda_residual_heals: 0,
             propaganda_residual_buffs: 0,
             ecm_residual_jams: 0,
+            microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             emergency_repairs:
@@ -1772,6 +1777,7 @@ impl GameLogic {
         self.propaganda_residual_heals = 0;
         self.propaganda_residual_buffs = 0;
         self.ecm_residual_jams = 0;
+        self.microwaves.clear();
         self.emp_pulses.clear();
         self.frenzies.clear();
         self.cleanup_areas.clear();
@@ -3647,7 +3653,11 @@ impl GameLogic {
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
 
-        // Host PointDefenseLaser residual: Paladin / Avenger intercept missiles.
+        // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
+        // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
+        self.update_microwave_disable();
+
+        // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         self.update_point_defense_intercept();
 
@@ -11187,6 +11197,24 @@ impl GameLogic {
         self.ecm_residual_jams > 0
     }
 
+    /// Host Microwave Tank residual registry (disable structure honesty).
+    pub fn microwave_residual(
+        &self,
+    ) -> &crate::game_logic::host_microwave::HostMicrowaveRegistry {
+        &self.microwaves
+    }
+
+    /// Residual honesty: Microwave tank disabled an enemy structure at least once.
+    pub fn honesty_microwave_disable_ok(&self) -> bool {
+        self.microwaves.honesty_disable_ok()
+    }
+
+    /// Combined host path honesty for Microwave residual (disable).
+    /// Garrison clear honesty is tracked separately via `honesty_kill_garrisoned_ok`.
+    pub fn honesty_microwave_ok(&self) -> bool {
+        self.microwaves.honesty_host_path_ok()
+    }
+
     /// Host EMP Pulse residual registry (activate + honesty).
     pub fn emp_pulses(&self) -> &crate::game_logic::host_emp_pulse::HostEmpPulseRegistry {
         &self.emp_pulses
@@ -12056,6 +12084,139 @@ impl GameLogic {
 
         for _ in 0..jam_ticks {
             self.record_ecm_residual_jam();
+        }
+    }
+
+    /// Host America Microwave Tank residual: DISABLE_SUBDUED on structures being cooked.
+    ///
+    /// C++ MicrowaveTankBuildingDisabler (SUBDUAL_BUILDING → DISABLED_SUBDUED when
+    /// subdual >= max health). Residual: continuous while microwave is attacking a
+    /// structure within AttackRange 200; structure is fully disabled (production stops).
+    /// Fail-closed: not full subdual accumulate/heal, not laser stream drawable,
+    /// not MicrowaveTankEmitterWeapon infantry MICROWAVE field.
+    pub fn update_microwave_disable(&mut self) {
+        use crate::game_logic::host_microwave::{
+            in_microwave_range_2d, is_legal_microwave_disable_target, is_microwave_hostile_team,
+            is_microwave_tank, should_microwave_disable, HOST_MICROWAVE_DISABLE_RANGE,
+            MICROWAVE_DISABLE_AUDIO,
+        };
+        use std::collections::HashSet;
+
+        // Snapshot microwave tanks that are actively attacking.
+        let cookers: Vec<(ObjectId, Team, ObjectId, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_microwave_tank(&obj.template_name) {
+                    return None;
+                }
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if obj.status.disabled_unmanned
+                    || obj.status.disabled_hacked
+                    || obj.status.disabled_emp
+                    || obj.status.disabled_subdued
+                {
+                    return None;
+                }
+                if !obj.status.attacking {
+                    return None;
+                }
+                let target_id = obj.target?;
+                let pos = obj.get_position();
+                Some((*id, obj.team, target_id, pos.x, pos.z))
+            })
+            .collect();
+
+        let mut covered: HashSet<ObjectId> = HashSet::new();
+        let mut first_grant_pos: Option<glam::Vec3> = None;
+
+        for (_cooker_id, cooker_team, target_id, cx, cz) in &cookers {
+            let Some(target) = self.objects.get(target_id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let is_structure = target.is_kind_of(KindOf::Structure)
+                || target.object_type == ObjectType::Building;
+            let same_team = *cooker_team == target.team;
+            let target_neutral = target.team == Team::Neutral;
+            let cooker_neutral = *cooker_team == Team::Neutral;
+            let enemy_or_neutral =
+                is_microwave_hostile_team(cooker_neutral, same_team, target_neutral);
+            if !is_legal_microwave_disable_target(
+                is_structure,
+                true,
+                enemy_or_neutral,
+                target.status.under_construction,
+            ) {
+                continue;
+            }
+            let tpos = target.get_position();
+            if !in_microwave_range_2d(
+                (*cx, *cz),
+                (tpos.x, tpos.z),
+                HOST_MICROWAVE_DISABLE_RANGE,
+            ) {
+                continue;
+            }
+            if !should_microwave_disable(true, true, true, true, true, true) {
+                continue;
+            }
+            if first_grant_pos.is_none() && !target.status.disabled_subdued {
+                first_grant_pos = Some(tpos);
+            }
+            covered.insert(*target_id);
+        }
+
+        let mut new_grants = 0u32;
+        let mut refresh_ticks = 0u32;
+        for target_id in &covered {
+            let Some(target) = self.objects.get_mut(target_id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            if !target.status.disabled_subdued {
+                target.set_disabled_subdued(true);
+                new_grants = new_grants.saturating_add(1);
+            } else {
+                // Already cooked — keep flag set (coverage refresh).
+                target.status.disabled_subdued = true;
+                refresh_ticks = refresh_ticks.saturating_add(1);
+            }
+        }
+
+        // Clear subdued on structures no longer cooked by any microwave.
+        for (id, obj) in self.objects.iter_mut() {
+            if covered.contains(id) {
+                continue;
+            }
+            if obj.status.disabled_subdued {
+                obj.set_disabled_subdued(false);
+            }
+        }
+
+        for _ in 0..new_grants {
+            self.microwaves.record_disable_grant();
+        }
+        for _ in 0..refresh_ticks {
+            self.microwaves.record_disable_refresh();
+        }
+        self.microwaves
+            .set_currently_disabled(covered.len() as u32);
+
+        if new_grants > 0 {
+            if let Some(pos) = first_grant_pos {
+                self.queue_audio_event(
+                    AudioEventRequest::new(MICROWAVE_DISABLE_AUDIO)
+                        .with_position(pos)
+                        .with_priority(140),
+                );
+            }
         }
     }
 
@@ -32899,5 +33060,355 @@ mod tests {
             .map(|b| b.contained_units().len())
             .unwrap_or(0);
         assert_eq!(remaining, 1, "one occupant must remain after single clear");
+    }
+
+    /// Residual: Microwave tank attacking enemy structure applies DISABLED_SUBDUED
+    /// (production stop residual) while cooking; clears when attack stops.
+    #[test]
+    fn microwave_tank_residual_disables_enemy_structure() {
+        use crate::game_logic::host_microwave::{
+            is_microwave_tank, HOST_MICROWAVE_DISABLE_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, MICROWAVE_BUILDING_CLEARER_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_garrison_template(&mut game_logic);
+
+        let mut micro_tpl = crate::game_logic::ThingTemplate::new("AmericaTankMicrowave");
+        micro_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(480.0)
+            .set_primary_weapon_name(MICROWAVE_BUILDING_CLEARER_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaTankMicrowave".to_string(), micro_tpl);
+
+        let mut barracks_tpl = crate::game_logic::ThingTemplate::new("TestBarracks");
+        barracks_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::FSBarracks)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("TestBarracks".to_string(), barracks_tpl);
+
+        let micro_id = game_logic
+            .create_object(
+                "AmericaTankMicrowave",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("microwave");
+        let barracks_id = game_logic
+            .create_object(
+                "TestBarracks",
+                Team::GLA,
+                Vec3::new(HOST_MICROWAVE_DISABLE_RANGE * 0.4, 0.0, 0.0),
+            )
+            .expect("barracks");
+
+        {
+            let m = game_logic.find_object(micro_id).expect("microwave");
+            assert!(
+                is_microwave_tank(&m.template_name),
+                "AmericaTankMicrowave must classify as microwave residual"
+            );
+        }
+        {
+            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            // Ensure structure residual + constructed.
+            b.object_type = ObjectType::Building;
+            b.construction_percent = 1.0;
+            b.status.under_construction = false;
+        }
+
+        assert!(!game_logic.honesty_microwave_disable_ok());
+        assert!(
+            !game_logic
+                .find_object(barracks_id)
+                .map(|b| b.is_subdued_disabled())
+                .unwrap_or(true),
+            "structure starts not subdued"
+        );
+
+        // Microwave cooks the barracks.
+        {
+            let m = game_logic.find_object_mut(micro_id).unwrap();
+            m.attack_target(barracks_id);
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_microwave_disable();
+
+        assert!(
+            game_logic.honesty_microwave_disable_ok(),
+            "microwave disable residual honesty"
+        );
+        assert!(
+            game_logic.honesty_microwave_ok(),
+            "microwave host path honesty"
+        );
+        {
+            let b = game_logic.find_object(barracks_id).expect("barracks");
+            assert!(
+                b.is_subdued_disabled(),
+                "structure must be DISABLED_SUBDUED while cooked"
+            );
+            assert!(
+                b.is_disabled(),
+                "subdued structure must count as is_disabled (production stop residual)"
+            );
+        }
+
+        // Ally structure residual-skip: USA barracks next to USA microwave.
+        let mut ally_tpl = crate::game_logic::ThingTemplate::new("TestAllyBarracks");
+        ally_tpl
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("TestAllyBarracks".to_string(), ally_tpl);
+        let ally_id = game_logic
+            .create_object(
+                "TestAllyBarracks",
+                Team::USA,
+                Vec3::new(30.0, 0.0, 0.0),
+            )
+            .expect("ally barracks");
+        {
+            let a = game_logic.find_object_mut(ally_id).unwrap();
+            a.object_type = ObjectType::Building;
+            a.construction_percent = 1.0;
+            a.status.under_construction = false;
+            // Force cook attempt on ally (should not disable).
+        }
+        {
+            let m = game_logic.find_object_mut(micro_id).unwrap();
+            m.attack_target(ally_id);
+        }
+        game_logic.frame = 2;
+        game_logic.update_microwave_disable();
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .map(|a| a.is_subdued_disabled())
+                .unwrap_or(true),
+            "fail-closed: ally structure must not be microwave-disabled"
+        );
+        // Enemy barracks no longer targeted — subdued must clear.
+        assert!(
+            !game_logic
+                .find_object(barracks_id)
+                .map(|b| b.is_subdued_disabled())
+                .unwrap_or(true),
+            "DISABLED_SUBDUED must clear when microwave stops cooking"
+        );
+    }
+
+    /// Residual: non-microwave unit does not disable structures via microwave residual.
+    #[test]
+    fn microwave_tank_residual_skips_non_microwave() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut barracks_tpl = crate::game_logic::ThingTemplate::new("TestBarracks");
+        barracks_tpl
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("TestBarracks".to_string(), barracks_tpl);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("barracks");
+        {
+            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            b.object_type = ObjectType::Building;
+            b.construction_percent = 1.0;
+            b.status.under_construction = false;
+        }
+        {
+            let t = game_logic.find_object_mut(tank_id).unwrap();
+            t.attack_target(barracks_id);
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_microwave_disable();
+        assert!(
+            !game_logic.honesty_microwave_disable_ok(),
+            "fail-closed: ordinary tank must not microwave-disable"
+        );
+        assert!(
+            !game_logic
+                .find_object(barracks_id)
+                .map(|b| b.is_subdued_disabled())
+                .unwrap_or(true)
+        );
+    }
+
+    /// Residual: King Raptor (AirF_AmericaJetRaptor) dual PDL intercepts missiles.
+    #[test]
+    fn king_raptor_residual_laser_intercepts_missile() {
+        use crate::game_logic::host_point_defense::{
+            is_king_raptor_carrier, is_point_defense_carrier, KING_RAPTOR_PDL_DELAY_FRAMES,
+            KING_RAPTOR_PDL_FIRE_RANGE,
+        };
+
+        let mut game_logic = GameLogic::new();
+
+        let mut raptor_tpl = crate::game_logic::ThingTemplate::new("AirF_AmericaJetRaptor");
+        raptor_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("AirF_AmericaJetRaptor".to_string(), raptor_tpl);
+
+        let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+        missile_tpl
+            .add_kind_of(KindOf::Projectile)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(50.0);
+        game_logic
+            .templates
+            .insert("TestMissile".to_string(), missile_tpl);
+
+        let raptor_id = game_logic
+            .create_object(
+                "AirF_AmericaJetRaptor",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("king raptor");
+        let missile_id = game_logic
+            .create_object(
+                "TestMissile",
+                Team::GLA,
+                Vec3::new(KING_RAPTOR_PDL_FIRE_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("missile");
+
+        {
+            let r = game_logic.find_object(raptor_id).expect("king raptor");
+            assert!(
+                is_king_raptor_carrier(&r.template_name),
+                "AirF_AmericaJetRaptor must classify as King Raptor residual"
+            );
+            assert!(
+                is_point_defense_carrier(&r.template_name),
+                "King Raptor must be a PDL carrier residual"
+            );
+        }
+        assert!(!game_logic.honesty_point_defense_intercept_ok());
+
+        game_logic.frame = 1;
+        game_logic.update_point_defense_intercept();
+
+        assert!(
+            game_logic.honesty_point_defense_intercept_ok(),
+            "King Raptor PDL residual honesty must record intercept"
+        );
+        assert!(
+            game_logic.point_defense_residual_intercepts() > 0,
+            "intercept counter must advance"
+        );
+        if let Some(m) = game_logic.find_object(missile_id) {
+            assert!(
+                !m.is_alive() || m.health.current <= 0.0,
+                "missile must be dead after King Raptor laser intercept (hp={})",
+                m.health.current
+            );
+        }
+
+        // Reload residual: dual-laser residual delay (4 frames).
+        let intercepts_after_first = game_logic.point_defense_residual_intercepts();
+        game_logic.frame = 2;
+        let _missile2 = game_logic
+            .create_object(
+                "TestMissile",
+                Team::China,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("missile2");
+        game_logic.update_point_defense_intercept();
+        assert_eq!(
+            game_logic.point_defense_residual_intercepts(),
+            intercepts_after_first,
+            "King Raptor PDL must respect residual dual-laser delay"
+        );
+
+        game_logic.frame = 1 + KING_RAPTOR_PDL_DELAY_FRAMES;
+        game_logic.update_point_defense_intercept();
+        assert!(
+            game_logic.point_defense_residual_intercepts() > intercepts_after_first,
+            "King Raptor PDL must fire again after residual delay"
+        );
+    }
+
+    /// Residual: regular AmericaJetRaptor (non-AirF) does not get PDL residual.
+    #[test]
+    fn king_raptor_residual_skips_regular_raptor() {
+        use crate::game_logic::host_point_defense::{
+            is_king_raptor_carrier, is_point_defense_carrier,
+        };
+
+        let mut game_logic = GameLogic::new();
+
+        let mut raptor_tpl = crate::game_logic::ThingTemplate::new("AmericaJetRaptor");
+        raptor_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0);
+        game_logic
+            .templates
+            .insert("AmericaJetRaptor".to_string(), raptor_tpl);
+
+        let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+        missile_tpl
+            .add_kind_of(KindOf::Projectile)
+            .set_health(50.0);
+        game_logic
+            .templates
+            .insert("TestMissile".to_string(), missile_tpl);
+
+        let raptor_id = game_logic
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("regular raptor");
+        let _missile_id = game_logic
+            .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("missile");
+
+        {
+            let r = game_logic.find_object(raptor_id).unwrap();
+            assert!(
+                !is_king_raptor_carrier(&r.template_name),
+                "regular Raptor is not King Raptor"
+            );
+            assert!(
+                !is_point_defense_carrier(&r.template_name),
+                "regular Raptor has no PDL residual"
+            );
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_point_defense_intercept();
+        assert!(
+            !game_logic.honesty_point_defense_intercept_ok(),
+            "fail-closed: regular Raptor must not PDL-intercept"
+        );
     }
 }
