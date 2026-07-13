@@ -136,6 +136,10 @@
 //! TrailRemnant ImmortalBody health-floor residual (never below 1 HP / never dead);
 //! Anim2DMode full residual table (INVALID..PING_PONG_BACKWARDS) (graphics);
 //! DisplayString draw shadow-position residual (x+xDrop / y+yDrop order honesty).
+//! Wave 44 residual closed: SupW ParticleUplink magenta OuterColor residual
+//! (R:255 G:0 B:255); DeletionUpdate calcSleepDelay residual (min/max frames,
+//! clamp ≥1; remnant fixed 120 frames); graphics GameText MISSING fetch +
+//! DisplayStringManager link + Anim2D status/alpha residual.
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -588,6 +592,17 @@ pub const PARTICLE_CONNECTOR_INNER_COLOR: (f32, f32, f32, f32) =
 /// Retail connector OuterColor residual (R:0 G:0 B:255 A:150).
 pub const PARTICLE_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
     (0.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail SupW (superweapon general) connector/orbital OuterColor residual
+/// (R:255 G:0 B:255 A:150 magenta vs normal blue).
+pub const PARTICLE_SUPW_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
+    (1.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail SupW_ParticleUplinkCannon_OrbitalLaser OuterColor residual (magenta).
+pub const PARTICLE_SUPW_ORBITAL_OUTER_COLOR: (f32, f32, f32, f32) =
+    (1.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail SupW medium/intense/orbital object name residual prefixes.
+pub const PARTICLE_SUPW_MEDIUM_CONNECTOR: &str = "SupW_ParticleUplinkCannon_MediumConnectorLaser";
+pub const PARTICLE_SUPW_INTENSE_CONNECTOR: &str = "SupW_ParticleUplinkCannon_IntenseConnectorLaser";
+pub const PARTICLE_SUPW_ORBITAL_LASER: &str = "SupW_ParticleUplinkCannon_OrbitalLaser";
 /// Retail connector KindOf residual (Medium/Intense both IMMOBILE).
 pub const PARTICLE_CONNECTOR_KIND_OF: &str = "IMMOBILE";
 /// Retail W3DLaserDraw Segments residual default (connectors omit Segments → 1).
@@ -1615,6 +1630,72 @@ pub const PARTICLE_REMNANT_DELETION_UPDATE: bool = true;
 pub const PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
 /// Retail remnant weapon WeaponSpeed residual (dist/sec).
 pub const PARTICLE_REMNANT_WEAPON_SPEED: f32 = 250.0;
+/// Retail DeletionUpdate MinLifetime residual frames (4000 ms → 120 @ 30 FPS).
+pub const PARTICLE_REMNANT_DELETION_MIN_FRAMES: u32 = (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
+/// Retail DeletionUpdate MaxLifetime residual frames (same as min for remnant).
+pub const PARTICLE_REMNANT_DELETION_MAX_FRAMES: u32 = (PARTICLE_REMNANT_MAX_LIFETIME_MS * 30) / 1000;
+
+/// Host residual for C++ `DeletionUpdate::calcSleepDelay`.
+///
+/// `delay = GameLogicRandomValue(min, max); if delay < 1 { delay = 1 }`.
+/// When min==max (TrailRemnant), delay is deterministic. Fail-closed: not full
+/// ThingFactory Object destroy on dieFrame.
+#[inline]
+pub fn deletion_update_calc_sleep_delay(min_frames: u32, max_frames: u32, random_draw: u32) -> u32 {
+    let lo = min_frames.min(max_frames);
+    let hi = min_frames.max(max_frames);
+    let delay = if lo == hi {
+        lo
+    } else {
+        // residual: clamp random_draw into [lo, hi]
+        lo + (random_draw % (hi - lo + 1))
+    };
+    delay.max(1)
+}
+
+/// TrailRemnant fixed DeletionUpdate sleep residual (min==max → 120 frames).
+#[inline]
+pub fn particle_remnant_deletion_sleep_frames() -> u32 {
+    deletion_update_calc_sleep_delay(
+        PARTICLE_REMNANT_DELETION_MIN_FRAMES,
+        PARTICLE_REMNANT_DELETION_MAX_FRAMES,
+        0,
+    )
+}
+
+/// Honesty: SupW ParticleUplink magenta OuterColor residual vs normal blue.
+pub fn honesty_particle_supw_outer_color() -> bool {
+    let (r, g, b, a) = PARTICLE_SUPW_CONNECTOR_OUTER_COLOR;
+    let (nr, ng, nb, na) = PARTICLE_CONNECTOR_OUTER_COLOR;
+    (r - 1.0).abs() < 0.01
+        && (g - 0.0).abs() < 0.01
+        && (b - 1.0).abs() < 0.01
+        && (a - 150.0 / 255.0).abs() < 0.01
+        && (nr - 0.0).abs() < 0.01
+        && (ng - 0.0).abs() < 0.01
+        && (nb - 1.0).abs() < 0.01
+        && (na - a).abs() < 0.01
+        && PARTICLE_SUPW_CONNECTOR_OUTER_COLOR == PARTICLE_SUPW_ORBITAL_OUTER_COLOR
+        && PARTICLE_SUPW_MEDIUM_CONNECTOR.contains("SupW_")
+        && PARTICLE_SUPW_INTENSE_CONNECTOR.contains("SupW_")
+        && PARTICLE_SUPW_ORBITAL_LASER.contains("SupW_")
+        && PARTICLE_CONNECTOR_MEDIUM_LASER.starts_with("ParticleUplink")
+}
+
+/// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
+pub fn honesty_deletion_update_sleep_delay() -> bool {
+    PARTICLE_REMNANT_DELETION_MIN_FRAMES == 120
+        && PARTICLE_REMNANT_DELETION_MAX_FRAMES == 120
+        && PARTICLE_REMNANT_DELETION_MIN_FRAMES == PARTICLE_REMNANT_DURATION_FRAMES
+        && particle_remnant_deletion_sleep_frames() == 120
+        && deletion_update_calc_sleep_delay(0, 0, 0) == 1
+        && deletion_update_calc_sleep_delay(5, 5, 99) == 5
+        && {
+            let d = deletion_update_calc_sleep_delay(3, 7, 1);
+            d >= 3 && d <= 7
+        }
+}
+
 /// Retail ImmortalBody health floor residual (never drop below 1 HP).
 pub const PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR: f32 = 1.0;
 /// Retail ImmortalBody never-dead residual (never mark effectively dead).
@@ -11977,4 +12058,36 @@ mod tests {
         assert!(reg.honesty_beam_remnant_ok());
     }
 
+    #[test]
+    fn particle_supw_outer_color_residual_honesty() {
+        assert!(honesty_particle_supw_outer_color());
+        let (r, g, b, a) = PARTICLE_SUPW_CONNECTOR_OUTER_COLOR;
+        assert!((r - 1.0).abs() < 0.01);
+        assert!((g - 0.0).abs() < 0.01);
+        assert!((b - 1.0).abs() < 0.01);
+        assert!((a - 150.0 / 255.0).abs() < 0.01);
+        // Normal residual is blue, SupW is magenta.
+        assert!((PARTICLE_CONNECTOR_OUTER_COLOR.2 - 1.0).abs() < 0.01);
+        assert!((PARTICLE_CONNECTOR_OUTER_COLOR.0 - 0.0).abs() < 0.01);
+        assert_eq!(
+            PARTICLE_SUPW_MEDIUM_CONNECTOR,
+            "SupW_ParticleUplinkCannon_MediumConnectorLaser"
+        );
+        assert_eq!(
+            PARTICLE_SUPW_ORBITAL_LASER,
+            "SupW_ParticleUplinkCannon_OrbitalLaser"
+        );
+    }
+
+    #[test]
+    fn deletion_update_sleep_delay_residual_honesty() {
+        assert!(honesty_deletion_update_sleep_delay());
+        assert_eq!(particle_remnant_deletion_sleep_frames(), 120);
+        assert_eq!(deletion_update_calc_sleep_delay(0, 0, 0), 1);
+        assert_eq!(deletion_update_calc_sleep_delay(10, 10, 0), 10);
+        let d = deletion_update_calc_sleep_delay(2, 5, 0);
+        assert!((2..=5).contains(&d));
+        let d = deletion_update_calc_sleep_delay(2, 5, 3);
+        assert!((2..=5).contains(&d));
+    }
 }

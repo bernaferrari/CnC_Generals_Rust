@@ -12,6 +12,8 @@
 //!   + residual fade window **1.0s** after display time (WORLD_ANIM_FADE_WINDOW)
 //! - Anim2D mode residual table (ONCE / LOOP / PING_PONG + reverse variants)
 //!   matching C++ `Anim2D::tryNextFrame` frame advance residual
+//! - Anim2D status bits residual (NONE/FROZEN/REVERSED/COMPLETE) + setAlpha
+//!   residual (default alpha 1.0; draw color alpha = 255 * m_alpha)
 //!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
@@ -357,6 +359,69 @@ pub fn honesty_anim2d_mode_residual() -> bool {
     a == b && MONEY_PICKUP_ANIM_MODE_LOOP && !MONEY_PICKUP_RANDOMIZE_START_FRAME
 }
 
+/// C++ `ANIM_2D_STATUS_*` residual bit flags.
+pub const ANIM_2D_STATUS_NONE: u8 = 0x00;
+pub const ANIM_2D_STATUS_FROZEN: u8 = 0x01;
+pub const ANIM_2D_STATUS_REVERSED: u8 = 0x02;
+pub const ANIM_2D_STATUS_COMPLETE: u8 = 0x04;
+/// C++ `Anim2D` constructor default alpha residual.
+pub const ANIM_2D_DEFAULT_ALPHA: f32 = 1.0;
+
+/// Host residual: set status bit(s) (`Anim2D::setStatus`).
+#[inline]
+pub fn anim2d_set_status(status: u8, bits: u8) -> u8 {
+    status | bits
+}
+
+/// Host residual: clear status bit(s) (`Anim2D::clearStatus`).
+#[inline]
+pub fn anim2d_clear_status(status: u8, bits: u8) -> u8 {
+    status & !bits
+}
+
+/// Host residual: test status bit.
+#[inline]
+pub fn anim2d_status_test(status: u8, bits: u8) -> bool {
+    (status & bits) != 0
+}
+
+/// Host residual: clamp setAlpha to [0, 1] (C++ stores Real freely; draw multiplies).
+#[inline]
+pub fn anim2d_set_alpha(alpha: f32) -> f32 {
+    alpha.clamp(0.0, 1.0)
+}
+
+/// Host residual draw color alpha byte: `255 * m_alpha` (C++ `GameMakeColor`).
+#[inline]
+pub fn anim2d_draw_color_alpha(alpha: f32) -> u8 {
+    (255.0 * anim2d_set_alpha(alpha)).round().clamp(0.0, 255.0) as u8
+}
+
+/// Honesty: Anim2D status bits + setAlpha residual.
+pub fn honesty_anim2d_status_alpha() -> bool {
+    ANIM_2D_STATUS_NONE == 0
+        && ANIM_2D_STATUS_FROZEN == 0x01
+        && ANIM_2D_STATUS_REVERSED == 0x02
+        && ANIM_2D_STATUS_COMPLETE == 0x04
+        && (ANIM_2D_DEFAULT_ALPHA - 1.0).abs() < 0.01
+        && anim2d_set_status(ANIM_2D_STATUS_NONE, ANIM_2D_STATUS_FROZEN) == ANIM_2D_STATUS_FROZEN
+        && anim2d_set_status(ANIM_2D_STATUS_FROZEN, ANIM_2D_STATUS_REVERSED)
+            == (ANIM_2D_STATUS_FROZEN | ANIM_2D_STATUS_REVERSED)
+        && anim2d_clear_status(
+            ANIM_2D_STATUS_FROZEN | ANIM_2D_STATUS_REVERSED,
+            ANIM_2D_STATUS_REVERSED,
+        ) == ANIM_2D_STATUS_FROZEN
+        && anim2d_status_test(ANIM_2D_STATUS_COMPLETE, ANIM_2D_STATUS_COMPLETE)
+        && !anim2d_status_test(ANIM_2D_STATUS_NONE, ANIM_2D_STATUS_FROZEN)
+        // FROZEN skips tryNextFrame residual.
+        && anim2d_status_test(ANIM_2D_STATUS_FROZEN, ANIM_2D_STATUS_FROZEN)
+        && anim2d_draw_color_alpha(1.0) == 255
+        && anim2d_draw_color_alpha(0.5) == 128
+        && anim2d_draw_color_alpha(0.0) == 0
+        && (anim2d_set_alpha(1.5) - 1.0).abs() < 0.01
+        && (anim2d_set_alpha(-0.1) - 0.0).abs() < 0.01
+}
+
 /// One CPU-side residual world-anim layout sample.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldAnimLayoutEntry {
@@ -681,5 +746,18 @@ mod tests {
             Some(ResidualAnim2DMode::OnceBackwards)
         );
         assert!(ResidualAnim2DMode::from_name("unknown").is_none());
+    }
+
+    #[test]
+    fn anim2d_status_alpha_residual_honesty() {
+        assert!(honesty_anim2d_status_alpha());
+        assert_eq!(anim2d_set_status(0, ANIM_2D_STATUS_COMPLETE), ANIM_2D_STATUS_COMPLETE);
+        assert_eq!(
+            anim2d_clear_status(ANIM_2D_STATUS_COMPLETE, ANIM_2D_STATUS_COMPLETE),
+            ANIM_2D_STATUS_NONE
+        );
+        assert_eq!(anim2d_draw_color_alpha(ANIM_2D_DEFAULT_ALPHA), 255);
+        // FROZEN residual blocks tryNextFrame advances in C++.
+        assert!(anim2d_status_test(ANIM_2D_STATUS_FROZEN, ANIM_2D_STATUS_FROZEN));
     }
 }
