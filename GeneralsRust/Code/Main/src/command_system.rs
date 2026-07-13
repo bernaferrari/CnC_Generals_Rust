@@ -339,6 +339,12 @@ pub enum SpecialPowerType {
     /// Fail-closed: not full CleanupHazardUpdate projectile stream / scan loop /
     /// HazardousMaterialArmor object stack / rubble pathfind clear.
     CleanupArea,
+    /// China Helix NapalmBomb residual (`SpecialAbilityHelixNapalmBomb` /
+    /// SPECIAL_HELIX_NAPALM_BOMB). Instant NapalmBomb blast + FirestormSmall DoT
+    /// at target location (requires Upgrade_HelixNapalmBomb residual unlock).
+    /// Fail-closed: not full SpecialObject NapalmBomb fall / HeightDieUpdate /
+    /// FirestormDynamicGeometryInfoUpdate expand animation.
+    HelixNapalmBomb,
     Invalid,
 }
 
