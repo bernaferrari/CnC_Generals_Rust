@@ -1292,13 +1292,21 @@ fn run_map_world_skirmish(
     frames: u32,
 ) -> VerticalSliceOutcome {
     logic.set_ai_active(1, true);
-    // Prefer fighting at map enemy range rather than relocating AI base soup into
-    // a synthetic corner. AI stays active and may rebuild near the map base.
+    // Colocate host AI rebuild soup with the map army so residual rebuilds
+    // (default GLA base is (200,0,200)) are not a second full-HP CC across the
+    // map that wipes the ranger squad after the primary map kill. AI stays
+    // active during production and may still rebuild — just near the fight.
     prepare_retail_usa_host_templates(logic);
     ensure_human_economy(logic, 25_000, 500);
 
     let base = usa_base_position(logic);
     let map_enemy = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
+    if let Some(eid) = map_enemy {
+        if let Some(ep) = logic.get_object(eid).map(|o| o.get_position()) {
+            // Offset slightly so AI soup does not stack on the map CC footprint.
+            logic.relocate_host_ai_base(1, ep + Vec3::new(40.0, 0.0, 40.0));
+        }
+    }
 
     // --- Power first (retail USA_PowerPlant / ColdFusion preferred) ---
     let power_name = first_present_template(
@@ -1636,54 +1644,80 @@ fn run_map_world_skirmish(
     // Pause AI rebuild + clear enemy combat targets so pure-march rangers are
     // not racing production queues or structure auto-counterfire. set_ai_active
     // alone left residual unit AI free to re-acquire and kill the squad.
+    // Also cancels enemy production and halts AI workers (see GameLogic).
     logic.pause_skirmish_ai_and_clear_combat(1);
-    // Keep barracks producing during the clear so attrition can be replaced.
-    if let Some(bid) = barracks_id {
-        if !ranger_name_used.is_empty() {
-            ensure_human_economy(logic, 15_000, 500);
-            for _ in 0..8 {
-                let _ = logic.enqueue_production(bid, ranger_name_used.clone());
+
+    // Multi-wave clear: map army + residual AI rebuilds can wipe the first squad
+    // (common fail: primary map CC dead, rebuilt GLA_CommandCenter full HP, 0 rangers).
+    // Re-produce from barracks and sweep until all_cleared or wave budget ends.
+    let mut fought = false;
+    let mut all_cleared = false;
+    let mut combat_no_teleport_ok = true;
+    let mut combat_realistic_speed_ok = true;
+    let mut combat_store_damage_ok = true;
+    let mut wave_rangers = production_rangers;
+    let mut wave_primary = primary_enemy;
+    const CLEAR_WAVES: u32 = 4;
+    for wave in 0..CLEAR_WAVES {
+        if let Some(bid) = barracks_id {
+            if !ranger_name_used.is_empty() {
+                ensure_human_economy(logic, 20_000, 500);
+                for _ in 0..12 {
+                    let _ = logic.enqueue_production(bid, ranger_name_used.clone());
+                }
+                // Top up live squad before each wave (first wave may already have 10+).
+                let need = if wave == 0 { 8 } else { 6 };
+                let _ = run_until(logic, 900, |g| {
+                    g.get_objects()
+                        .values()
+                        .filter(|o| {
+                            o.team == Team::USA
+                                && o.is_alive()
+                                && is_produced_ranger(&o.template_name)
+                        })
+                        .count()
+                        >= need
+                });
             }
         }
-    }
-    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
-        fight_enemies_with_rangers(logic, &production_rangers, primary_enemy, fight_rounds);
-    // If a straggler remains (common: distant GLA_CC), one more pure-march sweep.
-    let (fought, all_cleared, combat_no_teleport_ok, combat_realistic_speed_ok, combat_store_damage_ok) =
-        if !all_cleared {
-            let remaining = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
-            let live = collect_live_produced_rangers(logic);
-            if remaining.is_some() && !live.is_empty() {
-                let (f2, c2, t2, s2, d2) =
-                    fight_enemies_with_rangers(logic, &live, remaining, fight_rounds);
-                (
-                    fought || f2,
-                    c2 && !logic.get_objects().values().any(|o| {
-                        o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
-                    }),
-                    combat_no_teleport_ok && t2,
-                    combat_realistic_speed_ok && s2,
-                    combat_store_damage_ok && d2,
-                )
-            } else {
-                (
-                    fought,
-                    all_cleared,
-                    combat_no_teleport_ok,
-                    combat_realistic_speed_ok,
-                    combat_store_damage_ok,
-                )
-            }
+        let live = if wave == 0 && !wave_rangers.is_empty() {
+            // Prefer original production list expanded with late spawns.
+            live_rangers_expanded(logic, &wave_rangers)
         } else {
-            (
-                fought,
-                all_cleared,
-                combat_no_teleport_ok,
-                combat_realistic_speed_ok,
-                combat_store_damage_ok,
-            )
+            collect_live_produced_rangers(logic)
         };
-    logic.set_ai_active(1, true);
+        if live.is_empty() {
+            continue;
+        }
+        wave_rangers = live;
+        let focus = wave_primary
+            .filter(|id| {
+                logic
+                    .get_object(*id)
+                    .map(|o| o.is_alive() && o.team != Team::USA && o.team != Team::Neutral)
+                    .unwrap_or(false)
+            })
+            .or_else(|| find_map_enemy_structure(logic))
+            .or_else(|| find_any_enemy(logic));
+        let (f, c, t, s, d) =
+            fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds);
+        fought |= f;
+        all_cleared = c
+            && !logic.get_objects().values().any(|o| {
+                o.team != Team::USA && o.team != Team::Neutral && o.is_alive()
+            });
+        combat_no_teleport_ok &= t;
+        combat_realistic_speed_ok &= s;
+        combat_store_damage_ok &= d;
+        // Next wave focuses any straggler (rebuilt CC, distant unit).
+        wave_primary = find_map_enemy_structure(logic).or_else(|| find_any_enemy(logic));
+        if all_cleared {
+            break;
+        }
+        // Re-assert pause between waves (combat clear may re-enable nothing, but
+        // residual production cancel stays honest if something requeued).
+        logic.pause_skirmish_ai_and_clear_combat(1);
+    }
 
     let map_enemy_dead = primary_enemy
         .map(|id| !logic.get_object(id).map(|o| o.is_alive()).unwrap_or(false))
@@ -1692,11 +1726,8 @@ fn run_map_world_skirmish(
     let same_world_victory_ok =
         same_world_production_ok && primary_alive_before && map_enemy_dead && produced;
 
-    let frame_before = logic.get_frame();
-    run_frames(logic, frames.max(1) as usize);
-    let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
-
-    // Victory: all map/AI enemy army cleared via combat; Winner(0) from production path.
+    // Evaluate victory while AI remains paused so a residual rebuild in the
+    // trailing frames cannot re-spawn a CC after a proven clear.
     let enemy_alive = logic
         .get_objects()
         .values()
@@ -1708,6 +1739,13 @@ fn run_map_world_skirmish(
             logic.evaluate_victory_condition(),
             Some(VictoryCondition::Winner(0))
         );
+
+    // Trailing frames with AI re-enabled (honesty: AI was on for the slice).
+    // Victory already evaluated; do not let trailing rebuild flip the result.
+    logic.set_ai_active(1, true);
+    let frame_before = logic.get_frame();
+    run_frames(logic, frames.max(1) as usize);
+    let frames_advanced = logic.get_frame().saturating_sub(frame_before).max(1);
 
     let save_load_ok = mid_match_save_load_ok(logic, map_identity);
 
