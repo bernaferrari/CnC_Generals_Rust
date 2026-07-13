@@ -100,6 +100,16 @@ pub const SPECTRE_ORBIT_TICK_INTERVAL_FRAMES: u32 = 9;
 pub const SPECTRE_ORBIT_DURATION_FRAMES: u32 = 450;
 /// Residual ambient cue for active Spectre orbit (`SpectreGunshipAmbientLoop`).
 pub const SPECTRE_ORBIT_AUDIO: &str = "SpectreGunshipAmbientLoop";
+/// Retail `SpectreHowitzerGun` PrimaryDamageRadius (howitzer blast residual).
+pub const SPECTRE_HOWITZER_RADIUS: f32 = 25.0;
+/// Retail `SpectreGunshipUpdate` RandomOffsetForHowitzer residual.
+pub const SPECTRE_HOWITZER_RANDOM_OFFSET: f32 = 20.0;
+/// Retail `SpectreGattlingGun` PrimaryDamage (single-target residual).
+pub const SPECTRE_GATTLING_DAMAGE: f32 = 90.0;
+/// Retail `SpectreGattlingGun` DelayBetweenShots = 100 ms → 3 frames @ 30 FPS.
+pub const SPECTRE_GATTLING_TICK_INTERVAL_FRAMES: u32 = 3;
+/// Residual honesty audio for gattling strafe residual.
+pub const SPECTRE_GATTLING_AUDIO: &str = "SpectreGunshipGattlingWeapon";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -1094,8 +1104,11 @@ pub struct HostSpectreOrbitField {
     pub position: Vec3,
     pub spawn_frame: u32,
     pub expires_frame: u32,
-    /// Next absolute frame at which orbit damage ticks apply.
+    /// Next absolute frame at which howitzer residual ticks apply.
     pub next_tick_frame: u32,
+    /// Next absolute frame at which gattling strafe residual ticks apply.
+    #[serde(default)]
+    pub next_gattling_tick_frame: u32,
     /// Total residual orbit damage applied across all ticks.
     pub total_damage_applied: f32,
     /// Number of distinct damage applications (object×tick).
@@ -1104,6 +1117,12 @@ pub struct HostSpectreOrbitField {
     pub objects_destroyed: u32,
     /// Parent SpectreGunship strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Honesty: howitzer residual ticks applied.
+    #[serde(default)]
+    pub howitzer_ticks: u32,
+    /// Honesty: gattling residual ticks applied.
+    #[serde(default)]
+    pub gattling_ticks: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -1111,9 +1130,31 @@ impl HostSpectreOrbitField {
         current_frame >= self.expires_frame
     }
 
-    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+    pub fn is_due_howitzer(&self, current_frame: u32) -> bool {
         !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
     }
+
+    pub fn is_due_gattling(&self, current_frame: u32) -> bool {
+        !self.is_expired(current_frame) && current_frame >= self.next_gattling_tick_frame
+    }
+
+    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        self.is_due_howitzer(current_frame) || self.is_due_gattling(current_frame)
+    }
+}
+
+/// Deterministic residual RandomOffsetForHowitzer for howitzer tick index.
+///
+/// C++: random offset in [-RandomOffsetForHowitzer, +RandomOffsetForHowitzer] on
+/// X/Y. Host residual: golden-ratio phase in ±offset (C++ X/Y → host X/Z).
+pub fn spectre_howitzer_offset(tick_index: u32) -> Vec3 {
+    if SPECTRE_HOWITZER_RANDOM_OFFSET <= 0.0 {
+        return Vec3::ZERO;
+    }
+    let phase = (tick_index as f32 + 1.0) * 0.618_033_988_7;
+    let ox = (phase.fract() * 2.0 - 1.0) * SPECTRE_HOWITZER_RANDOM_OFFSET;
+    let oz = ((phase + 0.37).fract() * 2.0 - 1.0) * SPECTRE_HOWITZER_RANDOM_OFFSET;
+    Vec3::new(ox, 0.0, oz)
 }
 
 /// Damage application plan for a single Spectre orbit victim this tick.
@@ -1829,10 +1870,21 @@ impl HostSpecialPowerStrikeRegistry {
         objects_destroyed: u32,
     ) {
         // Default: treat as final single wave (legacy callers).
-        self.record_impact_wave(strike_id, total_damage, objects_hit, objects_destroyed, 1, true);
+        self.record_impact_wave(
+            strike_id,
+            total_damage,
+            objects_hit,
+            objects_destroyed,
+            1,
+            true,
+            &[],
+        );
     }
 
     /// Record one multi-strike impact wave (or a one-shot final impact).
+    ///
+    /// `epicenters` carries this wave's shell/missile impact points so ScudStorm
+    /// can spawn per-missile LargePoisonField residual (retail FireOCL each detonation).
     pub fn record_impact_wave(
         &mut self,
         strike_id: u32,
@@ -1841,9 +1893,11 @@ impl HostSpecialPowerStrikeRegistry {
         objects_destroyed: u32,
         wave_shell_count: u32,
         is_final_wave: bool,
+        epicenters: &[Vec3],
     ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
-        let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32, bool)> = None;
+        let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
+        let mut spawn_scud_poison: Vec<(ObjectId, super::Team, Vec3, u32)> = Vec::new();
         let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32, SpectreGunshipScienceTier)> = None;
         let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
@@ -1856,6 +1910,19 @@ impl HostSpecialPowerStrikeRegistry {
                 strike.multi_strike_applied = strike
                     .multi_strike_applied
                     .saturating_add(wave_shell_count.max(1));
+                // ScudStorm: per-missile LargePoisonField residual (each detonation).
+                if strike.kind.spawns_scud_poison_field() {
+                    let source = strike.source_object;
+                    let team = strike.source_team;
+                    let frame = strike.impact_frame;
+                    if epicenters.is_empty() {
+                        spawn_scud_poison.push((source, team, strike.target_position, frame));
+                    } else {
+                        for p in epicenters {
+                            spawn_scud_poison.push((source, team, *p, frame));
+                        }
+                    }
+                }
                 if is_final_wave {
                     strike.phase = HostStrikePhase::Completed;
                     self.completed_this_frame.push(strike_id);
@@ -1867,14 +1934,13 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.impact_frame,
                         ));
                     }
-                    if strike.kind.spawns_toxin_field() {
+                    // AnthraxBomb toxin (not Scud — Scud already spawned per-missile).
+                    if strike.kind.spawns_toxin_field() && !strike.kind.spawns_scud_poison_field() {
                         spawn_toxin = Some((
                             strike.source_object,
                             strike.source_team,
                             strike.target_position,
-                            // Use current impact frame residual (final wave frame).
                             strike.impact_frame,
-                            strike.kind.spawns_scud_poison_field(),
                         ));
                     }
                     if strike.kind.spawns_orbit_field() {
@@ -1900,12 +1966,11 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
         }
-        if let Some((source, team, pos, impact_frame, is_scud_poison)) = spawn_toxin {
-            if is_scud_poison {
-                self.spawn_scud_poison_field(source, team, pos, impact_frame, strike_id);
-            } else {
-                self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
-            }
+        if let Some((source, team, pos, impact_frame)) = spawn_toxin {
+            self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
+        }
+        for (source, team, pos, impact_frame) in spawn_scud_poison {
+            self.spawn_scud_poison_field(source, team, pos, impact_frame, strike_id);
         }
         if let Some((source, team, pos, impact_frame, spectre_tier)) = spawn_orbit {
             self.spawn_orbit_field_with_tier(
@@ -2215,10 +2280,14 @@ impl HostSpecialPowerStrikeRegistry {
             expires_frame: spawn_frame.saturating_add(duration),
             // First howitzer residual tick on orbit insertion frame.
             next_tick_frame: spawn_frame,
+            // First gattling residual tick on orbit insertion frame.
+            next_gattling_tick_frame: spawn_frame,
             total_damage_applied: 0.0,
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            howitzer_ticks: 0,
+            gattling_ticks: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -2228,12 +2297,13 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Build Spectre orbit damage plans for all fields whose tick frame has arrived.
     ///
-    /// Retail `SpectreHowitzerGun` / `SpectreGattlingGun` hit ALLIES ENEMIES
-    /// NEUTRALS. Host residual damages living objects in AttackAreaRadius
-    /// except the source launcher object and same-team friendlies (host strike
-    /// convention for offensive superweapons). Fail-closed vs gattling strafe
-    /// pattern / howitzer projectile / random offset / portable structure
-    /// contain gunner path.
+    /// Wave 13 dual residual:
+    /// - Howitzer (`SpectreHowitzerGun`): PrimaryDamage **80** in PrimaryDamageRadius
+    ///   **25** around reticle + deterministic RandomOffsetForHowitzer residual.
+    /// - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to nearest living
+    ///   enemy in AttackAreaRadius **200** (single-target residual).
+    /// Both exclude source launcher and same-team friendlies. Fail-closed vs full
+    /// projectile path / continuous-fire rate matrix / contain gunner Object.
     pub fn plan_due_orbit_ticks(
         &self,
         current_frame: u32,
@@ -2244,24 +2314,58 @@ impl HostSpecialPowerStrikeRegistry {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
-            let mut hits = Vec::new();
-            for &(id, pos, team, alive) in object_positions {
-                if !alive || id == field.source_object {
-                    continue;
-                }
-                // Fail-closed residual: do not damage friendlies (same team).
-                if team == field.source_team {
-                    continue;
-                }
-                let dist = horizontal_distance(pos, field.position);
-                if dist <= SPECTRE_ORBIT_RADIUS {
-                    hits.push(HostSpectreOrbitDamageHit {
-                        target_id: id,
-                        damage: SPECTRE_ORBIT_DAMAGE_PER_TICK,
-                        field_id: field.id,
-                    });
+            let howitzer_due = field.is_due_howitzer(current_frame);
+            let gattling_due = field.is_due_gattling(current_frame);
+            // Accumulate damage per target (howitzer AOE + gattling single-target).
+            let mut dmg_map: std::collections::BTreeMap<ObjectId, f32> =
+                std::collections::BTreeMap::new();
+
+            if howitzer_due {
+                let off = spectre_howitzer_offset(field.howitzer_ticks);
+                let epicenter = Vec3::new(
+                    field.position.x + off.x,
+                    field.position.y,
+                    field.position.z + off.z,
+                );
+                for &(id, pos, team, alive) in object_positions {
+                    if !alive || id == field.source_object || team == field.source_team {
+                        continue;
+                    }
+                    let dist = horizontal_distance(pos, epicenter);
+                    if dist <= SPECTRE_HOWITZER_RADIUS {
+                        *dmg_map.entry(id).or_insert(0.0) += SPECTRE_ORBIT_DAMAGE_PER_TICK;
+                    }
                 }
             }
+
+            if gattling_due {
+                let mut best: Option<(ObjectId, f32)> = None;
+                for &(id, pos, team, alive) in object_positions {
+                    if !alive || id == field.source_object || team == field.source_team {
+                        continue;
+                    }
+                    let dist = horizontal_distance(pos, field.position);
+                    if dist <= SPECTRE_ORBIT_RADIUS {
+                        match best {
+                            Some((_, bd)) if bd <= dist => {}
+                            _ => best = Some((id, dist)),
+                        }
+                    }
+                }
+                if let Some((id, _)) = best {
+                    *dmg_map.entry(id).or_insert(0.0) += SPECTRE_GATTLING_DAMAGE;
+                }
+            }
+
+            let hits: Vec<HostSpectreOrbitDamageHit> = dmg_map
+                .into_iter()
+                .filter(|(_, d)| *d > 0.0)
+                .map(|(target_id, damage)| HostSpectreOrbitDamageHit {
+                    target_id,
+                    damage,
+                    field_id: field.id,
+                })
+                .collect();
             plans.push(HostSpectreOrbitTickPlan {
                 field_id: field.id,
                 source_object: field.source_object,
@@ -2274,7 +2378,7 @@ impl HostSpecialPowerStrikeRegistry {
         plans
     }
 
-    /// Record Spectre orbit tick results and advance next_tick_frame.
+    /// Record Spectre orbit tick results and advance howitzer/gattling timers.
     pub fn record_orbit_tick_complete(
         &mut self,
         field_id: u32,
@@ -2287,12 +2391,35 @@ impl HostSpecialPowerStrikeRegistry {
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
             field.objects_destroyed += objects_destroyed;
-            field.next_tick_frame =
-                current_frame.saturating_add(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES);
+            // Advance whichever residual streams were due this frame.
+            if current_frame >= field.next_tick_frame {
+                field.next_tick_frame =
+                    current_frame.saturating_add(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES);
+                field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
+            }
+            if current_frame >= field.next_gattling_tick_frame {
+                field.next_gattling_tick_frame =
+                    current_frame.saturating_add(SPECTRE_GATTLING_TICK_INTERVAL_FRAMES);
+                field.gattling_ticks = field.gattling_ticks.saturating_add(1);
+            }
             self.orbit_damage_applications_total = self
                 .orbit_damage_applications_total
                 .saturating_add(applications);
         }
+    }
+
+    /// Residual honesty: at least one howitzer tick applied.
+    pub fn honesty_howitzer_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.howitzer_ticks > 0)
+            || self
+                .orbit_fields
+                .iter()
+                .any(|f| f.damage_applications > 0 && f.howitzer_ticks > 0)
+    }
+
+    /// Residual honesty: at least one gattling strafe tick applied.
+    pub fn honesty_gattling_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.gattling_ticks > 0)
     }
 
     /// Drop expired Spectre orbit fields.
@@ -2860,6 +2987,7 @@ mod tests {
             0,
             first_wave[0].wave_shell_count,
             first_wave[0].is_final_wave,
+            &first_wave[0].epicenters,
         );
         assert!(!reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
 
@@ -2889,6 +3017,7 @@ mod tests {
             0,
             plans[0].wave_shell_count,
             plans[0].is_final_wave,
+            &plans[0].epicenters,
         );
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CarpetBomb));
@@ -3037,6 +3166,7 @@ mod tests {
             0,
             first[0].wave_shell_count,
             first[0].is_final_wave,
+            &first[0].epicenters,
         );
 
         // Jump to last DelayDelivery shell frame: remaining scatter shells apply.
@@ -3070,6 +3200,7 @@ mod tests {
                 0,
                 plans[0].wave_shell_count,
                 plans[0].is_final_wave,
+                &plans[0].epicenters,
             );
             assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
         }
@@ -3294,26 +3425,52 @@ mod tests {
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.radiation_fields().is_empty());
 
-        // Orbit tick hits enemies in AttackAreaRadius; excludes source + friendlies.
+        // First orbit tick: howitzer (r25 at reticle) + gattling (nearest enemy).
+        // Enemy at field position: both residual streams hit.
         let orbit_plans = reg.plan_due_orbit_ticks(90, &objects);
         assert_eq!(orbit_plans.len(), 1);
         assert_eq!(orbit_plans[0].hits.len(), 1);
         assert_eq!(orbit_plans[0].hits[0].target_id, ObjectId(2));
+        let expected_first = SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE;
         assert!(
-            (orbit_plans[0].hits[0].damage - SPECTRE_ORBIT_DAMAGE_PER_TICK).abs() < 0.01
+            (orbit_plans[0].hits[0].damage - expected_first).abs() < 0.01,
+            "first tick howitzer+gattling residual, got {}",
+            orbit_plans[0].hits[0].damage
         );
 
-        reg.record_orbit_tick_complete(orbit_plans[0].field_id, 80.0, 1, 0, 90);
+        reg.record_orbit_tick_complete(orbit_plans[0].field_id, expected_first, 1, 0, 90);
         assert!(reg.honesty_orbit_damage_ok());
+        assert!(reg.honesty_gattling_ok());
+        assert_eq!(reg.orbit_fields()[0].howitzer_ticks, 1);
+        assert_eq!(reg.orbit_fields()[0].gattling_ticks, 1);
         assert_eq!(
             reg.orbit_fields()[0].next_tick_frame,
             90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
         );
+        assert_eq!(
+            reg.orbit_fields()[0].next_gattling_tick_frame,
+            90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES
+        );
 
-        // Second tick after interval.
+        // Gattling-only tick after 3 frames (howitzer still waiting).
+        let gattling_only = reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects);
+        assert_eq!(gattling_only.len(), 1);
+        assert_eq!(gattling_only[0].hits.len(), 1);
+        assert!(
+            (gattling_only[0].hits[0].damage - SPECTRE_GATTLING_DAMAGE).abs() < 0.01
+        );
+        reg.record_orbit_tick_complete(
+            gattling_only[0].field_id,
+            SPECTRE_GATTLING_DAMAGE,
+            1,
+            0,
+            90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES,
+        );
+
+        // Howitzer residual after HowitzerFiringRate interval.
         let later = reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects);
         assert_eq!(later.len(), 1);
-        assert_eq!(later[0].hits.len(), 1);
+        assert!(!later[0].hits.is_empty());
     }
 
     #[test]
@@ -3644,10 +3801,15 @@ mod tests {
             0,
             plans[0].wave_shell_count,
             false,
+            &plans[0].epicenters,
         );
-        assert!(reg.toxin_fields().is_empty());
+        assert!(
+            !reg.toxin_fields().is_empty(),
+            "first Scud missile wave must spawn LargePoisonField residual"
+        );
+        let poison_after_first = reg.toxin_fields().len();
 
-        // Jump to last missile: complete + poison.
+        // Jump to last missile: complete + more poison.
         let last_plans = reg.plan_due_impacts(last, &objects);
         assert_eq!(last_plans.len(), 1);
         assert!(last_plans[0].is_final_wave);
@@ -3658,10 +3820,14 @@ mod tests {
             0,
             last_plans[0].wave_shell_count,
             true,
+            &last_plans[0].epicenters,
         );
         assert!(reg.honesty_complete_ok(kind));
         assert!(reg.honesty_toxin_ok());
-        assert_eq!(reg.toxin_fields().len(), 1);
+        assert!(
+            reg.toxin_fields().len() > poison_after_first,
+            "later Scud missiles must spawn additional LargePoisonField residual"
+        );
         let field = &reg.toxin_fields()[0];
         assert!((field.damage_per_tick - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.1);
         assert!((field.radius - SCUD_STORM_POISON_RADIUS).abs() < 0.1);
@@ -3671,13 +3837,18 @@ mod tests {
             field.spawn_frame + SCUD_STORM_POISON_DURATION_FRAMES
         );
 
-        // Poison tick uses LargePoison residual damage.
+        // Poison tick uses LargePoison residual damage (one plan per field).
         let tox = reg.plan_due_toxin_ticks(field.spawn_frame, &objects);
-        assert_eq!(tox.len(), 1);
-        assert!(tox[0].hits.iter().any(|h| {
-            h.target_id == ObjectId(2)
-                && (h.damage - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.01
+        assert!(!tox.is_empty());
+        assert!(tox.iter().any(|plan| {
+            plan.hits.iter().any(|h| {
+                h.target_id == ObjectId(2)
+                    && (h.damage - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.01
+            })
         }));
+        // ClipSize-9 per-missile residual can spawn up to 9 fields.
+        assert!(reg.toxin_fields().len() <= SCUD_STORM_MISSILE_COUNT as usize);
+        assert!(reg.toxin_fields_spawned_total() >= 2);
     }
 
     #[test]
@@ -3749,4 +3920,46 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn spectre_gattling_and_howitzer_residual_honesty() {
+        assert_eq!(SPECTRE_HOWITZER_RADIUS, 25.0);
+        assert_eq!(SPECTRE_HOWITZER_RANDOM_OFFSET, 20.0);
+        assert_eq!(SPECTRE_GATTLING_DAMAGE, 90.0);
+        assert_eq!(SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, 3);
+        // Offset residual stays within RandomOffsetForHowitzer.
+        for i in 0..16 {
+            let o = spectre_howitzer_offset(i);
+            assert!(o.x.abs() <= SPECTRE_HOWITZER_RANDOM_OFFSET + 1e-3);
+            assert!(o.z.abs() <= SPECTRE_HOWITZER_RANDOM_OFFSET + 1e-3);
+            assert!(o.y.abs() < 1e-5);
+        }
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+
+        // Enemy far from reticle (outside howitzer 25) but inside orbit 200:
+        // gattling only.
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::USA, true),
+            (ObjectId(2), Vec3::new(100.0, 0.0, 0.0), Team::GLA, true),
+            (ObjectId(3), Vec3::new(10.0, 0.0, 0.0), Team::GLA, true), // near reticle
+        ];
+        let plans = reg.plan_due_orbit_ticks(90, &objects);
+        assert_eq!(plans.len(), 1);
+        // Near enemy: howitzer (possibly offset) and/or gattling nearest.
+        // Far enemy at 100: only gattling if nearer than 3? nearest is 3 at dist 10.
+        // Gattling picks nearest = ObjectId(3) at ~10.
+        // Howitzer: epicenter near 0 with offset ≤20; ObjectId(3) at 10 may be in r25.
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        // Object 2 at 100 is outside howitzer and not nearest for gattling.
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
+    }
 }
