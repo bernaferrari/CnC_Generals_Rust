@@ -12,13 +12,20 @@
 //! - `shell_host_playable_ok` — limited honesty claim: when true, the headless
 //!   shell→config→map→dual-tick presentation→HUD selection/minimap→ControlBar.wnd
 //!   ensure path is operational. Still **not** a retail playthrough claim.
+//!
+//! Residual honesty (do **not** flip `playable_claim`):
+//! - `dual_tick_presentation_ok` — seed + logic update + presentation apply order
+//! - `minimap_fow_presentation_ok` — FOW grid snapshot usable for minimap texture path
+//! - `laser_segment_upload_ok` — presentation → CPU SegLine pack residual (incl. synthetic)
+//! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 
 use crate::game_logic::GameLogic;
 use crate::gameplay_layout::{
-    ensure_control_bar_layout, format_gameplay_layout_status, GameplayLayoutStatus,
+    control_bar_layout_honesty, format_gameplay_layout_status, GameplayLayoutStatus,
 };
+use crate::graphics::laser_segment_upload::{pack_and_mark_upload_ready, LaserSegmentUpload};
 use crate::map_frame_scenario::resolve_first_map;
-use crate::presentation_frame::PresentationFrame;
+use crate::presentation_frame::{PresentationFrame, PresentationLaserBeam};
 use crate::skirmish_config::{apply_skirmish_config, config_from_skirmish_menu};
 use crate::ui::skirmish_menu::SkirmishMenu;
 use crate::ui::{GameHUD, Screen, UIManager};
@@ -40,14 +47,24 @@ pub struct ShellSmokeResult {
     pub map_loaded: bool,
     pub frames_advanced: u32,
     pub presentation_ok: bool,
+    /// Dual-tick residual: seed presentation, then logic update + build_and_apply order.
+    pub dual_tick_presentation_ok: bool,
     /// Dual-tick residual: after map load, logic update + presentation seed HUD
     /// selection health / minimap without re-reading live objects.
     pub hud_selection_ok: bool,
+    /// Minimap FOW residual: presentation `fow_grid` is host-usable (active R8 or honest inactive).
+    pub minimap_fow_presentation_ok: bool,
+    /// Laser residual: presentation → CPU SegLine vertex pack (+ synthetic non-empty pack).
+    pub laser_segment_upload_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
     /// True when layout Ready, or assets honestly unavailable (CI without WindowZH).
     pub control_bar_layout_ok: bool,
+    /// ControlBar.wnd path found on disk.
+    pub control_bar_path_resolved: bool,
+    /// ControlBar.wnd structural validate (FILE_VERSION / WINDOW / ControlBar tokens).
+    pub control_bar_wnd_validated: bool,
     /// Limited headless host claim (see module docs). Not retail W3D play.
     pub shell_host_playable_ok: bool,
     /// Always false here: no window/WND/GPU retail playthrough.
@@ -142,6 +159,30 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             .iter()
             .any(|o| o.model_key.is_none() && !o.destroyed);
 
+    // Dual-tick residual honesty: seed frame applied, then post-update presentation
+    // matches authority frame (start_game_from_ui / engine dual-tick order).
+    let dual_tick_presentation_ok = seed_ok
+        && frames_ok
+        && presentation_ok
+        && pres.frame.0 == logic.get_frame()
+        && seed_pres.frame.0 <= pres.frame.0;
+
+    // Minimap FOW from presentation residual (grid snapshot, not live shroud re-lock).
+    let minimap_fow_presentation_ok = presentation_ok && pres.minimap_fow_presentation_ok();
+
+    // WGPU laser segment upload residual (CPU pack path; no live device required).
+    // Empty host lasers → honest empty pack; synthetic assist pair exercises geometry.
+    let empty_pack = pack_and_mark_upload_ready(&pres);
+    let synthetic = PresentationLaserBeam::synthetic_assist_pair(pres.frame.0);
+    let mut synth_frame = pres.clone();
+    synth_frame.laser_beams = synthetic.to_vec();
+    let synth_pack = LaserSegmentUpload::pack_from_presentation(&synth_frame);
+    let laser_segment_upload_ok = empty_pack.honesty.honesty_cpu_pack_ok()
+        && empty_pack.honesty.honesty_upload_ready_ok()
+        && synth_pack.honesty.honesty_geometry_ok()
+        && synth_pack.honesty.segments_packed >= 20
+        && synth_pack.honesty.beams_packed == 2;
+
     // HUD + ControlBar selection panel health from presentation after dual-tick.
     let hud_selection_ok = if let Some(id) = select_id {
         let infos = hud.selected_unit_infos();
@@ -188,14 +229,20 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && !Screen::Loading.is_shell_owned_pregame();
     // Dry-run validate for headless smoke (no WindowManager GUI init required).
     // Full window load is still deferred to ensure_gameplay_layouts(true) in-engine.
-    let layout_status = ensure_control_bar_layout(false);
+    let layout_honesty = control_bar_layout_honesty(false);
+    let layout_status = layout_honesty.status.clone();
     let layout_report = format_gameplay_layout_status(&layout_status);
+    let control_bar_path_resolved = layout_honesty.path_resolved;
+    let control_bar_wnd_validated = layout_honesty.wnd_validated;
     let control_bar_layout_ok = match &layout_status {
         GameplayLayoutStatus::Ready { path, loaded } => {
             path.contains("ControlBar") && !*loaded // dry-run: loaded must stay false
+                && control_bar_wnd_validated
         }
         // Honest residual when WindowZH assets are not checked out.
-        GameplayLayoutStatus::AssetsUnavailable { searched } => !searched.is_empty(),
+        GameplayLayoutStatus::AssetsUnavailable { searched } => {
+            !searched.is_empty() && layout_honesty.assets_unavailable
+        }
         GameplayLayoutStatus::LoadFailed { .. } => false,
     };
     ui_mgr.transition_to_screen(Screen::GameHUD);
@@ -242,14 +289,19 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         map_loaded,
         frames_advanced,
         presentation_ok,
+        dual_tick_presentation_ok,
         hud_selection_ok,
+        minimap_fow_presentation_ok,
+        laser_segment_upload_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
+        control_bar_path_resolved,
+        control_bar_wnd_validated,
         shell_host_playable_ok,
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} hud_sel={hud_selection_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -274,10 +326,33 @@ mod tests {
         assert!(r.frames_advanced > 0, "{}", r.detail);
         assert!(r.hud_selection_ok, "HUD selection residual: {}", r.detail);
         assert!(
+            r.dual_tick_presentation_ok,
+            "dual-tick presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.minimap_fow_presentation_ok,
+            "minimap FOW presentation residual: {}",
+            r.detail
+        );
+        assert!(
+            r.laser_segment_upload_ok,
+            "laser segment CPU upload residual: {}",
+            r.detail
+        );
+        assert!(
             r.control_bar_layout_ok,
             "ControlBar.wnd ensure residual: {}",
             r.detail
         );
+        // When WindowZH is present, path+validate honesty must be true.
+        if r.control_bar_path_resolved {
+            assert!(
+                r.control_bar_wnd_validated,
+                "ControlBar structural validate residual: {}",
+                r.detail
+            );
+        }
         assert!(
             r.screen_skirmish_ok,
             "shell→InGame screen residual: {}",
