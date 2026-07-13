@@ -10359,10 +10359,13 @@ impl GameLogic {
                     crate::game_logic::host_combat_cycle::combat_cycle_weapon_for_rider(rider);
             }
 
-            // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10).
+            // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
+            // + PRIMARY TunnelNetworkGun residual (base-defense auto-fire path).
             // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
             if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
                 object.install_tunnel_network_residual();
+                object.weapon =
+                    Some(crate::game_logic::host_tunnel_network::tunnel_network_gun_weapon());
             }
 
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
@@ -10542,13 +10545,27 @@ impl GameLogic {
             }
 
             // Host residual: USA Patriot dual ground/AA secondary.
+            // Laser General residual uses Lazr_Patriot* damage (40/35) via template.
             // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
             if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
                 use crate::game_logic::host_base_defense::{
-                    patriot_air_weapon, patriot_ground_weapon,
+                    patriot_air_weapon_for_template, patriot_ground_weapon_for_template,
                 };
-                object.weapon = Some(patriot_ground_weapon());
-                object.secondary_weapon = Some(patriot_air_weapon());
+                object.weapon = Some(patriot_ground_weapon_for_template(template_name));
+                object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
+            }
+
+            // Host residual: USA Crusader / Paladin PRIMARY tank gun
+            // (Laser General Lazr_* → Lazr_CrusaderTankGun / Lazr_PaladinTankGun).
+            // Fail-closed: not full LaserName beam drawable / shell lob matrix.
+            if crate::game_logic::host_usa_tanks::is_crusader_template(template_name)
+                || crate::game_logic::host_usa_tanks::is_paladin_template(template_name)
+            {
+                object.weapon = Some(
+                    crate::game_logic::host_usa_tanks::usa_tank_gun_weapon_for_template(
+                        template_name,
+                    ),
+                );
             }
 
             // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
@@ -13472,6 +13489,21 @@ impl GameLogic {
         self.tunnel_network.honesty_any_ok()
     }
 
+    /// Residual honesty: TunnelNetworkGun auto-fire residual exercised.
+    pub fn honesty_tunnel_network_gun_ok(&self) -> bool {
+        self.tunnel_network.honesty_gun_fire_ok()
+    }
+
+    /// Residual honesty counter: TunnelNetworkGun residual shots.
+    pub fn tunnel_network_residual_gun_fires(&self) -> u32 {
+        self.tunnel_network.gun_fires
+    }
+
+    /// Residual honesty counter: TunnelNetworkGun residual units hit.
+    pub fn tunnel_network_residual_gun_units_hit(&self) -> u32 {
+        self.tunnel_network.gun_units_hit
+    }
+
     /// Shared tunnel pool accessors for command residual.
     pub fn tunnel_network_residual(
         &self,
@@ -14202,14 +14234,22 @@ impl GameLogic {
             defense_id,
             Some(target_id),
         );
+        let is_tunnel =
+            crate::game_logic::host_tunnel_network::is_tunnel_network_template(&template_name);
+        let is_laser_patriot =
+            crate::game_logic::host_base_defense::is_laser_patriot_template(&template_name);
         let audio = if is_gattling {
             GATTLING_BUILDING_FIRE_AUDIO
         } else if is_stinger {
             STINGER_FIRE_AUDIO
+        } else if is_patriot && is_laser_patriot {
+            crate::game_logic::host_base_defense::LAZR_PATRIOT_FIRE_AUDIO
         } else if is_patriot {
             PATRIOT_FIRE_AUDIO
         } else if is_fire_base {
             crate::game_logic::host_fire_base::FIRE_BASE_FIRE_AUDIO
+        } else if is_tunnel {
+            crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_AUDIO
         } else {
             "WeaponFire"
         };
@@ -14239,6 +14279,10 @@ impl GameLogic {
                 self.patriot_residual_ground_fires =
                     self.patriot_residual_ground_fires.saturating_add(1);
             }
+        }
+        if is_tunnel {
+            // TunnelNetworkGun residual honesty (base-defense auto-fire path).
+            self.tunnel_network.record_gun_fire(true);
         }
     }
 
@@ -54990,6 +55034,320 @@ mod tests {
         assert!(
             dealt + 0.01 >= AVENGER_AIR_LASER_DAMAGE * 0.5,
             "air laser damage residual ~10 (armor may reduce); dealt={dealt}"
+        );
+    }
+
+    /// Residual: Laser General Crusader laser gun (80 dmg) + Paladin laser (70/1s).
+    #[test]
+    fn lazr_tank_residual_laser_guns() {
+        use crate::game_logic::host_usa_tanks::{
+            is_laser_general_tank_template, LAZR_CRUSADER_TANK_GUN_DAMAGE,
+            LAZR_PALADIN_TANK_GUN_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        for (name, hp) in [
+            ("Lazr_AmericaTankCrusader", 480.0_f32),
+            ("Lazr_AmericaTankPaladin", 500.0_f32),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(hp);
+            game_logic.templates.insert(name.to_string(), tpl);
+        }
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let crusader_id = game_logic
+            .create_object(
+                "Lazr_AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("lazr crusader");
+        let paladin_id = game_logic
+            .create_object(
+                "Lazr_AmericaTankPaladin",
+                Team::USA,
+                Vec3::new(0.0, 40.0, 0.0),
+            )
+            .expect("lazr paladin");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let c = game_logic.find_object(crusader_id).expect("crusader");
+            assert!(is_laser_general_tank_template(&c.template_name));
+            let w = c.weapon.as_ref().expect("Lazr_CrusaderTankGun residual");
+            assert!(
+                (w.damage - LAZR_CRUSADER_TANK_GUN_DAMAGE).abs() < 0.5,
+                "Lazr Crusader damage residual 80, got {}",
+                w.damage
+            );
+            assert!((w.reload_time - 2.0).abs() < 0.05);
+        }
+        {
+            let p = game_logic.find_object(paladin_id).expect("paladin");
+            let w = p.weapon.as_ref().expect("Lazr_PaladinTankGun residual");
+            assert!(
+                (w.damage - LAZR_PALADIN_TANK_GUN_DAMAGE).abs() < 0.5,
+                "Lazr Paladin damage residual 70, got {}",
+                w.damage
+            );
+            assert!((w.reload_time - 1.0).abs() < 0.05);
+        }
+
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let c = game_logic.find_object_mut(crusader_id).unwrap();
+            c.target = Some(enemy_id);
+            c.ai_state = AIState::Attacking;
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.frame = 10;
+        game_logic.update_combat(&[crusader_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "Lazr Crusader laser gun must damage residual (before={hp_before} after={hp_after})"
+        );
+        // Observable laser residual: higher damage than stock 60 shell when armor allows.
+        let dealt = hp_before - hp_after;
+        assert!(
+            dealt + 0.01 >= 40.0,
+            "laser residual should deal substantial damage, dealt={dealt}"
+        );
+    }
+
+    /// Residual: Laser General Patriot dual-slot laser (40 ground / 35 AA).
+    #[test]
+    fn lazr_patriot_residual_laser_dual_slot() {
+        use crate::game_logic::host_base_defense::{
+            is_laser_patriot_template, LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut pat_tpl = crate::game_logic::ThingTemplate::new("Lazr_AmericaPatriotBattery");
+        pat_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let mut air_tpl = crate::game_logic::ThingTemplate::new("TestJet");
+        air_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        game_logic.templates.insert("TestJet".to_string(), air_tpl);
+
+        let pat_id = game_logic
+            .create_object(
+                "Lazr_AmericaPatriotBattery",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("lazr patriot");
+        // Mark constructed residual (structures start under construction).
+        if let Some(p) = game_logic.find_object_mut(pat_id) {
+            p.status.under_construction = false;
+            p.construction_percent = 100.0;
+        }
+
+        {
+            let p = game_logic.find_object(pat_id).expect("patriot");
+            assert!(is_laser_patriot_template(&p.template_name));
+            let g = p.weapon.as_ref().expect("Lazr ground residual");
+            assert!(
+                (g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.5,
+                "Lazr Patriot ground 40, got {}",
+                g.damage
+            );
+            let a = p.secondary_weapon.as_ref().expect("Lazr AA residual");
+            assert!(
+                (a.damage - LAZR_PATRIOT_AIR_DAMAGE).abs() < 0.5,
+                "Lazr Patriot AA 35, got {}",
+                a.damage
+            );
+            assert!(a.can_target_air);
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        let air_id = game_logic
+            .create_object("TestJet", Team::GLA, Vec3::new(0.0, 200.0, 0.0))
+            .expect("air");
+        if let Some(a) = game_logic.find_object_mut(air_id) {
+            a.status.airborne_target = true;
+        }
+
+        // Ground residual auto-fire.
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let p = game_logic.find_object_mut(pat_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            if let Some(w) = p.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 30;
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "Lazr Patriot ground residual must damage"
+        );
+        assert!(
+            game_logic.patriot_residual_ground_fires > 0
+                || game_logic.base_defense_residual_fires() > 0,
+            "patriot residual fire honesty"
+        );
+
+        // AA residual: force secondary by placing only air target in range.
+        let _ = game_logic; // keep air for dual-slot path on next shot
+        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        // Move ground enemy out of range so dual-slot prefers AA.
+        if let Some(e) = game_logic.find_object_mut(enemy_id) {
+            e.set_position(Vec3::new(5000.0, 0.0, 0.0));
+        }
+        {
+            let p = game_logic.find_object_mut(pat_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            if let Some(w) = p.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 90;
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        assert!(
+            air_hp_after < air_hp_before,
+            "Lazr Patriot AA residual must damage aircraft (before={air_hp_before} after={air_hp_after})"
+        );
+    }
+
+    /// Residual: GLA Tunnel Network TunnelNetworkGun auto-fire residual.
+    #[test]
+    fn tunnel_network_gun_residual_auto_fires() {
+        use crate::game_logic::host_tunnel_network::{
+            is_tunnel_network_template, TUNNEL_NETWORK_GUN_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut tunnel_tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
+        tunnel_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLATunnelNetwork".to_string(), tunnel_tpl);
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let tunnel_id = game_logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tunnel");
+        if let Some(t) = game_logic.find_object_mut(tunnel_id) {
+            t.status.under_construction = false;
+            t.construction_percent = 100.0;
+        }
+        {
+            let t = game_logic.find_object(tunnel_id).expect("tunnel");
+            assert!(is_tunnel_network_template(&t.template_name));
+            assert!(crate::game_logic::host_base_defense::is_base_defense_structure(
+                &t.template_name,
+                true,
+                false
+            ));
+            let w = t.weapon.as_ref().expect("TunnelNetworkGun residual");
+            assert!(
+                (w.damage - TUNNEL_NETWORK_GUN_DAMAGE).abs() < 0.5,
+                "TunnelNetworkGun damage residual 15, got {}",
+                w.damage
+            );
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 20;
+        game_logic.try_base_defense_residual_fire(tunnel_id);
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "TunnelNetworkGun residual must damage (before={hp_before} after={hp_after})"
+        );
+        assert!(
+            game_logic.honesty_tunnel_network_gun_ok(),
+            "tunnel gun residual honesty"
+        );
+        assert!(
+            game_logic.tunnel_network_residual_gun_fires() > 0,
+            "gun fire counter"
+        );
+        assert!(
+            game_logic.base_defense_residual_fires() > 0,
+            "base defense residual fire counter"
         );
     }
 
