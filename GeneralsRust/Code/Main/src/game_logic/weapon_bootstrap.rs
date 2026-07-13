@@ -115,6 +115,17 @@ pub const SCUD_GUN_EXPLOSIVE: &str = "SCUDLauncherGunExplosive";
 pub const SCUD_GUN_TOXIN: &str = "SCUDLauncherGunToxin";
 pub const SCUD_GUN_ANTHRAX: &str = "SCUDLauncherGunAnthrax";
 
+/// Retail GLA Marauder salvage fire-rate residual weapons.
+pub const MARAUDER_TANK_GUN: &str = "MarauderTankGun";
+pub const MARAUDER_TANK_GUN_UPGRADE_ONE: &str = "MarauderTankGunUpgradeOne";
+pub const MARAUDER_TANK_GUN_UPGRADE_TWO: &str = "MarauderTankGunUpgradeTwo";
+
+/// Retail GLA Combat Cycle rider residual weapons.
+pub const REBEL_BIKER_MG: &str = "GLARebelBikerMachineGun";
+pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon";
+pub const BIKER_KELL_SNIPER: &str = "GLABikerKellSniperRifle";
+pub const TERRORIST_SUICIDE_WEAPON: &str = "TerroristSuicideWeapon";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -257,6 +268,33 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Chem_GLAVehicleToxinTruck"
         | "Demo_GLAVehicleToxinTruck"
         | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_GUN),
+        // GLA Marauder residual tank gun (salvage tiers swap fire-rate residual).
+        "GLATankMarauder"
+        | "GLA_MarauderTank"
+        | "TestMarauder"
+        | "Chem_GLATankMarauder"
+        | "Demo_GLATankMarauder"
+        | "Slth_GLATankMarauder" => Some(MARAUDER_TANK_GUN),
+        // GLA Combat Cycle residual: default InitialPayload Rebel MG.
+        // Empty bike is PRIMARY NONE; spawn residual binds rebel weapon.
+        "GLAVehicleCombatBike"
+        | "GLA_CombatBike"
+        | "TestCombatBike"
+        | "TestCombatCycle"
+        | "Chem_GLAVehicleCombatBike"
+        | "Demo_GLAVehicleCombatBike"
+        | "Slth_GLAVehicleCombatBike"
+        | "GC_Slth_GLAVehicleCombatBike" => Some(REBEL_BIKER_MG),
+        "GLAVehicleCombatBikeRocket"
+        | "Chem_GLAVehicleCombatBikeRocket"
+        | "Demo_GLAVehicleCombatBikeRocket"
+        | "Slth_GLAVehicleCombatBikeRocket"
+        | "GC_Slth_GLAVehicleCombatBikeRocket" => Some(TUNNEL_DEFENDER_BIKER_ROCKET),
+        "GLAVehicleCombatBikeTerrorist"
+        | "Chem_GLAVehicleCombatBikeTerrorist"
+        | "Demo_GLAVehicleCombatBikeTerrorist"
+        | "Slth_GLAVehicleCombatBikeTerrorist"
+        | "Boss_VehicleCombatBikeTerrorist" => Some(TERRORIST_SUICIDE_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
@@ -319,6 +357,24 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
                 return Some(TOXIN_TRUCK_GUN);
+            }
+            if crate::game_logic::host_marauder::is_marauder_template(template_name) {
+                return Some(MARAUDER_TANK_GUN);
+            }
+            if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
+                return Some(
+                    match crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
+                        template_name,
+                    ) {
+                        crate::game_logic::host_combat_cycle::CombatCycleRider::TunnelDefender => {
+                            TUNNEL_DEFENDER_BIKER_ROCKET
+                        }
+                        crate::game_logic::host_combat_cycle::CombatCycleRider::Terrorist => {
+                            TERRORIST_SUICIDE_WEAPON
+                        }
+                        _ => REBEL_BIKER_MG,
+                    },
+                );
             }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
@@ -830,6 +886,69 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 600.0,
         },
+        // MarauderTankGun — dmg 60, range 170, Delay 2000ms → 60 frames.
+        SeedWeapon {
+            name: MARAUDER_TANK_GUN,
+            primary_damage: 60.0,
+            attack_range: 170.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 300.0,
+        },
+        // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
+        SeedWeapon {
+            name: MARAUDER_TANK_GUN_UPGRADE_ONE,
+            primary_damage: 60.0,
+            attack_range: 170.0,
+            delay_frames: 45,
+            clip_size: 0,
+            weapon_speed: 400.0,
+        },
+        // MarauderTankGunUpgradeTwo — same dmg, Delay 750ms → 23 frames, clip 2.
+        SeedWeapon {
+            name: MARAUDER_TANK_GUN_UPGRADE_TWO,
+            primary_damage: 60.0,
+            attack_range: 170.0,
+            delay_frames: 23,
+            clip_size: 2,
+            weapon_speed: 500.0,
+        },
+        // GLARebelBikerMachineGun — dmg 8, range 150, Delay 100ms → 3 frames, clip 6.
+        SeedWeapon {
+            name: REBEL_BIKER_MG,
+            primary_damage: 8.0,
+            attack_range: 150.0,
+            delay_frames: 3,
+            clip_size: 6,
+            weapon_speed: 999_999.0,
+        },
+        // TunnelDefenderBikerRocketWeapon — dmg 40, range 175, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: TUNNEL_DEFENDER_BIKER_ROCKET,
+            primary_damage: 40.0,
+            attack_range: 175.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
+        // GLABikerKellSniperRifle — dmg 180, range 225, Delay 750ms → 23 frames.
+        SeedWeapon {
+            name: BIKER_KELL_SNIPER,
+            primary_damage: 180.0,
+            attack_range: 225.0,
+            delay_frames: 23,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // TerroristSuicideWeapon residual — host binds as short-range suicide flag.
+        SeedWeapon {
+            name: TERRORIST_SUICIDE_WEAPON,
+            primary_damage: 700.0,
+            attack_range: 5.0,
+            delay_frames: 1,
+            clip_size: 1,
+            weapon_speed: 999_999.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -861,6 +980,18 @@ fn seed_known_host_weapons() -> usize {
         }
         if seed.name == TECHNICAL_CANNON {
             t.primary_damage_radius = 25.0;
+        }
+        if seed.name == MARAUDER_TANK_GUN
+            || seed.name == MARAUDER_TANK_GUN_UPGRADE_ONE
+            || seed.name == MARAUDER_TANK_GUN_UPGRADE_TWO
+        {
+            t.primary_damage_radius = 5.0;
+        }
+        if seed.name == TUNNEL_DEFENDER_BIKER_ROCKET {
+            t.minimum_attack_range = 5.0;
+            t.primary_damage_radius = 5.0;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }
         match with_weapon_store_mut(|store| {
             store.add_weapon_template(t);

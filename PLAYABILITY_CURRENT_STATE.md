@@ -1,3 +1,36 @@
+## Residual Host Playability — GLA Marauder + Combat Cycle (2026-07-13)
+**Closed (host-testable GLA Marauder salvage fire-rate + Combat Cycle rider weapon residual):**
+1. **Marauder residual** (`GLATankMarauder` / Chem_/Demo_/Slth_ / `GLA_MarauderTank`):
+   - Salvage fire-rate tiers (`WEAPON_SALVAGER` / CRATEUPGRADE), **same PrimaryDamage 60**:
+     - Tier 0: `MarauderTankGun` — Delay **2000**ms (60 frames), speed 300
+     - Tier 1: `MarauderTankGunUpgradeOne` — Delay **1500**ms (45 frames), speed 400
+     - Tier 2: `MarauderTankGunUpgradeTwo` — Delay **750**ms (23 frames), speed 500
+   - Range **170**, PrimaryDamageRadius **5** splash residual on fire.
+   - Honesty: `honesty_marauder_ok` / `honesty_marauder_weapon_upgrade_ok` / fires.
+2. **Combat Cycle residual** (`GLAVehicleCombatBike` / Rocket / Terrorist variants):
+   - `RiderChangeContain` Slots=**1**, infantry only; bike fires (passengers do not).
+   - WeaponSet residual: Conditions=None → PRIMARY **NONE**; InitialPayload Rebel →
+     `GLARebelBikerMachineGun` (8 / 150 / 100ms).
+   - Rider weapon switch residual:
+     - Rebel → `GLARebelBikerMachineGun`
+     - TunnelDefender → `TunnelDefenderBikerRocketWeapon` (40 / 175 / AA / min 5)
+     - Jarmen Kell → `GLABikerKellSniperRifle` (180 / 225)
+     - Terrorist → `SuicideBikeBomb` area residual (700/20 + 100/50) + self-destroy
+     - Worker / Hijacker / Saboteur → no combat weapon residual
+   - Enter residual refreshes rider weapon from occupant template.
+   - Honesty: `honesty_combat_cycle_ok` / rider_switch / fire / loads / suicides.
+3. Tests (not log-only):
+   - `marauder_residual_salvage_fire_rate_tiers`
+   - `combat_cycle_residual_rider_weapon_switch`
+   - module unit tests in `host_marauder.rs` / `host_combat_cycle.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SalvageCrate W3D turret subobject swap (Turret / TurretUp01 / TurretUp02)
+- Full Marauder ClipSize=2 / ClipReloadTime=100 dual-shot cadence matrix
+- Full RiderChangeContain STATUS_RIDER* death OCL / ScuttleDelay TOPPLED matrix
+- Full UseRiderStealth / Jarmen Kell secondary pilot-sniper AutoChoose matrix
+- Network salvage / rider replication (network deferred)
+
 ## Residual Host Playability — GLA Technical + Toxin Tractor (2026-07-13)
 **Closed (host-testable GLA Technical transport/salvage + Toxin Tractor poison residual):**
 1. **Technical residual** (`GLAVehicleTechnical` / chassis reskins / Chem_/Demo_/Slth_):
@@ -24,7 +57,6 @@
 - Full SalvageCrate W3D gunner/turret subobject swap matrix (Technical/Toxin)
 - Full FireOCLAfterWeaponCooldown MinShots=4 continuous-coast timer for spray
 - Full stream projectile drawing / spigot bone / chassis reskin visual matrix
-- Marauder / Combat Cycle residuals remain open
 - Network salvage / toxin replication (network deferred)
 
 ## Residual Host Playability — GLA Rocket Buggy / Quad Cannon / SCUD (2026-07-13)

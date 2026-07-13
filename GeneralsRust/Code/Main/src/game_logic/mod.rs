@@ -60,6 +60,8 @@ pub mod host_quad_cannon;
 pub mod host_scud_launcher;
 pub mod host_technical;
 pub mod host_toxin_tractor;
+pub mod host_marauder;
+pub mod host_combat_cycle;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -271,6 +273,17 @@ pub use host_angry_mob::{
     ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
     ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES,
     UPGRADE_GLA_ARM_THE_MOB,
+};
+pub use host_marauder::{
+    is_marauder_template, marauder_weapon_for_tier, marauder_weapon_name_for_tier,
+    marauder_weapon_stats, should_apply_marauder_residual, MarauderWeaponTier, MARAUDER_DAMAGE,
+    MARAUDER_RANGE, MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE, MARAUDER_TANK_GUN_UPGRADE_TWO,
+};
+pub use host_combat_cycle::{
+    combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,
+    is_combat_cycle_template, rider_from_template_name, should_apply_combat_cycle_residual,
+    CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS, REBEL_BIKER_MG, REBEL_MG_DAMAGE,
+    TUNNEL_DEFENDER_BIKER_ROCKET,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

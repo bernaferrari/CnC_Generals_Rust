@@ -152,6 +152,15 @@ pub struct Object {
     /// Fail-closed: not chassis reskin / salvage W3D gunner swap matrix.
     pub is_technical_transport: bool,
 
+    /// Host residual: GLA Combat Cycle / Combat Bike RiderChangeContain (capacity 1).
+    /// Rider weapon switch residual; passengers do not fire from bed (bike fires).
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
+    pub is_combat_cycle_transport: bool,
+
+    /// Host residual: active Combat Cycle rider class (0=none … 7=saboteur).
+    /// Mirrors RiderChangeContain WEAPON_RIDER* residual selection.
+    pub combat_cycle_rider: u8,
+
     /// Host residual: GLA Tunnel Network structure (`TunnelContain`).
     /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
     /// Fail-closed: not full GuardTunnelNetwork AI / CaveSystem cave-in matrix.
@@ -343,6 +352,8 @@ impl Object {
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
+            is_combat_cycle_transport: false,
+            combat_cycle_rider: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,
@@ -424,6 +435,8 @@ impl Object {
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
             is_technical_transport: false,
+            is_combat_cycle_transport: false,
+            combat_cycle_rider: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,
@@ -1626,6 +1639,23 @@ impl Object {
     /// True when this vehicle is a GLA Technical residual transport.
     pub fn is_technical_style_container(&self) -> bool {
         self.is_technical_transport
+    }
+
+    /// Install residual GLA Combat Cycle RiderChangeContain:
+    /// C++ Slots=1, AllowInsideKindOf=INFANTRY, passengers do not fire
+    /// (bike itself switches WeaponSet to rider weapon residual).
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle matrix.
+    pub fn install_combat_cycle_transport(&mut self) {
+        self.is_combat_cycle_transport = true;
+        self.max_transport =
+            crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+    }
+
+    /// True when this vehicle is a GLA Combat Cycle residual transport.
+    pub fn is_combat_cycle_style_container(&self) -> bool {
+        self.is_combat_cycle_transport
     }
 
     /// Install residual Air Force Combat Chinook transport:
