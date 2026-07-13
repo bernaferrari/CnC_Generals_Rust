@@ -885,6 +885,14 @@ pub struct GameLogic {
     marauder_residual_units_hit: u32,
     marauder_residual_weapon_upgrades: u32,
 
+    /// Host residual: China Battlemaster tank gun + Uranium / horde / nationalism honesty.
+    /// Fail-closed: not full HordeUpdate RubOff / Nuclear Tanks death residual.
+    battlemaster_residual_fires: u32,
+    battlemaster_residual_units_hit: u32,
+    battlemaster_residual_uranium_upgrades: u32,
+    battlemaster_residual_nationalism_upgrades: u32,
+    battlemaster_residual_horde_grants: u32,
+
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
     combat_cycle_residual_fires: u32,
@@ -1797,6 +1805,11 @@ impl GameLogic {
             marauder_residual_fires: 0,
             marauder_residual_units_hit: 0,
             marauder_residual_weapon_upgrades: 0,
+            battlemaster_residual_fires: 0,
+            battlemaster_residual_units_hit: 0,
+            battlemaster_residual_uranium_upgrades: 0,
+            battlemaster_residual_nationalism_upgrades: 0,
+            battlemaster_residual_horde_grants: 0,
             combat_cycle_residual_fires: 0,
             combat_cycle_residual_units_hit: 0,
             combat_cycle_residual_rider_switches: 0,
@@ -2020,6 +2033,11 @@ impl GameLogic {
         self.marauder_residual_fires = 0;
         self.marauder_residual_units_hit = 0;
         self.marauder_residual_weapon_upgrades = 0;
+        self.battlemaster_residual_fires = 0;
+        self.battlemaster_residual_units_hit = 0;
+        self.battlemaster_residual_uranium_upgrades = 0;
+        self.battlemaster_residual_nationalism_upgrades = 0;
+        self.battlemaster_residual_horde_grants = 0;
         self.combat_cycle_residual_fires = 0;
         self.combat_cycle_residual_units_hit = 0;
         self.combat_cycle_residual_rider_switches = 0;
@@ -3882,6 +3900,11 @@ impl GameLogic {
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
         self.update_propaganda_tower_pulse(dt);
 
+        // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
+        // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
+        // Retail UpdateRate 1000ms — residual rechecks each frame when battlemasters exist.
+        self.update_battlemaster_horde_status();
+
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
@@ -5247,6 +5270,31 @@ impl GameLogic {
                     } {
                         let impact = target_position;
                         let (hits, _destroyed_any) = self.apply_marauder_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
+                    } else if {
+                        // China Battlemaster residual: tank gun splash + Uranium damage residual.
+                        use crate::game_logic::host_battlemaster::{
+                            is_battlemaster_template, should_apply_battlemaster_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_battlemaster_residual(is_battlemaster_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_battlemaster_residual_at(
                             impact,
                             Some(attacker_id),
                             Some(target_id),
@@ -12752,6 +12800,42 @@ impl GameLogic {
         self.marauder_residual_weapon_upgrades
     }
 
+    /// Residual honesty: Battlemaster tank gun / Uranium / horde / nationalism residual.
+    pub fn honesty_battlemaster_ok(&self) -> bool {
+        self.battlemaster_residual_fires > 0
+            || self.battlemaster_residual_uranium_upgrades > 0
+            || self.battlemaster_residual_nationalism_upgrades > 0
+            || self.battlemaster_residual_horde_grants > 0
+    }
+
+    pub fn honesty_battlemaster_uranium_ok(&self) -> bool {
+        self.battlemaster_residual_uranium_upgrades > 0
+    }
+
+    pub fn honesty_battlemaster_horde_ok(&self) -> bool {
+        self.battlemaster_residual_horde_grants > 0
+    }
+
+    pub fn honesty_battlemaster_nationalism_ok(&self) -> bool {
+        self.battlemaster_residual_nationalism_upgrades > 0
+    }
+
+    pub fn battlemaster_residual_fires(&self) -> u32 {
+        self.battlemaster_residual_fires
+    }
+
+    pub fn battlemaster_residual_units_hit(&self) -> u32 {
+        self.battlemaster_residual_units_hit
+    }
+
+    pub fn battlemaster_residual_uranium_upgrades(&self) -> u32 {
+        self.battlemaster_residual_uranium_upgrades
+    }
+
+    pub fn battlemaster_residual_horde_grants(&self) -> u32 {
+        self.battlemaster_residual_horde_grants
+    }
+
     /// Residual honesty: Combat Cycle rider weapon residual path.
     pub fn honesty_combat_cycle_ok(&self) -> bool {
         self.combat_cycle_residual_fires > 0
@@ -14295,6 +14379,252 @@ impl GameLogic {
                 intended_target,
             );
             let _ = is_marauder_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
+    fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_battlemaster::{
+            battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
+            is_battlemaster_template,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_battlemaster_template(&obj.template_name) {
+            return;
+        }
+        let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
+        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let in_horde = obj.weapon_bonus_horde;
+        // Nationalism ROF only while in horde (C++ evaluateMoraleBonus residual).
+        let nationalism_active = nationalism && in_horde;
+        obj.weapon_bonus_nationalism = nationalism_active;
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+    }
+
+    /// Apply Uranium Shells residual (PLAYER_UPGRADE DAMAGE 125%) to a Battlemaster.
+    pub fn apply_battlemaster_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, UPGRADE_CHINA_URANIUM_SHELLS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_battlemaster_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
+        self.battlemaster_residual_uranium_upgrades = self
+            .battlemaster_residual_uranium_upgrades
+            .saturating_add(1);
+        self.refresh_battlemaster_weapon(object_id);
+        true
+    }
+
+    /// Apply Nationalism residual tag (ROF stacks with horde when active).
+    pub fn apply_battlemaster_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, UPGRADE_NATIONALISM,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_battlemaster_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_NATIONALISM.to_string());
+        self.battlemaster_residual_nationalism_upgrades = self
+            .battlemaster_residual_nationalism_upgrades
+            .saturating_add(1);
+        self.refresh_battlemaster_weapon(object_id);
+        true
+    }
+
+    /// Recompute Battlemaster HordeUpdate residual for all living battlemasters.
+    ///
+    /// ExactMatch allies within Radius 75; Count 5 (includes self). RubOff residual omitted
+    /// (fail-closed). Refreshes weapon ROF when status changes.
+    pub fn update_battlemaster_horde_status(&mut self) {
+        use crate::game_logic::host_battlemaster::{
+            counts_toward_battlemaster_horde, distance_2d, is_battlemaster_template, is_in_horde,
+            BATTLE_MASTER_HORDE_RADIUS,
+        };
+
+        let snapshot: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() || !is_battlemaster_template(&o.template_name) {
+                    return None;
+                }
+                let p = o.get_position();
+                Some((*id, o.team, p.x, p.z, o.is_alive(), o.template_name.clone()))
+            })
+            .collect();
+
+        let mut grants = 0u32;
+        let mut to_refresh: Vec<ObjectId> = Vec::new();
+
+        for (id, team, x, z, alive, _name) in &snapshot {
+            let mut nearby = 0u32;
+            for (oid, oteam, ox, oz, oalive, oname) in &snapshot {
+                if *oid == *id {
+                    continue;
+                }
+                let dist = distance_2d(*x, *z, *ox, *oz);
+                if counts_toward_battlemaster_horde(
+                    *alive,
+                    *oalive,
+                    *team == *oteam,
+                    is_battlemaster_template(oname),
+                    dist,
+                    BATTLE_MASTER_HORDE_RADIUS,
+                ) {
+                    nearby = nearby.saturating_add(1);
+                }
+            }
+            let now_horde = is_in_horde(nearby);
+            if let Some(obj) = self.objects.get_mut(id) {
+                let was = obj.weapon_bonus_horde;
+                obj.weapon_bonus_horde = now_horde;
+                if now_horde && !was {
+                    grants = grants.saturating_add(1);
+                }
+                if now_horde != was {
+                    to_refresh.push(*id);
+                } else if now_horde {
+                    // Keep weapon ROF in sync with nationalism tag changes.
+                    to_refresh.push(*id);
+                }
+            }
+        }
+
+        self.battlemaster_residual_horde_grants = self
+            .battlemaster_residual_horde_grants
+            .saturating_add(grants);
+
+        for id in to_refresh {
+            self.refresh_battlemaster_weapon(id);
+        }
+    }
+
+    /// Apply Battlemaster residual fire (primary on intended + small splash radius).
+    ///
+    /// Damage uses current weapon residual (base 60 or uranium 75).
+    fn apply_battlemaster_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_battlemaster::{
+            battlemaster_splash_damage_at, is_battlemaster_template,
+            is_legal_battlemaster_splash_target, BATTLE_MASTER_DAMAGE, BATTLE_MASTER_FIRE_AUDIO,
+            BATTLE_MASTER_SPLASH_RADIUS,
+        };
+
+        let damage = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+            .unwrap_or(BATTLE_MASTER_DAMAGE);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_battlemaster_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= BATTLE_MASTER_SPLASH_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = battlemaster_splash_damage_at(is_intended, dist, damage);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.battlemaster_residual_fires = self.battlemaster_residual_fires.saturating_add(1);
+        self.battlemaster_residual_units_hit =
+            self.battlemaster_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(BATTLE_MASTER_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_battlemaster_template(
                 &self
                     .objects
                     .get(&sid)
@@ -43384,6 +43714,180 @@ mod tests {
         assert!(
             splash_hp_after < splash_hp_before,
             "marauder radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+    }
+
+    /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
+    #[test]
+    fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
+        use crate::game_logic::host_battlemaster::{
+            is_battlemaster_template, BATTLE_MASTER_DAMAGE, BATTLE_MASTER_RANGE,
+            BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut bm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+        bm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name(BATTLE_MASTER_TANK_GUN);
+        game_logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), bm_tpl);
+
+        // Spawn 5 ally battlemasters clustered for Horde Count=5 residual.
+        let mut bm_ids = Vec::new();
+        for i in 0..5 {
+            let id = game_logic
+                .create_object(
+                    "ChinaTankBattleMaster",
+                    Team::China,
+                    Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+                )
+                .expect("battlemaster");
+            bm_ids.push(id);
+        }
+        let bm0 = bm_ids[0];
+        {
+            let bm = game_logic.find_object(bm0).expect("bm0");
+            assert!(is_battlemaster_template(&bm.template_name));
+            let w = bm.weapon.as_ref().expect("BattleMasterTankGun residual");
+            assert!(
+                (w.damage - BATTLE_MASTER_DAMAGE).abs() < 0.5,
+                "base damage residual 60, got {}",
+                w.damage
+            );
+            assert!((w.range - BATTLE_MASTER_RANGE).abs() < 1.0);
+            // Base delay 2000ms → 2.0s
+            assert!(
+                (w.reload_time - 2.0).abs() < 0.05,
+                "base reload residual 2.0s, got {}",
+                w.reload_time
+            );
+        }
+
+        // Horde residual: 5 exact-match allies within radius → HORDE ROF 150% (40 frames).
+        game_logic.update_battlemaster_horde_status();
+        assert!(
+            game_logic.honesty_battlemaster_horde_ok(),
+            "horde grant residual honesty"
+        );
+        {
+            let bm = game_logic.find_object(bm0).expect("bm0 horde");
+            assert!(
+                bm.weapon_bonus_horde,
+                "weapon_bonus_horde residual must be set with 5 allies"
+            );
+            let w = bm.weapon.as_ref().expect("horde gun");
+            // floor(60/1.5)=40 frames → 40/30 ≈ 1.333s
+            assert!(
+                (w.reload_time - (40.0 / 30.0)).abs() < 0.05,
+                "horde ROF residual ~40 frames, got reload={}",
+                w.reload_time
+            );
+            assert!((w.damage - 60.0).abs() < 0.5, "horde does not change damage");
+        }
+
+        // Nationalism residual: additional ROF 125% while in horde → 32 frames.
+        assert!(game_logic.apply_battlemaster_nationalism_upgrade(bm0));
+        assert!(game_logic.honesty_battlemaster_nationalism_ok());
+        {
+            let bm = game_logic.find_object(bm0).expect("bm0 nat");
+            assert!(bm.has_upgrade_tag(UPGRADE_NATIONALISM));
+            assert!(
+                bm.weapon_bonus_nationalism,
+                "nationalism active while in horde"
+            );
+            let w = bm.weapon.as_ref().expect("nat gun");
+            assert!(
+                (w.reload_time - (32.0 / 30.0)).abs() < 0.05,
+                "horde+nationalism ROF residual ~32 frames, got reload={}",
+                w.reload_time
+            );
+        }
+
+        // Uranium Shells residual: DAMAGE 125% → 75 (ROF stack preserved).
+        assert!(game_logic.apply_battlemaster_uranium_upgrade(bm0));
+        assert!(game_logic.honesty_battlemaster_uranium_ok());
+        {
+            let bm = game_logic.find_object(bm0).expect("bm0 uranium");
+            assert!(bm.has_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS));
+            let w = bm.weapon.as_ref().expect("uranium gun");
+            assert!(
+                (w.damage - 75.0).abs() < 0.5,
+                "uranium damage residual 75, got {}",
+                w.damage
+            );
+            assert!(
+                (w.reload_time - (32.0 / 30.0)).abs() < 0.05,
+                "uranium keeps horde+nationalism ROF residual"
+            );
+        }
+
+        // Fire residual: intended + radius-5 splash, uranium damage.
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let splash_inf = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let bm = game_logic.find_object_mut(bm0).unwrap();
+            bm.attack_target(enemy);
+            if let Some(w) = bm.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[bm0, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.battlemaster_residual_fires() > 0,
+            "battlemaster residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_battlemaster_ok(),
+            "battlemaster residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "battlemaster residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        // Uranium residual: ~75 damage vs base 60 (armor may reduce absolute numbers).
+        let dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            dealt >= 50.0,
+            "uranium residual should deal substantial damage (~75 before armor), dealt={dealt}"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "battlemaster radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
         );
     }
 

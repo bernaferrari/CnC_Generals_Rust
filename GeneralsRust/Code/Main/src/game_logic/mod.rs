@@ -66,6 +66,7 @@ pub mod host_scud_launcher;
 pub mod host_technical;
 pub mod host_toxin_tractor;
 pub mod host_marauder;
+pub mod host_battlemaster;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
@@ -300,6 +301,11 @@ pub use host_marauder::{
     is_marauder_template, marauder_weapon_for_tier, marauder_weapon_name_for_tier,
     marauder_weapon_stats, should_apply_marauder_residual, MarauderWeaponTier, MARAUDER_DAMAGE,
     MARAUDER_RANGE, MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE, MARAUDER_TANK_GUN_UPGRADE_TWO,
+};
+pub use host_battlemaster::{
+    battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
+    is_battlemaster_template, should_apply_battlemaster_residual, BATTLE_MASTER_DAMAGE,
+    BATTLE_MASTER_RANGE, BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
 };
 pub use host_combat_cycle::{
     combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,

@@ -130,6 +130,9 @@ pub const MARAUDER_TANK_GUN: &str = "MarauderTankGun";
 pub const MARAUDER_TANK_GUN_UPGRADE_ONE: &str = "MarauderTankGunUpgradeOne";
 pub const MARAUDER_TANK_GUN_UPGRADE_TWO: &str = "MarauderTankGunUpgradeTwo";
 
+/// Retail China Battlemaster primary residual weapon.
+pub const BATTLE_MASTER_TANK_GUN: &str = "BattleMasterTankGun";
+
 /// Retail GLA Combat Cycle rider residual weapons.
 pub const REBEL_BIKER_MG: &str = "GLARebelBikerMachineGun";
 pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon";
@@ -312,6 +315,13 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Chem_GLATankMarauder"
         | "Demo_GLATankMarauder"
         | "Slth_GLATankMarauder" => Some(MARAUDER_TANK_GUN),
+        // China Battlemaster residual main gun (Uranium / horde ROF residual).
+        "ChinaTankBattleMaster"
+        | "China_BattlemasterTank"
+        | "China_BattleTank"
+        | "TestBattlemaster"
+        | "Tank_ChinaTankBattleMaster"
+        | "Nuke_ChinaTankBattleMaster" => Some(BATTLE_MASTER_TANK_GUN),
         // GLA Combat Cycle residual: default InitialPayload Rebel MG.
         // Empty bike is PRIMARY NONE; spawn residual binds rebel weapon.
         "GLAVehicleCombatBike"
@@ -397,6 +407,9 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
+            }
+            if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
+                return Some(BATTLE_MASTER_TANK_GUN);
             }
             if let Some(w) =
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
@@ -998,6 +1011,16 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 300.0,
         },
+        // BattleMasterTankGun — dmg 60, range 150, Delay 2000ms → 60 frames.
+        // UraniumShells PLAYER_UPGRADE DAMAGE 125% applied at host residual fire time.
+        SeedWeapon {
+            name: BATTLE_MASTER_TANK_GUN,
+            primary_damage: 60.0,
+            attack_range: 150.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 400.0,
+        },
         // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
         SeedWeapon {
             name: MARAUDER_TANK_GUN_UPGRADE_ONE,
@@ -1114,6 +1137,7 @@ fn seed_known_host_weapons() -> usize {
         if seed.name == MARAUDER_TANK_GUN
             || seed.name == MARAUDER_TANK_GUN_UPGRADE_ONE
             || seed.name == MARAUDER_TANK_GUN_UPGRADE_TWO
+            || seed.name == BATTLE_MASTER_TANK_GUN
         {
             t.primary_damage_radius = 5.0;
         }
