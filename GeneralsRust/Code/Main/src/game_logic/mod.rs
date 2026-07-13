@@ -45,6 +45,7 @@ pub mod host_point_defense;
 pub mod host_avenger;
 pub mod host_usa_tanks;
 pub mod host_tomahawk;
+pub mod host_raptor;
 pub mod host_humvee;
 pub mod host_microwave;
 pub mod host_neutron_shell;

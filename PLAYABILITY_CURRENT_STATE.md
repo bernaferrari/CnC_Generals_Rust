@@ -1,3 +1,36 @@
+## Residual Host Playability — USA Raptor + Battle Drone (2026-07-13)
+**Closed (host-testable Raptor missiles/Laser Missiles + Battle Drone attach/gun/repair residual):**
+1. **Raptor residual** (`AmericaJetRaptor` / USA_ / SupW_/Lazr_ + King Raptor AirF_):
+   - PRIMARY `RaptorJetMissileWeapon` residual: PrimaryDamage **100** / radius **5**,
+     range **320**, min **100**, Delay **150**ms (5 frames). ClipSize **4** honesty
+     (RETURN_TO_BASE rearm matrix fail-closed). AA + ground residual.
+   - King Raptor (`AirF_AmericaJetRaptor`): `AirF_RaptorJetMissileWeapon` residual
+     Primary **125** / range **350** / Delay **75**ms (3 frames) / ClipSize **6**.
+     PDL residual remains in host_point_defense (not re-opened).
+   - Laser Missiles PLAYER_UPGRADE residual (`Upgrade_AmericaLaserMissiles`):
+     standard DAMAGE **125%** → **125**; King Raptor DAMAGE **112%** → **140**.
+   - Fire residual: intended + PrimaryDamageRadius **5** splash.
+   - Honesty: `honesty_raptor_ok` / laser_missiles / fires / units_hit.
+2. **Battle Drone residual** (`AmericaVehicleBattleDrone` / SupW_/AirF_/Lazr_):
+   - Attach residual via `residual_attach_slave_drone(Battle)` on Humvee/compatible
+     masters → tags `Upgrade_AmericaBattleDrone`.
+   - PRIMARY `BattleDroneMachineGun` residual: PrimaryDamage **1** / range **110** /
+     Delay **100**ms (3 frames). Intended-only fire residual.
+   - Master repair residual: when master HP < **60%**, heal **10** HP/s
+     (`RepairRatePerSecond` residual) within repair band.
+   - Honesty: `honesty_battle_drone_ok` / attach / fire / repair.
+3. Tests (not log-only):
+   - `raptor_residual_missiles_and_laser_missiles`
+   - `battle_drone_residual_attach_fire_and_repair`
+   - module unit tests in `host_raptor.rs` / `host_slave_drones.rs` Battle path
+
+**Still residual (fail-closed, not claimed):**
+- Full JetAIUpdate RETURN_TO_BASE / ClipReload 8000ms airfield rearm matrix
+- Full ScatterRadiusVsInfantry / projectile exhaust / Countermeasures flare matrix
+- Full SlavedUpdate arm pack/unpack weld FX / RepairMinAltitude matrix
+- Full ObjectCreationUpgrade ConflictsWith Battle/Scout/Hellfire exclusive matrix
+- Network laser-missiles / battle-drone replication (network deferred)
+
 ## Residual Host Playability — China Nuclear Tanks + GLA Rebel BoobyTrap (2026-07-13)
 **Closed (host-testable Nuclear Tanks death/speed/radiation + Rebel BoobyTrap residual):**
 1. **Nuclear Tanks residual** (`Upgrade_ChinaNuclearTanks` on Battlemaster / Overlord / Emperor):
