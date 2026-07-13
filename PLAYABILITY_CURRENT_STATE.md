@@ -1,5 +1,37 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Remote Demo Charge + Black Market Cash (2026-07-12)
+**Closed (host-testable plant/detonate remote C4 + GLA Black Market AutoDeposit):**
+1. **Remote Demo Charge residual** (Colonel Burton `SPECIAL_REMOTE_CHARGES`):
+   - `PlantRemoteDemoCharge { target_id }` walks to structure/vehicle → plants sticky
+     `HostMineKind::RemoteDemoCharge` (no auto-timer; TNTDetonationWeapon residual
+     damage **500** / radius **50**).
+   - `DetonateRemoteDemoCharges` detonates all remote charges with matching
+     `producer_id` (C++ no-target SPECIAL_REMOTE_CHARGES path).
+   - Timed charges remain separate (`PlantTimedDemoCharge` + LifetimeUpdate residual).
+   - Honesty: `honesty_plant_remote_demo_charge_ok` /
+     `honesty_remote_demo_charge_detonate_ok` (+ hero registry counters).
+2. **GLA Black Market residual cash** (`AutoDepositUpdate` ModuleTag_05 residual):
+   - Constructed `FSBlackMarket` / `*BlackMarket*` deposits **$20** every **60** logic
+     frames (retail DepositAmount=20, DepositTiming=2000 ms @ 30 FPS).
+   - Fake markets (`*Fake*`) residual-skip (ActualMoney=No).
+   - Neutral / under-construction residual-skip.
+   - Honesty: `honesty_black_market_deposit_ok` / `honesty_black_market_ok`.
+3. Tests (not log-only):
+   - `plant_and_detonate_remote_demo_charge_residual`
+   - `black_market_residual_deposits_cash_on_interval`
+   - `black_market_residual_cash_increases_over_frames`
+   - `black_market_residual_skips_under_construction`
+   - `black_market_residual_skips_fake_market`
+   - unit tests in `host_mines.rs` / `host_black_market.rs` / `host_hero_abilities.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full StickyBombUpdate attach bones / max-charge special-object list / packing anim
+- Full AutoDeposit floating text / InitialCaptureBonus / UpgradedBoost pairs
+- Oil derrick / hacker / supply-dropzone AutoDeposit matrix (black market only this slice)
+- Fuel Air Bomb is already covered by DaisyCutter host strike path (not reopened)
+- Network remote-charge / black-market replication (network deferred)
+
 ## Residual Host Playability — Artillery Barrage (2026-07-12)
 **Closed (host-testable Artillery Barrage → delayed multi-shell scatter damage):**
 1. **Artillery Barrage residual** (`SUPERWEAPON_ArtilleryBarrage1` host path):
@@ -291,17 +323,20 @@
    - **Land mine** place (`place_land_mine` / ClusterMines special power ring)
    - **Demo trap** place (`place_demo_trap`, GLADemoTrap proximity residual)
    - **Timed demo charge** place (`place_timed_demo_charge`, TNTStickyBomb residual)
+   - **Remote demo charge** place (`place_remote_demo_charge` / PlantRemoteDemoCharge)
+     + **DetonateRemoteDemoCharges** command (no auto-timer; producer-scoped)
 2. `update_mines_and_demo_traps` each frame:
    - proximity: enemy (not ally) in trigger range → area damage + destroy mine/trap
    - timed: absolute frame deadline → detonation
-   - manual: `manual_detonate_mine` for demo-trap command residual
+   - manual: `manual_detonate_mine` for demo-trap / remote-charge command residual
    - **dozer/worker clear**: Worker/Dozer within clear range (5) of enemy/neutral mine
      → `clear_mine_internal` (DAMAGE_DISARM residual) destroys mine with no splash;
      clearers never proximity-detonate; idle clearers approach within scan range (100)
 3. `SpecialPowerType::ClusterMines` via `DoSpecialPower` places residual mine ring
    (not full OCL ClusterMinesBomb / GenerateMinefieldBehavior density).
 4. Honesty counters: places / proximity / timed / manual detonations / clears;
-   `honesty_mine_place_trigger_ok` / `honesty_timed_demo_charge_ok` / `honesty_mine_clear_ok`.
+   `honesty_mine_place_trigger_ok` / `honesty_timed_demo_charge_ok` / `honesty_mine_clear_ok`
+   / `honesty_plant_remote_demo_charge_ok` / `honesty_remote_demo_charge_detonate_ok`.
 5. Tests (not log-only):
    - `mine_residual_place_enemy_triggers_damage`
    - `mine_residual_ally_does_not_trigger_land_mine`
@@ -309,6 +344,7 @@
    - `timed_demo_charge_residual_detonates_after_delay`
    - `cluster_mines_special_power_places_mines`
    - `demo_trap_manual_detonate_residual`
+   - `plant_and_detonate_remote_demo_charge_residual`
    - `dozer_mine_clear_residual_disarms_enemy_mine_safely`
    - `dozer_mine_clear_residual_approaches_then_clears`
    - `dozer_mine_clear_residual_skips_ally_mine`
@@ -319,7 +355,7 @@
 - Full C++ MinefieldBehavior virtual-mine regen / scoot / multi-slot immunity
 - Full DemoTrapUpdate weapon-slot mode matrix / PreAttack scoop animation
 - Full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
-- Full StickyBombUpdate attach bones / geometry-based secondary splash
+- Full StickyBombUpdate attach bones / geometry-based secondary splash / max-charge list
 - Full OCL ClusterMinesBomb aircraft delivery path
 - BoobyTrap install-on-building residual (related StickyBomb path)
 - Network mine replication (network deferred)
