@@ -575,6 +575,16 @@ pub struct GameLogic {
     /// fail-closed vs full OCL CreateObject / science upgrade tiers.
     host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
 
+    /// Host USA Leaflet Drop residual.
+    /// Queues on DoSpecialPower; after Delay disables enemy infantry/vehicles
+    /// (DISABLED_EMP residual) — fail-closed vs full OCL B52 / LeafletContainer path.
+    host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry,
+
+    /// Host GLA Sneak Attack residual.
+    /// Queues on DoSpecialPower; after Lifetime delay spawns tunnel structure +
+    /// residual shockwave damage — fail-closed vs full OCL Start animation / TunnelContain.
+    host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry,
+
     /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
     host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
@@ -1477,6 +1487,8 @@ impl GameLogic {
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry::new(),
             host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
+            host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry::new(),
+            host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             supply_lines_bonus_cash_total: 0,
             cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry::new(),
@@ -1639,6 +1651,8 @@ impl GameLogic {
         self.special_power_strikes.clear();
         self.host_paradrops.clear();
         self.host_ambushes.clear();
+        self.host_leaflet_drops.clear();
+        self.host_sneak_attacks.clear();
         self.host_upgrades.clear();
         self.supply_lines_bonus_cash_total = 0;
         self.cash_bounty.clear();
@@ -3501,6 +3515,14 @@ impl GameLogic {
         // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
         // Fail-closed vs full OCL CreateObject / science upgrade tiers.
         self.update_ambushes();
+
+        // Host USA Leaflet Drop residual: disable enemy infantry/vehicles after Delay.
+        // Fail-closed vs full OCL B52 / LeafletContainer / LeafletFX particle path.
+        self.update_leaflet_drops();
+
+        // Host GLA Sneak Attack residual: spawn tunnel + shockwave after Lifetime delay.
+        // Fail-closed vs full OCL Start animation / multi-shockwave / TunnelContain path.
+        self.update_sneak_attacks();
 
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
@@ -8971,6 +8993,55 @@ impl GameLogic {
         &mut self.host_ambushes
     }
 
+    /// Host USA Leaflet Drop mission registry (queue + delayed disable residual).
+    pub fn host_leaflet_drops(
+        &self,
+    ) -> &crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry {
+        &self.host_leaflet_drops
+    }
+
+    /// Residual honesty: LeafletDrop activated at least once.
+    pub fn honesty_leaflet_drop_activate_ok(&self) -> bool {
+        self.host_leaflet_drops.honesty_activate_ok()
+    }
+
+    /// Residual honesty: LeafletDrop applied DISABLED_EMP at least once.
+    pub fn honesty_leaflet_drop_disable_ok(&self) -> bool {
+        self.host_leaflet_drops.honesty_disable_ok()
+    }
+
+    /// Combined host path honesty for LeafletDrop residual.
+    pub fn honesty_leaflet_drop_ok(&self) -> bool {
+        self.host_leaflet_drops.honesty_host_path_ok()
+    }
+
+    /// Host GLA Sneak Attack mission registry (queue + tunnel spawn residual).
+    pub fn host_sneak_attacks(
+        &self,
+    ) -> &crate::game_logic::host_sneak_attack::HostSneakAttackRegistry {
+        &self.host_sneak_attacks
+    }
+
+    /// Residual honesty: SneakAttack activated at least once.
+    pub fn honesty_sneak_attack_activate_ok(&self) -> bool {
+        self.host_sneak_attacks.honesty_activate_ok()
+    }
+
+    /// Residual honesty: SneakAttack spawned a tunnel at least once.
+    pub fn honesty_sneak_attack_tunnel_ok(&self) -> bool {
+        self.host_sneak_attacks.honesty_tunnel_spawn_ok()
+    }
+
+    /// Residual honesty: SneakAttack shockwave hit at least once.
+    pub fn honesty_sneak_attack_shockwave_ok(&self) -> bool {
+        self.host_sneak_attacks.honesty_shockwave_ok()
+    }
+
+    /// Combined host path honesty for SneakAttack residual (activate + tunnel).
+    pub fn honesty_sneak_attack_ok(&self) -> bool {
+        self.host_sneak_attacks.honesty_host_path_ok()
+    }
+
     /// Host upgrade research registry (queue + complete residual).
     pub fn host_upgrades(
         &self,
@@ -12493,6 +12564,328 @@ impl GameLogic {
                 plan.target_position,
                 spawned_count,
                 plan.spawn_positions.len()
+            );
+        }
+    }
+
+    /// Queue a host residual USA Leaflet Drop mission from DoSpecialPower.
+    /// Returns mission id when the power maps to a supported residual kind.
+    pub fn queue_leaflet_drop(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::host_leaflet_drop::HostLeafletDropKind;
+        let kind = HostLeafletDropKind::from_command_power(power)?;
+        let source_team = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let frame = self.frame;
+
+        let id = self.host_leaflet_drops.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        Some(id)
+    }
+
+    /// Advance pending host leaflet drops past Delay and apply DISABLED_EMP residual.
+    ///
+    /// Matches retail LeafletDropBehavior::doDisableAttack:
+    /// - Delay residual 2500 ms → 75 frames
+    /// - AffectRadius residual 110
+    /// - DisabledDuration 20000 ms → 600 frames (DISABLED_EMP)
+    /// - Enemy infantry + vehicles only
+    ///
+    /// Fail-closed: not full OCL B52 / LeafletContainer drawable / LeafletFX path.
+    pub fn update_leaflet_drops(&mut self) {
+        use crate::game_logic::host_leaflet_drop::{
+            in_leaflet_radius_2d, is_legal_leaflet_disable_target,
+        };
+
+        self.host_leaflet_drops.clear_frame_events();
+
+        let plans = self.host_leaflet_drops.plan_due_impacts(self.frame);
+        for plan in plans {
+            let center = (plan.target_position.x, plan.target_position.z);
+            let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() {
+                        return None;
+                    }
+                    // Residual: never leaflet the caster object itself.
+                    if *id == plan.source_object {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    if !in_leaflet_radius_2d(center, (pos.x, pos.z), plan.radius) {
+                        return None;
+                    }
+                    let is_infantry = obj.is_kind_of(KindOf::Infantry);
+                    let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                    // Enemy residual: different team, skip Neutral.
+                    let is_enemy = obj.team != plan.source_team
+                        && obj.team != Team::Neutral
+                        && plan.source_team != Team::Neutral;
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                    Some((*id, is_infantry, is_vehicle, is_enemy, under_construction))
+                })
+                .collect();
+
+            let mut disables: u32 = 0;
+            for (id, is_infantry, is_vehicle, is_enemy, under_construction) in candidates {
+                if !is_legal_leaflet_disable_target(
+                    is_infantry,
+                    is_vehicle,
+                    true,
+                    is_enemy,
+                    under_construction,
+                ) {
+                    continue;
+                }
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if !target.is_alive() {
+                    continue;
+                }
+                target.apply_disabled_emp(plan.disable_until_frame);
+                disables = disables.saturating_add(1);
+            }
+
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.impact_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::WeaponImpact,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+
+            self.host_leaflet_drops
+                .record_impact_complete(plan.mission_id, disables);
+
+            log::info!(
+                "Host leaflet drop {} mission {} completed at {:?} (disables={})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                disables
+            );
+        }
+    }
+
+    /// Queue a host residual GLA Sneak Attack mission from DoSpecialPower.
+    /// Returns mission id when the power maps to a supported residual kind.
+    pub fn queue_sneak_attack(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::host_sneak_attack::{
+            HostSneakAttackKind, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+        };
+        let kind = HostSneakAttackKind::from_command_power(power)?;
+        let source_team = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let frame = self.frame;
+
+        // Prefer retail tunnel template when loaded; otherwise residual TestSneakTunnel.
+        let preferred = kind.tunnel_template();
+        let tunnel_template = if self.templates.contains_key(preferred) {
+            preferred.to_string()
+        } else {
+            self.ensure_residual_sneak_tunnel_template();
+            SNEAK_ATTACK_RESIDUAL_TEMPLATE.to_string()
+        };
+
+        let id = self.host_sneak_attacks.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+            tunnel_template,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        Some(id)
+    }
+
+    /// Ensure residual tunnel structure template used by GLA Sneak Attack spawn path.
+    fn ensure_residual_sneak_tunnel_template(&mut self) {
+        use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_RESIDUAL_TEMPLATE;
+        if self.templates.contains_key(SNEAK_ATTACK_RESIDUAL_TEMPLATE) {
+            return;
+        }
+        let mut t = ThingTemplate::new(SNEAK_ATTACK_RESIDUAL_TEMPLATE);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_cost(0, 0);
+        self.templates
+            .insert(SNEAK_ATTACK_RESIDUAL_TEMPLATE.to_string(), t);
+    }
+
+    /// Advance pending host sneak attacks to spawn frame: create tunnel + shockwave.
+    ///
+    /// Matches residual SuperweaponSneakAttack → Start Lifetime 5000ms → tunnel:
+    /// - Spawn delay residual 150 frames
+    /// - Shockwave residual SneakAttackShockwaveWeaponBig (50 dmg / radius 50)
+    /// - Tunnel template GLASneakAttackTunnelNetwork or residual TestSneakTunnel
+    ///
+    /// Fail-closed: not full multi-shockwave timing / OCL Start animation / TunnelContain.
+    pub fn update_sneak_attacks(&mut self) {
+        use crate::game_logic::host_sneak_attack::{
+            in_sneak_shockwave_radius_2d, is_legal_sneak_shockwave_target,
+            SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+        };
+
+        self.host_sneak_attacks.clear_frame_events();
+
+        let plans = self.host_sneak_attacks.plan_due_spawns(self.frame);
+        for plan in plans {
+            if !self.templates.contains_key(&plan.tunnel_template) {
+                self.ensure_residual_sneak_tunnel_template();
+            }
+            let template_name = if self.templates.contains_key(&plan.tunnel_template) {
+                plan.tunnel_template.clone()
+            } else {
+                SNEAK_ATTACK_RESIDUAL_TEMPLATE.to_string()
+            };
+
+            let tunnel_id =
+                self.create_object(&template_name, plan.source_team, plan.target_position);
+
+            // Residual shockwave damage pulse (Big weapon residual) at spawn.
+            let center = (plan.target_position.x, plan.target_position.z);
+            let candidates: Vec<(ObjectId, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() {
+                        return None;
+                    }
+                    // Residual: do not damage the freshly spawned tunnel itself.
+                    if tunnel_id == Some(*id) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    if !in_sneak_shockwave_radius_2d(center, (pos.x, pos.z), plan.shockwave_radius) {
+                        return None;
+                    }
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                    Some((*id, under_construction))
+                })
+                .collect();
+
+            let mut shockwave_hits: u32 = 0;
+            let mut shockwave_damage_total = 0.0_f32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for (id, under_construction) in candidates {
+                if !is_legal_sneak_shockwave_target(true, under_construction) {
+                    continue;
+                }
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if !target.is_alive() {
+                    continue;
+                }
+                let dmg = plan.shockwave_damage;
+                let killed = target.take_damage(dmg);
+                shockwave_hits = shockwave_hits.saturating_add(1);
+                shockwave_damage_total += dmg;
+                if killed {
+                    destroy_ids.push((id, plan.source_team));
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.spawn_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+
+            self.host_sneak_attacks.record_spawn_complete(
+                plan.mission_id,
+                tunnel_id,
+                shockwave_hits,
+                shockwave_damage_total,
+            );
+
+            log::info!(
+                "Host sneak attack {} mission {} completed at {:?} (tunnel={:?}, shock_hits={})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                tunnel_id,
+                shockwave_hits
             );
         }
     }
@@ -19912,6 +20305,409 @@ mod tests {
         assert!(
             game_logic.find_object(caster_id).unwrap().is_frenzy_buffed(),
             "caster ally in radius must receive Frenzy residual"
+        );
+    }
+
+    /// Residual: Leaflet Drop special power queues a delayed disable of enemy
+    /// infantry/vehicles (DISABLED_EMP residual).
+    ///
+    /// C++ SuperweaponLeafletDrop → LeafletContainer LeafletDropBehavior
+    /// Delay=2500ms / AffectRadius=110 / DisabledDuration=20000ms / ENEMIES
+    /// INFANTRY|VEHICLE only. Fail-closed: not full OCL B52 / LeafletFX path.
+    #[test]
+    fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_leaflet_drop::{
+            HostLeafletDropKind, HostLeafletDropPhase, HOST_LEAFLET_RADIUS, LEAFLET_DELAY_FRAMES,
+            LEAFLET_DISABLED_DURATION_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // player_id 0 → Team::USA residual ownership for command path.
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let enemy_vehicle_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy vehicle");
+        let enemy_infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("enemy infantry");
+        let far_vehicle_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
+            .expect("far vehicle");
+        let ally_vehicle_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("ally vehicle");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(25.0, 0.0, 0.0))
+            .expect("enemy barracks");
+
+        for id in [enemy_vehicle_id, far_vehicle_id, ally_vehicle_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        let vehicle_hp = game_logic
+            .find_object(enemy_vehicle_id)
+            .expect("vehicle")
+            .health
+            .current;
+
+        assert!(!game_logic.honesty_leaflet_drop_ok());
+        assert_eq!(game_logic.host_leaflet_drops().activation_count(), 0);
+
+        let impact = Vec3::new(0.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::LeafletDrop,
+                target: PowerTarget::Location(impact),
+            },
+            player_id: 0,
+            command_id: 81,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_leaflet_drop_activate_ok(),
+            "LeafletDrop residual must record activation honesty"
+        );
+        assert!(
+            game_logic
+                .host_leaflet_drops()
+                .honesty_activate_ok(),
+            "LeafletDrop registry activation honesty"
+        );
+        assert!(!game_logic.honesty_leaflet_drop_disable_ok());
+        assert_eq!(
+            game_logic.host_leaflet_drops().pending_count(),
+            1,
+            "LeafletDrop must be pending during Delay residual"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "LeafletDrop"),
+            "activation must queue LeafletDrop audio"
+        );
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "LeafletDrop must not enqueue superweapon residual strikes"
+        );
+
+        // Before delay: no disables yet.
+        assert!(
+            !game_logic
+                .find_object(enemy_vehicle_id)
+                .unwrap()
+                .is_emp_disabled()
+        );
+
+        game_logic.frame = LEAFLET_DELAY_FRAMES - 1;
+        game_logic.update_leaflet_drops();
+        assert!(
+            !game_logic
+                .find_object(enemy_vehicle_id)
+                .unwrap()
+                .is_emp_disabled(),
+            "still no disable one frame before Delay"
+        );
+
+        game_logic.frame = LEAFLET_DELAY_FRAMES;
+        game_logic.update_leaflet_drops();
+
+        assert!(
+            game_logic.honesty_leaflet_drop_disable_ok(),
+            "LeafletDrop residual must record disable honesty"
+        );
+        assert!(
+            game_logic.honesty_leaflet_drop_ok(),
+            "LeafletDrop host residual path honesty"
+        );
+        let completed = game_logic
+            .host_leaflet_drops()
+            .completed_of_kind(HostLeafletDropKind::UsaLeafletDrop);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostLeafletDropPhase::Completed);
+        assert!(
+            (completed[0].target_position.x - impact.x).abs() < 0.01
+                && (completed[0].target_position.z - impact.z).abs() < 0.01
+        );
+        assert!(
+            completed[0].disables >= 2,
+            "must disable at least enemy infantry + vehicle (got {})",
+            completed[0].disables
+        );
+
+        // In-radius enemy vehicle: DISABLED_EMP, no HP damage.
+        let vehicle = game_logic
+            .find_object(enemy_vehicle_id)
+            .expect("enemy vehicle");
+        assert!(
+            vehicle.is_emp_disabled(),
+            "in-radius enemy vehicle must be DISABLED_EMP"
+        );
+        assert!(vehicle.is_disabled());
+        assert!(!vehicle.can_move());
+        assert!(!vehicle.can_attack());
+        assert_eq!(
+            vehicle.health.current, vehicle_hp,
+            "Leaflet residual must not damage vehicle HP"
+        );
+        assert_eq!(
+            vehicle.status.disabled_emp_until_frame,
+            game_logic.frame + LEAFLET_DISABLED_DURATION_FRAMES
+        );
+
+        // In-radius enemy infantry: DISABLED_EMP (unlike EMP Pulse residual).
+        let infantry = game_logic
+            .find_object(enemy_infantry_id)
+            .expect("enemy infantry");
+        assert!(
+            infantry.is_emp_disabled(),
+            "in-radius enemy infantry must be DISABLED_EMP leaflet residual"
+        );
+
+        // Out-of-radius enemy vehicle: unaffected.
+        let far = game_logic.find_object(far_vehicle_id).expect("far");
+        assert!(!far.is_emp_disabled(), "out-of-radius must not be leaflet'd");
+        assert!(far.can_move());
+
+        // Same-team ally residual: not disabled (enemies only).
+        let ally = game_logic.find_object(ally_vehicle_id).expect("ally");
+        assert!(
+            !ally.is_emp_disabled(),
+            "ally must not receive leaflet DISABLED_EMP residual"
+        );
+
+        // Structure residual: not disabled (LeafletDropBehavior INFANTRY|VEHICLE only).
+        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        assert!(
+            !barracks.is_emp_disabled(),
+            "structures must not receive leaflet DISABLED_EMP residual"
+        );
+
+        // Impact audio residual.
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "LeafletDropEffect"),
+            "impact must queue LeafletDropEffect audio"
+        );
+
+        // Radius residual honesty.
+        assert!((HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01);
+
+        // Expire residual timer → vehicle recovers.
+        let until = game_logic
+            .find_object(enemy_vehicle_id)
+            .expect("vehicle")
+            .status
+            .disabled_emp_until_frame;
+        assert!(until > game_logic.frame);
+        game_logic.frame = until;
+        game_logic.update_ai(&[enemy_vehicle_id, enemy_infantry_id], 1.0 / 60.0);
+        let recovered = game_logic
+            .find_object(enemy_vehicle_id)
+            .expect("vehicle");
+        assert!(
+            !recovered.is_emp_disabled(),
+            "DISABLED_EMP must clear after DisabledDuration"
+        );
+        assert!(recovered.can_move());
+        assert!(recovered.can_attack());
+    }
+
+    /// Residual: GLA Sneak Attack queues a delayed tunnel spawn + residual shockwave.
+    ///
+    /// C++ SuperweaponSneakAttack → OCL_CreateSneakAttackTunnelStart Lifetime 5000ms
+    /// → CreateObjectDie OCL_CreateSneakAttackTunnel + FireWeaponUpdate shockwave
+    /// residual. Fail-closed: not full Start animation / multi-shockwave / TunnelContain.
+    #[test]
+    fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_sneak_attack::{
+            HostSneakAttackKind, HostSneakAttackPhase, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+            SNEAK_ATTACK_SHOCKWAVE_DAMAGE, SNEAK_ATTACK_SPAWN_DELAY_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(200.0, 0.0, 100.0);
+        // Enemy near spawn for shockwave residual.
+        let enemy_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(target.x + 10.0, 0.0, target.z),
+            )
+            .expect("enemy near tunnel");
+        let far_enemy_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(target.x + 200.0, 0.0, target.z),
+            )
+            .expect("far enemy");
+
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.find_object(far_enemy_id).unwrap().health.current;
+        let objects_before = game_logic.get_objects().len();
+
+        assert!(!game_logic.honesty_sneak_attack_ok());
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::SneakAttack,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 2, // Team::GLA residual ownership
+            command_id: 82,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_sneak_attack_activate_ok(),
+            "SneakAttack residual must record activation honesty"
+        );
+        assert_eq!(game_logic.host_sneak_attacks().pending_count(), 1);
+        assert!(!game_logic.honesty_sneak_attack_tunnel_ok());
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert!(caster.special_power_cooldown_remaining > 0.0);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SneakAttackActivated"),
+            "activation must queue SneakAttackActivated audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "no tunnel before Lifetime delay residual"
+        );
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "SneakAttack must not enqueue superweapon residual strikes"
+        );
+
+        game_logic.frame = SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1;
+        game_logic.update_sneak_attacks();
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "still no tunnel one frame before spawn"
+        );
+
+        game_logic.frame = SNEAK_ATTACK_SPAWN_DELAY_FRAMES;
+        game_logic.update_sneak_attacks();
+
+        assert!(
+            game_logic.honesty_sneak_attack_tunnel_ok(),
+            "SneakAttack residual must spawn tunnel honesty"
+        );
+        assert!(
+            game_logic.honesty_sneak_attack_ok(),
+            "SneakAttack host residual path honesty"
+        );
+        assert!(
+            game_logic.honesty_sneak_attack_shockwave_ok(),
+            "SneakAttack residual shockwave must hit nearby units"
+        );
+
+        let completed = game_logic
+            .host_sneak_attacks()
+            .completed_of_kind(HostSneakAttackKind::GLASneakAttack);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostSneakAttackPhase::Completed);
+        let tunnel_id = completed[0]
+            .spawned_tunnel_id
+            .expect("tunnel must be spawned");
+        assert!(
+            completed[0].shockwave_hits >= 1,
+            "shockwave residual must hit nearby enemy"
+        );
+
+        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel object");
+        assert_eq!(tunnel.team, Team::GLA);
+        assert!(
+            tunnel.is_kind_of(KindOf::Structure),
+            "spawned tunnel must be a structure residual"
+        );
+        assert_eq!(
+            tunnel.thing.template.name, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+            "must use residual tunnel template when retail unloaded"
+        );
+        let tpos = tunnel.get_position();
+        assert!(
+            (tpos.x - target.x).abs() < 0.5 && (tpos.z - target.z).abs() < 0.5,
+            "tunnel must spawn at target location"
+        );
+
+        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_hp_after = game_logic.find_object(far_enemy_id).unwrap().health.current;
+        assert!(
+            (enemy_hp_before - enemy_hp_after - SNEAK_ATTACK_SHOCKWAVE_DAMAGE).abs() < 0.01
+                || enemy_hp_after < enemy_hp_before,
+            "nearby enemy must take residual shockwave damage (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert_eq!(
+            far_hp_before, far_hp_after,
+            "out-of-radius enemy must not take shockwave residual"
+        );
+
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SneakAttackTunnelSpawn"),
+            "spawn must queue SneakAttackTunnelSpawn audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before + 1,
+            "exactly one tunnel structure added"
         );
     }
 

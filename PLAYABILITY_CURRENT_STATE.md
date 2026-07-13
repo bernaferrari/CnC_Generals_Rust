@@ -1,5 +1,50 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Leaflet Drop (2026-07-12)
+**Closed (host-testable USA Leaflet Drop → delayed enemy infantry/vehicle disable):**
+1. **Leaflet Drop residual** (`LeafletDropBehavior` host path):
+   - `DoSpecialPower(LeafletDrop)` queues a delayed mission (retail Delay=2500 ms → 75 frames).
+   - On impact: enemy **INFANTRY|VEHICLE** in AffectRadius residual **110** receive
+     `DISABLED_EMP` for DisabledDuration residual **20000 ms → 600 frames**.
+   - Allies / Neutral / structures residual-skip (C++ relationship ENEMIES + kind filter).
+   - Reuses host `disabled_emp` tick path (cannot move/attack until expiry).
+2. Honesty counters (`host_leaflet_drop.rs` + GameLogic):
+   - `activation_count` / `disable_count`
+   - `honesty_leaflet_drop_activate_ok` / `honesty_leaflet_drop_disable_ok` /
+     `honesty_leaflet_drop_ok`
+3. Tests (not log-only):
+   - `leaflet_drop_residual_disables_enemy_infantry_and_vehicles`
+   - unit tests in `host_leaflet_drop.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full OCL AmericaJetB52 / LeafletContainer drawable / LeafletFX particle path
+- Full EarlyLeafletDrop science shortcut timer matrix
+- Full multiplayer SharedSyncedTimer / academy classification
+- Network leaflet replication (network deferred)
+
+## Residual Host Playability — GLA Sneak Attack (2026-07-12)
+**Closed (host-testable Sneak Attack → delayed tunnel spawn + shockwave):**
+1. **Sneak Attack residual** (`SuperweaponSneakAttack` host path):
+   - `DoSpecialPower(SneakAttack)` queues mission with Lifetime residual **5000 ms → 150 frames**
+     (retail GLASneakAttackTunnelNetworkStart LifetimeUpdate).
+   - On spawn: creates tunnel structure (`GLASneakAttackTunnelNetwork` if loaded, else
+     residual `TestSneakTunnel`) for casting team at target location.
+   - Residual shockwave pulse at spawn (SneakAttackShockwaveWeaponBig: **50 dmg / radius 50**).
+2. Honesty counters (`host_sneak_attack.rs` + GameLogic):
+   - `activation_count` / `tunnel_spawn_count` / `shockwave_hit_count`
+   - `honesty_sneak_attack_activate_ok` / `honesty_sneak_attack_tunnel_ok` /
+     `honesty_sneak_attack_shockwave_ok` / `honesty_sneak_attack_ok`
+3. Tests (not log-only):
+   - `sneak_attack_residual_spawns_tunnel_and_shockwave`
+   - unit tests in `host_sneak_attack.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full OCL Start model animation / crack-dust particle stack
+- Full multi-shockwave FireWeaponUpdate timing (10ms / 1000ms / 2500ms)
+- Full TunnelContain enter/exit / GuardTunnelNetwork AI path
+- SharedSyncedTimer / multiplayer academy classification
+- Network sneak-attack replication (network deferred)
+
 ## Residual Host Playability — PointDefenseLaser Intercept (2026-07-12)
 **Closed (host-testable Paladin/Avenger auto-destroy nearby enemy missiles):**
 1. **PointDefenseLaser residual** (`PointDefenseLaserUpdate` host path):
