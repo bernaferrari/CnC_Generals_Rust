@@ -1,3 +1,31 @@
+## Residual Host Playability — Bombardment Turret + Eject InvulnerableTime (2026-07-13)
+**Closed (host-testable StrategyCenterGun Bombardment turret + OCL InvulnerableTime residual):**
+1. **Bombardment turret residual** (`BattlePlanUpdate::enableTurret` / StrategyCenterGun):
+   - Strategy Center spawns with turret residual **disabled** (strip kind-based weapon).
+   - Bombardment plan equips PRIMARY `StrategyCenterGun`: PrimaryDamage **200** /
+     radius **25**, range **400**, min **100**, Delay **7000**ms → **210** frames.
+   - Auto-fire residual while Bombardment active (nearest in-band enemy + splash).
+   - Leaving Bombardment clears weapon residual.
+   - Fail-closed: not full natural-position recenter / pack-unpack door matrix.
+2. **InvulnerableTime residual** (`OCL_EjectPilotOnGround` InvulnerableTime = **2000**ms):
+   - Ejected pilot residual is damage-immune for **60** frames (`goInvulnerable` host).
+   - Enemies skip auto-fire on invulnerable pilots (ALLIES relationship residual).
+   - Timer expiry restores normal damage.
+   - Fail-closed: not full UNDETECTED_DEFECTOR FX flash matrix.
+3. Tests (not log-only):
+   - `strategy_center_bombardment_turret_fire_residual`
+   - `eject_pilot_invulnerable_time_residual`
+   - module unit tests in `host_strategy_center` / `host_usa_pilot`
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+- Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+- Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+- Full EjectPilotDie VeterancyLevels ALL -REGULAR gate residual
+- Network battle-plan turret / eject-invuln replication (network deferred)
+
 ## Residual Host Playability — BattlePlan Paralyze + EjectPilotDie (2026-07-13)
 **Closed (host-testable BattlePlanChangeParalyzeTime + USA EjectPilotDie residual):**
 1. **BattlePlanChangeParalyze residual** (`BattlePlanUpdate` / Strategy Center):
@@ -20,10 +48,12 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
-- Full Bombardment turret enable / recenter natural-position residual path
+- Full Bombardment turret enable residual (host residual closed 2026-07-13 —
+  see Bombardment Turret + Eject InvulnerableTime section; natural-position recenter still open)
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
 - Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
-- Full InvulnerableTime post-eject invulnerability matrix
+- Full InvulnerableTime post-eject residual (host residual closed 2026-07-13 —
+  see Bombardment Turret + Eject InvulnerableTime section)
 - Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
 - Network battle-plan paralyze / eject-pilot replication (network deferred)
 
