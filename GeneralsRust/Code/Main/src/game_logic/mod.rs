@@ -132,6 +132,7 @@ pub use host_aurora_bomb::{
     HostAuroraBombRegistry, AURORA_BOMB_ATTACK_RANGE, AURORA_BOMB_DAMAGE,
     AURORA_BOMB_DIVE_DELAY_FRAMES, AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_RADIUS,
     AURORA_FUEL_AIR_DAMAGE, AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, AURORA_FUEL_AIR_RADIUS,
+    AURORA_FUEL_AIR_SUPW_DAMAGE, AURORA_FUEL_AIR_SUPW_RADIUS,
 };
 pub use host_avenger::{
     is_avenger_template, HostAvengerRegistry, AVENGER_AIR_LASER, AVENGER_TARGET_DESIGNATOR,
@@ -343,9 +344,10 @@ pub use host_nuke_cannon::{
 };
 pub use host_oil_derrick::{
     is_legal_oil_derrick_income_source, is_oil_derrick_structure, is_oil_derrick_template,
-    HostOilDerrickRegistry, OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AMOUNT,
-    OIL_DERRICK_DEPOSIT_AUDIO, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
-    OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+    structure_floating_text_scatter, HostOilDerrickRegistry, OIL_DERRICK_CAPTURE_BONUS_AUDIO,
+    OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
+    OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
+    OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE, OIL_DERRICK_INITIAL_CAPTURE_BONUS,
 };
 pub use host_overlord_addons::{
     is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,

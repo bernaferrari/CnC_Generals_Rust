@@ -10117,11 +10117,27 @@ impl GameLogic {
                     .saturating_add(deposited);
             }
             // AutoDeposit floating text residual + STEALTHED local display gate.
-            use crate::game_logic::host_oil_derrick::should_display_stealthed_floating_cash;
+            // Structure geometry scatter residual (±0.3 major/minor radius).
+            use crate::game_logic::host_oil_derrick::{
+                should_display_stealthed_floating_cash, structure_floating_text_scatter,
+                OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+            };
             if should_display_stealthed_floating_cash(stealthed, detected, is_local) {
+                let radius = self
+                    .objects
+                    .get(&market_id)
+                    .map(|o| o.selection_radius.max(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS))
+                    .unwrap_or(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS);
+                let (dx, dz) = structure_floating_text_scatter(
+                    market_id.0.wrapping_add(frame),
+                    radius,
+                    radius,
+                );
+                let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
+                self.black_markets.record_geometry_scatter();
                 self.black_markets.record_floating_text(HostAutoDepositFloatingText::new(
                     market_id,
-                    pos,
+                    float_pos,
                     deposited,
                     player_color,
                     frame,
@@ -10226,9 +10242,25 @@ impl GameLogic {
                         player.statistics.resources_collected.saturating_add(bonus);
                 }
                 // Capture bonus floating text is not STEALTH-gated in C++ (award path).
+                // Structure geometry scatter residual still applies (KINDOF_STRUCTURE).
+                use crate::game_logic::host_oil_derrick::{
+                    structure_floating_text_scatter, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+                };
+                let radius = self
+                    .objects
+                    .get(&derrick_id)
+                    .map(|o| o.selection_radius.max(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS))
+                    .unwrap_or(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS);
+                let (dx, dz) = structure_floating_text_scatter(
+                    derrick_id.0.wrapping_add(frame).wrapping_add(1),
+                    radius,
+                    radius,
+                );
+                let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
+                self.oil_derricks.record_geometry_scatter();
                 self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
                     derrick_id,
-                    pos,
+                    float_pos,
                     bonus,
                     player_color,
                     frame,
@@ -10261,9 +10293,24 @@ impl GameLogic {
                     .saturating_add(deposited);
             }
             if show_float {
+                use crate::game_logic::host_oil_derrick::{
+                    structure_floating_text_scatter, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+                };
+                let radius = self
+                    .objects
+                    .get(&derrick_id)
+                    .map(|o| o.selection_radius.max(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS))
+                    .unwrap_or(OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS);
+                let (dx, dz) = structure_floating_text_scatter(
+                    derrick_id.0.wrapping_add(frame),
+                    radius,
+                    radius,
+                );
+                let float_pos = Vec3::new(pos.x + dx, pos.y, pos.z + dz);
+                self.oil_derricks.record_geometry_scatter();
                 self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
                     derrick_id,
-                    pos,
+                    float_pos,
                     deposited,
                     player_color,
                     frame,

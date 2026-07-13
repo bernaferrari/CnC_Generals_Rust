@@ -100,6 +100,9 @@ pub struct HostBlackMarketRegistry {
     /// Floating cash text suppressed by STEALTHED local display gate residual.
     #[serde(default)]
     pub floating_texts_suppressed: u32,
+    /// Structure geometry scatter residual applications (honesty).
+    #[serde(default)]
+    pub geometry_scatter_applications: u32,
     /// Next absolute logic frame each market may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
 }
@@ -170,9 +173,20 @@ impl HostBlackMarketRegistry {
         self.floating_texts_suppressed = self.floating_texts_suppressed.saturating_add(1);
     }
 
+    /// Record structure geometry scatter residual application on floating text.
+    pub fn record_geometry_scatter(&mut self) {
+        self.geometry_scatter_applications =
+            self.geometry_scatter_applications.saturating_add(1);
+    }
+
     /// Residual honesty: STEALTHED local display gate suppressed at least one text.
     pub fn honesty_floating_text_stealth_gate_ok(&self) -> bool {
         self.floating_texts_suppressed > 0
+    }
+
+    /// Residual honesty: structure geometry scatter residual applied.
+    pub fn honesty_geometry_scatter_ok(&self) -> bool {
+        self.geometry_scatter_applications > 0
     }
 
     /// Drop schedule when a market is destroyed / gone.

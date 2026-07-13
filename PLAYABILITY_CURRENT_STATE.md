@@ -1,3 +1,43 @@
+## Residual Host Playability — Spectre Coast + SupW FuelAir + Structure Scatter (2026-07-13)
+**Closed (host-testable combat/power/economy residual not covered by wave 15 anthrax/ROF):**
+1. **Spectre ContinuousFireCoast residual** (`special_power_strikes` / FiringTracker):
+   - Retail ContinuousFireCoast **2000** ms → **60** frames for both
+     `SpectreGattlingGun` and `SpectreHowitzerGun`.
+   - On each residual shot: `coast_until = frame + interval + 60`.
+   - After idle past coast: coolDown zeros consecutive + fire level (base ROF).
+   - Host tracks `gattling_coast_until_frame` / `howitzer_coast_until_frame` +
+     `*_coast_applications` honesty; post-coast restarts at base interval.
+   - Fail-closed: not full model-condition CONTINUOUS_FIRE_* anim / howitzer shell
+     projectile Object / VoiceRapidFire.
+2. **SupW FuelAir 900/r70 matrix residual** (`host_aurora_bomb`):
+   - `HostAuroraBombKind::FuelAirSupW` = retail `SupW_FuelBombDetonationWeapon`
+     Primary **900** / r**70** (AirF keeps **1000**/r**100**).
+   - Template classifier: `SupW_*` / `TestAuroraFuelAirSupW` → FuelAirSupW;
+     `AirF_*` → FuelAir; standard Aurora → Standard.
+   - Same gas delay + DaisyCutterFlame secondary **5**/r**100**; r80 is flame-only
+     under SupW (outside primary 70) but still in AirF primary (matrix differs).
+   - Fail-closed: not full SlowDeath multi-stage / tree burn / OCL gas Object.
+3. **AutoDeposit structure geometry scatter residual** (economy / floating cash):
+   - C++ KINDOF_STRUCTURE: `±0.3 * major/minor radius` on floating cash text pos.
+   - Host residual `structure_floating_text_scatter` (deterministic golden-ratio
+     phase); applied on oil derrick deposit/capture and black market deposit paths.
+   - Honesty: `geometry_scatter_applications` / `honesty_geometry_scatter_ok`.
+   - Fail-closed: not full GeometryInfo matrix / GameClientRandomValue stream /
+     InGameUI GPU draw.
+4. Tests (not log-only):
+   - `spectre_continuous_fire_coast_cooldown_residual`
+   - `supw_fuel_bomb_900_r70_matrix_residual_honesty`
+   - `structure_geometry_scatter_residual`
+   - all `special_power_strikes::` (28)
+   - aurora / oil / black market host unit + integration residual paths green
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / model-condition CONTINUOUS_FIRE_*
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Network combat/power/economy residual replication (network deferred)
+
 ## Residual Host Playability — Scud Anthrax Upgrade + Spectre ContinuousFire ROF (2026-07-13)
 **Closed (host-testable combat/power residual not covered by wave 13 dual-weapon / per-missile poison):**
 1. **ScudStorm anthrax-upgrade residual** (`special_power_strikes` / `ScudStormAnthraxTier`):
@@ -18,8 +58,7 @@
      MEAN ROF **150%** → **6** frames; FAST ROF **200%** → **4** frames.
    - Host tracks `gattling_consecutive` / `howitzer_consecutive` + peak fire levels;
      honesty gates for MEAN reached.
-   - Fail-closed: not full FiringTracker coast cool-down / howitzer shell projectile
-     Object / model-condition continuous-fire flags.
+   - ContinuousFireCoast residual closed wave 16 (was fail-closed here).
 3. **Unit-host splash last_damage_source residual** (related combat residual):
    - Many unit host splash / fire paths now call `take_damage_from(..., Some(source))`
      so CashBounty killer residual prefers BodyModule last_damage_source.
@@ -27,13 +66,13 @@
 4. Tests (not log-only):
    - `scud_storm_anthrax_upgrade_secondary_and_poison_residual`
    - `spectre_continuous_fire_rof_residual_honesty`
-   - all `special_power_strikes::` (27)
+   - all `special_power_strikes::` (27+)
    - `scud_storm_host_path_queues_and_completes`
    - `spectre_gunship_host_path_queues_orbit_damage_over_time`
 
 **Still residual (fail-closed, not claimed):**
 - Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
-- Full SpectreHowitzerShell projectile Object / FiringTracker coast cool-down matrix
+- Full SpectreHowitzerShell projectile Object / model-condition continuous-fire flags
 - Full GameLogicRandomValueReal RNG stream
 - Network Scud anthrax / Spectre ROF replication (network deferred)
 
