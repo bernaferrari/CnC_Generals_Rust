@@ -19,9 +19,13 @@
 //! - `laser_segment_upload_ok` — presentation → CPU SegLine pack residual (incl. synthetic)
 //! - `floating_text_layout_ok` — presentation → CPU InGameUI floating-text layout residual
 //! - `world_anim_presentation_ok` — MoneyPickUp Anim2D residual frozen on presentation
+//! - `world_anim_layout_ok` — presentation → CPU Anim2D layout pack residual
+//! - `game_text_caption_ok` — GUI:AddCash caption residual on floating-text pack
+//! - `rng_stream_residual_ok` — GameLogic/GameClient RandomValue ADC stream residual
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
+use crate::game_logic::host_rng_residual::exercise_host_rng_residual;
 use crate::game_logic::GameLogic;
 use crate::gameplay_layout::{
     control_bar_layout_honesty, format_control_bar_honesty, GameplayLayoutStatus,
@@ -30,6 +34,9 @@ use crate::graphics::floating_text_layout::{
     pack_floating_text_and_mark_ready, FloatingTextLayout,
 };
 use crate::graphics::laser_segment_upload::{pack_and_mark_upload_ready, LaserSegmentUpload};
+use crate::graphics::world_anim_layout::{
+    pack_world_anim_and_mark_ready, WorldAnimLayout,
+};
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::{
     PresentationFloatingText, PresentationFrame, PresentationLaserBeam, PresentationWorldAnim,
@@ -70,6 +77,12 @@ pub struct ShellSmokeResult {
     pub floating_text_layout_ok: bool,
     /// MoneyPickUp Anim2D residual: presentation freeze honesty (empty or template ok).
     pub world_anim_presentation_ok: bool,
+    /// World-anim residual: presentation → CPU Anim2D layout pack (+ synthetic).
+    pub world_anim_layout_ok: bool,
+    /// GameText `GUI:AddCash` caption residual on synthetic floating-text pack.
+    pub game_text_caption_ok: bool,
+    /// GameLogic/GameClient RandomValue ADC stream residual honesty.
+    pub rng_stream_residual_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -244,7 +257,26 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && ft_synth.honesty.honesty_geometry_ok()
         && ft_synth.honesty.texts_packed == 1
         && ft_synth.honesty.world_anims_observed == 1;
+    let game_text_caption_ok = floating_text_layout_ok
+        && ft_synth.honesty.honesty_game_text_caption_ok()
+        && ft_synth
+            .entries
+            .first()
+            .map(|e| e.caption == "+$100")
+            .unwrap_or(false);
     let world_anim_presentation_ok = presentation_ok && pres.world_anim_presentation_ok();
+    // World-anim CPU layout residual (empty + synthetic MoneyPickUp).
+    let wa_empty = pack_world_anim_and_mark_ready(&pres);
+    let wa_synth = WorldAnimLayout::pack_from_presentation(&ft_synth_frame);
+    let world_anim_layout_ok = presentation_ok
+        && world_anim_presentation_ok
+        && wa_empty.honesty.honesty_cpu_pack_ok()
+        && wa_empty.honesty.honesty_upload_ready_ok()
+        && wa_synth.honesty.honesty_geometry_ok()
+        && wa_synth.honesty.anims_packed == 1
+        && wa_synth.honesty.honesty_template_ok();
+    // GameLogic / GameClient RandomValue ADC stream residual.
+    let rng_stream_residual_ok = exercise_host_rng_residual(0x5A6E_2710).honesty_ok();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -386,6 +418,9 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         laser_segment_upload_ok,
         floating_text_layout_ok,
         world_anim_presentation_ok,
+        world_anim_layout_ok,
+        game_text_caption_ok,
+        rng_stream_residual_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -397,7 +432,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} floating_text={floating_text_layout_ok} world_anim={world_anim_presentation_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} floating_text={floating_text_layout_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} game_text={game_text_caption_ok} rng={rng_stream_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -439,6 +474,21 @@ mod tests {
         assert!(
             r.floating_text_layout_ok,
             "floating text CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.game_text_caption_ok,
+            "GUI:AddCash caption residual: {}",
+            r.detail
+        );
+        assert!(
+            r.world_anim_layout_ok,
+            "world anim CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.rng_stream_residual_ok,
+            "RNG stream residual: {}",
             r.detail
         );
         assert!(

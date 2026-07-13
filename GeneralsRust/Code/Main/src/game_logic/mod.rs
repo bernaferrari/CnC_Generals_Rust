@@ -55,6 +55,7 @@ pub mod host_neutron_shell;
 pub mod host_nuclear_tanks;
 pub mod host_nuke_cannon;
 pub mod host_oil_derrick;
+pub mod host_rng_residual;
 pub mod host_overlord_addons;
 pub mod host_overlord_gun;
 pub mod host_paradrop;
@@ -348,6 +349,11 @@ pub use host_oil_derrick::{
     OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
     OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
     OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE, OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+};
+pub use host_rng_residual::{
+    client_stream_structure_scatter, exercise_host_rng_residual, logic_stream_error_radius_offset,
+    pure_client_structure_scatter, pure_logic_random_int, pure_logic_random_real, HostRandomState,
+    HostRngResidualHonesty,
 };
 pub use host_overlord_addons::{
     is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,

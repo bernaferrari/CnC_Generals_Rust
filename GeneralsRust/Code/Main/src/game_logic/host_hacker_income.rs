@@ -101,33 +101,23 @@ pub fn should_display_hacker_floating_cash(
     true
 }
 
-/// Deterministic residual Internet Center floating-text scatter (C++
-/// GameClientRandomValue ± width/depth). Returns host XZ offset.
+/// Residual Internet Center floating-text scatter (C++ GameClientRandomValue
+/// ± width/depth). Returns host XZ offset.
 ///
-/// Fail-closed vs full GameClientRandomValue stream / GeometryInfo matrix.
+/// Uses pure ADC RandomValue algorithm seeded by `seed` (hacker_id + frame) so
+/// re-query is stable and matches C++ integer client stream math.
+/// Fail-closed vs full GeometryInfo major/minor matrix / live DisplayString GPU.
 pub fn internet_center_floating_text_scatter(
     seed: u32,
     major_radius: f32,
     minor_radius: f32,
 ) -> (f32, f32) {
-    let width = (major_radius * HACKER_IC_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
-    let depth = (minor_radius * HACKER_IC_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
-    if width <= 0.0 && depth <= 0.0 {
-        return (0.0, 0.0);
-    }
-    let phase = (seed as f32 + 1.0) * 0.618_033_988_7;
-    let dx = if width > 0.0 {
-        (phase.fract() * 2.0 - 1.0) * width
-    } else {
-        0.0
-    };
-    // C++ Y horizontal → host Z.
-    let dz = if depth > 0.0 {
-        ((phase + 0.37).fract() * 2.0 - 1.0) * depth
-    } else {
-        0.0
-    };
-    (dx, dz)
+    super::host_rng_residual::pure_client_structure_scatter(
+        seed,
+        major_radius,
+        minor_radius,
+        HACKER_IC_FLOATING_TEXT_SCATTER_SCALE,
+    )
 }
 
 /// Host residual HackInternet floating cash text presentation.
