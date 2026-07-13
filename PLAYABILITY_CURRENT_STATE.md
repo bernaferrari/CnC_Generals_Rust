@@ -1,3 +1,39 @@
+## Residual Host Playability — China Red Guard + Tank Hunter (2026-07-13)
+**Closed (host-testable China Red Guard gun/horde/nationalism/bayonet + Tank Hunter RPG/TNT residual):**
+1. **Red Guard residual** (`ChinaInfantryRedguard` / China_RedGuard / Tank_/Nuke_):
+   - PRIMARY `RedguardMachineGun` residual: PrimaryDamage **15** / range **100** /
+     Delay **1000**ms (30 frames).
+   - Horde residual (`HordeUpdate` KindOf INFANTRY, AlliesOnly, ExactMatch=No,
+     Radius **30**, Count **5**): RATE_OF_FIRE **150%** → delay floor(30/1.5)=**20** frames.
+   - Nationalism residual (`Upgrade_Nationalism` while in horde): additional ROF **125%**
+     (stacks) → floor(30/1.875)=**16** frames.
+   - Bayonet residual (`RedguardBayonet` stats): close-range infantry within **2** →
+     MELEE one-shot PrimaryDamage **10000** (retail ZH WeaponSet is PRIMARY-only;
+     residual from weapon def + PREATTACK_C/FIRING_C / CINE TERTIARY).
+   - Honesty: `honesty_red_guard_ok` / horde / nationalism / bayonet / fires.
+2. **Tank Hunter residual** (`ChinaInfantryTankHunter` / China_TankHunter / variants):
+   - PRIMARY `ChinaInfantryTankHunterMissileLauncher` residual: PrimaryDamage **40** /
+     radius **5** / range **175** / min **5** / Delay **1000**ms / AA+ground.
+   - Fire residual: intended + PrimaryDamageRadius **5** splash take full PrimaryDamage.
+   - Horde + Nationalism residual (same China infantry HordeUpdate params as Red Guard).
+   - TNT special residual (`SpecialAbilityTankHunterTNTAttack` / TNTStickyBomb):
+     plant timed demo charge (TNTDetonationWeapon 500/10 + 150/50) with ReloadTime
+     **7500**ms (225 frames) residual cooldown + StartAbilityRange **5**.
+   - Honesty: `honesty_tank_hunter_ok` / tnt / horde / nationalism / fires.
+3. Tests (not log-only):
+   - `red_guard_residual_gun_horde_nationalism_and_bayonet`
+   - `tank_hunter_residual_rpg_horde_and_tnt`
+   - module unit tests in `host_red_guard.rs` / `host_tank_hunter.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
+- Full Fanaticism infantry-general nationalism branch
+- Full WeaponSet tertiary auto-choose / pre-attack anim lock for bayonet
+- Full SpecialAbilityUpdate flee-after / MaxSpecialObjects=8 list / attach bones
+- Full ScatterRadiusVsInfantry / projectile exhaust FX matrix
+- SCIENCE_RedGuardTraining elite spawn residual
+- Network horde / TNT / RPG replication (network deferred)
+
 ## Residual Host Playability — Stinger Site + Patriot AA Polish (2026-07-13)
 **Closed (host-testable GLA Stinger Site SPAWNS_ARE_THE_WEAPONS residual + USA Patriot AA polish):**
 1. **Stinger Site residual** (`GLA_StingerSite` / Chem_/Demo_/Slth_ / GC_* variants):
