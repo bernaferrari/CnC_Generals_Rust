@@ -55,6 +55,19 @@ pub const KING_RAPTOR_PDL_DAMAGE: f32 = 100.0;
 /// (Two independent 250ms streams ≈ one shot every ~125ms @ 30 FPS.)
 pub const KING_RAPTOR_PDL_DELAY_FRAMES: u32 = 4;
 
+/// Retail AirF_AmericaVehicleChinook PointDefenseLaserUpdate ScanRange residual.
+pub const COMBAT_CHINOOK_PDL_SCAN_RANGE: f32 = 250.0;
+
+/// Retail AirF_PointDefenseLaser AttackRange residual (Combat Chinook single laser).
+pub const COMBAT_CHINOOK_PDL_FIRE_RANGE: f32 = 65.0;
+
+/// Retail AirF_PointDefenseLaser PrimaryDamage residual.
+pub const COMBAT_CHINOOK_PDL_DAMAGE: f32 = 100.0;
+
+/// Retail AirF_PointDefenseLaser DelayBetweenShots 250ms → ~8 frames @ 30 FPS
+/// (single laser; not dual-stream collapse).
+pub const COMBAT_CHINOOK_PDL_DELAY_FRAMES: u32 = 8;
+
 /// Activate / intercept audio residual (FXList WeaponFX_PaladinPointDefenseLaser).
 pub const PDL_INTERCEPT_AUDIO: &str = "PaladinPointDefenseLaserPulse";
 
@@ -88,14 +101,27 @@ pub fn is_king_raptor_carrier(template_name: &str) -> bool {
     false
 }
 
+/// Whether template is residual Air Force Combat Chinook with PointDefenseLaser.
+///
+/// Retail: only `AirF_AmericaVehicleChinook` has PDL — vanilla `AmericaVehicleChinook`
+/// does **not**. Fail-closed name residual.
+pub fn is_combat_chinook_pdl_carrier(template_name: &str) -> bool {
+    crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name)
+}
+
 /// Whether template is a residual PointDefenseLaser carrier
-/// (Paladin / Avenger / King Raptor).
+/// (Paladin / Avenger / King Raptor / Combat Chinook).
 ///
 /// Fail-closed: name residual (not full INI PointDefenseLaserUpdate module matrix).
 pub fn is_point_defense_carrier(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     // Explicit residual test names.
-    if n == "testpaladin" || n == "testavenger" || n == "testpdl" || n == "testkingraptor" {
+    if n == "testpaladin"
+        || n == "testavenger"
+        || n == "testpdl"
+        || n == "testkingraptor"
+        || n == "testcombatchinook"
+    {
         return true;
     }
     // AmericaTankPaladin / USA_Paladin / Lazr_AmericaTankPaladin / …
@@ -110,6 +136,10 @@ pub fn is_point_defense_carrier(template_name: &str) -> bool {
     if is_king_raptor_carrier(template_name) {
         return true;
     }
+    // AirF_AmericaVehicleChinook single residual laser.
+    if is_combat_chinook_pdl_carrier(template_name) {
+        return true;
+    }
     false
 }
 
@@ -121,7 +151,9 @@ pub fn is_avenger_carrier(template_name: &str) -> bool {
 
 /// Residual fire range for a PDL carrier.
 pub fn pdl_fire_range(template_name: &str) -> f32 {
-    if is_king_raptor_carrier(template_name) {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_FIRE_RANGE
+    } else if is_king_raptor_carrier(template_name) {
         KING_RAPTOR_PDL_FIRE_RANGE
     } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_FIRE_RANGE
@@ -132,7 +164,9 @@ pub fn pdl_fire_range(template_name: &str) -> f32 {
 
 /// Residual scan range (slightly larger than fire range; Paladin retail 120).
 pub fn pdl_scan_range(template_name: &str) -> f32 {
-    if is_king_raptor_carrier(template_name) {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_SCAN_RANGE
+    } else if is_king_raptor_carrier(template_name) {
         KING_RAPTOR_PDL_SCAN_RANGE
     } else if is_avenger_carrier(template_name) {
         // Avenger has no separate ScanRange in residual; use fire range * 1.2.
@@ -144,7 +178,9 @@ pub fn pdl_scan_range(template_name: &str) -> f32 {
 
 /// Residual damage per intercept shot.
 pub fn pdl_damage(template_name: &str) -> f32 {
-    if is_king_raptor_carrier(template_name) {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_DAMAGE
+    } else if is_king_raptor_carrier(template_name) {
         KING_RAPTOR_PDL_DAMAGE
     } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_DAMAGE
@@ -155,7 +191,9 @@ pub fn pdl_damage(template_name: &str) -> f32 {
 
 /// Residual reload delay in logic frames.
 pub fn pdl_delay_frames(template_name: &str) -> u32 {
-    if is_king_raptor_carrier(template_name) {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_DELAY_FRAMES
+    } else if is_king_raptor_carrier(template_name) {
         KING_RAPTOR_PDL_DELAY_FRAMES
     } else if is_avenger_carrier(template_name) {
         AVENGER_PDL_DELAY_FRAMES
@@ -260,9 +298,15 @@ mod tests {
         assert!(is_point_defense_carrier("TestKingRaptor"));
         assert!(is_king_raptor_carrier("AirF_AmericaJetRaptor"));
         assert!(is_king_raptor_carrier("TestKingRaptor"));
-        // Regular Raptor has no PDL modules — fail-closed.
+        // Combat Chinook residual (Air Force General only).
+        assert!(is_point_defense_carrier("AirF_AmericaVehicleChinook"));
+        assert!(is_point_defense_carrier("TestCombatChinook"));
+        assert!(is_combat_chinook_pdl_carrier("AirF_AmericaVehicleChinook"));
+        // Regular Raptor / vanilla Chinook have no PDL modules — fail-closed.
         assert!(!is_point_defense_carrier("AmericaJetRaptor"));
         assert!(!is_king_raptor_carrier("AmericaJetRaptor"));
+        assert!(!is_point_defense_carrier("AmericaVehicleChinook"));
+        assert!(!is_combat_chinook_pdl_carrier("AmericaVehicleChinook"));
         assert!(!is_point_defense_carrier("USA_Ranger"));
         assert!(!is_point_defense_carrier("USA_Patriot"));
         assert!(!is_point_defense_carrier("ChinaTankBattleMaster"));
