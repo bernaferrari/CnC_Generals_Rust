@@ -12,6 +12,20 @@
 //! - Bunker Buster PLAYER_UPGRADE residual remains in host_bunker_buster (structure
 //!   garrison kill + bunker mult — applied from combat residual path).
 //!
+//! Wave 59 residual pack (retail Weapon.ini / WeaponObjects.ini honesty):
+//! - StealthJetMissile residual: Primary **100**/r**5**, ScatterVsInfantry **10**,
+//!   range **220**, min **60**, Delay **200**ms → **6**f, ClipSize **2**,
+//!   ClipReload **8000**ms → **240**f, DamageType **STEALTHJET_MISSILES**,
+//!   DeathType **EXPLODED**, Projectile **StealthJetMissile**, FireSound
+//!   **StealthJetMissileWeapon**, DetonationFX **WeaponFX_JetMissileDetonation**,
+//!   AutoReloadsClip **RETURN_TO_BASE**, AntiAirborneVehicle/Infantry **No**,
+//!   WeaponBonus PLAYER_UPGRADE DAMAGE **125%**
+//! - KillSelfDelay residual: MissileAIUpdate KillSelfDelay **2000**ms → **60**f,
+//!   DetonateCallsKill **Yes**, MaxHealth **100**, Physics Mass **1**
+//! - Bunker buster related residual (shared with host_bunker_buster):
+//!   UpgradeRequired **Upgrade_AmericaBunkerBusters**, SeismicRadius **200**,
+//!   Magnitude **5**, Shockwave **BunkerBusterShockwaveWeaponSmall**
+//!
 //! Fail-closed honesty:
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
 //! - Not full JetAIUpdate RETURN_TO_BASE / ClipReload 8000ms airfield rearm matrix
@@ -21,6 +35,9 @@
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};
+
+/// Logic frames per second residual.
+pub const STEALTH_FIGHTER_LOGIC_FPS: f32 = 30.0;
 
 /// Retail science that gates Stealth Fighter production.
 pub const SCIENCE_STEALTH_FIGHTER: &str = "SCIENCE_StealthFighter";
@@ -33,6 +50,8 @@ pub const USA_STEALTH_FIGHTER: &str = "USA_StealthFighter";
 
 /// Retail StealthJetMissileWeapon template name.
 pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
+/// Retail StealthJetMissile projectile object residual.
+pub const STEALTH_JET_MISSILE_PROJECTILE: &str = "StealthJetMissile";
 
 /// Retail BuildCost residual (AmericaAir.ini AmericaJetStealthFighter).
 pub const STEALTH_FIGHTER_BUILD_COST: u32 = 1600;
@@ -44,21 +63,73 @@ pub const STEALTH_FIGHTER_BUILD_TIME: f32 = 25.0;
 pub const STEALTH_FIGHTER_DAMAGE: f32 = 100.0;
 /// Retail PrimaryDamageRadius.
 pub const STEALTH_FIGHTER_PRIMARY_RADIUS: f32 = 5.0;
+/// Retail ScatterRadiusVsInfantry residual.
+pub const STEALTH_FIGHTER_SCATTER_VS_INFANTRY: f32 = 10.0;
 /// Retail AttackRange.
 pub const STEALTH_FIGHTER_RANGE: f32 = 220.0;
 /// Retail MinimumAttackRange.
 pub const STEALTH_FIGHTER_MIN_RANGE: f32 = 60.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const STEALTH_FIGHTER_DELAY_MS: u32 = 200;
 /// Retail DelayBetweenShots 200ms → 6 frames @ 30 FPS.
 pub const STEALTH_FIGHTER_DELAY_FRAMES: u32 = 6;
 /// Retail ClipSize honesty (full RETURN_TO_BASE rearm fail-closed).
 pub const STEALTH_FIGHTER_CLIP_SIZE: u32 = 2;
+/// Retail ClipReloadTime residual (msec).
+pub const STEALTH_FIGHTER_CLIP_RELOAD_MS: u32 = 8000;
 /// Retail ClipReloadTime 8000ms → 240 frames honesty residual.
 pub const STEALTH_FIGHTER_CLIP_RELOAD_FRAMES: u32 = 240;
 /// Residual projectile speed.
 pub const STEALTH_FIGHTER_PROJECTILE_SPEED: f32 = 1000.0;
+/// Retail DamageType residual.
+pub const STEALTH_FIGHTER_DAMAGE_TYPE: &str = "STEALTHJET_MISSILES";
+/// Retail DeathType residual.
+pub const STEALTH_FIGHTER_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ProjectileDetonationFX residual.
+pub const STEALTH_FIGHTER_DETONATION_FX: &str = "WeaponFX_JetMissileDetonation";
+/// Retail RadiusDamageAffects residual tokens.
+pub const STEALTH_FIGHTER_RADIUS_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS NOT_SIMILAR";
+/// Retail AutoReloadsClip residual.
+pub const STEALTH_FIGHTER_AUTO_RELOADS: &str = "RETURN_TO_BASE";
+/// Retail AntiAirborneVehicle residual.
+pub const STEALTH_FIGHTER_ANTI_AIRBORNE_VEHICLE: bool = false;
+/// Retail AntiAirborneInfantry residual.
+pub const STEALTH_FIGHTER_ANTI_AIRBORNE_INFANTRY: bool = false;
+/// Retail WeaponBonus PLAYER_UPGRADE DAMAGE residual (125% → 1.25x).
+pub const STEALTH_FIGHTER_PLAYER_UPGRADE_DAMAGE_MULT: f32 = 1.25;
+
+/// Retail MissileAIUpdate KillSelfDelay residual (msec) — bunker crash path.
+pub const STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS: u32 = 2000;
+/// KillSelfDelay 2000ms → 60 frames @ 30 FPS.
+pub const STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES: u32 = 60;
+/// Retail DetonateCallsKill residual on StealthJetMissile.
+pub const STEALTH_JET_MISSILE_DETONATE_CALLS_KILL: bool = true;
+/// Retail projectile MaxHealth residual.
+pub const STEALTH_JET_MISSILE_MAX_HEALTH: f32 = 100.0;
+/// Retail PhysicsBehavior Mass residual.
+pub const STEALTH_JET_MISSILE_MASS: f32 = 1.0;
+
+/// Shared bunker-buster residual (BunkerBusterBehavior on StealthJetMissile).
+pub const STEALTH_BUNKER_BUSTER_UPGRADE: &str = "Upgrade_AmericaBunkerBusters";
+/// Retail SeismicEffectRadius residual.
+pub const STEALTH_BUNKER_BUSTER_SEISMIC_RADIUS: f32 = 200.0;
+/// Retail SeismicEffectMagnitude residual.
+pub const STEALTH_BUNKER_BUSTER_SEISMIC_MAGNITUDE: f32 = 5.0;
+/// Retail ShockwaveWeaponTemplate residual.
+pub const STEALTH_BUNKER_BUSTER_SHOCKWAVE_WEAPON: &str = "BunkerBusterShockwaveWeaponSmall";
+/// Retail CrashThroughBunkerFXFrequency residual (msec).
+pub const STEALTH_BUNKER_BUSTER_CRASH_FX_FREQ_MS: u32 = 571;
 
 /// Residual fire audio.
 pub const STEALTH_FIGHTER_FIRE_AUDIO: &str = "StealthJetMissileWeapon";
+
+/// Convert msec residual → logic frames @ 30 FPS.
+pub fn stealth_fighter_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * STEALTH_FIGHTER_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Normalize science / template identity (alphanumeric lower).
 pub fn normalize_identity(name: &str) -> String {
@@ -178,6 +249,87 @@ pub fn is_legal_stealth_fighter_target(
     is_combat_kind: bool,
 ) -> bool {
     is_alive && !is_self && !under_construction && is_combat_kind
+}
+
+/// Whether residual attack range is legal for Stealth Fighter missiles.
+pub fn stealth_fighter_range_ok(distance: f32) -> bool {
+    distance >= STEALTH_FIGHTER_MIN_RANGE && distance <= STEALTH_FIGHTER_RANGE
+}
+
+/// Residual damage with PLAYER_UPGRADE WeaponBonus (125%).
+pub fn stealth_fighter_damage_with_player_upgrade(base: f32) -> f32 {
+    base * STEALTH_FIGHTER_PLAYER_UPGRADE_DAMAGE_MULT
+}
+
+// --- Wave 59 residual honesty packs ---
+
+/// StealthJetMissile weapon residual honesty.
+pub fn honesty_stealth_jet_missile_residual_ok() -> bool {
+    STEALTH_JET_MISSILE_WEAPON == "StealthJetMissileWeapon"
+        && STEALTH_JET_MISSILE_PROJECTILE == "StealthJetMissile"
+        && (STEALTH_FIGHTER_DAMAGE - 100.0).abs() < 0.01
+        && (STEALTH_FIGHTER_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (STEALTH_FIGHTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && (STEALTH_FIGHTER_RANGE - 220.0).abs() < 0.01
+        && (STEALTH_FIGHTER_MIN_RANGE - 60.0).abs() < 0.01
+        && STEALTH_FIGHTER_DELAY_MS == 200
+        && STEALTH_FIGHTER_DELAY_FRAMES == stealth_fighter_ms_to_frames(STEALTH_FIGHTER_DELAY_MS)
+        && STEALTH_FIGHTER_DELAY_FRAMES == 6
+        && STEALTH_FIGHTER_CLIP_SIZE == 2
+        && STEALTH_FIGHTER_CLIP_RELOAD_MS == 8000
+        && STEALTH_FIGHTER_CLIP_RELOAD_FRAMES
+            == stealth_fighter_ms_to_frames(STEALTH_FIGHTER_CLIP_RELOAD_MS)
+        && STEALTH_FIGHTER_CLIP_RELOAD_FRAMES == 240
+        && (STEALTH_FIGHTER_PROJECTILE_SPEED - 1000.0).abs() < 0.01
+        && STEALTH_FIGHTER_DAMAGE_TYPE == "STEALTHJET_MISSILES"
+        && STEALTH_FIGHTER_DEATH_TYPE == "EXPLODED"
+        && STEALTH_FIGHTER_DETONATION_FX == "WeaponFX_JetMissileDetonation"
+        && STEALTH_FIGHTER_RADIUS_AFFECTS.contains("NOT_SIMILAR")
+        && STEALTH_FIGHTER_AUTO_RELOADS == "RETURN_TO_BASE"
+        && !STEALTH_FIGHTER_ANTI_AIRBORNE_VEHICLE
+        && !STEALTH_FIGHTER_ANTI_AIRBORNE_INFANTRY
+        && (STEALTH_FIGHTER_PLAYER_UPGRADE_DAMAGE_MULT - 1.25).abs() < 0.001
+        && (stealth_fighter_damage_with_player_upgrade(100.0) - 125.0).abs() < 0.01
+        && STEALTH_FIGHTER_FIRE_AUDIO == "StealthJetMissileWeapon"
+        && stealth_fighter_range_ok(100.0)
+        && !stealth_fighter_range_ok(50.0)
+        && !stealth_fighter_range_ok(250.0)
+        && (stealth_fighter_damage_at(5.0) - 100.0).abs() < 0.01
+        && stealth_fighter_damage_at(6.0).abs() < 0.01
+}
+
+/// KillSelfDelay / projectile residual honesty.
+pub fn honesty_stealth_kill_self_delay_residual_ok() -> bool {
+    STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS == 2000
+        && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES
+            == stealth_fighter_ms_to_frames(STEALTH_JET_MISSILE_KILL_SELF_DELAY_MS)
+        && STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES == 60
+        && STEALTH_JET_MISSILE_DETONATE_CALLS_KILL
+        && (STEALTH_JET_MISSILE_MAX_HEALTH - 100.0).abs() < 0.01
+        && (STEALTH_JET_MISSILE_MASS - 1.0).abs() < 0.01
+}
+
+/// Bunker-buster related residual (shared with host_bunker_buster).
+pub fn honesty_stealth_bunker_buster_related_residual_ok() -> bool {
+    STEALTH_BUNKER_BUSTER_UPGRADE == "Upgrade_AmericaBunkerBusters"
+        && (STEALTH_BUNKER_BUSTER_SEISMIC_RADIUS - 200.0).abs() < 0.01
+        && (STEALTH_BUNKER_BUSTER_SEISMIC_MAGNITUDE - 5.0).abs() < 0.01
+        && STEALTH_BUNKER_BUSTER_SHOCKWAVE_WEAPON == "BunkerBusterShockwaveWeaponSmall"
+        && STEALTH_BUNKER_BUSTER_CRASH_FX_FREQ_MS == 571
+        && crate::game_logic::host_bunker_buster::UPGRADE_AMERICA_BUNKER_BUSTERS
+            == STEALTH_BUNKER_BUSTER_UPGRADE
+        && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT - 1.5)
+            .abs()
+            < 0.01
+        && (crate::game_logic::host_bunker_buster::BUNKER_BUSTER_OCCUPANT_DAMAGE - 400.0).abs()
+            < 0.01
+}
+
+/// Combined Wave 59 Stealth Fighter residual honesty pack.
+pub fn honesty_stealth_fighter_residual_pack_ok() -> bool {
+    honesty_stealth_jet_missile_residual_ok()
+        && honesty_stealth_kill_self_delay_residual_ok()
+        && honesty_stealth_bunker_buster_related_residual_ok()
 }
 
 /// Host residual honesty registry for Stealth Fighter science → production.
@@ -324,5 +476,16 @@ mod tests {
         assert!(reg.honesty_host_path_ok());
         reg.record_production_denied();
         assert!(reg.honesty_deny_ok());
+    }
+
+    #[test]
+    fn stealth_fighter_residual_pack_honesty() {
+        assert!(honesty_stealth_jet_missile_residual_ok());
+        assert!(honesty_stealth_kill_self_delay_residual_ok());
+        assert!(honesty_stealth_bunker_buster_related_residual_ok());
+        assert!(honesty_stealth_fighter_residual_pack_ok());
+        assert_eq!(stealth_fighter_ms_to_frames(200), 6);
+        assert_eq!(stealth_fighter_ms_to_frames(8000), 240);
+        assert_eq!(stealth_fighter_ms_to_frames(2000), 60);
     }
 }
