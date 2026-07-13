@@ -251,6 +251,12 @@ pub struct ObjectStatusSnapshot {
     /// C++ DISABLED_UNMANNED residual (Jarmen Kell kill-pilot). Serde default for older snaps.
     #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack). Serde default for older snaps.
+    #[serde(default)]
+    pub disabled_hacked: bool,
+    /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_hacked_until_frame: u32,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual. Serde default for older snaps.
     #[serde(default)]
     pub is_carbomb: bool,
@@ -285,6 +291,8 @@ impl Default for ObjectStatusSnapshot {
             radar_jammed: false,
             disabled_underpowered: false,
             disabled_unmanned: false,
+            disabled_hacked: false,
+            disabled_hacked_until_frame: 0,
             is_carbomb: false,
             hijacked: false,
             special_power_ready: true,
@@ -1386,6 +1394,10 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.disabled_underpowered)?;
         xfer.xfer_marker_label("DisabledUnmanned")?;
         xfer.xfer_bool(&mut self.disabled_unmanned)?;
+        xfer.xfer_marker_label("DisabledHacked")?;
+        xfer.xfer_bool(&mut self.disabled_hacked)?;
+        xfer.xfer_marker_label("DisabledHackedUntilFrame")?;
+        xfer.xfer_u32(&mut self.disabled_hacked_until_frame)?;
         xfer.xfer_marker_label("IsCarbomb")?;
         xfer.xfer_bool(&mut self.is_carbomb)?;
         xfer.xfer_marker_label("Hijacked")?;
@@ -3166,6 +3178,8 @@ impl SnapshotBuilder {
             radar_jammed: false,
             disabled_underpowered: object.status.disabled_underpowered,
             disabled_unmanned: object.status.disabled_unmanned,
+            disabled_hacked: object.status.disabled_hacked,
+            disabled_hacked_until_frame: object.status.disabled_hacked_until_frame,
             is_carbomb: object.status.is_carbomb,
             hijacked: object.status.hijacked,
             special_power_ready: object.special_power_ready,
@@ -3787,6 +3801,8 @@ impl SnapshotBuilder {
         object.status.selected = status.selected;
         object.status.disabled_underpowered = status.disabled_underpowered;
         object.status.disabled_unmanned = status.disabled_unmanned;
+        object.status.disabled_hacked = status.disabled_hacked;
+        object.status.disabled_hacked_until_frame = status.disabled_hacked_until_frame;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
 
