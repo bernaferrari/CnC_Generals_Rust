@@ -892,6 +892,11 @@ pub struct GameLogic {
     /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate matrix.
     angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
 
+    /// Host SCIENCE_StealthFighter production gate residual honesty.
+    /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar science UI.
+    stealth_fighter_science:
+        crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
+
     /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
     /// Fail-closed: not full projectile flight / AP rocket mult matrix.
     rocket_buggy_residual_fires: u32,
@@ -1992,6 +1997,8 @@ impl GameLogic {
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
             aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry::new(),
             angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry::new(),
+            stealth_fighter_science:
+                crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry::new(),
             rocket_buggy_residual_fires: 0,
             rocket_buggy_residual_units_hit: 0,
             rocket_buggy_residual_scatter_misses: 0,
@@ -2312,6 +2319,7 @@ impl GameLogic {
         self.inferno_fire_zones.clear();
         self.aurora_bombs.clear();
         self.angry_mobs.clear();
+        self.stealth_fighter_science.clear();
         self.rocket_buggy_residual_fires = 0;
         self.rocket_buggy_residual_units_hit = 0;
         self.rocket_buggy_residual_scatter_misses = 0;
@@ -4653,6 +4661,12 @@ impl GameLogic {
             .normalize_or_zero();
             // Use template selection heuristic later once the object is created.
             if let Some(new_id) = self.create_object(&template, team, spawn_pos) {
+                // SCIENCE_StealthFighter residual: record gated production spawn.
+                if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
+                    &template,
+                ) {
+                    self.stealth_fighter_science.record_production_spawn();
+                }
                 if let Some(unit) = self.objects.get(&new_id) {
                     let selection_radius = unit.selection_radius.max(4.0);
                     spawn_pos += jitter_dir * selection_radius;
@@ -11000,10 +11014,18 @@ impl GameLogic {
             }
 
             // Host residual: GLA Terrorist PRIMARY TerroristSuicideWeapon residual.
-            // Fail-closed: not ConvertToCarBomb full matrix / Chem anthrax death weapons.
+            // Chem Beta/Gamma + Demo death-weapon residual profiles.
+            // Fail-closed: not ConvertToCarBomb full matrix / SlowDeath fling.
             if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
-                use crate::game_logic::host_terrorist::terrorist_suicide_weapon;
-                object.weapon = Some(terrorist_suicide_weapon());
+                use crate::game_logic::host_terrorist::{
+                    terrorist_death_profile, terrorist_suicide_weapon_for_profile,
+                };
+                let has_gamma = object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                    || object.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                let has_beta = object.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                    || object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxBeta");
+                let profile = terrorist_death_profile(template_name, has_gamma, has_beta);
+                object.weapon = Some(terrorist_suicide_weapon_for_profile(profile));
                 object.secondary_weapon = None;
             }
 
@@ -20305,15 +20327,16 @@ impl GameLogic {
 
     /// Apply GLA Terrorist residual: SuicideDynamitePack AOE at self + destroy self.
     ///
-    /// Fail-closed: not ConvertToCarBomb matrix / Chem anthrax death-weapon variants.
+    /// Chem Beta/Gamma + Demo death-weapon residual profiles applied.
+    /// Fail-closed: not ConvertToCarBomb matrix / SlowDeath fling / OCL particle bones.
     fn apply_terrorist_residual_at(
         &mut self,
         source: Option<ObjectId>,
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_terrorist::{
-            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at,
-            SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_DETONATE_AUDIO,
+            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at_profile,
+            terrorist_death_profile, TERRORIST_DETONATE_AUDIO,
         };
 
         let Some(source_id) = source else {
@@ -20327,6 +20350,14 @@ impl GameLogic {
         }
         let source_team = source_obj.team;
         let center = source_obj.get_position();
+        let template_name = source_obj.template_name.clone();
+        let has_gamma = source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+            || source_obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma")
+            || source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
+        let has_beta = source_obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+            || source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxBeta");
+        let profile = terrorist_death_profile(&template_name, has_gamma, has_beta);
+        let secondary_radius = profile.secondary_radius();
 
         let mut hits = 0u32;
         let mut any_destroyed = false;
@@ -20359,7 +20390,7 @@ impl GameLogic {
                     let dz = center.z - pos.z;
                     (dx * dx + dz * dz).sqrt()
                 };
-                if dist <= SUICIDE_DYNAMITE_SECONDARY_RADIUS {
+                if dist <= secondary_radius {
                     Some((*id, dist))
                 } else {
                     None
@@ -20368,7 +20399,7 @@ impl GameLogic {
             .collect();
 
         for (id, dist) in candidates {
-            let dmg = suicide_dynamite_damage_at(dist);
+            let dmg = suicide_dynamite_damage_at_profile(profile, dist);
             if dmg <= 0.0 {
                 continue;
             }
@@ -20390,6 +20421,17 @@ impl GameLogic {
 
         for (id, killer) in destroy_ids {
             self.mark_object_for_destruction(id, killer);
+        }
+
+        // Chem Beta/Gamma residual: spawn MediumPoisonField at suicide epicenter.
+        if profile.spawns_poison() {
+            let _ = self.toxin_tractor.spawn_medium_field(
+                source_id,
+                source_team,
+                center,
+                self.frame,
+                profile.poison_anthrax_tier(),
+            );
         }
 
         // Self-kill residual (TerroristSuicideWeapon SUICIDED + FireWeaponWhenDead).
@@ -26314,22 +26356,52 @@ impl GameLogic {
         )
     }
 
-    /// Place a residual GLA demo trap (proximity mode).
+    /// Place a residual GLA demo trap (proximity mode, standard detonation).
     pub fn place_demo_trap(
         &mut self,
         team: Team,
         position: Vec3,
         producer: Option<ObjectId>,
     ) -> Option<ObjectId> {
-        self.place_mine_kind(
-            crate::game_logic::host_mines::HostMineKind::DemoTrap,
-            "TestDemoTrap",
-            team,
-            position,
-            producer,
-            None,
-            None,
-        )
+        self.place_demo_trap_named("TestDemoTrap", team, position, producer, false)
+    }
+
+    /// Place a residual demo trap with Chem/Demo/Standard profile from template name.
+    ///
+    /// `has_gamma` applies Chem Gamma death weapon residual when true.
+    pub fn place_demo_trap_named(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        has_gamma: bool,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_mines::{
+            demo_trap_profile, HostMineData, HostMineKind,
+        };
+
+        let profile = demo_trap_profile(template_name, has_gamma, false);
+        self.ensure_residual_mine_template(template_name, HostMineKind::DemoTrap);
+        let id = self.create_object(template_name, team, position)?;
+        let mut data = HostMineData::demo_trap_with_profile(profile);
+        if let Some(p) = producer {
+            data = data.with_producer(p);
+        }
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.mine_data = Some(data);
+            obj.movement.max_speed = 0.0;
+            obj.weapon = None;
+            obj.secondary_weapon = None;
+        }
+        self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+        self.queue_audio_event(
+            AudioEventRequest::new(HostMineKind::DemoTrap.place_audio())
+                .with_object(id)
+                .with_position(position)
+                .with_priority(150),
+        );
+        Some(id)
     }
 
     /// Place a residual timed demo charge (detonates after delay frames).
@@ -26831,6 +26903,11 @@ impl GameLogic {
         let kind = data.kind;
         let damage = data.detonation_damage;
         let radius = data.detonation_radius;
+        let demo_profile = data.demo_trap_profile;
+        let is_demo_trap = matches!(
+            kind,
+            crate::game_logic::host_mines::HostMineKind::DemoTrap
+        );
         let mine_team = mine.team;
         let mine_pos = mine.get_position();
         let producer = data.producer_id;
@@ -26887,7 +26964,11 @@ impl GameLogic {
                 let dz = vpos.z - mine_pos.z;
                 (dx * dx + dz * dz).sqrt()
             };
-            let dmg = damage_at_distance(damage, radius, dist);
+            let dmg = if is_demo_trap {
+                crate::game_logic::host_mines::demo_trap_damage_at(demo_profile, dist)
+            } else {
+                damage_at_distance(damage, radius, dist)
+            };
             if dmg <= 0.0 {
                 continue;
             }
@@ -26896,6 +26977,17 @@ impl GameLogic {
                     destroy_ids.push((vid, mine_team));
                 }
             }
+        }
+
+        // Chem DemoTrap residual: spawn MediumPoisonField at detonation.
+        if is_demo_trap && demo_profile.spawns_poison() {
+            let _ = self.toxin_tractor.spawn_medium_field(
+                mine_id,
+                mine_team,
+                mine_pos,
+                self.frame,
+                demo_profile.poison_anthrax_tier(),
+            );
         }
 
         // Audio + particle residual.
@@ -30579,10 +30671,17 @@ impl GameLogic {
 
     /// Enqueue unit production on a building if permitted.
     pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
+        use crate::game_logic::host_stealth_fighter::{
+            is_stealth_fighter_science, player_may_produce_stealth_aircraft,
+            requires_stealth_fighter_science,
+        };
+
         let template = match self.templates.get(&template_name) {
             Some(t) => t.clone(),
             None => return false,
         };
+        let science_gated = requires_stealth_fighter_science(&template_name);
+        let mut science_ok = true;
         if let Some(producer) = self.objects.get(&producer_id) {
             let team = producer.team;
             // Validate the producer can build this template before charging resources.
@@ -30598,6 +30697,18 @@ impl GameLogic {
             let Some(player) = self.get_player_mut_by_team(team) else {
                 return false;
             };
+            // SCIENCE_StealthFighter residual production gate (AirF free).
+            if science_gated {
+                let has_science = player
+                    .unlocked_sciences
+                    .iter()
+                    .any(|s| is_stealth_fighter_science(s));
+                science_ok = player_may_produce_stealth_aircraft(has_science, &template_name);
+                if !science_ok {
+                    self.stealth_fighter_science.record_production_denied();
+                    return false;
+                }
+            }
             if !player.spend_resources(&template.build_cost) {
                 return false;
             }
@@ -30605,10 +30716,71 @@ impl GameLogic {
 
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
-                return building.add_to_queue(template_name, &template);
+                if building.add_to_queue(template_name.clone(), &template) {
+                    if science_gated && science_ok {
+                        self.stealth_fighter_science.record_production_enqueue();
+                    }
+                    return true;
+                }
+                return false;
             }
         }
         false
+    }
+
+    /// Unlock a science for a team and record residual honesty hooks.
+    ///
+    /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar UI.
+    pub fn unlock_team_science(&mut self, team: Team, science_name: &str) -> bool {
+        use crate::game_logic::host_stealth_fighter::is_stealth_fighter_science;
+
+        let Some(player) = self.get_player_mut_by_team(team) else {
+            return false;
+        };
+        if !player.unlock_science(science_name) {
+            return false;
+        }
+        if is_stealth_fighter_science(science_name) {
+            self.stealth_fighter_science.record_science_unlock();
+        }
+        true
+    }
+
+    /// Record SCIENCE_StealthFighter unlock honesty (PurchaseScience residual path).
+    pub fn record_stealth_fighter_science_unlock(&mut self) {
+        self.stealth_fighter_science.record_science_unlock();
+    }
+
+    /// Host SCIENCE_StealthFighter residual honesty registry.
+    pub fn stealth_fighter_science(
+        &self,
+    ) -> &crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry {
+        &self.stealth_fighter_science
+    }
+
+    /// Residual honesty: SCIENCE_StealthFighter unlocked at least once.
+    pub fn honesty_stealth_fighter_science_unlock_ok(&self) -> bool {
+        self.stealth_fighter_science.honesty_unlock_ok()
+    }
+
+    /// Residual honesty: science-gated Stealth Fighter accepted into production.
+    pub fn honesty_stealth_fighter_science_produce_ok(&self) -> bool {
+        self.stealth_fighter_science.honesty_produce_ok()
+    }
+
+    /// Residual honesty: production denied for missing SCIENCE_StealthFighter.
+    pub fn honesty_stealth_fighter_science_deny_ok(&self) -> bool {
+        self.stealth_fighter_science.honesty_deny_ok()
+    }
+
+    /// Residual honesty: science-gated Stealth Fighter finished production spawn.
+    pub fn honesty_stealth_fighter_science_spawn_ok(&self) -> bool {
+        self.stealth_fighter_science.honesty_spawn_ok()
+    }
+
+    /// Combined residual honesty for SCIENCE_StealthFighter host path.
+    pub fn honesty_stealth_fighter_science_ok(&self) -> bool {
+        self.stealth_fighter_science.honesty_ok()
     }
 
     /// Cancel a queued production item by template name (first match).
@@ -57176,5 +57348,316 @@ mod tests {
             !rebel.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
             "fail-closed: Rebel does not receive CamoNetting (use Camouflage residual)"
         );
+    }
+
+    /// Residual: SCIENCE_StealthFighter gates airfield production of Stealth Fighter.
+    /// AirF variants remain free; deny without science; enqueue + spawn with science.
+    #[test]
+    fn stealth_fighter_science_production_gate_residual() {
+        use crate::game_logic::host_stealth_fighter::{
+            SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_BUILD_COST,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_airfield_template(&mut game_logic);
+
+        let mut fighter_tpl = crate::game_logic::ThingTemplate::new("AmericaJetStealthFighter");
+        fighter_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_cost(STEALTH_FIGHTER_BUILD_COST, 0);
+        fighter_tpl.build_time = 0.05;
+        game_logic
+            .templates
+            .insert("AmericaJetStealthFighter".to_string(), fighter_tpl);
+
+        // Airforce free residual (no science Prerequisite).
+        let mut airf_tpl = crate::game_logic::ThingTemplate::new("AirF_AmericaJetStealthFighter");
+        airf_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_cost(1000, 0);
+        airf_tpl.build_time = 0.05;
+        game_logic
+            .templates
+            .insert("AirF_AmericaJetStealthFighter".to_string(), airf_tpl);
+
+        let airfield_id = game_logic
+            .create_object("TestAirfield", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("airfield");
+        {
+            let af = game_logic.find_object_mut(airfield_id).unwrap();
+            af.status.under_construction = false;
+        }
+
+        // Deny without science.
+        assert!(
+            !game_logic.enqueue_production(airfield_id, "AmericaJetStealthFighter".to_string()),
+            "must deny Stealth Fighter without SCIENCE_StealthFighter"
+        );
+        assert!(
+            game_logic.honesty_stealth_fighter_science_deny_ok(),
+            "deny honesty"
+        );
+
+        // AirF free residual still enqueues.
+        assert!(
+            game_logic.enqueue_production(airfield_id, "AirF_AmericaJetStealthFighter".to_string()),
+            "AirF Stealth Fighter must not require science"
+        );
+        // Clear free airf queue for clean science path.
+        assert!(game_logic.cancel_all_production(airfield_id));
+
+        // Unlock science residual → enqueue + complete spawn.
+        assert!(game_logic.unlock_team_science(Team::USA, SCIENCE_STEALTH_FIGHTER));
+        assert!(game_logic.honesty_stealth_fighter_science_unlock_ok());
+        assert!(
+            game_logic.enqueue_production(airfield_id, "AmericaJetStealthFighter".to_string()),
+            "science unlock must allow production"
+        );
+        assert!(game_logic.honesty_stealth_fighter_science_produce_ok());
+
+        // Advance production to completion (build_time 0.05s).
+        for _ in 0..10 {
+            game_logic.update_production(0.02);
+        }
+        assert!(
+            game_logic.honesty_stealth_fighter_science_spawn_ok()
+                || game_logic
+                    .objects
+                    .values()
+                    .any(|o| o.template_name.contains("StealthFighter")
+                        && o.is_kind_of(KindOf::Aircraft)),
+            "science-gated Stealth Fighter must spawn from production"
+        );
+        assert!(
+            game_logic.honesty_stealth_fighter_science_ok(),
+            "combined science residual honesty"
+        );
+    }
+
+    /// Residual: Chem terrorist gamma death weapon (600 primary) + MediumPoisonField.
+    /// Demo terrorist uses 700 primary HE residual without poison.
+    #[test]
+    fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
+        use crate::game_logic::host_terrorist::{
+            SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA,
+            TERRORIST_SUICIDE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut chem_tpl = crate::game_logic::ThingTemplate::new("Chem_GLAInfantryTerrorist");
+        chem_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(TERRORIST_SUICIDE_WEAPON);
+        game_logic
+            .templates
+            .insert("Chem_GLAInfantryTerrorist".to_string(), chem_tpl);
+
+        let mut demo_tpl = crate::game_logic::ThingTemplate::new("Demo_GLAInfantryTerrorist");
+        demo_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(TERRORIST_SUICIDE_WEAPON);
+        game_logic
+            .templates
+            .insert("Demo_GLAInfantryTerrorist".to_string(), demo_tpl);
+
+        // Chem Gamma residual: tag Anthrax Gamma then detonate.
+        let chem_id = game_logic
+            .create_object(
+                "Chem_GLAInfantryTerrorist",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("chem terrorist");
+        {
+            let t = game_logic.find_object_mut(chem_id).unwrap();
+            t.apply_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
+            // Chem Gamma primary damage flag residual.
+            if let Some(w) = t.weapon.as_mut() {
+                w.damage = SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA;
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.range = 20.0;
+            }
+        }
+        let near = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+            .expect("near");
+        {
+            let t = game_logic.find_object_mut(chem_id).unwrap();
+            t.attack_target(near);
+        }
+        let hp_before = game_logic
+            .find_object(near)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[chem_id, near], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.terrorist_residual_detonations() > 0,
+            "chem terrorist detonation residual"
+        );
+        let hp_after = game_logic
+            .find_object(near)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let gamma_dmg = hp_before - hp_after;
+        assert!(
+            gamma_dmg + 0.1 >= SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA.min(hp_before),
+            "Chem Gamma residual must deal ~600 primary (got {gamma_dmg}, before={hp_before})"
+        );
+        assert!(
+            game_logic.toxin_tractor_registry().zones_spawned > zones_before,
+            "Chem Gamma residual must spawn MediumPoisonField"
+        );
+
+        // Demo HE residual: 700 primary, no poison.
+        let demo_id = game_logic
+            .create_object(
+                "Demo_GLAInfantryTerrorist",
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("demo terrorist");
+        let near2 = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(108.0, 0.0, 0.0))
+            .expect("near2");
+        {
+            let t = game_logic.find_object_mut(demo_id).unwrap();
+            t.attack_target(near2);
+            if let Some(w) = t.weapon.as_mut() {
+                assert!(
+                    (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO).abs() < 1.0,
+                    "Demo terrorist spawn weapon must flag 700 primary, got {}",
+                    w.damage
+                );
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.range = 20.0;
+            }
+        }
+        let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
+        let hp2_before = game_logic
+            .find_object(near2)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[demo_id, near2], LOGIC_FRAME_TIMESTEP);
+        let hp2_after = game_logic
+            .find_object(near2)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let demo_dmg = hp2_before - hp2_after;
+        assert!(
+            demo_dmg + 0.1 >= SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO.min(hp2_before),
+            "Demo residual must deal ~700 primary (got {demo_dmg})"
+        );
+        assert_eq!(
+            game_logic.toxin_tractor_registry().zones_spawned, zones_mid,
+            "Demo residual must not spawn poison field"
+        );
+    }
+
+    /// Residual: Chem DemoTrap Beta/Gamma poison field + Demo HE dual-ring trap.
+    #[test]
+    fn chem_demo_trap_gamma_and_demo_he_residual() {
+        use crate::game_logic::host_mines::DemoTrapProfile;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        // Chem Gamma trap residual.
+        let trap_id = game_logic
+            .place_demo_trap_named(
+                "Chem_GLADemoTrap",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+                None,
+                true, // gamma
+            )
+            .expect("chem trap");
+        {
+            let trap = game_logic.find_object(trap_id).unwrap();
+            let md = trap.mine_data.as_ref().unwrap();
+            assert_eq!(md.demo_trap_profile, DemoTrapProfile::ChemGamma);
+            assert!((md.detonation_damage - 250.0).abs() < 0.01);
+        }
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        let zones_before = game_logic.toxin_tractor_registry().zones_spawned;
+        let hp_before = game_logic.find_object(enemy).unwrap().health.current;
+        game_logic.update_mines_and_demo_traps();
+        assert_eq!(game_logic.mine_residual_proximity_detonations(), 1);
+        let enemy_after = game_logic.find_object(enemy);
+        let damaged = enemy_after
+            .map(|e| e.health.current < hp_before || e.status.destroyed)
+            .unwrap_or(true);
+        assert!(damaged, "Chem DemoTrap must damage enemy");
+        assert!(
+            game_logic.toxin_tractor_registry().zones_spawned > zones_before,
+            "Chem Gamma DemoTrap must spawn MediumPoisonField"
+        );
+
+        // Demo HE trap residual (700/25 + 500/50 dual ring).
+        let demo_trap = game_logic
+            .place_demo_trap_named(
+                "Demo_GLADemoTrap",
+                Team::GLA,
+                Vec3::new(200.0, 0.0, 0.0),
+                None,
+                false,
+            )
+            .expect("demo trap");
+        {
+            let trap = game_logic.find_object(demo_trap).unwrap();
+            let md = trap.mine_data.as_ref().unwrap();
+            assert_eq!(md.demo_trap_profile, DemoTrapProfile::Demo);
+            assert!((md.detonation_damage - 700.0).abs() < 0.01);
+            assert!((md.secondary_damage - 500.0).abs() < 0.01);
+        }
+        let far = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(230.0, 0.0, 0.0))
+            .expect("far enemy in secondary ring");
+        // Ensure within trigger range 40.
+        let far2 = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(210.0, 0.0, 0.0))
+            .expect("near enemy");
+        let far_hp = game_logic.find_object(far2).unwrap().health.current;
+        let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
+        game_logic.update_mines_and_demo_traps();
+        assert!(
+            game_logic.mine_residual_proximity_detonations() >= 2,
+            "Demo HE trap must proximity detonate"
+        );
+        let far_after = game_logic.find_object(far2);
+        let far_damaged = far_after
+            .map(|e| e.health.current < far_hp || e.status.destroyed)
+            .unwrap_or(true);
+        assert!(far_damaged, "Demo HE trap must damage enemy");
+        assert_eq!(
+            game_logic.toxin_tractor_registry().zones_spawned, zones_mid,
+            "Demo HE trap must not spawn poison"
+        );
+        let _ = far; // secondary-ring placement residual (optional observability)
     }
 }

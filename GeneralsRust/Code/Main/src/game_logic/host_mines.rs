@@ -3,6 +3,11 @@
 //! Residual slice (playability):
 //! - Place land mines (ChinaStandardMine / ClusterMines special power residual)
 //! - Place GLA demo traps (proximity detonation when enemies enter range)
+//!   - Standard: `DemoTrapDetonationWeapon` Primary **600**/r**25**
+//!   - Chem Beta: `Chem_DemoTrapDetonationWeaponBeta` Primary **250**/r**25** +
+//!     Secondary **100**/r**50** + MediumPoisonFieldUpgraded residual
+//!   - Chem Gamma: `Chem_DemoTrapDetonationWeaponGamma` same rings + gamma poison field
+//!   - Demo: `Demo_DemoTrapDetonationWeapon` Primary **700**/r**25** + Secondary **500**/r**50**
 //! - Place timed demo charges (Burton / Tank Hunter sticky residual)
 //! - Place remote demo charges (Burton SPECIAL_REMOTE_CHARGES sticky residual)
 //! - Detonate remote demo charges on command (no auto-timer)
@@ -18,6 +23,7 @@
 //! - Not full OCL ClusterMinesBomb aircraft path
 
 use super::ObjectId;
+use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -120,6 +126,132 @@ impl HostMineKind {
     }
 }
 
+/// Host residual Demo Trap detonation profile (Weapon.ini variants).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum DemoTrapProfile {
+    /// Standard DemoTrapDetonationWeapon residual.
+    #[default]
+    Standard,
+    /// Chem_DemoTrapDetonationWeaponBeta residual.
+    ChemBeta,
+    /// Chem_DemoTrapDetonationWeaponGamma residual.
+    ChemGamma,
+    /// Demo_DemoTrapDetonationWeapon residual.
+    Demo,
+}
+
+impl DemoTrapProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "Standard",
+            Self::ChemBeta => "ChemBeta",
+            Self::ChemGamma => "ChemGamma",
+            Self::Demo => "Demo",
+        }
+    }
+
+    pub fn primary_damage(self) -> f32 {
+        match self {
+            Self::Standard => 600.0,
+            Self::ChemBeta | Self::ChemGamma => 250.0,
+            Self::Demo => 700.0,
+        }
+    }
+
+    pub fn primary_radius(self) -> f32 {
+        25.0
+    }
+
+    pub fn secondary_damage(self) -> f32 {
+        match self {
+            Self::Standard => 400.0,
+            Self::ChemBeta | Self::ChemGamma => 100.0,
+            Self::Demo => 500.0,
+        }
+    }
+
+    pub fn secondary_radius(self) -> f32 {
+        50.0
+    }
+
+    /// Whether dual-ring step residual is used (Chem/Demo profiles).
+    /// Standard keeps legacy single-radius falloff residual for parity with
+    /// existing host path.
+    pub fn uses_dual_ring(self) -> bool {
+        !matches!(self, Self::Standard)
+    }
+
+    pub fn spawns_poison(self) -> bool {
+        matches!(self, Self::ChemBeta | Self::ChemGamma)
+    }
+
+    pub fn poison_anthrax_tier(self) -> AnthraxResidualTier {
+        match self {
+            Self::ChemGamma => AnthraxResidualTier::Gamma,
+            Self::ChemBeta => AnthraxResidualTier::Beta,
+            Self::Standard | Self::Demo => AnthraxResidualTier::None,
+        }
+    }
+}
+
+/// Whether template is Demo General residual (Demo_ prefix).
+///
+/// Fail-closed: does **not** match bare `TestDemoTrap` (standard residual test name).
+pub fn is_demo_general_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.starts_with("demo_")
+        || n == "testdemogeneraldemotrap"
+        || n == "testdemo_demotrap"
+        || n.contains("demo_glademotrap")
+}
+
+/// Resolve demo trap detonation profile from template + anthrax flags.
+pub fn demo_trap_profile(
+    template_name: &str,
+    has_gamma: bool,
+    has_beta: bool,
+) -> DemoTrapProfile {
+    if is_demo_general_template(template_name) {
+        return DemoTrapProfile::Demo;
+    }
+    let n = template_name.to_ascii_lowercase();
+    if is_chem_general_template(template_name)
+        || n.contains("chem_demotrap")
+        || n.contains("chemdemotrap")
+        || n == "testchemdemotrap"
+        || has_gamma
+        || has_beta
+    {
+        if has_gamma {
+            DemoTrapProfile::ChemGamma
+        } else {
+            DemoTrapProfile::ChemBeta
+        }
+    } else {
+        DemoTrapProfile::Standard
+    }
+}
+
+/// Dual-ring residual damage for Chem/Demo demo traps.
+pub fn demo_trap_damage_at(profile: DemoTrapProfile, distance: f32) -> f32 {
+    if profile.uses_dual_ring() {
+        if distance <= profile.primary_radius() {
+            profile.primary_damage()
+        } else if distance <= profile.secondary_radius() {
+            profile.secondary_damage()
+        } else {
+            0.0
+        }
+    } else {
+        // Standard residual: primary damage with soft falloff to secondary radius.
+        damage_at_distance(
+            profile.primary_damage(),
+            profile.primary_radius(),
+            distance,
+        )
+    }
+}
+
 /// Per-object host residual mine/trap state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostMineData {
@@ -128,6 +260,14 @@ pub struct HostMineData {
     pub trigger_range: f32,
     pub detonation_damage: f32,
     pub detonation_radius: f32,
+    /// Optional secondary ring residual (Chem/Demo demo trap variants).
+    #[serde(default)]
+    pub secondary_damage: f32,
+    #[serde(default)]
+    pub secondary_radius: f32,
+    /// Demo trap death-weapon profile residual (Standard default).
+    #[serde(default)]
+    pub demo_trap_profile: DemoTrapProfile,
     /// When true, enemies in trigger_range detonate (DemoTrap / LandMine).
     pub proximity_enabled: bool,
     pub detonated: bool,
@@ -146,6 +286,9 @@ impl HostMineData {
             trigger_range: kind.default_trigger_range(),
             detonation_damage: kind.default_damage(),
             detonation_radius: kind.default_damage_radius(),
+            secondary_damage: 0.0,
+            secondary_radius: 0.0,
+            demo_trap_profile: DemoTrapProfile::Standard,
             proximity_enabled: kind.defaults_to_proximity(),
             detonated: false,
             detonate_at_frame: None,
@@ -159,7 +302,24 @@ impl HostMineData {
     }
 
     pub fn demo_trap() -> Self {
-        Self::new(HostMineKind::DemoTrap)
+        Self::demo_trap_with_profile(DemoTrapProfile::Standard)
+    }
+
+    /// Demo trap residual with Chem/Demo/Standard detonation profile.
+    pub fn demo_trap_with_profile(profile: DemoTrapProfile) -> Self {
+        let mut data = Self::new(HostMineKind::DemoTrap);
+        data.demo_trap_profile = profile;
+        data.detonation_damage = profile.primary_damage();
+        data.detonation_radius = if profile.uses_dual_ring() {
+            profile.secondary_radius()
+        } else {
+            profile.primary_radius()
+        };
+        if profile.uses_dual_ring() {
+            data.secondary_damage = profile.secondary_damage();
+            data.secondary_radius = profile.secondary_radius();
+        }
+        data
     }
 
     pub fn timed_demo_charge(current_frame: u32) -> Self {
@@ -313,7 +473,12 @@ pub fn infer_mine_kind(template_name: &str) -> Option<HostMineKind> {
 pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Option<HostMineData> {
     match infer_mine_kind(template_name)? {
         HostMineKind::LandMine => Some(HostMineData::land_mine()),
-        HostMineKind::DemoTrap => Some(HostMineData::demo_trap()),
+        HostMineKind::DemoTrap => {
+            // Fail-closed: no live anthrax flags at template residual bind;
+            // Chem_/Demo_ prefixes select profile; gamma applied later if tags present.
+            let profile = demo_trap_profile(template_name, false, false);
+            Some(HostMineData::demo_trap_with_profile(profile))
+        }
         HostMineKind::TimedDemoCharge => Some(HostMineData::timed_demo_charge(current_frame)),
         HostMineKind::RemoteDemoCharge => Some(HostMineData::remote_demo_charge()),
     }
@@ -387,6 +552,38 @@ mod tests {
             let dist = (p.x * p.x + p.z * p.z).sqrt();
             assert!((dist - CLUSTER_MINE_RING_RADIUS).abs() < 0.01);
         }
+    }
+
+    #[test]
+    fn demo_trap_profile_matrix() {
+        assert_eq!(
+            demo_trap_profile("GLADemoTrap", false, false),
+            DemoTrapProfile::Standard
+        );
+        assert_eq!(
+            demo_trap_profile("TestDemoTrap", false, false),
+            DemoTrapProfile::Standard
+        );
+        assert_eq!(
+            demo_trap_profile("Chem_GLADemoTrap", false, false),
+            DemoTrapProfile::ChemBeta
+        );
+        assert_eq!(
+            demo_trap_profile("Chem_GLADemoTrap", true, false),
+            DemoTrapProfile::ChemGamma
+        );
+        assert_eq!(
+            demo_trap_profile("Demo_GLADemoTrap", false, false),
+            DemoTrapProfile::Demo
+        );
+        let chem = HostMineData::demo_trap_with_profile(DemoTrapProfile::ChemGamma);
+        assert!((chem.detonation_damage - 250.0).abs() < 0.01);
+        assert!((chem.secondary_damage - 100.0).abs() < 0.01);
+        assert!(chem.demo_trap_profile.spawns_poison());
+        let demo = HostMineData::demo_trap_with_profile(DemoTrapProfile::Demo);
+        assert!((demo.detonation_damage - 700.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 0.0) - 700.0).abs() < 0.01);
+        assert!((demo_trap_damage_at(DemoTrapProfile::Demo, 30.0) - 500.0).abs() < 0.01);
     }
 
     #[test]
