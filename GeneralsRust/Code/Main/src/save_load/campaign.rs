@@ -770,73 +770,149 @@ impl CampaignManager {
     }
 
     fn add_sample_missions(&mut self) {
-        // Seed missions against real Zero Hour map identities when present.
-        // (Full object-spawn load of MD_* maps is a separate residual; names match retail.)
-        let mission = MissionInfo {
-            id: "usa_01".to_string(),
-            campaign_id: CampaignId::USACampaign,
-            mission_number: 1,
-            name: "Operation Righteous Strike".to_string(),
-            description: "Eliminate GLA presence in the region".to_string(),
-            // Retail ZH USA mission 1 map identity (Maps/MD_USA01/MD_USA01.map).
-            map_name: "MD_USA01".to_string(),
-            briefing_video: Some("usa_01_briefing.bik".to_string()),
-            preview_image: Some("usa_01_preview.tga".to_string()),
-            required_missions: Vec::new(),
-            required_rank: None,
-            required_honor_points: None,
-            time_limit: Some(1800), // 30 minutes
-            starting_resources: Resources {
-                supplies: 10000,
-                power: 0,
-            },
-            starting_units: vec!["PatriotMissile".to_string(), "RangerSquad".to_string()],
-            tech_restrictions: Vec::new(),
-            special_rules: Vec::new(),
-            victory_rule: Some("Annihilation".to_string()),
-            primary_objectives: vec![MissionObjective {
-                id: "destroy_gla_base".to_string(),
-                description: "Destroy the GLA base".to_string(),
-                objective_type: ObjectiveType::Destroy,
-                target: ObjectiveTarget::Building("GLACommandCenter".to_string()),
-                required_count: Some(1),
-                current_count: 0,
-                time_limit: None,
-                reward: Some(ObjectiveReward::HonorPoints(100)),
-            }],
-            secondary_objectives: Vec::new(),
-            bonus_objectives: Vec::new(),
-        };
-        self.mission_definitions.insert(mission.id.clone(), mission);
+        // Campaign.ini residual mission table (Main CampaignManager).
+        // Fail-closed: not full INI parse / GameClient CampaignManager parity —
+        // host residual seeds retail map identities + chain from Campaign.ini.
+        //
+        // Campaign USA (Campaign.ini): MD_USA01 … MD_USA05.
+        let usa_maps = [
+            ("usa_01", 1, "MD_USA01", "Operation Righteous Strike"),
+            ("usa_02", 2, "MD_USA02", "USA Mission 02"),
+            ("usa_03", 3, "MD_USA03", "USA Mission 03"),
+            ("usa_04", 4, "MD_USA04", "USA Mission 04"),
+            ("usa_05", 5, "MD_USA05", "USA Mission 05"),
+        ];
+        for (i, (id, num, map, name)) in usa_maps.iter().enumerate() {
+            let required: Vec<String> = if i == 0 {
+                Vec::new()
+            } else {
+                vec![usa_maps[i - 1].0.to_string()]
+            };
+            let mission = MissionInfo {
+                id: id.to_string(),
+                campaign_id: CampaignId::USACampaign,
+                mission_number: *num,
+                name: name.to_string(),
+                description: format!("Retail Campaign.ini USA map {map}"),
+                map_name: map.to_string(),
+                briefing_video: Some(format!("{map}.bik")),
+                preview_image: Some(format!("{map}_preview.tga")),
+                required_missions: required,
+                required_rank: None,
+                required_honor_points: None,
+                time_limit: if *num == 1 { Some(1800) } else { None },
+                starting_resources: Resources {
+                    supplies: 10000,
+                    power: 0,
+                },
+                starting_units: if *num == 1 {
+                    vec!["PatriotMissile".to_string(), "RangerSquad".to_string()]
+                } else {
+                    Vec::new()
+                },
+                tech_restrictions: Vec::new(),
+                special_rules: Vec::new(),
+                victory_rule: Some("Annihilation".to_string()),
+                primary_objectives: if *num == 1 {
+                    vec![MissionObjective {
+                        id: "destroy_gla_base".to_string(),
+                        description: "Destroy the GLA base".to_string(),
+                        objective_type: ObjectiveType::Destroy,
+                        target: ObjectiveTarget::Building("GLACommandCenter".to_string()),
+                        required_count: Some(1),
+                        current_count: 0,
+                        time_limit: None,
+                        reward: Some(ObjectiveReward::HonorPoints(100)),
+                    }]
+                } else {
+                    Vec::new()
+                },
+                secondary_objectives: Vec::new(),
+                bonus_objectives: Vec::new(),
+            };
+            self.mission_definitions.insert(mission.id.clone(), mission);
+        }
 
-        // Generals Challenge opener — GC_ChemGeneral is a real shipped challenge map.
-        let challenge = MissionInfo {
-            id: "usa_gen_01".to_string(),
-            campaign_id: CampaignId::USAGeneral,
-            mission_number: 1,
-            name: "General's Challenge — Chem".to_string(),
-            description: "Defeat the Chemical General".to_string(),
-            map_name: "GC_ChemGeneral".to_string(),
-            briefing_video: None,
-            preview_image: None,
-            required_missions: Vec::new(),
-            required_rank: None,
-            required_honor_points: None,
-            time_limit: None,
-            starting_resources: Resources {
-                supplies: 8000,
-                power: 0,
-            },
-            starting_units: Vec::new(),
-            tech_restrictions: Vec::new(),
-            special_rules: Vec::new(),
-            victory_rule: Some("Annihilation".to_string()),
-            primary_objectives: Vec::new(),
-            secondary_objectives: Vec::new(),
-            bonus_objectives: Vec::new(),
-        };
-        self.mission_definitions
-            .insert(challenge.id.clone(), challenge);
+        // Campaign.ini CHALLENGE_0 residual map chain (Generals Challenge).
+        let challenge_maps = [
+            ("challenge_0_01", 1, "GC_ChemGeneral", "General's Challenge — Chem"),
+            ("challenge_0_02", 2, "GC_NukeGeneral", "General's Challenge — Nuke"),
+            (
+                "challenge_0_03",
+                3,
+                "GC_SuperWeaponsGeneral",
+                "General's Challenge — Superweapon",
+            ),
+            ("challenge_0_04", 4, "GC_TankGeneral", "General's Challenge — Tank"),
+            ("challenge_0_05", 5, "GC_Stealth", "General's Challenge — Stealth"),
+            ("challenge_0_06", 6, "GC_LaserGeneral", "General's Challenge — Laser"),
+            ("challenge_0_07", 7, "GC_ChinaBoss", "General's Challenge — China Boss"),
+        ];
+        for (i, (id, num, map, name)) in challenge_maps.iter().enumerate() {
+            let required: Vec<String> = if i == 0 {
+                Vec::new()
+            } else {
+                vec![challenge_maps[i - 1].0.to_string()]
+            };
+            let challenge = MissionInfo {
+                id: id.to_string(),
+                campaign_id: CampaignId::USAGeneral,
+                mission_number: *num,
+                name: name.to_string(),
+                description: format!("Retail Campaign.ini CHALLENGE_0 map {map}"),
+                map_name: map.to_string(),
+                briefing_video: None,
+                preview_image: None,
+                required_missions: required,
+                required_rank: None,
+                required_honor_points: None,
+                time_limit: None,
+                starting_resources: Resources {
+                    supplies: 8000,
+                    power: 0,
+                },
+                starting_units: Vec::new(),
+                tech_restrictions: Vec::new(),
+                special_rules: Vec::new(),
+                victory_rule: Some("Annihilation".to_string()),
+                primary_objectives: Vec::new(),
+                secondary_objectives: Vec::new(),
+                bonus_objectives: Vec::new(),
+            };
+            self.mission_definitions
+                .insert(challenge.id.clone(), challenge);
+        }
+
+        // Backward-compatible alias used by golden_campaign / older residual tests.
+        if let Some(first) = self.mission_definitions.get("challenge_0_01").cloned() {
+            let mut alias = first;
+            alias.id = "usa_gen_01".to_string();
+            self.mission_definitions
+                .insert(alias.id.clone(), alias);
+        }
+    }
+
+    /// Residual honesty: Campaign.ini-derived USA + Challenge map table present.
+    pub fn honesty_campaign_ini_table_ok(&self) -> bool {
+        let usa_ok = ["usa_01", "usa_02", "usa_03", "usa_04", "usa_05"]
+            .iter()
+            .all(|id| {
+                self.mission_definitions
+                    .get(*id)
+                    .map(|m| m.map_name.starts_with("MD_USA"))
+                    .unwrap_or(false)
+            });
+        let challenge_ok = self
+            .mission_definitions
+            .get("challenge_0_01")
+            .map(|m| m.map_name == "GC_ChemGeneral")
+            .unwrap_or(false)
+            && self
+                .mission_definitions
+                .get("challenge_0_07")
+                .map(|m| m.map_name == "GC_ChinaBoss")
+                .unwrap_or(false);
+        usa_ok && challenge_ok && self.mission_definitions.len() >= 12
     }
 
     fn add_sample_honors(&mut self) {
@@ -942,5 +1018,34 @@ mod tests {
         assert_eq!(manager.current_campaign_side_name(), None);
         assert_eq!(manager.current_mission_id(), None);
         assert_eq!(manager.current_mission_number(), None);
+    }
+
+    #[test]
+    fn campaign_ini_residual_mission_table() {
+        let mut manager = CampaignManager::new();
+        manager.init().expect("campaign manager init");
+        assert!(
+            manager.honesty_campaign_ini_table_ok(),
+            "Campaign.ini residual USA + CHALLENGE_0 map table must seed"
+        );
+        assert_eq!(
+            manager
+                .get_mission_info("usa_05")
+                .map(|m| m.map_name.as_str()),
+            Some("MD_USA05")
+        );
+        assert_eq!(
+            manager
+                .get_mission_info("challenge_0_07")
+                .map(|m| m.map_name.as_str()),
+            Some("GC_ChinaBoss")
+        );
+        // Alias for older residual paths.
+        assert_eq!(
+            manager
+                .get_mission_info("usa_gen_01")
+                .map(|m| m.map_name.as_str()),
+            Some("GC_ChemGeneral")
+        );
     }
 }
