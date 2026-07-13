@@ -177,6 +177,14 @@
 //! POISONED_BETA + WeaponSpeed 600 + OCL_PoisonFieldAnthraxBomb). Fail-closed:
 //! not full B52 pathfinder / NeutronMissileUpdate door/loft physics /
 //! ChinaArtilleryCannon transport Object / HazardousMaterialArmor stack.
+//! Wave 65 residual closed: ScudStormMissile ThingFactory object residual pack
+//! (Physics Mass 500 / TransportSlotCount 10 / ShroudClearingRange 0 /
+//! Armor ProjectileArmor / SpecialPowerCompletionDie SuperweaponScudStorm /
+//! HeightDie TargetHeightIncludesStructures Yes / DAMAGED model NONE);
+//! SpectreHowitzerShell ThingFactory InstantDeath death-type table residual
+//! (DETONATED / LASERED+OCL / GENERIC) + Scale 0.6 / Geometry / Shadow pack;
+//! TrailRemnant KindOf NO_COLLIDE+UNATTACKABLE+IMMOBILE + ImmortalBody MaxHealth
+//! 50 residual pack. Fail-closed: not full ThingFactory Object / live module stack.
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -483,12 +491,18 @@ pub const SPECTRE_HOWITZER_SHELL_MODEL: &str = "AVSpectreShell1";
 pub const SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN: bool = true;
 /// Retail InstantDeath DETONATED FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX: &str = "FX_NukeGLA";
+/// Retail InstantDeath DETONATED DeathTypes residual (`NONE +DETONATED`).
+pub const SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_TYPES: &str = "NONE +DETONATED";
 /// Retail InstantDeath LASERED FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX: &str = "FX_GenericMissileDisintegrate";
+/// Retail InstantDeath LASERED DeathTypes residual (`NONE +LASERED`).
+pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_TYPES: &str = "NONE +LASERED";
 /// Retail InstantDeath LASERED OCL residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL: &str = "OCL_GenericMissileDisintegrate";
 /// Retail InstantDeath non-laser death FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX: &str = "FX_GenericMissileDeath";
+/// Retail InstantDeath GENERIC DeathTypes residual (`ALL -LASERED -DETONATED`).
+pub const SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_TYPES: &str = "ALL -LASERED -DETONATED";
 /// Retail SpectreHowitzerShell ActiveBody MaxHealth residual.
 pub const SPECTRE_HOWITZER_SHELL_MAX_HEALTH: f32 = 100.0;
 /// Retail SpectreHowitzerShell GeometryIsSmall residual.
@@ -1787,6 +1801,12 @@ pub const PARTICLE_REMNANT_OBJECT_NAME: &str = "ParticleUplinkCannonTrailRemnant
 pub const PARTICLE_REMNANT_WEAPON_NAME: &str = "ParticleUplinkCannonBeamTrailRemnantWeapon";
 /// Retail TrailRemnant KindOf residual.
 pub const PARTICLE_REMNANT_KIND_OF: &str = "NO_COLLIDE UNATTACKABLE IMMOBILE";
+/// Retail TrailRemnant KindOf NO_COLLIDE residual bit honesty.
+pub const PARTICLE_REMNANT_KIND_OF_NO_COLLIDE: bool = true;
+/// Retail TrailRemnant KindOf UNATTACKABLE residual bit honesty.
+pub const PARTICLE_REMNANT_KIND_OF_UNATTACKABLE: bool = true;
+/// Retail TrailRemnant KindOf IMMOBILE residual bit honesty.
+pub const PARTICLE_REMNANT_KIND_OF_IMMOBILE: bool = true;
 /// Retail TrailRemnant ImmortalBody MaxHealth residual.
 pub const PARTICLE_REMNANT_MAX_HEALTH: f32 = 50.0;
 /// Retail TrailRemnant ImmortalBody InitialHealth residual.
@@ -2177,6 +2197,128 @@ pub fn honesty_deletion_update_sleep_delay() -> bool {
             let d = deletion_update_calc_sleep_delay(3, 7, 1);
             d >= 3 && d <= 7
         }
+}
+
+/// Honesty: ScudStormMissile ThingFactory object residual pack (Wave 65).
+///
+/// Consolidates WeaponObjects.ini `Object ScudStormMissile` residual fields not
+/// already closed as a single host-testable pack: Physics Mass **500**,
+/// TransportSlotCount **10**, ShroudClearingRange **0**, Armor ProjectileArmor,
+/// SpecialPowerCompletionDie SuperweaponScudStorm, HeightDie
+/// TargetHeightIncludesStructures **Yes**, DAMAGED/REALLYDAMAGED/RUBBLE model
+/// **NONE**. Fail-closed: not full ThingFactory Object / live MissileAIUpdate
+/// physics flight / partition KindOf matrix.
+pub fn honesty_scud_storm_missile_thing_factory_pack() -> bool {
+    SCUD_STORM_MISSILE_OBJECT == "ScudStormMissile"
+        && SCUD_STORM_PROJECTILE_OBJECT == "ScudStormMissile"
+        && (SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01
+        && SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT == 10
+        && (SCUD_STORM_MISSILE_SHROUD_CLEARING_RANGE - 0.0).abs() < 0.01
+        && SCUD_STORM_MISSILE_ARMOR == "ProjectileArmor"
+        && SCUD_STORM_MISSILE_DAMAGE_FX == "None"
+        && SCUD_STORM_MISSILE_SPECIAL_POWER == "SuperweaponScudStorm"
+        && SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES
+        && (SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET - 15.0).abs() < 0.01
+        && SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN
+        && SCUD_STORM_MISSILE_SNAP_TO_GROUND_ON_DEATH
+        && SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+        && SCUD_STORM_MISSILE_DAMAGED_MODEL == "NONE"
+        && SCUD_STORM_MISSILE_MODEL == "UBScudStrm_M"
+        && SCUD_STORM_MISSILE_OK_TO_CHANGE_MODEL_COLOR
+        && SCUD_STORM_MISSILE_KIND_OF == "PROJECTILE"
+        && (SCUD_STORM_MISSILE_VISION_RANGE - 300.0).abs() < 0.01
+        && (SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01
+        && (SCUD_STORM_MISSILE_INITIAL_HEALTH - 10000.0).abs() < 0.01
+        && SCUD_STORM_MISSILE_GEOMETRY == "Cylinder"
+        && SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL
+        && (SCUD_STORM_MISSILE_GEOMETRY_RADIUS - 7.0).abs() < 0.01
+        && (SCUD_STORM_MISSILE_GEOMETRY_HEIGHT - 30.0).abs() < 0.01
+        && SCUD_STORM_MISSILE_DESTROY_DIE
+        && SCUD_STORM_MISSILE_EDITOR_SORTING == "SYSTEM"
+        && SCUD_STORM_MISSILE_LOCOMOTOR_NAME == "SCUDStormMissileLocomotor"
+}
+
+/// Honesty: SpectreHowitzerShell ThingFactory InstantDeath + geometry pack (Wave 65).
+///
+/// Full InstantDeath death-type residual table:
+/// - DETONATED: DeathTypes `NONE +DETONATED` / FX_NukeGLA
+/// - LASERED: DeathTypes `NONE +LASERED` / FX + OCL_GenericMissileDisintegrate
+/// - GENERIC: DeathTypes `ALL -LASERED -DETONATED` / FX_GenericMissileDeath
+/// Plus Scale **0.6**, Geometry Cylinder r**4**/h**4**, Shadow SHADOW_DECAL.
+/// Fail-closed: not full InstantDeathBehavior Object / W3D ModelDraw shell drawable.
+pub fn honesty_spectre_howitzer_shell_thing_factory_pack() -> bool {
+    SPECTRE_HOWITZER_SHELL_OBJECT == "SpectreHowitzerShell"
+        && SPECTRE_HOWITZER_PROJECTILE_OBJECT == "SpectreHowitzerShell"
+        && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_TYPES == "NONE +DETONATED"
+        && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX == "FX_NukeGLA"
+        && SPECTRE_HOWITZER_SHELL_DEATH_LASERED_TYPES == "NONE +LASERED"
+        && SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX == "FX_GenericMissileDisintegrate"
+        && SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL == "OCL_GenericMissileDisintegrate"
+        && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_TYPES == "ALL -LASERED -DETONATED"
+        && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX == "FX_GenericMissileDeath"
+        && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_TYPES.contains("DETONATED")
+        && SPECTRE_HOWITZER_SHELL_DEATH_LASERED_TYPES.contains("LASERED")
+        && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_TYPES.contains("-LASERED")
+        && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_TYPES.contains("-DETONATED")
+        && (SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01
+        && SPECTRE_HOWITZER_SHELL_GEOMETRY == "Cylinder"
+        && SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL
+        && (SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS - 4.0).abs() < 0.01
+        && (SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01
+        && SPECTRE_HOWITZER_SHELL_SHADOW == "SHADOW_DECAL"
+        && SPECTRE_HOWITZER_SHELL_MODEL == "AVSpectreShell1"
+        && (SPECTRE_HOWITZER_SHELL_MASS - 1.0).abs() < 0.01
+        && (SPECTRE_HOWITZER_SHELL_MAX_HEALTH - 100.0).abs() < 0.01
+        && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - 100.0).abs() < 0.01
+        && SPECTRE_HOWITZER_SHELL_KIND_OF == "PROJECTILE"
+        && SPECTRE_HOWITZER_SHELL_ARMOR == "ProjectileArmor"
+        && SPECTRE_HOWITZER_SHELL_DAMAGE_FX == "None"
+        && (SPECTRE_HOWITZER_SHELL_VISION_RANGE - 0.0).abs() < 0.01
+        && !SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_INCLUDES_STRUCTURES
+        && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
+        && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+        && (SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT - 1.0).abs() < 0.01
+        && SPECTRE_HOWITZER_SHELL_DISPLAY_NAME == "OBJECT:Missile"
+        && SPECTRE_HOWITZER_SHELL_EDITOR_SORTING == "SYSTEM"
+        && SPECTRE_HOWITZER_SHELL_OK_TO_CHANGE_MODEL_COLOR
+}
+
+/// Honesty: ParticleUplinkCannonTrailRemnant ThingFactory residual pack (Wave 65).
+///
+/// KindOf residual pack honesty: **NO_COLLIDE UNATTACKABLE IMMOBILE** (individual
+/// bit residual) + ImmortalBody MaxHealth/InitialHealth **50** + EditorSorting
+/// SYSTEM + FireWeaponUpdate/DeletionUpdate module presence. Fail-closed: not
+/// full ThingFactory ImmortalBody / live DeletionUpdate destroyObject stack.
+pub fn honesty_trail_remnant_thing_factory_pack() -> bool {
+    PARTICLE_REMNANT_OBJECT_NAME == "ParticleUplinkCannonTrailRemnant"
+        && PARTICLE_REMNANT_KIND_OF == "NO_COLLIDE UNATTACKABLE IMMOBILE"
+        && PARTICLE_REMNANT_KIND_OF.contains("NO_COLLIDE")
+        && PARTICLE_REMNANT_KIND_OF.contains("UNATTACKABLE")
+        && PARTICLE_REMNANT_KIND_OF.contains("IMMOBILE")
+        && PARTICLE_REMNANT_KIND_OF_NO_COLLIDE
+        && PARTICLE_REMNANT_KIND_OF_UNATTACKABLE
+        && PARTICLE_REMNANT_KIND_OF_IMMOBILE
+        && (PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01
+        && (PARTICLE_REMNANT_INITIAL_HEALTH - 50.0).abs() < 0.01
+        && (PARTICLE_REMNANT_INITIAL_HEALTH - PARTICLE_REMNANT_MAX_HEALTH).abs() < 0.01
+        && PARTICLE_REMNANT_BODY == "ImmortalBody"
+        && PARTICLE_REMNANT_EDITOR_SORTING == "SYSTEM"
+        && PARTICLE_REMNANT_FIRE_WEAPON_UPDATE
+        && PARTICLE_REMNANT_DELETION_UPDATE
+        && PARTICLE_REMNANT_WEAPON_NAME == "ParticleUplinkCannonBeamTrailRemnantWeapon"
+        && (PARTICLE_REMNANT_DAMAGE_PER_TICK - 15.0).abs() < 0.01
+        && (PARTICLE_REMNANT_RADIUS - 10.0).abs() < 0.01
+        && PARTICLE_REMNANT_TICK_INTERVAL_FRAMES == 7
+        && PARTICLE_REMNANT_DURATION_FRAMES == 120
+        && PARTICLE_REMNANT_MIN_LIFETIME_MS == 4000
+        && PARTICLE_REMNANT_MAX_LIFETIME_MS == 4000
+        && PARTICLE_REMNANT_MIN_LIFETIME_MS == PARTICLE_REMNANT_MAX_LIFETIME_MS
+        && PARTICLE_REMNANT_DAMAGE_TYPE == "PARTICLE_BEAM"
+        && PARTICLE_REMNANT_DEATH_TYPE == "BURNED"
+        && (PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR - 1.0).abs() < 0.01
+        && PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD
+        && honesty_immortal_body_health_floor(50.0, -100.0, 1.0)
+        && honesty_deletion_update_sleep_delay()
 }
 
 /// Retail ImmortalBody health floor residual (never drop below 1 HP).
@@ -13800,5 +13942,129 @@ mod tests {
             assert!(s.anthrax_toxin_residual_pack_applications >= 1);
         }
         assert!(reg.honesty_anthrax_toxin_residual_pack_ok());
+    }
+
+    #[test]
+    fn scud_storm_missile_thing_factory_pack_wave65_honesty() {
+        assert!(honesty_scud_storm_missile_thing_factory_pack());
+        assert_eq!(SCUD_STORM_MISSILE_OBJECT, "ScudStormMissile");
+        assert!((SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT, 10);
+        assert!((SCUD_STORM_MISSILE_SHROUD_CLEARING_RANGE - 0.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_ARMOR, "ProjectileArmor");
+        assert_eq!(SCUD_STORM_MISSILE_SPECIAL_POWER, "SuperweaponScudStorm");
+        assert!(SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES);
+        assert_eq!(SCUD_STORM_MISSILE_DAMAGED_MODEL, "NONE");
+        assert_eq!(SCUD_STORM_MISSILE_MODEL, "UBScudStrm_M");
+        assert_eq!(SCUD_STORM_MISSILE_GEOMETRY, "Cylinder");
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_RADIUS - 7.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_HEIGHT - 30.0).abs() < 0.01);
+        // Application residual still arms via existing Scud strike path.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(50.0, 0.0, 50.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.scud_object_params_applications >= 1);
+            assert!(s.scud_geometry_applications >= 1);
+            assert!(s.scud_special_power_completion_applications >= 1);
+            assert!(s.scud_body_draw_params_applications >= 1);
+        }
+        assert!(reg.honesty_scud_object_params_ok());
+        assert!(reg.honesty_scud_geometry_ok());
+        assert!(reg.honesty_scud_body_draw_params_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_thing_factory_pack_wave65_honesty() {
+        assert!(honesty_spectre_howitzer_shell_thing_factory_pack());
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_TYPES,
+            "NONE +DETONATED"
+        );
+        assert_eq!(SPECTRE_HOWITZER_SHELL_DEATH_LASERED_TYPES, "NONE +LASERED");
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_TYPES,
+            "ALL -LASERED -DETONATED"
+        );
+        assert_eq!(SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX, "FX_NukeGLA");
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL,
+            "OCL_GenericMissileDisintegrate"
+        );
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX,
+            "FX_GenericMissileDeath"
+        );
+        assert!((SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_GEOMETRY, "Cylinder");
+        assert_eq!(SPECTRE_HOWITZER_SHELL_SHADOW, "SHADOW_DECAL");
+        assert!((SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS - 4.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert!(!reg.orbit_fields().is_empty());
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert!(f.howitzer_shells_spawned >= 1);
+            assert!(f.howitzer_shell_death_detonated_applications >= 1);
+            assert!(f.howitzer_shell_death_lasered_applications >= 1);
+            assert!(f.howitzer_shell_death_generic_applications >= 1);
+            assert!(f.howitzer_shell_scale_applications >= 1);
+            assert!(f.howitzer_shell_shadow_applications >= 1);
+            assert!(f.howitzer_shell_geometry_applications >= 1);
+        }
+        assert!(reg.honesty_howitzer_shell_ok());
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
+        assert!(reg.honesty_howitzer_shell_death_generic_ok());
+        assert!(reg.honesty_howitzer_shell_model_draw_ok());
+    }
+
+    #[test]
+    fn trail_remnant_thing_factory_pack_wave65_honesty() {
+        assert!(honesty_trail_remnant_thing_factory_pack());
+        assert_eq!(
+            PARTICLE_REMNANT_KIND_OF,
+            "NO_COLLIDE UNATTACKABLE IMMOBILE"
+        );
+        assert!(PARTICLE_REMNANT_KIND_OF_NO_COLLIDE);
+        assert!(PARTICLE_REMNANT_KIND_OF_UNATTACKABLE);
+        assert!(PARTICLE_REMNANT_KIND_OF_IMMOBILE);
+        assert!((PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01);
+        assert_eq!(PARTICLE_REMNANT_BODY, "ImmortalBody");
+        assert_eq!(
+            PARTICLE_REMNANT_OBJECT_NAME,
+            "ParticleUplinkCannonTrailRemnant"
+        );
+        assert!(PARTICLE_REMNANT_FIRE_WEAPON_UPDATE);
+        assert!(PARTICLE_REMNANT_DELETION_UPDATE);
+        assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
+        assert!(honesty_immortal_body_health_floor(50.0, -100.0, 1.0));
+        assert!(honesty_deletion_update_sleep_delay());
     }
 }
