@@ -149,6 +149,12 @@ pub const SCORPION_MISSILE_WEAPON: &str = "ScorpionMissileWeapon";
 /// Retail America Tomahawk residual weapon.
 pub const TOMAHAWK_MISSILE_WEAPON: &str = "TomahawkMissileWeapon";
 
+/// Retail China Overlord / Emperor residual main gun.
+pub const OVERLORD_TANK_GUN: &str = "OverlordTankGun";
+
+/// Retail GLA Jarmen Kell residual primary sniper.
+pub const JARMEN_KELL_RIFLE: &str = "GLAJarmenKellRifle";
+
 /// Retail GLA Combat Cycle rider residual weapons.
 pub const REBEL_BIKER_MG: &str = "GLARebelBikerMachineGun";
 pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon";
@@ -372,6 +378,23 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "USA_TomahawkLauncher"
         | "TestTomahawk"
         | "SupW_AmericaVehicleTomahawk" => Some(TOMAHAWK_MISSILE_WEAPON),
+        // China Overlord / Emperor residual main gun.
+        "ChinaTankOverlord"
+        | "China_OverlordTank"
+        | "TestOverlord"
+        | "Nuke_ChinaTankOverlord"
+        | "Tank_ChinaTankOverlord"
+        | "Infa_ChinaTankOverlord"
+        | "Tank_ChinaTankEmperor"
+        | "TestEmperor" => Some(OVERLORD_TANK_GUN),
+        // GLA Jarmen Kell residual sniper.
+        "GLAInfantryJarmenKell"
+        | "GLA_JarmenKell"
+        | "TestJarmenKell"
+        | "Chem_GLAInfantryJarmenKell"
+        | "Demo_GLAInfantryJarmenKell"
+        | "Slth_GLAInfantryJarmenKell"
+        | "GC_Slth_GLAInfantryJarmenKell" => Some(JARMEN_KELL_RIFLE),
         // GLA Marauder residual tank gun (salvage tiers swap fire-rate residual).
         "GLATankMarauder"
         | "GLA_MarauderTank"
@@ -474,6 +497,12 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 return Some(TOMAHAWK_MISSILE_WEAPON);
+            }
+            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
+                return Some(OVERLORD_TANK_GUN);
+            }
+            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
+                return Some(JARMEN_KELL_RIFLE);
             }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
@@ -1218,6 +1247,24 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 210,
             clip_size: 1,
             weapon_speed: 200.0,
+        },
+        // OverlordTankGun — dmg 80, range 175, ClipReload 2000ms → 60 frames, clip 2.
+        SeedWeapon {
+            name: OVERLORD_TANK_GUN,
+            primary_damage: 80.0,
+            attack_range: 175.0,
+            delay_frames: 60,
+            clip_size: 2,
+            weapon_speed: 300.0,
+        },
+        // GLAJarmenKellRifle — dmg 180, range 225, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: JARMEN_KELL_RIFLE,
+            primary_damage: 180.0,
+            attack_range: 225.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
         },
         // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
         SeedWeapon {

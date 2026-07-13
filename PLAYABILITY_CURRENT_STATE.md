@@ -1,3 +1,34 @@
+## Residual Host Playability — China Overlord Main Gun + GLA Jarmen Kell Sniper (2026-07-13)
+**Closed (host-testable Overlord dual-radius/Uranium + Jarmen Kell sniper/AP residual):**
+1. **Overlord main gun residual** (`ChinaTankOverlord` / Nuke_/Infa_/Tank_ + Emperor):
+   - PRIMARY `OverlordTankGun` residual: PrimaryDamage **80** / radius **5** +
+     SecondaryDamage **20** / radius **10**, range **175**, ClipReload **2000**ms
+     (60 frames). ClipSize **2** honesty (dual-volley cadence fail-closed).
+   - Dual-radius splash residual on fire (intended + primary/secondary rings).
+   - Uranium Shells PLAYER_UPGRADE residual (`Upgrade_ChinaUraniumShells`):
+     WeaponBonus DAMAGE **125%** → Primary **100** / Secondary **25**.
+   - Portable gattling addon exclusive fire path unchanged (still deals weapon.damage
+     + passenger gattling when addon installed).
+   - Honesty: `honesty_overlord_gun_ok` / uranium / fires / units_hit.
+2. **Jarmen Kell sniper residual** (`GLAInfantryJarmenKell` / Chem_/Demo_/Slth_/GC_*):
+   - PRIMARY `GLAJarmenKellRifle` residual: PrimaryDamage **180** / range **225** /
+     Delay **1000**ms (30 frames). Intended-only SNIPER residual (radius **0**).
+   - AP Bullets PLAYER_UPGRADE residual (`Upgrade_GLAAPBullets`): DAMAGE **125%** → **225**.
+   - Vehicle pilot-snipe special already closed via host_hero_abilities (not re-opened).
+   - Honesty: `honesty_jarmen_kell_ok` / ap / fires / units_hit.
+3. Tests (not log-only):
+   - `overlord_gun_residual_dual_radius_and_uranium`
+   - `jarmen_kell_residual_sniper_and_ap_bullets`
+   - module unit tests in `host_overlord_gun.rs` / `host_jarmen_kell.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full ClipSize=2 DelayBetweenShots 300ms dual-volley cadence for Overlord
+- Full ScatterRadiusVsInfantry / projectile shell lob / W3D turret matrix
+- Full Nuclear Tanks death weapon residual
+- Full SECONDARY AutoChooseSources=NONE pilot-sniper WeaponSet chooser matrix
+- Full StealthUpdate / Camouflage / Science prereq residual matrix for Kell
+- Network uranium / sniper / AP Bullets replication (network deferred)
+
 ## Residual Host Playability — GLA Scorpion + USA Tomahawk (2026-07-13)
 **Closed (host-testable Scorpion gun/salvage/rocket + Tomahawk dual-radius residual):**
 1. **Scorpion residual** (`GLATankScorpion` / `GLA_ScorpionTank` / Chem_/Demo_/Slth_):
