@@ -1,3 +1,35 @@
+## Residual Host Playability — USA Stealth Fighter Combat + Comanche Cannon/AT (2026-07-13)
+**Closed (host-testable Stealth Fighter missiles + Comanche 20mm/anti-tank residual):**
+1. **Stealth Fighter residual** (`AmericaJetStealthFighter` / USA_ / SupW_/Lazr_ + AirF_):
+   - PRIMARY `StealthJetMissileWeapon` residual: PrimaryDamage **100** / radius **5**,
+     range **220**, min **60**, Delay **200**ms (6 frames). ClipSize **2** honesty
+     (RETURN_TO_BASE rearm matrix fail-closed). Ground residual only (no AA).
+   - Fire residual: intended + PrimaryDamageRadius **5** splash.
+   - Bunker Buster PLAYER_UPGRADE residual remains in host_bunker_buster and is
+     applied from the residual fire path for structure targets (garrison kill + bunker mult).
+   - Honesty: `honesty_stealth_fighter_ok` / fires / units_hit.
+2. **Comanche residual** (`AmericaVehicleComanche` / USA_ / AirF_/SupW_/Lazr_):
+   - PRIMARY `Comanche20mmCannonWeapon` residual: PrimaryDamage **6** / intended-only,
+     range **200**, Delay **100**ms (3 frames). AntiAirborneInfantry residual honesty.
+   - SECONDARY `ComancheAntiTankMissileWeapon` residual at spawn:
+     Primary **50**/r**5** + Secondary **30**/r**25**, range **200**, Delay **500**ms
+     (15 frames), ClipSize **4** honesty.
+   - Rocket pods PLAYER_UPGRADE residual still replaces secondary (retail TERTIARY
+     collapse — existing host_comanche_rocket_pods path).
+   - Honesty: `honesty_comanche_ok` / cannon / antitank / rocket pods.
+3. Tests (not log-only):
+   - `stealth_fighter_residual_missiles_and_splash`
+   - `comanche_residual_cannon_and_antitank`
+   - module unit tests in `host_stealth_fighter.rs` / `host_comanche_rocket_pods.rs`
+   - existing `bunker_buster_residual_kills_garrison_and_damages_bunker` still green
+
+**Still residual (fail-closed, not claimed):**
+- Full SCIENCE_StealthFighter production enqueue gate residual (module helpers present; host queue wiring fail-closed)
+- Full JetAIUpdate RETURN_TO_BASE / ClipReload airfield rearm matrix
+- Full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser (host collapses tertiary rocket pods into secondary)
+- Full ScatterTarget / 20-rocket volley spacing / JetAIUpdate turret matrix
+- Network stealth-fighter / comanche / rocket-pods replication (network deferred)
+
 ## Residual Host Playability — USA Raptor + Battle Drone (2026-07-13)
 **Closed (host-testable Raptor missiles/Laser Missiles + Battle Drone attach/gun/repair residual):**
 1. **Raptor residual** (`AmericaJetRaptor` / USA_ / SupW_/Lazr_ + King Raptor AirF_):
