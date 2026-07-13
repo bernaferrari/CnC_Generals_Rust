@@ -714,6 +714,14 @@ pub struct GameLogic {
     /// Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost matrix.
     black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry,
 
+    /// Host Tech Oil Derrick residual cash (AutoDepositUpdate residual).
+    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+    oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry,
+
+    /// Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
+    /// Fail-closed: not full unpack/pack state machine / variation / floating text.
+    hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
+
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
     car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
@@ -1559,6 +1567,8 @@ impl GameLogic {
                 crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
             black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry::new(),
+            oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry::new(),
+            hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -1725,6 +1735,8 @@ impl GameLogic {
         self.spy_satellites.clear();
         self.hero_abilities.clear();
         self.black_markets.clear();
+        self.oil_derricks.clear();
+        self.hacker_income.clear();
         self.car_bomb.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
@@ -3691,6 +3703,12 @@ impl GameLogic {
         // GLA Black Market residual cash (AutoDepositUpdate discrete deposits).
         // Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost.
         self.update_black_market_deposits();
+        // Tech Oil Derrick residual cash (AutoDepositUpdate discrete deposits).
+        // Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+        self.update_oil_derrick_deposits();
+        // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
+        // Fail-closed: not full unpack/pack state machine / variation factor.
+        self.update_hacker_income();
         self.update_power_disabled_state();
 
         // -----------------------------------------------------------------------
@@ -6648,8 +6666,8 @@ impl GameLogic {
     ///
     /// Retail FactionBuilding.ini GLABlackMarket:
     /// DepositAmount=20, DepositTiming=2000 ms → 60 logic frames @ 30 FPS.
-    /// Fail-closed: not full floating text / InitialCaptureBonus / UpgradedBoost /
-    /// oil-derrick AutoDeposit matrix (black market residual only).
+    /// Fail-closed: not full floating text / InitialCaptureBonus / UpgradedBoost
+    /// (black market residual only this slice; oil derrick / hacker are separate).
     fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
             is_black_market_template, is_legal_black_market_income_source,
@@ -6714,6 +6732,248 @@ impl GameLogic {
                     .with_priority(120),
             );
         }
+    }
+
+    /// Tech Oil Derrick residual cash (AutoDepositUpdate residual).
+    ///
+    /// Retail CivilianBuilding.ini TechOilDerrick:
+    /// DepositAmount=200, DepositTiming=12000 ms → 360 logic frames @ 30 FPS,
+    /// InitialCaptureBonus=1000 once when first non-neutral owned.
+    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+    fn update_oil_derrick_deposits(&mut self) {
+        use crate::game_logic::host_oil_derrick::{
+            is_legal_oil_derrick_income_source, is_oil_derrick_template,
+            OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
+            OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+        };
+
+        let frame = self.frame;
+        // Collect all oil derricks (including neutral — need for stale cleanup / capture detect).
+        let derricks: Vec<(ObjectId, Team, Vec3, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !is_oil_derrick_template(&obj.template_name) {
+                    return None;
+                }
+                let alive = obj.is_alive();
+                let constructed = obj.is_constructed() && !obj.status.under_construction;
+                Some((*id, obj.team, obj.get_position(), alive, constructed))
+            })
+            .collect();
+
+        let live: std::collections::HashSet<ObjectId> =
+            derricks.iter().map(|(id, _, _, _, _)| *id).collect();
+        let stale: Vec<ObjectId> = self
+            .oil_derricks
+            .next_deposit_keys()
+            .into_iter()
+            .filter(|id| !live.contains(id))
+            .collect();
+        for id in stale {
+            self.oil_derricks.forget(id);
+        }
+
+        for (derrick_id, team, pos, alive, constructed) in derricks {
+            let is_neutral = team == Team::Neutral;
+            if !is_legal_oil_derrick_income_source(alive, constructed, is_neutral) {
+                continue;
+            }
+
+            // InitialCaptureBonus residual: first non-neutral ownership.
+            let bonus = self
+                .oil_derricks
+                .try_capture_bonus(derrick_id, OIL_DERRICK_INITIAL_CAPTURE_BONUS);
+            if bonus > 0 {
+                self.oil_derricks
+                    .reschedule_after_capture(derrick_id, frame);
+                if let Some(player) = self.get_player_mut_by_team(team) {
+                    player.resources.supplies = player.resources.supplies.saturating_add(bonus);
+                    player.statistics.resources_collected =
+                        player.statistics.resources_collected.saturating_add(bonus);
+                }
+                self.queue_audio_event(
+                    AudioEventRequest::new(OIL_DERRICK_CAPTURE_BONUS_AUDIO)
+                        .with_object(derrick_id)
+                        .with_position(pos)
+                        .with_priority(130),
+                );
+            }
+
+            let deposited =
+                self.oil_derricks
+                    .try_deposit(derrick_id, frame, OIL_DERRICK_DEPOSIT_AMOUNT);
+            if deposited == 0 {
+                continue;
+            }
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
+                player.statistics.resources_collected =
+                    player.statistics.resources_collected.saturating_add(deposited);
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(OIL_DERRICK_DEPOSIT_AUDIO)
+                    .with_object(derrick_id)
+                    .with_position(pos)
+                    .with_priority(120),
+            );
+        }
+    }
+
+    /// China Hacker / Internet Center residual cash (HackInternetAIUpdate residual).
+    ///
+    /// Retail ChinaInfantry.ini HackInternetAIUpdate:
+    /// CashUpdateDelay=2000 ms → 60 frames field; CashUpdateDelayFast=1800 ms → 54
+    /// frames inside Internet Center; Regular/Vet/Elite/Heroic = 5/6/8/10.
+    /// InternetHackContain residual: hackers contained in FSInternetCenter auto-hack.
+    /// Fail-closed: not full unpack/pack animation / variation / floating text.
+    fn update_hacker_income(&mut self) {
+        use crate::game_logic::host_hacker_income::{
+            cash_amount_for_level, cash_interval_frames, is_hacker_template,
+            is_internet_center_template, is_legal_hacker_income_source, HACKER_CASH_PING_AUDIO,
+            HACKER_XP_PER_CASH_UPDATE,
+        };
+
+        let frame = self.frame;
+
+        // Snapshot internet-center membership for container queries.
+        let internet_centers: std::collections::HashSet<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let is_ic = obj.is_kind_of(KindOf::FSInternetCenter)
+                    || is_internet_center_template(&obj.template_name);
+                if is_ic {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect residual hackers with container / legal gates.
+        #[derive(Clone, Copy)]
+        struct HackerSnap {
+            id: ObjectId,
+            team: Team,
+            pos: Vec3,
+            level: crate::game_logic::VeterancyLevel,
+            in_ic: bool,
+            alive: bool,
+            neutral: bool,
+            disabled_hacked: bool,
+        }
+        let hackers: Vec<HackerSnap> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !is_hacker_template(&obj.template_name) {
+                    return None;
+                }
+                let container = obj.container_id();
+                let in_ic = container
+                    .map(|cid| internet_centers.contains(&cid))
+                    .unwrap_or(false);
+                Some(HackerSnap {
+                    id: *id,
+                    team: obj.team,
+                    pos: obj.get_position(),
+                    level: obj.experience.level,
+                    in_ic,
+                    alive: obj.is_alive(),
+                    neutral: obj.team == Team::Neutral,
+                    disabled_hacked: obj.status.disabled_hacked,
+                })
+            })
+            .collect();
+
+        let live: std::collections::HashSet<ObjectId> = hackers.iter().map(|h| h.id).collect();
+        let stale: Vec<ObjectId> = self
+            .hacker_income
+            .tracked_keys()
+            .into_iter()
+            .filter(|id| !live.contains(id))
+            .collect();
+        for id in stale {
+            self.hacker_income.forget(id);
+        }
+
+        for h in &hackers {
+            if !h.alive {
+                self.hacker_income.forget(h.id);
+                continue;
+            }
+            // Internet Center residual: auto-start hacking when contained.
+            if h.in_ic && is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked) {
+                self.hacker_income
+                    .ensure_internet_center_hacking(h.id, frame);
+            }
+            // If no longer in IC and never field-started, keep active only if
+            // still marked hacking (field residual). Leaving IC mid-hack continues
+            // at field interval (C++ uses getCashUpdateDelay each cycle).
+            if !self.hacker_income.is_hacking(h.id) {
+                continue;
+            }
+            if !is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked) {
+                // C++: DISABLED_HACKED skips deposit but stays in HACK_INTERNET state.
+                continue;
+            }
+            let amount = cash_amount_for_level(h.level);
+            let interval = cash_interval_frames(h.in_ic);
+            let deposited =
+                self.hacker_income
+                    .try_deposit(h.id, frame, amount, interval, h.in_ic);
+            if deposited == 0 {
+                continue;
+            }
+            if let Some(player) = self.get_player_mut_by_team(h.team) {
+                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
+                player.statistics.resources_collected =
+                    player.statistics.resources_collected.saturating_add(deposited);
+            }
+            // Residual XpPerCashUpdate.
+            if let Some(obj) = self.objects.get_mut(&h.id) {
+                obj.gain_experience(HACKER_XP_PER_CASH_UPDATE);
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(HACKER_CASH_PING_AUDIO)
+                    .with_object(h.id)
+                    .with_position(h.pos)
+                    .with_priority(110),
+            );
+        }
+    }
+
+    /// Residual field command: start HackInternet for selected hacker unit(s).
+    /// Fail-closed: not full unpack animation / pack-on-interrupt state machine.
+    pub fn start_hacker_internet_hack(&mut self, hacker_id: ObjectId) -> bool {
+        use crate::game_logic::host_hacker_income::{
+            is_hacker_template, is_legal_hacker_income_source,
+        };
+        let frame = self.frame;
+        let Some(obj) = self.objects.get(&hacker_id) else {
+            return false;
+        };
+        if !is_hacker_template(&obj.template_name) {
+            return false;
+        }
+        if !is_legal_hacker_income_source(
+            obj.is_alive(),
+            obj.team == Team::Neutral,
+            obj.status.disabled_hacked,
+        ) {
+            return false;
+        }
+        self.hacker_income.start_hacking(hacker_id, frame);
+        true
+    }
+
+    /// Residual: stop HackInternet (e.g. move interrupt residual).
+    pub fn stop_hacker_internet_hack(&mut self, hacker_id: ObjectId) {
+        self.hacker_income.stop_hacking(hacker_id);
     }
 
     /// C++ parity (Player::update → doPowerDisable): set/clear
@@ -9309,6 +9569,58 @@ impl GameLogic {
         self.black_markets.cash_total()
     }
 
+    /// Residual Tech Oil Derrick honesty: at least one deposit or capture bonus.
+    /// Fail-closed: not full UpgradedBoost / floating text.
+    pub fn honesty_oil_derrick_ok(&self) -> bool {
+        self.oil_derricks.honesty_ok()
+    }
+
+    /// Residual Oil Derrick periodic deposit honesty.
+    pub fn honesty_oil_derrick_deposit_ok(&self) -> bool {
+        self.oil_derricks.honesty_deposit_ok()
+    }
+
+    /// Residual Oil Derrick capture bonus honesty.
+    pub fn honesty_oil_derrick_capture_bonus_ok(&self) -> bool {
+        self.oil_derricks.honesty_capture_bonus_ok()
+    }
+
+    /// Residual Oil Derrick deposit count (observability).
+    pub fn oil_derrick_residual_deposits(&self) -> u32 {
+        self.oil_derricks.deposits()
+    }
+
+    /// Total residual cash from Oil Derrick periodic AutoDeposit (observability).
+    pub fn oil_derrick_residual_cash_total(&self) -> u32 {
+        self.oil_derricks.cash_total()
+    }
+
+    /// Total residual cash from Oil Derrick InitialCaptureBonus (observability).
+    pub fn oil_derrick_capture_bonus_cash_total(&self) -> u32 {
+        self.oil_derricks.capture_bonus_cash_total()
+    }
+
+    /// Residual Hacker / Internet Center honesty: at least one cash ping.
+    /// Fail-closed: not full unpack/pack / floating text.
+    pub fn honesty_hacker_income_ok(&self) -> bool {
+        self.hacker_income.honesty_ok()
+    }
+
+    /// Residual Hacker Internet Center deposit honesty.
+    pub fn honesty_hacker_internet_center_ok(&self) -> bool {
+        self.hacker_income.honesty_internet_center_ok()
+    }
+
+    /// Residual Hacker deposit count (observability).
+    pub fn hacker_residual_deposits(&self) -> u32 {
+        self.hacker_income.deposits()
+    }
+
+    /// Total residual cash from Hacker income (observability).
+    pub fn hacker_residual_cash_total(&self) -> u32 {
+        self.hacker_income.cash_total()
+    }
+
     /// Residual garrison honesty: successful structure enter count.
     pub fn garrison_residual_enters(&self) -> u32 {
         self.garrison_residual_enters
@@ -11329,6 +11641,20 @@ impl GameLogic {
     /// Residual honesty: GLA Black Market AutoDeposit residual deposited cash.
     pub fn honesty_black_market_deposit_ok(&self) -> bool {
         self.black_markets.honesty_deposit_ok()
+    }
+
+    /// Host oil derrick residual registry (deposits + capture bonus + honesty).
+    pub fn oil_derricks(
+        &self,
+    ) -> &crate::game_logic::host_oil_derrick::HostOilDerrickRegistry {
+        &self.oil_derricks
+    }
+
+    /// Host hacker income residual registry (deposits + honesty).
+    pub fn hacker_income(
+        &self,
+    ) -> &crate::game_logic::host_hacker_income::HostHackerIncomeRegistry {
+        &self.hacker_income
     }
 
     /// Residual honesty: Black Lotus disable-vehicle hack completed at least once.
@@ -20650,6 +20976,342 @@ mod tests {
             deposits_before_fake + 1,
             "fake black market must not deposit cash"
         );
+    }
+
+    /// Residual: TechOilDerrick AutoDeposit deposits $200 every 360 logic frames
+    /// and awards InitialCaptureBonus $1000 once when first non-neutral owned.
+    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines.
+    #[test]
+    fn oil_derrick_residual_deposits_cash_on_interval() {
+        use crate::game_logic::host_oil_derrick::{
+            OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
+            OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("TestOilDerrick") {
+            let mut t = ThingTemplate::new("TestOilDerrick");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(2000.0)
+                .set_cost(0, 0);
+            game_logic
+                .templates
+                .insert("TestOilDerrick".to_string(), t);
+        }
+
+        // Spawn neutral (map residual), then capture to USA.
+        let derrick_id = game_logic
+            .create_object("TestOilDerrick", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+            .expect("oil derrick");
+        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+            obj.status.under_construction = false;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        // Neutral residual-skip.
+        game_logic.frame = 0;
+        game_logic.update_oil_derrick_deposits();
+        assert!(!game_logic.honesty_oil_derrick_ok());
+        let mid = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(mid, cash_before, "neutral derrick must not deposit");
+
+        // Capture residual: flip team to USA → InitialCaptureBonus.
+        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+            obj.set_team(Team::USA);
+        }
+        game_logic.frame = 0;
+        game_logic.update_oil_derrick_deposits();
+        let after_capture = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            after_capture,
+            cash_before.saturating_add(OIL_DERRICK_INITIAL_CAPTURE_BONUS),
+            "capture must award residual ${OIL_DERRICK_INITIAL_CAPTURE_BONUS}"
+        );
+        assert!(
+            game_logic.honesty_oil_derrick_capture_bonus_ok(),
+            "oil derrick capture bonus residual honesty"
+        );
+        // Periodic deposit not yet due (rescheduled after capture).
+        assert!(!game_logic.honesty_oil_derrick_deposit_ok());
+
+        // Second capture-bonus call residual-skip.
+        game_logic.update_oil_derrick_deposits();
+        let after_dup = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(after_dup, after_capture, "capture bonus once only");
+
+        // Periodic deposit after interval.
+        game_logic.frame = OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES;
+        game_logic.update_oil_derrick_deposits();
+        let after_deposit = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            after_deposit,
+            after_capture.saturating_add(OIL_DERRICK_DEPOSIT_AMOUNT),
+            "oil derrick must deposit residual ${OIL_DERRICK_DEPOSIT_AMOUNT}"
+        );
+        assert!(
+            game_logic.honesty_oil_derrick_deposit_ok(),
+            "oil derrick deposit residual honesty"
+        );
+        assert_eq!(game_logic.oil_derricks().deposits, 1);
+        assert_eq!(
+            game_logic.oil_derrick_residual_cash_total(),
+            OIL_DERRICK_DEPOSIT_AMOUNT
+        );
+        assert_eq!(
+            game_logic.oil_derrick_capture_bonus_cash_total(),
+            OIL_DERRICK_INITIAL_CAPTURE_BONUS
+        );
+
+        // Second interval.
+        game_logic.frame = OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES * 2;
+        game_logic.update_oil_derrick_deposits();
+        assert_eq!(game_logic.oil_derricks().deposits, 2);
+        assert_eq!(
+            game_logic.oil_derrick_residual_cash_total(),
+            OIL_DERRICK_DEPOSIT_AMOUNT * 2
+        );
+    }
+
+    /// Residual: under-construction oil derrick must not deposit or award capture bonus.
+    #[test]
+    fn oil_derrick_residual_skips_under_construction() {
+        use crate::game_logic::host_oil_derrick::OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("TestOilDerrick") {
+            let mut t = ThingTemplate::new("TestOilDerrick");
+            t.add_kind_of(KindOf::Structure)
+                .set_health(2000.0);
+            game_logic
+                .templates
+                .insert("TestOilDerrick".to_string(), t);
+        }
+
+        let derrick_id = game_logic
+            .create_object("TestOilDerrick", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("oil derrick");
+        if let Some(obj) = game_logic.find_object_mut(derrick_id) {
+            obj.status.under_construction = true;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        game_logic.frame = OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES;
+        game_logic.update_oil_derrick_deposits();
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after, cash_before,
+            "under-construction oil derrick must not deposit"
+        );
+        assert!(!game_logic.honesty_oil_derrick_ok());
+    }
+
+    /// Residual: Hacker contained in Internet Center auto-hacks and deposits $5
+    /// every 54 logic frames (CashUpdateDelayFast).
+    #[test]
+    fn hacker_internet_center_residual_deposits_cash() {
+        use crate::game_logic::host_hacker_income::{
+            HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        if !game_logic.templates.contains_key("TestHacker") {
+            let mut t = ThingTemplate::new("TestHacker");
+            t.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0)
+                .set_cost(200, 0);
+            game_logic.templates.insert("TestHacker".to_string(), t);
+        }
+        if !game_logic.templates.contains_key("TestInternetCenter") {
+            let mut t = ThingTemplate::new("TestInternetCenter");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSInternetCenter)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(2000.0)
+                .set_cost(2500, 0);
+            game_logic
+                .templates
+                .insert("TestInternetCenter".to_string(), t);
+        }
+
+        let ic_id = game_logic
+            .create_object(
+                "TestInternetCenter",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("internet center");
+        if let Some(obj) = game_logic.find_object_mut(ic_id) {
+            obj.status.under_construction = false;
+        }
+
+        let hacker_id = game_logic
+            .create_object("TestHacker", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("hacker");
+        // Residual: place hacker inside Internet Center.
+        if let Some(obj) = game_logic.find_object_mut(hacker_id) {
+            obj.contained_by = Some(ic_id);
+            obj.ai_state = AIState::Docked;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        game_logic.frame = 0;
+        game_logic.update_hacker_income();
+        assert!(
+            game_logic.hacker_income().is_hacking(hacker_id),
+            "hacker in IC must auto-start residual hacking"
+        );
+        let mid = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(mid, cash_before, "no deposit before fast interval");
+
+        game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES;
+        game_logic.update_hacker_income();
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after,
+            cash_before.saturating_add(HACKER_CASH_REGULAR),
+            "internet center hacker must deposit residual ${HACKER_CASH_REGULAR}"
+        );
+        assert!(
+            game_logic.honesty_hacker_income_ok(),
+            "hacker income residual honesty"
+        );
+        assert!(
+            game_logic.honesty_hacker_internet_center_ok(),
+            "hacker internet center residual honesty"
+        );
+        assert_eq!(game_logic.hacker_residual_deposits(), 1);
+        assert_eq!(game_logic.hacker_residual_cash_total(), HACKER_CASH_REGULAR);
+
+        // Second fast interval.
+        game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES * 2;
+        game_logic.update_hacker_income();
+        assert_eq!(game_logic.hacker_residual_deposits(), 2);
+        assert_eq!(
+            game_logic.hacker_residual_cash_total(),
+            HACKER_CASH_REGULAR * 2
+        );
+    }
+
+    /// Residual: field HackInternet command deposits $5 every 60 frames.
+    #[test]
+    fn hacker_field_residual_deposits_cash_on_interval() {
+        use crate::game_logic::host_hacker_income::{
+            HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        if !game_logic.templates.contains_key("TestHacker") {
+            let mut t = ThingTemplate::new("TestHacker");
+            t.add_kind_of(KindOf::Infantry)
+                .set_health(100.0);
+            game_logic.templates.insert("TestHacker".to_string(), t);
+        }
+
+        let hacker_id = game_logic
+            .create_object("TestHacker", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("hacker");
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        // Field residual: not auto-hacking until command.
+        game_logic.frame = 0;
+        game_logic.update_hacker_income();
+        assert!(!game_logic.hacker_income().is_hacking(hacker_id));
+
+        assert!(
+            game_logic.start_hacker_internet_hack(hacker_id),
+            "field start_hacking must succeed for living hacker"
+        );
+        game_logic.update_hacker_income();
+        let mid = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(mid, cash_before, "no deposit before field interval");
+
+        game_logic.frame = HACKER_CASH_INTERVAL_FRAMES;
+        game_logic.update_hacker_income();
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after,
+            cash_before.saturating_add(HACKER_CASH_REGULAR),
+            "field hacker must deposit residual ${HACKER_CASH_REGULAR}"
+        );
+        assert!(game_logic.honesty_hacker_income_ok());
+        // Field path is not internet-center classified.
+        assert!(!game_logic.honesty_hacker_internet_center_ok());
+    }
+
+    /// Residual: non-hacker template must not start residual internet hack.
+    #[test]
+    fn hacker_residual_rejects_non_hacker() {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        if !game_logic.templates.contains_key("TestRedGuard") {
+            let mut t = ThingTemplate::new("TestRedGuard");
+            t.add_kind_of(KindOf::Infantry).set_health(100.0);
+            game_logic.templates.insert("TestRedGuard".to_string(), t);
+        }
+        let id = game_logic
+            .create_object("TestRedGuard", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("red guard");
+        assert!(!game_logic.start_hacker_internet_hack(id));
+        assert!(!game_logic.hacker_income().is_hacking(id));
     }
 
     /// Residual: Black Lotus StealCashHack steals cash after reaching supply building.

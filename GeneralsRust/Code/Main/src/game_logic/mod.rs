@@ -15,6 +15,8 @@ pub mod special_power_strikes;
 pub mod host_upgrades;
 pub mod host_cash_bounty;
 pub mod host_black_market;
+pub mod host_oil_derrick;
+pub mod host_hacker_income;
 pub mod host_mines;
 pub mod host_radar_scan;
 pub mod host_spy_satellite;
@@ -70,6 +72,18 @@ pub use host_black_market::{
     is_legal_black_market_income_source, HostBlackMarketRegistry, BLACK_MARKET_DEPOSIT_AMOUNT,
     BLACK_MARKET_DEPOSIT_AUDIO, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
     BLACK_MARKET_DEPOSIT_TIMING_MS,
+};
+pub use host_oil_derrick::{
+    is_legal_oil_derrick_income_source, is_oil_derrick_structure, is_oil_derrick_template,
+    HostOilDerrickRegistry, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
+    OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
+    OIL_DERRICK_INITIAL_CAPTURE_BONUS, OIL_DERRICK_CAPTURE_BONUS_AUDIO,
+};
+pub use host_hacker_income::{
+    cash_amount_for_level, cash_interval_frames, is_hacker_template, is_internet_center_template,
+    is_legal_hacker_income_source, HostHackerIncomeRegistry, HACKER_CASH_INTERVAL_FAST_FRAMES,
+    HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_PING_AUDIO, HACKER_CASH_REGULAR,
+    HACKER_XP_PER_CASH_UPDATE,
 };
 pub use host_mines::{
     can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,

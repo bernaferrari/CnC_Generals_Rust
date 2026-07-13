@@ -1,5 +1,38 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Oil Derrick + Hacker Internet Center Cash (2026-07-12)
+**Closed (host-testable TechOilDerrick AutoDeposit + China Hacker/Internet Center cash):**
+1. **Oil Derrick residual income** (`TechOilDerrick` AutoDepositUpdate residual):
+   - Captured (non-neutral) constructed derrick deposits **$200** every **360** logic
+     frames (retail DepositAmount=200, DepositTiming=12000 ms @ 30 FPS).
+   - **InitialCaptureBonus $1000** once when a derrick first becomes non-neutral owned
+     (Player::gainObject → awardInitialCaptureBonus residual).
+   - Neutral / under-construction residual-skip.
+   - Honesty: `honesty_oil_derrick_deposit_ok` / `honesty_oil_derrick_capture_bonus_ok`
+     / `honesty_oil_derrick_ok`.
+2. **Hacker / Internet Center residual cash** (`HackInternetAIUpdate` residual):
+   - Field: `start_hacker_internet_hack` starts residual hacking → **$5** every **60**
+     frames (RegularCashAmount / CashUpdateDelay 2000 ms).
+   - Internet Center: hackers `contained_by` FSInternetCenter auto-start and use
+     CashUpdateDelayFast → **$5** every **54** frames (1800 ms).
+   - Veterancy residual: Regular/Veteran/Elite/Heroic = 5/6/8/10; XpPerCashUpdate +1.
+   - DISABLED_HACKED residual-skip (no deposit while disabled).
+   - Honesty: `honesty_hacker_income_ok` / `honesty_hacker_internet_center_ok`.
+3. Tests (not log-only):
+   - `oil_derrick_residual_deposits_cash_on_interval`
+   - `oil_derrick_residual_skips_under_construction`
+   - `hacker_internet_center_residual_deposits_cash`
+   - `hacker_field_residual_deposits_cash_on_interval`
+   - `hacker_residual_rejects_non_hacker`
+   - unit tests in `host_oil_derrick.rs` / `host_hacker_income.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full AutoDeposit floating text / UpgradedBoost (SupplyLines +20 on derrick)
+- Full HackInternet unpack/pack state machine / variation factor / model conditions
+- Full InternetHackContain passenger order matrix / microwave resume path
+- Supply Drop Zone residual (OCL crate plane every 120s — not this slice)
+- Network oil-derrick / hacker cash replication (network deferred)
+
 ## Residual Host Playability — Remote Demo Charge + Black Market Cash (2026-07-12)
 **Closed (host-testable plant/detonate remote C4 + GLA Black Market AutoDeposit):**
 1. **Remote Demo Charge residual** (Colonel Burton `SPECIAL_REMOTE_CHARGES`):
@@ -27,8 +60,8 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full StickyBombUpdate attach bones / max-charge special-object list / packing anim
-- Full AutoDeposit floating text / InitialCaptureBonus / UpgradedBoost pairs
-- Oil derrick / hacker / supply-dropzone AutoDeposit matrix (black market only this slice)
+- Full AutoDeposit floating text / UpgradedBoost pairs (oil derrick + hacker closed above)
+- Supply Drop Zone residual (OCL crate plane — still open)
 - Fuel Air Bomb is already covered by DaisyCutter host strike path (not reopened)
 - Network remote-charge / black-market replication (network deferred)
 

@@ -9,8 +9,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full AutoDepositUpdate floating text / InitialCaptureBonus / UpgradedBoost
-//! - Not full oil-derrick / hacker / supply-dropzone AutoDeposit matrix (black
-//!   market residual only this slice)
+//! - Oil derrick / hacker residuals live in host_oil_derrick / host_hacker_income
+//!   (this module is black-market only)
 //! - Not disabled / underpowered / neutral-owner gates beyond is_alive + constructed
 
 use super::ObjectId;
