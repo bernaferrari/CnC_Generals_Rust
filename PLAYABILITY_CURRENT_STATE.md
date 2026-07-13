@@ -1,3 +1,55 @@
+## Residual Host Playability — Soft-Edge Premul + Additive/Tiled Laser + Object Params + DisplayString Color + MoneyPickUp Sequence (2026-07-13)
+**Closed (host-testable residual not covered by wave 32 LaserUpdate/medium/multi-locale residual):**
+1. **W3DLaserDraw soft-edge RGB innerAlpha premultiply residual** (`special_power_strikes`):
+   - C++ channel-delta × innerAlpha: `red = inner + scale*(outer-inner)*innerAlpha`.
+   - Honesty: `honesty_beam_soft_edge_premul_ok` / `particle_orbital_soft_edge_color_premul`.
+   - Fail-closed: not full SegLineRenderer additive GPU submit.
+2. **W3DLaserDraw additive shader + TILED_TEXTURE_MAP residual** (`laser_segment_upload`):
+   - Shader residual `_PresetAdditiveShader`.
+   - Texture mapping residual `TILED_TEXTURE_MAP` when Tile=Yes.
+   - UV_Offset_Rate residual Vector2(0, ScrollRate).
+   - Honesty: `honesty_additive_tiled_ok`.
+   - Fail-closed: not live WGPU shader bind / texture atlas sample.
+3. **ScudStormMissile VisionRange / KindOf / Armor residual** (`special_power_strikes`):
+   - VisionRange **300**, ShroudClearingRange **0**, KindOf PROJECTILE, Armor ProjectileArmor, TransportSlotCount **10**.
+   - Honesty: `honesty_scud_object_params_ok`.
+   - Fail-closed: not full ThingFactory Object / partition KindOf matrix.
+4. **SpectreHowitzerShell KindOf / VisionRange / Armor residual** (`special_power_strikes`):
+   - KindOf PROJECTILE, VisionRange **0**, Armor ProjectileArmor.
+   - Honesty: `honesty_howitzer_shell_object_params_ok`.
+   - Fail-closed: not full ThingFactory Object / ArmorSet module matrix.
+5. **MoneyPickUp RandomizeStartFrame + full image sequence residual** (`world_anim_layout`):
+   - RandomizeStartFrame **No**; SCPDollar000..030 sequence residual table.
+   - Honesty: `honesty_money_pickup_image_sequence`.
+   - Fail-closed: not full Anim2DCollection GPU texture atlas sample.
+6. **DisplayString color residual** (`floating_text_layout`):
+   - Normalize GameMakeColor u8 RGBA → f32 (0..1).
+   - Retail green (0,255,0,255) / yellow (255,255,0,255) honesty samples.
+   - Honesty: `display_string_color_ok` / `honesty_display_string_color`.
+   - Fail-closed: not full DisplayString GPU font atlas / WW3D StretchRect.
+7. Snapshot/Xfer: soft-edge premul / scud object params / howitzer object params residual fields appended.
+8. Tests (not log-only):
+   - `particle_uplink_soft_edge_premul_residual_honesty`
+   - `scud_object_params_residual_honesty`
+   - `spectre_howitzer_shell_object_params_residual_honesty`
+   - `orbital_additive_tiled_texture_residual_honesty`
+   - `money_pickup_image_sequence_and_randomize_residual`
+   - `display_string_color_residual_normalize`
+   - all `special_power_strikes::` (**58**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — LaserUpdate Client + Medium Connector + Multi-Locale CSF Path + Scud Geometry + Howitzer Lasered OCL (2026-07-13)
 **Closed (host-testable residual not covered by wave 30–31 connector/thrust/loft residual):**
 1. **LaserUpdate client residual** (`special_power_strikes`):

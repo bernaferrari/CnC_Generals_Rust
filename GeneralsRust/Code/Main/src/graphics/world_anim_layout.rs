@@ -36,6 +36,8 @@ pub const MONEY_PICKUP_ANIM_DELAY_MS: u32 = 30;
 pub const MONEY_PICKUP_FRAMES_BETWEEN_UPDATES: u32 = 1;
 /// Retail AnimationMode = LOOP.
 pub const MONEY_PICKUP_ANIM_MODE_LOOP: bool = true;
+/// Retail RandomizeStartFrame residual (No).
+pub const MONEY_PICKUP_RANDOMIZE_START_FRAME: bool = false;
 /// Retail image sequence prefix (`SCPDollar000`..).
 pub const MONEY_PICKUP_IMAGE_PREFIX: &str = "SCPDollar";
 
@@ -69,6 +71,21 @@ pub fn honesty_money_pickup_frame(age_frames: u32, frame: u16, image: &str) -> b
         && expected < MONEY_PICKUP_NUM_FRAMES
         && anim_delay_ms_to_frames(MONEY_PICKUP_ANIM_DELAY_MS) == MONEY_PICKUP_FRAMES_BETWEEN_UPDATES
         && MONEY_PICKUP_ANIM_MODE_LOOP
+        && !MONEY_PICKUP_RANDOMIZE_START_FRAME
+}
+
+/// Residual honesty: full SCPDollar000..030 image sequence residual table.
+pub fn honesty_money_pickup_image_sequence() -> bool {
+    if MONEY_PICKUP_NUM_FRAMES != 31 {
+        return false;
+    }
+    for frame in 0..MONEY_PICKUP_NUM_FRAMES {
+        let name = money_pickup_frame_image_name(frame);
+        if name != format!("{MONEY_PICKUP_IMAGE_PREFIX}{frame:03}") {
+            return false;
+        }
+    }
+    !MONEY_PICKUP_RANDOMIZE_START_FRAME && MONEY_PICKUP_ANIM_MODE_LOOP
 }
 
 /// One CPU-side residual world-anim layout sample.
@@ -334,4 +351,14 @@ mod tests {
         assert_eq!(pack.entries[0].frame_image, "SCPDollar015");
         assert_eq!(pack.honesty.peak_anim_frame, 15);
     }
+
+    #[test]
+    fn money_pickup_image_sequence_and_randomize_residual() {
+        assert!(!MONEY_PICKUP_RANDOMIZE_START_FRAME);
+        assert!(honesty_money_pickup_image_sequence());
+        assert_eq!(money_pickup_frame_image_name(0), "SCPDollar000");
+        assert_eq!(money_pickup_frame_image_name(30), "SCPDollar030");
+        assert_eq!(MONEY_PICKUP_NUM_FRAMES, 31);
+    }
+
 }
