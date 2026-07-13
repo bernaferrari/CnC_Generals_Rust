@@ -2647,6 +2647,22 @@ impl RenderPipeline {
             .and_then(|f| f.terrain_fow_r8())
     }
 
+    /// Pack presentation laser Line3D segments into a CPU vertex buffer for WGPU.
+    ///
+    /// Residual: does **not** write a live `wgpu::Queue` — returns host-testable
+    /// interleaved bytes + honesty flags. Prefer this after `set_presentation_frame`
+    /// so SegLine upload does not re-read live GameLogic mid-render.
+    pub fn pack_presentation_laser_segments(
+        &self,
+    ) -> crate::graphics::laser_segment_upload::LaserSegmentUpload {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::laser_segment_upload::pack_and_mark_upload_ready(frame)
+            }
+            None => crate::graphics::laser_segment_upload::LaserSegmentUpload::empty(),
+        }
+    }
+
     /// Get minimap texture ID for UI rendering.
     pub fn get_minimap_texture_id(&self) -> Option<UiTextureId> {
         self.minimap_renderer.as_ref()?.get_texture_id()

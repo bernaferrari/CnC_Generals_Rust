@@ -67,6 +67,10 @@ Gate honesty labels:
 | shell `playable_claim` | **Always false** — headless APIs ≠ retail W3D/windowed playthrough (fail-closed pending GPU/WND) |
 | shell `shell_host_playable_ok` | Limited claim: headless shell→config→map→dual-tick presentation→HUD selection/minimap→ControlBar.wnd ensure→InGame screen is operational. **Not** full retail play |
 | shell `control_bar_layout_ok` | ControlBar.wnd resolve/validate ran (Ready, or honest AssetsUnavailable when WindowZH missing) |
+| shell `control_bar_path_resolved` / `control_bar_wnd_validated` | Path found + structural FILE_VERSION/WINDOW/ControlBar sniff |
+| shell `dual_tick_presentation_ok` | Seed + logic update + presentation apply order after StartGame |
+| shell `minimap_fow_presentation_ok` | Presentation FOW grid residual usable for minimap texture path |
+| shell `laser_segment_upload_ok` | Presentation → CPU SegLine pack residual (empty + synthetic geometry) |
 | `synthetic_combat=true` (golden) | Combat/victory on synthetic host world, not Lone Eagle armies |
 | `ai_disabled_for_slice=true` (golden) | Opponent AI off so rebuilds do not mask combat failure |
 | shell `host_constructed` | True only after `apply_skirmish_config` succeeds (not a constant) |
@@ -75,16 +79,19 @@ Gate honesty labels:
 
 Closed toward shell_smoke honesty without overclaiming retail W3D:
 
-1. **Dual-tick after StartGame** — map load seeds PresentationFrame; each smoke frame does logic update then `build_and_apply_for_hud` (parity with `start_game_from_ui` / engine dual-tick order).
+1. **Dual-tick after StartGame** — map load seeds PresentationFrame; each smoke frame does logic update then `build_and_apply_for_hud` (parity with `start_game_from_ui` / engine dual-tick order). Host-testable flag: `dual_tick_presentation_ok`.
 2. **HUD selection + minimap from presentation** — selection panel health and minimap unit identity come from the snapshot, not live object re-read in the HUD apply path.
-3. **ControlBar.wnd ensure** — shell_smoke calls `ensure_control_bar_layout(false)` on the shell→Loading→GameHUD transition (dry-run validate; in-engine `ensure_gameplay_layouts` still attempts window load).
-4. **Screen ownership** — UIManager exercises Skirmish → Loading → GameHUD; pregame shell ownership flags are checked for real screen values.
-5. **`shell_host_playable_ok` vs `playable_claim`** — success sets the limited host flag; `playable_claim` stays false so gates cannot be misread as “windowed retail match is playable.”
+3. **Minimap FOW from presentation** — `PresentationFrame.fow_grid` residual usable for minimap R8 path (`minimap_fow_presentation_ok`); production minimap prefers presentation grid over live shroud lock.
+4. **ControlBar.wnd ensure** — shell_smoke calls `control_bar_layout_honesty(false)` on the shell→Loading→GameHUD transition (structural validate: FILE_VERSION / WINDOW / ControlBar tokens; dry-run `loaded=false`). Flags: `control_bar_layout_ok`, `control_bar_path_resolved`, `control_bar_wnd_validated`.
+5. **WGPU laser segment upload residual (CPU pack)** — presentation freezes assist laser Line3D segments; `LaserSegmentUpload` packs interleaved vertex bytes + honesty; synthetic assist-pair exercises non-empty geometry. Flag: `laser_segment_upload_ok`. Fail-closed: not live `Queue::write_buffer` / texture sample.
+6. **Screen ownership** — UIManager exercises Skirmish → Loading → GameHUD; pregame shell ownership flags are checked for real screen values.
+7. **`shell_host_playable_ok` vs `playable_claim`** — success sets the limited host flag; `playable_claim` stays false so gates cannot be misread as “windowed retail match is playable.”
 
 Still residual (not claimed by shell_smoke):
 
 - Windowed shell/WND navigation and GPU match playthrough
 - Full ControlBar.wnd parse via WindowManager without GUI init (loaded=true)
+- Live WGPU SegLineRenderer buffer write + EXBinaryStream32.tga sample for assist lasers
 - Full W3D retail match playthrough (GPU present, mesh assets, drawables)
 
 ### Combat particle residual notes (2026-07)
@@ -188,12 +195,24 @@ Still residual (not claimed by shell_smoke):
 5. Tests: USA_Ranger non-empty key; airanger alias; placeholder honesty;
    load AIRanger_S when assets present, graceful skip when not.
 
+**Closed (W3DLaserDraw Line3D segment presentation + CPU WGPU pack — partial):**
+
+1. Host residual still builds `HostLaserLine3DSegment` descriptors (arc / tile / skim).
+2. `PresentationFrame.laser_beams` freezes active Patriot assist lasers + Line3D segments
+   at build time (`PresentationLaserBeam` / `PresentationLaserSegment`).
+3. `graphics::laser_segment_upload::LaserSegmentUpload` packs interleaved CPU vertices
+   (pos + uv + color) ready for WGPU buffer write; honesty flags for empty/geometry/upload-ready.
+4. `RenderPipeline::pack_presentation_laser_segments` prefers the presentation frame.
+5. shell_smoke exercises empty pack + synthetic assist-pair geometry (`laser_segment_upload_ok`).
+6. Fail-closed: not live SegLineRenderer `Queue::write_buffer` / texture bind / soft multi-beam.
+
 **Still residual (not claimed as full presentation-only renderer / SAGE FOW):**
 
 | Residual | Why still live / other system |
 |----------|-------------------------------|
 | Full SAGE dirty-rect / multi-layer shroud streaming | Full grid copy only; no partition dirty-rect queue |
 | GPU terrain FOW overlay pass wired every frame | `FowTerrainOverlay` exists; production pass still residual |
+| Live WGPU laser SegLine write + EXBinaryStream32 sample | CPU pack residual closed; device queue write residual |
 | Stealth detection FOW variants mid-pass | Live stealth managers when presentation absent |
 | Terrain / heightmap / skybox / roads | Map/environment systems, not unit identity |
 | Deferred model-load budget / full archive prewarm | Startup budget path still incremental |

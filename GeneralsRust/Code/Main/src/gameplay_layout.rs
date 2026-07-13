@@ -60,6 +60,10 @@ pub fn resolve_control_bar_path() -> Option<PathBuf> {
 }
 
 /// Validate ControlBar.wnd is a non-empty retail layout file.
+///
+/// Residual honesty (fail-closed vs full WindowManager parse / loaded=true):
+/// - non-empty file with FILE_VERSION / WINDOW / ControlBar tokens
+/// - does **not** claim GUI window tree construction
 pub fn validate_control_bar_file(path: &Path) -> Result<(), String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
     if !meta.is_file() {
@@ -73,7 +77,70 @@ pub fn validate_control_bar_file(path: &Path) -> Result<(), String> {
     if sample.len() < 32 {
         return Err("layout too small".into());
     }
+    // Retail ControlBar.wnd structural tokens (ShowControlBar parity residual).
+    let text = String::from_utf8_lossy(&sample);
+    // Read enough for header + first WINDOW block (files can be large).
+    let head_len = sample.len().min(4096);
+    let head = String::from_utf8_lossy(&sample[..head_len]);
+    if !head.contains("WINDOW") && !text.contains("WINDOW") {
+        return Err("missing WINDOW block".into());
+    }
+    if !head.contains("ControlBar") && !text.contains("ControlBar") {
+        return Err("missing ControlBar name token".into());
+    }
+    // FILE_VERSION is present on retail SAGE .wnd layouts.
+    if !head.contains("FILE_VERSION") && !text.contains("FILE_VERSION") {
+        return Err("missing FILE_VERSION header".into());
+    }
     Ok(())
+}
+
+/// Host-testable honesty for ControlBar.wnd residual (no GUI init required).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlBarLayoutHonesty {
+    pub path_resolved: bool,
+    pub wnd_validated: bool,
+    pub assets_unavailable: bool,
+    pub window_loaded: bool,
+    pub status: GameplayLayoutStatus,
+}
+
+impl ControlBarLayoutHonesty {
+    pub fn from_status(status: GameplayLayoutStatus) -> Self {
+        match &status {
+            GameplayLayoutStatus::Ready { loaded, .. } => Self {
+                path_resolved: true,
+                wnd_validated: true,
+                assets_unavailable: false,
+                window_loaded: *loaded,
+                status,
+            },
+            GameplayLayoutStatus::AssetsUnavailable { .. } => Self {
+                path_resolved: false,
+                wnd_validated: false,
+                assets_unavailable: true,
+                window_loaded: false,
+                status,
+            },
+            GameplayLayoutStatus::LoadFailed { .. } => Self {
+                path_resolved: true,
+                wnd_validated: false,
+                assets_unavailable: false,
+                window_loaded: false,
+                status,
+            },
+        }
+    }
+
+    /// Shell residual OK: Ready after validate, or honest AssetsUnavailable.
+    pub fn shell_residual_ok(&self) -> bool {
+        self.wnd_validated || self.assets_unavailable
+    }
+}
+
+/// Resolve + validate ControlBar and return host-testable honesty flags.
+pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayoutHonesty {
+    ControlBarLayoutHonesty::from_status(ensure_control_bar_layout(attempt_window_load))
 }
 
 /// Shipped ensure path: resolve ControlBar.wnd, validate, and attempt load.
@@ -217,5 +284,27 @@ mod tests {
                 .any(|c| c.ends_with("ControlBar.wnd")),
             "must search for ControlBar.wnd like C++ ShowControlBar"
         );
+    }
+
+    #[test]
+    fn control_bar_honesty_flags_are_host_testable() {
+        let h = control_bar_layout_honesty(false);
+        assert!(
+            h.shell_residual_ok(),
+            "Ready or AssetsUnavailable must be honest residual: {:?}",
+            h.status
+        );
+        if h.path_resolved {
+            assert!(h.wnd_validated, "resolved path must validate: {:?}", h.status);
+            assert!(!h.window_loaded, "dry-run must not claim window_loaded");
+            if let GameplayLayoutStatus::Ready { path, .. } = &h.status {
+                assert!(
+                    validate_control_bar_file(Path::new(path)).is_ok(),
+                    "structural validate must pass for ready path"
+                );
+            }
+        } else {
+            assert!(h.assets_unavailable);
+        }
     }
 }

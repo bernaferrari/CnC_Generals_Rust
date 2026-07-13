@@ -7,6 +7,10 @@
 //! is owned values with no live borrows into the world.
 
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
+use crate::game_logic::host_base_defense::{
+    build_patriot_laser_line3d_segments, ResidualPatriotAssistLaser, PATRIOT_BINARY_DATA_STREAM,
+    PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE, PatriotAssistLaserKind,
+};
 use crate::game_logic::{
     CombatParticleKind, CombatParticleSystemEntry, GameLogic, KindOf, ObjectId, Team,
 };
@@ -156,6 +160,120 @@ impl PresentationParticleSystem {
     }
 }
 
+/// Snapshot-owned W3DLaserDraw Line3D segment (presentation residual, not GPU).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PresentationLaserSegment {
+    pub start: (f32, f32, f32),
+    pub end: (f32, f32, f32),
+    pub width: f32,
+    pub tile_factor: f32,
+    pub scroll_offset: f32,
+}
+
+/// Snapshot-owned PatriotBinaryDataStream / assist laser beam for client draw.
+///
+/// Built only from host residual lasers at presentation build time so the
+/// SegLine pack path does not re-read live GameLogic mid-render.
+/// Fail-closed: not full W3DLaserDraw WGPU texture sample / multi-beam soft edge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationLaserBeam {
+    /// Stable presentation index (order among active beams this frame).
+    pub beam_index: u32,
+    pub kind: PresentationLaserKind,
+    pub from_id: ObjectId,
+    pub to_id: ObjectId,
+    pub from: (f32, f32, f32),
+    pub to: (f32, f32, f32),
+    pub arc_mid: (f32, f32, f32),
+    pub scroll_offset: f32,
+    pub expires_frame: u32,
+    pub template_name: String,
+    pub texture_name: String,
+    pub inner_color: (f32, f32, f32, f32),
+    pub segments: Vec<PresentationLaserSegment>,
+}
+
+/// Assist laser kind frozen for presentation (mirrors host residual enum).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PresentationLaserKind {
+    FromAssisted,
+    ToTarget,
+}
+
+impl PresentationLaserKind {
+    pub fn from_host(kind: PatriotAssistLaserKind) -> Self {
+        match kind {
+            PatriotAssistLaserKind::FromAssisted => Self::FromAssisted,
+            PatriotAssistLaserKind::ToTarget => Self::ToTarget,
+        }
+    }
+}
+
+impl PresentationLaserBeam {
+    /// Build from host residual laser + ground height (Line3D skim residual).
+    pub fn from_host_laser(
+        laser: &ResidualPatriotAssistLaser,
+        beam_index: u32,
+        ground_height: f32,
+    ) -> Self {
+        let host_segs = build_patriot_laser_line3d_segments(
+            (laser.from_x, laser.from_y, laser.from_z),
+            (laser.to_x, laser.to_y, laser.to_z),
+            laser.arc_height(),
+            laser.scroll_offset,
+            ground_height,
+        );
+        let segments = host_segs
+            .into_iter()
+            .map(|s| PresentationLaserSegment {
+                start: s.start,
+                end: s.end,
+                width: s.width,
+                tile_factor: s.tile_factor,
+                scroll_offset: s.scroll_offset,
+            })
+            .collect();
+        Self {
+            beam_index,
+            kind: PresentationLaserKind::from_host(laser.kind),
+            from_id: laser.from_id,
+            to_id: laser.to_id,
+            from: (laser.from_x, laser.from_y, laser.from_z),
+            to: (laser.to_x, laser.to_y, laser.to_z),
+            arc_mid: (laser.arc_mid_x, laser.arc_mid_y, laser.arc_mid_z),
+            scroll_offset: laser.scroll_offset,
+            expires_frame: laser.expires_frame,
+            template_name: PATRIOT_BINARY_DATA_STREAM.to_string(),
+            texture_name: PATRIOT_LASER_TEXTURE.to_string(),
+            inner_color: PATRIOT_LASER_INNER_COLOR,
+            segments,
+        }
+    }
+
+    /// Synthetic assist-pair residual for host-testable laser pack honesty.
+    ///
+    /// Produces LaserFromAssisted + LaserToTarget with retail Segments=20 each.
+    pub fn synthetic_assist_pair(start_frame: u32) -> [Self; 2] {
+        let beams = crate::game_logic::host_base_defense::make_patriot_assist_lasers(
+            ObjectId(9001),
+            ObjectId(9002),
+            ObjectId(9003),
+            (0.0, 0.0, 5.0),
+            (40.0, 0.0, 5.0),
+            (80.0, 0.0, 5.0),
+            start_frame,
+        );
+        [
+            Self::from_host_laser(&beams[0], 0, 0.0),
+            Self::from_host_laser(&beams[1], 1, 0.0),
+        ]
+    }
+
+    pub fn segment_count(&self) -> usize {
+        self.segments.len()
+    }
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -178,6 +296,10 @@ pub struct PresentationFrame {
     pub fow_grid: PresentationFowGrid,
     /// Active combat particle systems from host registry (observe path for client).
     pub particle_systems: Vec<PresentationParticleSystem>,
+    /// Active Patriot assist / BinaryDataStream lasers + Line3D segments.
+    /// Frozen so WGPU laser segment pack does not re-read live host mid-render.
+    /// Fail-closed: not full SegLineRenderer GPU texture draw.
+    pub laser_beams: Vec<PresentationLaserBeam>,
 }
 
 impl PresentationFrame {
@@ -250,6 +372,17 @@ impl PresentationFrame {
             .map(PresentationParticleSystem::from_combat_entry)
             .collect();
 
+        // W3DLaserDraw residual: freeze active assist lasers + Line3D segments.
+        // Ground height residual defaults to 0 (fail-closed vs full terrain sample).
+        let logic_frame = logic.get_frame();
+        let laser_beams: Vec<PresentationLaserBeam> = logic
+            .active_patriot_assist_lasers()
+            .iter()
+            .filter(|l| l.is_active_at(logic_frame))
+            .enumerate()
+            .map(|(i, l)| PresentationLaserBeam::from_host_laser(l, i as u32, 0.0))
+            .collect();
+
         let mut events = Vec::new();
         for (id, team) in logic.combat_particles().destroyed_this_frame() {
             events.push(PresentationEvent::ObjectDestroyed {
@@ -282,6 +415,7 @@ impl PresentationFrame {
             fow_shell_bypass,
             fow_grid,
             particle_systems,
+            laser_beams,
         }
     }
 
@@ -324,6 +458,14 @@ impl PresentationFrame {
         self.fow_shell_bypass.hash(&mut h);
         self.fow_grid.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
+        self.laser_beams.len().hash(&mut h);
+        for beam in &self.laser_beams {
+            beam.beam_index.hash(&mut h);
+            beam.from_id.0.hash(&mut h);
+            beam.to_id.0.hash(&mut h);
+            beam.segments.len().hash(&mut h);
+            beam.scroll_offset.to_bits().hash(&mut h);
+        }
         h.finish()
     }
 
@@ -405,6 +547,34 @@ impl PresentationFrame {
     /// True when at least one combat particle system is registered and active.
     pub fn has_active_particles(&self) -> bool {
         self.particle_systems.iter().any(|p| p.active)
+    }
+
+    /// Active presentation laser beams (assist BinaryDataStream residual).
+    pub fn laser_beams(&self) -> &[PresentationLaserBeam] {
+        &self.laser_beams
+    }
+
+    /// Total Line3D segments across all frozen laser beams.
+    pub fn laser_segment_count(&self) -> usize {
+        self.laser_beams.iter().map(|b| b.segments.len()).sum()
+    }
+
+    /// True when at least one residual laser beam is frozen on this frame.
+    pub fn has_active_lasers(&self) -> bool {
+        !self.laser_beams.is_empty()
+    }
+
+    /// Host-testable FOW grid residual usable for minimap / terrain texture path.
+    ///
+    /// Active grids must have a consistent cell buffer; inactive grids are honest
+    /// when shroud was not initialized (boot / no-map host).
+    pub fn minimap_fow_presentation_ok(&self) -> bool {
+        let g = &self.fow_grid;
+        if !g.active {
+            return true;
+        }
+        g.cell_count() == (g.width as usize).saturating_mul(g.height as usize)
+            && !g.to_r8_texture().is_empty()
     }
 
     /// Selected unit identity (health/name/type) from snapshot only.
@@ -1422,5 +1592,66 @@ mod tests {
             )),
             "presentation events should include ObjectDestroyed for victim"
         );
+    }
+
+    /// Residual: presentation freezes assist laser Line3D segments for SegLine pack.
+    #[test]
+    fn presentation_frame_freezes_laser_line3d_segments() {
+        use crate::game_logic::host_base_defense::{
+            make_patriot_assist_lasers, PATRIOT_LASER_SEGMENTS,
+        };
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("LaserPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+
+        // Empty lasers when host has none.
+        let empty = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(!empty.has_active_lasers());
+        assert_eq!(empty.laser_segment_count(), 0);
+        assert!(empty.minimap_fow_presentation_ok());
+
+        // Inject residual assist lasers via public host slice mutation path:
+        // push through make + internal list via active endpoint track simulation.
+        let beams = make_patriot_assist_lasers(
+            ObjectId(1),
+            ObjectId(2),
+            ObjectId(3),
+            (0.0, 0.0, 5.0),
+            (30.0, 0.0, 5.0),
+            (60.0, 0.0, 5.0),
+            logic.get_frame(),
+        );
+        logic.push_residual_patriot_assist_lasers_for_presentation(beams);
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            snap.has_active_lasers(),
+            "presentation must freeze active assist lasers"
+        );
+        assert_eq!(snap.laser_beams.len(), 2);
+        assert_eq!(
+            snap.laser_segment_count(),
+            PATRIOT_LASER_SEGMENTS as usize * 2
+        );
+        assert_eq!(
+            snap.laser_beams[0].segments.len(),
+            PATRIOT_LASER_SEGMENTS as usize
+        );
+        assert_eq!(
+            snap.laser_beams[0].template_name,
+            crate::game_logic::host_base_defense::PATRIOT_BINARY_DATA_STREAM
+        );
+        // Snapshot stays frozen after host clears lasers.
+        let frozen_count = snap.laser_segment_count();
+        logic.clear_residual_patriot_assist_lasers_for_presentation();
+        assert_eq!(snap.laser_segment_count(), frozen_count);
+        let after = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(!after.has_active_lasers());
+
+        // Synthetic assist pair residual for host-testable pack without combat.
+        let pair = PresentationLaserBeam::synthetic_assist_pair(0);
+        assert_eq!(pair[0].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
+        assert_eq!(pair[1].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
     }
 }
