@@ -1,3 +1,34 @@
+## Residual Host Playability — MOABFlame Secondary + RadiusDamageAffects ALLIES (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 10):**
+1. **MOABFlameWeapon secondary residual** (`special_power_strikes`):
+   - Retail `MOABFlameWeapon` PrimaryDamage **5.0** / PrimaryDamageRadius **100**
+     (MOABGas SlowDeath MIDPOINT — tree-ignite flame).
+   - Applied additively on `DaisyCutter` and `CruiseMissile` primary impact when
+     horizontal distance ≤ flame radius.
+   - Honesty constants: `MOAB_FLAME_DAMAGE` / `MOAB_FLAME_RADIUS` / `MOAB_FLAME_AUDIO`.
+   - Host-testable: epicenter damage = primary + 5; outer ally beyond flame gets
+     falloff primary only.
+   - Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state / FX GPU.
+2. **RadiusDamageAffects ALLIES residual** for retail blast kinds:
+   - ArtilleryBarrage / CarpetBomb / DaisyCutter / CruiseMissile / NuclearMissile /
+     AnthraxBomb / A10Strike / ScudStorm primary blasts now hit same-team units
+     (retail `RadiusDamageAffects = ALLIES ENEMIES NEUTRALS`).
+   - Source launcher Object still excluded.
+   - Spectre orbit / Particle Uplink continuous fields keep their own filters.
+   - Host-testable: friendly at epicenter takes damage; A10 hits ally + enemy.
+3. Tests (not log-only):
+   - `moab_flame_and_allies_residual_honesty`
+   - updated `cruise_missile_*` / `queue_and_complete_daisy_cutter_*`
+   - updated anthrax/nuclear impact ally hits
+   - `friendly_fire_allies_residual_and_source_excluded`
+   - updated GameLogic host-path integration (Daisy/Carpet/Artillery/Cruise)
+
+**Still residual (fail-closed, not claimed):**
+- Full SlowDeath multi-stage wave / MOABGas object / tree burn state machine
+- Full ChinaArtilleryCannon / AmericaJetB52 DeliverPayload transport Objects
+- Full GameLogicRandomValueReal RNG stream
+- Network multi-strike / ally-blast / flame replication (network deferred)
+
 ## Residual Host Playability — STEALTHED Float Gate + IC Scatter + last_damage_source Killer (2026-07-13)
 **Closed (host-testable STEALTHED floating-text local display gate + Internet Center scatter + CashBounty last_damage_source killer residual):**
 1. **STEALTHED local-player floating cash display gate residual**:

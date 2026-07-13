@@ -43,8 +43,8 @@
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
 //! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
-//! stream). CruiseMissile residual is a single MOAB blast (not full loft
-//! projectile / HeightDieUpdate / door animation / MOABFlameWeapon tree-ignite).
+//! stream). CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
+//! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -236,6 +236,15 @@ pub const CRUISE_MISSILE_FALLOFF_INNER: f32 = 90.0;
 /// (fail-closed vs full NeutronMissileUpdate DistanceToTravelBeforeTurning /
 /// SpecialSpeedTime / HeightDieUpdate / MissileLauncherBuildingUpdate doors).
 pub const CRUISE_MISSILE_IMPACT_DELAY_FRAMES: u32 = 180;
+
+// --- MOABFlameWeapon secondary residual (MOABGas SlowDeath MIDPOINT / tree-ignite) ---
+
+/// Retail `MOABFlameWeapon` PrimaryDamage (spot of flame to light trees).
+pub const MOAB_FLAME_DAMAGE: f32 = 5.0;
+/// Retail `MOABFlameWeapon` PrimaryDamageRadius.
+pub const MOAB_FLAME_RADIUS: f32 = 100.0;
+/// Residual honesty audio / FX label for flame secondary.
+pub const MOAB_FLAME_AUDIO: &str = "FX_MOABIgnite";
 
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -433,6 +442,34 @@ impl HostSuperweaponKind {
     /// Whether this kind uses multi-point epicenter damage at impact.
     pub fn is_multi_strike(self) -> bool {
         self.is_line_multi_strike() || self.is_scatter_multi_strike()
+    }
+
+    /// Whether retail `RadiusDamageAffects` includes ALLIES for the primary blast.
+    ///
+    /// Host residual previously excluded friendlies fail-closed. Wave 11 closes
+    /// ally-hit residual for kinds whose Weapon.ini lists ALLIES.
+    pub fn hits_allies(self) -> bool {
+        matches!(
+            self,
+            HostSuperweaponKind::DaisyCutter
+                | HostSuperweaponKind::A10Strike
+                | HostSuperweaponKind::ScudStorm
+                | HostSuperweaponKind::NuclearMissile
+                | HostSuperweaponKind::AnthraxBomb
+                | HostSuperweaponKind::CarpetBomb
+                | HostSuperweaponKind::ArtilleryBarrage
+                | HostSuperweaponKind::CruiseMissile
+            // Continuous Spectre/PUC field paths already have their own team filters.
+        )
+    }
+
+    /// Whether impact also applies retail `MOABFlameWeapon` secondary residual
+    /// (MOABGas SlowDeath MIDPOINT flame — tree-ignite / FLAME damage).
+    pub fn spawns_moab_flame(self) -> bool {
+        matches!(
+            self,
+            HostSuperweaponKind::DaisyCutter | HostSuperweaponKind::CruiseMissile
+        )
     }
 
     /// Residual multi-point shell/bomb epicenters for multi-strike kinds.
@@ -1456,9 +1493,9 @@ impl HostSpecialPowerStrikeRegistry {
                 if !alive || id == strike.source_object {
                     continue;
                 }
-                // Fail-closed residual: do not damage friendlies (same team).
-                // Retail ArtilleryBarrageDamageWeapon hits ALLIES too — deferred.
-                if team == strike.source_team {
+                // Retail RadiusDamageAffects ALLIES residual (wave 11).
+                // Kinds without ALLIES still exclude same-team friendlies.
+                if team == strike.source_team && !strike.kind.hits_allies() {
                     continue;
                 }
                 let dmg = if strike.kind.is_multi_strike() {
@@ -1474,7 +1511,15 @@ impl HostSpecialPowerStrikeRegistry {
                         .fold(0.0_f32, f32::max)
                 } else {
                     let dist = horizontal_distance(pos, strike.target_position);
-                    Self::damage_at_distance(strike.kind, dist)
+                    let primary = Self::damage_at_distance(strike.kind, dist);
+                    // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
+                    // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
+                    let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS {
+                        MOAB_FLAME_DAMAGE
+                    } else {
+                        0.0
+                    };
+                    primary + flame
                 };
                 if dmg > 0.0 {
                     hits.push(HostStrikeDamageHit {
@@ -2480,13 +2525,14 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert!(plans[0].is_final_wave);
         assert!(plans[0].wave_shell_count >= 14);
-        // Center + outer-bomb enemies hit; far + friendly excluded.
+        // Center + outer-bomb enemies + friendly (ALLIES residual); far excluded.
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
             && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
             && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)
+            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
 
         reg.record_impact_wave(
             id,
@@ -2658,7 +2704,7 @@ mod tests {
         } else {
             assert_eq!(plans.len(), 1);
             assert!(plans[0].is_final_wave);
-            // Scatter-shell enemy hit when its shell is due; far + friendly excluded.
+            // Scatter-shell enemy hit when its shell is due; far excluded; ALLIES residual allows friendly.
             assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
                 && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1)
                 || first[0]
@@ -2666,7 +2712,9 @@ mod tests {
                     .iter()
                     .any(|h| h.target_id == ObjectId(3)));
             assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-            assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+            // Friendly at center may take shell damage under RadiusDamageAffects ALLIES.
+            let _friendly_ok = plans[0].hits.iter().any(|h| h.target_id == ObjectId(5))
+                || first[0].hits.iter().any(|h| h.target_id == ObjectId(5));
             reg.record_impact_wave(
                 id,
                 ARTILLERY_BARRAGE_DAMAGE,
@@ -2736,6 +2784,11 @@ mod tests {
         assert!(!kind.spawns_radiation());
         assert!(!kind.spawns_toxin_field());
         assert!(!kind.spawns_orbit_field());
+        assert!(kind.spawns_moab_flame());
+        assert!(kind.hits_allies());
+        assert!(HostSuperweaponKind::DaisyCutter.spawns_moab_flame());
+        assert!((MOAB_FLAME_DAMAGE - 5.0).abs() < 0.01);
+        assert!((MOAB_FLAME_RADIUS - 100.0).abs() < 0.1);
         assert_eq!(kind.activate_audio(), "SuperweaponCruiseMissile");
         assert_eq!(kind.impact_audio(), "CruiseMissileImpact");
         assert_eq!(CRUISE_MISSILE_IMPACT_DELAY_FRAMES, 180);
@@ -2765,7 +2818,7 @@ mod tests {
             (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true), // epicenter
             (ObjectId(3), Vec3::new(50.0, 0.0, 0.0), Team::GLA, true), // inside radius
             (ObjectId(4), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true), // far
-            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // friendly
+            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // friendly (ALLIES residual)
         ];
 
         // Before impact: no damage plan.
@@ -2775,23 +2828,84 @@ mod tests {
 
         let plans = reg.plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
-        // Epicenter + near enemy hit; far + friendly excluded.
-        assert_eq!(plans[0].hits.len(), 2);
+        // Epicenter + near enemy + friendly (ALLIES residual); far excluded.
+        // Epicenter damage = MOAB primary + MOABFlame secondary residual.
+        let expected_epicenter = CRUISE_MISSILE_DAMAGE + MOAB_FLAME_DAMAGE;
+        assert_eq!(plans[0].hits.len(), 3);
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - CRUISE_MISSILE_DAMAGE).abs() < 0.1));
+            && (h.damage - expected_epicenter).abs() < 0.1));
         assert!(plans[0]
             .hits
             .iter()
-            .any(|h| h.target_id == ObjectId(3) && h.damage > 0.0));
+            .any(|h| h.target_id == ObjectId(3) && h.damage > MOAB_FLAME_DAMAGE));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)
+            && (h.damage - expected_epicenter).abs() < 0.1));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
 
-        reg.record_impact_complete(id, CRUISE_MISSILE_DAMAGE * 2.0, 2, 0);
+        reg.record_impact_complete(id, expected_epicenter * 2.0, 3, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::CruiseMissile));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CruiseMissile));
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
+    }
+
+    #[test]
+    fn moab_flame_and_allies_residual_honesty() {
+        // MOABFlameWeapon residual on DaisyCutter / CruiseMissile only.
+        assert!(HostSuperweaponKind::DaisyCutter.spawns_moab_flame());
+        assert!(HostSuperweaponKind::CruiseMissile.spawns_moab_flame());
+        assert!(!HostSuperweaponKind::CarpetBomb.spawns_moab_flame());
+        assert!(!HostSuperweaponKind::ArtilleryBarrage.spawns_moab_flame());
+        // RadiusDamageAffects ALLIES residual for retail blast kinds.
+        assert!(HostSuperweaponKind::ArtilleryBarrage.hits_allies());
+        assert!(HostSuperweaponKind::CarpetBomb.hits_allies());
+        assert!(HostSuperweaponKind::NuclearMissile.hits_allies());
+        assert!(HostSuperweaponKind::AnthraxBomb.hits_allies());
+        // Continuous field kinds keep their own filters (not primary blast ALLIES).
+        assert!(!HostSuperweaponKind::SpectreGunship.hits_allies());
+        assert!(!HostSuperweaponKind::ParticleCannon.hits_allies());
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::DaisyCutter,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::USA, true),
+            (ObjectId(2), Vec3::ZERO, Team::GLA, true),
+            (ObjectId(3), Vec3::new(80.0, 0.0, 0.0), Team::USA, true), // ally in flame radius
+            (ObjectId(4), Vec3::new(160.0, 0.0, 0.0), Team::USA, true), // ally outside flame, in outer blast
+        ];
+        let plans = reg.plan_due_impacts(90, &objects);
+        assert_eq!(plans.len(), 1);
+        // Ally + enemy hit (ALLIES residual); source excluded.
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+        // Epicenter enemy: primary + flame.
+        let epic = plans[0]
+            .hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(2))
+            .unwrap();
+        assert!((epic.damage - (2000.0 + MOAB_FLAME_DAMAGE)).abs() < 0.1);
+        // Outer ally at 160: falloff primary only (outside flame 100).
+        let outer = plans[0]
+            .hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(4))
+            .unwrap();
+        assert!(outer.damage > 0.0 && outer.damage < 2000.0);
+        assert!((outer.damage - MOAB_FLAME_DAMAGE).abs() > 1.0 || outer.damage < MOAB_FLAME_DAMAGE);
+        // Flame residual alone would be 5; falloff primary at 160 should be non-trivial.
+        let primary_only =
+            HostSpecialPowerStrikeRegistry::damage_at_distance(HostSuperweaponKind::DaisyCutter, 160.0);
+        assert!((outer.damage - primary_only).abs() < 0.1);
+        let _ = id;
     }
 
     #[test]
@@ -2880,12 +2994,14 @@ mod tests {
 
         let plans = reg.plan_due_impacts(90, &objects);
         assert_eq!(plans.len(), 1);
-        // Blast residual excludes same-team friendlies (host strike convention).
-        assert_eq!(plans[0].hits.len(), 1);
-        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
-        assert!((plans[0].hits[0].damage - 200.0).abs() < 0.1);
+        // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - 200.0).abs() < 0.1));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+            && (h.damage - 200.0).abs() < 0.1));
 
-        reg.record_impact_complete(id, 200.0, 1, 0);
+        reg.record_impact_complete(id, 400.0, 2, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
         assert!(reg.honesty_toxin_ok());
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::AnthraxBomb));
@@ -2936,12 +3052,14 @@ mod tests {
 
         let plans = reg.plan_due_impacts(180, &objects);
         assert_eq!(plans.len(), 1);
-        // Blast residual excludes same-team friendlies (host strike convention).
-        assert_eq!(plans[0].hits.len(), 1);
-        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
-        assert!((plans[0].hits[0].damage - 3500.0).abs() < 0.1);
+        // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - 3500.0).abs() < 0.1));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+            && (h.damage - 3500.0).abs() < 0.1));
 
-        reg.record_impact_complete(id, 3500.0, 1, 1);
+        reg.record_impact_complete(id, 7000.0, 2, 1);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::NuclearMissile));
         assert!(reg.honesty_radiation_ok());
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::NuclearMissile));
@@ -2997,9 +3115,10 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
-        assert!((plans[0].hits[0].damage - 2000.0).abs() < 0.01);
+        // Primary Daisy/MOAB blast + MOABFlameWeapon secondary residual.
+        assert!((plans[0].hits[0].damage - (2000.0 + MOAB_FLAME_DAMAGE)).abs() < 0.01);
 
-        reg.record_impact_complete(id, 2000.0, 1, 1);
+        reg.record_impact_complete(id, 2000.0 + MOAB_FLAME_DAMAGE, 1, 1);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::DaisyCutter));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::DaisyCutter));
         assert_eq!(reg.get(id).unwrap().phase, HostStrikePhase::Completed);
@@ -3021,7 +3140,8 @@ mod tests {
     }
 
     #[test]
-    fn friendly_fire_excluded_from_plan() {
+    fn friendly_fire_allies_residual_and_source_excluded() {
+        // A10 retail RadiusDamageAffects includes ALLIES — friendly is hit.
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         reg.queue(
             HostSuperweaponKind::A10Strike,
@@ -3036,8 +3156,11 @@ mod tests {
             (ObjectId(3), Vec3::new(5.0, 0.0, 0.0), Team::China, true),
         ];
         let plans = reg.plan_due_impacts(60, &objects);
-        assert_eq!(plans[0].hits.len(), 1);
-        assert_eq!(plans[0].hits[0].target_id, ObjectId(3));
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        // Source launcher still excluded.
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(1)));
     }
 
     #[test]
