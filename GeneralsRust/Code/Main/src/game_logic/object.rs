@@ -1158,6 +1158,25 @@ impl Object {
         self.status.parachute_roll_rate = 0.0;
     }
 
+    /// Begin AmericaCrateParachute residual for cargo crate payload.
+    ///
+    /// Uses crate OpenDist **12.5** low-altitude fudge (not pilot OpenDist 100).
+    /// Fail-closed: not full PutInContainer AmericaCrateParachute Object.
+    pub fn apply_crate_parachuting(&mut self) {
+        use crate::game_logic::host_deliver_payload::fudge_crate_parachute_start_height;
+        let start_y = self.get_position().y;
+        let ground_y = 0.0;
+        let fudged = fudge_crate_parachute_start_height(start_y, ground_y);
+        self.status.parachuting = true;
+        self.status.airborne_target = true;
+        self.status.parachute_open = false;
+        self.status.parachute_start_height = fudged;
+        self.status.parachute_pitch = 0.0;
+        self.status.parachute_roll = 0.0;
+        self.status.parachute_pitch_rate = 0.0;
+        self.status.parachute_roll_rate = 0.0;
+    }
+
     /// Whether low-altitude open fudge residual applied for this parachute start.
     pub fn parachute_start_was_fudged(&self) -> bool {
         use crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged;

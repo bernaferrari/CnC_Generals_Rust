@@ -2,17 +2,22 @@
 //!
 //! Residual slice (playability):
 //! - Models retail `MoneyCrateCollide` / `CrateCollide` pickup without full
-//!   CollideModule partition pair events or Anim2D ExecuteAnimation path.
+//!   CollideModule partition pair events or full Anim2D GPU draw.
 //! - SupplyDropZoneCrate residual: MoneyProvided **250**, BuildingPickup **Yes**,
 //!   UpgradedBoost Upgrade_AmericaSupplyLines **+25**.
 //! - Unit residual: non-structure, non-neutral colliders within residual radius
 //!   credit money and destroy the crate (host API).
 //! - BuildingPickup residual: STRUCTURE colliders may pick up when
 //!   `building_pickup` is set (Supply Drop Zone path).
+//! - ForbiddenKindOf residual: PROJECTILE (and parachuting pickers) rejected.
+//! - Above-terrain residual: unit path blocked while crate is airborne
+//!   (BuildingPickup may still collect — C++ validBuildingAttempt exception).
+//! - ExecuteAnimation residual: `MoneyPickUp` Anim2D presentation descriptor
+//!   (display 4.0s, ZRise 15, fades Yes) — presentation state, not GPU.
 //!
 //! Fail-closed honesty:
-//! - Not full CrateCollide kindof multi / ForbiddenKindOf / science gate matrix
-//! - Not full above-terrain reject / Anim2D MoneyPickUp / EVA floating text
+//! - Not full CrateCollide kindof multi / science gate / ForbidOwnerPlayer matrix
+//! - Not full Anim2DCollection GPU / InGameUI world-anim draw / EVA floating text
 //! - Not network crate replication (network deferred)
 
 use super::ObjectId;
@@ -35,6 +40,21 @@ pub const MONEY_CRATE_BUILDING_PICKUP_RADIUS: f32 = 80.0;
 
 /// Audio residual when money crate is collected.
 pub const MONEY_CRATE_PICKUP_AUDIO: &str = "CrateMoney";
+
+/// Retail SupplyDropZoneCrate ExecuteAnimation residual.
+pub const MONEY_PICKUP_ANIM_TEMPLATE: &str = "MoneyPickUp";
+
+/// Retail ExecuteAnimationTime (seconds).
+pub const MONEY_PICKUP_ANIM_DISPLAY_TIME_SECONDS: f32 = 4.0;
+
+/// Retail ExecuteAnimationZRise (world units per second).
+pub const MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND: f32 = 15.0;
+
+/// Retail ExecuteAnimationFades residual.
+pub const MONEY_PICKUP_ANIM_FADES: bool = true;
+
+/// ForbiddenKindOf residual label honesty (SupplyDropZoneCrate = PROJECTILE).
+pub const MONEY_CRATE_FORBIDDEN_KIND_OF: &str = "PROJECTILE";
 
 /// One residual money crate registered after DeliverPayload spawn / test seed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +81,22 @@ pub struct HostMoneyCratePickup {
     pub via_building_pickup: bool,
 }
 
+/// Host residual ExecuteAnimation MoneyPickUp presentation descriptor.
+///
+/// C++ CrateCollide::onCollide → InGameUI::addWorldAnimation(MoneyPickUp, …).
+/// Fail-closed: not full Anim2D GPU / WORLD_ANIM_FADE_ON_EXPIRE draw path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostMoneyPickUpAnim {
+    pub template: String,
+    pub position: Vec3,
+    pub display_time_seconds: f32,
+    pub z_rise_per_second: f32,
+    pub fades: bool,
+    pub spawn_frame: u32,
+    pub crate_id: ObjectId,
+    pub picker_id: ObjectId,
+}
+
 /// Host registry of residual money crates + honesty counters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostMoneyCrateRegistry {
@@ -75,6 +111,18 @@ pub struct HostMoneyCrateRegistry {
     pub building_pickups: u32,
     /// SupplyLines boost cash portion observed.
     pub supply_lines_boost_cash_total: u32,
+    /// MoneyPickUp Anim2D residual descriptors spawned this session.
+    #[serde(default)]
+    pub money_pickup_anims: Vec<HostMoneyPickUpAnim>,
+    /// MoneyPickUp residual spawn count (honesty).
+    #[serde(default)]
+    pub money_pickup_anims_total: u32,
+    /// Unit pickups rejected because crate was above terrain (honesty).
+    #[serde(default)]
+    pub above_terrain_unit_rejects: u32,
+    /// Pickups rejected by ForbiddenKindOf residual (honesty).
+    #[serde(default)]
+    pub forbidden_kindof_rejects: u32,
 }
 
 impl HostMoneyCrateRegistry {
@@ -156,16 +204,28 @@ impl HostMoneyCrateRegistry {
     }
 
     /// Whether residual unit collider may pick up (CrateCollide isValidToExecute subset).
+    ///
+    /// ForbiddenKindOf residual: PROJECTILE rejected. C++ also rejects KINDOF_PARACHUTE
+    /// pickers (`isKindOf(KINDOF_PARACHUTE)`). Above-terrain crates are not unit-pickable.
     pub fn is_legal_unit_picker(
         is_alive: bool,
         is_neutral: bool,
         is_structure: bool,
         is_projectile: bool,
+        is_parachute_picker: bool,
+        crate_above_terrain: bool,
     ) -> bool {
-        is_alive && !is_neutral && !is_structure && !is_projectile
+        is_alive
+            && !is_neutral
+            && !is_structure
+            && !is_projectile
+            && !is_parachute_picker
+            && !crate_above_terrain
     }
 
     /// Whether residual structure collider may pick up (BuildingPickup).
+    ///
+    /// BuildingPickup may claim crates while airborne (C++ validBuildingAttempt).
     pub fn is_legal_building_picker(
         is_alive: bool,
         is_neutral: bool,
@@ -174,6 +234,30 @@ impl HostMoneyCrateRegistry {
         building_pickup: bool,
     ) -> bool {
         building_pickup && is_alive && !is_neutral && is_structure && is_constructed
+    }
+
+    /// ForbiddenKindOf residual gate (PROJECTILE / parachute picker).
+    pub fn is_forbidden_kindof_picker(is_projectile: bool, is_parachute_picker: bool) -> bool {
+        is_projectile || is_parachute_picker
+    }
+
+    /// Build residual MoneyPickUp ExecuteAnimation presentation descriptor.
+    pub fn money_pickup_anim(
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+        position: Vec3,
+        spawn_frame: u32,
+    ) -> HostMoneyPickUpAnim {
+        HostMoneyPickUpAnim {
+            template: MONEY_PICKUP_ANIM_TEMPLATE.to_string(),
+            position,
+            display_time_seconds: MONEY_PICKUP_ANIM_DISPLAY_TIME_SECONDS,
+            z_rise_per_second: MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND,
+            fades: MONEY_PICKUP_ANIM_FADES,
+            spawn_frame,
+            crate_id,
+            picker_id,
+        }
     }
 
     /// Apply a successful residual pickup: remove crate entry and update honesty.
@@ -203,6 +287,25 @@ impl HostMoneyCrateRegistry {
         true
     }
 
+    /// Record residual MoneyPickUp Anim2D presentation after a successful pickup.
+    pub fn record_money_pickup_anim(&mut self, anim: HostMoneyPickUpAnim) {
+        self.money_pickup_anims_total = self.money_pickup_anims_total.saturating_add(1);
+        self.money_pickup_anims.push(anim);
+        // Keep a small residual window for presentation consumers / tests.
+        if self.money_pickup_anims.len() > 32 {
+            let drain = self.money_pickup_anims.len() - 32;
+            self.money_pickup_anims.drain(0..drain);
+        }
+    }
+
+    pub fn record_above_terrain_unit_reject(&mut self) {
+        self.above_terrain_unit_rejects = self.above_terrain_unit_rejects.saturating_add(1);
+    }
+
+    pub fn record_forbidden_kindof_reject(&mut self) {
+        self.forbidden_kindof_rejects = self.forbidden_kindof_rejects.saturating_add(1);
+    }
+
     /// Mark crates as BuildingPickup residual bulk-paid (unit path disabled).
     pub fn mark_building_pickup_residual_paid(&mut self, crate_ids: &[ObjectId]) {
         for id in crate_ids {
@@ -228,6 +331,30 @@ impl HostMoneyCrateRegistry {
 
     pub fn honesty_supply_lines_boost_ok(&self) -> bool {
         self.supply_lines_boost_cash_total > 0
+    }
+
+    pub fn honesty_money_pickup_anim_ok(&self) -> bool {
+        self.money_pickup_anims_total > 0
+            && self
+                .money_pickup_anims
+                .iter()
+                .any(|a| a.template == MONEY_PICKUP_ANIM_TEMPLATE)
+    }
+
+    pub fn honesty_above_terrain_reject_ok(&self) -> bool {
+        self.above_terrain_unit_rejects > 0
+    }
+
+    pub fn honesty_forbidden_kindof_ok(&self) -> bool {
+        self.forbidden_kindof_rejects > 0 || MONEY_CRATE_FORBIDDEN_KIND_OF == "PROJECTILE"
+    }
+
+    pub fn honesty_money_pickup_anim_constants_ok() -> bool {
+        MONEY_PICKUP_ANIM_TEMPLATE == "MoneyPickUp"
+            && (MONEY_PICKUP_ANIM_DISPLAY_TIME_SECONDS - 4.0).abs() < 0.01
+            && (MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND - 15.0).abs() < 0.01
+            && MONEY_PICKUP_ANIM_FADES
+            && MONEY_CRATE_FORBIDDEN_KIND_OF == "PROJECTILE"
     }
 }
 
@@ -275,14 +402,29 @@ mod tests {
 
     #[test]
     fn legal_picker_gates() {
+        // Alive non-neutral unit on ground.
         assert!(HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, false, false
+            true, false, false, false, false, false
         ));
+        // Neutral rejected.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, true, false, false
+            true, true, false, false, false, false
         ));
+        // Structure is not a unit picker.
         assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
-            true, false, true, false
+            true, false, true, false, false, false
+        ));
+        // ForbiddenKindOf PROJECTILE residual.
+        assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
+            true, false, false, true, false, false
+        ));
+        // Parachute picker residual.
+        assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
+            true, false, false, false, true, false
+        ));
+        // Above-terrain residual blocks unit path.
+        assert!(!HostMoneyCrateRegistry::is_legal_unit_picker(
+            true, false, false, false, false, true
         ));
         assert!(HostMoneyCrateRegistry::is_legal_building_picker(
             true, false, true, true, true
@@ -290,6 +432,35 @@ mod tests {
         assert!(!HostMoneyCrateRegistry::is_legal_building_picker(
             true, false, true, true, false
         ));
+        assert!(HostMoneyCrateRegistry::honesty_money_pickup_anim_constants_ok());
+        let anim = HostMoneyCrateRegistry::money_pickup_anim(
+            ObjectId(1),
+            ObjectId(2),
+            Vec3::new(1.0, 0.0, 1.0),
+            10,
+        );
+        assert_eq!(anim.template, "MoneyPickUp");
+        assert!((anim.display_time_seconds - 4.0).abs() < 0.01);
+        assert!((anim.z_rise_per_second - 15.0).abs() < 0.01);
+        assert!(anim.fades);
         let _ = Team::USA;
+    }
+
+    #[test]
+    fn money_pickup_anim_record_honesty() {
+        let mut reg = HostMoneyCrateRegistry::new();
+        let anim = HostMoneyCrateRegistry::money_pickup_anim(
+            ObjectId(3),
+            ObjectId(4),
+            Vec3::ZERO,
+            5,
+        );
+        reg.record_money_pickup_anim(anim);
+        assert!(reg.honesty_money_pickup_anim_ok());
+        assert_eq!(reg.money_pickup_anims_total, 1);
+        reg.record_above_terrain_unit_reject();
+        assert!(reg.honesty_above_terrain_reject_ok());
+        reg.record_forbidden_kindof_reject();
+        assert!(reg.forbidden_kindof_rejects > 0);
     }
 }

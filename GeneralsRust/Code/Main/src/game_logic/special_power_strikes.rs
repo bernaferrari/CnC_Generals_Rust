@@ -38,8 +38,8 @@
 //! stack / gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer
 //! projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
 //! wave + manual driving). CarpetBomb residual is multi-point simultaneous
-//! blasts (not full AmericaJetB52 DeliverPayload / DropVariance / per-bomb
-//! DropDelay stagger). ArtilleryBarrage residual is multi-point simultaneous
+//! blasts with DropVariance residual scatter (not full AmericaJetB52
+//! DeliverPayload / per-bomb DropDelay stagger). ArtilleryBarrage residual is multi-point simultaneous
 //! shell blasts (not full ChinaArtilleryCannon transport / random
 //! WeaponErrorRadius draw / per-shell DelayDelivery stagger / science upgrade
 //! FormationSize matrix). CruiseMissile residual is a single MOAB blast (not
@@ -120,8 +120,14 @@ pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSo
 /// Retail `SUPERWEAPON_CarpetBomb` Payload count (`Payload = CarpetBomb 15`).
 pub const CARPET_BOMB_COUNT: u32 = 15;
 /// Residual spacing between bomb epicenters along the drop line
-/// (host residual; retail DropVariance + DeliveryDistance flight path deferred).
+/// (host residual; full DeliveryDistance flight path deferred).
 pub const CARPET_BOMB_SPACING: f32 = 25.0;
+/// Retail OCL CarpetBomb DeliverPayload DropVariance X (C++ horizontal X).
+pub const CARPET_BOMB_DROP_VARIANCE_X: f32 = 30.0;
+/// Retail OCL CarpetBomb DeliverPayload DropVariance Y (C++ horizontal Y → host Z).
+pub const CARPET_BOMB_DROP_VARIANCE_Y: f32 = 40.0;
+/// Retail OCL CarpetBomb DropVariance Z (vertical; unused when 0).
+pub const CARPET_BOMB_DROP_VARIANCE_Z: f32 = 0.0;
 /// Retail `CarpetBombWeapon` PrimaryDamage.
 pub const CARPET_BOMB_DAMAGE: f32 = 300.0;
 /// Retail `CarpetBombWeapon` PrimaryDamageRadius.
@@ -408,18 +414,58 @@ impl HostSuperweaponKind {
     }
 }
 
+/// Deterministic residual DropVariance scatter for bomb index `i`.
+///
+/// C++ DeliverPayloadAIUpdate:
+/// `pos.x += Random(-var.x, var.x); pos.y += Random(-var.y, var.y);`
+/// Host residual: deterministic pseudo-scatter in ±variance (not full RNG stream).
+/// C++ X/Y horizontal map to host X/Z; C++ Z maps to host Y (vertical).
+pub fn drop_variance_offset(index: u32, var_x: f32, var_y: f32, var_z: f32) -> Vec3 {
+    // Golden-ratio phase residual for stable, non-zero scatter across indices.
+    let phase = (index as f32 + 1.0) * 0.618_033_988_7;
+    let fx = if var_x > 0.0 {
+        (phase.fract() * 2.0 - 1.0) * var_x
+    } else {
+        0.0
+    };
+    let fy = if var_y > 0.0 {
+        ((phase + 0.37).fract() * 2.0 - 1.0) * var_y
+    } else {
+        0.0
+    };
+    let fz = if var_z > 0.0 {
+        ((phase + 0.73).fract() * 2.0 - 1.0) * var_z
+    } else {
+        0.0
+    };
+    // Host Y-up: C++ X → X, C++ Y → Z, C++ Z → Y.
+    Vec3::new(fx, fz, fy)
+}
+
 /// Build residual bomb epicenters along a line centered on `target`.
 ///
-/// Fail-closed orientation: east-west (+X) through the target (retail flight
-/// path / DeliveryDistance / DropVariance deferred). Line length is
+/// Orientation: east-west (+X) through the target (retail flight path /
+/// DeliveryDistance deferred). Line length is
 /// `(CARPET_BOMB_COUNT - 1) * CARPET_BOMB_SPACING` centered on target.
+/// Each point applies retail DropVariance residual (X:30 Y:40 Z:0) via
+/// deterministic host scatter (fail-closed vs GameLogicRandomValueReal).
 pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
     let count = CARPET_BOMB_COUNT.max(1);
     let half = (count as f32 - 1.0) * 0.5;
     let mut points = Vec::with_capacity(count as usize);
     for i in 0..count {
         let offset = (i as f32 - half) * CARPET_BOMB_SPACING;
-        points.push(Vec3::new(target.x + offset, target.y, target.z));
+        let scatter = drop_variance_offset(
+            i,
+            CARPET_BOMB_DROP_VARIANCE_X,
+            CARPET_BOMB_DROP_VARIANCE_Y,
+            CARPET_BOMB_DROP_VARIANCE_Z,
+        );
+        points.push(Vec3::new(
+            target.x + offset + scatter.x,
+            target.y + scatter.y,
+            target.z + scatter.z,
+        ));
     }
     points
 }
@@ -2045,12 +2091,31 @@ mod tests {
         assert!(!HostSuperweaponKind::DaisyCutter.is_line_multi_strike());
         assert_eq!(CARPET_BOMB_COUNT, 15);
         assert!((CARPET_BOMB_SPACING - 25.0).abs() < 0.1);
+        assert!((CARPET_BOMB_DROP_VARIANCE_X - 30.0).abs() < 0.01);
+        assert!((CARPET_BOMB_DROP_VARIANCE_Y - 40.0).abs() < 0.01);
+        assert!((CARPET_BOMB_DROP_VARIANCE_Z - 0.0).abs() < 0.01);
         let points = carpet_bomb_points(Vec3::new(100.0, 0.0, 50.0));
         assert_eq!(points.len(), CARPET_BOMB_COUNT as usize);
-        // Centered on target along +X.
-        assert!((points[7].x - 100.0).abs() < 0.1);
-        assert!((points[0].x - (100.0 - 7.0 * CARPET_BOMB_SPACING)).abs() < 0.1);
-        assert!((points[14].x - (100.0 + 7.0 * CARPET_BOMB_SPACING)).abs() < 0.1);
+        // Base line still centered; DropVariance residual scatters within ±var.
+        let base_center_x = 100.0;
+        assert!(
+            (points[7].x - base_center_x).abs() <= CARPET_BOMB_DROP_VARIANCE_X + 0.1,
+            "center bomb DropVariance residual within X variance"
+        );
+        assert!(
+            (points[0].x - (100.0 - 7.0 * CARPET_BOMB_SPACING)).abs()
+                <= CARPET_BOMB_DROP_VARIANCE_X + 0.1
+        );
+        assert!(
+            (points[14].x - (100.0 + 7.0 * CARPET_BOMB_SPACING)).abs()
+                <= CARPET_BOMB_DROP_VARIANCE_X + 0.1
+        );
+        // Non-zero lateral scatter residual (Z from C++ Y variance).
+        let any_z_scatter = points.iter().any(|p| (p.z - 50.0).abs() > 0.01);
+        assert!(any_z_scatter, "DropVariance residual must scatter Z");
+        for p in &points {
+            assert!((p.z - 50.0).abs() <= CARPET_BOMB_DROP_VARIANCE_Y + 0.1);
+        }
     }
 
     #[test]
@@ -2070,14 +2135,16 @@ mod tests {
             CARPET_BOMB_IMPACT_DELAY_FRAMES
         );
 
-        // Bomb epicenters along X: …, -50, -25, 0, 25, 50, …
-        // Enemy at epicenter, enemy on outer bomb, enemy far off-line, friendly at epicenter.
+        // Place enemies at DropVariance-adjusted residual epicenters.
+        let points = carpet_bomb_points(target);
+        let center = points[7];
+        let outer = points[14];
         let objects = vec![
             (ObjectId(1), Vec3::ZERO, Team::China, true),
-            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // center bomb
-            (ObjectId(3), Vec3::new(7.0 * CARPET_BOMB_SPACING, 0.0, 0.0), Team::USA, true), // outer bomb
+            (ObjectId(2), center, Team::USA, true), // center bomb (with variance)
+            (ObjectId(3), outer, Team::USA, true),  // outer bomb (with variance)
             (ObjectId(4), Vec3::new(0.0, 0.0, 500.0), Team::USA, true), // far off-line
-            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::China, true), // friendly
+            (ObjectId(5), center, Team::China, true), // friendly
         ];
 
         // Before impact: no damage plan.
@@ -2103,6 +2170,25 @@ mod tests {
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
         assert!(reg.beam_fields().is_empty());
+    }
+
+    #[test]
+    fn carpet_bomb_drop_variance_residual_bounds() {
+        // C++ Random(-var, +var) residual bounds for host deterministic scatter.
+        for i in 0..CARPET_BOMB_COUNT {
+            let o = drop_variance_offset(
+                i,
+                CARPET_BOMB_DROP_VARIANCE_X,
+                CARPET_BOMB_DROP_VARIANCE_Y,
+                CARPET_BOMB_DROP_VARIANCE_Z,
+            );
+            assert!(o.x.abs() <= CARPET_BOMB_DROP_VARIANCE_X + 0.001);
+            assert!(o.z.abs() <= CARPET_BOMB_DROP_VARIANCE_Y + 0.001);
+            assert!((o.y - 0.0).abs() < 0.001, "Z variance 0 → host Y 0");
+        }
+        // Supply OCL has no DropVariance — zero residual is identity.
+        let zero = drop_variance_offset(3, 0.0, 0.0, 0.0);
+        assert!((zero.x).abs() < 0.001 && (zero.y).abs() < 0.001 && (zero.z).abs() < 0.001);
     }
 
     #[test]
