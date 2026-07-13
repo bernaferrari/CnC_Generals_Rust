@@ -1,3 +1,36 @@
+## Residual Host Playability — China MiG + USA Fire Base (2026-07-13)
+**Closed (host-testable MiG napalm/BlackNapalm/Nuke + Fire Base howitzer residual):**
+1. **China MiG residual** (`ChinaJetMIG` / `China_MiG` / Tank_/Infa_/Boss_ + Nuke_):
+   - PRIMARY `NapalmMissileWeapon` residual: Primary **75**/r**5** + Secondary **40**/r**30**,
+     range **320**, min **80**, Delay **300**ms (9 frames). ClipSize **2** honesty
+     (RETURN_TO_BASE rearm matrix fail-closed). AA + ground residual.
+   - Impact residual seeds FireFieldSmall DoT (Inferno fire-zone registry residual).
+   - BlackNapalm PLAYER_UPGRADE residual (`Upgrade_ChinaBlackNapalm`):
+     Secondary **50** + FireFieldUpgradedSmall residual.
+   - Nuke General (`Nuke_ChinaJetMIG`): base `Nuke_MiGMissileWeapon` Primary **100**
+     + SmallRadiationField residual; Tactical Nuke MiG PLAYER_UPGRADE residual
+     (`Upgrade_ChinaTacticalNukeMig`) → `Nuke_NukeMissileWeapon` Primary **150**/r**50**
+     + Secondary **50**/r**60** + radiation residual.
+   - Honesty: `honesty_mig_ok` / black_napalm / tactical_nuke / fires / fields.
+2. **Fire Base residual** (`AmericaFireBase` / AirF_/SupW_/Lazr_):
+   - PRIMARY `FireBaseHowitzerGun` residual: PrimaryDamage **75** / radius **10**,
+     range **275**, min **50**, Delay **2000**ms (60 frames). Ground residual only.
+   - Fire residual: intended + PrimaryDamageRadius **10** splash.
+   - Honesty: `honesty_fire_base_ok` / fires / units_hit.
+3. Tests (not log-only):
+   - `mig_residual_napalm_and_black_napalm`
+   - `mig_nuke_residual_tactical_nuke`
+   - `fire_base_residual_howitzer`
+   - module unit tests in `host_mig.rs` / `host_fire_base.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full JetAIUpdate RETURN_TO_BASE / ClipReload airfield rearm matrix for MiG
+- Full HistoricBonus FirestormSmallCreationWeapon multi-missile matrix
+- Full MediumRadiationField for Nuke_NukeMissileWeapon residual (SmallRadiation reused)
+- Full SPAWNS_ARE_THE_WEAPONS / garrison HiveStructureBody matrix for Fire Base
+- Full Turret pitch / ScaleWeaponSpeed lob / ScatterRadiusVsInfantry matrix
+- Network MiG / Fire Base replication (network deferred)
+
 ## Residual Host Playability — USA Strategy Center Battle Plans (2026-07-13)
 **Closed (host-testable Bombardment / HoldTheLine / SearchAndDestroy residual):**
 1. **Strategy Center residual** (`AmericaStrategyCenter` / *StrategyCenter):

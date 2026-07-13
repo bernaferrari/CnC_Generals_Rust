@@ -942,6 +942,16 @@ pub struct GameLogic {
     raptor_residual_fires: u32,
     raptor_residual_units_hit: u32,
     raptor_residual_laser_missiles_upgrades: u32,
+    /// Host China MiG residual napalm / BlackNapalm / Nuke missile honesty.
+    mig_residual_fires: u32,
+    mig_residual_units_hit: u32,
+    mig_residual_black_napalm_upgrades: u32,
+    mig_residual_tactical_nuke_upgrades: u32,
+    mig_residual_fire_fields: u32,
+    mig_residual_radiation_fields: u32,
+    /// Host America Fire Base howitzer residual honesty.
+    fire_base_residual_fires: u32,
+    fire_base_residual_units_hit: u32,
 
     /// Host Stealth Fighter residual honesty (missile fire + splash).
     /// Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
@@ -2006,6 +2016,14 @@ impl GameLogic {
             raptor_residual_fires: 0,
             raptor_residual_units_hit: 0,
             raptor_residual_laser_missiles_upgrades: 0,
+            mig_residual_fires: 0,
+            mig_residual_units_hit: 0,
+            mig_residual_black_napalm_upgrades: 0,
+            mig_residual_tactical_nuke_upgrades: 0,
+            mig_residual_fire_fields: 0,
+            mig_residual_radiation_fields: 0,
+            fire_base_residual_fires: 0,
+            fire_base_residual_units_hit: 0,
             stealth_fighter_residual_fires: 0,
             stealth_fighter_residual_units_hit: 0,
             comanche_cannon_residual_fires: 0,
@@ -2314,6 +2332,14 @@ impl GameLogic {
         self.raptor_residual_fires = 0;
         self.raptor_residual_units_hit = 0;
         self.raptor_residual_laser_missiles_upgrades = 0;
+        self.mig_residual_fires = 0;
+        self.mig_residual_units_hit = 0;
+        self.mig_residual_black_napalm_upgrades = 0;
+        self.mig_residual_tactical_nuke_upgrades = 0;
+        self.mig_residual_fire_fields = 0;
+        self.mig_residual_radiation_fields = 0;
+        self.fire_base_residual_fires = 0;
+        self.fire_base_residual_units_hit = 0;
         self.stealth_fighter_residual_fires = 0;
         self.stealth_fighter_residual_units_hit = 0;
         self.comanche_cannon_residual_fires = 0;
@@ -5791,6 +5817,56 @@ impl GameLogic {
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                     if hits > 0 {
                                         attacker.gain_experience((hits as f32) * 12.0);
+                                    }
+                                }
+                            } else if {
+                                // China MiG residual: dual-radius napalm / Nuke missiles + field residual.
+                                use crate::game_logic::host_mig::{
+                                    is_mig_template, should_apply_mig_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_mig_residual(is_mig_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_mig_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 12.0);
+                                    }
+                                }
+                            } else if {
+                                // America Fire Base residual: howitzer primary-radius splash.
+                                use crate::game_logic::host_fire_base::{
+                                    is_fire_base_template, should_apply_fire_base_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_fire_base_residual(is_fire_base_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_fire_base_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
                                     }
                                 }
                             } else if {
@@ -10509,6 +10585,26 @@ impl GameLogic {
                 object.weapon = Some(raptor_weapon(king, laser));
             }
 
+            // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
+            // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
+            if crate::game_logic::host_mig::is_mig_template(template_name) {
+                use crate::game_logic::host_mig::{
+                    is_nuke_mig_template, mig_loadout, mig_weapon,
+                };
+                let loadout = mig_loadout(
+                    is_nuke_mig_template(template_name),
+                    &object.applied_upgrades,
+                );
+                object.weapon = Some(mig_weapon(loadout));
+            }
+
+            // Host residual: America Fire Base PRIMARY howitzer.
+            // Fail-closed: not full SPAWNS_ARE_THE_WEAPONS / garrison HiveStructure matrix.
+            if crate::game_logic::host_fire_base::is_fire_base_template(template_name) {
+                use crate::game_logic::host_fire_base::fire_base_weapon;
+                object.weapon = Some(fire_base_weapon());
+            }
+
             // Host residual: USA Stealth Fighter PRIMARY jet missiles.
             // Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
             if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(template_name) {
@@ -14031,9 +14127,29 @@ impl GameLogic {
             return;
         }
 
+        // America Fire Base residual: dual-radius howitzer splash owns damage.
+        // Fail-closed: not full ScatterRadiusVsInfantry / ScaleWeaponSpeed lob matrix.
+        let is_fire_base =
+            crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
         let mut destroyed = false;
         let mut kill_xp = 0.0;
-        if let Some(target) = self.objects.get_mut(&target_id) {
+        if is_fire_base {
+            let impact = self
+                .objects
+                .get(&target_id)
+                .map(|t| t.get_position())
+                .unwrap_or(fire_pos);
+            let (hits, any_destroyed) =
+                self.apply_fire_base_residual_at(impact, Some(defense_id), Some(target_id));
+            destroyed = any_destroyed;
+            if destroyed {
+                if let Some(target) = self.objects.get(&target_id) {
+                    kill_xp = target.thing.template.experience_value
+                        * Self::veterancy_xp_multiplier(target.experience.level);
+                }
+            }
+            let _ = hits;
+        } else if let Some(target) = self.objects.get_mut(&target_id) {
             destroyed = target.take_damage(damage);
             if destroyed {
                 kill_xp = target.thing.template.experience_value
@@ -14062,7 +14178,8 @@ impl GameLogic {
             }
         }
 
-        if destroyed {
+        if destroyed && !is_fire_base {
+            // Fire Base residual already mark_object_for_destruction inside apply.
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
@@ -14091,6 +14208,8 @@ impl GameLogic {
             STINGER_FIRE_AUDIO
         } else if is_patriot {
             PATRIOT_FIRE_AUDIO
+        } else if is_fire_base {
+            crate::game_logic::host_fire_base::FIRE_BASE_FIRE_AUDIO
         } else {
             "WeaponFire"
         };
@@ -14616,6 +14735,58 @@ impl GameLogic {
 
     pub fn raptor_residual_laser_missiles_upgrades(&self) -> u32 {
         self.raptor_residual_laser_missiles_upgrades
+    }
+
+    /// Residual honesty: China MiG napalm / Nuke residual fired or upgraded.
+    pub fn honesty_mig_ok(&self) -> bool {
+        self.mig_residual_fires > 0
+            || self.mig_residual_black_napalm_upgrades > 0
+            || self.mig_residual_tactical_nuke_upgrades > 0
+    }
+
+    pub fn honesty_mig_black_napalm_ok(&self) -> bool {
+        self.mig_residual_black_napalm_upgrades > 0 || self.mig_residual_fire_fields > 0
+    }
+
+    pub fn honesty_mig_tactical_nuke_ok(&self) -> bool {
+        self.mig_residual_tactical_nuke_upgrades > 0 || self.mig_residual_radiation_fields > 0
+    }
+
+    pub fn mig_residual_fires(&self) -> u32 {
+        self.mig_residual_fires
+    }
+
+    pub fn mig_residual_units_hit(&self) -> u32 {
+        self.mig_residual_units_hit
+    }
+
+    pub fn mig_residual_black_napalm_upgrades(&self) -> u32 {
+        self.mig_residual_black_napalm_upgrades
+    }
+
+    pub fn mig_residual_tactical_nuke_upgrades(&self) -> u32 {
+        self.mig_residual_tactical_nuke_upgrades
+    }
+
+    pub fn mig_residual_fire_fields(&self) -> u32 {
+        self.mig_residual_fire_fields
+    }
+
+    pub fn mig_residual_radiation_fields(&self) -> u32 {
+        self.mig_residual_radiation_fields
+    }
+
+    /// Residual honesty: America Fire Base howitzer residual fired.
+    pub fn honesty_fire_base_ok(&self) -> bool {
+        self.fire_base_residual_fires > 0
+    }
+
+    pub fn fire_base_residual_fires(&self) -> u32 {
+        self.fire_base_residual_fires
+    }
+
+    pub fn fire_base_residual_units_hit(&self) -> u32 {
+        self.fire_base_residual_units_hit
     }
 
     /// Residual honesty: Stealth Fighter missile residual fired.
@@ -17269,6 +17440,303 @@ impl GameLogic {
                 intended_target,
             );
             let _ = is_raptor_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+
+    /// Apply BlackNapalm residual to a China MiG (PLAYER_UPGRADE fire-field residual).
+    pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_mig::{
+            is_mig_template, is_nuke_mig_template, mig_loadout, mig_weapon,
+            UPGRADE_CHINA_BLACK_NAPALM,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_mig_template(&obj.template_name) || is_nuke_mig_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
+        let loadout = mig_loadout(false, &obj.applied_upgrades);
+        let mut w = mig_weapon(loadout);
+        if let Some(prev) = obj.weapon.as_ref() {
+            w.last_fire_time = prev.last_fire_time;
+        }
+        obj.weapon = Some(w);
+        self.mig_residual_black_napalm_upgrades = self
+            .mig_residual_black_napalm_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Tactical Nuke MiG residual to a Nuke General MiG.
+    pub fn apply_mig_tactical_nuke_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_mig::{
+            is_nuke_mig_template, mig_loadout, mig_weapon, UPGRADE_CHINA_TACTICAL_NUKE_MIG,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_nuke_mig_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
+        let loadout = mig_loadout(true, &obj.applied_upgrades);
+        let mut w = mig_weapon(loadout);
+        if let Some(prev) = obj.weapon.as_ref() {
+            w.last_fire_time = prev.last_fire_time;
+        }
+        obj.weapon = Some(w);
+        self.mig_residual_tactical_nuke_upgrades = self
+            .mig_residual_tactical_nuke_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply China MiG residual fire (dual-radius missile + fire/radiation field).
+    fn apply_mig_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_mig::{
+            is_legal_mig_target, is_mig_template, is_nuke_mig_template, mig_damage_at,
+            mig_fire_field_upgraded, mig_loadout, mig_secondary_radius, mig_spawns_fire_field,
+            mig_spawns_radiation, MigLoadout, MIG_FIRE_AUDIO,
+        };
+
+        let (source_team, loadout) = {
+            if let Some(sid) = source {
+                if let Some(obj) = self.objects.get(&sid) {
+                    (
+                        obj.team,
+                        mig_loadout(
+                            is_nuke_mig_template(&obj.template_name),
+                            &obj.applied_upgrades,
+                        ),
+                    )
+                } else {
+                    (Team::Neutral, MigLoadout::Standard)
+                }
+            } else {
+                (Team::Neutral, MigLoadout::Standard)
+            }
+        };
+
+        let max_radius = mig_secondary_radius(loadout);
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_mig_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= max_radius {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = mig_damage_at(if is_intended { 0.0 } else { dist }, loadout);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        // Residual field residual at impact (FireField or SmallRadiation).
+        if let Some(sid) = source {
+            if mig_spawns_fire_field(loadout) {
+                let upgraded = mig_fire_field_upgraded(loadout);
+                let _ = self.spawn_inferno_fire_zone(sid, source_team, impact, upgraded);
+                self.mig_residual_fire_fields =
+                    self.mig_residual_fire_fields.saturating_add(1);
+            } else if mig_spawns_radiation(loadout) {
+                let _ = self
+                    .nuclear_tanks
+                    .spawn_radiation_zone(sid, source_team, impact, self.frame);
+                self.mig_residual_radiation_fields =
+                    self.mig_residual_radiation_fields.saturating_add(1);
+            }
+        }
+
+        self.mig_residual_fires = self.mig_residual_fires.saturating_add(1);
+        self.mig_residual_units_hit = self.mig_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(MIG_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_mig_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply America Fire Base residual fire (howitzer primary-radius splash).
+    fn apply_fire_base_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_fire_base::{
+            fire_base_damage_at, is_fire_base_template, is_legal_fire_base_target,
+            FIRE_BASE_FIRE_AUDIO, FIRE_BASE_PRIMARY_RADIUS,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_fire_base_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= FIRE_BASE_PRIMARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = fire_base_damage_at(if is_intended { 0.0 } else { dist });
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.fire_base_residual_fires = self.fire_base_residual_fires.saturating_add(1);
+        self.fire_base_residual_units_hit =
+            self.fire_base_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(FIRE_BASE_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_fire_base_template(
                 &self
                     .objects
                     .get(&sid)
@@ -50905,6 +51373,353 @@ mod tests {
     }
 
     /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
+
+
+    /// Residual: China MiG napalm dual-radius + BlackNapalm fire field residual.
+    #[test]
+    fn mig_residual_napalm_and_black_napalm() {
+        use crate::game_logic::host_mig::{
+            is_mig_template, is_nuke_mig_template, MIG_PRIMARY_DAMAGE, MIG_RANGE, MIG_MIN_RANGE,
+            NAPALM_MISSILE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut mig_tpl = crate::game_logic::ThingTemplate::new("ChinaJetMIG");
+        mig_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(NAPALM_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaJetMIG".to_string(), mig_tpl);
+
+        let mig_id = game_logic
+            .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("mig");
+        {
+            let m = game_logic.find_object(mig_id).expect("mig");
+            assert!(is_mig_template(&m.template_name));
+            assert!(!is_nuke_mig_template(&m.template_name));
+            let prim = m.weapon.as_ref().expect("missile");
+            assert!((prim.damage - MIG_PRIMARY_DAMAGE).abs() < 0.01);
+            assert!((prim.range - MIG_RANGE).abs() < 1.0);
+            assert!((prim.min_range - MIG_MIN_RANGE).abs() < 1.0);
+            assert!(prim.can_target_air);
+            assert!((prim.reload_time - 9.0 / 30.0).abs() < 0.02);
+        }
+
+        // Target outside min-range residual (min 80 → place at 200).
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        let near_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(204.0, 0.0, 0.0))
+            .expect("primary ring");
+        let mid_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(215.0, 0.0, 0.0))
+            .expect("secondary ring");
+        {
+            let m = game_logic.find_object_mut(mig_id).unwrap();
+            m.attack_target(enemy);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let near_hp_before = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let mid_hp_before = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(
+            &[mig_id, enemy, near_splash, mid_splash],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.mig_residual_fires() > 0,
+            "mig residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_mig_ok(),
+            "mig residual host path honesty"
+        );
+        assert!(
+            game_logic.mig_residual_fire_fields() > 0,
+            "mig should seed FireField residual"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 40.0,
+            "mig primary residual ~75 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let near_hp_after = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "mig primary radius residual must hit unit at 4 (before={near_hp_before} after={near_hp_after})"
+        );
+        let mid_hp_after = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            mid_hp_after < mid_hp_before,
+            "mig secondary radius residual must hit unit at 15 (before={mid_hp_before} after={mid_hp_after})"
+        );
+
+        // BlackNapalm residual → secondary 50 + upgraded fire field.
+        assert!(
+            game_logic.apply_mig_black_napalm_upgrade(mig_id),
+            "black napalm upgrade applies"
+        );
+        assert!(game_logic.honesty_mig_black_napalm_ok());
+        {
+            let m = game_logic.find_object_mut(mig_id).unwrap();
+            m.attack_target(enemy);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let fields_before = game_logic.mig_residual_fire_fields();
+        game_logic.set_current_frame(60);
+        game_logic.update_combat(
+            &[mig_id, enemy, near_splash, mid_splash],
+            LOGIC_FRAME_TIMESTEP,
+        );
+        assert!(
+            game_logic.mig_residual_fire_fields() > fields_before,
+            "black napalm should seed additional fire field residual"
+        );
+        assert!(
+            game_logic.inferno_fire_zones().zones_spawned() >= 2,
+            "fire fields reuse inferno residual registry"
+        );
+    }
+
+    /// Residual: Nuke General MiG tactical nuke dual-radius + radiation residual.
+    #[test]
+    fn mig_nuke_residual_tactical_nuke() {
+        use crate::game_logic::host_mig::{
+            is_nuke_mig_template, NUKE_MIG_PRIMARY_DAMAGE, NUKE_MIG_MISSILE_WEAPON,
+            NUKE_TACTICAL_PRIMARY_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut mig_tpl = crate::game_logic::ThingTemplate::new("Nuke_ChinaJetMIG");
+        mig_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(NUKE_MIG_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("Nuke_ChinaJetMIG".to_string(), mig_tpl);
+
+        let mig_id = game_logic
+            .create_object("Nuke_ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("nuke mig");
+        {
+            let m = game_logic.find_object(mig_id).expect("nuke mig");
+            assert!(is_nuke_mig_template(&m.template_name));
+            let prim = m.weapon.as_ref().expect("missile");
+            assert!((prim.damage - NUKE_MIG_PRIMARY_DAMAGE).abs() < 0.01);
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let m = game_logic.find_object_mut(mig_id).unwrap();
+            m.attack_target(enemy);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(game_logic.mig_residual_fires() > 0);
+        assert!(
+            game_logic.mig_residual_radiation_fields() > 0,
+            "nuke mig base should seed radiation residual"
+        );
+
+        assert!(game_logic.apply_mig_tactical_nuke_upgrade(mig_id));
+        assert!(game_logic.honesty_mig_tactical_nuke_ok());
+        {
+            let m = game_logic.find_object(mig_id).unwrap();
+            let prim = m.weapon.as_ref().expect("nuke missile");
+            assert!((prim.damage - NUKE_TACTICAL_PRIMARY_DAMAGE).abs() < 0.01);
+        }
+        {
+            let m = game_logic.find_object_mut(mig_id).unwrap();
+            m.attack_target(enemy);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let rad_before = game_logic.mig_residual_radiation_fields();
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(70);
+        game_logic.update_combat(&[mig_id, enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(game_logic.mig_residual_radiation_fields() > rad_before);
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 100.0,
+            "tactical nuke mig primary ~150 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+    }
+
+    /// Residual: America Fire Base howitzer primary-radius splash.
+    #[test]
+    fn fire_base_residual_howitzer() {
+        use crate::game_logic::host_fire_base::{
+            is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_MIN_RANGE,
+            FIRE_BASE_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut fb_tpl = crate::game_logic::ThingTemplate::new("AmericaFireBase");
+        fb_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_primary_weapon_name(FIRE_BASE_HOWITZER_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaFireBase".to_string(), fb_tpl);
+
+        let fb_id = game_logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("firebase");
+        {
+            let fb = game_logic.find_object(fb_id).expect("firebase");
+            assert!(is_fire_base_template(&fb.template_name));
+            let prim = fb.weapon.as_ref().expect("howitzer");
+            assert!((prim.damage - FIRE_BASE_DAMAGE).abs() < 0.01);
+            assert!((prim.range - FIRE_BASE_RANGE).abs() < 1.0);
+            assert!((prim.min_range - FIRE_BASE_MIN_RANGE).abs() < 1.0);
+            assert!(!prim.can_target_air);
+            assert!((prim.reload_time - 2.0).abs() < 0.05);
+        }
+
+        // Place enemy in howitzer range (275); residual auto-acquires without AttackObject
+        // because Fire Base is FS_BASE_DEFENSE residual class via name matrix.
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .expect("enemy");
+        let near_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(158.0, 0.0, 0.0))
+            .expect("primary ring");
+        {
+            let fb = game_logic.find_object(fb_id).expect("fb");
+            assert!(
+                crate::game_logic::host_base_defense::is_base_defense_structure(
+                    &fb.template_name,
+                    fb.is_kind_of(KindOf::Structure),
+                    fb.is_kind_of(KindOf::FSBaseDefense),
+                ),
+                "Fire Base must classify as base-defense residual"
+            );
+            assert!(fb.can_attack());
+        }
+        {
+            let fb = game_logic.find_object_mut(fb_id).unwrap();
+            if let Some(w) = fb.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let near_hp_before = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        // Several combat ticks so base-defense residual auto-fire can land.
+        for f in 40..100 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[fb_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
+        }
+
+        assert!(
+            game_logic.fire_base_residual_fires() > 0,
+            "fire base residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_fire_base_ok(),
+            "fire base residual host path honesty"
+        );
+        assert!(
+            game_logic.honesty_base_defense_fire_ok(),
+            "fire base should also count as base-defense residual fire"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 40.0,
+            "fire base primary residual ~75 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let near_hp_after = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "fire base primary radius residual must hit unit at 8 (before={near_hp_before} after={near_hp_after})"
+        );
+    }
 
     /// Residual: USA Raptor jet missiles + Laser Missiles upgrade + King Raptor stats.
     #[test]
