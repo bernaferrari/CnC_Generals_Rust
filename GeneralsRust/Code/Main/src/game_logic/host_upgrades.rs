@@ -82,6 +82,9 @@ pub enum HostUpgradeKind {
     SentryDroneGun,
     /// GLA Camouflage: grants residual stealth to Rebel infantry (StealthUpgrade).
     Camouflage,
+    /// GLA CamoNetting: grants residual stealth to GLA structures (StealthUpgrade).
+    /// Stealth General buildings + Tunnel Network / Stinger Site residual.
+    CamoNetting,
     /// America Composite Armor: +100 MaxHealth on Crusader / Paladin residual.
     CompositeArmor,
     /// GLA WorkerShoes: speed boost + supply drop-off cash residual.
@@ -90,6 +93,8 @@ pub enum HostUpgradeKind {
     NuclearTanks,
     /// GLA Rebel BoobyTrap attack unlock residual.
     BoobyTrap,
+    /// Chem Anthrax Gamma: toxin combat upgrade residual (stream/field DoT).
+    AnthraxGamma,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -114,9 +119,14 @@ impl HostUpgradeKind {
             HostUpgradeKind::ComancheRocketPods
         } else if n.contains("sentrydronegun") || n.contains("sentrydrone") {
             HostUpgradeKind::SentryDroneGun
+        } else if n.contains("camonetting") || n.contains("camoneting") {
+            // Stealth General structure CamoNetting (must precede camouflage? no overlap).
+            HostUpgradeKind::CamoNetting
         } else if n.contains("camouflage") || n.contains("camoflage") {
             // Retail spelling is Camouflage; allow common misspelling residual.
             HostUpgradeKind::Camouflage
+        } else if n.contains("anthraxgamma") {
+            HostUpgradeKind::AnthraxGamma
         } else if n.contains("compositearmor") || n.contains("compositearmour") {
             HostUpgradeKind::CompositeArmor
         } else if n.contains("workershoes") || n.contains("glaworkershoes") {
@@ -141,10 +151,12 @@ impl HostUpgradeKind {
             HostUpgradeKind::ComancheRocketPods => "ComancheRocketPods",
             HostUpgradeKind::SentryDroneGun => "SentryDroneGun",
             HostUpgradeKind::Camouflage => "Camouflage",
+            HostUpgradeKind::CamoNetting => "CamoNetting",
             HostUpgradeKind::CompositeArmor => "CompositeArmor",
             HostUpgradeKind::WorkerShoes => "WorkerShoes",
             HostUpgradeKind::NuclearTanks => "NuclearTanks",
             HostUpgradeKind::BoobyTrap => "BoobyTrap",
+            HostUpgradeKind::AnthraxGamma => "AnthraxGamma",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -164,10 +176,12 @@ impl HostUpgradeKind {
             | HostUpgradeKind::ComancheRocketPods
             | HostUpgradeKind::SentryDroneGun
             | HostUpgradeKind::Camouflage
+            | HostUpgradeKind::CamoNetting
             | HostUpgradeKind::CompositeArmor
             | HostUpgradeKind::WorkerShoes
             | HostUpgradeKind::NuclearTanks
             | HostUpgradeKind::BoobyTrap
+            | HostUpgradeKind::AnthraxGamma
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -706,6 +720,106 @@ mod camouflage_template_tests {
         );
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_GLA_Camouflage"),
+            HostUpgradeKind::Camouflage
+        );
+    }
+}
+
+// --- GLA CamoNetting residual helpers (Upgrade_GLACamoNetting / structure stealth) ---
+
+/// Retail GLA CamoNetting upgrade name (Stealth General / Palace research residual).
+pub const UPGRADE_GLA_CAMO_NETTING: &str = "Upgrade_GLACamoNetting";
+
+/// Template names that receive StealthUpgrade from CamoNetting residual.
+///
+/// Retail: Stealth General buildings (Slth_*), GLATunnelNetwork, GLAStingerSite.
+/// Fail-closed: not full sub-object camo net visual / every general reskin.
+pub fn is_camo_netting_structure_template(name: &str) -> bool {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.is_empty() {
+        return false;
+    }
+    // Explicit residual tests.
+    if n == "testcamonetstructure"
+        || n == "testslthcommandcenter"
+        || n == "testtunnelnetwork"
+        || n == "teststingersite"
+    {
+        return true;
+    }
+    // Tunnel Network / Stinger Site residual (all general variants).
+    if n.contains("tunnelnetwork") || n.contains("stingersite") {
+        return true;
+    }
+    // Stealth General structure residual (Slth_ buildings).
+    if n.starts_with("slth_") || n.starts_with("slth") || n.contains("gcslth") {
+        // Building-like residual only (exclude infantry/vehicles).
+        return n.contains("commandcenter")
+            || n.contains("blackmarket")
+            || n.contains("scudstorm")
+            || n.contains("palace")
+            || n.contains("supplystash")
+            || n.contains("barracks")
+            || n.contains("armsdealer")
+            || n.contains("demotrap")
+            || n.contains("fake");
+    }
+    false
+}
+
+// --- Anthrax Gamma residual helpers ---
+
+/// Retail Chem Anthrax Gamma upgrade name.
+pub const UPGRADE_CHEM_ANTHRAX_GAMMA: &str = "Chem_Upgrade_GLAAnthraxGamma";
+
+/// Units that receive Anthrax Gamma residual combat tag on research complete.
+pub fn is_anthrax_gamma_unit_template(name: &str) -> bool {
+    use crate::game_logic::host_bomb_truck_detonate::is_bomb_truck_template;
+    use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
+    use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
+    is_toxin_tractor_template(name)
+        || is_scud_launcher_template(name)
+        || is_bomb_truck_template(name)
+}
+
+#[cfg(test)]
+mod camo_netting_and_gamma_tests {
+    use super::*;
+
+    #[test]
+    fn camo_netting_structure_name_residual() {
+        assert!(is_camo_netting_structure_template("Slth_GLACommandCenter"));
+        assert!(is_camo_netting_structure_template("Slth_FakeGLABarracks"));
+        assert!(is_camo_netting_structure_template("GLATunnelNetwork"));
+        assert!(is_camo_netting_structure_template("Chem_GLATunnelNetwork"));
+        assert!(is_camo_netting_structure_template("GLAStingerSite"));
+        assert!(is_camo_netting_structure_template("TestCamoNetStructure"));
+        assert!(!is_camo_netting_structure_template("GLAInfantryRebel"));
+        assert!(!is_camo_netting_structure_template("AmericaCommandCenter"));
+        assert!(!is_camo_netting_structure_template("Slth_GLAInfantryRebel"));
+    }
+
+    #[test]
+    fn camo_netting_and_gamma_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLACamoNetting"),
+            HostUpgradeKind::CamoNetting
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Chem_Upgrade_GLAAnthraxGamma"),
+            HostUpgradeKind::AnthraxGamma
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLAAnthraxGamma"),
+            HostUpgradeKind::AnthraxGamma
+        );
+        // Camouflage still distinct.
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLACamouflage"),
             HostUpgradeKind::Camouflage
         );
     }
