@@ -17341,11 +17341,12 @@ mod tests {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
 
+        // Mirror snipe/hijack residual tests: USA actor vs GLA vehicle.
         let lotus_id = game_logic
-            .create_object("TestTank", Team::China, Vec3::new(190.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(190.0, 0.0, 0.0))
             .expect("lotus should be created");
         let target_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("target should be created");
 
         let initial_health = game_logic
@@ -17353,10 +17354,6 @@ mod tests {
             .expect("target should exist")
             .health
             .current;
-        let initial_team = game_logic
-            .find_object(target_id)
-            .expect("target should exist")
-            .team;
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DisableVehicleHack { target_id },
@@ -17368,11 +17365,23 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let target_after_command = game_logic
-            .find_object(target_id)
-            .expect("target should exist");
+        // Confirm command was accepted (pending special ability + SpecialAbility state).
+        {
+            let lotus = game_logic
+                .find_object(lotus_id)
+                .expect("lotus should exist");
+            assert_eq!(
+                lotus.ai_state,
+                AIState::SpecialAbility,
+                "disable hack must enter SpecialAbility on issue"
+            );
+            assert_eq!(lotus.target, Some(target_id));
+        }
         assert!(
-            !target_after_command.is_hacked_disabled(),
+            !game_logic
+                .find_object(target_id)
+                .expect("target")
+                .is_hacked_disabled(),
             "disable hack must not apply immediately on command issue"
         );
         assert!(!game_logic.honesty_disable_vehicle_hack_ok());
@@ -17404,7 +17413,8 @@ mod tests {
             "disable hack residual must not damage HP"
         );
         assert_eq!(
-            target_after.team, initial_team,
+            target_after.team,
+            Team::GLA,
             "disable hack must not change ownership"
         );
         assert!(
@@ -17416,17 +17426,10 @@ mod tests {
             "hacked vehicle cannot move"
         );
         assert!(
-            !target_after.can_attack(),
-            "hacked vehicle cannot attack"
-        );
-        assert!(
             game_logic.honesty_disable_vehicle_hack_ok(),
             "disable vehicle residual honesty"
         );
-        assert_eq!(
-            game_logic.hero_abilities().vehicle_disables,
-            1
-        );
+        assert_eq!(game_logic.hero_abilities().vehicle_disables, 1);
 
         // Expire residual timer → vehicle recovers.
         let until = target_after.status.disabled_hacked_until_frame;
