@@ -1807,6 +1807,10 @@ impl<'a> CommandExecutor<'a> {
             {
                 let _ = self.game_logic.set_player_cash_bounty(player_id, pct);
             }
+            // SCIENCE_StealthFighter residual: record unlock honesty on purchase.
+            if crate::game_logic::host_stealth_fighter::is_stealth_fighter_science(science_name) {
+                self.game_logic.record_stealth_fighter_science_unlock();
+            }
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand

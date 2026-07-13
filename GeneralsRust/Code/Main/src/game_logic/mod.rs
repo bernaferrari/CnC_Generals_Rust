@@ -316,9 +316,9 @@ pub use host_marauder::{
     MARAUDER_TANK_GUN_UPGRADE_TWO,
 };
 pub use host_mines::{
-    can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason,
-    HostMineDetonationPlan, HostMineKind, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
-    MINE_CLEARED_AUDIO,
+    can_clear_mine_kind, demo_trap_damage_at, demo_trap_profile, is_mine_clearer, DemoTrapProfile,
+    HostMineData, HostMineDetonateReason, HostMineDetonationPlan, HostMineKind,
+    DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE, MINE_CLEARED_AUDIO,
 };
 pub use host_missile_defender::{
     is_missile_defender_template, missile_defender_laser_guided_weapon,
@@ -408,7 +408,7 @@ pub use host_spy_satellite::{
     SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
 };
 pub use host_stealth_fighter::{
-    is_stealth_fighter_template, player_may_produce_stealth_aircraft,
+    is_stealth_fighter_science, is_stealth_fighter_template, player_may_produce_stealth_aircraft,
     requires_stealth_fighter_science, should_apply_stealth_fighter_residual,
     stealth_fighter_damage_at, stealth_fighter_weapon, HostStealthFighterRegistry,
     AMERICA_JET_STEALTH_FIGHTER, SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_DAMAGE,
@@ -428,10 +428,13 @@ pub use host_tank_hunter::{
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
 };
 pub use host_terrorist::{
-    is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
-    terrorist_suicide_weapon, SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
-    SUICIDE_DYNAMITE_PRIMARY_RADIUS, SUICIDE_DYNAMITE_SECONDARY_DAMAGE,
-    SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
+    is_demo_general_template as is_terrorist_demo_general_template, is_terrorist_template,
+    should_apply_terrorist_residual, suicide_dynamite_damage_at,
+    suicide_dynamite_damage_at_profile, terrorist_death_profile, terrorist_suicide_weapon,
+    terrorist_suicide_weapon_for_profile, TerroristDeathProfile, SUICIDE_DYNAMITE_PACK,
+    SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
+    SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
+    SUICIDE_DYNAMITE_SECONDARY_DAMAGE, SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
 };
 pub use host_troop_crawler::{
     is_troop_crawler_template, resolve_payload_template_name,
