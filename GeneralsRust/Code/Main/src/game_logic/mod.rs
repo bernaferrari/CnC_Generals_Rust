@@ -696,6 +696,10 @@ pub struct ObjectStatus {
     /// AI pilot attempts base-center fallback once when no recrewable vehicle is found.
     #[serde(default)]
     pub pilot_did_move_to_base: bool,
+    /// C++ OBJECT_STATUS_PARACHUTING residual (OCL_EjectPilotViaParachute /
+    /// AmericaParachute host residual). Pilot sinks until ground.
+    #[serde(default)]
+    pub parachuting: bool,
 }
 
 /// Basic geometry information for objects
