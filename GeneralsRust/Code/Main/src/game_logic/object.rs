@@ -334,6 +334,32 @@ pub struct Object {
     /// Suppresses Demo_DestroyedWeapon double-fire on process_destroy_list.
     #[serde(default)]
     pub demo_suicided_detonating: bool,
+
+    /// Host residual: HiveStructureBody / SpawnBehavior slave count (Stinger Site).
+    /// 0 for non-hive units. Fail-closed: not full physical slave object spawn.
+    #[serde(default)]
+    pub hive_slave_count: u8,
+    /// Host residual: active residual slave HP (closest slave).
+    #[serde(default)]
+    pub hive_slave_hp: f32,
+    /// Absolute host frame when next residual slave respawns (0 = none).
+    #[serde(default)]
+    pub hive_slave_respawn_frame: u32,
+
+    /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
+    /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
+    #[serde(default)]
+    pub stealth_allowed_frame: u32,
+    /// Pending StealthDelay scheduling after a reveal (resolved in stealth update).
+    #[serde(default)]
+    pub stealth_delay_pending: bool,
+    /// Frames of StealthDelay after reveal (CamoNetting structures = 75).
+    /// 0 = instant re-cloak residual.
+    #[serde(default)]
+    pub stealth_delay_frames: u32,
+    /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
+    #[serde(default)]
+    pub stealth_breaks_on_damage: bool,
 }
 
 /// AI behavior states
@@ -490,6 +516,13 @@ impl Object {
             is_helix_transport: false,
             command_set_override: None,
             demo_suicided_detonating: false,
+            hive_slave_count: 0,
+            hive_slave_hp: 0.0,
+            hive_slave_respawn_frame: 0,
+            stealth_allowed_frame: 0,
+            stealth_delay_pending: false,
+            stealth_delay_frames: 0,
+            stealth_breaks_on_damage: false,
         }
     }
 
@@ -592,6 +625,13 @@ impl Object {
             is_helix_transport: false,
             command_set_override: None,
             demo_suicided_detonating: false,
+            hive_slave_count: 0,
+            hive_slave_hp: 0.0,
+            hive_slave_respawn_frame: 0,
+            stealth_allowed_frame: 0,
+            stealth_delay_pending: false,
+            stealth_delay_frames: 0,
+            stealth_breaks_on_damage: false,
         }
     }
 
@@ -1335,6 +1375,11 @@ impl Object {
             return false;
         }
 
+        // C++ StealthForbiddenConditions TAKING_DAMAGE residual (CamoNetting structures).
+        if self.stealth_breaks_on_damage && self.status.stealthed {
+            self.break_stealth();
+        }
+
         // Apply armor reduction
         let armor_factor = 1.0 - (self.thing.template.armor / (self.thing.template.armor + 100.0));
         // HoldTheLine residual: HoldTheLinePlanArmorDamageScalar 0.9 (LESS is better).
@@ -1441,9 +1486,14 @@ impl Object {
             self.clear_disguise();
             return;
         }
+        let was_stealthed = self.status.stealthed;
         self.status.stealthed = false;
         self.status.detected = false;
         self.detection_expires_frame = 0;
+        // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
+        if was_stealthed && self.stealth_delay_frames > 0 {
+            self.stealth_delay_pending = true;
+        }
     }
 
     /// C++ StealthUpdate::receiveGrant residual (GPS Scrambler / GrantStealthBehavior).
