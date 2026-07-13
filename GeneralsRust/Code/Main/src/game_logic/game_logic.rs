@@ -1133,6 +1133,10 @@ pub struct GameLogic {
     camo_netting_order_idle_enemies_count: u32,
     /// CamoNetting structure StealthUpdate residual: StealthDelay re-cloaks.
     camo_netting_structure_residual_recloaks: u32,
+    /// CamoNetting FriendlyOpacity residual: cloaked (min opacity) applications.
+    camo_netting_opacity_cloak_count: u32,
+    /// CamoNetting FriendlyOpacity residual: revealed (max opacity) applications.
+    camo_netting_opacity_reveal_count: u32,
 
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
     patriot_residual_ground_fires: u32,
@@ -2165,6 +2169,8 @@ impl GameLogic {
             camo_netting_structure_residual_reveals: 0,
             camo_netting_order_idle_enemies_count: 0,
             camo_netting_structure_residual_recloaks: 0,
+            camo_netting_opacity_cloak_count: 0,
+            camo_netting_opacity_reveal_count: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
             supw_patriot_emp_residual_grants: 0,
@@ -2501,6 +2507,8 @@ impl GameLogic {
         self.camo_netting_structure_residual_reveals = 0;
         self.camo_netting_order_idle_enemies_count = 0;
         self.camo_netting_structure_residual_recloaks = 0;
+        self.camo_netting_opacity_cloak_count = 0;
+        self.camo_netting_opacity_reveal_count = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
         self.supw_patriot_emp_residual_grants = 0;
@@ -9781,8 +9789,8 @@ impl GameLogic {
     /// and StealthDelay **2500**ms re-cloak residual.
     fn apply_camo_netting_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_camo_netting_structure_template, CAMO_NETTING_STEALTH_DELAY_FRAMES,
-            UPGRADE_GLA_CAMO_NETTING,
+            is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+            CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
         };
 
         let mut affected = 0u32;
@@ -9807,7 +9815,15 @@ impl GameLogic {
             obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = 0;
             obj.stealth_delay_pending = false;
+            // FriendlyOpacity residual: cloaked → min.
+            obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
+            obj.camo_opacity_pulse_phase = 0.0;
             affected = affected.saturating_add(1);
+        }
+        if affected > 0 {
+            self.camo_netting_opacity_cloak_count = self
+                .camo_netting_opacity_cloak_count
+                .saturating_add(affected);
         }
         affected
     }
@@ -14835,8 +14851,12 @@ impl GameLogic {
             );
             attacker.turret_angle_deg = aim_a;
             attacker.turret_pitch_deg = aim_p;
-            // Fire cancels idle-scan residual; next idle interval starts after coast.
+            // Fire cancels idle-scan / Hold / idle-recenter residual;
+            // next idle interval starts after coast.
             attacker.turret_idle_scanning = false;
+            attacker.turret_holding = false;
+            attacker.turret_hold_until_frame = 0;
+            attacker.turret_idle_recentering = false;
             attacker.turret_idle_scan_next_frame = self.frame.saturating_add(
                 crate::game_logic::host_strategy_center::BATTLE_PLAN_TURRET_RECENTER_FRAMES,
             );
@@ -16626,6 +16646,8 @@ impl GameLogic {
         self.camo_netting_structure_residual_reveals > 0
             || self.camo_netting_structure_residual_recloaks > 0
             || self.camo_netting_order_idle_enemies_count > 0
+            || self.camo_netting_opacity_cloak_count > 0
+            || self.camo_netting_opacity_reveal_count > 0
     }
 
     pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
@@ -16643,6 +16665,19 @@ impl GameLogic {
 
     pub fn camo_netting_order_idle_enemies_count(&self) -> u32 {
         self.camo_netting_order_idle_enemies_count
+    }
+
+    /// Residual honesty: CamoNetting FriendlyOpacity residual applied.
+    pub fn honesty_camo_netting_friendly_opacity_ok(&self) -> bool {
+        self.camo_netting_opacity_cloak_count > 0 || self.camo_netting_opacity_reveal_count > 0
+    }
+
+    pub fn camo_netting_opacity_cloak_count(&self) -> u32 {
+        self.camo_netting_opacity_cloak_count
+    }
+
+    pub fn camo_netting_opacity_reveal_count(&self) -> u32 {
+        self.camo_netting_opacity_reveal_count
     }
 
     /// Residual honesty: USA Patriot dual ground/AA residual exercised.
@@ -23704,17 +23739,33 @@ impl GameLogic {
         self.battle_plans.honesty_turret_idle_scan_ok()
     }
 
-    /// Tick TurretAI idle-scan residual for Bombardment ACTIVE Strategy Centers.
+    /// Residual honesty: TurretAI HoldTurret residual started (after idle-scan).
+    pub fn honesty_strategy_center_turret_hold_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_hold_ok()
+    }
+
+    /// Residual honesty: TurretAI idle-recenter residual completed (after Hold).
+    pub fn honesty_strategy_center_turret_idle_recenter_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_idle_recenter_ok()
+    }
+
+    /// Tick TurretAI idle-scan / HoldTurret / idle-recenter residual for
+    /// Bombardment ACTIVE Strategy Centers.
     ///
-    /// C++ TurretAIIdleState → TurretAIIdleScanState: after Min/MaxIdleScanInterval,
-    /// rotate toward NaturalTurretAngle ± idle scan offset (MaxIdleScanAngle **60**),
-    /// pitch holds NaturalTurretPitch. Host residual is deterministic (scan index
-    /// alternates interval and signed mid offset). Busy gun (attacking / target /
-    /// recenter) defers the next scan; fire path reschedules after coast.
+    /// C++ TurretAI state machine residual:
+    /// IDLE → IDLESCAN → HOLD → RECENTER → IDLE.
+    ///
+    /// Host residual:
+    /// - After Min/MaxIdleScanInterval, rotate toward NaturalTurretAngle ± offset
+    ///   (MaxIdleScanAngle **60**); pitch holds NaturalTurretPitch.
+    /// - On scan complete: HoldTurret for RecenterTime (**60** frames default).
+    /// - After hold: idle-recenter to natural angles, then schedule next scan.
+    /// - Busy gun (attacking / target / pack recenter) cancels mid residual.
     fn tick_strategy_center_turret_idle_scan(&mut self) {
         use crate::game_logic::host_strategy_center::{
-            idle_scan_desired_angle_deg, idle_scan_interval_frames, step_turret_toward_angles,
-            turret_angles_at, HostBattlePlan, HostBattlePlanTransition,
+            hold_turret_elapsed, hold_turret_until_frame, idle_scan_desired_angle_deg,
+            idle_scan_interval_frames, step_turret_toward_angles, step_turret_toward_natural,
+            turret_angles_are_natural, turret_angles_at, HostBattlePlan, HostBattlePlanTransition,
             STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, is_strategy_center_template,
         };
 
@@ -23732,8 +23783,12 @@ impl GameLogic {
             .map(|s| s.center_id)
             .collect();
 
-        let mut started = 0u32;
-        let mut completed = 0u32;
+        let mut scan_started = 0u32;
+        let mut scan_completed = 0u32;
+        let mut hold_started = 0u32;
+        let mut hold_completed = 0u32;
+        let mut idle_recenter_started = 0u32;
+        let mut idle_recenter_completed = 0u32;
         for cid in centers {
             let Some(obj) = self.objects.get(&cid) else {
                 continue;
@@ -23750,8 +23805,11 @@ impl GameLogic {
                     obj.ai_state,
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 );
-            // Snapshot scan state.
+            // Snapshot residual state.
             let mut scanning = obj.turret_idle_scanning;
+            let mut holding = obj.turret_holding;
+            let mut idle_recentering = obj.turret_idle_recentering;
+            let mut hold_until = obj.turret_hold_until_frame;
             let mut desired = obj.turret_idle_scan_desired_angle_deg;
             let mut next_frame = obj.turret_idle_scan_next_frame;
             let mut scan_index = obj.turret_idle_scan_index;
@@ -23759,8 +23817,41 @@ impl GameLogic {
             let mut pitch = obj.turret_pitch_deg;
 
             if busy {
-                // Busy residual: cancel mid-scan; keep next_frame so scan resumes later.
+                // Busy residual: cancel mid-scan / hold / idle-recenter.
+                // Keep next_frame so scan can resume after coast when set by fire path.
                 scanning = false;
+                holding = false;
+                idle_recentering = false;
+                hold_until = 0;
+            } else if idle_recentering {
+                // HOLD → RECENTER residual: step toward natural pitch/yaw.
+                let (a, p) = step_turret_toward_natural(angle, pitch);
+                angle = a;
+                pitch = p;
+                if turret_angles_are_natural(angle, pitch) {
+                    idle_recentering = false;
+                    // Back to IDLE: schedule next idle-scan residual.
+                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                    idle_recenter_completed = idle_recenter_completed.saturating_add(1);
+                }
+            } else if holding {
+                // HoldTurret residual: freeze angles until RecenterTime elapses.
+                if hold_turret_elapsed(frame, hold_until) {
+                    holding = false;
+                    hold_until = 0;
+                    idle_recentering = true;
+                    hold_completed = hold_completed.saturating_add(1);
+                    idle_recenter_started = idle_recenter_started.saturating_add(1);
+                    // First recenter step this frame.
+                    let (a, p) = step_turret_toward_natural(angle, pitch);
+                    angle = a;
+                    pitch = p;
+                    if turret_angles_are_natural(angle, pitch) {
+                        idle_recentering = false;
+                        next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
+                        idle_recenter_completed = idle_recenter_completed.saturating_add(1);
+                    }
+                }
             } else if scanning {
                 let (a, p) = step_turret_toward_angles(
                     angle,
@@ -23776,17 +23867,20 @@ impl GameLogic {
                     desired,
                     STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
                 ) {
-                    // Scan complete residual: reschedule next interval.
+                    // Scan complete residual → HoldTurret (do not reschedule yet).
                     scanning = false;
                     scan_index = scan_index.saturating_add(1);
-                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
-                    completed = completed.saturating_add(1);
+                    holding = true;
+                    hold_until = hold_turret_until_frame(frame);
+                    next_frame = 0;
+                    scan_completed = scan_completed.saturating_add(1);
+                    hold_started = hold_started.saturating_add(1);
                 }
             } else if next_frame > 0 && frame >= next_frame {
                 // Start idle-scan residual toward natural + offset.
                 desired = idle_scan_desired_angle_deg(scan_index);
                 scanning = true;
-                started = started.saturating_add(1);
+                scan_started = scan_started.saturating_add(1);
                 // First step this frame.
                 let (a, p) = step_turret_toward_angles(
                     angle,
@@ -23804,13 +23898,19 @@ impl GameLogic {
                 ) {
                     scanning = false;
                     scan_index = scan_index.saturating_add(1);
-                    next_frame = frame.saturating_add(idle_scan_interval_frames(scan_index));
-                    completed = completed.saturating_add(1);
+                    holding = true;
+                    hold_until = hold_turret_until_frame(frame);
+                    next_frame = 0;
+                    scan_completed = scan_completed.saturating_add(1);
+                    hold_started = hold_started.saturating_add(1);
                 }
             }
 
             if let Some(obj) = self.objects.get_mut(&cid) {
                 obj.turret_idle_scanning = scanning;
+                obj.turret_holding = holding;
+                obj.turret_idle_recentering = idle_recentering;
+                obj.turret_hold_until_frame = hold_until;
                 obj.turret_idle_scan_desired_angle_deg = desired;
                 obj.turret_idle_scan_next_frame = next_frame;
                 obj.turret_idle_scan_index = scan_index;
@@ -23818,11 +23918,23 @@ impl GameLogic {
                 obj.turret_pitch_deg = pitch;
             }
         }
-        for _ in 0..started {
+        for _ in 0..scan_started {
             self.battle_plans.record_turret_idle_scan_start();
         }
-        for _ in 0..completed {
+        for _ in 0..scan_completed {
             self.battle_plans.record_turret_idle_scan_complete();
+        }
+        for _ in 0..hold_started {
+            self.battle_plans.record_turret_hold_start();
+        }
+        for _ in 0..hold_completed {
+            self.battle_plans.record_turret_hold_complete();
+        }
+        for _ in 0..idle_recenter_started {
+            self.battle_plans.record_turret_idle_recenter_start();
+        }
+        for _ in 0..idle_recenter_completed {
+            self.battle_plans.record_turret_idle_recenter_complete();
         }
     }
 
@@ -23905,8 +24017,11 @@ impl GameLogic {
             .collect();
         for cid in centering {
             if let Some(obj) = self.objects.get_mut(&cid) {
-                // Recenter cancels idle-scan residual.
+                // Pack recenter cancels idle-scan / Hold / idle-recenter residual.
                 obj.turret_idle_scanning = false;
+                obj.turret_holding = false;
+                obj.turret_hold_until_frame = 0;
+                obj.turret_idle_recentering = false;
                 let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
                 obj.turret_angle_deg = a;
                 obj.turret_pitch_deg = p;
@@ -24046,8 +24161,11 @@ impl GameLogic {
                         center.weapon = None;
                         center.secondary_weapon = None;
                         center.stop_attack();
-                        // Cancel TurretAI idle-scan residual when gun unequips.
+                        // Cancel TurretAI idle-scan / Hold residual when gun unequips.
                         center.turret_idle_scanning = false;
+                        center.turret_holding = false;
+                        center.turret_hold_until_frame = 0;
+                        center.turret_idle_recentering = false;
                         center.turret_idle_scan_next_frame = 0;
                     }
                 }
@@ -24223,6 +24341,9 @@ impl GameLogic {
                             // after MinIdleScanInterval (scan_index 0 → 15 frames).
                             center.turret_idle_scan_index = 0;
                             center.turret_idle_scanning = false;
+                            center.turret_holding = false;
+                            center.turret_hold_until_frame = 0;
+                            center.turret_idle_recentering = false;
                             center.turret_idle_scan_next_frame = frame.saturating_add(
                                 crate::game_logic::host_strategy_center::idle_scan_interval_frames(0),
                             );
@@ -28380,12 +28501,14 @@ impl GameLogic {
 
         // GLA CamoNetting structure residual: StealthForbiddenConditions =
         // ATTACKING + USING_ABILITY + TAKING_DAMAGE, StealthDelay 2500ms re-cloak,
-        // OrderIdleEnemiesToAttackMeUponReveal residual on uncloak.
+        // OrderIdleEnemiesToAttackMeUponReveal residual on uncloak,
+        // FriendlyOpacity residual (min cloaked / max revealed + pulse while cloaked).
         {
             use crate::game_logic::host_upgrades::{
-                camo_netting_order_idle_enemy_in_range, camo_netting_stealth_allowed_frame,
-                camo_netting_structure_stealth_desired, is_camo_netting_structure_template,
-                UPGRADE_GLA_CAMO_NETTING,
+                camo_netting_order_idle_enemy_in_range, camo_netting_pulse_opacity,
+                camo_netting_stealth_allowed_frame, camo_netting_structure_stealth_desired,
+                is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MAX,
+                CAMO_NETTING_FRIENDLY_OPACITY_MIN, UPGRADE_GLA_CAMO_NETTING,
             };
             let struct_ids: Vec<ObjectId> = self
                 .objects
@@ -28402,6 +28525,8 @@ impl GameLogic {
                 .collect();
             let mut recloaks = 0u32;
             let mut reveals = 0u32;
+            let mut opacity_cloaks = 0u32;
+            let mut opacity_reveals = 0u32;
             let mut revealed_ids: Vec<ObjectId> = Vec::new();
             for sid in struct_ids {
                 let Some(obj) = self.objects.get_mut(&sid) else {
@@ -28435,6 +28560,10 @@ impl GameLogic {
                     obj.status.detected = false;
                     obj.detection_expires_frame = 0;
                     obj.stealth_allowed_frame = 0;
+                    // FriendlyOpacity residual: cloaked → min (then pulse).
+                    obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
+                    obj.camo_opacity_pulse_phase = 0.0;
+                    opacity_cloaks = opacity_cloaks.saturating_add(1);
                     recloaks = recloaks.saturating_add(1);
                 } else if !desired && obj.status.stealthed {
                     obj.break_stealth();
@@ -28443,10 +28572,39 @@ impl GameLogic {
                         obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(frame);
                         obj.stealth_delay_pending = false;
                     }
+                    // FriendlyOpacity residual: revealed → max (no pulse).
+                    obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
+                    opacity_reveals = opacity_reveals.saturating_add(1);
                     reveals = reveals.saturating_add(1);
                     revealed_ids.push(sid);
+                } else if obj.status.stealthed && !obj.status.detected {
+                    // Pulse residual while cloaked (C++ setEffectiveOpacity sin path).
+                    // If still at default full opacity (spawned already cloaked),
+                    // record one cloak opacity residual.
+                    if (obj.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() < 0.01
+                        && obj.camo_opacity_pulse_phase == 0.0
+                    {
+                        opacity_cloaks = opacity_cloaks.saturating_add(1);
+                    }
+                    let (op, next_phase) =
+                        camo_netting_pulse_opacity(obj.camo_opacity_pulse_phase);
+                    obj.camo_friendly_opacity = op;
+                    obj.camo_opacity_pulse_phase = next_phase;
+                } else {
+                    // Revealed residual: hold max opacity.
+                    if (obj.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() > 0.01
+                    {
+                        obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
+                        opacity_reveals = opacity_reveals.saturating_add(1);
+                    }
                 }
             }
+            self.camo_netting_opacity_cloak_count = self
+                .camo_netting_opacity_cloak_count
+                .saturating_add(opacity_cloaks);
+            self.camo_netting_opacity_reveal_count = self
+                .camo_netting_opacity_reveal_count
+                .saturating_add(opacity_reveals);
             // OrderIdleEnemiesToAttackMeUponReveal residual: idle enemy units
             // that can see the revealed structure wake and attempt to target it.
             for rid in revealed_ids {
@@ -41859,10 +42017,9 @@ mod tests {
     #[test]
     fn strategy_center_turret_idle_scan_residual() {
         use crate::game_logic::host_strategy_center::{
-            idle_scan_desired_angle_deg, idle_scan_interval_frames, turret_angles_are_natural,
-            HostBattlePlan, STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
-            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
-            STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
+            idle_scan_desired_angle_deg, turret_angles_are_natural, HostBattlePlan,
+            STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
         };
 
         let mut game_logic = GameLogic::new();
@@ -41970,7 +42127,7 @@ mod tests {
         }
         assert!(
             game_logic.battle_plans().turret_idle_scan_complete_count() >= 1,
-            "idle-scan residual must complete and reschedule"
+            "idle-scan residual must complete"
         );
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
@@ -41978,13 +42135,14 @@ mod tests {
                 !sc.turret_idle_scanning,
                 "scan complete residual clears scanning flag"
             );
-            // Rescheduled: scan_index 1 → MaxIdleScanInterval 30.
+            // C++ IDLESCAN → HOLD: enter HoldTurret residual (no next-scan yet).
             assert!(
-                sc.turret_idle_scan_next_frame
-                    >= game_logic.frame.saturating_add(idle_scan_interval_frames(1) - 1),
-                "complete residual must reschedule next idle scan, next={} frame={}",
-                sc.turret_idle_scan_next_frame,
-                game_logic.frame
+                sc.turret_holding,
+                "scan complete residual must enter HoldTurret"
+            );
+            assert_eq!(
+                sc.turret_idle_scan_next_frame, 0,
+                "Hold residual defers next idle-scan schedule"
             );
             assert!(
                 (sc.turret_angle_deg - desired).abs() < 0.5 || sc.turret_idle_scan_index >= 1,
@@ -41993,11 +42151,16 @@ mod tests {
                 desired
             );
         }
+        assert!(
+            game_logic.honesty_strategy_center_turret_hold_ok(),
+            "HoldTurret residual honesty must record start"
+        );
 
-        // Busy residual: attacking cancels mid-scan.
+        // Busy residual: attacking cancels mid-scan / hold.
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.turret_idle_scanning = true;
+            sc.turret_holding = false;
             sc.turret_idle_scan_desired_angle_deg = idle_scan_desired_angle_deg(1);
             sc.status.attacking = true;
             sc.ai_state = AIState::Attacking;
@@ -42010,7 +42173,169 @@ mod tests {
                 !sc.turret_idle_scanning,
                 "busy residual must cancel idle-scan"
             );
+            assert!(
+                !sc.turret_holding && !sc.turret_idle_recentering,
+                "busy residual must cancel hold / idle-recenter"
+            );
         }
+    }
+
+    /// Residual: TurretAI HoldTurret + idle-recenter after idle-scan.
+    ///
+    /// C++ IDLESCAN → HOLD (RecenterTime **60** frames) → RECENTER → IDLE.
+    /// Host-testable: hold freezes angles; after 60 frames recenter to natural;
+    /// then next idle-scan is scheduled. Fail-closed: not full mood-target.
+    #[test]
+    fn strategy_center_turret_hold_and_idle_recenter_residual() {
+        use crate::game_logic::host_strategy_center::{
+            hold_turret_until_frame, idle_scan_desired_angle_deg, idle_scan_interval_frames,
+            turret_angles_are_natural, HostBattlePlan, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_RECENTER_TIME_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        if !game_logic.players.contains_key(&0) {
+            game_logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        }
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        advance_battle_plan_door_to_active(&mut game_logic);
+
+        // Force idle-scan complete at desired angle → enter Hold immediately.
+        let desired = idle_scan_desired_angle_deg(0);
+        let hold_start = game_logic.frame;
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+            sc.turret_angle_deg = desired;
+            sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+            sc.turret_idle_scanning = true;
+            sc.turret_idle_scan_desired_angle_deg = desired;
+            sc.turret_idle_scan_index = 0;
+            sc.turret_holding = false;
+            sc.turret_idle_recentering = false;
+            sc.turret_hold_until_frame = 0;
+            sc.turret_idle_scan_next_frame = 0;
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(sc.turret_holding, "scan complete → HoldTurret residual");
+            assert!(!sc.turret_idle_scanning);
+            assert_eq!(
+                sc.turret_hold_until_frame,
+                hold_turret_until_frame(hold_start)
+            );
+            assert_eq!(STRATEGY_CENTER_RECENTER_TIME_FRAMES, 60);
+            // Angles frozen at desired during hold.
+            assert!((sc.turret_angle_deg - desired).abs() < 0.5);
+        }
+        assert!(game_logic.honesty_strategy_center_turret_hold_ok());
+        assert_eq!(game_logic.battle_plans().turret_hold_start_count(), 1);
+
+        // Mid-hold: angles still frozen, not recentering yet.
+        game_logic.frame = hold_start.saturating_add(30);
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(sc.turret_holding, "must still be holding mid RecenterTime");
+            assert!(!sc.turret_idle_recentering);
+            assert!((sc.turret_angle_deg - desired).abs() < 0.5);
+        }
+
+        // Hold elapses → idle-recenter residual starts toward natural.
+        game_logic.frame = hold_turret_until_frame(hold_start);
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(
+            game_logic.battle_plans().turret_hold_complete_count() >= 1,
+            "HoldTurret residual must complete after RecenterTime"
+        );
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(!sc.turret_holding, "hold complete clears holding");
+            // Either mid idle-recenter or already finished (if already natural).
+            assert!(
+                sc.turret_idle_recentering
+                    || turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "after hold must idle-recenter or already natural"
+            );
+            // First step toward natural: from desired (-60) toward -90 → -62.
+            if sc.turret_idle_recentering {
+                assert!(
+                    (sc.turret_angle_deg - desired).abs() > 0.5
+                        || (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs()
+                            < 0.5,
+                    "idle-recenter residual must step toward natural, got {}",
+                    sc.turret_angle_deg
+                );
+            }
+        }
+        assert!(
+            game_logic.battle_plans().turret_idle_recenter_start_count() >= 1
+                || game_logic.honesty_strategy_center_turret_idle_recenter_ok(),
+            "idle-recenter residual must start"
+        );
+
+        // Step enough frames for 30° at 2 deg/frame to restore natural.
+        for _ in 0..40 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.tick_battle_plan_door_residuals();
+            let sc = game_logic.find_object(sc_id).unwrap();
+            if !sc.turret_idle_recentering
+                && turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg)
+            {
+                break;
+            }
+        }
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "idle-recenter residual must restore natural angles, a={} p={}",
+                sc.turret_angle_deg,
+                sc.turret_pitch_deg
+            );
+            assert!(!sc.turret_idle_recentering);
+            // Next idle-scan scheduled with scan_index 1 → MaxIdleScanInterval 30.
+            assert!(
+                sc.turret_idle_scan_next_frame
+                    >= game_logic
+                        .frame
+                        .saturating_add(idle_scan_interval_frames(1).saturating_sub(1)),
+                "idle-recenter complete must reschedule next idle scan, next={} frame={}",
+                sc.turret_idle_scan_next_frame,
+                game_logic.frame
+            );
+        }
+        assert!(
+            game_logic.honesty_strategy_center_turret_idle_recenter_ok(),
+            "idle-recenter residual honesty must record complete"
+        );
     }
 
     /// Residual: AmericaParachute OpenDist freefall → open residual path.
@@ -53571,6 +53896,7 @@ mod tests {
     fn camo_netting_structure_attack_and_damage_reveal_residual() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_upgrades::{
+            CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
             CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
         };
 
@@ -53622,7 +53948,18 @@ mod tests {
             assert!(o.stealth_breaks_on_attack);
             assert!(o.stealth_breaks_on_damage);
             assert_eq!(o.stealth_delay_frames, CAMO_NETTING_STEALTH_DELAY_FRAMES);
+            // FriendlyOpacity residual: cloaked → min (50%).
+            assert!(
+                (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01,
+                "CamoNetting cloak residual must set FriendlyOpacityMin, got {}",
+                o.camo_friendly_opacity
+            );
         }
+        assert!(
+            game_logic.honesty_camo_netting_friendly_opacity_ok(),
+            "FriendlyOpacity residual honesty must record cloak"
+        );
+        assert!(game_logic.camo_netting_opacity_cloak_count() >= 2);
 
         // TAKING_DAMAGE residual uncloaks.
         let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
@@ -53632,6 +53969,13 @@ mod tests {
                 .map(|o| o.status.stealthed)
                 .unwrap_or(true),
             "damage residual must break CamoNetting structure stealth"
+        );
+        assert!(
+            game_logic
+                .find_object(tunnel_id)
+                .map(|o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() < 0.01)
+                .unwrap_or(false),
+            "damage reveal residual must set FriendlyOpacityMax"
         );
         assert!(
             game_logic
@@ -53784,6 +54128,37 @@ mod tests {
                 .unwrap_or(false),
             "idle after StealthDelay must re-cloak CamoNetting structure"
         );
+        assert!(
+            game_logic
+                .find_object(tunnel_id)
+                .map(|o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01
+                    || o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX)
+                .unwrap_or(false),
+            "re-cloak residual must restore FriendlyOpacityMin (or pulse within min..max)"
+        );
+        // Pulse residual while cloaked: one more tick advances phase / opacity.
+        let (op_before, phase_before) = game_logic
+            .find_object(tunnel_id)
+            .map(|o| (o.camo_friendly_opacity, o.camo_opacity_pulse_phase))
+            .unwrap_or((1.0, 0.0));
+        game_logic.frame = recloak_frame.saturating_add(1);
+        game_logic.update_stealth_and_detection();
+        {
+            let o = game_logic.find_object(tunnel_id).unwrap();
+            assert!(o.status.stealthed);
+            assert!(
+                o.camo_opacity_pulse_phase > phase_before
+                    || (o.camo_friendly_opacity - op_before).abs() > 0.001
+                    || o.camo_friendly_opacity >= CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+                "cloaked residual must pulse FriendlyOpacity"
+            );
+            assert!(
+                o.camo_friendly_opacity >= CAMO_NETTING_FRIENDLY_OPACITY_MIN - 0.01
+                    && o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX + 0.01,
+                "pulse residual opacity must stay in min..max, got {}",
+                o.camo_friendly_opacity
+            );
+        }
         assert!(
             game_logic.camo_netting_structure_residual_recloaks() > 0
                 || game_logic.honesty_camo_netting_structure_stealth_ok(),

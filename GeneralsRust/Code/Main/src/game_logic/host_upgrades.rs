@@ -744,6 +744,37 @@ pub const UPGRADE_GLA_CAMO_NETTING: &str = "Upgrade_GLACamoNetting";
 /// 2500 with StealthForbiddenConditions = ATTACKING USING_ABILITY TAKING_DAMAGE.
 pub const CAMO_NETTING_STEALTH_DELAY_FRAMES: u32 = 75;
 
+/// Retail CamoNetting FriendlyOpacityMin **50%** (StealthUpdate residual).
+pub const CAMO_NETTING_FRIENDLY_OPACITY_MIN: f32 = 0.5;
+/// Retail CamoNetting FriendlyOpacityMax **100%**.
+pub const CAMO_NETTING_FRIENDLY_OPACITY_MAX: f32 = 1.0;
+/// C++ StealthUpdate pulse phase rate residual (`m_pulsePhaseRate = 0.2`).
+pub const CAMO_NETTING_OPACITY_PULSE_PHASE_RATE: f32 = 0.2;
+
+/// Discrete FriendlyOpacity residual from cloaked / revealed state.
+///
+/// Stealthed-and-undetected → FriendlyOpacityMin; otherwise → Max.
+pub fn camo_netting_friendly_opacity(stealthed: bool, detected: bool) -> f32 {
+    if stealthed && !detected {
+        CAMO_NETTING_FRIENDLY_OPACITY_MIN
+    } else {
+        CAMO_NETTING_FRIENDLY_OPACITY_MAX
+    }
+}
+
+/// StealthUpdate pulse opacity residual while cloaked.
+///
+/// C++ drawable path: `0.5 + sin(phase) * 0.5` (range 0..1). Host residual maps
+/// that factor into FriendlyOpacityMin..Max so cloaked structures pulse between
+/// **50%** and **100%**. Returns `(opacity, next_phase)`.
+pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
+    let t = 0.5 + 0.5 * phase.sin(); // 0..1
+    let opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN
+        + (CAMO_NETTING_FRIENDLY_OPACITY_MAX - CAMO_NETTING_FRIENDLY_OPACITY_MIN) * t;
+    let next_phase = phase + CAMO_NETTING_OPACITY_PULSE_PHASE_RATE;
+    (opacity, next_phase)
+}
+
 /// Whether a CamoNetting residual structure should be stealthed this frame.
 ///
 /// Host residual of StealthUpdate::allowedToStealth for structures:
@@ -752,7 +783,7 @@ pub const CAMO_NETTING_STEALTH_DELAY_FRAMES: u32 = 75;
 /// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
 /// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
 ///
-/// Fail-closed: not full opacity drawable / sub-object camo net visual.
+/// Fail-closed: not full sub-object camo net visual / W3D heat-vision matrix.
 pub fn camo_netting_structure_stealth_desired(
     innate_stealth: bool,
     is_alive: bool,
@@ -918,6 +949,21 @@ mod camo_netting_and_gamma_tests {
         assert!(!camo_netting_order_idle_enemy_in_range(
             true, true, false, 50.0, 150.0
         ));
+
+        // FriendlyOpacity residual matrix.
+        assert!((CAMO_NETTING_FRIENDLY_OPACITY_MIN - 0.5).abs() < 0.001);
+        assert!((CAMO_NETTING_FRIENDLY_OPACITY_MAX - 1.0).abs() < 0.001);
+        assert!((camo_netting_friendly_opacity(true, false) - 0.5).abs() < 0.001);
+        assert!((camo_netting_friendly_opacity(true, true) - 1.0).abs() < 0.001);
+        assert!((camo_netting_friendly_opacity(false, false) - 1.0).abs() < 0.001);
+        // Pulse residual: phase 0 → mid-span opacity 0.75; phase advances by 0.2.
+        let (op0, ph1) = camo_netting_pulse_opacity(0.0);
+        assert!((op0 - 0.75).abs() < 0.001);
+        assert!((ph1 - 0.2).abs() < 0.001);
+        let (op_pi_2, _) = camo_netting_pulse_opacity(std::f32::consts::FRAC_PI_2);
+        assert!((op_pi_2 - 1.0).abs() < 0.001);
+        let (op_3pi_2, _) = camo_netting_pulse_opacity(3.0 * std::f32::consts::FRAC_PI_2);
+        assert!((op_3pi_2 - 0.5).abs() < 0.001);
     }
 
     #[test]
