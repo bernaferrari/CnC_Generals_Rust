@@ -1127,6 +1127,10 @@ pub struct GameLogic {
     stinger_hive_residual_swallows: u32,
     /// SpawnBehavior residual: slave respawns completed.
     stinger_hive_residual_respawns: u32,
+    /// getClosestSlave residual: propagate hits that used shooter world position.
+    stinger_hive_residual_closest_slave_hits: u32,
+    /// CamoNetting StealthLook / heat-vision residual applications.
+    camo_netting_heat_vision_count: u32,
     /// CamoNetting structure StealthUpdate residual: attack/damage reveals.
     camo_netting_structure_residual_reveals: u32,
     /// OrderIdleEnemiesToAttackMeUponReveal residual wake count (CamoNetting).
@@ -2166,6 +2170,8 @@ impl GameLogic {
             stinger_hive_residual_slave_kills: 0,
             stinger_hive_residual_swallows: 0,
             stinger_hive_residual_respawns: 0,
+            stinger_hive_residual_closest_slave_hits: 0,
+            camo_netting_heat_vision_count: 0,
             camo_netting_structure_residual_reveals: 0,
             camo_netting_order_idle_enemies_count: 0,
             camo_netting_structure_residual_recloaks: 0,
@@ -2504,6 +2510,8 @@ impl GameLogic {
         self.stinger_hive_residual_slave_kills = 0;
         self.stinger_hive_residual_swallows = 0;
         self.stinger_hive_residual_respawns = 0;
+        self.stinger_hive_residual_closest_slave_hits = 0;
+        self.camo_netting_heat_vision_count = 0;
         self.camo_netting_structure_residual_reveals = 0;
         self.camo_netting_order_idle_enemies_count = 0;
         self.camo_netting_structure_residual_recloaks = 0;
@@ -10969,16 +10977,18 @@ impl GameLogic {
             }
 
             // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
-            // HiveStructureBody / SpawnBehavior residual (3 soldiers).
+            // HiveStructureBody / SpawnBehavior residual (3 soldiers) + physical roster.
             if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
                 use crate::game_logic::host_base_defense::{
-                    init_stinger_hive_slaves, stinger_air_weapon, stinger_ground_weapon,
-                    stinger_has_ap_rockets,
+                    init_stinger_hive_slave_roster, stinger_air_weapon, stinger_ground_weapon,
+                    stinger_has_ap_rockets, sync_hive_slave_mirrors,
                 };
                 let ap = stinger_has_ap_rockets(&object.applied_upgrades);
                 object.weapon = Some(stinger_ground_weapon(ap));
                 object.secondary_weapon = Some(stinger_air_weapon(ap));
-                let (slaves, slave_hp) = init_stinger_hive_slaves();
+                let roster = init_stinger_hive_slave_roster();
+                object.hive_slaves = roster;
+                let (slaves, slave_hp) = sync_hive_slave_mirrors(&roster);
                 object.hive_slave_count = slaves;
                 object.hive_slave_hp = slave_hp;
                 object.hive_slave_respawn_frame = 0;
@@ -16647,6 +16657,7 @@ impl GameLogic {
             || self.stinger_hive_residual_slave_kills > 0
             || self.stinger_hive_residual_swallows > 0
             || self.stinger_hive_residual_respawns > 0
+            || self.stinger_hive_residual_closest_slave_hits > 0
     }
 
     pub fn stinger_hive_residual_slave_hits(&self) -> u32 {
@@ -16665,6 +16676,15 @@ impl GameLogic {
         self.stinger_hive_residual_respawns
     }
 
+    /// Residual honesty: getClosestSlave physical roster path used.
+    pub fn honesty_stinger_closest_slave_ok(&self) -> bool {
+        self.stinger_hive_residual_closest_slave_hits > 0
+    }
+
+    pub fn stinger_hive_residual_closest_slave_hits(&self) -> u32 {
+        self.stinger_hive_residual_closest_slave_hits
+    }
+
     /// Residual honesty: CamoNetting structure attack/damage reveal + re-cloak.
     pub fn honesty_camo_netting_structure_stealth_ok(&self) -> bool {
         self.camo_netting_structure_residual_reveals > 0
@@ -16672,6 +16692,21 @@ impl GameLogic {
             || self.camo_netting_order_idle_enemies_count > 0
             || self.camo_netting_opacity_cloak_count > 0
             || self.camo_netting_opacity_reveal_count > 0
+            || self.camo_netting_heat_vision_count > 0
+    }
+
+    /// Residual honesty: CamoNetting StealthLook heat-vision residual applied.
+    pub fn honesty_camo_netting_heat_vision_ok(&self) -> bool {
+        self.camo_netting_heat_vision_count > 0
+    }
+
+    pub fn camo_netting_heat_vision_count(&self) -> u32 {
+        self.camo_netting_heat_vision_count
+    }
+
+    /// Residual honesty: Strategy Center TurretAI idle mood-target residual.
+    pub fn honesty_strategy_center_turret_mood_target_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_mood_target_ok()
     }
 
     pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
@@ -23773,6 +23808,138 @@ impl GameLogic {
         self.battle_plans.honesty_turret_idle_recenter_ok()
     }
 
+    /// Tick TurretAI idle mood-target residual for Bombardment ACTIVE Strategy Centers.
+    ///
+    /// C++ `TurretAI::friend_checkForIdleMoodTarget` residual:
+    /// - When idle, acquire nearest legal enemy in StrategyCenterGun range band
+    /// - Aim pitch/yaw at target (FirePitch **45**), flag `m_targetWasSetByIdleMood`
+    /// - When mood target dies / leaves range, clear target so idle-scan resumes
+    fn tick_strategy_center_turret_mood_target(&mut self) {
+        use crate::game_logic::host_strategy_center::{
+            is_strategy_center_template, strategy_center_gun_in_range,
+            strategy_center_mood_target_eligible, strategy_center_mood_target_enemy_legal,
+            strategy_center_mood_target_should_clear, strategy_center_turret_aim_at,
+            HostBattlePlan, HostBattlePlanTransition,
+        };
+
+        // Bombardment ACTIVE centers.
+        let centers: Vec<ObjectId> = self
+            .battle_plans
+            .door_states()
+            .iter()
+            .filter(|s| {
+                s.status == HostBattlePlanTransition::Active
+                    && s.door_plan == Some(HostBattlePlan::Bombardment)
+                    && !s.centering_turret
+            })
+            .map(|s| s.center_id)
+            .collect();
+
+        let mut acquires = 0u32;
+        let mut clears = 0u32;
+        for cid in centers {
+            let Some(obj) = self.objects.get(&cid) else {
+                continue;
+            };
+            if !obj.is_alive() || !is_strategy_center_template(&obj.template_name) {
+                continue;
+            }
+            if obj.weapon.is_none() {
+                continue;
+            }
+            let team = obj.team;
+            let fire_pos = obj.get_position();
+            let busy = obj.status.attacking
+                || matches!(
+                    obj.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                );
+            // Clear stale mood target residual first.
+            if obj.turret_mood_target {
+                let tgt = obj.target;
+                let (alive, in_range) = if let Some(tid) = tgt {
+                    if let Some(t) = self.objects.get(&tid) {
+                        let tp = t.get_position();
+                        let dx = tp.x - fire_pos.x;
+                        let dz = tp.z - fire_pos.z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        (t.is_alive(), strategy_center_gun_in_range(dist))
+                    } else {
+                        (false, false)
+                    }
+                } else {
+                    (false, false)
+                };
+                if strategy_center_mood_target_should_clear(true, alive, in_range) {
+                    if let Some(o) = self.objects.get_mut(&cid) {
+                        o.target = None;
+                        o.turret_mood_target = false;
+                        o.status.attacking = false;
+                        if matches!(o.ai_state, AIState::Attacking) {
+                            o.ai_state = AIState::Idle;
+                        }
+                    }
+                    clears = clears.saturating_add(1);
+                }
+                continue; // hold mood target or just cleared; no re-acquire this frame
+            }
+
+            if !strategy_center_mood_target_eligible(true, true, busy, false) {
+                continue;
+            }
+
+            // Find nearest legal residual mood target.
+            let mut best: Option<(ObjectId, f32, f32, f32)> = None; // id, dist, x, z
+            for (oid, other) in self.objects.iter() {
+                if *oid == cid {
+                    continue;
+                }
+                let op = other.get_position();
+                let dx = op.x - fire_pos.x;
+                let dz = op.z - fire_pos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                let is_air = other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
+                if !strategy_center_mood_target_enemy_legal(
+                    other.is_alive(),
+                    other.team == team,
+                    other.team == Team::Neutral,
+                    other.status.under_construction,
+                    is_air,
+                    dist,
+                ) {
+                    continue;
+                }
+                if best.map(|(_, bd, _, _)| dist < bd).unwrap_or(true) {
+                    best = Some((*oid, dist, op.x, op.z));
+                }
+            }
+            if let Some((tid, _, tx, tz)) = best {
+                let (aim_a, aim_p) =
+                    strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                if let Some(o) = self.objects.get_mut(&cid) {
+                    o.target = Some(tid);
+                    o.turret_mood_target = true;
+                    o.turret_angle_deg = aim_a;
+                    o.turret_pitch_deg = aim_p;
+                    // Mood acquire cancels idle-scan residual.
+                    o.turret_idle_scanning = false;
+                    o.turret_holding = false;
+                    o.turret_hold_until_frame = 0;
+                    o.turret_idle_recentering = false;
+                    o.ai_state = AIState::Attacking;
+                    o.status.attacking = true;
+                }
+                acquires = acquires.saturating_add(1);
+            }
+        }
+        for _ in 0..acquires {
+            self.battle_plans.record_turret_mood_target_acquire();
+        }
+        for _ in 0..clears {
+            self.battle_plans.record_turret_mood_target_clear();
+        }
+    }
+
     /// Tick TurretAI idle-scan / HoldTurret / idle-recenter residual for
     /// Bombardment ACTIVE Strategy Centers.
     ///
@@ -24054,6 +24221,8 @@ impl GameLogic {
 
         // TurretAI idle-scan residual (Bombardment ACTIVE, idle gun).
         self.tick_strategy_center_turret_idle_scan();
+        // TurretAI idle mood-target residual (friend_checkForIdleMoodTarget).
+        self.tick_strategy_center_turret_mood_target();
 
         let frame = self.frame;
         let events = self.battle_plans.tick_door_residuals(frame);
@@ -26291,35 +26460,40 @@ impl GameLogic {
         damage: f32,
         class: crate::game_logic::host_base_defense::HostHiveDamageClass,
     ) -> (bool, bool) {
+        self.apply_host_hive_damage_from(id, damage, class, None)
+    }
+
+    /// HiveStructureBody residual with optional shooter for getClosestSlave.
+    ///
+    /// `shooter_xz`: world (x, z) of damage source. When set, residual damages
+    /// the closest physical slave slot (C++ `getClosestSlave(shooter->pos)`).
+    pub fn apply_host_hive_damage_from(
+        &mut self,
+        id: ObjectId,
+        damage: f32,
+        class: crate::game_logic::host_base_defense::HostHiveDamageClass,
+        shooter_xz: Option<(f32, f32)>,
+    ) -> (bool, bool) {
         use crate::game_logic::host_base_defense::{
-            is_stinger_site_structure, next_stinger_slave_respawn_frame, resolve_hive_structure_damage,
-            STINGER_SOLDIER_DIE_AUDIO,
+            is_stinger_site_structure, next_stinger_slave_respawn_frame,
+            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors, STINGER_SOLDIER_DIE_AUDIO,
         };
 
         // Snapshot flags before mutating so we can update honesty counters after
         // releasing the object borrow.
-        let (
-            is_stinger,
-            was_stealthed_on_damage,
-            invuln,
-            slave_count,
-            slave_hp,
-            struct_hp,
-            pos,
-            respawn_frame,
-        ) = {
+        let (is_stinger, was_stealthed_on_damage, invuln, struct_hp, pos, respawn_frame, site_xz) = {
             let Some(obj) = self.objects.get(&id) else {
                 return (false, false);
             };
+            let p = obj.get_position();
             (
                 is_stinger_site_structure(&obj.template_name),
                 obj.stealth_breaks_on_damage && obj.status.stealthed,
                 obj.is_eject_invulnerable(),
-                obj.hive_slave_count,
-                obj.hive_slave_hp,
                 obj.health.current,
-                obj.get_position(),
+                p,
                 obj.hive_slave_respawn_frame,
+                (p.x, p.z),
             )
         };
 
@@ -26330,15 +26504,42 @@ impl GameLogic {
 
         if is_stinger {
             let frame = self.frame;
-            let (new_count, new_hp, new_struct_hp, result) =
-                resolve_hive_structure_damage(slave_count, slave_hp, struct_hp, damage, class);
+            let shooter_arg = shooter_xz.map(|(qx, qz)| (site_xz.0, site_xz.1, qx, qz));
 
             let mut camo_reveal = false;
             let mut destroyed = false;
-            {
+            let (result_slave_dmg, result_killed, result_swallowed, closest_idx) = {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     return (false, false);
                 };
+                // Ensure roster initialized if only mirrors were set by older residual.
+                if obj.hive_slave_count > 0 && !obj.hive_slaves.iter().any(|s| s.alive) {
+                    obj.hive_slaves =
+                        crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
+                    // Apply mirror count/hp into first-alive slots.
+                    let n = (obj.hive_slave_count as usize).min(3);
+                    for (i, slot) in obj.hive_slaves.iter_mut().enumerate() {
+                        if i < n {
+                            slot.alive = true;
+                            slot.hp = if i == 0 {
+                                obj.hive_slave_hp.max(0.0)
+                            } else {
+                                crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH
+                            };
+                        } else {
+                            slot.alive = false;
+                            slot.hp = 0.0;
+                        }
+                    }
+                }
+                let (_, new_struct_hp, result) = resolve_hive_structure_damage_roster(
+                    &mut obj.hive_slaves,
+                    struct_hp,
+                    damage,
+                    class,
+                    shooter_arg,
+                );
+                let (new_count, new_hp) = sync_hive_slave_mirrors(&obj.hive_slaves);
                 obj.hive_slave_count = new_count;
                 obj.hive_slave_hp = new_hp;
                 if result.slaves_killed > 0 {
@@ -26360,20 +26561,31 @@ impl GameLogic {
                         destroyed = true;
                     }
                 }
-            }
+                (
+                    result.slave_damage_applied,
+                    result.slaves_killed,
+                    result.swallowed,
+                    result.closest_slave_index,
+                )
+            };
 
             if camo_reveal || was_stealthed_on_damage {
                 self.camo_netting_structure_residual_reveals =
                     self.camo_netting_structure_residual_reveals.saturating_add(1);
             }
-            if result.slave_damage_applied > 0.0 {
+            if result_slave_dmg > 0.0 {
                 self.stinger_hive_residual_slave_hits =
                     self.stinger_hive_residual_slave_hits.saturating_add(1);
+                if closest_idx.is_some() && shooter_xz.is_some() {
+                    self.stinger_hive_residual_closest_slave_hits = self
+                        .stinger_hive_residual_closest_slave_hits
+                        .saturating_add(1);
+                }
             }
-            if result.slaves_killed > 0 {
+            if result_killed > 0 {
                 self.stinger_hive_residual_slave_kills = self
                     .stinger_hive_residual_slave_kills
-                    .saturating_add(result.slaves_killed);
+                    .saturating_add(result_killed);
                 self.queue_audio_event(
                     AudioEventRequest::new(STINGER_SOLDIER_DIE_AUDIO)
                         .with_object(id)
@@ -26381,7 +26593,7 @@ impl GameLogic {
                         .with_priority(140),
                 );
             }
-            if result.swallowed {
+            if result_swallowed {
                 self.stinger_hive_residual_swallows =
                     self.stinger_hive_residual_swallows.saturating_add(1);
             }
@@ -26407,8 +26619,10 @@ impl GameLogic {
     /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
     pub fn update_stinger_hive_respawns(&mut self) {
         use crate::game_logic::host_base_defense::{
-            is_stinger_site_structure, next_stinger_slave_respawn_frame, should_respawn_stinger_slave,
-            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+            count_alive_hive_slaves, is_stinger_site_structure, next_stinger_slave_respawn_frame,
+            respawn_one_hive_slave, should_respawn_stinger_slave, stinger_spawn_point_offsets,
+            sync_hive_slave_mirrors, ResidualHiveSlave, STINGER_SOLDIER_MAX_HEALTH,
+            STINGER_SPAWN_NUMBER,
         };
 
         let frame = self.frame;
@@ -26416,6 +26630,37 @@ impl GameLogic {
         for obj in self.objects.values_mut() {
             if !is_stinger_site_structure(&obj.template_name) || !obj.is_alive() {
                 continue;
+            }
+            // Keep physical roster aligned with legacy count mirror when tests
+            // or older residual paths mutate count alone.
+            let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
+            if roster_alive != obj.hive_slave_count {
+                let offs = stinger_spawn_point_offsets();
+                let n = (obj.hive_slave_count as usize).min(3);
+                for i in 0..3 {
+                    if i < n {
+                        obj.hive_slaves[i] = ResidualHiveSlave {
+                            hp: if i == 0 {
+                                obj.hive_slave_hp.max(STINGER_SOLDIER_MAX_HEALTH * 0.01)
+                            } else {
+                                STINGER_SOLDIER_MAX_HEALTH
+                            },
+                            offset_x: offs[i].0,
+                            offset_z: offs[i].1,
+                            alive: true,
+                        };
+                        if i == 0 && obj.hive_slave_hp > 0.0 {
+                            obj.hive_slaves[i].hp = obj.hive_slave_hp;
+                        }
+                    } else {
+                        obj.hive_slaves[i] = ResidualHiveSlave {
+                            hp: 0.0,
+                            offset_x: offs[i].0,
+                            offset_z: offs[i].1,
+                            alive: false,
+                        };
+                    }
+                }
             }
             if !should_respawn_stinger_slave(
                 obj.hive_slave_count,
@@ -26431,9 +26676,20 @@ impl GameLogic {
                 }
                 continue;
             }
-            obj.hive_slave_count = obj.hive_slave_count.saturating_add(1);
-            if obj.hive_slave_count == 1 {
-                obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            // Physical roster residual: revive first dead SpawnPoint slot.
+            if respawn_one_hive_slave(&mut obj.hive_slaves) {
+                let (c, h) = sync_hive_slave_mirrors(&obj.hive_slaves);
+                obj.hive_slave_count = c;
+                obj.hive_slave_hp = h;
+            } else {
+                // Count-only fallback residual.
+                obj.hive_slave_count = obj
+                    .hive_slave_count
+                    .saturating_add(1)
+                    .min(STINGER_SPAWN_NUMBER as u8);
+                if obj.hive_slave_count == 1 {
+                    obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+                }
             }
             respawned = respawned.saturating_add(1);
             if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8 {
@@ -28560,11 +28816,13 @@ impl GameLogic {
         // GLA CamoNetting structure residual: StealthForbiddenConditions =
         // ATTACKING + USING_ABILITY + TAKING_DAMAGE, StealthDelay 2500ms re-cloak,
         // OrderIdleEnemiesToAttackMeUponReveal residual on uncloak,
-        // FriendlyOpacity residual (min cloaked / max revealed + pulse while cloaked).
+        // FriendlyOpacity residual (min cloaked / max revealed + pulse while cloaked),
+        // StealthLook / heat-vision second-pass residual (Drawable::setStealthLook).
         {
             use crate::game_logic::host_upgrades::{
-                camo_netting_order_idle_enemy_in_range, camo_netting_pulse_opacity,
-                camo_netting_stealth_allowed_frame, camo_netting_structure_stealth_desired,
+                camo_netting_heat_vision_opacity, camo_netting_order_idle_enemy_in_range,
+                camo_netting_pulse_opacity, camo_netting_stealth_allowed_frame,
+                camo_netting_stealth_look, camo_netting_structure_stealth_desired,
                 is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MAX,
                 CAMO_NETTING_FRIENDLY_OPACITY_MIN, UPGRADE_GLA_CAMO_NETTING,
             };
@@ -28585,6 +28843,7 @@ impl GameLogic {
             let mut reveals = 0u32;
             let mut opacity_cloaks = 0u32;
             let mut opacity_reveals = 0u32;
+            let mut heat_vision = 0u32;
             let mut revealed_ids: Vec<ObjectId> = Vec::new();
             for sid in struct_ids {
                 let Some(obj) = self.objects.get_mut(&sid) else {
@@ -28656,7 +28915,24 @@ impl GameLogic {
                         opacity_reveals = opacity_reveals.saturating_add(1);
                     }
                 }
+
+                // StealthLook residual for enemy observer (default host residual view).
+                // Detected stealthed structures → heat-vision second material pass.
+                let look = camo_netting_stealth_look(
+                    obj.status.stealthed,
+                    obj.status.detected,
+                    false, // enemy observer residual (non-friendly)
+                );
+                let hv = camo_netting_heat_vision_opacity(look);
+                if hv > 0.0 && obj.camo_heat_vision_opacity < 0.5 {
+                    heat_vision = heat_vision.saturating_add(1);
+                }
+                obj.camo_stealth_look = look.as_u8();
+                obj.camo_heat_vision_opacity = hv;
             }
+            self.camo_netting_heat_vision_count = self
+                .camo_netting_heat_vision_count
+                .saturating_add(heat_vision);
             self.camo_netting_opacity_cloak_count = self
                 .camo_netting_opacity_cloak_count
                 .saturating_add(opacity_cloaks);
@@ -42397,6 +42673,121 @@ mod tests {
         );
     }
 
+    /// Residual: TurretAI idle mood-target acquire + out-of-range clear.
+    ///
+    /// C++ friend_checkForIdleMoodTarget: Bombardment ACTIVE idle gun acquires
+    /// enemy in StrategyCenterGun range band, aims FirePitch, flags mood target.
+    /// Mood target leaving range clears so idle-scan can resume.
+    /// Fail-closed: not full mood matrix Sleep/Passive / bone pitch drawable.
+    #[test]
+    fn strategy_center_turret_mood_target_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_GUN_MIN_RANGE,
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        if !game_logic.players.contains_key(&0) {
+            game_logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        }
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        advance_battle_plan_door_to_active(&mut game_logic);
+
+        // Idle natural gun + enemy in gun range band (min 100).
+        let enemy_id = game_logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                Vec3::new(STRATEGY_CENTER_GUN_MIN_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+            sc.turret_mood_target = false;
+            sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+            sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+            sc.turret_idle_scanning = false;
+            sc.turret_holding = false;
+            sc.turret_idle_recentering = false;
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                sc.turret_mood_target,
+                "idle mood-target residual must flag m_targetWasSetByIdleMood"
+            );
+            assert_eq!(sc.target, Some(enemy_id));
+            assert!(
+                (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+                "mood-target residual aims FirePitch, got {}",
+                sc.turret_pitch_deg
+            );
+            // Yaw left natural toward enemy at +X.
+            assert!(
+                (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() > 1.0
+                    || sc.turret_angle_deg.abs() < 5.0,
+                "mood-target residual must aim yaw at enemy, angle={}",
+                sc.turret_angle_deg
+            );
+            assert!(!sc.turret_idle_scanning);
+        }
+        assert!(
+            game_logic.honesty_strategy_center_turret_mood_target_ok(),
+            "mood-target residual honesty must record acquire"
+        );
+        assert_eq!(
+            game_logic.battle_plans().turret_mood_target_acquire_count(),
+            1
+        );
+
+        // Move enemy out of max range → mood clear residual.
+        {
+            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            e.set_position(Vec3::new(900.0, 0.0, 0.0));
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !sc.turret_mood_target,
+                "out-of-range residual must clear mood target"
+            );
+            assert!(sc.target.is_none());
+        }
+        assert!(
+            game_logic.battle_plans().turret_mood_target_clear_count() >= 1,
+            "mood-target clear honesty residual"
+        );
+    }
+
     /// Residual: AmericaParachute OpenDist freefall → open residual path.
     ///
     /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
@@ -54066,6 +54457,99 @@ mod tests {
         assert_eq!(STINGER_SPAWN_REPLACE_DELAY_FRAMES, 900);
     }
 
+    /// Residual: physical SpawnBehavior slave roster + getClosestSlave residual.
+    ///
+    /// Fail-closed: not full GLAInfantryStingerSoldier Object / AI / W3D attach.
+    #[test]
+    fn stinger_get_closest_slave_physical_roster_residual() {
+        use crate::game_logic::host_base_defense::{
+            HostHiveDamageClass, STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+            STINGER_SPAWN_POINT_RADIUS, STINGER_SPAWN_TEMPLATE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut stinger_tpl = crate::game_logic::ThingTemplate::new("GLAStingerSite");
+        stinger_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLAStingerSite".to_string(), stinger_tpl);
+
+        let stinger_id = game_logic
+            .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("stinger");
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
+            assert_eq!(
+                s.hive_slaves.iter().filter(|sl| sl.alive).count(),
+                STINGER_SPAWN_NUMBER as usize,
+                "physical residual roster must start with SpawnNumber slots"
+            );
+            assert!(
+                (s.hive_slaves[0].offset_x - STINGER_SPAWN_POINT_RADIUS).abs() < 0.01,
+                "slave 0 SpawnPoint residual at +radius"
+            );
+            assert_eq!(STINGER_SPAWN_TEMPLATE, "GLAInfantryStingerSoldier");
+        }
+
+        // Shooter near slave 0 (+radius, 0) → damage only that residual slot.
+        let shooter_near_0 = (STINGER_SPAWN_POINT_RADIUS + 5.0, 0.0);
+        let (destroyed, blocked) = game_logic.apply_host_hive_damage_from(
+            stinger_id,
+            40.0,
+            HostHiveDamageClass::PropagateToSlaves,
+            Some(shooter_near_0),
+        );
+        assert!(!destroyed && !blocked);
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!((s.hive_slaves[0].hp - 60.0).abs() < 0.01);
+            assert!((s.hive_slaves[1].hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
+            assert!((s.hive_slaves[2].hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
+            assert_eq!(s.hive_slave_count, 3);
+        }
+        assert!(game_logic.stinger_hive_residual_closest_slave_hits() >= 1);
+        assert!(game_logic.honesty_stinger_closest_slave_ok());
+
+        // Shooter near slave 2 world position → damage that slot.
+        let (sx2, sz2) = {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            s.hive_slaves[2].world_xz(0.0, 0.0)
+        };
+        let _ = game_logic.apply_host_hive_damage_from(
+            stinger_id,
+            25.0,
+            HostHiveDamageClass::PropagateToSlaves,
+            Some((sx2, sz2)),
+        );
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!((s.hive_slaves[2].hp - 75.0).abs() < 0.01);
+            assert!((s.hive_slaves[0].hp - 60.0).abs() < 0.01); // unchanged
+        }
+
+        // Kill slave 0 via closest residual.
+        let _ = game_logic.apply_host_hive_damage_from(
+            stinger_id,
+            100.0,
+            HostHiveDamageClass::PropagateToSlaves,
+            Some(shooter_near_0),
+        );
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!(!s.hive_slaves[0].alive);
+            assert_eq!(s.hive_slave_count, 2);
+            assert!(s.hive_slave_respawn_frame > 0);
+        }
+        assert!(game_logic.stinger_hive_residual_slave_kills() >= 1);
+        assert!(game_logic.honesty_stinger_hive_ok());
+    }
+
     /// Residual: CamoNetting structure ATTACKING/TAKING_DAMAGE reveal + StealthDelay re-cloak.
     #[test]
     fn camo_netting_structure_attack_and_damage_reveal_residual() {
@@ -54340,6 +54824,42 @@ mod tests {
             "camo structure stealth residual honesty"
         );
         assert!(game_logic.honesty_camo_netting_structure_stealth_ok());
+
+        // StealthLook / heat-vision residual: detect cloaked structure → second pass.
+        use crate::game_logic::host_upgrades::{
+            camo_netting_stealth_look, HostCamoStealthLook,
+        };
+        {
+            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            t.status.stealthed = true;
+            t.status.detected = true;
+            t.camo_heat_vision_opacity = 0.0;
+            t.camo_stealth_look = 0;
+        }
+        game_logic.update_stealth_and_detection();
+        {
+            let t = game_logic.find_object(tunnel_id).unwrap();
+            let look = HostCamoStealthLook::from_u8(t.camo_stealth_look);
+            assert_eq!(
+                look,
+                HostCamoStealthLook::VisibleDetected,
+                "enemy-detected residual StealthLook must be VISIBLE_DETECTED"
+            );
+            assert!(
+                (t.camo_heat_vision_opacity - 1.0).abs() < 0.01,
+                "heat-vision second material pass residual opacity must be 1.0, got {}",
+                t.camo_heat_vision_opacity
+            );
+            assert_eq!(
+                camo_netting_stealth_look(true, true, false),
+                HostCamoStealthLook::VisibleDetected
+            );
+        }
+        assert!(
+            game_logic.honesty_camo_netting_heat_vision_ok()
+                || game_logic.camo_netting_heat_vision_count() >= 1,
+            "CamoNetting heat-vision residual honesty"
+        );
     }
 
     /// Residual: USA Patriot AA secondary residual vs aircraft.
@@ -54592,14 +55112,16 @@ mod tests {
 
     /// Residual: AssistedTargetingUpdate BinaryDataStream LaserFromAssisted +
     /// LaserToTarget feedback beams (PatriotBinaryDataStream DeletionUpdate 600ms)
-    /// + LaserUpdate endpoint track / W3DLaserDraw ScrollRate residual.
+    /// + LaserUpdate endpoint track / W3DLaserDraw ScrollRate + arc segment residual.
     ///
-    /// Fail-closed: not full W3DLaserDraw texture / arc GPU draw.
+    /// Fail-closed: not full W3DLaserDraw texture / Line3D GPU draw.
     #[test]
     fn patriot_assist_binary_data_stream_laser_residual() {
         use crate::game_logic::host_base_defense::{
-            PatriotAssistLaserKind, PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM,
-            PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE,
+            patriot_laser_arc_peak_boost, sample_patriot_laser_arc_point,
+            sample_patriot_laser_arc_segment, PatriotAssistLaserKind,
+            PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_ARC_HEIGHT,
+            PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE, PATRIOT_LASER_SEGMENTS,
             PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -54726,6 +55248,29 @@ mod tests {
         assert!(
             to_target.scroll_offset < 0.0,
             "ScrollRate residual is negative (towards parent)"
+        );
+
+        // W3DLaserDraw arc segment residual: cos curve mid = ArcHeight, ends = 0.
+        assert_eq!(to_target.segments(), PATRIOT_LASER_SEGMENTS);
+        assert!(
+            (patriot_laser_arc_peak_boost(to_target.arc_height()) - PATRIOT_LASER_ARC_HEIGHT).abs()
+                < 0.001
+        );
+        let from = (to_target.from_x, to_target.from_y, to_target.from_z);
+        let to = (to_target.to_x, to_target.to_y, to_target.to_z);
+        let mid = sample_patriot_laser_arc_point(from, to, 0.5, to_target.arc_height());
+        let expected_mid_z = from.2 + (to.2 - from.2) * 0.5 + PATRIOT_LASER_ARC_HEIGHT;
+        assert!(
+            (mid.2 - expected_mid_z).abs() < 0.01,
+            "arc mid residual Z must be base + ArcHeight, got {} expected {}",
+            mid.2,
+            expected_mid_z
+        );
+        let (seg0_s, _) =
+            sample_patriot_laser_arc_segment(from, to, 0, PATRIOT_LASER_SEGMENTS, to_target.arc_height());
+        assert!(
+            (seg0_s.2 - from.2).abs() < 0.5,
+            "arc segment 0 start residual near base Z (end cos=0)"
         );
 
         // DeletionUpdate residual: beams expire after lifetime.

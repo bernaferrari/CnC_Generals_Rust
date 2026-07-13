@@ -64,8 +64,16 @@
 //!   Center does not override RecenterTime) then RECENTER to natural pitch/yaw
 //!   before scheduling the next idle scan (C++ IDLESCAN → HOLD → RECENTER → IDLE).
 //!
+//! - **TurretAI idle mood-target residual** (Bombardment ACTIVE idle gun):
+//!   C++ `friend_checkForIdleMoodTarget` acquires an enemy in StrategyCenterGun
+//!   range band (min **100** / max **400**), sets turret target + FirePitch aim,
+//!   flags `m_targetWasSetByIdleMood`. Mood target leaving range / dying clears
+//!   the target so IDLESCAN can resume. Fail-closed: not full mood matrix
+//!   (Sleep/Passive) / Partition filter / bone pitch matrix.
+//!
 //! Fail-closed honesty:
-//! - Not full TurretAI mood-target scan / bone pitch matrix
+//! - Not full TurretAI mood matrix Sleep/Passive / bone pitch drawable matrix
+//!   (idle mood-target acquire + out-of-range clear host residual closed)
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -726,6 +734,51 @@ pub fn strategy_center_gun_in_range(distance: f32) -> bool {
     distance >= STRATEGY_CENTER_GUN_MIN_RANGE && distance <= STRATEGY_CENTER_GUN_RANGE
 }
 
+// --- TurretAI idle mood-target residual (friend_checkForIdleMoodTarget) ---
+
+/// Whether idle mood-target residual may acquire an enemy.
+///
+/// C++ TurretAI::friend_checkForIdleMoodTarget residual gates:
+/// - Bombardment ACTIVE turret idle (not attacking / no forced target busy)
+/// - Mood matrix does not IgnoreAll (host residual: always allow when idle)
+/// - Enemy legal + in StrategyCenterGun range band
+pub fn strategy_center_mood_target_eligible(
+    bombardment_active: bool,
+    is_alive: bool,
+    is_busy: bool,
+    has_mood_target: bool,
+) -> bool {
+    bombardment_active && is_alive && !is_busy && !has_mood_target
+}
+
+/// Whether a residual enemy is legal for idle mood-target residual.
+pub fn strategy_center_mood_target_enemy_legal(
+    enemy_alive: bool,
+    same_team: bool,
+    is_neutral: bool,
+    under_construction: bool,
+    is_air: bool,
+    distance: f32,
+) -> bool {
+    enemy_alive
+        && !same_team
+        && !is_neutral
+        && !under_construction
+        && !is_air
+        && strategy_center_gun_in_range(distance)
+}
+
+/// Whether a mood-set residual target should be cleared (out of range / dead).
+///
+/// C++ AIM state: mood-set target nuked when `nothingInRange` and not primary goal.
+pub fn strategy_center_mood_target_should_clear(
+    target_was_set_by_mood: bool,
+    target_alive: bool,
+    in_weapon_range: bool,
+) -> bool {
+    target_was_set_by_mood && (!target_alive || !in_weapon_range)
+}
+
 /// Legal residual Strategy Center artillery target.
 pub fn is_legal_strategy_center_gun_target(
     is_alive: bool,
@@ -1021,6 +1074,12 @@ pub struct HostBattlePlanRegistry {
     /// TurretAI idle-recenter residual completions (angles back to natural).
     #[serde(default)]
     pub turret_idle_recenter_complete_count: u32,
+    /// TurretAI idle mood-target residual acquisitions.
+    #[serde(default)]
+    pub turret_mood_target_acquire_count: u32,
+    /// TurretAI idle mood-target residual clears (out of range / dead).
+    #[serde(default)]
+    pub turret_mood_target_clear_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -1111,6 +1170,29 @@ impl HostBattlePlanRegistry {
 
     pub fn turret_idle_recenter_complete_count(&self) -> u32 {
         self.turret_idle_recenter_complete_count
+    }
+
+    pub fn turret_mood_target_acquire_count(&self) -> u32 {
+        self.turret_mood_target_acquire_count
+    }
+
+    pub fn turret_mood_target_clear_count(&self) -> u32 {
+        self.turret_mood_target_clear_count
+    }
+
+    pub fn record_turret_mood_target_acquire(&mut self) {
+        self.turret_mood_target_acquire_count =
+            self.turret_mood_target_acquire_count.saturating_add(1);
+    }
+
+    pub fn record_turret_mood_target_clear(&mut self) {
+        self.turret_mood_target_clear_count =
+            self.turret_mood_target_clear_count.saturating_add(1);
+    }
+
+    /// Residual honesty: idle mood-target residual acquired at least once.
+    pub fn honesty_turret_mood_target_ok(&self) -> bool {
+        self.turret_mood_target_acquire_count > 0
     }
 
     pub fn record_turret_fire(&mut self, units_hit: u32) {
@@ -1582,6 +1664,25 @@ mod tests {
         assert!(hold_turret_elapsed(70, 70));
         assert!(hold_turret_elapsed(71, 70));
         assert!(!hold_turret_elapsed(100, 0));
+
+        // TurretAI idle mood-target residual matrix.
+        assert!(strategy_center_mood_target_eligible(true, true, false, false));
+        assert!(!strategy_center_mood_target_eligible(false, true, false, false)); // no Bombardment
+        assert!(!strategy_center_mood_target_eligible(true, true, true, false)); // busy
+        assert!(!strategy_center_mood_target_eligible(true, true, false, true)); // already mood
+        assert!(strategy_center_mood_target_enemy_legal(
+            true, false, false, false, false, 150.0
+        ));
+        assert!(!strategy_center_mood_target_enemy_legal(
+            true, false, false, false, false, 50.0
+        )); // below min
+        assert!(!strategy_center_mood_target_enemy_legal(
+            true, false, false, false, true, 150.0
+        )); // air
+        assert!(strategy_center_mood_target_should_clear(true, true, false)); // OOR
+        assert!(strategy_center_mood_target_should_clear(true, false, true)); // dead
+        assert!(!strategy_center_mood_target_should_clear(true, true, true)); // still valid
+        assert!(!strategy_center_mood_target_should_clear(false, true, false)); // not mood-set
     }
 
     #[test]
