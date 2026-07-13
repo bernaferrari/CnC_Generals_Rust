@@ -67,6 +67,8 @@ pub mod host_technical;
 pub mod host_toxin_tractor;
 pub mod host_marauder;
 pub mod host_battlemaster;
+pub mod host_red_guard;
+pub mod host_tank_hunter;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
@@ -313,6 +315,14 @@ pub use host_battlemaster::{
     battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
     is_battlemaster_template, should_apply_battlemaster_residual, BATTLE_MASTER_DAMAGE,
     BATTLE_MASTER_RANGE, BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
+};
+pub use host_red_guard::{
+    is_red_guard_template, red_guard_weapon, should_apply_bayonet_residual,
+    should_apply_red_guard_residual, REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE,
+};
+pub use host_tank_hunter::{
+    is_tank_hunter_template, should_apply_tank_hunter_residual, tank_hunter_weapon,
+    TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
 };
 pub use host_combat_cycle::{
     combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,

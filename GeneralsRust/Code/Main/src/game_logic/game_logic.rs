@@ -893,6 +893,23 @@ pub struct GameLogic {
     battlemaster_residual_nationalism_upgrades: u32,
     battlemaster_residual_horde_grants: u32,
 
+    /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
+    /// Fail-closed: not full WeaponSet tertiary auto-choose / RubOff matrix.
+    red_guard_residual_fires: u32,
+    red_guard_residual_bayonet_kills: u32,
+    red_guard_residual_nationalism_upgrades: u32,
+    red_guard_residual_horde_grants: u32,
+
+    /// Host residual: China Tank Hunter RPG + TNT special + horde / nationalism honesty.
+    /// Fail-closed: not full SpecialAbilityUpdate flee / MaxSpecialObjects matrix.
+    tank_hunter_residual_fires: u32,
+    tank_hunter_residual_units_hit: u32,
+    tank_hunter_residual_tnt_plants: u32,
+    tank_hunter_residual_nationalism_upgrades: u32,
+    tank_hunter_residual_horde_grants: u32,
+    /// Per-unit TNT special residual last plant frame (ReloadTime 7500ms).
+    tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
+
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
     combat_cycle_residual_fires: u32,
@@ -1829,6 +1846,16 @@ impl GameLogic {
             battlemaster_residual_uranium_upgrades: 0,
             battlemaster_residual_nationalism_upgrades: 0,
             battlemaster_residual_horde_grants: 0,
+            red_guard_residual_fires: 0,
+            red_guard_residual_bayonet_kills: 0,
+            red_guard_residual_nationalism_upgrades: 0,
+            red_guard_residual_horde_grants: 0,
+            tank_hunter_residual_fires: 0,
+            tank_hunter_residual_units_hit: 0,
+            tank_hunter_residual_tnt_plants: 0,
+            tank_hunter_residual_nationalism_upgrades: 0,
+            tank_hunter_residual_horde_grants: 0,
+            tank_hunter_tnt_last_frame: HashMap::new(),
             combat_cycle_residual_fires: 0,
             combat_cycle_residual_units_hit: 0,
             combat_cycle_residual_rider_switches: 0,
@@ -2067,6 +2094,16 @@ impl GameLogic {
         self.battlemaster_residual_uranium_upgrades = 0;
         self.battlemaster_residual_nationalism_upgrades = 0;
         self.battlemaster_residual_horde_grants = 0;
+        self.red_guard_residual_fires = 0;
+        self.red_guard_residual_bayonet_kills = 0;
+        self.red_guard_residual_nationalism_upgrades = 0;
+        self.red_guard_residual_horde_grants = 0;
+        self.tank_hunter_residual_fires = 0;
+        self.tank_hunter_residual_units_hit = 0;
+        self.tank_hunter_residual_tnt_plants = 0;
+        self.tank_hunter_residual_nationalism_upgrades = 0;
+        self.tank_hunter_residual_horde_grants = 0;
+        self.tank_hunter_tnt_last_frame.clear();
         self.combat_cycle_residual_fires = 0;
         self.combat_cycle_residual_units_hit = 0;
         self.combat_cycle_residual_rider_switches = 0;
@@ -3944,6 +3981,10 @@ impl GameLogic {
         // Retail UpdateRate 1000ms — residual rechecks each frame when battlemasters exist.
         self.update_battlemaster_horde_status();
 
+        // Host China infantry HordeUpdate residual (Red Guard / Tank Hunter, Radius 30 / Count 5).
+        // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
+        self.update_china_infantry_horde_status();
+
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
@@ -5341,6 +5382,55 @@ impl GameLogic {
                         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if hits > 0 {
                                 attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
+                    } else if {
+                        // China Tank Hunter residual: RPG splash + AA capable residual.
+                        use crate::game_logic::host_tank_hunter::{
+                            is_tank_hunter_template, should_apply_tank_hunter_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_tank_hunter_residual(is_tank_hunter_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_tank_hunter_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
+                        use crate::game_logic::host_red_guard::{
+                            is_red_guard_template, should_apply_red_guard_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_red_guard_residual(is_red_guard_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let (hits, _destroyed_any) = self.apply_red_guard_residual_at(
+                            target_position,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
                             }
                         }
                     } else if {
@@ -7214,16 +7304,53 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::PlantTimedDemoCharge { .. } => {
-                            // Burton residual: plant sticky timed charge at target.
-                            let charge_id = self.place_timed_demo_charge(
-                                team,
-                                target_position,
-                                Some(object_id),
-                                Some(special_target_id),
-                                None,
-                            );
+                            // Burton / Tank Hunter TNT residual: plant sticky timed charge at target.
+                            let is_tank_hunter = self
+                                .objects
+                                .get(&object_id)
+                                .map(|o| {
+                                    crate::game_logic::host_tank_hunter::is_tank_hunter_template(
+                                        &o.template_name,
+                                    )
+                                })
+                                .unwrap_or(false);
+                            // Tank Hunter TNT reload residual (7500ms / 225 frames).
+                            let tnt_ready = if is_tank_hunter {
+                                crate::game_logic::host_tank_hunter::tnt_ready(
+                                    self.frame,
+                                    self.tank_hunter_tnt_last_frame.get(&object_id).copied(),
+                                )
+                            } else {
+                                true
+                            };
+                            let charge_id = if tnt_ready {
+                                self.place_timed_demo_charge(
+                                    team,
+                                    target_position,
+                                    Some(object_id),
+                                    Some(special_target_id),
+                                    None,
+                                )
+                            } else {
+                                None
+                            };
                             if charge_id.is_some() {
                                 self.hero_abilities.record_timed_charge_plant();
+                                if is_tank_hunter {
+                                    self.tank_hunter_residual_tnt_plants = self
+                                        .tank_hunter_residual_tnt_plants
+                                        .saturating_add(1);
+                                    self.tank_hunter_tnt_last_frame
+                                        .insert(object_id, self.frame);
+                                    self.queue_audio_event(
+                                        AudioEventRequest::new(
+                                            crate::game_logic::host_tank_hunter::TNT_INITIATE_AUDIO,
+                                        )
+                                        .with_object(object_id)
+                                        .with_position(target_position)
+                                        .with_priority(160),
+                                    );
+                                }
                                 let msg = localization::localize(
                                     "hud.demo_charge.planted",
                                     "Demo charge planted",
@@ -9131,6 +9258,20 @@ impl GameLogic {
                 };
                 object.weapon = Some(patriot_ground_weapon());
                 object.secondary_weapon = Some(patriot_air_weapon());
+            }
+
+            // Host residual: China Red Guard PRIMARY machine gun residual.
+            // Fail-closed: bayonet residual applied at fire-time for close infantry.
+            if crate::game_logic::host_red_guard::is_red_guard_template(template_name) {
+                use crate::game_logic::host_red_guard::red_guard_weapon;
+                object.weapon = Some(red_guard_weapon(false, false));
+            }
+
+            // Host residual: China Tank Hunter PRIMARY RPG residual (AA + ground + splash).
+            // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
+            if crate::game_logic::host_tank_hunter::is_tank_hunter_template(template_name) {
+                use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
+                object.weapon = Some(tank_hunter_weapon(false, false));
             }
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
@@ -11079,9 +11220,12 @@ impl GameLogic {
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
-            .set_health(70.0)
+            .set_health(100.0)
             .set_cost(110, 0)
-            .set_model("uirguard02"); // China Tank Hunter (using guard model since citankht doesn't exist)
+            .set_model("uirguard02") // China Tank Hunter (using guard model since citankht doesn't exist)
+            .set_primary_weapon_name(
+                super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
+            );
         self.templates
             .insert("China_TankHunter".to_string(), china_tank_hunter);
 
@@ -13030,6 +13174,66 @@ impl GameLogic {
 
     pub fn battlemaster_residual_horde_grants(&self) -> u32 {
         self.battlemaster_residual_horde_grants
+    }
+
+    /// Residual honesty: Red Guard gun / bayonet / horde / nationalism residual.
+    pub fn honesty_red_guard_ok(&self) -> bool {
+        self.red_guard_residual_fires > 0
+            || self.red_guard_residual_bayonet_kills > 0
+            || self.red_guard_residual_nationalism_upgrades > 0
+            || self.red_guard_residual_horde_grants > 0
+    }
+
+    pub fn honesty_red_guard_horde_ok(&self) -> bool {
+        self.red_guard_residual_horde_grants > 0
+    }
+
+    pub fn honesty_red_guard_nationalism_ok(&self) -> bool {
+        self.red_guard_residual_nationalism_upgrades > 0
+    }
+
+    pub fn honesty_red_guard_bayonet_ok(&self) -> bool {
+        self.red_guard_residual_bayonet_kills > 0
+    }
+
+    pub fn red_guard_residual_fires(&self) -> u32 {
+        self.red_guard_residual_fires
+    }
+
+    pub fn red_guard_residual_bayonet_kills(&self) -> u32 {
+        self.red_guard_residual_bayonet_kills
+    }
+
+    /// Residual honesty: Tank Hunter RPG / TNT / horde / nationalism residual.
+    pub fn honesty_tank_hunter_ok(&self) -> bool {
+        self.tank_hunter_residual_fires > 0
+            || self.tank_hunter_residual_tnt_plants > 0
+            || self.tank_hunter_residual_nationalism_upgrades > 0
+            || self.tank_hunter_residual_horde_grants > 0
+    }
+
+    pub fn honesty_tank_hunter_tnt_ok(&self) -> bool {
+        self.tank_hunter_residual_tnt_plants > 0
+    }
+
+    pub fn honesty_tank_hunter_horde_ok(&self) -> bool {
+        self.tank_hunter_residual_horde_grants > 0
+    }
+
+    pub fn honesty_tank_hunter_nationalism_ok(&self) -> bool {
+        self.tank_hunter_residual_nationalism_upgrades > 0
+    }
+
+    pub fn tank_hunter_residual_fires(&self) -> u32 {
+        self.tank_hunter_residual_fires
+    }
+
+    pub fn tank_hunter_residual_units_hit(&self) -> u32 {
+        self.tank_hunter_residual_units_hit
+    }
+
+    pub fn tank_hunter_residual_tnt_plants(&self) -> u32 {
+        self.tank_hunter_residual_tnt_plants
     }
 
     /// Residual honesty: Combat Cycle rider weapon residual path.
@@ -15030,6 +15234,374 @@ impl GameLogic {
                     .get(&sid)
                     .map(|o| o.template_name.clone())
                     .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Refresh Red Guard weapon residual from current horde / nationalism flags.
+    fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_red_guard::{is_red_guard_template, red_guard_weapon};
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_red_guard_template(&obj.template_name) {
+            return;
+        }
+        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let in_horde = obj.weapon_bonus_horde;
+        let nationalism_active = nationalism && in_horde;
+        obj.weapon_bonus_nationalism = nationalism_active;
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut w = red_guard_weapon(in_horde, nationalism_active);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+    }
+
+    /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
+    fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_tank_hunter::{is_tank_hunter_template, tank_hunter_weapon};
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_tank_hunter_template(&obj.template_name) {
+            return;
+        }
+        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let in_horde = obj.weapon_bonus_horde;
+        let nationalism_active = nationalism && in_horde;
+        obj.weapon_bonus_nationalism = nationalism_active;
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut w = tank_hunter_weapon(in_horde, nationalism_active);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+    }
+
+    /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
+    pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_red_guard::is_red_guard_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_red_guard_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_NATIONALISM.to_string());
+        self.red_guard_residual_nationalism_upgrades = self
+            .red_guard_residual_nationalism_upgrades
+            .saturating_add(1);
+        self.refresh_red_guard_weapon(object_id);
+        true
+    }
+
+    /// Apply Nationalism residual tag to a Tank Hunter (ROF stacks with horde when active).
+    pub fn apply_tank_hunter_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_tank_hunter_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_NATIONALISM.to_string());
+        self.tank_hunter_residual_nationalism_upgrades = self
+            .tank_hunter_residual_nationalism_upgrades
+            .saturating_add(1);
+        self.refresh_tank_hunter_weapon(object_id);
+        true
+    }
+
+    /// Recompute China infantry HordeUpdate residual (Red Guard + Tank Hunter).
+    ///
+    /// KindOf INFANTRY allies within Radius 30; Count 5 (includes self). ExactMatch=No
+    /// so any ally infantry counts. RubOff residual omitted (fail-closed).
+    pub fn update_china_infantry_horde_status(&mut self) {
+        use crate::game_logic::host_red_guard::{
+            counts_toward_infantry_horde, distance_2d, is_china_infantry_horde_unit,
+            is_in_infantry_horde, is_red_guard_template, INFANTRY_HORDE_RADIUS,
+        };
+        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+
+        // Snapshot all living infantry (ally count uses KindOf INFANTRY residual).
+        let infantry_snapshot: Vec<(ObjectId, Team, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() || !o.is_kind_of(KindOf::Infantry) {
+                    return None;
+                }
+                let p = o.get_position();
+                Some((*id, o.team, p.x, p.z, o.is_alive()))
+            })
+            .collect();
+
+        let horde_units: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() || !is_china_infantry_horde_unit(&o.template_name) {
+                    return None;
+                }
+                let p = o.get_position();
+                Some((
+                    *id,
+                    o.team,
+                    p.x,
+                    p.z,
+                    o.is_alive(),
+                    o.template_name.clone(),
+                ))
+            })
+            .collect();
+
+        let mut red_grants = 0u32;
+        let mut th_grants = 0u32;
+        let mut to_refresh_red: Vec<ObjectId> = Vec::new();
+        let mut to_refresh_th: Vec<ObjectId> = Vec::new();
+
+        for (id, team, x, z, alive, name) in &horde_units {
+            let mut nearby = 0u32;
+            for (oid, oteam, ox, oz, oalive) in &infantry_snapshot {
+                if *oid == *id {
+                    continue;
+                }
+                let dist = distance_2d(*x, *z, *ox, *oz);
+                if counts_toward_infantry_horde(
+                    *alive,
+                    *oalive,
+                    *team == *oteam,
+                    true, // already filtered KindOf Infantry
+                    dist,
+                    INFANTRY_HORDE_RADIUS,
+                ) {
+                    nearby = nearby.saturating_add(1);
+                }
+            }
+            let now_horde = is_in_infantry_horde(nearby);
+            if let Some(obj) = self.objects.get_mut(id) {
+                let was = obj.weapon_bonus_horde;
+                obj.weapon_bonus_horde = now_horde;
+                if now_horde && !was {
+                    if is_red_guard_template(name) {
+                        red_grants = red_grants.saturating_add(1);
+                    } else if is_tank_hunter_template(name) {
+                        th_grants = th_grants.saturating_add(1);
+                    }
+                }
+                if now_horde != was || now_horde {
+                    if is_red_guard_template(name) {
+                        to_refresh_red.push(*id);
+                    } else if is_tank_hunter_template(name) {
+                        to_refresh_th.push(*id);
+                    }
+                }
+            }
+        }
+
+        self.red_guard_residual_horde_grants = self
+            .red_guard_residual_horde_grants
+            .saturating_add(red_grants);
+        self.tank_hunter_residual_horde_grants = self
+            .tank_hunter_residual_horde_grants
+            .saturating_add(th_grants);
+
+        for id in to_refresh_red {
+            self.refresh_red_guard_weapon(id);
+        }
+        for id in to_refresh_th {
+            self.refresh_tank_hunter_weapon(id);
+        }
+    }
+
+    /// Apply Red Guard residual fire: bayonet one-shot vs close infantry, else gun damage.
+    fn apply_red_guard_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_red_guard::{
+            should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
+            REDGUARD_FIRE_AUDIO, distance_2d,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+        let source_pos = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
+            .unwrap_or(impact);
+
+        let Some(target_id) = intended_target else {
+            return (0, false);
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return (0, false);
+        };
+        if !target.is_alive() {
+            return (0, false);
+        }
+        let target_pos = target.get_position();
+        let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
+        let target_is_infantry = target.is_kind_of(KindOf::Infantry);
+        let bayonet = should_apply_bayonet_residual(true, target_is_infantry, true, dist);
+        let damage = if bayonet {
+            BAYONET_DAMAGE
+        } else {
+            source
+                .and_then(|sid| self.objects.get(&sid))
+                .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+                .unwrap_or(REDGUARD_DAMAGE)
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        if let Some(obj) = self.objects.get_mut(&target_id) {
+            let destroyed = obj.take_damage(damage);
+            hits = 1;
+            if destroyed {
+                any_destroyed = true;
+                self.mark_object_for_destruction(target_id, Some(source_team));
+            }
+        }
+
+        self.red_guard_residual_fires = self.red_guard_residual_fires.saturating_add(1);
+        if bayonet {
+            self.red_guard_residual_bayonet_kills =
+                self.red_guard_residual_bayonet_kills.saturating_add(1);
+        }
+
+        let audio = if bayonet {
+            BAYONET_FIRE_AUDIO
+        } else {
+            REDGUARD_FIRE_AUDIO
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_position(target_pos)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(target_pos),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Tank Hunter residual RPG fire (primary on intended + small splash radius).
+    fn apply_tank_hunter_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_tank_hunter::{
+            is_legal_tank_hunter_splash_target, tank_hunter_splash_damage_at, TANK_HUNTER_DAMAGE,
+            TANK_HUNTER_FIRE_AUDIO, TANK_HUNTER_SPLASH_RADIUS,
+        };
+
+        let damage = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+            .unwrap_or(TANK_HUNTER_DAMAGE);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_tank_hunter_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= TANK_HUNTER_SPLASH_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = tank_hunter_splash_damage_at(is_intended, dist, damage);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.tank_hunter_residual_fires = self.tank_hunter_residual_fires.saturating_add(1);
+        self.tank_hunter_residual_units_hit =
+            self.tank_hunter_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TANK_HUNTER_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
             );
         }
 
@@ -44717,6 +45289,340 @@ mod tests {
             "battlemaster radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
         );
     }
+
+    /// Residual: China Red Guard gun + horde/nationalism ROF + bayonet residual.
+    /// Fail-closed: not full WeaponSet tertiary auto-choose / RubOff matrix.
+    #[test]
+    fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_red_guard::{
+            is_red_guard_template, REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut rg_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
+        rg_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(REDGUARD_MACHINE_GUN);
+        game_logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), rg_tpl);
+
+        // Spawn 5 ally red guards clustered for Horde Count=5 residual (Radius 30).
+        let mut rg_ids = Vec::new();
+        for i in 0..5 {
+            let id = game_logic
+                .create_object(
+                    "ChinaInfantryRedguard",
+                    Team::China,
+                    Vec3::new(i as f32 * 5.0, 0.0, 0.0),
+                )
+                .expect("redguard");
+            rg_ids.push(id);
+        }
+        let rg0 = rg_ids[0];
+        {
+            let rg = game_logic.find_object(rg0).expect("rg0");
+            assert!(is_red_guard_template(&rg.template_name));
+            let w = rg.weapon.as_ref().expect("RedguardMachineGun residual");
+            assert!(
+                (w.damage - REDGUARD_DAMAGE).abs() < 0.5,
+                "base damage residual 15, got {}",
+                w.damage
+            );
+            assert!((w.range - REDGUARD_RANGE).abs() < 1.0);
+            assert!(
+                (w.reload_time - 1.0).abs() < 0.05,
+                "base reload residual 1.0s, got {}",
+                w.reload_time
+            );
+        }
+
+        // Horde residual: 5 infantry allies within radius 30 → HORDE ROF 150% (20 frames).
+        game_logic.update_china_infantry_horde_status();
+        assert!(
+            game_logic.honesty_red_guard_horde_ok(),
+            "horde grant residual honesty"
+        );
+        {
+            let rg = game_logic.find_object(rg0).expect("rg0 horde");
+            assert!(
+                rg.weapon_bonus_horde,
+                "weapon_bonus_horde residual must be set with 5 allies"
+            );
+            let w = rg.weapon.as_ref().expect("horde gun");
+            // floor(30/1.5)=20 frames → 20/30 ≈ 0.666s
+            assert!(
+                (w.reload_time - (20.0 / 30.0)).abs() < 0.05,
+                "horde ROF residual ~20 frames, got reload={}",
+                w.reload_time
+            );
+            assert!((w.damage - 15.0).abs() < 0.5, "horde does not change damage");
+        }
+
+        // Nationalism residual: additional ROF 125% while in horde → 16 frames.
+        assert!(game_logic.apply_red_guard_nationalism_upgrade(rg0));
+        assert!(game_logic.honesty_red_guard_nationalism_ok());
+        {
+            let rg = game_logic.find_object(rg0).expect("rg0 nat");
+            assert!(rg.has_upgrade_tag(UPGRADE_NATIONALISM));
+            assert!(
+                rg.weapon_bonus_nationalism,
+                "nationalism active while in horde"
+            );
+            let w = rg.weapon.as_ref().expect("nat gun");
+            assert!(
+                (w.reload_time - (16.0 / 30.0)).abs() < 0.05,
+                "horde+nationalism ROF residual ~16 frames, got reload={}",
+                w.reload_time
+            );
+        }
+
+        // Gun fire residual vs enemy infantry (out of bayonet range).
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let rg = game_logic.find_object_mut(rg0).unwrap();
+            rg.attack_target(enemy);
+            if let Some(w) = rg.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[rg0, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.red_guard_residual_fires() > 0,
+            "red guard residual fire honesty"
+        );
+        assert!(game_logic.honesty_red_guard_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "red guard residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+
+        // Bayonet residual: close-range infantry one-shot.
+        let melee = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("melee");
+        {
+            let rg = game_logic.find_object_mut(rg0).unwrap();
+            rg.set_position(Vec3::new(0.0, 0.0, 0.0));
+            rg.attack_target(melee);
+            if let Some(w) = rg.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[rg0, melee], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_red_guard_bayonet_ok(),
+            "bayonet residual honesty"
+        );
+        let melee_alive = game_logic
+            .find_object(melee)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(!melee_alive, "bayonet residual one-shots close infantry");
+    }
+
+    /// Residual: China Tank Hunter RPG splash + horde/nationalism + TNT special.
+    /// Fail-closed: not full SpecialAbilityUpdate flee / MaxSpecialObjects matrix.
+    #[test]
+    fn tank_hunter_residual_rpg_horde_and_tnt() {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_tank_hunter::{
+            is_tank_hunter_template, TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON,
+            TANK_HUNTER_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        let mut th_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryTankHunter");
+        th_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(TANK_HUNTER_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaInfantryTankHunter".to_string(), th_tpl);
+
+        // Spawn 5 tank hunters for horde residual.
+        let mut th_ids = Vec::new();
+        for i in 0..5 {
+            let id = game_logic
+                .create_object(
+                    "ChinaInfantryTankHunter",
+                    Team::China,
+                    Vec3::new(i as f32 * 5.0, 0.0, 0.0),
+                )
+                .expect("tankhunter");
+            th_ids.push(id);
+        }
+        let th0 = th_ids[0];
+        {
+            let th = game_logic.find_object(th0).expect("th0");
+            assert!(is_tank_hunter_template(&th.template_name));
+            let w = th.weapon.as_ref().expect("RPG residual");
+            assert!((w.damage - TANK_HUNTER_DAMAGE).abs() < 0.5);
+            assert!((w.range - TANK_HUNTER_RANGE).abs() < 1.0);
+            assert!(w.can_target_air && w.can_target_ground);
+            assert!((w.reload_time - 1.0).abs() < 0.05);
+            assert!((w.min_range - 5.0).abs() < 0.1);
+        }
+
+        game_logic.update_china_infantry_horde_status();
+        assert!(
+            game_logic.honesty_tank_hunter_horde_ok(),
+            "tank hunter horde residual honesty"
+        );
+        {
+            let th = game_logic.find_object(th0).expect("th0 horde");
+            assert!(th.weapon_bonus_horde);
+            let w = th.weapon.as_ref().expect("horde rpg");
+            assert!(
+                (w.reload_time - (20.0 / 30.0)).abs() < 0.05,
+                "horde ROF residual ~20 frames, got {}",
+                w.reload_time
+            );
+        }
+
+        assert!(game_logic.apply_tank_hunter_nationalism_upgrade(th0));
+        assert!(game_logic.honesty_tank_hunter_nationalism_ok());
+        {
+            let th = game_logic.find_object(th0).expect("th0 nat");
+            assert!(th.has_upgrade_tag(UPGRADE_NATIONALISM));
+            assert!(th.weapon_bonus_nationalism);
+            let w = th.weapon.as_ref().expect("nat rpg");
+            assert!(
+                (w.reload_time - (16.0 / 30.0)).abs() < 0.05,
+                "horde+nationalism ROF residual ~16 frames, got {}",
+                w.reload_time
+            );
+        }
+
+        // RPG fire residual: intended + radius-5 splash.
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy tank");
+        let splash = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let th = game_logic.find_object_mut(th0).unwrap();
+            th.attack_target(enemy);
+            if let Some(w) = th.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0; // residual test bypass for host placement
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[th0, enemy, splash], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.tank_hunter_residual_fires() > 0,
+            "tank hunter residual fire honesty"
+        );
+        assert!(game_logic.honesty_tank_hunter_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "RPG radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+
+        // TNT special residual: plant sticky timed charge on structure.
+        let bldg = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("bldg");
+        {
+            let th = game_logic.find_object_mut(th0).unwrap();
+            th.set_position(Vec3::new(200.0, 0.0, 2.0));
+            th.ai_state = AIState::SpecialAbility;
+            th.target = Some(bldg);
+        }
+        game_logic.queue_pending_special_ability(
+            th0,
+            PendingSpecialAbility::PlantTimedDemoCharge { target_id: bldg },
+        );
+        game_logic.update_ai(&[th0, bldg], 1.0 / 60.0);
+
+        assert!(
+            game_logic.honesty_tank_hunter_tnt_ok(),
+            "tank hunter TNT plant residual honesty"
+        );
+        assert!(
+            game_logic.tank_hunter_residual_tnt_plants() >= 1,
+            "TNT plant counter residual"
+        );
+        let charge_count = game_logic
+            .get_objects()
+            .values()
+            .filter(|o| {
+                o.mine_data
+                    .as_ref()
+                    .map(|d| {
+                        d.kind == crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+                            && d.is_active()
+                            && d.attached_to == Some(bldg)
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+        assert!(
+            charge_count >= 1,
+            "TNTStickyBomb residual must attach to target"
+        );
+    }
+
 
     /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
     
