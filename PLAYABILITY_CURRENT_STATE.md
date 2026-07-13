@@ -1,3 +1,58 @@
+## Residual Host Playability — Crate Parachute Fall + MoneyPickUp Anim2D + Carpet DropVariance (2026-07-13)
+**Closed (host-testable AmericaCrateParachute fall-physics + MoneyPickUp Anim2D + CarpetBomb DropVariance residual):**
+1. **AmericaCrateParachute cargo fall-physics residual** (`host_deliver_payload`):
+   - Spawn at B52 PreferredHeight **100** + DropOffset Y:-5 → host Y **95**.
+   - Freefall until fallen `ParachuteOpenDist` **12.5**, then open chute (slower sink).
+   - Low-altitude open fudge residual: start − ground ≥ **2×** OpenDist.
+   - `ParachuteDirectly = Yes` residual honesty; open audio `ParachuteOpen`.
+   - Host-testable: elevated spawn + parachuting; OpenDist open; land clears chute;
+     unit MoneyCrateCollide blocked while airborne; BuildingPickup still legal.
+   - Fail-closed: not full PutInContainer AmericaCrateParachute Object / W3D bones /
+     CrateParachuteLocomotor force matrix / PreferredHeight aircraft Object.
+2. **MoneyCrateCollide ForbiddenKindOf + above-terrain + MoneyPickUp residual**:
+   - ForbiddenKindOf **PROJECTILE** residual (+ parachuting pickers rejected).
+   - Above-terrain residual: unit path blocked while crate airborne (C++
+     `isAboveTerrain` except BuildingPickup).
+   - ExecuteAnimation residual: `MoneyPickUp` Anim2D presentation descriptor
+     (display **4.0**s, ZRise **15**, fades **Yes**) — presentation state, not GPU.
+   - Host-testable: airborne unit reject honesty; MoneyPickUp on collect; PROJECTILE
+     cannot pick up.
+   - Fail-closed: not full CollideModule partition pairs / Anim2DCollection GPU /
+     InGameUI world-anim draw / EVA floating text / science gate matrix.
+3. **CarpetBomb DropVariance residual** (`special_power_strikes`):
+   - Retail OCL DropVariance X:**30** Y:**40** Z:**0** (C++ X/Y → host X/Z).
+   - Deterministic host scatter residual in ±variance (not GameLogicRandomValueReal).
+   - Applied per bomb epicenter on line formation residual.
+   - Host-testable: scatter bounds; Z lateral non-zero; damage still hits variance
+     points; zero variance identity (supply OCL has none).
+   - Fail-closed: not full AmericaJetB52 CreateAtEdge / RNG stream / per-bomb
+     DropDelay stagger flight path.
+4. Tests (not log-only):
+   - `crate_parachute_open_dist_and_sink_residual`
+   - `money_crate_above_terrain_and_forbidden_kindof_residual`
+   - updated `supply_drop_zone_residual_credits_cash_on_interval` (parachute land)
+   - updated `money_crate_collide_unit_pickup_residual` (MoneyPickUp anim)
+   - updated `queue_and_stagger_supply_drop_cargo` (elevated spawn Y)
+   - `carpet_bomb_drop_variance_residual_bounds`
+   - updated `carpet_bomb_params_match_retail_multi_strike` / delayed damage
+   - host_money_crate MoneyPickUp unit tests
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
+  state machine / approach geometry (constants + DoorDelay/DropDelay stagger +
+  crate parachute fall residual closed 2026-07-13)
+- Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
+  supply OCL has none)
+- Full AmericaCrateParachute container Object / W3D bone attach matrix
+  (OpenDist freefall/open/land host residual closed 2026-07-13)
+- Full CollideModule partition / Anim2DCollection GPU / EVA floating text
+  (MoneyPickUp presentation + ForbiddenKindOf PROJECTILE + above-terrain host
+  residual closed 2026-07-13)
+- Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
+- Full W3D pristine bone extract for cargo plane doors
+- Network DeliverPayload / MoneyCrate / carpet DropVariance replication
+  (network deferred)
+
 ## Residual Host Playability — DropDelay Stagger + MoneyCrateCollide + Campaign.ini Table (2026-07-13)
 **Closed (host-testable DeliverPayload DropDelay stagger + MoneyCrateCollide + Campaign.ini residual):**
 1. **DeliverPayload DropDelay per-item stagger residual** (`host_deliver_payload`):
@@ -11,7 +66,9 @@
    - Host-testable: no crates before first item; 1 crate on first due; full 6 after stagger;
      bulk BuildingPickup cash on **final** item only.
    - Fail-closed: not full CreateAtEdge cargo-plane Object / flight locomotor /
-     DropVariance (supply OCL has none) / VisiblePayload bones / parachute fall physics.
+     DropVariance (supply OCL has none) / VisiblePayload bones / parachute fall physics
+     (AmericaCrateParachute fall residual closed 2026-07-13 — see Crate Parachute Fall
+     + MoneyPickUp Anim2D + Carpet DropVariance section).
 2. **MoneyCrateCollide unit + BuildingPickup residual** (`host_money_crate`):
    - MoneyProvided **250**, SupplyLines boost **+25**, BuildingPickup **Yes**.
    - Unit residual: non-structure non-neutral within radius **20** credits cash + destroys crate.
@@ -19,7 +76,9 @@
    - Supply Drop Zone bulk BuildingPickup residual still credits $1500/$1650 on mission
      complete and marks crates paid (no unit double-credit).
    - Host-testable: unit pickup cash + CrateMoney audio; SupplyLines boost residual.
-   - Fail-closed: not full CollideModule partition pairs / Anim2D MoneyPickUp / EVA text.
+   - Fail-closed: not full CollideModule partition pairs / Anim2D MoneyPickUp / EVA text
+     (MoneyPickUp presentation + ForbiddenKindOf + above-terrain residual closed
+     2026-07-13 — see Crate Parachute Fall + MoneyPickUp Anim2D section).
 3. **Campaign.ini residual mission table** (Main `CampaignManager`):
    - USA campaign MD_USA01…MD_USA05 residual chain + required-mission links.
    - CHALLENGE_0 residual map chain (GC_Chem…GC_ChinaBoss) + `usa_gen_01` alias.
@@ -37,9 +96,12 @@
 **Still residual (fail-closed, not claimed):**
 - Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
   state machine / approach geometry (constants + DoorDelay/DropDelay stagger closed)
-- Full DropVariance random scatter (supply OCL has none; other OCL kinds open)
+- Full DropVariance random scatter (supply OCL has none; carpet residual closed
+  2026-07-13 — see Crate Parachute Fall + MoneyPickUp Anim2D + Carpet DropVariance)
 - Full AmericaCrateParachute container fall-physics for cargo
+  (host residual closed 2026-07-13 — see Crate Parachute Fall section)
 - Full CollideModule partition / Anim2D / ForbiddenKindOf matrix beyond residual gates
+  (MoneyPickUp + PROJECTILE + above-terrain host residual closed 2026-07-13)
 - Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
 - Full W3D pristine bone extract for cargo plane doors
 - Network DeliverPayload / MoneyCrate / campaign replication (network deferred)

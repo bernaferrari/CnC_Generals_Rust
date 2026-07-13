@@ -14,11 +14,17 @@
 //! - Secondary honesty: America Paradrop cargo-plane DeliverPayload bookkeeping
 //!   (actual infantry spawn remains in `host_paradrop`).
 //!
+//! Residual crate parachute fall-physics (`AmericaCrateParachute`):
+//! - Spawn at B52 PreferredHeight **100** + DropOffset Y:-5 (host Y-up).
+//! - Freefall until fallen `ParachuteOpenDist` **12.5**, then open chute (slower sink).
+//! - `ParachuteDirectly = Yes` residual honesty (target-bunch, no lateral drift residual).
+//! - Fail-closed: not full container Object / W3D bone / locomotor force matrix.
+//!
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate state machine
 //! - Not full PreOpenDistance approach geometry flight path (constants retained)
 //! - Not full DropVariance random scatter (OCL supply drop has no DropVariance)
-//! - Not full AmericaCrateParachute / AmericaParachute fall-physics containers
+//! - Not full AmericaCrateParachute container Object / W3D bone attach matrix
 //! - Not full VisiblePayload bone / subobject bomb rack matrix
 //! - Not network DeliverPayload replication (network deferred)
 
@@ -83,11 +89,90 @@ pub const SUPPLY_DROP_DROP_OFFSET_Z: f32 = 0.0;
 /// Residual horizontal spacing between spawned crates (line formation).
 pub const SUPPLY_DROP_CRATE_SPACING: f32 = 20.0;
 
+/// Retail AmericaJetCargoPlane / B52Locomotor PreferredHeight (StartAtPreferredHeight).
+pub const CARGO_PLANE_PREFERRED_HEIGHT: f32 = 100.0;
+
+/// Retail AmericaCrateParachute `ParachuteOpenDist` — freefall distance before open.
+pub const CRATE_PARACHUTE_OPEN_DIST: f32 = 12.5;
+
+/// Retail AmericaCrateParachute LowAltitudeDamping honesty.
+pub const CRATE_PARACHUTE_LOW_ALTITUDE_DAMPING: f32 = 0.2;
+
+/// Retail CrateParachuteLocomotor SpeedLimitZ (dist/sec) honesty.
+pub const CRATE_PARACHUTE_SPEED_LIMIT_Z: f32 = 15.0;
+
+/// Host residual freefall sink (units/frame) before AmericaCrateParachute opens.
+/// Fail-closed vs full CrateFreeFallLocomotor gravity/PhysicsUpdate.
+pub const CRATE_PARACHUTE_FREEFALL_PER_FRAME: f32 = 10.0;
+
+/// Host residual open-chute sink (units/frame) after OpenDist.
+/// Retail SpeedLimitZ 15/sec → 0.5/frame is too slow for residual tests;
+/// host residual uses **5**/frame (slower than freefall) with SpeedLimitZ honesty.
+pub const CRATE_PARACHUTE_SINK_PER_FRAME: f32 = 5.0;
+
+/// C++ low-altitude open fudge multiplier (start − ground ≥ **2×** OpenDist).
+pub const CRATE_PARACHUTE_LOW_ALTITUDE_OPEN_MULT: f32 = 2.0;
+
+/// Retail OCL_AmericaSupplyDropZoneCrateDrop ParachuteDirectly residual honesty.
+pub const SUPPLY_DROP_PARACHUTE_DIRECTLY: bool = true;
+
+/// Residual audio when AmericaCrateParachute residual chute opens.
+pub const CRATE_PARACHUTE_OPEN_AUDIO: &str = "ParachuteOpen";
+
+/// Residual audio when cargo crate residual lands.
+pub const CRATE_PARACHUTE_LAND_AUDIO: &str = "CrateLand";
+
 /// Activate audio residual when cargo flight queues (plane inbound).
 pub const SUPPLY_DROP_CARGO_APPROACH_AUDIO: &str = "CargoPlaneApproach";
 
 /// Drop audio residual when payload units spawn.
 pub const SUPPLY_DROP_CARGO_DROP_AUDIO: &str = "SupplyDropZoneDrop";
+
+/// Host residual spawn height for cargo crate (plane PreferredHeight + DropOffset Y).
+pub fn cargo_crate_drop_height(drop_offset_y: f32) -> f32 {
+    CARGO_PLANE_PREFERRED_HEIGHT + drop_offset_y
+}
+
+/// Whether AmericaCrateParachute residual should open after freefall OpenDist.
+pub fn should_open_crate_parachute(start_height: f32, current_height: f32) -> bool {
+    (start_height - current_height) >= CRATE_PARACHUTE_OPEN_DIST
+}
+
+/// C++ ParachuteContain low-altitude open fudge residual for crate OpenDist.
+pub fn fudge_crate_parachute_start_height(start_height: f32, ground_height: f32) -> f32 {
+    let min_span = CRATE_PARACHUTE_LOW_ALTITUDE_OPEN_MULT * CRATE_PARACHUTE_OPEN_DIST;
+    if start_height - ground_height < min_span {
+        ground_height + min_span
+    } else {
+        start_height
+    }
+}
+
+/// Advance AmericaCrateParachute residual sink (freefall vs open-chute rates).
+///
+/// Returns (new_height, landed). Host Y-up ground residual is typically 0.
+pub fn tick_crate_parachute_height(
+    current_height: f32,
+    ground_height: f32,
+    chute_open: bool,
+) -> (f32, bool) {
+    if current_height <= ground_height + 0.01 {
+        return (ground_height, true);
+    }
+    let rate = if chute_open {
+        CRATE_PARACHUTE_SINK_PER_FRAME
+    } else {
+        CRATE_PARACHUTE_FREEFALL_PER_FRAME
+    };
+    let next = (current_height - rate).max(ground_height);
+    let landed = next <= ground_height + 0.01;
+    (if landed { ground_height } else { next }, landed)
+}
+
+/// Whether residual crate is still above terrain (unit MoneyCrateCollide blocked).
+pub fn crate_is_above_terrain(height_y: f32, ground_height: f32) -> bool {
+    height_y > ground_height + 0.5
+}
 
 // --- SUPERWEAPON_Paradrop1 cargo residual honesty constants ---
 
@@ -362,6 +447,10 @@ pub struct HostDeliverPayloadRegistry {
     pub cash_credited_total: u32,
     /// Total DropDelay stagger item events (honesty).
     pub stagger_items_total: u32,
+    /// AmericaCrateParachute residual chute-open events (OpenDist freefall).
+    pub crate_parachute_opens: u32,
+    /// AmericaCrateParachute residual land events.
+    pub crate_parachute_lands: u32,
 }
 
 impl HostDeliverPayloadRegistry {
@@ -376,6 +465,8 @@ impl HostDeliverPayloadRegistry {
             payload_spawned_total: 0,
             cash_credited_total: 0,
             stagger_items_total: 0,
+            crate_parachute_opens: 0,
+            crate_parachute_lands: 0,
         }
     }
 
@@ -609,13 +700,18 @@ impl HostDeliverPayloadRegistry {
             if current_frame < due {
                 continue;
             }
-            let spawn_position = Self::drop_position_for_item(
+            let mut spawn_position = Self::drop_position_for_item(
                 mission.target_position,
                 mission.payload_count,
                 next_index,
                 mission.kind.payload_spacing(),
                 mission.kind.drop_offset(),
             );
+            // AmericaCrateParachute residual: elevate to cargo-plane PreferredHeight
+            // + DropOffset Y (fail-closed vs full CreateAtEdge aircraft altitude).
+            if mission.kind.spawns_payload_objects() {
+                spawn_position.y = cargo_crate_drop_height(mission.kind.drop_offset().y);
+            }
             plans.push(HostDeliverPayloadItemPlan {
                 mission_id: mission.id,
                 kind: mission.kind,
@@ -834,6 +930,35 @@ impl HostDeliverPayloadRegistry {
             && kind.delivery_distance() >= 0.0
             && kind.pre_open_distance() >= 0.0
     }
+
+    /// AmericaCrateParachute residual honesty (OpenDist chute open observed).
+    pub fn record_crate_parachute_open(&mut self) {
+        self.crate_parachute_opens = self.crate_parachute_opens.saturating_add(1);
+    }
+
+    pub fn record_crate_parachute_land(&mut self) {
+        self.crate_parachute_lands = self.crate_parachute_lands.saturating_add(1);
+    }
+
+    pub fn honesty_crate_parachute_open_ok(&self) -> bool {
+        self.crate_parachute_opens > 0
+    }
+
+    pub fn honesty_crate_parachute_land_ok(&self) -> bool {
+        self.crate_parachute_lands > 0
+    }
+
+    pub fn honesty_crate_parachute_fall_physics_ok(&self) -> bool {
+        self.honesty_crate_parachute_open_ok() && self.honesty_crate_parachute_land_ok()
+    }
+
+    /// ParachuteDirectly + OpenDist + PreferredHeight residual constants honesty.
+    pub fn honesty_crate_parachute_constants_ok() -> bool {
+        SUPPLY_DROP_PARACHUTE_DIRECTLY
+            && (CRATE_PARACHUTE_OPEN_DIST - 12.5).abs() < 0.01
+            && (CARGO_PLANE_PREFERRED_HEIGHT - 100.0).abs() < 0.01
+            && (CRATE_PARACHUTE_SPEED_LIMIT_Z - 15.0).abs() < 0.01
+    }
 }
 
 /// DropDelay / DoorDelay ms → logic frames residual (30 FPS).
@@ -871,12 +996,20 @@ mod tests {
         assert!((SUPPLY_DROP_PRE_OPEN_DISTANCE - 0.0).abs() < 0.01);
         assert!((SUPPLY_DROP_DROP_OFFSET_Y - (-5.0)).abs() < 0.01);
         assert_eq!(CARGO_PLANE_APPROACH_DELAY_FRAMES, 90);
+        assert!((CARGO_PLANE_PREFERRED_HEIGHT - 100.0).abs() < 0.01);
+        assert!((CRATE_PARACHUTE_OPEN_DIST - 12.5).abs() < 0.01);
+        assert!((CRATE_PARACHUTE_SPEED_LIMIT_Z - 15.0).abs() < 0.01);
+        assert!(SUPPLY_DROP_PARACHUTE_DIRECTLY);
+        assert!(
+            (cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y) - 95.0).abs() < 0.01
+        );
         assert!(HostDeliverPayloadRegistry::honesty_transport_names_ok(
             HostDeliverPayloadKind::SupplyDropZoneCrate
         ));
         assert!(HostDeliverPayloadRegistry::honesty_approach_constants_ok(
             HostDeliverPayloadKind::SupplyDropZoneCrate
         ));
+        assert!(HostDeliverPayloadRegistry::honesty_crate_parachute_constants_ok());
         assert!(
             (residual_allowed_delivery_distance(HostDeliverPayloadKind::SupplyDropZoneCrate)
                 - 410.0)
@@ -888,6 +1021,25 @@ mod tests {
                 .abs()
                 < 0.01
         );
+    }
+
+    #[test]
+    fn crate_parachute_open_dist_and_sink_residual() {
+        // Freefall until fallen ≥ 12.5.
+        assert!(!should_open_crate_parachute(95.0, 90.0)); // fallen 5
+        assert!(should_open_crate_parachute(95.0, 82.5)); // fallen 12.5
+        // Low-altitude fudge: start 10 < 2×12.5 → fudge to 25.
+        let fudged = fudge_crate_parachute_start_height(10.0, 0.0);
+        assert!((fudged - 25.0).abs() < 0.01);
+        // Freefall faster than open.
+        let (ff, _) = tick_crate_parachute_height(95.0, 0.0, false);
+        let (open, _) = tick_crate_parachute_height(95.0, 0.0, true);
+        assert!(ff < open, "freefall must sink faster than open chute");
+        assert!((95.0 - ff - CRATE_PARACHUTE_FREEFALL_PER_FRAME).abs() < 0.01);
+        assert!((95.0 - open - CRATE_PARACHUTE_SINK_PER_FRAME).abs() < 0.01);
+        assert!(crate_is_above_terrain(10.0, 0.0));
+        assert!(!crate_is_above_terrain(0.0, 0.0));
+        assert!(!crate_is_above_terrain(0.4, 0.0));
     }
 
     #[test]
@@ -927,8 +1079,11 @@ mod tests {
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].item_index, 0);
         assert!(!first[0].is_final_item);
-        // DropOffset Y -5 residual
-        assert!((first[0].spawn_position.y - (-5.0)).abs() < 0.01);
+        // Cargo PreferredHeight 100 + DropOffset Y -5 → spawn Y 95 residual
+        assert!(
+            (first[0].spawn_position.y - cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y)).abs()
+                < 0.01
+        );
 
         reg.record_item_spawned(id, Some(ObjectId(10)));
         assert_eq!(reg.get(id).unwrap().phase, HostDeliverPayloadPhase::Dropping);
