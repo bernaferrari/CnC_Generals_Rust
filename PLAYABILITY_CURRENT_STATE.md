@@ -1,3 +1,32 @@
+## Residual Host Playability — Same-Player PartitionFilter + Parachute OpenDist (2026-07-13)
+**Closed (host-testable PilotFindVehicle PartitionFilterPlayer + AmericaParachute OpenDist residual):**
+1. **PartitionFilterPlayer residual** (`PilotFindVehicleUpdate::scanClosestTarget`):
+   - C++ `PartitionFilterPlayer(me->getControllingPlayer(), true)` residual.
+   - Host killpilot captures `unmanned_owner_team` then sets Neutral.
+   - AI auto-scan accepts same-team or Neutral with matching owner; rejects
+     foreign-owner Neutral unmanned (China sniped hull for USA pilot).
+   - Player Enter recrew path is not gated (AI scan residual only).
+   - Fail-closed: not full same-map PartitionFilterSameMapStatus.
+2. **AmericaParachute OpenDist residual** (`ParachuteContain` / OpenDist **100**):
+   - Air-ejected pilot freefalls faster (`40` u/frame) until fallen ≥ **100**.
+   - Then opens chute residual (slower `20` u/frame sink + `ParachuteOpen` audio).
+   - Lands and clears parachuting residual as before.
+   - Fail-closed: not full sway / pitch-roll / DeliverPayload matrix.
+3. Tests (not log-only):
+   - `pilot_find_vehicle_same_player_partition_filter_residual`
+   - `eject_pilot_parachute_open_dist_residual`
+   - updated `eject_pilot_air_ocl_parachute_residual` (OpenDist honesty)
+   - module unit tests in `host_usa_pilot` (same-player / OpenDist gates / honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+  (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Network same-player / parachute-open replication (network deferred)
+
 ## Residual Host Playability — Eject DieMux + PilotFindVehicle CollideModule (2026-07-13)
 **Closed (host-testable EjectPilotDie DeathTypes/ExemptStatus + CollideModule residual):**
 1. **DieMux residual** (`EjectPilotDie` / `DieMuxData`):
@@ -11,7 +40,8 @@
      DOZER, not significantly above terrain, not airborne locomotor, trainable,
      canGainExpForLevel(pilot levels) — Heroic vehicle rejects Veteran pilot.
    - Nearest valid Rookie unmanned still Enter → recrew residual.
-   - Fail-closed: not full same-player PartitionFilter (Neutral unmanned allowed).
+   - Fail-closed: same-player PartitionFilter residual closed 2026-07-13
+     (see Same-Player PartitionFilter + Parachute OpenDist section).
 3. Tests (not log-only):
    - `eject_pilot_die_mux_death_types_and_hijacked_residual`
    - `pilot_find_vehicle_collide_module_would_like_residual`
@@ -23,8 +53,10 @@
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
   (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
 - Full AmericaParachute container OpenClose / DeliverPayload fall-physics matrix
+  (OpenDist host residual closed 2026-07-13 — see Same-Player + OpenDist section)
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
 - Full same-player PartitionFilter for PilotFindVehicle (host Neutral unmanned path)
+  (host residual closed 2026-07-13 — see Same-Player PartitionFilter + Parachute OpenDist)
 - Network die-mux / collide-module replication (network deferred)
 
 ## Residual Host Playability — Air Parachute Eject + USA Infantry AutoFindHealing (2026-07-13)
