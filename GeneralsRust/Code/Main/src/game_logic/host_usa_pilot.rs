@@ -37,6 +37,12 @@
 //! - **FreeFallDamage residual**: when chute is destroyed mid-air while
 //!   significantly above terrain, rider takes **FreeFallDamagePercent 0.5**
 //!   max-health residual (DAMAGE_FALLING / DEATH_SPLATTED honesty).
+//! - **Pitch/roll sway residual** (AmericaParachute ParachuteContain +
+//!   ParachuteLocomotor): while chute open, spring-damper pitch/roll residual
+//!   with PitchRateMax/RollRateMax **60** deg/s → **π/90** rad/frame seed band,
+//!   Pitch/RollStiffness **0.02**, Pitch/RollDamping **0.01**, LowAltitudeDamping
+//!   **0.2** below **20** height (ALTITUDE_DAMP_START). Deterministic host seed
+//!   (±half max rate). Fail-closed: not full bone PARA_COG/rider sway matrices.
 //!
 //! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
 //!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
@@ -49,7 +55,8 @@
 //!   player / host Neutral unmanned with matching `unmanned_owner_team`.
 //!
 //! Fail-closed honesty:
-//! - Not full AmericaParachute container sway / pitch-roll / DeliverPayload bone matrix
+//! - Not full AmericaParachute bone PARA_COG / rider sway / DeliverPayload matrix
+//!   (pitch/roll spring-damper host residual closed 2026-07-13)
 //! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
 //!   (C++ early-return makes busy path unreachable — host matches idle-only)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
@@ -163,6 +170,75 @@ pub const PILOT_PARACHUTE_LAND_AUDIO: &str = "ParadropLanding";
 
 /// Residual audio honesty when FreeFallDamage residual applies (splat path).
 pub const PILOT_FREE_FALL_DAMAGE_AUDIO: &str = "BodyFallGeneric";
+
+// --- AmericaParachute pitch/roll sway residual (ParachuteContain + ParachuteLocomotor) ---
+
+/// Retail AmericaParachute `PitchRateMax` / `RollRateMax` (deg/sec).
+pub const PARACHUTE_PITCH_RATE_MAX_DEG_PER_SEC: f32 = 60.0;
+/// Same as pitch (retail RollRateMax = 60 deg/sec).
+pub const PARACHUTE_ROLL_RATE_MAX_DEG_PER_SEC: f32 = 60.0;
+
+/// C++ `ConvertAngularVelocityInDegreesPerSecToRadsPerFrame(60)` at 30 FPS:
+/// `60 * (1/30) * (π/180) = π/90`.
+pub fn parachute_rate_max_rads_per_frame() -> f32 {
+    PARACHUTE_PITCH_RATE_MAX_DEG_PER_SEC * (std::f32::consts::PI / 180.0) / EJECT_PILOT_LOGIC_FPS
+}
+
+/// Retail ParachuteLocomotor PitchStiffness / RollStiffness.
+pub const PARACHUTE_PITCH_STIFFNESS: f32 = 0.02;
+/// Retail ParachuteLocomotor PitchStiffness / RollStiffness.
+pub const PARACHUTE_ROLL_STIFFNESS: f32 = 0.02;
+/// Retail ParachuteLocomotor PitchDamping / RollDamping.
+pub const PARACHUTE_PITCH_DAMPING: f32 = 0.01;
+/// Retail ParachuteLocomotor PitchDamping / RollDamping.
+pub const PARACHUTE_ROLL_DAMPING: f32 = 0.01;
+/// Retail AmericaParachute LowAltitudeDamping.
+pub const PARACHUTE_LOW_ALTITUDE_DAMPING: f32 = 0.2;
+/// C++ ParachuteContain ALTITUDE_DAMP_START (height above terrain).
+pub const PARACHUTE_ALTITUDE_DAMP_START: f32 = 20.0;
+
+/// Deterministic host residual initial pitch rate (C++ random in ±PitchRateMax).
+/// Host uses **+½ max** so tests are stable and still non-zero.
+pub fn parachute_initial_pitch_rate() -> f32 {
+    parachute_rate_max_rads_per_frame() * 0.5
+}
+
+/// Deterministic host residual initial roll rate (C++ random in ±RollRateMax).
+/// Host uses **−½ max** so pitch/roll axes are independently exercised.
+pub fn parachute_initial_roll_rate() -> f32 {
+    -parachute_rate_max_rads_per_frame() * 0.5
+}
+
+/// C++ ParachuteContain open-chute spring/damper residual (one logic frame).
+///
+/// ```text
+/// pitchRate += (-stiffness * pitch) + (-(damping + altDamp) * pitchRate)
+/// pitch     += pitchRate
+/// ```
+/// Same for roll. `altitude_damping` is LowAltitudeDamping when height ≤ 20, else 0.
+/// Returns `(pitch, roll, pitch_rate, roll_rate)`.
+pub fn tick_parachute_sway(
+    pitch: f32,
+    roll: f32,
+    pitch_rate: f32,
+    roll_rate: f32,
+    height_above_terrain: f32,
+) -> (f32, f32, f32, f32) {
+    let alt_damp = if height_above_terrain <= PARACHUTE_ALTITUDE_DAMP_START {
+        PARACHUTE_LOW_ALTITUDE_DAMPING
+    } else {
+        0.0
+    };
+    let pitch_damp = PARACHUTE_PITCH_DAMPING + alt_damp;
+    let roll_damp = PARACHUTE_ROLL_DAMPING + alt_damp;
+    let mut pr = pitch_rate;
+    let mut rr = roll_rate;
+    pr += (-PARACHUTE_PITCH_STIFFNESS * pitch) + (-pitch_damp * pr);
+    rr += (-PARACHUTE_ROLL_STIFFNESS * roll) + (-roll_damp * rr);
+    let p = pitch + pr;
+    let r = roll + rr;
+    (p, r, pr, rr)
+}
 
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
@@ -724,6 +800,9 @@ pub struct HostUsaPilotRegistry {
     /// AmericaParachute residual chute-open events (past OpenDist freefall).
     #[serde(default)]
     pub parachute_opens: u32,
+    /// Pitch/roll sway residual steps applied while chute open.
+    #[serde(default)]
+    pub parachute_sway_ticks: u32,
     /// Low-altitude open fudge residual applications.
     #[serde(default)]
     pub parachute_open_fudges: u32,
@@ -811,6 +890,10 @@ impl HostUsaPilotRegistry {
 
     pub fn record_parachute_open(&mut self) {
         self.parachute_opens = self.parachute_opens.saturating_add(1);
+    }
+
+    pub fn record_parachute_sway_tick(&mut self) {
+        self.parachute_sway_ticks = self.parachute_sway_ticks.saturating_add(1);
     }
 
     /// Residual honesty: at least one recrew completed.
@@ -903,6 +986,11 @@ impl HostUsaPilotRegistry {
         self.parachute_opens > 0
     }
 
+    /// Residual honesty: pitch/roll sway residual stepped at least once.
+    pub fn honesty_parachute_sway_ok(&self) -> bool {
+        self.parachute_sway_ticks > 0
+    }
+
     pub fn record_parachute_open_fudge(&mut self) {
         self.parachute_open_fudges = self.parachute_open_fudges.saturating_add(1);
     }
@@ -931,6 +1019,7 @@ impl HostUsaPilotRegistry {
             || self.honesty_air_eject_ok()
             || self.honesty_parachute_land_ok()
             || self.honesty_parachute_open_ok()
+            || self.honesty_parachute_sway_ok()
             || self.honesty_parachute_open_fudge_ok()
             || self.honesty_free_fall_damage_ok()
             || self.honesty_find_vehicle_player_ok()
@@ -1271,6 +1360,51 @@ mod tests {
         assert!((EJECT_PARACHUTE_FREEFALL_PER_FRAME - 40.0).abs() < 0.001);
         assert!((EJECT_PARACHUTE_SINK_PER_FRAME - 20.0).abs() < 0.001);
         assert!(!PILOT_PARACHUTE_OPEN_AUDIO.is_empty());
+
+        // Pitch/roll sway residual matrix (ParachuteContain + ParachuteLocomotor).
+        let rate_max = parachute_rate_max_rads_per_frame();
+        assert!((rate_max - std::f32::consts::PI / 90.0).abs() < 1e-6);
+        assert!((parachute_initial_pitch_rate() - rate_max * 0.5).abs() < 1e-6);
+        assert!((parachute_initial_roll_rate() + rate_max * 0.5).abs() < 1e-6);
+        assert!((PARACHUTE_PITCH_STIFFNESS - 0.02).abs() < 0.001);
+        assert!((PARACHUTE_ROLL_STIFFNESS - 0.02).abs() < 0.001);
+        assert!((PARACHUTE_PITCH_DAMPING - 0.01).abs() < 0.001);
+        assert!((PARACHUTE_ROLL_DAMPING - 0.01).abs() < 0.001);
+        assert!((PARACHUTE_LOW_ALTITUDE_DAMPING - 0.2).abs() < 0.001);
+        assert!((PARACHUTE_ALTITUDE_DAMP_START - 20.0).abs() < 0.001);
+        // Open-chute residual: seed rates integrate into non-zero pitch/roll.
+        let (p1, r1, pr1, rr1) = tick_parachute_sway(
+            0.0,
+            0.0,
+            parachute_initial_pitch_rate(),
+            parachute_initial_roll_rate(),
+            100.0, // high altitude → no low-alt damp
+        );
+        assert!(p1.abs() > 1e-6, "pitch residual must leave zero after one step");
+        assert!(r1.abs() > 1e-6, "roll residual must leave zero after one step");
+        // Low-altitude damping residual damps rates more aggressively.
+        let (_, _, pr_hi, _) = tick_parachute_sway(0.0, 0.0, rate_max, 0.0, 100.0);
+        let (_, _, pr_lo, _) = tick_parachute_sway(0.0, 0.0, rate_max, 0.0, 10.0);
+        assert!(
+            pr_lo.abs() < pr_hi.abs(),
+            "LowAltitudeDamping residual must reduce |pitch_rate| more near ground ({pr_lo} vs {pr_hi})"
+        );
+        // Many frames: spring/damper residual must not explode.
+        let mut p = 0.0;
+        let mut r = 0.0;
+        let mut pr = parachute_initial_pitch_rate();
+        let mut rr = parachute_initial_roll_rate();
+        for _ in 0..600 {
+            let (np, nr, npr, nrr) = tick_parachute_sway(p, r, pr, rr, 100.0);
+            p = np;
+            r = nr;
+            pr = npr;
+            rr = nrr;
+        }
+        assert!(p.is_finite() && r.is_finite() && pr.is_finite() && rr.is_finite());
+        assert!(p.abs() < 2.0 && r.abs() < 2.0, "sway residual must stay bounded");
+        // Silence unused warning for intermediate rate after one high step.
+        let _ = (pr1, rr1);
     }
 
     #[test]

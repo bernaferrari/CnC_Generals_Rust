@@ -40,8 +40,15 @@
 //! - **BinaryDataStream laser residual** (`LaserFromAssisted` / `LaserToTarget`):
 //!   On assist accept, host residual spawns two short-lived feedback beams using
 //!   retail template `PatriotBinaryDataStream` (DeletionUpdate **600**ms → **18**
-//!   frames): requestor→assistant and assistant→victim. Fail-closed: not full
-//!   W3DLaserDraw / LaserUpdate client drawable (arc / scroll / texture).
+//!   frames): requestor→assistant and assistant→victim.
+//!
+//! - **LaserUpdate endpoint tracking residual**: each logic frame, residual
+//!   refreshes beam start/end from live `from_id` / `to_id` object positions
+//!   (C++ `LaserUpdate::updateStartPos` / `updateEndPos` without bone matrix).
+//!   Dead/missing target freezes the last end point residual. W3DLaserDraw
+//!   residual honesty: NumBeams **1**, ScrollRate **-0.25**, ArcHeight **30**,
+//!   InnerBeamWidth **4**, Segments **20**; host advances scroll residual by
+//!   ScrollRate each frame while active.
 //!
 //! - **HiveStructureBody + SpawnBehavior residual** (GLAStingerSite):
 //!   SpawnNumber **3** residual soldiers (MaxHealth **100** each). Propagate
@@ -54,7 +61,8 @@
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
-//! - Not full W3DLaserDraw / LaserUpdate client drawable for assist beams
+//! - Not full W3DLaserDraw texture / arc segment GPU draw for assist beams
+//!   (endpoint track + draw-param honesty host residual closed 2026-07-13)
 //! - Not full SpawnBehavior physical slave objects / bone attach / getClosestSlave matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
@@ -133,6 +141,20 @@ pub const PATRIOT_BINARY_DATA_STREAM: &str = "PatriotBinaryDataStream";
 /// Retail PatriotBinaryDataStream DeletionUpdate Min/MaxLifetime **600**ms → **18** frames @ 30 FPS.
 pub const PATRIOT_ASSIST_LASER_LIFETIME_FRAMES: u32 = 18;
 
+// --- PatriotBinaryDataStream W3DLaserDraw residual honesty (draw params) ---
+/// Retail W3DLaserDraw NumBeams.
+pub const PATRIOT_LASER_NUM_BEAMS: u32 = 1;
+/// Retail W3DLaserDraw InnerBeamWidth.
+pub const PATRIOT_LASER_INNER_BEAM_WIDTH: f32 = 4.0;
+/// Retail W3DLaserDraw ScrollRate (towards = negative).
+pub const PATRIOT_LASER_SCROLL_RATE: f32 = -0.25;
+/// Retail W3DLaserDraw Segments.
+pub const PATRIOT_LASER_SEGMENTS: u32 = 20;
+/// Retail W3DLaserDraw ArcHeight.
+pub const PATRIOT_LASER_ARC_HEIGHT: f32 = 30.0;
+/// Retail W3DLaserDraw TilingScalar.
+pub const PATRIOT_LASER_TILING_SCALAR: f32 = 0.25;
+
 /// Kind of residual assist feedback laser (AssistedTargetingUpdate::makeFeedbackLaser).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatriotAssistLaserKind {
@@ -142,7 +164,7 @@ pub enum PatriotAssistLaserKind {
     ToTarget,
 }
 
-/// Host residual BinaryDataStream laser beam (not full LaserUpdate drawable).
+/// Host residual BinaryDataStream laser beam (LaserUpdate endpoint track residual).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResidualPatriotAssistLaser {
     pub kind: PatriotAssistLaserKind,
@@ -156,6 +178,10 @@ pub struct ResidualPatriotAssistLaser {
     pub to_z: f32,
     /// Absolute logic frame when DeletionUpdate residual expires the beam.
     pub expires_frame: u32,
+    /// W3DLaserDraw ScrollRate residual accum (starts 0; advances by ScrollRate/frame).
+    pub scroll_offset: f32,
+    /// Residual honesty: endpoint was refreshed from live parent/target at least once.
+    pub endpoint_tracked: bool,
 }
 
 impl ResidualPatriotAssistLaser {
@@ -167,6 +193,26 @@ impl ResidualPatriotAssistLaser {
     /// Whether the residual beam is still live at `frame`.
     pub fn is_active_at(&self, frame: u32) -> bool {
         frame < self.expires_frame
+    }
+
+    /// Retail W3DLaserDraw NumBeams residual honesty.
+    pub fn num_beams(&self) -> u32 {
+        PATRIOT_LASER_NUM_BEAMS
+    }
+
+    /// Retail W3DLaserDraw ArcHeight residual honesty.
+    pub fn arc_height(&self) -> f32 {
+        PATRIOT_LASER_ARC_HEIGHT
+    }
+
+    /// Retail W3DLaserDraw InnerBeamWidth residual honesty.
+    pub fn inner_beam_width(&self) -> f32 {
+        PATRIOT_LASER_INNER_BEAM_WIDTH
+    }
+
+    /// Retail W3DLaserDraw Segments residual honesty.
+    pub fn segments(&self) -> u32 {
+        PATRIOT_LASER_SEGMENTS
     }
 }
 
@@ -202,6 +248,8 @@ pub fn make_patriot_assist_lasers(
             to_y: assistant_pos.1,
             to_z: assistant_pos.2,
             expires_frame: expires,
+            scroll_offset: 0.0,
+            endpoint_tracked: false,
         },
         ResidualPatriotAssistLaser {
             kind: PatriotAssistLaserKind::ToTarget,
@@ -214,8 +262,61 @@ pub fn make_patriot_assist_lasers(
             to_y: victim_pos.1,
             to_z: victim_pos.2,
             expires_frame: expires,
+            scroll_offset: 0.0,
+            endpoint_tracked: false,
         },
     ]
+}
+
+/// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
+/// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` freezes end.
+///
+/// `lookup` returns `(x, y, z, alive)` for an ObjectId when present.
+/// Returns how many beams had an endpoint position change this frame.
+pub fn track_patriot_assist_laser_endpoints<F>(
+    lasers: &mut [ResidualPatriotAssistLaser],
+    mut lookup: F,
+) -> u32
+where
+    F: FnMut(ObjectId) -> Option<(f32, f32, f32, bool)>,
+{
+    let mut moved = 0u32;
+    for laser in lasers.iter_mut() {
+        laser.scroll_offset += PATRIOT_LASER_SCROLL_RATE;
+        let mut changed = false;
+        if let Some((x, y, z, alive)) = lookup(laser.from_id) {
+            if alive {
+                if (laser.from_x - x).abs() > 1e-4
+                    || (laser.from_y - y).abs() > 1e-4
+                    || (laser.from_z - z).abs() > 1e-4
+                {
+                    changed = true;
+                }
+                laser.from_x = x;
+                laser.from_y = y;
+                laser.from_z = z;
+            }
+        }
+        if let Some((x, y, z, alive)) = lookup(laser.to_id) {
+            if alive {
+                if (laser.to_x - x).abs() > 1e-4
+                    || (laser.to_y - y).abs() > 1e-4
+                    || (laser.to_z - z).abs() > 1e-4
+                {
+                    changed = true;
+                }
+                laser.to_x = x;
+                laser.to_y = y;
+                laser.to_z = z;
+            }
+            // Dead/missing target: freeze last end (fail-closed vs punchThroughScalar).
+        }
+        if changed {
+            laser.endpoint_tracked = true;
+            moved = moved.saturating_add(1);
+        }
+    }
+    moved
 }
 
 /// Retain only residual assist lasers still active at `frame`.
@@ -1507,6 +1608,13 @@ mod tests {
         assert_eq!(PATRIOT_BINARY_DATA_STREAM, "PatriotBinaryDataStream");
         assert_eq!(PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, 18);
         assert_eq!(patriot_assist_laser_expires_frame(10), 28);
+        // W3DLaserDraw residual honesty params.
+        assert_eq!(PATRIOT_LASER_NUM_BEAMS, 1);
+        assert!((PATRIOT_LASER_INNER_BEAM_WIDTH - 4.0).abs() < 0.001);
+        assert!((PATRIOT_LASER_SCROLL_RATE + 0.25).abs() < 0.001);
+        assert_eq!(PATRIOT_LASER_SEGMENTS, 20);
+        assert!((PATRIOT_LASER_ARC_HEIGHT - 30.0).abs() < 0.001);
+        assert!((PATRIOT_LASER_TILING_SCALAR - 0.25).abs() < 0.001);
         let beams = make_patriot_assist_lasers(
             ObjectId(1),
             ObjectId(2),
@@ -1520,13 +1628,40 @@ mod tests {
         assert_eq!(beams[0].from_id, ObjectId(1));
         assert_eq!(beams[0].to_id, ObjectId(2));
         assert_eq!(beams[0].template_name(), PATRIOT_BINARY_DATA_STREAM);
+        assert_eq!(beams[0].num_beams(), 1);
+        assert!((beams[0].arc_height() - 30.0).abs() < 0.001);
+        assert!((beams[0].inner_beam_width() - 4.0).abs() < 0.001);
+        assert_eq!(beams[0].segments(), 20);
+        assert!((beams[0].scroll_offset - 0.0).abs() < 0.001);
+        assert!(!beams[0].endpoint_tracked);
         assert!(beams[0].is_active_at(10));
         assert!(beams[0].is_active_at(27));
         assert!(!beams[0].is_active_at(28));
         assert_eq!(beams[1].kind, PatriotAssistLaserKind::ToTarget);
         assert_eq!(beams[1].from_id, ObjectId(2));
         assert_eq!(beams[1].to_id, ObjectId(3));
+        // LaserUpdate endpoint track residual: move requestor + victim.
         let mut live = beams.to_vec();
+        let mut positions = std::collections::HashMap::from([
+            (ObjectId(1), (10.0_f32, 0.0, 5.0, true)),
+            (ObjectId(2), (100.0_f32, 0.0, 0.0, true)),
+            (ObjectId(3), (60.0_f32, 0.0, 0.0, true)),
+        ]);
+        let moved = track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
+        assert!(moved >= 1, "endpoint residual must track moved parent/target");
+        assert!((live[0].from_x - 10.0).abs() < 0.01);
+        assert!((live[0].from_z - 5.0).abs() < 0.01);
+        assert!((live[1].to_x - 60.0).abs() < 0.01);
+        assert!(live[0].endpoint_tracked || live[1].endpoint_tracked);
+        // ScrollRate residual advances each track step.
+        assert!((live[0].scroll_offset - PATRIOT_LASER_SCROLL_RATE).abs() < 0.001);
+        // Dead target freezes last end residual.
+        positions.insert(ObjectId(3), (99.0, 0.0, 0.0, false));
+        let end_before = (live[1].to_x, live[1].to_y, live[1].to_z);
+        track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
+        assert!((live[1].to_x - end_before.0).abs() < 0.01);
+        assert!((live[1].to_y - end_before.1).abs() < 0.01);
+        assert!((live[1].to_z - end_before.2).abs() < 0.01);
         assert_eq!(expire_patriot_assist_lasers(&mut live, 27), 0);
         assert_eq!(live.len(), 2);
         assert_eq!(expire_patriot_assist_lasers(&mut live, 28), 2);
