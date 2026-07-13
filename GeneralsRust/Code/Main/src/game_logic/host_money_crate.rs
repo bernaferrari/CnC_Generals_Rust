@@ -14,10 +14,13 @@
 //!   (BuildingPickup may still collect — C++ validBuildingAttempt exception).
 //! - ExecuteAnimation residual: `MoneyPickUp` Anim2D presentation descriptor
 //!   (display 4.0s, ZRise 15, fades Yes) — presentation state, not GPU.
+//! - Floating cash text residual: host `+$N` presentation at crate pos + Z offset
+//!   (green RGBA) — presentation state, not full InGameUI draw / GameText fetch.
 //!
 //! Fail-closed honesty:
 //! - Not full CrateCollide kindof multi / science gate / ForbidOwnerPlayer matrix
-//! - Not full Anim2DCollection GPU / InGameUI world-anim draw / EVA floating text
+//! - Not full Anim2DCollection GPU / InGameUI world-anim draw path
+//! - Not full Unicode GameText "GUI:AddCash" localization / EVA voice events
 //! - Not network crate replication (network deferred)
 
 use super::ObjectId;
@@ -55,6 +58,15 @@ pub const MONEY_PICKUP_ANIM_FADES: bool = true;
 
 /// ForbiddenKindOf residual label honesty (SupplyDropZoneCrate = PROJECTILE).
 pub const MONEY_CRATE_FORBIDDEN_KIND_OF: &str = "PROJECTILE";
+
+/// Residual floating cash text Z lift above unit/crate (retail sabotage uses +20).
+pub const MONEY_FLOATING_TEXT_Z_OFFSET: f32 = 20.0;
+
+/// Residual floating cash text color (green, retail GameMakeColor(0,255,0,255)).
+pub const MONEY_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
+
+/// Residual GameText key honesty for cash gain caption.
+pub const MONEY_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
 
 /// One residual money crate registered after DeliverPayload spawn / test seed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -97,6 +109,19 @@ pub struct HostMoneyPickUpAnim {
     pub picker_id: ObjectId,
 }
 
+/// Host residual floating cash text presentation (InGameUI::addFloatingText family).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostMoneyFloatingText {
+    pub text: String,
+    pub text_key: String,
+    pub position: Vec3,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub amount: u32,
+    pub spawn_frame: u32,
+    pub crate_id: ObjectId,
+    pub picker_id: ObjectId,
+}
+
 /// Host registry of residual money crates + honesty counters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostMoneyCrateRegistry {
@@ -117,6 +142,12 @@ pub struct HostMoneyCrateRegistry {
     /// MoneyPickUp residual spawn count (honesty).
     #[serde(default)]
     pub money_pickup_anims_total: u32,
+    /// Floating cash text residual descriptors spawned this session.
+    #[serde(default)]
+    pub money_floating_texts: Vec<HostMoneyFloatingText>,
+    /// Floating cash text residual spawn count (honesty).
+    #[serde(default)]
+    pub money_floating_texts_total: u32,
     /// Unit pickups rejected because crate was above terrain (honesty).
     #[serde(default)]
     pub above_terrain_unit_rejects: u32,
@@ -260,6 +291,30 @@ impl HostMoneyCrateRegistry {
         }
     }
 
+    /// Build residual floating cash text presentation for a successful pickup.
+    pub fn money_floating_text(
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+        position: Vec3,
+        amount: u32,
+        spawn_frame: u32,
+    ) -> HostMoneyFloatingText {
+        HostMoneyFloatingText {
+            text: format!("+${amount}"),
+            text_key: MONEY_FLOATING_TEXT_ADD_CASH_KEY.to_string(),
+            position: Vec3::new(
+                position.x,
+                position.y + MONEY_FLOATING_TEXT_Z_OFFSET,
+                position.z,
+            ),
+            color_rgba: MONEY_FLOATING_TEXT_COLOR_RGBA,
+            amount,
+            spawn_frame,
+            crate_id,
+            picker_id,
+        }
+    }
+
     /// Apply a successful residual pickup: remove crate entry and update honesty.
     pub fn record_pickup(
         &mut self,
@@ -295,6 +350,15 @@ impl HostMoneyCrateRegistry {
         if self.money_pickup_anims.len() > 32 {
             let drain = self.money_pickup_anims.len() - 32;
             self.money_pickup_anims.drain(0..drain);
+        }
+    }
+
+    pub fn record_money_floating_text(&mut self, text: HostMoneyFloatingText) {
+        self.money_floating_texts_total = self.money_floating_texts_total.saturating_add(1);
+        self.money_floating_texts.push(text);
+        if self.money_floating_texts.len() > 32 {
+            let drain = self.money_floating_texts.len() - 32;
+            self.money_floating_texts.drain(0..drain);
         }
     }
 
@@ -341,6 +405,15 @@ impl HostMoneyCrateRegistry {
                 .any(|a| a.template == MONEY_PICKUP_ANIM_TEMPLATE)
     }
 
+    pub fn honesty_money_floating_text_ok(&self) -> bool {
+        self.money_floating_texts_total > 0
+            && self.money_floating_texts.iter().any(|t| {
+                t.amount > 0
+                    && t.text_key == MONEY_FLOATING_TEXT_ADD_CASH_KEY
+                    && t.color_rgba == MONEY_FLOATING_TEXT_COLOR_RGBA
+            })
+    }
+
     pub fn honesty_above_terrain_reject_ok(&self) -> bool {
         self.above_terrain_unit_rejects > 0
     }
@@ -355,6 +428,12 @@ impl HostMoneyCrateRegistry {
             && (MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND - 15.0).abs() < 0.01
             && MONEY_PICKUP_ANIM_FADES
             && MONEY_CRATE_FORBIDDEN_KIND_OF == "PROJECTILE"
+    }
+
+    pub fn honesty_money_floating_text_constants_ok() -> bool {
+        MONEY_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+            && (MONEY_FLOATING_TEXT_Z_OFFSET - 20.0).abs() < 0.01
+            && MONEY_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
     }
 }
 
@@ -433,6 +512,7 @@ mod tests {
             true, false, true, true, false
         ));
         assert!(HostMoneyCrateRegistry::honesty_money_pickup_anim_constants_ok());
+        assert!(HostMoneyCrateRegistry::honesty_money_floating_text_constants_ok());
         let anim = HostMoneyCrateRegistry::money_pickup_anim(
             ObjectId(1),
             ObjectId(2),
@@ -443,6 +523,17 @@ mod tests {
         assert!((anim.display_time_seconds - 4.0).abs() < 0.01);
         assert!((anim.z_rise_per_second - 15.0).abs() < 0.01);
         assert!(anim.fades);
+        let ft = HostMoneyCrateRegistry::money_floating_text(
+            ObjectId(1),
+            ObjectId(2),
+            Vec3::new(1.0, 0.0, 1.0),
+            250,
+            10,
+        );
+        assert_eq!(ft.text, "+$250");
+        assert_eq!(ft.text_key, "GUI:AddCash");
+        assert!((ft.position.y - 20.0).abs() < 0.01);
+        assert_eq!(ft.color_rgba, (0, 255, 0, 255));
         let _ = Team::USA;
     }
 
@@ -458,6 +549,16 @@ mod tests {
         reg.record_money_pickup_anim(anim);
         assert!(reg.honesty_money_pickup_anim_ok());
         assert_eq!(reg.money_pickup_anims_total, 1);
+        let ft = HostMoneyCrateRegistry::money_floating_text(
+            ObjectId(3),
+            ObjectId(4),
+            Vec3::new(5.0, 0.0, 5.0),
+            250,
+            5,
+        );
+        reg.record_money_floating_text(ft);
+        assert!(reg.honesty_money_floating_text_ok());
+        assert_eq!(reg.money_floating_texts_total, 1);
         reg.record_above_terrain_unit_reject();
         assert!(reg.honesty_above_terrain_reject_ok());
         reg.record_forbidden_kindof_reject();

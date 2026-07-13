@@ -18,13 +18,21 @@
 //! - Spawn at B52 PreferredHeight **100** + DropOffset Y:-5 (host Y-up).
 //! - Freefall until fallen `ParachuteOpenDist` **12.5**, then open chute (slower sink).
 //! - `ParachuteDirectly = Yes` residual honesty (target-bunch, no lateral drift residual).
-//! - Fail-closed: not full container Object / W3D bone / locomotor force matrix.
+//! - PARA_COG / PARA_ATTCH bone attach residual (GeometryHeight **10** layout) +
+//!   crate hang (SupplyDropZoneCrate GeometryHeight **12** height-fallback).
+//!
+//! Residual CreateAtEdge cargo-plane flight presentation:
+//! - Edge spawn residual from residual map extent (closest edge → PreferredHeight).
+//! - B52Locomotor Speed **125**/sec approach toward target; DeliveryDistance band.
+//! - isCloseEnough residual (inbound + PreOpenDistance).
+//! - Door residual: DoorDelay → MODELCONDITION_DOOR_1_OPENING (AVCargoPln_A2).
+//! - StartAtPreferredHeight / StartAtMaxSpeed OCL honesty.
 //!
 //! Fail-closed honesty:
-//! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate state machine
-//! - Not full PreOpenDistance approach geometry flight path (constants retained)
+//! - Not full CreateAtEdge cargo-plane Object / full DeliverPayloadAIUpdate state machine
+//! - Not full pathfinder re-approach / calcMinTurnRadius / off-map recover
 //! - Not full DropVariance random scatter (OCL supply drop has no DropVariance)
-//! - Not full AmericaCrateParachute container Object / W3D bone attach matrix
+//! - Not full AmericaCrateParachute container Object / W3D pristine bone extract GPU
 //! - Not full VisiblePayload bone / subobject bomb rack matrix
 //! - Not network DeliverPayload replication (network deferred)
 
@@ -128,9 +136,450 @@ pub const SUPPLY_DROP_CARGO_APPROACH_AUDIO: &str = "CargoPlaneApproach";
 /// Drop audio residual when payload units spawn.
 pub const SUPPLY_DROP_CARGO_DROP_AUDIO: &str = "SupplyDropZoneDrop";
 
+// --- AmericaJetCargoPlane CreateAtEdge flight residual ---
+
+/// Retail AmericaJetCargoPlane model residual honesty (`AVCargoPln`).
+pub const CARGO_PLANE_MODEL_NAME: &str = "AVCargoPln";
+
+/// Retail cargo door sub-object residual honesty (`AVCargoPln_A2`).
+pub const CARGO_PLANE_DOOR_MODEL_NAME: &str = "AVCargoPln_A2";
+
+/// Retail Door_1_OPENING model condition residual label.
+pub const CARGO_PLANE_DOOR_OPENING_CONDITION: &str = "DOOR_1_OPENING";
+
+/// Retail Door_1_CLOSING model condition residual label.
+pub const CARGO_PLANE_DOOR_CLOSING_CONDITION: &str = "DOOR_1_CLOSING";
+
+/// Retail B52Locomotor Speed (dist/sec).
+pub const B52_LOCOMOTOR_SPEED: f32 = 125.0;
+
+/// B52 residual speed per logic frame (125 / 30 ≈ 4.1667).
+pub const B52_SPEED_PER_FRAME: f32 = B52_LOCOMOTOR_SPEED / DELIVER_PAYLOAD_LOGIC_FPS;
+
+/// Retail B52Locomotor MinSpeed residual honesty.
+pub const B52_LOCOMOTOR_MIN_SPEED: f32 = 60.0;
+
+/// Retail B52Locomotor TurnRate residual honesty (deg/sec).
+pub const B52_LOCOMOTOR_TURN_RATE: f32 = 25.0;
+
+/// Retail OCL StartAtPreferredHeight residual honesty.
+pub const SUPPLY_DROP_START_AT_PREFERRED_HEIGHT: bool = true;
+
+/// Retail OCL StartAtMaxSpeed residual honesty.
+pub const SUPPLY_DROP_START_AT_MAX_SPEED: bool = true;
+
+/// Retail AmericaJetCargoPlane TransportContain ExitBone residual honesty.
+pub const CARGO_PLANE_EXIT_BONE: &str = "WeaponA01";
+
+/// Retail AmericaJetCargoPlane ExitPitchRate residual honesty (deg/sec).
+pub const CARGO_PLANE_EXIT_PITCH_RATE: f32 = 30.0;
+
+/// Residual map extent for CreateAtEdge closest-edge residual (host default when
+/// no TerrainLogic extent is available). Horizontal XZ; Y is height.
+pub const RESIDUAL_MAP_EXTENT_MIN_X: f32 = 0.0;
+pub const RESIDUAL_MAP_EXTENT_MIN_Z: f32 = 0.0;
+pub const RESIDUAL_MAP_EXTENT_MAX_X: f32 = 500.0;
+pub const RESIDUAL_MAP_EXTENT_MAX_Z: f32 = 500.0;
+
+// --- AmericaCrateParachute bone attach residual ---
+
+/// Retail AmericaCrateParachute pristine bone names (same as AmericaParachute).
+pub const CRATE_PARA_BONE_COG: &str = "PARA_COG";
+pub const CRATE_PARA_BONE_ATTCH: &str = "PARA_ATTCH";
+
+/// Retail AmericaCrateParachute GeometryHeight residual.
+pub const CRATE_PARA_GEOMETRY_HEIGHT: f32 = 10.0;
+
+/// Retail AmericaCrateParachute GeometryMajorRadius residual.
+pub const CRATE_PARA_GEOMETRY_MAJOR_RADIUS: f32 = 15.0;
+
+/// Retail SupplyDropZoneCrate GeometryHeight residual (rider height-fallback).
+pub const CRATE_RIDER_GEOMETRY_HEIGHT: f32 = 12.0;
+
+/// Retail AmericaCrateParachute PitchRateMax / RollRateMax (deg/sec).
+pub const CRATE_PARA_PITCH_RATE_MAX_DEG: f32 = 60.0;
+pub const CRATE_PARA_ROLL_RATE_MAX_DEG: f32 = 60.0;
+
 /// Host residual spawn height for cargo crate (plane PreferredHeight + DropOffset Y).
 pub fn cargo_crate_drop_height(drop_offset_y: f32) -> f32 {
     CARGO_PLANE_PREFERRED_HEIGHT + drop_offset_y
+}
+
+/// C++ TerrainLogic::findClosestEdgePoint residual on host XZ horizontal plane.
+///
+/// Returns edge point at PreferredHeight when `start_at_preferred_height` is set.
+pub fn find_closest_edge_point_residual(
+    target: Vec3,
+    map_min_x: f32,
+    map_min_z: f32,
+    map_max_x: f32,
+    map_max_z: f32,
+    preferred_height: f32,
+) -> Vec3 {
+    let d_min_z = (target.z - map_min_z).abs();
+    let d_max_x = (target.x - map_max_x).abs();
+    let d_max_z = (target.z - map_max_z).abs();
+    let d_min_x = (target.x - map_min_x).abs();
+    let mut best = 0_u8;
+    let mut best_d = d_min_z;
+    if d_max_x < best_d {
+        best = 1;
+        best_d = d_max_x;
+    }
+    if d_max_z < best_d {
+        best = 2;
+        best_d = d_max_z;
+    }
+    if d_min_x < best_d {
+        best = 3;
+    }
+    let mut edge = target;
+    match best {
+        0 => edge.z = map_min_z,
+        1 => edge.x = map_max_x,
+        2 => edge.z = map_max_z,
+        _ => edge.x = map_min_x,
+    }
+    edge.y = preferred_height;
+    edge.x = edge.x.clamp(map_min_x, map_max_x);
+    edge.z = edge.z.clamp(map_min_z, map_max_z);
+    edge
+}
+
+/// Default residual map CreateAtEdge edge spawn for a target.
+pub fn create_at_edge_spawn_residual(target: Vec3) -> Vec3 {
+    find_closest_edge_point_residual(
+        target,
+        RESIDUAL_MAP_EXTENT_MIN_X,
+        RESIDUAL_MAP_EXTENT_MIN_Z,
+        RESIDUAL_MAP_EXTENT_MAX_X,
+        RESIDUAL_MAP_EXTENT_MAX_Z,
+        if SUPPLY_DROP_START_AT_PREFERRED_HEIGHT {
+            CARGO_PLANE_PREFERRED_HEIGHT
+        } else {
+            target.y
+        },
+    )
+}
+
+/// Horizontal XZ distance residual (DeliverPayload approach band).
+pub fn horizontal_distance_xz(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    (dx * dx + dz * dz).sqrt()
+}
+
+/// C++ DeliverPayloadAIUpdate::isCloseEnoughToTarget residual.
+pub fn is_close_enough_to_target_residual(
+    current_dist: f32,
+    previous_dist: f32,
+    delivery_distance: f32,
+    pre_open_distance: f32,
+) -> bool {
+    let inbound = previous_dist > current_dist;
+    let allowed = if inbound {
+        delivery_distance + pre_open_distance
+    } else {
+        delivery_distance
+    };
+    current_dist <= allowed
+}
+
+/// Advance cargo plane residual position toward target at B52 residual speed.
+pub fn tick_cargo_plane_approach(
+    current: Vec3,
+    target: Vec3,
+    preferred_height: f32,
+    speed_per_frame: f32,
+) -> (Vec3, f32) {
+    let mut next = current;
+    next.y = preferred_height;
+    let dx = target.x - current.x;
+    let dz = target.z - current.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist <= 0.001 {
+        return (next, 0.0);
+    }
+    let step = speed_per_frame.min(dist);
+    next.x = current.x + dx / dist * step;
+    next.z = current.z + dz / dist * step;
+    let new_dist = horizontal_distance_xz(next, target);
+    (next, new_dist)
+}
+
+/// Host residual DeliverPayloadAIUpdate flight phase presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostCargoPlaneFlightPhase {
+    EdgeSpawn,
+    Approaching,
+    InDeliveryBand,
+    DoorOpening,
+    Delivering,
+    Departing,
+    Complete,
+}
+
+/// Host residual AmericaJetCargoPlane flight presentation state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCargoPlaneFlight {
+    pub mission_id: u32,
+    pub transport_template: String,
+    pub model_name: String,
+    pub door_model_name: String,
+    pub exit_bone: String,
+    pub phase: HostCargoPlaneFlightPhase,
+    pub edge_spawn_pos: Vec3,
+    pub current_pos: Vec3,
+    pub target_pos: Vec3,
+    pub preferred_height: f32,
+    pub speed_per_frame: f32,
+    pub delivery_distance: f32,
+    pub pre_open_distance: f32,
+    pub max_attempts: u32,
+    pub approach_attempt: u32,
+    pub previous_distance: f32,
+    pub start_at_preferred_height: bool,
+    pub start_at_max_speed: bool,
+    pub door_open: bool,
+    pub door_condition: String,
+    pub exit_pitch_rate: f32,
+}
+
+impl HostCargoPlaneFlight {
+    pub fn new_supply_drop(mission_id: u32, target: Vec3) -> Self {
+        let edge = create_at_edge_spawn_residual(target);
+        let dist = horizontal_distance_xz(edge, target);
+        Self {
+            mission_id,
+            transport_template: SUPPLY_DROP_CARGO_TRANSPORT.to_string(),
+            model_name: CARGO_PLANE_MODEL_NAME.to_string(),
+            door_model_name: CARGO_PLANE_DOOR_MODEL_NAME.to_string(),
+            exit_bone: CARGO_PLANE_EXIT_BONE.to_string(),
+            phase: HostCargoPlaneFlightPhase::EdgeSpawn,
+            edge_spawn_pos: edge,
+            current_pos: edge,
+            target_pos: target,
+            preferred_height: CARGO_PLANE_PREFERRED_HEIGHT,
+            speed_per_frame: if SUPPLY_DROP_START_AT_MAX_SPEED {
+                B52_SPEED_PER_FRAME
+            } else {
+                B52_LOCOMOTOR_MIN_SPEED / DELIVER_PAYLOAD_LOGIC_FPS
+            },
+            delivery_distance: SUPPLY_DROP_DELIVERY_DISTANCE,
+            pre_open_distance: SUPPLY_DROP_PRE_OPEN_DISTANCE,
+            max_attempts: SUPPLY_DROP_MAX_ATTEMPTS,
+            approach_attempt: 1,
+            previous_distance: dist,
+            start_at_preferred_height: SUPPLY_DROP_START_AT_PREFERRED_HEIGHT,
+            start_at_max_speed: SUPPLY_DROP_START_AT_MAX_SPEED,
+            door_open: false,
+            door_condition: String::new(),
+            exit_pitch_rate: CARGO_PLANE_EXIT_PITCH_RATE,
+        }
+    }
+
+    pub fn is_in_delivery_band(&self) -> bool {
+        let dist = horizontal_distance_xz(self.current_pos, self.target_pos);
+        is_close_enough_to_target_residual(
+            dist,
+            self.previous_distance,
+            self.delivery_distance,
+            self.pre_open_distance,
+        )
+    }
+
+    pub fn tick(&mut self, items_dropped: u32, payload_count: u32, mission_complete: bool) {
+        if matches!(
+            self.phase,
+            HostCargoPlaneFlightPhase::Complete | HostCargoPlaneFlightPhase::Departing
+        ) {
+            if mission_complete && self.phase != HostCargoPlaneFlightPhase::Complete {
+                self.phase = HostCargoPlaneFlightPhase::Complete;
+                self.door_open = false;
+                self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+            }
+            return;
+        }
+
+        if self.phase == HostCargoPlaneFlightPhase::EdgeSpawn {
+            self.phase = HostCargoPlaneFlightPhase::Approaching;
+        }
+
+        let (next, dist) = tick_cargo_plane_approach(
+            self.current_pos,
+            self.target_pos,
+            self.preferred_height,
+            self.speed_per_frame,
+        );
+        let prev = self.previous_distance;
+        self.current_pos = next;
+        let close = is_close_enough_to_target_residual(
+            dist,
+            prev,
+            self.delivery_distance,
+            self.pre_open_distance,
+        );
+        self.previous_distance = dist;
+
+        if items_dropped > 0 && payload_count > 0 && items_dropped < payload_count {
+            self.phase = HostCargoPlaneFlightPhase::Delivering;
+            self.door_open = true;
+            self.door_condition = CARGO_PLANE_DOOR_OPENING_CONDITION.to_string();
+        } else if items_dropped > 0 && payload_count > 0 && items_dropped >= payload_count {
+            self.phase = HostCargoPlaneFlightPhase::Departing;
+            self.door_open = false;
+            self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+        } else if close {
+            if self.phase == HostCargoPlaneFlightPhase::Approaching
+                || self.phase == HostCargoPlaneFlightPhase::EdgeSpawn
+            {
+                self.phase = HostCargoPlaneFlightPhase::InDeliveryBand;
+            }
+            if !self.door_open
+                && matches!(
+                    self.phase,
+                    HostCargoPlaneFlightPhase::InDeliveryBand
+                        | HostCargoPlaneFlightPhase::DoorOpening
+                        | HostCargoPlaneFlightPhase::Delivering
+                )
+            {
+                self.phase = HostCargoPlaneFlightPhase::DoorOpening;
+                self.door_open = true;
+                self.door_condition = CARGO_PLANE_DOOR_OPENING_CONDITION.to_string();
+            }
+        }
+
+        if mission_complete {
+            self.phase = HostCargoPlaneFlightPhase::Complete;
+            self.door_open = false;
+            if self.door_condition.is_empty()
+                || self.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION
+            {
+                self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+            }
+        }
+    }
+}
+
+/// AmericaCrateParachute host residual pristine bone offsets (no W3D extract).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostCrateParachuteBoneOffsets {
+    pub para_cog: (f32, f32, f32),
+    pub para_attch: (f32, f32, f32),
+    pub crate_man: (f32, f32, f32),
+}
+
+pub fn crate_parachute_host_bone_offsets() -> HostCrateParachuteBoneOffsets {
+    HostCrateParachuteBoneOffsets {
+        para_cog: (0.0, CRATE_PARA_GEOMETRY_HEIGHT * 0.7, 0.0),
+        para_attch: (0.0, CRATE_PARA_GEOMETRY_HEIGHT * 0.2, 0.0),
+        crate_man: (0.0, CRATE_RIDER_GEOMETRY_HEIGHT, 0.0),
+    }
+}
+
+pub fn crate_parachute_offsets_from_bones(
+    bones: HostCrateParachuteBoneOffsets,
+) -> ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)) {
+    let para_sway = bones.para_cog;
+    let crate_attach = (
+        bones.para_attch.0 - bones.crate_man.0,
+        bones.para_attch.1 - bones.crate_man.1,
+        bones.para_attch.2 - bones.crate_man.2,
+    );
+    let crate_sway = (
+        para_sway.0 - crate_attach.0,
+        para_sway.1 - crate_attach.1,
+        para_sway.2 - crate_attach.2,
+    );
+    (crate_attach, crate_sway, para_sway)
+}
+
+pub fn crate_parachute_crate_logic_position(
+    para_pos: (f32, f32, f32),
+    crate_attach: (f32, f32, f32),
+) -> (f32, f32, f32) {
+    (
+        para_pos.0 + crate_attach.0,
+        para_pos.1 + crate_attach.1,
+        para_pos.2 + crate_attach.2,
+    )
+}
+
+pub fn crate_parachute_presentation_position(
+    para_pos: (f32, f32, f32),
+    crate_attach: (f32, f32, f32),
+    crate_sway: (f32, f32, f32),
+    pitch: f32,
+    roll: f32,
+    chute_open: bool,
+) -> (f32, f32, f32) {
+    let logic = crate_parachute_crate_logic_position(para_pos, crate_attach);
+    if !chute_open {
+        return logic;
+    }
+    let px = crate_attach.0 - crate_sway.0;
+    let py = crate_attach.1 - crate_sway.1;
+    let pz = crate_attach.2 - crate_sway.2;
+    let (sr, cr) = roll.sin_cos();
+    let y1 = py * cr - pz * sr;
+    let z1 = py * sr + pz * cr;
+    let x1 = px;
+    let (sp, cp) = pitch.sin_cos();
+    let x2 = x1 * cp + y1 * sp;
+    let y2 = -x1 * sp + y1 * cp;
+    let z2 = z1;
+    let out = (x2 + crate_sway.0, y2 + crate_sway.1, z2 + crate_sway.2);
+    let delta = (
+        out.0 - crate_attach.0,
+        out.1 - crate_attach.1,
+        out.2 - crate_attach.2,
+    );
+    (logic.0 + delta.0, logic.1 + delta.1, logic.2 + delta.2)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostCrateParachuteAttach {
+    pub bones: HostCrateParachuteBoneOffsets,
+    pub crate_attach: (f32, f32, f32),
+    pub crate_sway: (f32, f32, f32),
+    pub para_sway: (f32, f32, f32),
+    pub para_logic_pos: (f32, f32, f32),
+    pub crate_logic_pos: (f32, f32, f32),
+    pub crate_presentation_pos: (f32, f32, f32),
+    pub chute_open: bool,
+    pub pitch: f32,
+    pub roll: f32,
+}
+
+pub fn crate_parachute_attach_presentation(
+    para_pos: (f32, f32, f32),
+    pitch: f32,
+    roll: f32,
+    chute_open: bool,
+) -> HostCrateParachuteAttach {
+    let bones = crate_parachute_host_bone_offsets();
+    let (crate_attach, crate_sway, para_sway) = crate_parachute_offsets_from_bones(bones);
+    let crate_logic = crate_parachute_crate_logic_position(para_pos, crate_attach);
+    let crate_pres = crate_parachute_presentation_position(
+        para_pos,
+        crate_attach,
+        crate_sway,
+        pitch,
+        roll,
+        chute_open,
+    );
+    HostCrateParachuteAttach {
+        bones,
+        crate_attach,
+        crate_sway,
+        para_sway,
+        para_logic_pos: para_pos,
+        crate_logic_pos: crate_logic,
+        crate_presentation_pos: crate_pres,
+        chute_open,
+        pitch,
+        roll,
+    }
 }
 
 /// Whether AmericaCrateParachute residual should open after freefall OpenDist.
@@ -436,6 +885,8 @@ pub struct HostDeliverPayloadDropPlan {
 pub struct HostDeliverPayloadRegistry {
     next_id: u32,
     missions: HashMap<u32, HostDeliverPayloadMission>,
+    /// CreateAtEdge AmericaJetCargoPlane flight presentation residual.
+    cargo_flights: HashMap<u32, HostCargoPlaneFlight>,
     completed_this_frame: Vec<u32>,
     activated_this_frame: Vec<u32>,
     items_spawned_this_frame: Vec<(u32, ObjectId)>,
@@ -451,6 +902,14 @@ pub struct HostDeliverPayloadRegistry {
     pub crate_parachute_opens: u32,
     /// AmericaCrateParachute residual land events.
     pub crate_parachute_lands: u32,
+    /// CreateAtEdge residual edge-spawn events (honesty).
+    pub create_at_edge_spawns: u32,
+    /// DeliveryDistance band entries observed (honesty).
+    pub delivery_band_entries: u32,
+    /// Door open residual events (honesty).
+    pub door_open_events: u32,
+    /// AmericaCrateParachute bone attach presentation builds (honesty).
+    pub crate_bone_attach_builds: u32,
 }
 
 impl HostDeliverPayloadRegistry {
@@ -458,6 +917,7 @@ impl HostDeliverPayloadRegistry {
         Self {
             next_id: 1,
             missions: HashMap::new(),
+            cargo_flights: HashMap::new(),
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
             items_spawned_this_frame: Vec::new(),
@@ -467,6 +927,10 @@ impl HostDeliverPayloadRegistry {
             stagger_items_total: 0,
             crate_parachute_opens: 0,
             crate_parachute_lands: 0,
+            create_at_edge_spawns: 0,
+            delivery_band_entries: 0,
+            door_open_events: 0,
+            crate_bone_attach_builds: 0,
         }
     }
 
@@ -671,7 +1135,85 @@ impl HostDeliverPayloadRegistry {
         self.missions.insert(id, mission);
         self.activated_this_frame.push(id);
         self.flights_queued = self.flights_queued.saturating_add(1);
+        // CreateAtEdge AmericaJetCargoPlane flight residual (presentation state).
+        if kind.spawns_payload_objects() {
+            let flight = HostCargoPlaneFlight::new_supply_drop(id, target_position);
+            self.create_at_edge_spawns = self.create_at_edge_spawns.saturating_add(1);
+            self.cargo_flights.insert(id, flight);
+        }
         id
+    }
+
+    /// Residual CreateAtEdge cargo-plane flight presentation for a mission.
+    pub fn cargo_flight(&self, mission_id: u32) -> Option<&HostCargoPlaneFlight> {
+        self.cargo_flights.get(&mission_id)
+    }
+
+    pub fn cargo_flight_mut(&mut self, mission_id: u32) -> Option<&mut HostCargoPlaneFlight> {
+        self.cargo_flights.get_mut(&mission_id)
+    }
+
+    /// Snapshot of residual cargo flights (sorted by mission id).
+    pub fn cargo_flights_snapshot(&self) -> Vec<HostCargoPlaneFlight> {
+        let mut v: Vec<_> = self.cargo_flights.values().cloned().collect();
+        v.sort_by_key(|f| f.mission_id);
+        v
+    }
+
+    /// Tick residual CreateAtEdge cargo-plane flights (presentation / approach).
+    pub fn tick_cargo_flights(&mut self) {
+        let mission_states: Vec<(u32, u32, u32, bool)> = self
+            .missions
+            .values()
+            .map(|m| {
+                (
+                    m.id,
+                    m.items_dropped,
+                    m.payload_count,
+                    m.phase == HostDeliverPayloadPhase::Completed
+                        || m.phase == HostDeliverPayloadPhase::Cancelled,
+                )
+            })
+            .collect();
+        for (id, items_dropped, payload_count, complete) in mission_states {
+            let Some(flight) = self.cargo_flights.get_mut(&id) else {
+                continue;
+            };
+            let was_band = matches!(
+                flight.phase,
+                HostCargoPlaneFlightPhase::InDeliveryBand
+                    | HostCargoPlaneFlightPhase::DoorOpening
+                    | HostCargoPlaneFlightPhase::Delivering
+            );
+            let was_door = flight.door_open;
+            flight.tick(items_dropped, payload_count, complete);
+            let now_band = matches!(
+                flight.phase,
+                HostCargoPlaneFlightPhase::InDeliveryBand
+                    | HostCargoPlaneFlightPhase::DoorOpening
+                    | HostCargoPlaneFlightPhase::Delivering
+                    | HostCargoPlaneFlightPhase::Departing
+                    | HostCargoPlaneFlightPhase::Complete
+            );
+            if !was_band && now_band {
+                self.delivery_band_entries = self.delivery_band_entries.saturating_add(1);
+            }
+            if !was_door && flight.door_open {
+                self.door_open_events = self.door_open_events.saturating_add(1);
+            }
+        }
+    }
+
+    /// Build AmericaCrateParachute bone attach residual presentation and record honesty.
+    pub fn build_crate_parachute_attach(
+        &mut self,
+        para_pos: (f32, f32, f32),
+        pitch: f32,
+        roll: f32,
+        chute_open: bool,
+    ) -> HostCrateParachuteAttach {
+        self.crate_bone_attach_builds = self.crate_bone_attach_builds.saturating_add(1);
+        crate_parachute_attach_presentation(para_pos, pitch, roll, chute_open)
     }
 
     /// Build per-item spawn plans for DropDelay stagger residual.
@@ -959,6 +1501,56 @@ impl HostDeliverPayloadRegistry {
             && (CARGO_PLANE_PREFERRED_HEIGHT - 100.0).abs() < 0.01
             && (CRATE_PARACHUTE_SPEED_LIMIT_Z - 15.0).abs() < 0.01
     }
+
+    pub fn honesty_create_at_edge_ok(&self) -> bool {
+        self.create_at_edge_spawns > 0
+            && self.cargo_flights.values().any(|f| {
+                f.edge_spawn_pos.y >= CARGO_PLANE_PREFERRED_HEIGHT - 0.01
+                    && f.transport_template == SUPPLY_DROP_CARGO_TRANSPORT
+                    && f.model_name == CARGO_PLANE_MODEL_NAME
+            })
+    }
+
+    pub fn honesty_delivery_band_ok(&self) -> bool {
+        self.delivery_band_entries > 0
+            || self.cargo_flights.values().any(|f| {
+                matches!(
+                    f.phase,
+                    HostCargoPlaneFlightPhase::InDeliveryBand
+                        | HostCargoPlaneFlightPhase::DoorOpening
+                        | HostCargoPlaneFlightPhase::Delivering
+                        | HostCargoPlaneFlightPhase::Departing
+                        | HostCargoPlaneFlightPhase::Complete
+                )
+            })
+    }
+
+    pub fn honesty_cargo_door_ok(&self) -> bool {
+        self.door_open_events > 0
+            || self.cargo_flights.values().any(|f| {
+                f.door_open || f.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION
+            })
+    }
+
+    pub fn honesty_create_at_edge_flight_ok(&self) -> bool {
+        self.honesty_create_at_edge_ok()
+            && (self.honesty_delivery_band_ok() || self.honesty_cargo_door_ok())
+            && SUPPLY_DROP_START_AT_PREFERRED_HEIGHT
+            && SUPPLY_DROP_START_AT_MAX_SPEED
+            && (B52_LOCOMOTOR_SPEED - 125.0).abs() < 0.01
+    }
+
+    pub fn honesty_crate_bone_attach_ok(&self) -> bool {
+        self.crate_bone_attach_builds > 0
+    }
+
+    pub fn honesty_crate_bone_constants_ok() -> bool {
+        CRATE_PARA_BONE_COG == "PARA_COG"
+            && CRATE_PARA_BONE_ATTCH == "PARA_ATTCH"
+            && (CRATE_PARA_GEOMETRY_HEIGHT - 10.0).abs() < 0.01
+            && (CRATE_RIDER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+            && (CRATE_PARA_PITCH_RATE_MAX_DEG - 60.0).abs() < 0.01
+    }
 }
 
 /// DropDelay / DoorDelay ms → logic frames residual (30 FPS).
@@ -1154,5 +1746,129 @@ mod tests {
         assert!((positions[0].x - (-50.0)).abs() < 0.01);
         assert!((positions[5].x - 50.0).abs() < 0.01);
         assert!((positions[0].y - (-5.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn create_at_edge_closest_edge_and_preferred_height() {
+        let target = Vec3::new(10.0, 0.0, 250.0);
+        let edge = create_at_edge_spawn_residual(target);
+        assert!((edge.x - RESIDUAL_MAP_EXTENT_MIN_X).abs() < 0.01);
+        assert!((edge.y - CARGO_PLANE_PREFERRED_HEIGHT).abs() < 0.01);
+        assert!((edge.z - 250.0).abs() < 0.01);
+        let target_r = Vec3::new(490.0, 0.0, 250.0);
+        let edge_r = create_at_edge_spawn_residual(target_r);
+        assert!((edge_r.x - RESIDUAL_MAP_EXTENT_MAX_X).abs() < 0.01);
+        assert!((edge_r.y - CARGO_PLANE_PREFERRED_HEIGHT).abs() < 0.01);
+        assert!(SUPPLY_DROP_START_AT_PREFERRED_HEIGHT);
+        assert!(SUPPLY_DROP_START_AT_MAX_SPEED);
+        assert!((B52_LOCOMOTOR_SPEED - 125.0).abs() < 0.01);
+        assert!((B52_SPEED_PER_FRAME - 125.0 / 30.0).abs() < 0.001);
+        assert_eq!(CARGO_PLANE_MODEL_NAME, "AVCargoPln");
+        assert_eq!(CARGO_PLANE_DOOR_MODEL_NAME, "AVCargoPln_A2");
+        assert_eq!(CARGO_PLANE_EXIT_BONE, "WeaponA01");
+    }
+
+    #[test]
+    fn is_close_enough_delivery_band_inbound_preopen() {
+        assert!(is_close_enough_to_target_residual(400.0, 450.0, 410.0, 0.0));
+        assert!(!is_close_enough_to_target_residual(420.0, 450.0, 410.0, 0.0));
+        assert!(is_close_enough_to_target_residual(600.0, 700.0, 410.0, 300.0));
+        assert!(!is_close_enough_to_target_residual(600.0, 500.0, 410.0, 300.0));
+    }
+
+    #[test]
+    fn cargo_plane_flight_create_at_edge_approach_and_door() {
+        let mut reg = HostDeliverPayloadRegistry::new();
+        let target = Vec3::new(250.0, 0.0, 250.0);
+        let id = reg.queue(
+            HostDeliverPayloadKind::SupplyDropZoneCrate,
+            ObjectId(1),
+            Team::USA,
+            target,
+            0,
+            SUPPLY_DROP_PAYLOAD_TEMPLATE,
+        );
+        assert!(reg.honesty_create_at_edge_ok());
+        let flight = reg.cargo_flight(id).expect("flight residual");
+        assert_eq!(flight.phase, HostCargoPlaneFlightPhase::EdgeSpawn);
+        assert!((flight.current_pos.y - CARGO_PLANE_PREFERRED_HEIGHT).abs() < 0.01);
+        assert_eq!(flight.transport_template, "AmericaJetCargoPlane");
+        assert_eq!(flight.model_name, "AVCargoPln");
+        assert_eq!(flight.door_model_name, "AVCargoPln_A2");
+        assert_eq!(flight.exit_bone, "WeaponA01");
+        assert!(flight.start_at_preferred_height);
+        assert!(flight.start_at_max_speed);
+        assert!((flight.delivery_distance - 410.0).abs() < 0.01);
+        for _ in 0..120 {
+            reg.tick_cargo_flights();
+            let f = reg.cargo_flight(id).unwrap();
+            if matches!(
+                f.phase,
+                HostCargoPlaneFlightPhase::InDeliveryBand
+                    | HostCargoPlaneFlightPhase::DoorOpening
+                    | HostCargoPlaneFlightPhase::Delivering
+            ) {
+                break;
+            }
+        }
+        let flight = reg.cargo_flight(id).unwrap();
+        assert!(
+            matches!(
+                flight.phase,
+                HostCargoPlaneFlightPhase::InDeliveryBand
+                    | HostCargoPlaneFlightPhase::DoorOpening
+                    | HostCargoPlaneFlightPhase::Delivering
+            ),
+            "must enter DeliveryDistance band residual, phase={:?}",
+            flight.phase
+        );
+        assert!(reg.honesty_delivery_band_ok());
+        assert!(flight.door_open || reg.door_open_events > 0);
+        assert!(
+            flight.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION || flight.door_open
+        );
+        assert!(reg.honesty_cargo_door_ok());
+        assert!(reg.honesty_create_at_edge_flight_ok());
+        for i in 0..6 {
+            reg.record_item_spawned(id, Some(ObjectId(100 + i)));
+        }
+        reg.tick_cargo_flights();
+        let flight = reg.cargo_flight(id).unwrap();
+        assert!(
+            matches!(
+                flight.phase,
+                HostCargoPlaneFlightPhase::Departing | HostCargoPlaneFlightPhase::Complete
+            ),
+            "complete stagger must depart, phase={:?}",
+            flight.phase
+        );
+    }
+
+    #[test]
+    fn crate_parachute_bone_attach_residual() {
+        assert!(HostDeliverPayloadRegistry::honesty_crate_bone_constants_ok());
+        let bones = crate_parachute_host_bone_offsets();
+        assert_eq!(CRATE_PARA_BONE_COG, "PARA_COG");
+        assert_eq!(CRATE_PARA_BONE_ATTCH, "PARA_ATTCH");
+        assert!(bones.para_cog.1 > bones.para_attch.1, "COG above ATTCH");
+        assert!((bones.crate_man.1 - 12.0).abs() < 0.01);
+        let (attach, sway, para_sway) = crate_parachute_offsets_from_bones(bones);
+        assert!(attach.1 < 0.0, "crate hangs below parachute origin");
+        assert!((para_sway.1 - bones.para_cog.1).abs() < 0.001);
+        assert!(sway.1 > 0.0, "crate sway pivot above attach");
+        let mut reg = HostDeliverPayloadRegistry::new();
+        let closed = reg.build_crate_parachute_attach((100.0, 95.0, 50.0), 0.1, -0.1, false);
+        assert!(!closed.chute_open);
+        assert_eq!(closed.crate_logic_pos, closed.crate_presentation_pos);
+        let open = reg.build_crate_parachute_attach((100.0, 80.0, 50.0), 0.2, -0.15, true);
+        assert!(open.chute_open);
+        let delta = (
+            open.crate_presentation_pos.0 - open.crate_logic_pos.0,
+            open.crate_presentation_pos.1 - open.crate_logic_pos.1,
+            open.crate_presentation_pos.2 - open.crate_logic_pos.2,
+        );
+        let sway_mag = (delta.0 * delta.0 + delta.1 * delta.1 + delta.2 * delta.2).sqrt();
+        assert!(sway_mag > 0.001, "open chute must apply non-zero sway residual");
+        assert!(reg.honesty_crate_bone_attach_ok());
     }
 }

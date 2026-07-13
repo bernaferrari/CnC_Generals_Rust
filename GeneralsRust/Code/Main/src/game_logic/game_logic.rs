@@ -10484,6 +10484,9 @@ impl GameLogic {
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         self.host_deliver_payloads.clear_frame_events();
+        // CreateAtEdge cargo-plane flight residual presentation (approach band /
+        // door open). Fail-closed: not full aircraft Object / locomotor.
+        self.host_deliver_payloads.tick_cargo_flights();
         // AmericaParadrop cargo bookkeeping is completed from update_paradrops
         // (infantry spawn ownership). Only spawn-capable kinds resolve here.
         let item_plans: Vec<_> = self
@@ -10807,6 +10810,15 @@ impl GameLogic {
                 self.frame,
             );
             self.host_money_crates.record_money_pickup_anim(anim);
+            // Floating cash text residual presentation (`+$N` / GUI:AddCash).
+            let floating = HostMoneyCrateRegistry::money_floating_text(
+                crate_id,
+                picker_id,
+                pos,
+                amount,
+                self.frame,
+            );
+            self.host_money_crates.record_money_floating_text(floating);
             self.queue_audio_event(
                 AudioEventRequest::new(MONEY_CRATE_PICKUP_AUDIO)
                     .with_object(picker_id)
@@ -10840,11 +10852,13 @@ impl GameLogic {
         if !self.host_money_crates.contains(crate_id) {
             return;
         }
-        let (pos, chute_open, start_h) = match self.objects.get(&crate_id) {
+        let (pos, chute_open, start_h, pitch, roll) = match self.objects.get(&crate_id) {
             Some(obj) if obj.is_alive() && obj.is_parachuting() => (
                 obj.get_position(),
                 obj.is_parachute_open(),
                 obj.status.parachute_start_height,
+                obj.parachute_pitch(),
+                obj.parachute_roll(),
             ),
             _ => return,
         };
@@ -10873,6 +10887,15 @@ impl GameLogic {
                 AudioEventRequest::new(CRATE_PARACHUTE_OPEN_AUDIO)
                     .with_position(Vec3::new(pos.x, new_y, pos.z))
                     .with_priority(145),
+            );
+        }
+        // AmericaCrateParachute bone attach residual presentation (open chute).
+        if open && !landed {
+            let _attach = self.host_deliver_payloads.build_crate_parachute_attach(
+                (pos.x, new_y, pos.z),
+                pitch,
+                roll,
+                true,
             );
         }
         if landed {
@@ -14581,6 +14604,11 @@ impl GameLogic {
         self.host_money_crates.honesty_money_pickup_anim_ok()
     }
 
+    /// Residual floating cash text presentation honesty.
+    pub fn honesty_money_floating_text_ok(&self) -> bool {
+        self.host_money_crates.honesty_money_floating_text_ok()
+    }
+
     /// Residual above-terrain unit pickup reject honesty.
     pub fn honesty_money_crate_above_terrain_reject_ok(&self) -> bool {
         self.host_money_crates.honesty_above_terrain_reject_ok()
@@ -14590,6 +14618,16 @@ impl GameLogic {
     pub fn honesty_crate_parachute_fall_physics_ok(&self) -> bool {
         self.host_deliver_payloads
             .honesty_crate_parachute_fall_physics_ok()
+    }
+
+    /// CreateAtEdge AmericaJetCargoPlane flight residual honesty.
+    pub fn honesty_create_at_edge_flight_ok(&self) -> bool {
+        self.host_deliver_payloads.honesty_create_at_edge_flight_ok()
+    }
+
+    /// AmericaCrateParachute bone attach residual honesty.
+    pub fn honesty_crate_parachute_bone_attach_ok(&self) -> bool {
+        self.host_deliver_payloads.honesty_crate_bone_attach_ok()
     }
 
     /// Host MoneyCrateCollide registry (observability / tests).
@@ -39552,8 +39590,9 @@ mod tests {
     #[test]
     fn supply_drop_zone_residual_credits_cash_on_interval() {
         use crate::game_logic::host_deliver_payload::{
-            HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
-            CARGO_PLANE_DOOR_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
+            HostDeliverPayloadKind, HostCargoPlaneFlightPhase, CARGO_PLANE_APPROACH_DELAY_FRAMES,
+            CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_PREFERRED_HEIGHT,
+            SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
             SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
         };
         use crate::game_logic::host_supply_drop_zone::{
@@ -39628,6 +39667,23 @@ mod tests {
                 .honesty_inbound_ok(HostDeliverPayloadKind::SupplyDropZoneCrate),
             "DeliverPayload cargo mission must be inbound"
         );
+        // CreateAtEdge residual: edge spawn at PreferredHeight on queue.
+        assert!(
+            game_logic
+                .host_deliver_payloads()
+                .honesty_create_at_edge_ok(),
+            "CreateAtEdge cargo plane residual must spawn on queue"
+        );
+        let flight0 = game_logic
+            .host_deliver_payloads()
+            .cargo_flights_snapshot()
+            .into_iter()
+            .next()
+            .expect("cargo flight residual");
+        assert_eq!(flight0.phase, HostCargoPlaneFlightPhase::EdgeSpawn);
+        assert!((flight0.current_pos.y - CARGO_PLANE_PREFERRED_HEIGHT).abs() < 0.01);
+        assert_eq!(flight0.transport_template, "AmericaJetCargoPlane");
+        assert_eq!(flight0.model_name, "AVCargoPln");
         assert!(!game_logic.honesty_supply_drop_zone_ok());
         assert_eq!(
             game_logic.get_objects().len(),
@@ -39785,6 +39841,14 @@ mod tests {
         assert!(
             game_logic.honesty_crate_parachute_fall_physics_ok(),
             "AmericaCrateParachute open+land residual honesty"
+        );
+        assert!(
+            game_logic.honesty_crate_parachute_bone_attach_ok(),
+            "AmericaCrateParachute PARA_COG bone attach residual honesty"
+        );
+        assert!(
+            game_logic.honesty_create_at_edge_flight_ok(),
+            "CreateAtEdge + DeliveryDistance flight residual honesty"
         );
         for id in &payload_ids {
             let obj = game_logic.find_object(*id).expect("landed crate");
@@ -39960,6 +40024,21 @@ mod tests {
                     && a.fades),
             "MoneyPickUp residual presentation descriptor constants"
         );
+        assert!(
+            game_logic.honesty_money_floating_text_ok(),
+            "floating cash text residual must record on unit pickup"
+        );
+        assert!(
+            game_logic
+                .host_money_crates()
+                .money_floating_texts
+                .iter()
+                .any(|t| t.text == "+$250"
+                    && t.text_key == "GUI:AddCash"
+                    && t.color_rgba == (0, 255, 0, 255)
+                    && t.amount == 250),
+            "floating cash text residual presentation constants"
+        );
         assert!(!game_logic.host_money_crates().contains(crate_id));
         assert!(
             game_logic
@@ -40094,6 +40173,10 @@ mod tests {
             "crate parachute residual must land"
         );
         assert!(game_logic.honesty_crate_parachute_fall_physics_ok());
+        assert!(
+            game_logic.honesty_crate_parachute_bone_attach_ok(),
+            "AmericaCrateParachute bone attach residual must build while open"
+        );
         game_logic.update_money_crate_collides();
         let cash_land = game_logic
             .get_player_mut_by_team(Team::USA)
@@ -40104,6 +40187,7 @@ mod tests {
             "landed crate unit pickup residual"
         );
         assert!(game_logic.honesty_money_pickup_anim_ok());
+        assert!(game_logic.honesty_money_floating_text_ok());
 
         // ForbiddenKindOf PROJECTILE residual: projectile near ground crate rejected.
         let crate2 = game_logic
