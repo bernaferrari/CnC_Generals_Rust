@@ -951,6 +951,23 @@ impl Object {
     }
 
     /// Expire InvulnerableTime when the host frame passes the residual timer.
+    /// Host residual: OCL_EjectPilotViaParachute parachuting state.
+    pub fn is_parachuting(&self) -> bool {
+        self.status.parachuting
+    }
+
+    /// Begin air-eject parachute residual (elevated spawn + sink until ground).
+    pub fn apply_eject_parachuting(&mut self) {
+        self.status.parachuting = true;
+        self.status.airborne_target = true;
+    }
+
+    /// Clear parachuting residual on land.
+    pub fn clear_eject_parachuting(&mut self) {
+        self.status.parachuting = false;
+        self.status.airborne_target = false;
+    }
+
     pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {
         if self.status.eject_invulnerable
             && self.status.eject_invulnerable_until_frame > 0

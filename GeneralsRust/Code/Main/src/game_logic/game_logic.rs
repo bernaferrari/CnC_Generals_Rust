@@ -5053,12 +5053,15 @@ impl GameLogic {
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
             }
+            // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
+            self.tick_eject_parachute_residual(object_id);
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.
             // Base-center fallback residual when no vehicle found (m_didMoveToBase).
             self.try_pilot_find_vehicle_residual(object_id);
-            // AutoFindHealingUpdate residual: AI idle injured pilot → HealPad.
+            // AutoFindHealingUpdate residual: AI idle injured USA infantry → HealPad.
+            // Pilot / Ranger / MissileDefender / Pathfinder / ColonelBurton residual.
             // ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85 (AlwaysHeal busy path fail-closed).
             self.try_auto_find_healing_residual(object_id);
             if let Some(obj) = self.objects.get(&object_id) {
@@ -11909,12 +11912,14 @@ impl GameLogic {
                 }
 
                 // USA EjectPilotDie residual: spawn AmericaInfantryPilot on vehicle death.
-                // Fail-closed: ground OCL only (not full parachute air path).
+                // Air path: isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute residual.
+                // Ground path: OCL_EjectPilotOnGround residual.
                 // VeterancyLevels = ALL -REGULAR residual: Rookie does not eject.
                 {
                     use crate::game_logic::host_usa_pilot::{
-                        can_eject_pilot_on_death, is_eject_pilot_eligible_template,
-                        meets_eject_pilot_veterancy_gate, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+                        air_eject_spawn_height, can_eject_pilot_on_death,
+                        is_eject_pilot_eligible_template, meets_eject_pilot_veterancy_gate,
+                        uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
                     };
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
                         || obj.object_type == ObjectType::Vehicle;
@@ -11943,6 +11948,8 @@ impl GameLogic {
                         vet_gate,
                     ) {
                         let pilot_team = obj.team;
+                        let air_path =
+                            uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
                         // Ensure pilot template exists for residual spawn.
                         if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
                             let mut pilot_tpl =
@@ -11955,18 +11962,32 @@ impl GameLogic {
                                 .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
                         }
                         // Offset slightly so pilot is not buried under death debris residual.
-                        let spawn_pos =
-                            death_pos + Vec3::new(2.0, 0.0, 2.0);
+                        // Air OCL residual: keep elevated y (PutInContainer AmericaParachute).
+                        let spawn_pos = if air_path {
+                            Vec3::new(
+                                death_pos.x + 2.0,
+                                air_eject_spawn_height(death_pos.y),
+                                death_pos.z + 2.0,
+                            )
+                        } else {
+                            death_pos + Vec3::new(2.0, 0.0, 2.0)
+                        };
                         if let Some(pilot_id) =
                             self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos)
                         {
                             self.usa_pilot.record_ejection();
+                            if air_path {
+                                self.usa_pilot.record_air_ejection();
+                            }
                             // OCL InvulnerableTime residual (2000ms → 60 frames).
                             let until = crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(
                                 self.frame,
                             );
                             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                                 pilot.apply_eject_invulnerable(until);
+                                if air_path {
+                                    pilot.apply_eject_parachuting();
+                                }
                             }
                             self.usa_pilot.record_invulnerable_grant();
                             self.queue_audio_event(
@@ -24615,6 +24636,21 @@ impl GameLogic {
         self.usa_pilot.honesty_auto_heal_ok()
     }
 
+    /// Residual honesty: EjectPilotDie air OCL parachute residual observed.
+    pub fn honesty_pilot_air_eject_ok(&self) -> bool {
+        self.usa_pilot.honesty_air_eject_ok()
+    }
+
+    /// Residual honesty: air-ejected pilot parachute residual landed.
+    pub fn honesty_pilot_parachute_land_ok(&self) -> bool {
+        self.usa_pilot.honesty_parachute_land_ok()
+    }
+
+    /// Residual honesty: non-pilot USA infantry AutoFindHealing residual issued.
+    pub fn honesty_infantry_auto_heal_ok(&self) -> bool {
+        self.usa_pilot.honesty_infantry_auto_heal_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
@@ -24749,34 +24785,79 @@ impl GameLogic {
         self.usa_pilot.record_base_center_move();
     }
 
-    /// AutoFindHealingUpdate residual: AI idle injured pilot auto-scan for HealPad.
+    /// OCL_EjectPilotViaParachute residual: sink elevated parachuting pilot to ground.
     ///
-    /// Retail AmericaInfantryPilot ModuleTag_06: ScanRate 1000ms → 30 frames,
-    /// ScanRange 300, NeverHeal 0.85, AlwaysHeal 0.25. C++ human players skip;
-    /// host residual: is_local → no auto-scan. Idle-only residual (AlwaysHeal
-    /// busy-interrupt path fail-closed). Issues SeekingHealing toward nearest
-    /// HealPad in range.
-    fn try_auto_find_healing_residual(&mut self, pilot_id: ObjectId) {
+    /// Fail-closed: linear sink (not full AmericaParachute OpenClose / physics matrix).
+    fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
+        use crate::game_logic::host_usa_pilot::{
+            is_pilot_template, tick_parachute_height, PILOT_PARACHUTE_LAND_AUDIO,
+        };
+
+        let (pos, is_pilot) = match self.objects.get(&pilot_id) {
+            Some(obj) if obj.is_alive() && obj.is_parachuting() => {
+                (obj.get_position(), is_pilot_template(&obj.template_name))
+            }
+            _ => return,
+        };
+        if !is_pilot {
+            // Fail-closed: only residual ejected pilots parachute-sink via this path.
+            return;
+        }
+        // Host residual ground height 0 (flat terrain residual; not full TerrainLogic).
+        let ground = 0.0_f32;
+        let (new_y, landed) = tick_parachute_height(pos.y, ground);
+        if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+            let mut p = pilot.get_position();
+            p.y = new_y;
+            pilot.set_position(p);
+            if landed {
+                pilot.clear_eject_parachuting();
+            }
+        }
+        if landed {
+            self.usa_pilot.record_parachute_land();
+            self.queue_audio_event(
+                AudioEventRequest::new(PILOT_PARACHUTE_LAND_AUDIO)
+                    .with_position(Vec3::new(pos.x, ground, pos.z))
+                    .with_priority(140),
+            );
+        }
+    }
+
+    /// AutoFindHealingUpdate residual: AI idle injured USA infantry auto-scan for HealPad.
+    ///
+    /// Retail ModuleTag: ScanRate 1000ms → 30 frames, ScanRange 300, NeverHeal 0.85,
+    /// AlwaysHeal 0.25. Templates: Pilot / Ranger / MissileDefender / Pathfinder /
+    /// ColonelBurton residual. C++ human players skip; host residual: is_local → no
+    /// auto-scan. Idle-only residual (AlwaysHeal busy-interrupt path fail-closed —
+    /// C++ early-return makes busy path unreachable). Issues SeekingHealing toward
+    /// nearest HealPad in range.
+    fn try_auto_find_healing_residual(&mut self, unit_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
             auto_find_healing_scan_eligible, auto_find_healing_scan_frame,
-            health_needs_auto_find_healing, is_auto_find_healing_target, is_pilot_template,
-            AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_RANGE,
+            health_needs_auto_find_healing, is_auto_find_healing_target,
+            is_auto_find_healing_template, is_pilot_template, AUTO_FIND_HEALING_NEVER_HEAL,
+            AUTO_FIND_HEALING_SCAN_RANGE,
         };
 
         if !auto_find_healing_scan_frame(self.frame) {
             return;
         }
 
-        let snapshot = match self.objects.get(&pilot_id) {
+        let snapshot = match self.objects.get(&unit_id) {
             Some(obj) if obj.is_alive() => {
-                let is_pilot = is_pilot_template(&obj.template_name);
+                // Parachuting residual: no hospital auto-scan mid-air.
+                if obj.is_parachuting() {
+                    return;
+                }
+                let has_module = is_auto_find_healing_template(&obj.template_name);
                 let is_idle = matches!(obj.ai_state, AIState::Idle);
                 let is_ai = self
                     .player_id_for_team(obj.team)
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| !p.is_local)
                     .unwrap_or(false);
-                if !auto_find_healing_scan_eligible(is_pilot, true, is_idle, is_ai) {
+                if !auto_find_healing_scan_eligible(has_module, true, is_idle, is_ai) {
                     return;
                 }
                 let max_hp = obj.max_health.max(obj.health.maximum);
@@ -24787,21 +24868,25 @@ impl GameLogic {
                 ) {
                     return;
                 }
-                (obj.get_position(), obj.team)
+                (
+                    obj.get_position(),
+                    obj.team,
+                    is_pilot_template(&obj.template_name),
+                )
             }
             _ => return,
         };
-        let (pilot_pos, pilot_team) = snapshot;
+        let (unit_pos, unit_team, is_pilot) = snapshot;
 
         // Nearest HealPad residual (C++ KINDOF_HEAL_PAD; host name/BuildingType residual).
         let mut best: Option<(ObjectId, f32, Vec3)> = None;
         for (hid, pad) in &self.objects {
-            if *hid == pilot_id || !pad.is_alive() {
+            if *hid == unit_id || !pad.is_alive() {
                 continue;
             }
             // Fail-closed: only own/ally heal pads (retail filter is kind-only; host
             // avoids enemy hospital residual until relationship matrix is claimed).
-            if pad.team != pilot_team && pad.team != Team::Neutral {
+            if pad.team != unit_team && pad.team != Team::Neutral {
                 continue;
             }
             let under_construction = pad.status.under_construction
@@ -24818,7 +24903,7 @@ impl GameLogic {
                     lower.contains("hospital") || lower.contains("heal") || lower.contains("medic")
                 });
             let ppos = pad.get_position();
-            let dist = ((pilot_pos.x - ppos.x).powi(2) + (pilot_pos.z - ppos.z).powi(2)).sqrt();
+            let dist = ((unit_pos.x - ppos.x).powi(2) + (unit_pos.z - ppos.z).powi(2)).sqrt();
             let in_range = dist <= AUTO_FIND_HEALING_SCAN_RANGE;
             if !is_auto_find_healing_target(is_heal_pad, true, in_range) {
                 continue;
@@ -24832,12 +24917,16 @@ impl GameLogic {
             return;
         };
 
-        if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-            pilot.set_target(Some(pad_id));
-            pilot.set_destination(pad_pos);
-            pilot.ai_state = AIState::SeekingHealing;
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.set_target(Some(pad_id));
+            unit.set_destination(pad_pos);
+            unit.ai_state = AIState::SeekingHealing;
         }
-        self.usa_pilot.record_auto_heal_order();
+        if is_pilot {
+            self.usa_pilot.record_auto_heal_order();
+        } else {
+            self.usa_pilot.record_infantry_auto_heal_order();
+        }
     }
 
     /// Apply residual damage to an object, honoring InvulnerableTime residual.
@@ -38615,7 +38704,7 @@ mod tests {
     ///
     /// C++ EjectPilotDie → OCL_EjectPilotOnGround ObjectNames = AmericaInfantryPilot.
     /// VeterancyLevels = ALL -REGULAR residual: vehicle must be Veteran+.
-    /// Fail-closed: not full parachute air OCL / invulnerable timer matrix.
+    /// Fail-closed ground path (air OCL residual covered by air parachute test).
     #[test]
     fn eject_pilot_die_spawns_pilot_on_vehicle_death_residual() {
         use crate::game_logic::host_usa_pilot::{
@@ -39432,6 +39521,281 @@ mod tests {
             AIState::Idle,
             "human injured pilot residual stays Idle without GetHealed command"
         );
+    }
+
+    /// Residual: AutoFindHealingUpdate non-pilot USA infantry hospital path.
+    ///
+    /// Retail AmericaInfantryRanger / MissileDefender / Pathfinder / ColonelBurton
+    /// all carry AutoFindHealingUpdate. Host residual expands beyond pilot-only.
+    /// Fail-closed: AlwaysHeal busy-interrupt still not claimed; China/GLA skip.
+    #[test]
+    fn usa_infantry_auto_find_healing_hospital_path_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            is_auto_find_healing_template, AUTO_FIND_HEALING_SCAN_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_heal_pad_template(&mut game_logic);
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut ranger_tpl = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryRanger".to_string(), ranger_tpl);
+        assert!(is_auto_find_healing_template("AmericaInfantryRanger"));
+
+        let pad_id = game_logic
+            .create_object("TestHealPad", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("heal pad");
+        let ranger_id = game_logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ranger");
+        {
+            let r = game_logic.find_object_mut(ranger_id).expect("ranger");
+            r.health.current = 40.0;
+            r.ai_state = AIState::Idle;
+        }
+
+        assert!(!game_logic.honesty_infantry_auto_heal_ok());
+        game_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
+        game_logic.update_ai(&[ranger_id, pad_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_infantry_auto_heal_ok(),
+            "Ranger AutoFindHealing residual must issue SeekingHealing honesty"
+        );
+        assert!(
+            game_logic.honesty_pilot_auto_heal_ok(),
+            "infantry auto-heal also counts auto_heal_orders honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().infantry_auto_heal_orders, 1);
+        assert_eq!(game_logic.usa_pilot_residual().auto_heal_orders, 1);
+        {
+            let r = game_logic.find_object(ranger_id).expect("ranger after scan");
+            assert_eq!(
+                r.ai_state,
+                AIState::SeekingHealing,
+                "injured AI ranger residual must SeekHealing"
+            );
+            assert_eq!(r.target, Some(pad_id));
+        }
+
+        // Complete heal residual at pad.
+        for _ in 0..60 {
+            game_logic.update_ai(&[ranger_id, pad_id], 1.0 / 30.0);
+        }
+        let hp_after = game_logic
+            .find_object(ranger_id)
+            .expect("ranger")
+            .health
+            .current;
+        assert!(
+            hp_after > 40.0,
+            "SeekingHealing residual must restore ranger HP (after={hp_after})"
+        );
+
+        // Fail-closed: China infantry without AutoFindHealing residual does not scan.
+        let mut china_logic = GameLogic::new();
+        ensure_test_heal_pad_template(&mut china_logic);
+        china_logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China AI", false));
+        china_logic.templates.insert(
+            "ChinaInfantryRedguard".to_string(),
+            {
+                let mut t = ThingTemplate::new("ChinaInfantryRedguard");
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0);
+                t
+            },
+        );
+        let cpad = china_logic
+            .create_object("TestHealPad", Team::China, Vec3::new(5.0, 0.0, 0.0))
+            .expect("pad");
+        let cred = china_logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("redguard");
+        {
+            let r = china_logic.find_object_mut(cred).expect("rg");
+            r.health.current = 30.0;
+            r.ai_state = AIState::Idle;
+        }
+        china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
+        china_logic.update_ai(&[cred, cpad], 1.0 / 30.0);
+        assert!(
+            !china_logic.honesty_infantry_auto_heal_ok(),
+            "China Redguard residual must not AutoFindHealing"
+        );
+        assert_eq!(
+            china_logic.find_object(cred).unwrap().ai_state,
+            AIState::Idle
+        );
+    }
+
+    /// Residual: EjectPilotDie air OCL parachute when significantly above terrain.
+    ///
+    /// C++ isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute PutInContainer
+    /// AmericaParachute. Host residual: elevated pilot + parachuting sink to ground.
+    /// Fail-closed: not full AmericaParachute OpenClose / fall-physics matrix.
+    #[test]
+    fn eject_pilot_air_ocl_parachute_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let thr = significantly_above_terrain_threshold();
+        let air_y = thr + 50.0;
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(50.0, air_y, 50.0),
+            )
+            .expect("airborne humvee");
+        {
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.airborne_target = true;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_pilot_eject_ok(),
+            "air eject must still record eject honesty"
+        );
+        assert!(
+            game_logic.honesty_pilot_air_eject_ok(),
+            "air OCL residual must record air_ejection honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().air_ejections, 1);
+        assert_eq!(game_logic.usa_pilot_residual().ejections, 1);
+
+        let pilot_id = game_logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+            .map(|(id, _)| *id)
+            .expect("ejected pilot");
+
+        {
+            let pilot = game_logic.find_object(pilot_id).expect("pilot");
+            assert!(
+                pilot.is_parachuting(),
+                "air-ejected pilot residual must be parachuting"
+            );
+            assert!(
+                pilot.get_position().y > thr,
+                "air pilot residual must spawn elevated, y={}",
+                pilot.get_position().y
+            );
+            assert!(
+                pilot.is_eject_invulnerable(),
+                "air OCL still grants InvulnerableTime residual"
+            );
+        }
+
+        // Sink parachute residual until land.
+        assert!(!game_logic.honesty_pilot_parachute_land_ok());
+        let ids = [pilot_id];
+        for _ in 0..80 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            if game_logic.honesty_pilot_parachute_land_ok() {
+                break;
+            }
+        }
+        assert!(
+            game_logic.honesty_pilot_parachute_land_ok(),
+            "parachute residual must land and record honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().parachute_lands, 1);
+        {
+            let pilot = game_logic.find_object(pilot_id).expect("landed pilot");
+            assert!(
+                !pilot.is_parachuting(),
+                "landed pilot residual clears parachuting"
+            );
+            assert!(
+                pilot.get_position().y.abs() < 0.1,
+                "landed pilot residual y must be ground, got {}",
+                pilot.get_position().y
+            );
+        }
+
+        // Ground path control: y=0 death does not air-eject.
+        let mut ground_logic = GameLogic::new();
+        ground_logic.templates.insert(
+            "AmericaVehicleHumvee".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaVehicleHumvee");
+                t.add_kind_of(KindOf::Vehicle)
+                    .add_kind_of(KindOf::Selectable)
+                    .add_kind_of(KindOf::Attackable)
+                    .set_health(200.0);
+                t
+            },
+        );
+        let g_id = ground_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("ground humvee");
+        {
+            let h = ground_logic.find_object_mut(g_id).expect("humvee");
+            h.experience.level = VeterancyLevel::Veteran;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        ground_logic.mark_object_for_destruction(g_id, Some(Team::GLA));
+        ground_logic.process_destroy_list();
+        assert!(ground_logic.honesty_pilot_eject_ok());
+        assert!(
+            !ground_logic.honesty_pilot_air_eject_ok(),
+            "ground death residual must not claim air OCL"
+        );
+        assert_eq!(ground_logic.usa_pilot_residual().air_ejections, 0);
+        let g_pilot = ground_logic
+            .objects
+            .values()
+            .find(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+            .expect("ground pilot");
+        assert!(
+            !g_pilot.is_parachuting(),
+            "ground OCL residual must not parachute"
+        );
+        assert!(g_pilot.get_position().y.abs() < 0.1);
     }
 
     /// Residual: Bombardment plan enables StrategyCenterGun turret auto-fire.
