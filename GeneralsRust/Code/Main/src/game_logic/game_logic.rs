@@ -1116,10 +1116,21 @@ pub struct GameLogic {
     gattling_building_residual_chain_gun_upgrades: u32,
 
     /// Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA honesty.
-    /// Fail-closed: not full SpawnBehavior / HiveStructureBody soldier matrix.
     stinger_site_residual_ground_fires: u32,
     stinger_site_residual_aa_fires: u32,
     stinger_site_residual_ap_rockets_upgrades: u32,
+    /// HiveStructureBody residual: damage hits applied to residual slaves.
+    stinger_hive_residual_slave_hits: u32,
+    /// HiveStructureBody residual: residual slaves killed.
+    stinger_hive_residual_slave_kills: u32,
+    /// HiveStructureBody residual: swallowed damage when no slaves.
+    stinger_hive_residual_swallows: u32,
+    /// SpawnBehavior residual: slave respawns completed.
+    stinger_hive_residual_respawns: u32,
+    /// CamoNetting structure StealthUpdate residual: attack/damage reveals.
+    camo_netting_structure_residual_reveals: u32,
+    /// CamoNetting structure StealthUpdate residual: StealthDelay re-cloaks.
+    camo_netting_structure_residual_recloaks: u32,
 
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
     patriot_residual_ground_fires: u32,
@@ -2137,6 +2148,12 @@ impl GameLogic {
             stinger_site_residual_ground_fires: 0,
             stinger_site_residual_aa_fires: 0,
             stinger_site_residual_ap_rockets_upgrades: 0,
+            stinger_hive_residual_slave_hits: 0,
+            stinger_hive_residual_slave_kills: 0,
+            stinger_hive_residual_swallows: 0,
+            stinger_hive_residual_respawns: 0,
+            camo_netting_structure_residual_reveals: 0,
+            camo_netting_structure_residual_recloaks: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
             supw_patriot_emp_residual_grants: 0,
@@ -2462,6 +2479,12 @@ impl GameLogic {
         self.stinger_site_residual_ground_fires = 0;
         self.stinger_site_residual_aa_fires = 0;
         self.stinger_site_residual_ap_rockets_upgrades = 0;
+        self.stinger_hive_residual_slave_hits = 0;
+        self.stinger_hive_residual_slave_kills = 0;
+        self.stinger_hive_residual_swallows = 0;
+        self.stinger_hive_residual_respawns = 0;
+        self.camo_netting_structure_residual_reveals = 0;
+        self.camo_netting_structure_residual_recloaks = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
         self.supw_patriot_emp_residual_grants = 0;
@@ -4390,6 +4413,9 @@ impl GameLogic {
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
         self.update_stealth_and_detection();
+
+        // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
+        self.update_stinger_hive_respawns();
 
         // -----------------------------------------------------------------------
         // Phase 7: Combat Resolution (within object updates)
@@ -9729,11 +9755,12 @@ impl GameLogic {
     ///
     /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamoNetting on Stealth General
     /// buildings + Tunnel Network / Stinger Site. Host residual sets STEALTHED +
-    /// innate_stealth; structures do not uncloak on attack residual (fail-closed
-    /// vs full StealthUpdate structure attack reveal matrix).
+    /// innate_stealth with StealthForbiddenConditions ATTACKING / TAKING_DAMAGE
+    /// and StealthDelay **2500**ms re-cloak residual.
     fn apply_camo_netting_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_camo_netting_structure_template, UPGRADE_GLA_CAMO_NETTING,
+            is_camo_netting_structure_template, CAMO_NETTING_STEALTH_DELAY_FRAMES,
+            UPGRADE_GLA_CAMO_NETTING,
         };
 
         let mut affected = 0u32;
@@ -9751,9 +9778,13 @@ impl GameLogic {
             obj.status.detected = false;
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
-            // Structure residual: stay cloaked while idle; fail-closed attack reveal.
-            obj.stealth_breaks_on_attack = false;
+            // Structure residual: ATTACKING + TAKING_DAMAGE uncloak; StealthDelay re-cloak.
+            obj.stealth_breaks_on_attack = true;
+            obj.stealth_breaks_on_damage = true;
             obj.stealth_breaks_on_move = false;
+            obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
+            obj.stealth_allowed_frame = 0;
+            obj.stealth_delay_pending = false;
             affected = affected.saturating_add(1);
         }
         affected
@@ -10899,15 +10930,20 @@ impl GameLogic {
                 object.continuous_fire_victim = 0;
             }
 
-            // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA.
-            // Fail-closed: not full SpawnBehavior / HiveStructureBody / 3 soldier matrix.
+            // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
+            // HiveStructureBody / SpawnBehavior residual (3 soldiers).
             if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
                 use crate::game_logic::host_base_defense::{
-                    stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
+                    init_stinger_hive_slaves, stinger_air_weapon, stinger_ground_weapon,
+                    stinger_has_ap_rockets,
                 };
                 let ap = stinger_has_ap_rockets(&object.applied_upgrades);
                 object.weapon = Some(stinger_ground_weapon(ap));
                 object.secondary_weapon = Some(stinger_air_weapon(ap));
+                let (slaves, slave_hp) = init_stinger_hive_slaves();
+                object.hive_slave_count = slaves;
+                object.hive_slave_hp = slave_hp;
+                object.hive_slave_respawn_frame = 0;
             }
 
             // Host residual: USA Patriot dual ground/AA secondary.
@@ -14823,6 +14859,14 @@ impl GameLogic {
         let is_stinger = is_stinger_site_structure(&template_name);
         let is_patriot = is_patriot_battery_structure(&template_name);
         let dual_slot = is_dual_slot_base_defense(&template_name);
+        // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
+        if is_stinger
+            && !crate::game_logic::host_base_defense::stinger_can_fire_with_slaves(
+                attacker.hive_slave_count,
+            )
+        {
+            return;
+        }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
         let ground_range = attacker.weapon.as_ref().map(|w| w.range).unwrap_or(0.0);
@@ -16478,6 +16522,44 @@ impl GameLogic {
 
     pub fn stinger_site_residual_ap_rockets_upgrades(&self) -> u32 {
         self.stinger_site_residual_ap_rockets_upgrades
+    }
+
+    /// Residual honesty: HiveStructureBody slave damage / kill / swallow path.
+    pub fn honesty_stinger_hive_ok(&self) -> bool {
+        self.stinger_hive_residual_slave_hits > 0
+            || self.stinger_hive_residual_slave_kills > 0
+            || self.stinger_hive_residual_swallows > 0
+            || self.stinger_hive_residual_respawns > 0
+    }
+
+    pub fn stinger_hive_residual_slave_hits(&self) -> u32 {
+        self.stinger_hive_residual_slave_hits
+    }
+
+    pub fn stinger_hive_residual_slave_kills(&self) -> u32 {
+        self.stinger_hive_residual_slave_kills
+    }
+
+    pub fn stinger_hive_residual_swallows(&self) -> u32 {
+        self.stinger_hive_residual_swallows
+    }
+
+    pub fn stinger_hive_residual_respawns(&self) -> u32 {
+        self.stinger_hive_residual_respawns
+    }
+
+    /// Residual honesty: CamoNetting structure attack/damage reveal + re-cloak.
+    pub fn honesty_camo_netting_structure_stealth_ok(&self) -> bool {
+        self.camo_netting_structure_residual_reveals > 0
+            || self.camo_netting_structure_residual_recloaks > 0
+    }
+
+    pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
+        self.camo_netting_structure_residual_reveals
+    }
+
+    pub fn camo_netting_structure_residual_recloaks(&self) -> u32 {
+        self.camo_netting_structure_residual_recloaks
     }
 
     /// Residual honesty: USA Patriot dual ground/AA residual exercised.
@@ -25642,16 +25724,183 @@ impl GameLogic {
 
     /// Apply residual damage to an object, honoring InvulnerableTime residual.
     /// Returns (destroyed, blocked_by_invuln).
+    ///
+    /// Default residual class is HitStructure (non-hive path). Use
+    /// [`Self::apply_host_hive_damage`] for Stinger HiveStructureBody matrix.
     pub fn apply_host_damage(&mut self, id: ObjectId, damage: f32) -> (bool, bool) {
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return (false, false);
+        self.apply_host_hive_damage(
+            id,
+            damage,
+            crate::game_logic::host_base_defense::HostHiveDamageClass::HitStructure,
+        )
+    }
+
+    /// Apply residual damage with HiveStructureBody damage-class residual.
+    ///
+    /// For Stinger Sites:
+    /// - PropagateToSlaves / SwallowIfNoSlaves route through residual soldiers
+    /// - HitStructure damages the structure body
+    /// Also honors InvulnerableTime residual and CamoNetting TAKING_DAMAGE uncloak.
+    pub fn apply_host_hive_damage(
+        &mut self,
+        id: ObjectId,
+        damage: f32,
+        class: crate::game_logic::host_base_defense::HostHiveDamageClass,
+    ) -> (bool, bool) {
+        use crate::game_logic::host_base_defense::{
+            is_stinger_site_structure, next_stinger_slave_respawn_frame, resolve_hive_structure_damage,
+            STINGER_SOLDIER_DIE_AUDIO,
         };
-        if obj.is_eject_invulnerable() {
+
+        // Snapshot flags before mutating so we can update honesty counters after
+        // releasing the object borrow.
+        let (
+            is_stinger,
+            was_stealthed_on_damage,
+            invuln,
+            slave_count,
+            slave_hp,
+            struct_hp,
+            pos,
+            respawn_frame,
+        ) = {
+            let Some(obj) = self.objects.get(&id) else {
+                return (false, false);
+            };
+            (
+                is_stinger_site_structure(&obj.template_name),
+                obj.stealth_breaks_on_damage && obj.status.stealthed,
+                obj.is_eject_invulnerable(),
+                obj.hive_slave_count,
+                obj.hive_slave_hp,
+                obj.health.current,
+                obj.get_position(),
+                obj.hive_slave_respawn_frame,
+            )
+        };
+
+        if invuln {
             self.usa_pilot.record_invulnerable_block();
             return (false, true);
         }
-        let destroyed = obj.take_damage(damage);
+
+        if is_stinger {
+            let frame = self.frame;
+            let (new_count, new_hp, new_struct_hp, result) =
+                resolve_hive_structure_damage(slave_count, slave_hp, struct_hp, damage, class);
+
+            let mut camo_reveal = false;
+            let mut destroyed = false;
+            {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    return (false, false);
+                };
+                obj.hive_slave_count = new_count;
+                obj.hive_slave_hp = new_hp;
+                if result.slaves_killed > 0 {
+                    obj.hive_slave_respawn_frame =
+                        next_stinger_slave_respawn_frame(frame, respawn_frame);
+                }
+                // TAKING_DAMAGE residual: any damage attempt uncloaks CamoNetting structures.
+                if obj.stealth_breaks_on_damage && obj.status.stealthed {
+                    obj.break_stealth();
+                    camo_reveal = true;
+                }
+                if result.structure_damage_applied > 0.0 {
+                    obj.health.current = new_struct_hp;
+                    if new_struct_hp <= 0.0 {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                        obj.ai_state = AIState::Idle;
+                        obj.target = None;
+                        destroyed = true;
+                    }
+                }
+            }
+
+            if camo_reveal || was_stealthed_on_damage {
+                self.camo_netting_structure_residual_reveals =
+                    self.camo_netting_structure_residual_reveals.saturating_add(1);
+            }
+            if result.slave_damage_applied > 0.0 {
+                self.stinger_hive_residual_slave_hits =
+                    self.stinger_hive_residual_slave_hits.saturating_add(1);
+            }
+            if result.slaves_killed > 0 {
+                self.stinger_hive_residual_slave_kills = self
+                    .stinger_hive_residual_slave_kills
+                    .saturating_add(result.slaves_killed);
+                self.queue_audio_event(
+                    AudioEventRequest::new(STINGER_SOLDIER_DIE_AUDIO)
+                        .with_object(id)
+                        .with_position(pos)
+                        .with_priority(140),
+                );
+            }
+            if result.swallowed {
+                self.stinger_hive_residual_swallows =
+                    self.stinger_hive_residual_swallows.saturating_add(1);
+            }
+            return (destroyed, false);
+        }
+
+        let (destroyed, camo_reveal) = {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                return (false, false);
+            };
+            let before = obj.status.stealthed && obj.stealth_breaks_on_damage;
+            let destroyed = obj.take_damage(damage);
+            let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
+            (destroyed, revealed)
+        };
+        if camo_reveal {
+            self.camo_netting_structure_residual_reveals =
+                self.camo_netting_structure_residual_reveals.saturating_add(1);
+        }
         (destroyed, false)
+    }
+
+    /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
+    pub fn update_stinger_hive_respawns(&mut self) {
+        use crate::game_logic::host_base_defense::{
+            is_stinger_site_structure, next_stinger_slave_respawn_frame, should_respawn_stinger_slave,
+            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+        };
+
+        let frame = self.frame;
+        let mut respawned = 0u32;
+        for obj in self.objects.values_mut() {
+            if !is_stinger_site_structure(&obj.template_name) || !obj.is_alive() {
+                continue;
+            }
+            if !should_respawn_stinger_slave(
+                obj.hive_slave_count,
+                frame,
+                obj.hive_slave_respawn_frame,
+            ) {
+                // Ensure a respawn is scheduled when below capacity.
+                if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8
+                    && obj.hive_slave_respawn_frame == 0
+                {
+                    obj.hive_slave_respawn_frame =
+                        next_stinger_slave_respawn_frame(frame, 0);
+                }
+                continue;
+            }
+            obj.hive_slave_count = obj.hive_slave_count.saturating_add(1);
+            if obj.hive_slave_count == 1 {
+                obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            }
+            respawned = respawned.saturating_add(1);
+            if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8 {
+                obj.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
+            } else {
+                obj.hive_slave_respawn_frame = 0;
+            }
+        }
+        self.stinger_hive_residual_respawns = self
+            .stinger_hive_residual_respawns
+            .saturating_add(respawned);
     }
 
     /// Host GLA Worker residual registry.
@@ -27762,6 +28011,75 @@ impl GameLogic {
                     obj.detection_expires_frame = 0;
                 }
             }
+        }
+
+        // GLA CamoNetting structure residual: StealthForbiddenConditions =
+        // ATTACKING + TAKING_DAMAGE, StealthDelay 2500ms re-cloak.
+        {
+            use crate::game_logic::host_upgrades::{
+                camo_netting_stealth_allowed_frame, camo_netting_structure_stealth_desired,
+                is_camo_netting_structure_template, UPGRADE_GLA_CAMO_NETTING,
+            };
+            let struct_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| {
+                    o.innate_stealth
+                        && o.is_alive()
+                        && is_camo_netting_structure_template(&o.template_name)
+                        && (o.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING)
+                            || o.has_upgrade_tag("Upgrade_GLACamoNetting")
+                            || o.stealth_breaks_on_damage)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            let mut recloaks = 0u32;
+            let mut reveals = 0u32;
+            for sid in struct_ids {
+                let Some(obj) = self.objects.get_mut(&sid) else {
+                    continue;
+                };
+                // Resolve pending StealthDelay after a reveal this frame.
+                if obj.stealth_delay_pending {
+                    obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(frame);
+                    obj.stealth_delay_pending = false;
+                }
+                let attacking = obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    );
+                let Some(desired) = camo_netting_structure_stealth_desired(
+                    obj.innate_stealth,
+                    obj.is_alive(),
+                    attacking,
+                    frame,
+                    obj.stealth_allowed_frame,
+                ) else {
+                    continue;
+                };
+                if desired && !obj.status.stealthed {
+                    obj.status.stealthed = true;
+                    obj.status.detected = false;
+                    obj.detection_expires_frame = 0;
+                    obj.stealth_allowed_frame = 0;
+                    recloaks = recloaks.saturating_add(1);
+                } else if !desired && obj.status.stealthed {
+                    obj.break_stealth();
+                    // break_stealth marks delay pending; resolve immediately with frame.
+                    if obj.stealth_delay_pending {
+                        obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(frame);
+                        obj.stealth_delay_pending = false;
+                    }
+                    reveals = reveals.saturating_add(1);
+                }
+            }
+            self.camo_netting_structure_residual_recloaks = self
+                .camo_netting_structure_residual_recloaks
+                .saturating_add(recloaks);
+            self.camo_netting_structure_residual_reveals = self
+                .camo_netting_structure_residual_reveals
+                .saturating_add(reveals);
         }
 
         // Collect active detectors (alive, not under construction).
@@ -52098,6 +52416,340 @@ mod tests {
             );
         }
         assert!(game_logic.stinger_site_residual_ap_rockets_upgrades() > 0);
+
+        // HiveStructureBody residual honesty: spawn starts with 3 soldiers.
+        {
+            let s = game_logic.find_object(stinger_id).expect("stinger hive");
+            assert_eq!(
+                s.hive_slave_count, 3,
+                "SpawnNumber residual must start with 3 soldiers"
+            );
+            assert!(
+                (s.hive_slave_hp - crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
+                    .abs()
+                    < 0.01
+            );
+        }
+    }
+
+    /// Residual: Stinger HiveStructureBody propagate / swallow / no-fire +
+    /// SpawnReplaceDelay respawn residual.
+    #[test]
+    fn stinger_hive_structure_body_and_spawn_respawn_residual() {
+        use crate::game_logic::host_base_defense::{
+            HostHiveDamageClass, STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+            STINGER_SPAWN_REPLACE_DELAY_FRAMES,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut stinger_tpl = crate::game_logic::ThingTemplate::new("GLAStingerSite");
+        stinger_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLAStingerSite".to_string(), stinger_tpl);
+
+        let stinger_id = game_logic
+            .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("stinger");
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
+        }
+
+        let struct_hp_before = game_logic
+            .find_object(stinger_id)
+            .map(|s| s.health.current)
+            .unwrap_or(0.0);
+
+        // Propagate residual: SMALL_ARMS-like damages slaves, not structure.
+        let (destroyed, blocked) = game_logic.apply_host_hive_damage(
+            stinger_id,
+            60.0,
+            HostHiveDamageClass::PropagateToSlaves,
+        );
+        assert!(!destroyed && !blocked);
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!((s.health.current - struct_hp_before).abs() < 0.01);
+            assert!((s.hive_slave_hp - 40.0).abs() < 0.01);
+            assert_eq!(s.hive_slave_count, 3);
+        }
+        assert!(game_logic.stinger_hive_residual_slave_hits() >= 1);
+
+        // Kill active slave residual.
+        let _ = game_logic.apply_host_hive_damage(
+            stinger_id,
+            50.0,
+            HostHiveDamageClass::PropagateToSlaves,
+        );
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert_eq!(s.hive_slave_count, 2);
+            assert!((s.hive_slave_hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
+            assert!(s.hive_slave_respawn_frame > 0);
+        }
+        assert!(game_logic.stinger_hive_residual_slave_kills() >= 1);
+
+        // Kill remaining slaves.
+        for _ in 0..4 {
+            let _ = game_logic.apply_host_hive_damage(
+                stinger_id,
+                200.0,
+                HostHiveDamageClass::PropagateToSlaves,
+            );
+        }
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert_eq!(s.hive_slave_count, 0);
+            // Structure still full: pure propagate with 0 slaves falls through to structure.
+            // After last kill with overkill residual may have hit structure; re-check swallow path.
+        }
+
+        // Reset structure HP for swallow honesty.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.hive_slave_count = 0;
+            s.hive_slave_hp = 0.0;
+            s.health.current = 1000.0;
+            s.status.destroyed = false;
+        }
+        let hp_before_swallow = 1000.0;
+        let _ = game_logic.apply_host_hive_damage(
+            stinger_id,
+            500.0,
+            HostHiveDamageClass::SwallowIfNoSlaves,
+        );
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!(
+                (s.health.current - hp_before_swallow).abs() < 0.01,
+                "SNIPER residual must be swallowed with 0 slaves"
+            );
+        }
+        assert!(game_logic.stinger_hive_residual_swallows() >= 1);
+
+        // HitStructure residual damages building even with slaves restored.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.hive_slave_count = 3;
+            s.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            s.health.current = 1000.0;
+        }
+        let _ = game_logic.apply_host_hive_damage(
+            stinger_id,
+            100.0,
+            HostHiveDamageClass::HitStructure,
+        );
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!((s.health.current - 900.0).abs() < 0.01);
+            assert_eq!(s.hive_slave_count, 3);
+        }
+
+        // SPAWNS_ARE_THE_WEAPONS residual: 0 soldiers cannot fire.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.hive_slave_count = 0;
+            s.hive_slave_hp = 0.0;
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let fires_before = game_logic.stinger_site_residual_ground_fires();
+        for f in 0..40 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[stinger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (enemy_hp_after - enemy_hp_before).abs() < 0.01,
+            "0-soldier Stinger must not fire residual"
+        );
+        assert_eq!(
+            game_logic.stinger_site_residual_ground_fires(),
+            fires_before
+        );
+
+        // SpawnReplaceDelay residual respawn.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.hive_slave_count = 2;
+            s.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            s.hive_slave_respawn_frame = 10;
+        }
+        game_logic.frame = 10;
+        game_logic.update_stinger_hive_respawns();
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert_eq!(s.hive_slave_count, 3);
+            assert_eq!(s.hive_slave_respawn_frame, 0);
+        }
+        assert!(game_logic.stinger_hive_residual_respawns() >= 1);
+        assert!(game_logic.honesty_stinger_hive_ok());
+        assert_eq!(STINGER_SPAWN_REPLACE_DELAY_FRAMES, 900);
+    }
+
+    /// Residual: CamoNetting structure ATTACKING/TAKING_DAMAGE reveal + StealthDelay re-cloak.
+    #[test]
+    fn camo_netting_structure_attack_and_damage_reveal_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        for name in ["GLATunnelNetwork", "GLAStingerSite"] {
+            if !game_logic.templates.contains_key(name) {
+                let mut t = crate::game_logic::ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::Selectable)
+                    .add_kind_of(KindOf::Attackable)
+                    .add_kind_of(KindOf::FSBaseDefense)
+                    .set_health(1000.0);
+                game_logic.templates.insert(name.to_string(), t);
+            }
+        }
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-80.0, 0.0, 0.0))
+            .expect("barracks");
+        let tunnel_id = game_logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tunnel");
+        let stinger_id = game_logic
+            .create_object("GLAStingerSite", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("stinger");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_CAMO_NETTING.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update();
+
+        for id in [tunnel_id, stinger_id] {
+            let o = game_logic.find_object(id).unwrap();
+            assert!(o.status.stealthed && o.innate_stealth);
+            assert!(o.stealth_breaks_on_attack);
+            assert!(o.stealth_breaks_on_damage);
+            assert_eq!(o.stealth_delay_frames, CAMO_NETTING_STEALTH_DELAY_FRAMES);
+        }
+
+        // TAKING_DAMAGE residual uncloaks.
+        let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
+        assert!(
+            !game_logic
+                .find_object(tunnel_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(true),
+            "damage residual must break CamoNetting structure stealth"
+        );
+        assert!(
+            game_logic
+                .find_object(tunnel_id)
+                .map(|o| o.stealth_delay_pending || o.stealth_allowed_frame > 0)
+                .unwrap_or(false)
+                || game_logic.camo_netting_structure_residual_reveals() > 0,
+            "damage reveal must schedule StealthDelay residual"
+        );
+
+        // Resolve delay pending + stay uncloaked until delay elapses.
+        game_logic.frame = 1;
+        game_logic.update_stealth_and_detection();
+        let allowed = game_logic
+            .find_object(tunnel_id)
+            .map(|o| o.stealth_allowed_frame)
+            .unwrap_or(0);
+        assert!(
+            allowed > 0,
+            "StealthDelay residual must set stealth_allowed_frame"
+        );
+        assert!(
+            !game_logic
+                .find_object(tunnel_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(true),
+            "must remain uncloaked during StealthDelay"
+        );
+
+        // ATTACKING residual: mark attacking while stealthed → uncloak.
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            s.status.stealthed = true;
+            s.stealth_allowed_frame = 0;
+            s.stealth_delay_pending = false;
+            s.status.attacking = true;
+            s.ai_state = AIState::Attacking;
+        }
+        game_logic.frame = 2;
+        game_logic.update_stealth_and_detection();
+        assert!(
+            !game_logic
+                .find_object(stinger_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(true),
+            "attacking residual must break CamoNetting structure stealth"
+        );
+
+        // Idle + StealthDelay elapsed → re-cloak residual.
+        game_logic.frame = 10 + CAMO_NETTING_STEALTH_DELAY_FRAMES;
+        let recloak_frame = game_logic.frame;
+        {
+            let t = game_logic.find_object_mut(tunnel_id).unwrap();
+            t.status.attacking = false;
+            t.ai_state = AIState::Idle;
+            t.target = None;
+            t.status.stealthed = false;
+            // frame < allowed forbids; equal allows re-cloak residual.
+            t.stealth_allowed_frame = recloak_frame;
+            t.stealth_delay_pending = false;
+        }
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic
+                .find_object(tunnel_id)
+                .map(|o| o.status.stealthed)
+                .unwrap_or(false),
+            "idle after StealthDelay must re-cloak CamoNetting structure"
+        );
+        assert!(
+            game_logic.camo_netting_structure_residual_recloaks() > 0
+                || game_logic.honesty_camo_netting_structure_stealth_ok(),
+            "camo structure stealth residual honesty"
+        );
+        assert!(game_logic.honesty_camo_netting_structure_stealth_ok());
     }
 
     /// Residual: USA Patriot AA secondary residual vs aircraft.

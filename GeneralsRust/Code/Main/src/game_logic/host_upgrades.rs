@@ -738,6 +738,44 @@ mod camouflage_template_tests {
 /// Retail GLA CamoNetting upgrade name (Stealth General / Palace research residual).
 pub const UPGRADE_GLA_CAMO_NETTING: &str = "Upgrade_GLACamoNetting";
 
+/// Retail CamoNetting structure StealthDelay 2500ms → 75 frames @ 30 FPS.
+///
+/// Tunnel Network / Stinger Site / Stealth General buildings use StealthDelay
+/// 2500 with StealthForbiddenConditions = ATTACKING USING_ABILITY TAKING_DAMAGE.
+pub const CAMO_NETTING_STEALTH_DELAY_FRAMES: u32 = 75;
+
+/// Whether a CamoNetting residual structure should be stealthed this frame.
+///
+/// Host residual of StealthUpdate::allowedToStealth for structures:
+/// - forbidden while attacking (ATTACKING / FIRING_PRIMARY residual)
+/// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
+/// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
+///
+/// Fail-closed: not full USING_ABILITY / opacity / OrderIdleEnemiesToAttackMe.
+pub fn camo_netting_structure_stealth_desired(
+    innate_stealth: bool,
+    is_alive: bool,
+    is_attacking: bool,
+    current_frame: u32,
+    stealth_allowed_frame: u32,
+) -> Option<bool> {
+    if !innate_stealth || !is_alive {
+        return None;
+    }
+    if is_attacking {
+        return Some(false);
+    }
+    if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
+        return Some(false);
+    }
+    Some(true)
+}
+
+/// Absolute frame when CamoNetting residual may re-cloak after a reveal.
+pub fn camo_netting_stealth_allowed_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(CAMO_NETTING_STEALTH_DELAY_FRAMES)
+}
+
 /// Template names that receive StealthUpgrade from CamoNetting residual.
 ///
 /// Retail: Stealth General buildings (Slth_*), GLATunnelNetwork, GLAStingerSite.
@@ -809,6 +847,38 @@ mod camo_netting_and_gamma_tests {
         assert!(!is_camo_netting_structure_template("GLAInfantryRebel"));
         assert!(!is_camo_netting_structure_template("AmericaCommandCenter"));
         assert!(!is_camo_netting_structure_template("Slth_GLAInfantryRebel"));
+    }
+
+    #[test]
+    fn camo_netting_structure_stealth_delay_matrix() {
+        assert_eq!(CAMO_NETTING_STEALTH_DELAY_FRAMES, 75);
+        assert_eq!(camo_netting_stealth_allowed_frame(10), 85);
+
+        // Idle + delay elapsed → recloak.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, true, false, 100, 85),
+            Some(true)
+        );
+        // Attacking residual forbids stealth.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, true, true, 100, 0),
+            Some(false)
+        );
+        // Still inside StealthDelay after reveal.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, true, false, 50, 85),
+            Some(false)
+        );
+        // No CamoNetting residual (not innate).
+        assert_eq!(
+            camo_netting_structure_stealth_desired(false, true, false, 100, 0),
+            None
+        );
+        // Dead structure.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, false, false, 100, 0),
+            None
+        );
     }
 
     #[test]

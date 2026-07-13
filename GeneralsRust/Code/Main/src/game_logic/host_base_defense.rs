@@ -38,12 +38,19 @@
 //!   (**8** frames) cadence. Fail-closed: not full BinaryDataStream laser
 //!   drawable feedback (`LaserFromAssisted` / `LaserToTarget`).
 //!
+//! - **HiveStructureBody + SpawnBehavior residual** (GLAStingerSite):
+//!   SpawnNumber **3** residual soldiers (MaxHealth **100** each). Propagate
+//!   SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE residual damage to the
+//!   active slave; swallow SNIPER/POISON/SURRENDER when no slaves remain; all
+//!   other damage hits the structure. SPAWNS_ARE_THE_WEAPONS residual: site cannot
+//!   fire with **0** soldiers. SpawnReplaceDelay **30000**ms → **900** frames.
+//!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
 //! - Not full BinaryDataStream laser drawable feedback for assist beams
-//! - Not full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
+//! - Not full SpawnBehavior physical slave objects / bone attach / getClosestSlave matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
 //! - Not network base-defense replication (network deferred)
@@ -142,12 +149,175 @@ pub const STINGER_AIR_RANGE: f32 = 400.0;
 pub const STINGER_RELOAD_FRAMES: u32 = 60;
 /// Retail SpawnBehavior SpawnNumber for residual honesty (not full spawn).
 pub const STINGER_SPAWN_NUMBER: u32 = 3;
+/// Retail GLAInfantryStingerSoldier MaxHealth residual.
+pub const STINGER_SOLDIER_MAX_HEALTH: f32 = 100.0;
+/// Retail SpawnReplaceDelay 30000ms → 900 frames @ 30 FPS.
+pub const STINGER_SPAWN_REPLACE_DELAY_FRAMES: u32 = 900;
 /// Residual fire audio for Stinger residual shots.
 pub const STINGER_FIRE_AUDIO: &str = "StingerMissileWeapon";
+/// Residual soldier death audio honesty (not full OCL / FXListDie).
+pub const STINGER_SOLDIER_DIE_AUDIO: &str = "StingerSoldierVoiceDie";
 /// Retail Upgrade_GLAAPRockets WeaponBonus DAMAGE 125%.
 pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
 /// AP Rockets damage multiplier residual.
 pub const STINGER_AP_ROCKETS_DAMAGE_MULT: f32 = 1.25;
+
+// --- HiveStructureBody residual (Stinger Site ModuleTag_04) ---
+
+/// Host residual damage class for HiveStructureBody::attemptDamage.
+///
+/// Retail Stinger Site:
+/// - PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS + SNIPER + POISON +
+///   RADIATION + SURRENDER + MICROWAVE
+/// - SwallowDamageTypesIfSlavesNotExisting = SNIPER + POISON + SURRENDER
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostHiveDamageClass {
+    /// Damage types that route to residual slaves when present.
+    PropagateToSlaves,
+    /// Subset that is swallowed (no structure damage) when no slaves remain.
+    SwallowIfNoSlaves,
+    /// All other damage hits the structure body residual.
+    HitStructure,
+}
+
+/// Result of applying residual HiveStructureBody damage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostHiveDamageResult {
+    /// Whether the structure itself was destroyed by this hit.
+    pub structure_destroyed: bool,
+    /// HP removed from the structure body (0 when propagated/swallowed).
+    pub structure_damage_applied: f32,
+    /// HP removed from the active residual slave.
+    pub slave_damage_applied: f32,
+    /// How many residual slaves died this hit (0 or 1 host residual).
+    pub slaves_killed: u32,
+    /// True when swallow residual ate the damage (no slaves + swallow class).
+    pub swallowed: bool,
+}
+
+/// Initial residual slave count + HP for a constructed Stinger Site.
+pub fn init_stinger_hive_slaves() -> (u8, f32) {
+    (STINGER_SPAWN_NUMBER as u8, STINGER_SOLDIER_MAX_HEALTH)
+}
+
+/// SPAWNS_ARE_THE_WEAPONS residual: site can fire only while slaves remain.
+pub fn stinger_can_fire_with_slaves(slave_count: u8) -> bool {
+    slave_count > 0
+}
+
+/// Pure HiveStructureBody residual resolution (mutates slave count/HP inputs).
+///
+/// Returns updated `(slave_count, slave_hp, structure_hp_after, result)`.
+/// `structure_hp` / `structure_max` are used only for HitStructure / fallback paths.
+pub fn resolve_hive_structure_damage(
+    mut slave_count: u8,
+    mut slave_hp: f32,
+    structure_hp: f32,
+    damage: f32,
+    class: HostHiveDamageClass,
+) -> (u8, f32, f32, HostHiveDamageResult) {
+    let dmg = damage.max(0.0);
+    if dmg <= 0.0 {
+        return (
+            slave_count,
+            slave_hp,
+            structure_hp,
+            HostHiveDamageResult {
+                structure_destroyed: structure_hp <= 0.0,
+                structure_damage_applied: 0.0,
+                slave_damage_applied: 0.0,
+                slaves_killed: 0,
+                swallowed: false,
+            },
+        );
+    }
+
+    let propagate = matches!(
+        class,
+        HostHiveDamageClass::PropagateToSlaves | HostHiveDamageClass::SwallowIfNoSlaves
+    );
+    let swallow = matches!(class, HostHiveDamageClass::SwallowIfNoSlaves);
+
+    if propagate && slave_count > 0 {
+        // C++: slave->attemptDamage(damageInfo); structure takes none.
+        let before = slave_hp.max(0.0);
+        let applied = dmg.min(before);
+        slave_hp = (before - dmg).max(0.0);
+        let mut killed = 0u32;
+        if slave_hp <= 0.0 {
+            slave_count = slave_count.saturating_sub(1);
+            killed = 1;
+            // Next residual slave starts at full HP if any remain.
+            slave_hp = if slave_count > 0 {
+                STINGER_SOLDIER_MAX_HEALTH
+            } else {
+                0.0
+            };
+        }
+        return (
+            slave_count,
+            slave_hp,
+            structure_hp,
+            HostHiveDamageResult {
+                structure_destroyed: false,
+                structure_damage_applied: 0.0,
+                slave_damage_applied: applied,
+                slaves_killed: killed,
+                swallowed: false,
+            },
+        );
+    }
+
+    if swallow && slave_count == 0 {
+        // C++: no slave → eat SNIPER/POISON/SURRENDER residual.
+        return (
+            slave_count,
+            slave_hp,
+            structure_hp,
+            HostHiveDamageResult {
+                structure_destroyed: false,
+                structure_damage_applied: 0.0,
+                slave_damage_applied: 0.0,
+                slaves_killed: 0,
+                swallowed: true,
+            },
+        );
+    }
+
+    // Structure body residual (HitStructure, or propagate with no slaves and not swallow).
+    let new_hp = (structure_hp - dmg).max(0.0);
+    let applied = structure_hp - new_hp;
+    (
+        slave_count,
+        slave_hp,
+        new_hp,
+        HostHiveDamageResult {
+            structure_destroyed: new_hp <= 0.0,
+            structure_damage_applied: applied,
+            slave_damage_applied: 0.0,
+            slaves_killed: 0,
+            swallowed: false,
+        },
+    )
+}
+
+/// Schedule next residual slave respawn after a death (SpawnReplaceDelay).
+pub fn next_stinger_slave_respawn_frame(current_frame: u32, already_scheduled: u32) -> u32 {
+    if already_scheduled > current_frame {
+        already_scheduled
+    } else {
+        current_frame.saturating_add(STINGER_SPAWN_REPLACE_DELAY_FRAMES)
+    }
+}
+
+/// Whether a residual slave should respawn this frame.
+pub fn should_respawn_stinger_slave(
+    slave_count: u8,
+    current_frame: u32,
+    respawn_frame: u32,
+) -> bool {
+    slave_count < STINGER_SPAWN_NUMBER as u8 && respawn_frame > 0 && current_frame >= respawn_frame
+}
 
 /// Retail China Gattling Cannon primary weapon template name.
 pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
@@ -1228,5 +1398,90 @@ mod tests {
         assert_eq!(pending.next_shot_frame, 10);
         assert!((pending.damage() - 25.0).abs() < 0.01);
         assert!(!pending.is_supw());
+    }
+
+    #[test]
+    fn stinger_hive_structure_body_matrix_honesty() {
+        assert_eq!(STINGER_SPAWN_NUMBER, 3);
+        assert!((STINGER_SOLDIER_MAX_HEALTH - 100.0).abs() < 0.01);
+        assert_eq!(STINGER_SPAWN_REPLACE_DELAY_FRAMES, 900);
+
+        let (count, hp) = init_stinger_hive_slaves();
+        assert_eq!(count, 3);
+        assert!((hp - 100.0).abs() < 0.01);
+        assert!(stinger_can_fire_with_slaves(3));
+        assert!(stinger_can_fire_with_slaves(1));
+        assert!(!stinger_can_fire_with_slaves(0));
+
+        // Propagate residual: damages slaves, not structure.
+        let (c, h, struct_hp, r) = resolve_hive_structure_damage(
+            3,
+            100.0,
+            1000.0,
+            40.0,
+            HostHiveDamageClass::PropagateToSlaves,
+        );
+        assert_eq!(c, 3);
+        assert!((h - 60.0).abs() < 0.01);
+        assert!((struct_hp - 1000.0).abs() < 0.01);
+        assert!((r.slave_damage_applied - 40.0).abs() < 0.01);
+        assert_eq!(r.slaves_killed, 0);
+        assert!(!r.swallowed);
+
+        // Kill one residual slave with lethal propagate.
+        let (c2, h2, struct_hp2, r2) = resolve_hive_structure_damage(
+            3,
+            40.0,
+            1000.0,
+            50.0,
+            HostHiveDamageClass::PropagateToSlaves,
+        );
+        assert_eq!(c2, 2);
+        assert!((h2 - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
+        assert!((struct_hp2 - 1000.0).abs() < 0.01);
+        assert_eq!(r2.slaves_killed, 1);
+
+        // Swallow residual when no slaves (SNIPER path).
+        let (c3, _, struct_hp3, r3) = resolve_hive_structure_damage(
+            0,
+            0.0,
+            1000.0,
+            999.0,
+            HostHiveDamageClass::SwallowIfNoSlaves,
+        );
+        assert_eq!(c3, 0);
+        assert!((struct_hp3 - 1000.0).abs() < 0.01);
+        assert!(r3.swallowed);
+        assert!((r3.structure_damage_applied - 0.0).abs() < 0.01);
+
+        // HitStructure residual damages building even with slaves.
+        let (c4, h4, struct_hp4, r4) = resolve_hive_structure_damage(
+            3,
+            100.0,
+            1000.0,
+            200.0,
+            HostHiveDamageClass::HitStructure,
+        );
+        assert_eq!(c4, 3);
+        assert!((h4 - 100.0).abs() < 0.01);
+        assert!((struct_hp4 - 800.0).abs() < 0.01);
+        assert!((r4.structure_damage_applied - 200.0).abs() < 0.01);
+
+        // Propagate with no slaves falls through to structure residual.
+        let (_, _, struct_hp5, r5) = resolve_hive_structure_damage(
+            0,
+            0.0,
+            500.0,
+            100.0,
+            HostHiveDamageClass::PropagateToSlaves,
+        );
+        assert!((struct_hp5 - 400.0).abs() < 0.01);
+        assert!(!r5.swallowed);
+
+        assert_eq!(next_stinger_slave_respawn_frame(10, 0), 910);
+        assert_eq!(next_stinger_slave_respawn_frame(10, 950), 950);
+        assert!(should_respawn_stinger_slave(2, 910, 910));
+        assert!(!should_respawn_stinger_slave(3, 910, 910));
+        assert!(!should_respawn_stinger_slave(2, 900, 910));
     }
 }
