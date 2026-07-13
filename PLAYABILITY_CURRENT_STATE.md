@@ -1,3 +1,36 @@
+## Residual Host Playability — USA Ranger + China Hacker DisableBuilding (2026-07-13)
+**Closed (host-testable Ranger rifle/FlashBang splash + Hacker DisableBuilding residual):**
+1. **USA Ranger residual polish** (`AmericaInfantryRanger` / USA_ / AirF_ / Lazr_ / SupW_ / GoldenRanger):
+   - PRIMARY `RangerAdvancedCombatRifle` residual: PrimaryDamage **5** / range **100** /
+     Delay **100**ms (3 frames). ClipSize **3** honesty (volley matrix fail-closed).
+   - SECONDARY `RangerFlashBangGrenadeWeapon` residual (when equipped / FlashBang upgrade):
+     PrimaryDamage **35** / radius **10** + SecondaryDamage **10** / radius **40**,
+     range **175**, min **20**, ClipReload **2000**ms (60 frames).
+   - Dual-radius splash residual on secondary fire (intended + primary/secondary rings).
+   - PreferredAgainst residual (existing slot chooser): secondary preferred vs infantry /
+     structures when damage 35 > 5. FlashBang upgrade equip path still via host_upgrades.
+   - Honesty: `honesty_ranger_ok` / flashbang / rifle_fires / units_hit.
+2. **China Hacker DisableBuilding residual combat polish** (`ChinaInfantryHacker` /
+   Tank_/Nuke_ / TestHacker):
+   - Special ability residual `SpecialAbilityHackerDisableBuilding`:
+     walk to enemy structure within StartAbilityRange **150** → apply
+     DISABLED_HACKED for EffectDuration **2000**ms (**60** frames).
+   - Disabled structures count as `is_disabled()` (production stop residual).
+   - Internet cash residual remains in host_hacker_income (not re-opened).
+   - Honesty: `honesty_hacker_disable_building_ok` / disable count.
+3. Tests (not log-only):
+   - `ranger_residual_rifle_and_flashbang_splash`
+   - `hacker_disable_building_command_disables_after_reach`
+   - module unit tests in `host_ranger.rs` / `host_hacker_disable.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SURRENDER DamageType infantry-surrender AI / garrison clear matrix
+- Full ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley matrix
+- Full FlashBang ScatterRadius projectile lob / PreAttackDelay anim lock
+- Full Hacker unpack/pack/prep/PersistentPrepTime continuous refresh stream
+- Full BinaryDataStream special object / DisableFX particle interleave
+- Network flashbang / disable-building replication (network deferred)
+
 ## Residual Host Playability — China MiniGunner + Colonel Burton Combat (2026-07-13)
 **Closed (host-testable MiniGunner dual gun/ramp/chain/horde + Burton sniper/knife residual):**
 1. **MiniGunner residual** (`Infa_ChinaInfantryMiniGunner` / ChinaInfantryMiniGunner / variants):

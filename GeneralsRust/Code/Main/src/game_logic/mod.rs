@@ -17,6 +17,8 @@ pub mod host_cash_bounty;
 pub mod host_black_market;
 pub mod host_oil_derrick;
 pub mod host_hacker_income;
+pub mod host_hacker_disable;
+pub mod host_ranger;
 pub mod host_supply_drop_zone;
 pub mod host_mines;
 pub mod host_radar;
