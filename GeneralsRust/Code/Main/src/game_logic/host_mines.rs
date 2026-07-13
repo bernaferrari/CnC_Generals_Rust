@@ -4,6 +4,8 @@
 //! - Place land mines (ChinaStandardMine / ClusterMines special power residual)
 //! - Place GLA demo traps (proximity detonation when enemies enter range)
 //! - Place timed demo charges (Burton / Tank Hunter sticky residual)
+//! - Place remote demo charges (Burton SPECIAL_REMOTE_CHARGES sticky residual)
+//! - Detonate remote demo charges on command (no auto-timer)
 //! - Enemy/neutral proximity trigger → area damage + destroy mine/trap
 //! - Timed charges detonate at absolute frame
 //! - Dozer / Worker mine-clear: approach enemy/neutral mine → disarm without detonation
@@ -12,7 +14,7 @@
 //! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
 //! - Not full DemoTrapUpdate weapon-slot mode matrix / PreAttack scoop animation
 //! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
-//! - Not full StickyBombUpdate attach bones / geometry-based splash
+//! - Not full StickyBombUpdate attach bones / geometry-based splash / max-charge list
 //! - Not full OCL ClusterMinesBomb aircraft path
 
 use super::ObjectId;
@@ -31,6 +33,9 @@ pub enum HostMineKind {
     DemoTrap,
     /// Timed demo charge (TNTStickyBomb / Burton timed residual).
     TimedDemoCharge,
+    /// Remote demo charge (Burton SPECIAL_REMOTE_CHARGES sticky residual).
+    /// No auto-timer — detonates only via DetonateRemoteDemoCharges command.
+    RemoteDemoCharge,
 }
 
 impl HostMineKind {
@@ -39,6 +44,7 @@ impl HostMineKind {
             HostMineKind::LandMine => "LandMine",
             HostMineKind::DemoTrap => "DemoTrap",
             HostMineKind::TimedDemoCharge => "TimedDemoCharge",
+            HostMineKind::RemoteDemoCharge => "RemoteDemoCharge",
         }
     }
 
@@ -49,8 +55,8 @@ impl HostMineKind {
             HostMineKind::LandMine => 8.0,
             // GLADemoTrap DemoTrapUpdate TriggerDetonationRange = 40.
             HostMineKind::DemoTrap => 40.0,
-            // Timed charges do not proximity-trigger by default.
-            HostMineKind::TimedDemoCharge => 0.0,
+            // Timed / remote charges do not proximity-trigger by default.
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge => 0.0,
         }
     }
 
@@ -60,8 +66,8 @@ impl HostMineKind {
             HostMineKind::LandMine => 100.0,
             // DemoTrapDetonationWeapon PrimaryDamage residual.
             HostMineKind::DemoTrap => 600.0,
-            // TNTDetonationWeapon PrimaryDamage residual.
-            HostMineKind::TimedDemoCharge => 500.0,
+            // TNTDetonationWeapon PrimaryDamage residual (timed + remote).
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge => 500.0,
         }
     }
 
@@ -72,7 +78,7 @@ impl HostMineKind {
             // DemoTrapDetonationWeapon primary radius residual.
             HostMineKind::DemoTrap => 25.0,
             // TNTDetonationWeapon secondary radius residual (observable splash).
-            HostMineKind::TimedDemoCharge => 50.0,
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge => 50.0,
         }
     }
 
@@ -81,14 +87,16 @@ impl HostMineKind {
         match self {
             // TNTStickyBomb LifetimeUpdate Min/MaxLifetime = 10000 ms @ 30 FPS.
             HostMineKind::TimedDemoCharge => Some(300),
-            HostMineKind::LandMine | HostMineKind::DemoTrap => None,
+            HostMineKind::LandMine
+            | HostMineKind::DemoTrap
+            | HostMineKind::RemoteDemoCharge => None,
         }
     }
 
     pub fn defaults_to_proximity(self) -> bool {
         match self {
             HostMineKind::LandMine | HostMineKind::DemoTrap => true,
-            HostMineKind::TimedDemoCharge => false,
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge => false,
         }
     }
 
@@ -97,6 +105,7 @@ impl HostMineKind {
             HostMineKind::LandMine => "MineFieldPlaced",
             HostMineKind::DemoTrap => "DemoTrapPlaced",
             HostMineKind::TimedDemoCharge => "ColonelBurtonSetDemoCharge",
+            HostMineKind::RemoteDemoCharge => "ColonelBurtonSetRemoteCharge",
         }
     }
 
@@ -104,7 +113,9 @@ impl HostMineKind {
         match self {
             HostMineKind::LandMine => "ExplosionClusterMine",
             HostMineKind::DemoTrap => "DemoTrapExplosion",
-            HostMineKind::TimedDemoCharge => "RemoteDemoChargeExplosion",
+            HostMineKind::TimedDemoCharge | HostMineKind::RemoteDemoCharge => {
+                "RemoteDemoChargeExplosion"
+            }
         }
     }
 }
@@ -158,6 +169,11 @@ impl HostMineData {
             .unwrap_or(300);
         data.detonate_at_frame = Some(current_frame.saturating_add(delay));
         data
+    }
+
+    /// Remote demo charge: sticky until DetonateRemoteDemoCharges (no auto-timer).
+    pub fn remote_demo_charge() -> Self {
+        Self::new(HostMineKind::RemoteDemoCharge)
     }
 
     pub fn with_producer(mut self, producer: ObjectId) -> Self {
@@ -233,7 +249,10 @@ pub fn is_mine_clearer(is_worker: bool, template_name: &str) -> bool {
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
 pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
     match kind {
-        HostMineKind::LandMine | HostMineKind::DemoTrap | HostMineKind::TimedDemoCharge => true,
+        HostMineKind::LandMine
+        | HostMineKind::DemoTrap
+        | HostMineKind::TimedDemoCharge
+        | HostMineKind::RemoteDemoCharge => true,
     }
 }
 
@@ -256,16 +275,31 @@ pub fn is_demo_trap_template(name: &str) -> bool {
 /// Template names recognized as residual timed demo charges.
 pub fn is_timed_demo_charge_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
+    // Prefer remote match first via is_remote_demo_charge_template.
+    if is_remote_demo_charge_template(name) {
+        return false;
+    }
     n.contains("stickybomb")
         || n.contains("democharge")
         || n.contains("tntsticky")
         || n == "testtimeddemocharge"
 }
 
+/// Template names recognized as residual remote demo charges.
+pub fn is_remote_demo_charge_template(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("remotedemocharge")
+        || n.contains("remotecharge")
+        || n.contains("remotec4")
+        || n == "testremotedemocharge"
+}
+
 /// Infer residual mine kind from template name, if any.
 pub fn infer_mine_kind(template_name: &str) -> Option<HostMineKind> {
     if is_demo_trap_template(template_name) {
         Some(HostMineKind::DemoTrap)
+    } else if is_remote_demo_charge_template(template_name) {
+        Some(HostMineKind::RemoteDemoCharge)
     } else if is_timed_demo_charge_template(template_name) {
         Some(HostMineKind::TimedDemoCharge)
     } else if is_land_mine_template(template_name) {
@@ -281,6 +315,7 @@ pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Op
         HostMineKind::LandMine => Some(HostMineData::land_mine()),
         HostMineKind::DemoTrap => Some(HostMineData::demo_trap()),
         HostMineKind::TimedDemoCharge => Some(HostMineData::timed_demo_charge(current_frame)),
+        HostMineKind::RemoteDemoCharge => Some(HostMineData::remote_demo_charge()),
     }
 }
 
@@ -336,6 +371,15 @@ mod tests {
     }
 
     #[test]
+    fn remote_charge_has_no_auto_timer() {
+        let d = HostMineData::remote_demo_charge();
+        assert!(!d.proximity_enabled);
+        assert!(d.detonate_at_frame.is_none());
+        assert_eq!(d.kind, HostMineKind::RemoteDemoCharge);
+        assert!(d.detonation_damage > 0.0);
+    }
+
+    #[test]
     fn cluster_ring_count() {
         let pts = cluster_mine_positions(Vec3::ZERO, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS);
         assert_eq!(pts.len(), CLUSTER_MINE_COUNT);
@@ -360,7 +404,17 @@ mod tests {
             infer_mine_kind("TNTStickyBomb"),
             Some(HostMineKind::TimedDemoCharge)
         );
+        assert_eq!(
+            infer_mine_kind("TestRemoteDemoCharge"),
+            Some(HostMineKind::RemoteDemoCharge)
+        );
         assert_eq!(infer_mine_kind("AmericaRanger"), None);
+    }
+
+    #[test]
+    fn can_clear_includes_remote_charge() {
+        assert!(can_clear_mine_kind(HostMineKind::RemoteDemoCharge));
+        assert!(can_clear_mine_kind(HostMineKind::TimedDemoCharge));
     }
 
     #[test]

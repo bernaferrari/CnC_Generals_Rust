@@ -121,6 +121,9 @@ pub enum PendingSpecialAbility {
     SnipeVehicle { target_id: ObjectId },
     /// Colonel Burton residual: plant timed demo charge on structure/vehicle.
     PlantTimedDemoCharge { target_id: ObjectId },
+    /// Colonel Burton residual: plant remote demo charge on structure/vehicle
+    /// (SPECIAL_REMOTE_CHARGES — no auto-timer).
+    PlantRemoteDemoCharge { target_id: ObjectId },
     /// Black Lotus residual: steal cash from enemy supply/cash building.
     StealCashHack { target_id: ObjectId },
     /// Black Lotus residual: DISABLED_HACKED on enemy ground vehicle for EffectDuration.
@@ -135,6 +138,7 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::CarBomb { target_id }
             | PendingSpecialAbility::SnipeVehicle { target_id }
             | PendingSpecialAbility::PlantTimedDemoCharge { target_id }
+            | PendingSpecialAbility::PlantRemoteDemoCharge { target_id }
             | PendingSpecialAbility::StealCashHack { target_id }
             | PendingSpecialAbility::DisableVehicleHack { target_id } => target_id,
         }
@@ -704,6 +708,10 @@ pub struct GameLogic {
     /// Host hero special-ability residual (snipe / timed C4 / cash hack).
     /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
     hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
+
+    /// Host GLA Black Market residual cash (AutoDepositUpdate residual).
+    /// Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost matrix.
+    black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry,
 
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
@@ -1549,6 +1557,7 @@ impl GameLogic {
             cia_intelligence:
                 crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
+            black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -1714,6 +1723,7 @@ impl GameLogic {
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
+        self.black_markets.clear();
         self.car_bomb.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
@@ -3676,6 +3686,9 @@ impl GameLogic {
         // Phase 10: Player Resources
         // -----------------------------------------------------------------------
         self.update_player_resources(dt);
+        // GLA Black Market residual cash (AutoDepositUpdate discrete deposits).
+        // Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost.
+        self.update_black_market_deposits();
         self.update_power_disabled_state();
 
         // -----------------------------------------------------------------------
@@ -5807,10 +5820,12 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Burton plant charge: structure or ground vehicle.
-                    if matches!(ability, PendingSpecialAbility::PlantTimedDemoCharge { .. })
-                        && !(target_is_structure
-                            || (target_is_vehicle && !target_is_airborne))
+                    // Burton plant charge (timed or remote): structure or ground vehicle.
+                    if matches!(
+                        ability,
+                        PendingSpecialAbility::PlantTimedDemoCharge { .. }
+                            | PendingSpecialAbility::PlantRemoteDemoCharge { .. }
+                    ) && !(target_is_structure || (target_is_vehicle && !target_is_airborne))
                     {
                         self.pending_special_abilities.remove(&object_id);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5922,6 +5937,27 @@ impl GameLogic {
                                 let msg = localization::localize(
                                     "hud.demo_charge.planted",
                                     "Demo charge planted",
+                                );
+                                self.queue_radar_message_for_team(team, msg);
+                            }
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                        }
+                        PendingSpecialAbility::PlantRemoteDemoCharge { .. } => {
+                            // Burton residual: plant sticky remote charge (no auto-timer).
+                            let charge_id = self.place_remote_demo_charge(
+                                team,
+                                target_position,
+                                Some(object_id),
+                                Some(special_target_id),
+                            );
+                            if charge_id.is_some() {
+                                self.hero_abilities.record_remote_charge_plant();
+                                let msg = localization::localize(
+                                    "hud.remote_demo_charge.planted",
+                                    "Remote demo charge planted",
                                 );
                                 self.queue_radar_message_for_team(team, msg);
                             }
@@ -6603,6 +6639,78 @@ impl GameLogic {
                 player.statistics.resources_collected =
                     player.statistics.resources_collected.saturating_add(whole);
             }
+        }
+    }
+
+    /// GLA Black Market residual cash (AutoDepositUpdate residual).
+    ///
+    /// Retail FactionBuilding.ini GLABlackMarket:
+    /// DepositAmount=20, DepositTiming=2000 ms → 60 logic frames @ 30 FPS.
+    /// Fail-closed: not full floating text / InitialCaptureBonus / UpgradedBoost /
+    /// oil-derrick AutoDeposit matrix (black market residual only).
+    fn update_black_market_deposits(&mut self) {
+        use crate::game_logic::host_black_market::{
+            is_black_market_template, is_legal_black_market_income_source,
+            BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_AUDIO,
+        };
+
+        let frame = self.frame;
+        let markets: Vec<(ObjectId, Team, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                // Fake black markets residual-skip (ActualMoney=No).
+                if obj.template_name.to_ascii_lowercase().contains("fake") {
+                    return None;
+                }
+                let is_bm = obj.is_kind_of(KindOf::FSBlackMarket)
+                    || is_black_market_template(&obj.template_name);
+                if !is_bm {
+                    return None;
+                }
+                // C++ AutoDepositUpdate: neutral / under construction skip.
+                let is_neutral = obj.team == Team::Neutral;
+                if !is_legal_black_market_income_source(
+                    obj.is_alive(),
+                    obj.is_constructed() && !obj.status.under_construction,
+                    is_neutral,
+                ) {
+                    return None;
+                }
+                Some((*id, obj.team, obj.get_position()))
+            })
+            .collect();
+
+        // Forget destroyed markets so re-builds reschedule cleanly.
+        let live: std::collections::HashSet<ObjectId> = markets.iter().map(|(id, _, _)| *id).collect();
+        let stale: Vec<ObjectId> = self
+            .black_markets
+            .next_deposit_keys()
+            .into_iter()
+            .filter(|id| !live.contains(id))
+            .collect();
+        for id in stale {
+            self.black_markets.forget(id);
+        }
+
+        for (market_id, team, pos) in markets {
+            let deposited =
+                self.black_markets
+                    .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT);
+            if deposited == 0 {
+                continue;
+            }
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
+                player.statistics.resources_collected =
+                    player.statistics.resources_collected.saturating_add(deposited);
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(BLACK_MARKET_DEPOSIT_AUDIO)
+                    .with_object(market_id)
+                    .with_position(pos)
+                    .with_priority(120),
+            );
         }
     }
 
@@ -9183,6 +9291,22 @@ impl GameLogic {
         self.supply_lines_bonus_cash_total
     }
 
+    /// Residual GLA Black Market honesty: at least one AutoDeposit cash credit.
+    /// Fail-closed: not full Fake ActualMoney=No / capture-bonus / floating text.
+    pub fn honesty_black_market_ok(&self) -> bool {
+        self.black_markets.honesty_ok()
+    }
+
+    /// Residual Black Market deposit count (observability).
+    pub fn black_market_residual_deposits(&self) -> u32 {
+        self.black_markets.deposits()
+    }
+
+    /// Total residual cash credited via Black Market AutoDeposit (observability).
+    pub fn black_market_residual_cash_total(&self) -> u32 {
+        self.black_markets.cash_total()
+    }
+
     /// Residual garrison honesty: successful structure enter count.
     pub fn garrison_residual_enters(&self) -> u32 {
         self.garrison_residual_enters
@@ -11178,9 +11302,31 @@ impl GameLogic {
         self.hero_abilities.honesty_timed_charge_plant_ok()
     }
 
+    /// Residual honesty: Burton planted a remote demo charge via special ability.
+    pub fn honesty_plant_remote_demo_charge_ok(&self) -> bool {
+        self.hero_abilities.honesty_remote_charge_plant_ok()
+    }
+
+    /// Residual honesty: plant remote charge → detonate remote charges path.
+    pub fn honesty_remote_demo_charge_detonate_ok(&self) -> bool {
+        self.hero_abilities.honesty_remote_charge_detonate_ok()
+    }
+
     /// Residual honesty: Black Lotus cash-hack completed at least once.
     pub fn honesty_steal_cash_ok(&self) -> bool {
         self.hero_abilities.honesty_cash_steal_ok()
+    }
+
+    /// Host black market residual registry (deposits + honesty).
+    pub fn black_markets(
+        &self,
+    ) -> &crate::game_logic::host_black_market::HostBlackMarketRegistry {
+        &self.black_markets
+    }
+
+    /// Residual honesty: GLA Black Market AutoDeposit residual deposited cash.
+    pub fn honesty_black_market_deposit_ok(&self) -> bool {
+        self.black_markets.honesty_deposit_ok()
     }
 
     /// Residual honesty: Black Lotus disable-vehicle hack completed at least once.
@@ -12215,6 +12361,67 @@ impl GameLogic {
         )
     }
 
+    /// Place a residual remote demo charge (no auto-timer; remote detonate only).
+    /// Fail-closed: not full StickyBombUpdate attach bones / max-charge list.
+    pub fn place_remote_demo_charge(
+        &mut self,
+        team: Team,
+        position: Vec3,
+        producer: Option<ObjectId>,
+        attach_to: Option<ObjectId>,
+    ) -> Option<ObjectId> {
+        self.place_mine_kind(
+            crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge,
+            "TestRemoteDemoCharge",
+            team,
+            position,
+            producer,
+            attach_to,
+            None,
+        )
+    }
+
+    /// Detonate all residual remote demo charges planted by any of `producers`.
+    /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (StickyBombUpdate::detonate).
+    /// Returns the number of charges detonated.
+    pub fn detonate_remote_demo_charges(&mut self, producers: &[ObjectId]) -> u32 {
+        use crate::game_logic::host_mines::{HostMineDetonateReason, HostMineKind};
+
+        if producers.is_empty() {
+            return 0;
+        }
+        let producer_set: std::collections::HashSet<ObjectId> = producers.iter().copied().collect();
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                let data = obj.mine_data.as_ref()?;
+                if !data.is_active() || !obj.is_alive() {
+                    return None;
+                }
+                if data.kind != HostMineKind::RemoteDemoCharge {
+                    return None;
+                }
+                let producer = data.producer_id?;
+                if !producer_set.contains(&producer) {
+                    return None;
+                }
+                Some(*id)
+            })
+            .collect();
+
+        let mut count = 0u32;
+        for mine_id in due {
+            if self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual) {
+                count = count.saturating_add(1);
+            }
+        }
+        if count > 0 {
+            self.hero_abilities.record_remote_charge_detonate(count);
+        }
+        count
+    }
+
     /// Cluster Mines special-power residual: place a ring of land mines.
     /// Fail-closed: not full OCL ClusterMinesBomb / GenerateMinefieldBehavior density.
     pub fn place_cluster_mines(
@@ -12263,7 +12470,8 @@ impl GameLogic {
                     .set_cost(400, 0);
             }
             crate::game_logic::host_mines::HostMineKind::LandMine
-            | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge => {
+            | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+            | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
                 t.set_health(100.0).set_cost(0, 0);
             }
         }
@@ -12294,6 +12502,9 @@ impl GameLogic {
                     d = d.with_lifetime_frames(self.frame, delay);
                 }
                 d
+            }
+            crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
+                HostMineData::remote_demo_charge()
             }
         };
         if let Some(p) = producer {
@@ -12644,12 +12855,13 @@ impl GameLogic {
             }
         }
 
-        // Area damage: residual hits enemies + neutrals; demo trap also hits allies
-        // (DemoTrapDetonationWeapon RadiusDamageAffects SELF ALLIES ENEMIES NEUTRALS).
+        // Area damage: residual hits enemies + neutrals; demo trap / sticky charges
+        // also hit allies (DemoTrap/TNT RadiusDamageAffects SELF ALLIES ENEMIES NEUTRALS).
         let hit_allies = matches!(
             kind,
             crate::game_logic::host_mines::HostMineKind::DemoTrap
                 | crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+                | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
 
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
@@ -20208,6 +20420,235 @@ mod tests {
         );
     }
 
+    /// Residual: Burton PlantRemoteDemoCharge plants sticky remote C4 (no auto-timer),
+    /// then DetonateRemoteDemoCharges blows all producer charges.
+    /// Fail-closed: not full StickyBombUpdate attach bones / max-charge list.
+    #[test]
+    fn plant_and_detonate_remote_demo_charge_residual() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let burton_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(180.0, 0.0, 0.0))
+            .expect("burton should be created");
+        let target_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building should be created");
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("enemy near charge");
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::PlantRemoteDemoCharge { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![burton_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert_eq!(game_logic.mine_residual_places(), 0);
+        assert!(!game_logic.honesty_plant_remote_demo_charge_ok());
+
+        {
+            let burton = game_logic
+                .find_object_mut(burton_id)
+                .expect("burton should exist");
+            burton.set_position(Vec3::new(2.0, 0.0, 0.0));
+            burton.ai_state = AIState::SpecialAbility;
+            burton.target = Some(target_id);
+        }
+        game_logic.update_ai(&[burton_id, target_id, enemy_id], 1.0 / 60.0);
+
+        assert!(
+            game_logic.mine_residual_places() >= 1,
+            "remote charge must be placed on contact"
+        );
+        assert!(
+            game_logic.honesty_plant_remote_demo_charge_ok(),
+            "plant remote charge residual honesty"
+        );
+
+        let charge_id = game_logic
+            .get_objects()
+            .iter()
+            .find_map(|(id, o)| {
+                o.mine_data.as_ref().and_then(|d| {
+                    if d.kind == crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
+                        && d.is_active()
+                        && d.attached_to == Some(target_id)
+                        && d.producer_id == Some(burton_id)
+                        && d.detonate_at_frame.is_none()
+                    {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .expect("sticky remote charge must attach without auto-timer");
+
+        // Advance many frames — remote charge must NOT auto-detonate.
+        for _ in 0..400 {
+            game_logic.update_mines_and_demo_traps();
+            game_logic.frame = game_logic.frame.saturating_add(1);
+        }
+        assert!(
+            game_logic
+                .find_object(charge_id)
+                .and_then(|o| o.mine_data.as_ref())
+                .map(|d| d.is_active())
+                .unwrap_or(false),
+            "remote charge must remain live without DetonateRemoteDemoCharges"
+        );
+        assert_eq!(
+            game_logic.mine_residual_timed_detonations(),
+            0,
+            "remote charge must not use timed detonation path"
+        );
+
+        // Detonate via command residual.
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DetonateRemoteDemoCharges,
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![burton_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_remote_demo_charge_detonate_ok(),
+            "remote detonate residual honesty"
+        );
+        assert!(
+            game_logic.mine_residual_manual_detonations() >= 1,
+            "remote detonate uses manual detonation residual counter"
+        );
+
+        let enemy_after = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            enemy_after.health.current < enemy_hp_before || enemy_after.status.destroyed,
+            "remote detonate must damage nearby enemy (before={enemy_hp_before}, after={})",
+            enemy_after.health.current
+        );
+    }
+
+    /// Residual: GLA Black Market AutoDeposit deposits $20 every 60 logic frames.
+    /// Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost.
+    #[test]
+    fn black_market_residual_deposits_cash_on_interval() {
+        use crate::game_logic::host_black_market::{
+            BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        if !game_logic.templates.contains_key("TestBlackMarket") {
+            let mut t = ThingTemplate::new("TestBlackMarket");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSBlackMarket)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1000.0)
+                .set_cost(2000, 0);
+            game_logic
+                .templates
+                .insert("TestBlackMarket".to_string(), t);
+        }
+
+        let market_id = game_logic
+            .create_object("TestBlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("black market");
+        // Ensure constructed residual (create_object may leave under-construction off for tests).
+        if let Some(obj) = game_logic.find_object_mut(market_id) {
+            obj.status.under_construction = false;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::GLA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        // First schedule is current_frame + interval on first observe.
+        game_logic.frame = 0;
+        game_logic.update_black_market_deposits();
+        assert!(!game_logic.honesty_black_market_deposit_ok());
+        let mid = game_logic
+            .get_player_mut_by_team(Team::GLA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(mid, cash_before, "no deposit before interval");
+
+        game_logic.frame = BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES;
+        game_logic.update_black_market_deposits();
+
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::GLA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after,
+            cash_before.saturating_add(BLACK_MARKET_DEPOSIT_AMOUNT),
+            "black market must deposit residual ${BLACK_MARKET_DEPOSIT_AMOUNT}"
+        );
+        assert!(
+            game_logic.honesty_black_market_deposit_ok(),
+            "black market deposit residual honesty"
+        );
+        assert_eq!(game_logic.black_markets().deposits, 1);
+        assert_eq!(
+            game_logic.black_markets().cash_total,
+            BLACK_MARKET_DEPOSIT_AMOUNT
+        );
+
+        // Second interval deposit.
+        game_logic.frame = BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES * 2;
+        game_logic.update_black_market_deposits();
+        assert_eq!(game_logic.black_markets().deposits, 2);
+        assert_eq!(
+            game_logic.black_markets().cash_total,
+            BLACK_MARKET_DEPOSIT_AMOUNT * 2
+        );
+
+        // Fake black market residual-skip.
+        if !game_logic.templates.contains_key("FakeGLABlackMarket") {
+            let mut t = ThingTemplate::new("FakeGLABlackMarket");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::FSBlackMarket)
+                .set_health(500.0);
+            game_logic
+                .templates
+                .insert("FakeGLABlackMarket".to_string(), t);
+        }
+        let fake_id = game_logic
+            .create_object("FakeGLABlackMarket", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("fake market");
+        if let Some(obj) = game_logic.find_object_mut(fake_id) {
+            obj.status.under_construction = false;
+        }
+        let deposits_before_fake = game_logic.black_markets().deposits;
+        game_logic.frame = BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES * 3;
+        game_logic.update_black_market_deposits();
+        // Real market deposits again; fake must not add an extra deposit beyond real's schedule.
+        // Real market was due at frame 180 as well → deposits becomes 3.
+        assert_eq!(
+            game_logic.black_markets().deposits,
+            deposits_before_fake + 1,
+            "fake black market must not deposit cash"
+        );
+    }
+
     /// Residual: Black Lotus StealCashHack steals cash after reaching supply building.
     #[test]
     fn steal_cash_hack_command_transfers_cash_after_reach() {
@@ -26737,6 +27178,195 @@ mod tests {
             sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
             "Supply Lines must tag the supply center"
         );
+    }
+
+    /// Residual: GLA Black Market deposits $20 every 60 frames (DepositTiming 2000ms).
+    ///
+    /// Cash must increase over frames when a constructed market is present;
+    /// residual registry tracks AutoDeposit credits (fail-closed vs base passive).
+    /// Without a market, residual black-market honesty stays false.
+    #[test]
+    fn black_market_residual_cash_increases_over_frames() {
+        use crate::game_logic::host_black_market::{
+            BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+        };
+
+        fn run_with_market(with_market: bool) -> (u32, u32, u32, bool) {
+            let mut game_logic = GameLogic::new();
+            let mut player = Player::new(0, Team::GLA, "GLA", true);
+            player.resources.supplies = 1000;
+            game_logic.add_player(player);
+
+            if with_market {
+                let mut market = ThingTemplate::new("GLABlackMarket");
+                market
+                    .add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::FSBlackMarket)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(500.0)
+                    .set_cost(2500, 0);
+                game_logic
+                    .templates
+                    .insert("GLABlackMarket".to_string(), market);
+
+                let market_id = game_logic
+                    .create_object(
+                        "GLABlackMarket",
+                        Team::GLA,
+                        Vec3::new(0.0, 0.0, 0.0),
+                    )
+                    .expect("black market");
+                assert!(
+                    game_logic
+                        .find_object(market_id)
+                        .map(|o| o.is_constructed() && o.is_alive())
+                        .unwrap_or(false),
+                    "market must be alive and constructed"
+                );
+            }
+
+            let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
+            // First deposit schedules at frame 0 → due at frame 60.
+            // update_simulation sees frame N then frame becomes N+1, so need 61 steps
+            // to observe frame==60. Run two full intervals for multi-deposit honesty.
+            let steps = (BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES as usize) * 2 + 5;
+            for _ in 0..steps {
+                game_logic.update();
+            }
+            let cash_after = game_logic.get_player(0).unwrap().resources.supplies;
+            let gained = cash_after.saturating_sub(cash_before);
+            let residual_cash = game_logic.black_market_residual_cash_total();
+            let residual_deposits = game_logic.black_market_residual_deposits();
+            let honesty = game_logic.honesty_black_market_ok();
+            (gained, residual_cash, residual_deposits, honesty)
+        }
+
+        let (without_gained, without_residual, without_deposits, without_honesty) =
+            run_with_market(false);
+        let (with_gained, with_residual, with_deposits, with_honesty) = run_with_market(true);
+
+        // Fail-closed: no market → no residual Black Market credits.
+        assert_eq!(without_residual, 0);
+        assert_eq!(without_deposits, 0);
+        assert!(
+            !without_honesty,
+            "black market honesty must fail-closed without a market"
+        );
+
+        // With market: at least two residual deposits over ~2 intervals.
+        assert!(
+            with_deposits >= 2,
+            "expected ≥2 residual deposits over 2 intervals (got {with_deposits})"
+        );
+        assert_eq!(
+            with_residual,
+            with_deposits.saturating_mul(BLACK_MARKET_DEPOSIT_AMOUNT),
+            "residual cash must equal deposits × deposit amount"
+        );
+        assert!(
+            with_honesty,
+            "black market residual honesty after AutoDeposit credits"
+        );
+        assert!(
+            with_gained > without_gained,
+            "cash gain with market ({with_gained}) must exceed without ({without_gained})"
+        );
+        // Residual-only delta must match market credits (base $5/s passive is shared).
+        let residual_delta = with_gained.saturating_sub(without_gained);
+        assert_eq!(
+            residual_delta, with_residual,
+            "extra cash with market must equal residual AutoDeposit total \
+             (with={with_gained}, without={without_gained}, residual={with_residual})"
+        );
+        assert!(
+            with_residual >= BLACK_MARKET_DEPOSIT_AMOUNT,
+            "must credit at least one deposit amount"
+        );
+    }
+
+    /// Residual: under-construction Black Market does not deposit until complete.
+    #[test]
+    fn black_market_residual_skips_under_construction() {
+        use crate::game_logic::host_black_market::BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+
+        let mut market = ThingTemplate::new("GLABlackMarket");
+        market
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("GLABlackMarket".to_string(), market);
+
+        let market_id = game_logic
+            .create_object_under_construction(
+                "GLABlackMarket",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("under-construction market");
+        assert!(
+            game_logic
+                .find_object(market_id)
+                .map(|o| !o.is_constructed())
+                .unwrap_or(false),
+            "market must start under construction"
+        );
+
+        for _ in 0..(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES as usize + 10) {
+            game_logic.update();
+        }
+
+        assert_eq!(
+            game_logic.black_market_residual_cash_total(),
+            0,
+            "under-construction market must not residual-deposit"
+        );
+        assert!(!game_logic.honesty_black_market_ok());
+    }
+
+    /// Residual: FakeGLABlackMarket (ActualMoney=No) must not credit real cash.
+    #[test]
+    fn black_market_residual_skips_fake_market() {
+        use crate::game_logic::host_black_market::BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 1000;
+        game_logic.add_player(player);
+
+        let mut fake = ThingTemplate::new("FakeGLABlackMarket");
+        fake.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .add_kind_of(KindOf::FSFake)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("FakeGLABlackMarket".to_string(), fake);
+
+        let _id = game_logic
+            .create_object(
+                "FakeGLABlackMarket",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("fake market");
+
+        for _ in 0..(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES as usize + 10) {
+            game_logic.update();
+        }
+
+        assert_eq!(
+            game_logic.black_market_residual_cash_total(),
+            0,
+            "Fake market ActualMoney=No must not residual-deposit cash"
+        );
+        assert!(!game_logic.honesty_black_market_ok());
     }
 
     /// Residual: with SupplyLines unlocked, drop-off credits more cash than without.
