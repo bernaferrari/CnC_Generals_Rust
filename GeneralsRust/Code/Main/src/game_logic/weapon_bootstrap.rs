@@ -54,9 +54,22 @@ pub const NUKE_CANNON_NEUTRON_WEAPON: &str = "NukeCannonNeutronWeapon";
 /// Retail Inferno Cannon primary residual weapon (FireFieldSmall on impact).
 pub const INFERNO_CANNON_PRIMARY_WEAPON: &str = "InfernoCannonGun";
 
+/// Retail AuroraBombWeapon residual (AmericaJetAurora dive bomb).
+pub const AURORA_BOMB_PRIMARY_WEAPON: &str = "AuroraBombWeapon";
+/// Retail AirF_AuroraBombWeapon residual (FuelAir detonation path).
+pub const AIRF_AURORA_BOMB_PRIMARY_WEAPON: &str = "AirF_AuroraBombWeapon";
+/// Retail SupW_AuroraFuelBombWeapon residual.
+pub const SUPW_AURORA_FUEL_BOMB_WEAPON: &str = "SupW_AuroraFuelBombWeapon";
+
 /// Retail PointDefenseLaser residual weapons (Paladin / Avenger).
 pub const PALADIN_POINT_DEFENSE_LASER: &str = "PaladinPointDefenseLaser";
 pub const AVENGER_POINT_DEFENSE_LASER: &str = "AvengerPointDefenseLaserOne";
+
+/// Retail StealthJetMissileWeapon residual (Bunker Buster carrier primary).
+pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
+
+/// Retail MicrowaveTankBuildingClearer residual (KILL_GARRISONED damage type).
+pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingClearer";
 
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
@@ -108,6 +121,20 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "ChinaVehicleInfernoCannon"
         | "Nuke_ChinaVehicleInfernoCannon"
         | "TestInfernoCannon" => Some(INFERNO_CANNON_PRIMARY_WEAPON),
+        // AmericaJetAurora residual dive bomb.
+        "AmericaJetAurora" | "USA_Aurora" | "TestAurora" => Some(AURORA_BOMB_PRIMARY_WEAPON),
+        "AirF_AmericaJetAurora" | "TestAuroraFuelAir" => Some(AIRF_AURORA_BOMB_PRIMARY_WEAPON),
+        "SupW_AmericaJetAurora" => Some(SUPW_AURORA_FUEL_BOMB_WEAPON),
+        "Lazr_AmericaJetAurora" => Some(AURORA_BOMB_PRIMARY_WEAPON),
+        "AmericaJetStealthFighter"
+        | "USA_StealthFighter"
+        | "TestStealthFighter"
+        | "SupW_AmericaJetStealthFighter"
+        | "Lazr_AmericaJetStealthFighter"
+        | "AirF_AmericaJetStealthFighter" => Some(STEALTH_JET_MISSILE_WEAPON),
+        "AmericaVehicleMicrowaveTank"
+        | "USA_MicrowaveTank"
+        | "TestMicrowave" => Some(MICROWAVE_BUILDING_CLEARER_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
@@ -115,6 +142,26 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_inferno_cannon::is_inferno_cannon_template(template_name) {
                 return Some(INFERNO_CANNON_PRIMARY_WEAPON);
+            }
+            if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(template_name) {
+                return Some(
+                    match crate::game_logic::host_aurora_bomb::aurora_bomb_kind_for_template(
+                        template_name,
+                    ) {
+                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::FuelAir => {
+                            AIRF_AURORA_BOMB_PRIMARY_WEAPON
+                        }
+                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::Standard => {
+                            AURORA_BOMB_PRIMARY_WEAPON
+                        }
+                    },
+                );
+            }
+            if crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(template_name) {
+                return Some(STEALTH_JET_MISSILE_WEAPON);
+            }
+            if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
+                return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
             }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
@@ -340,6 +387,54 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 120,
             clip_size: 0,
             weapon_speed: 250.0,
+        },
+        // AuroraBombWeapon PRIMARY — PrimaryDamage 400, AttackRange 300,
+        // ClipReload 5000ms → 150 frames. Delayed dive residual applies AOE.
+        SeedWeapon {
+            name: AURORA_BOMB_PRIMARY_WEAPON,
+            primary_damage: 400.0,
+            attack_range: 300.0,
+            delay_frames: 150,
+            clip_size: 1,
+            weapon_speed: 99999.0,
+        },
+        // AirF_AuroraBombWeapon — tiny primary; FuelAir detonation residual.
+        SeedWeapon {
+            name: AIRF_AURORA_BOMB_PRIMARY_WEAPON,
+            primary_damage: 2.0,
+            attack_range: 300.0,
+            delay_frames: 150,
+            clip_size: 1,
+            weapon_speed: 99999.0,
+        },
+        // SupW_AuroraFuelBombWeapon — FuelAir residual path.
+        SeedWeapon {
+            name: SUPW_AURORA_FUEL_BOMB_WEAPON,
+            primary_damage: 400.0,
+            attack_range: 300.0,
+            delay_frames: 150,
+            clip_size: 1,
+            weapon_speed: 99999.0,
+        },
+        // StealthJetMissileWeapon PRIMARY — PrimaryDamage 100, AttackRange 220,
+        // Delay 200ms → 6 frames. Bunker-buster residual on impact when upgraded.
+        SeedWeapon {
+            name: STEALTH_JET_MISSILE_WEAPON,
+            primary_damage: 100.0,
+            attack_range: 220.0,
+            delay_frames: 6,
+            clip_size: 2,
+            weapon_speed: 1000.0,
+        },
+        // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
+        // AttackRange 125. KILL_GARRISONED residual via host combat path.
+        SeedWeapon {
+            name: MICROWAVE_BUILDING_CLEARER_WEAPON,
+            primary_damage: 1.0,
+            attack_range: 125.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
         },
     ];
 
