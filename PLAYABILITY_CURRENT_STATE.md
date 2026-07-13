@@ -114,6 +114,52 @@
 - Full PointDefenseLaserUpdate velocity prediction live matrix
 - Network residual replication (network deferred)
 
+## Residual Host Playability — Wave 59: car-bomb/dragon/stealth residual + neutron honesty (2026-07-13)
+**Closed (host-testable residual):**
+1. **Neutron Shell equip honesty fix** (`weapon_bootstrap` + `create_object`):
+   - Root cause: `secondary_weapon_name_for_unit` auto-equipped
+     `NukeCannonNeutronWeapon` at create for ChinaVehicleNukeCannon, breaking
+     `neutron_shell_residual_upgrade_and_blast` (pre-upgrade must lack secondary).
+   - Fix: neutron secondary is **PLAYER_UPGRADE residual only** (parity with
+     rocket pods). Research `Upgrade_ChinaNeutronShells` equips existing cannons;
+     create_object equips only when player has unlocked the upgrade or object
+     already carries the tag; explicit template secondary still kept for tests.
+2. **Car Bomb residual pack** (`host_car_bomb`):
+   - Detonation damage: Primary **700**/r**20**, Secondary **100**/r**50**,
+     DamageDealtAtSelf **Yes**, RadiusAffects SELF SUICIDE … NOT_SIMILAR.
+   - Convert residual: FX_MakeCarBombSuccess / TerroristCarBomb; Hijack range **5**.
+   - FireSound residual: **CarBomberDie** + WeaponFX_SuicideDynamitePackDetonation.
+   - Range residual: AttackRange **5**, ClipSize **1**, AutoReloadsClip **No**.
+   - Honesty: `honesty_car_bomb_residual_pack_ok` + layer honesty tests.
+3. **Dragon Tank residual pack** (`host_dragon_tank`):
+   - Fire wall residual: AttackRange **25**, OCL FireWallSegment / Upgraded,
+     segment **4**/r**10**/250ms → **8**f; upgraded segment **5**.
+   - Napalm residual: BlackNapalm **12.5**/1.25, MinRange **10**,
+     FireSoundLoopTime **80**ms → **2**f, garrison Yes.
+   - Range residual: flame **75**, firewall **25**, FLAME/BURNED, speed **600**.
+   - Honesty: `honesty_dragon_tank_residual_pack_ok` + layer honesty tests.
+4. **Stealth Fighter residual pack** (`host_stealth_fighter`):
+   - StealthJetMissile residual: **100**/r**5**, range **220**/min **60**,
+     Delay **200**ms → **6**f, Clip **2**/reload **8000**ms → **240**f,
+     STEALTHJET_MISSILES, RETURN_TO_BASE, anti-air No, upgrade dmg **125%**.
+   - KillSelfDelay residual: **2000**ms → **60**f, DetonateCallsKill **Yes**,
+     HP **100**, Mass **1**.
+   - Bunker-buster related residual: UpgradeRequired, Seismic **200**/mag **5**,
+     Shockwave BunkerBusterShockwaveWeaponSmall (shared with host_bunker_buster).
+   - Honesty: `honesty_stealth_fighter_residual_pack_ok` + layer honesty tests.
+5. Tests / gates:
+   - neutron lib: **8** ok (incl. upgrade_and_blast)
+   - car_bomb / dragon / stealth_fighter residual pack honesty tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full DumbProjectileBehavior neutron bezier / WeaponSet UI toggle
+- Full SuicideCarBomb NOT_SIMILAR ally matrix / HijackerUpdate hide path
+- Full InchForward FireWallSegment crawl / ProjectileStream draw
+- Full StealthJetMissile AI crash-through / JetAIUpdate RETURN_TO_BASE rearm
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 56: CarpetBomb/Cruise/Artillery residual deepen (2026-07-13)
 **Closed (host-testable residual in `special_power_strikes`):**
 1. **CarpetBomb residual pack deepen**:

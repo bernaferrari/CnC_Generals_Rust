@@ -11687,6 +11687,33 @@ impl GameLogic {
                 object.weapon = Some(dragon_flame_weapon(upgraded));
             }
 
+            // Host residual: China Nuke Cannon neutron secondary is PLAYER_UPGRADE only.
+            // Fail-closed: Upgrade_ChinaNeutronShells equips SECONDARY; without it, no secondary.
+            // Explicit template.secondary_weapon_name (tests / seeds) still keeps a bound weapon.
+            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
+                use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
+                use crate::game_logic::weapon_bootstrap::{
+                    ensure_host_weapon_store, NUKE_CANNON_NEUTRON_WEAPON,
+                };
+                let has_neutron = object.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
+                    || object.has_upgrade_tag("Upgrade_ChinaNeutronShells")
+                    || self.players.values().any(|p| {
+                        p.team == team && p.has_unlocked_upgrade(UPGRADE_CHINA_NEUTRON_SHELLS)
+                    });
+                if has_neutron {
+                    ensure_host_weapon_store();
+                    if let Some(w) = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON) {
+                        object.secondary_weapon = Some(w);
+                    }
+                    object.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
+                } else if object.thing.template.secondary_weapon_name.is_none()
+                    && object.thing.template.secondary_weapon.is_none()
+                {
+                    // Strip residual map auto-equip; keep explicit test/seed secondaries.
+                    object.secondary_weapon = None;
+                }
+            }
+
             // Host residual: China Gattling Tank dual ground/AA + continuous-fire ramp state.
             // Fail-closed: not Overlord/Helix/building gattling payloads.
             if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
