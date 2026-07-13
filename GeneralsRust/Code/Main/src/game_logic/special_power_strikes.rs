@@ -1,9 +1,9 @@
 //! Host special-power / superweapon strike residual.
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb
-//! queues a real strike that completes with area damage on host GameLogic
-//! objects. NuclearMissile also spawns a residual radiation field
+//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb /
+//! ArtilleryBarrage queues a real strike that completes with area damage on host
+//! GameLogic objects. NuclearMissile also spawns a residual radiation field
 //! (`NukeRadiationFieldWeapon`) that ticks after impact. AnthraxBomb also
 //! spawns a residual toxin field (`AnthraxBombPoisonFieldWeapon` /
 //! `OCL_PoisonFieldAnthraxBomb`) that ticks after impact. SpectreGunship
@@ -13,9 +13,14 @@
 //! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
 //! approach delay, applies explosive damage at multiple epicenters along a
 //! line through the target (fail-closed vs full B52 OCL drop path / variance /
-//! staggered DropDelay). Pending strikes (absolute `impact_frame`) are
-//! captured in `WorldSnapshot.special_power_strikes` so mid-flight save/load
-//! continues remaining delay and still fires impact / orbit residual damage.
+//! staggered DropDelay). ArtilleryBarrage is a delayed multi-shell scatter
+//! residual (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`):
+//! after DelayDeliveryMax residual, applies explosive damage at multiple shell
+//! epicenters within WeaponErrorRadius (fail-closed vs full ChinaArtilleryCannon
+//! OCL DeliverPayload / science tiers 12/24/36 / staggered shell drops). Pending
+//! strikes (absolute `impact_frame`) are captured in
+//! `WorldSnapshot.special_power_strikes` so mid-flight save/load continues
+//! remaining delay and still fires impact / orbit residual damage.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
@@ -24,6 +29,9 @@
 //! gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer projectile
 //! path). CarpetBomb residual is multi-point simultaneous blasts (not full
 //! AmericaJetB52 DeliverPayload / DropVariance / per-bomb DropDelay stagger).
+//! ArtilleryBarrage residual is multi-point simultaneous shell blasts (not full
+//! ChinaArtilleryCannon transport / random WeaponErrorRadius draw / per-shell
+//! DelayDelivery stagger / science upgrade FormationSize matrix).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -89,6 +97,23 @@ pub const CARPET_BOMB_RADIUS: f32 = 50.0;
 /// (fail-closed vs full edge-spawn + transit locomotor).
 pub const CARPET_BOMB_IMPACT_DELAY_FRAMES: u32 = 90;
 
+// --- Artillery Barrage scatter multi-shell residual (retail SUPERWEAPON_ArtilleryBarrage1) ---
+
+/// Retail `SUPERWEAPON_ArtilleryBarrage1` FormationSize (Level1 fail-closed;
+/// science tiers 2/3 use 24/36 — deferred).
+pub const ARTILLERY_BARRAGE_SHELL_COUNT: u32 = 12;
+/// Retail `ArtilleryBarrageDamageWeapon` PrimaryDamage.
+pub const ARTILLERY_BARRAGE_DAMAGE: f32 = 105.0;
+/// Retail `ArtilleryBarrageDamageWeapon` PrimaryDamageRadius.
+pub const ARTILLERY_BARRAGE_RADIUS: f32 = 50.0;
+/// Retail DeliverPayload `WeaponErrorRadius` (shell scatter radius around target).
+pub const ARTILLERY_BARRAGE_ERROR_RADIUS: f32 = 100.0;
+/// Retail DeliverPayload `DelayDeliveryMax` = 3000 ms → 90 frames @ 30 FPS.
+pub const ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES: u32 = 90;
+/// Residual ring radius for deterministic shell placement inside error radius
+/// (retail random draw within WeaponErrorRadius deferred).
+pub const ARTILLERY_BARRAGE_RING_RADIUS: f32 = 75.0;
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -108,6 +133,8 @@ pub enum HostSuperweaponKind {
     SpectreGunship,
     /// Carpet Bomb residual host path (delayed line multi-strike damage).
     CarpetBomb,
+    /// China Artillery Barrage residual host path (delayed multi-shell scatter).
+    ArtilleryBarrage,
 }
 
 impl HostSuperweaponKind {
@@ -124,6 +151,7 @@ impl HostSuperweaponKind {
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
             SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
             SpecialPowerType::CarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
+            SpecialPowerType::Artillery => Some(HostSuperweaponKind::ArtilleryBarrage),
             _ => None,
         }
     }
@@ -139,6 +167,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => "AnthraxBomb",
             HostSuperweaponKind::SpectreGunship => "SpectreGunship",
             HostSuperweaponKind::CarpetBomb => "CarpetBomb",
+            HostSuperweaponKind::ArtilleryBarrage => "ArtilleryBarrage",
         }
     }
 
@@ -164,6 +193,8 @@ impl HostSuperweaponKind {
             // Carpet bomber approach residual (fail-closed vs full edge spawn +
             // DeliverPayload transit + staggered DropDelay).
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_IMPACT_DELAY_FRAMES,
+            // Retail DelayDeliveryMax = 3000 ms residual (artillerist reaction).
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES,
         }
     }
 
@@ -182,6 +213,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => 0.0,
             // Retail CarpetBombWeapon PrimaryDamage (per bomb epicenter).
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_DAMAGE,
+            // Retail ArtilleryBarrageDamageWeapon PrimaryDamage (per shell).
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_DAMAGE,
         }
     }
 
@@ -200,6 +233,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => SPECTRE_ORBIT_RADIUS,
             // Retail CarpetBombWeapon PrimaryDamageRadius (per bomb).
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
+            // Retail ArtilleryBarrageDamageWeapon PrimaryDamageRadius (per shell).
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
         }
     }
 
@@ -218,6 +253,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => 0.0,
             // Flat primary blast per bomb epicenter.
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
+            // Flat primary blast per shell epicenter.
+            HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
         }
     }
 
@@ -241,6 +278,27 @@ impl HostSuperweaponKind {
         matches!(self, HostSuperweaponKind::CarpetBomb)
     }
 
+    /// Whether this kind applies multi-shell scatter damage (ArtilleryBarrage residual).
+    pub fn is_scatter_multi_strike(self) -> bool {
+        matches!(self, HostSuperweaponKind::ArtilleryBarrage)
+    }
+
+    /// Whether this kind uses multi-point epicenter damage at impact.
+    pub fn is_multi_strike(self) -> bool {
+        self.is_line_multi_strike() || self.is_scatter_multi_strike()
+    }
+
+    /// Residual multi-point shell/bomb epicenters for multi-strike kinds.
+    pub fn multi_strike_points(self, target: Vec3) -> Option<Vec<Vec3>> {
+        if self.is_line_multi_strike() {
+            Some(carpet_bomb_points(target))
+        } else if self.is_scatter_multi_strike() {
+            Some(artillery_barrage_points(target))
+        } else {
+            None
+        }
+    }
+
     /// Audio event name queued on activation (host residual).
     pub fn activate_audio(self) -> &'static str {
         match self {
@@ -252,6 +310,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => "SuperweaponAnthraxBomb",
             HostSuperweaponKind::SpectreGunship => "SuperweaponSpectreGunship",
             HostSuperweaponKind::CarpetBomb => "SuperweaponCarpetBomb",
+            HostSuperweaponKind::ArtilleryBarrage => "SuperweaponArtilleryBarrage",
         }
     }
 
@@ -268,6 +327,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => "SpectreGunshipVoiceArrive",
             // Retail ExplosionCarpetBomb residual cue.
             HostSuperweaponKind::CarpetBomb => "ExplosionCarpetBomb",
+            // Retail FX_ArtilleryBarrage residual cue.
+            HostSuperweaponKind::ArtilleryBarrage => "FX_ArtilleryBarrage",
         }
     }
 }
@@ -284,6 +345,33 @@ pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
     for i in 0..count {
         let offset = (i as f32 - half) * CARPET_BOMB_SPACING;
         points.push(Vec3::new(target.x + offset, target.y, target.z));
+    }
+    points
+}
+
+/// Build residual artillery shell epicenters scattered around `target`.
+///
+/// Fail-closed placement: one shell at the click target + remaining shells on a
+/// deterministic ring at `ARTILLERY_BARRAGE_RING_RADIUS` inside
+/// `WeaponErrorRadius` (retail random draw deferred). Shell count is Level1
+/// FormationSize 12 (science tiers 24/36 deferred).
+pub fn artillery_barrage_points(target: Vec3) -> Vec<Vec3> {
+    let count = ARTILLERY_BARRAGE_SHELL_COUNT.max(1);
+    let mut points = Vec::with_capacity(count as usize);
+    // Center shell guarantees a hit at the aimed position.
+    points.push(target);
+    let ring_count = count.saturating_sub(1);
+    if ring_count == 0 {
+        return points;
+    }
+    let ring_r = ARTILLERY_BARRAGE_RING_RADIUS.min(ARTILLERY_BARRAGE_ERROR_RADIUS);
+    for i in 0..ring_count {
+        let angle = (i as f32) * std::f32::consts::TAU / (ring_count as f32);
+        points.push(Vec3::new(
+            target.x + ring_r * angle.cos(),
+            target.y,
+            target.z + ring_r * angle.sin(),
+        ));
     }
     points
 }
@@ -863,9 +951,9 @@ impl HostSpecialPowerStrikeRegistry {
     /// Build impact damage plans for all strikes whose impact frame has arrived.
     /// Does not mutate object health — GameLogic applies hits.
     ///
-    /// CarpetBomb residual: multi-point line damage — each living enemy takes the
-    /// max damage from any bomb epicenter along the residual drop line (not a
-    /// single circular blast at the click point).
+    /// Multi-strike residuals (CarpetBomb line / ArtilleryBarrage scatter): each
+    /// living enemy takes the max damage from any shell/bomb epicenter (not a
+    /// single circular blast at the click point only).
     pub fn plan_due_impacts(
         &self,
         current_frame: u32,
@@ -876,22 +964,19 @@ impl HostSpecialPowerStrikeRegistry {
             if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
                 continue;
             }
-            let bomb_points = if strike.kind.is_line_multi_strike() {
-                Some(carpet_bomb_points(strike.target_position))
-            } else {
-                None
-            };
+            let bomb_points = strike.kind.multi_strike_points(strike.target_position);
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == strike.source_object {
                     continue;
                 }
                 // Fail-closed residual: do not damage friendlies (same team).
+                // Retail ArtilleryBarrageDamageWeapon hits ALLIES too — deferred.
                 if team == strike.source_team {
                     continue;
                 }
                 let dmg = if let Some(ref points) = bomb_points {
-                    // Multi-strike: best (nearest) bomb epicenter damage.
+                    // Multi-strike: best (nearest) shell/bomb epicenter damage.
                     points
                         .iter()
                         .map(|epicenter| {
@@ -1435,6 +1520,10 @@ mod tests {
             Some(HostSuperweaponKind::CarpetBomb)
         );
         assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::Artillery),
+            Some(HostSuperweaponKind::ArtilleryBarrage)
+        );
+        assert_eq!(
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
@@ -1565,6 +1654,92 @@ mod tests {
         reg.record_impact_complete(id, CARPET_BOMB_DAMAGE * 2.0, 2, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CarpetBomb));
+        assert!(reg.radiation_fields().is_empty());
+        assert!(reg.toxin_fields().is_empty());
+        assert!(reg.orbit_fields().is_empty());
+    }
+
+    #[test]
+    fn artillery_barrage_params_match_retail_multi_shell() {
+        let kind = HostSuperweaponKind::ArtilleryBarrage;
+        assert_eq!(
+            kind.impact_delay_frames(),
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        );
+        assert!((kind.max_damage() - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1);
+        assert!((kind.damage_radius() - ARTILLERY_BARRAGE_RADIUS).abs() < 0.1);
+        assert!((kind.falloff_inner() - ARTILLERY_BARRAGE_RADIUS).abs() < 0.1);
+        assert!(kind.is_scatter_multi_strike());
+        assert!(kind.is_multi_strike());
+        assert!(!kind.is_line_multi_strike());
+        assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
+        assert!(!kind.spawns_orbit_field());
+        assert!(!HostSuperweaponKind::DaisyCutter.is_scatter_multi_strike());
+        assert_eq!(ARTILLERY_BARRAGE_SHELL_COUNT, 12);
+        assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
+        assert!((ARTILLERY_BARRAGE_RING_RADIUS - 75.0).abs() < 0.1);
+        let points = artillery_barrage_points(Vec3::new(100.0, 0.0, 50.0));
+        assert_eq!(points.len(), ARTILLERY_BARRAGE_SHELL_COUNT as usize);
+        // First shell at target; remaining on ring inside error radius.
+        assert!((points[0].x - 100.0).abs() < 0.1);
+        assert!((points[0].z - 50.0).abs() < 0.1);
+        for p in points.iter().skip(1) {
+            let dist = horizontal_distance(*p, Vec3::new(100.0, 0.0, 50.0));
+            assert!(
+                (dist - ARTILLERY_BARRAGE_RING_RADIUS).abs() < 0.5,
+                "ring shell dist={dist}"
+            );
+            assert!(dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.1);
+        }
+    }
+
+    #[test]
+    fn artillery_barrage_delayed_multi_shell_scatter_damage() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ArtilleryBarrage,
+            ObjectId(1),
+            Team::China,
+            target,
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::ArtilleryBarrage));
+        assert_eq!(
+            reg.get(id).unwrap().impact_frame,
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        );
+
+        // Shells: center + ring at RING_RADIUS. Outer shell at +X ring point.
+        let outer = Vec3::new(ARTILLERY_BARRAGE_RING_RADIUS, 0.0, 0.0);
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::China, true),
+            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // center shell
+            (ObjectId(3), outer, Team::USA, true),                    // ring shell
+            (ObjectId(4), Vec3::new(0.0, 0.0, 500.0), Team::USA, true), // far
+            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::China, true), // friendly
+        ];
+
+        // Before impact: no damage plan.
+        assert!(reg
+            .plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty());
+
+        let plans = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        // Center + ring-shell enemies hit; far + friendly excluded.
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+            && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+
+        reg.record_impact_complete(id, ARTILLERY_BARRAGE_DAMAGE * 2.0, 2, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::ArtilleryBarrage));
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());

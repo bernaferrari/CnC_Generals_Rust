@@ -1,5 +1,30 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Artillery Barrage (2026-07-12)
+**Closed (host-testable Artillery Barrage → delayed multi-shell scatter damage):**
+1. **Artillery Barrage residual** (`SUPERWEAPON_ArtilleryBarrage1` host path):
+   - `DoSpecialPower(Artillery)` queues a delayed strike (retail DelayDeliveryMax
+     3000 ms → 90 frames @ 30 FPS).
+   - On impact: multi-shell scatter area damage — Level1 FormationSize **12** shells
+     (center + deterministic ring inside WeaponErrorRadius **100**).
+   - Per-shell residual: `ArtilleryBarrageDamageWeapon` PrimaryDamage **105** /
+     PrimaryDamageRadius **50**.
+   - Each living enemy takes max damage from any shell epicenter (not single-point only).
+   - Friendlies residual-skip (fail-closed vs retail RadiusDamageAffects ALLIES).
+2. Honesty counters (`special_power_strikes.rs` HostSuperweaponKind::ArtilleryBarrage):
+   - queue / complete / host_path honesty flags (same strike residual path as CarpetBomb)
+3. Tests (not log-only):
+   - `artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage`
+   - `artillery_barrage_params_match_retail_multi_shell`
+   - `artillery_barrage_delayed_multi_shell_scatter_damage`
+
+**Still residual (fail-closed, not claimed):**
+- Full ChinaArtilleryCannon OCL DeliverPayload transport / shell projectile path
+- Random WeaponErrorRadius scatter draw + per-shell DelayDelivery stagger
+- Science tier FormationSize 24/36 upgrade matrix
+- Friendly-fire (retail hits ALLIES NEUTRALS ENEMIES)
+- Network Artillery Barrage replication (network deferred)
+
 ## Residual Host Playability — Emergency Repair (2026-07-12)
 **Closed (host-testable Emergency Repair → SingleBurst ally vehicle heal):**
 1. **Emergency Repair residual** (`SuperweaponEmergencyRepair` host path):
