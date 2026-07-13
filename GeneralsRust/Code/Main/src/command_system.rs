@@ -197,6 +197,11 @@ pub enum CommandType {
     DisableVehicleHack {
         target_id: ObjectId,
     },
+    /// China Hacker residual: disable enemy structure (DISABLED_HACKED).
+    /// SpecialAbilityHackerDisableBuilding.
+    HackerDisableBuilding {
+        target_id: ObjectId,
+    },
     /// GLA Bomb Truck residual: disguise as target vehicle
     /// (SpecialAbilityDisguiseAsVehicle / StealthUpdate::disguiseAsTemplate).
     DisguiseAsVehicle {

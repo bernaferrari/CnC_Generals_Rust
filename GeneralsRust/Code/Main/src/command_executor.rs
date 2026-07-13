@@ -211,6 +211,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::DisableVehicleHack { target_id } => {
                 self.execute_disable_vehicle_hack(&command.selected_units, *target_id)
             }
+            CommandType::HackerDisableBuilding { target_id } => {
+                self.execute_hacker_disable_building(&command.selected_units, *target_id)
+            }
             CommandType::DisguiseAsVehicle { target_id } => {
                 self.execute_disguise_as_vehicle(&command.selected_units, *target_id)
             }
@@ -2460,6 +2463,94 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.queue_pending_special_ability(
                 unit_id,
                 PendingSpecialAbility::DisableVehicleHack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// China Hacker residual: disable enemy structure (DISABLED_HACKED).
+    /// SpecialAbilityHackerDisableBuilding.
+    fn execute_hacker_disable_building(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        use crate::game_logic::host_hacker_disable::{
+            can_activate_hacker_disable_building, is_legal_hacker_disable_target,
+            should_apply_hacker_disable,
+        };
+
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_hacked,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.status.under_construction,
+                target.is_hacked_disabled(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        // is_enemy checked per unit; here require non-neutral structure residual.
+        if !is_legal_hacker_disable_target(
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_team != Team::Neutral,
+            target_hacked,
+        ) {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    can_activate_hacker_disable_building(
+                        should_apply_hacker_disable(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::HackerDisableBuilding { target_id },
             );
         }
 
