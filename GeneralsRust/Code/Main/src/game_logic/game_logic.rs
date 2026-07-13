@@ -894,8 +894,7 @@ pub struct GameLogic {
 
     /// Host SCIENCE_StealthFighter production gate residual honesty.
     /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar science UI.
-    stealth_fighter_science:
-        crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
+    stealth_fighter_science: crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
 
     /// Host SCIENCE unit-training residual (VeterancyGainCreate StartingLevel).
     /// Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
@@ -5840,7 +5839,9 @@ impl GameLogic {
                                     use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
                                     self.objects
                                         .get(&attacker_id)
-                                        .map(|a| scud_toxin_warhead_for_slot(&a.template_name, slot))
+                                        .map(|a| {
+                                            scud_toxin_warhead_for_slot(&a.template_name, slot)
+                                        })
                                         .unwrap_or(slot == 1)
                                 };
                                 let (hits, _destroyed_any) = self.apply_scud_area_at(
@@ -5993,9 +5994,7 @@ impl GameLogic {
                                 self.objects
                                     .get(&attacker_id)
                                     .map(|a| {
-                                        should_apply_mig_residual(is_mig_template(
-                                            &a.template_name,
-                                        ))
+                                        should_apply_mig_residual(is_mig_template(&a.template_name))
                                     })
                                     .unwrap_or(false)
                             } {
@@ -8587,9 +8586,7 @@ impl GameLogic {
                                             let destroyed = self
                                                 .objects
                                                 .get_mut(&special_target_id)
-                                                .map(|target| {
-                                                    target.take_damage(target.max_health)
-                                                })
+                                                .map(|target| target.take_damage(target.max_health))
                                                 .unwrap_or(false);
                                             if destroyed {
                                                 self.mark_object_for_destruction(
@@ -9883,8 +9880,7 @@ impl GameLogic {
             if !is_demo_suicide_bomb_eligible_template(&obj.template_name) {
                 continue;
             }
-            if obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) || obj.has_upgrade_tag(upgrade_name)
-            {
+            if obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) || obj.has_upgrade_tag(upgrade_name) {
                 // Still ensure CommandSetUpgrade residual is applied if missing.
                 if obj.command_set_override.is_none() {
                     if let Some(cs) = demo_command_set_upgrade_for_template(&obj.template_name) {
@@ -9904,11 +9900,11 @@ impl GameLogic {
         }
         self.demo_suicide_bomb.record_upgrade_complete(affected);
         if command_sets > 0 {
-            self.demo_suicide_bomb.record_command_set_upgrade(command_sets);
+            self.demo_suicide_bomb
+                .record_command_set_upgrade(command_sets);
         }
         affected
     }
-
 
     /// Tag supply centers for Supply Lines residual observability.
     fn apply_supply_lines_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
@@ -11055,9 +11051,7 @@ impl GameLogic {
             // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
             // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
             if crate::game_logic::host_mig::is_mig_template(template_name) {
-                use crate::game_logic::host_mig::{
-                    is_nuke_mig_template, mig_loadout, mig_weapon,
-                };
+                use crate::game_logic::host_mig::{is_nuke_mig_template, mig_loadout, mig_weapon};
                 let loadout = mig_loadout(
                     is_nuke_mig_template(template_name),
                     &object.applied_upgrades,
@@ -11920,9 +11914,9 @@ impl GameLogic {
                 // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
                 {
                     use crate::game_logic::host_toxin_tractor::{
-                        anthrax_tier_from_flags, is_chem_general_template, is_toxin_tractor_template,
-                        UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
-                        UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                        anthrax_tier_from_flags, is_chem_general_template,
+                        is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_BETA,
+                        UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
                     };
                     if is_toxin_tractor_template(&obj.template_name) {
                         let has_gamma = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
@@ -12011,9 +12005,8 @@ impl GameLogic {
                         && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
                         && !is_terrorist_template(&obj.template_name)
                     {
-                        let _ = self.apply_demo_suicide_bomb_death_at(
-                            event.id, obj.team, death_pos,
-                        );
+                        let _ =
+                            self.apply_demo_suicide_bomb_death_at(event.id, obj.team, death_pos);
                     }
                 }
 
@@ -12029,12 +12022,12 @@ impl GameLogic {
                         meets_eject_pilot_exempt_status_gate, meets_eject_pilot_veterancy_gate,
                         uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
                     };
-                    let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
-                        || obj.object_type == ObjectType::Vehicle;
-                    let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
-                        || obj.object_type == ObjectType::Aircraft;
-                    let under_construction = obj.status.under_construction
-                        || obj.construction_percent + 0.001 < 1.0;
+                    let is_vehicle =
+                        obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
+                    let is_aircraft =
+                        obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
+                    let under_construction =
+                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
                     let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
                     let death_types_gate =
@@ -12087,8 +12080,7 @@ impl GameLogic {
                         exempt_status_gate,
                     ) {
                         let pilot_team = obj.team;
-                        let air_path =
-                            uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
+                        let air_path = uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
                         // Ensure pilot template exists for residual spawn.
                         if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
                             let mut pilot_tpl =
@@ -14897,12 +14889,10 @@ impl GameLogic {
             attacker.ai_state = AIState::Attacking;
             attacker.status.attacking = true;
             // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
-            let (aim_a, aim_p) = crate::game_logic::host_strategy_center::strategy_center_turret_aim_at(
-                fire_pos.x,
-                fire_pos.z,
-                impact.x,
-                impact.z,
-            );
+            let (aim_a, aim_p) =
+                crate::game_logic::host_strategy_center::strategy_center_turret_aim_at(
+                    fire_pos.x, fire_pos.z, impact.x, impact.z,
+                );
             attacker.turret_angle_deg = aim_a;
             attacker.turret_pitch_deg = aim_p;
             // Fire cancels idle-scan / Hold / idle-recenter residual;
@@ -15093,8 +15083,7 @@ impl GameLogic {
 
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // Fail-closed: not full ScatterRadiusVsInfantry / ScaleWeaponSpeed lob matrix.
-        let is_fire_base =
-            crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
+        let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if is_fire_base {
@@ -15241,10 +15230,10 @@ impl GameLogic {
     /// a clip of **4** assist-weapon shots (range **450**).
     fn process_patriot_assist_request(&mut self, requester_id: ObjectId, victim_id: ObjectId) {
         use crate::game_logic::host_base_defense::{
-            is_patriot_battery_structure, is_patriot_free_to_assist, is_within_patriot_assist_weapon_range,
-            is_within_patriot_request_assist_range, make_patriot_assist_lasers,
-            patriots_are_assist_equivalent, PendingPatriotAssist, PatriotAssistLaserKind,
-            PATRIOT_ASSIST_LASER_AUDIO,
+            is_patriot_battery_structure, is_patriot_free_to_assist,
+            is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
+            make_patriot_assist_lasers, patriots_are_assist_equivalent, PatriotAssistLaserKind,
+            PendingPatriotAssist, PATRIOT_ASSIST_LASER_AUDIO,
         };
 
         let Some(requester) = self.objects.get(&requester_id) else {
@@ -15404,8 +15393,8 @@ impl GameLogic {
     /// AssistingClipSize (**4**) is exhausted or victim dies / leaves range.
     pub fn update_pending_patriot_assists(&mut self) {
         use crate::game_logic::host_base_defense::{
-            is_within_patriot_assist_weapon_range, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
-            LAZR_PATRIOT_FIRE_AUDIO,
+            is_within_patriot_assist_weapon_range, LAZR_PATRIOT_FIRE_AUDIO,
+            PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
         };
 
         if self.pending_patriot_assists.is_empty() {
@@ -15431,8 +15420,9 @@ impl GameLogic {
             let assistant_team = assistant.team;
             let assistant_pos = assistant.get_position();
             let assistant_template = assistant.template_name.clone();
-            let is_laser =
-                crate::game_logic::host_base_defense::is_laser_patriot_template(&assistant_template);
+            let is_laser = crate::game_logic::host_base_defense::is_laser_patriot_template(
+                &assistant_template,
+            );
             let is_supw =
                 crate::game_logic::host_base_defense::is_supw_patriot_template(&assistant_template);
 
@@ -15559,14 +15549,11 @@ impl GameLogic {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                let is_aircraft =
-                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let is_aircraft = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let is_own_structure = is_structure && obj.team == source_team;
                 let is_faction_structure = is_structure
-                    && (obj.team == Team::USA
-                        || obj.team == Team::China
-                        || obj.team == Team::GLA);
+                    && (obj.team == Team::USA || obj.team == Team::China || obj.team == Team::GLA);
                 if !is_legal_supw_patriot_emp_target(
                     is_vehicle,
                     is_aircraft,
@@ -18997,7 +18984,6 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-
     /// Apply BlackNapalm residual to a China MiG (PLAYER_UPGRADE fire-field residual).
     pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
@@ -19018,9 +19004,8 @@ impl GameLogic {
             w.last_fire_time = prev.last_fire_time;
         }
         obj.weapon = Some(w);
-        self.mig_residual_black_napalm_upgrades = self
-            .mig_residual_black_napalm_upgrades
-            .saturating_add(1);
+        self.mig_residual_black_napalm_upgrades =
+            self.mig_residual_black_napalm_upgrades.saturating_add(1);
         true
     }
 
@@ -19043,9 +19028,8 @@ impl GameLogic {
             w.last_fire_time = prev.last_fire_time;
         }
         obj.weapon = Some(w);
-        self.mig_residual_tactical_nuke_upgrades = self
-            .mig_residual_tactical_nuke_upgrades
-            .saturating_add(1);
+        self.mig_residual_tactical_nuke_upgrades =
+            self.mig_residual_tactical_nuke_upgrades.saturating_add(1);
         true
     }
 
@@ -19145,12 +19129,11 @@ impl GameLogic {
             if mig_spawns_fire_field(loadout) {
                 let upgraded = mig_fire_field_upgraded(loadout);
                 let _ = self.spawn_inferno_fire_zone(sid, source_team, impact, upgraded);
-                self.mig_residual_fire_fields =
-                    self.mig_residual_fire_fields.saturating_add(1);
+                self.mig_residual_fire_fields = self.mig_residual_fire_fields.saturating_add(1);
             } else if mig_spawns_radiation(loadout) {
-                let _ = self
-                    .nuclear_tanks
-                    .spawn_radiation_zone(sid, source_team, impact, self.frame);
+                let _ =
+                    self.nuclear_tanks
+                        .spawn_radiation_zone(sid, source_team, impact, self.frame);
                 self.mig_residual_radiation_fields =
                     self.mig_residual_radiation_fields.saturating_add(1);
             }
@@ -19263,8 +19246,7 @@ impl GameLogic {
         }
 
         self.fire_base_residual_fires = self.fire_base_residual_fires.saturating_add(1);
-        self.fire_base_residual_units_hit =
-            self.fire_base_residual_units_hit.saturating_add(hits);
+        self.fire_base_residual_units_hit = self.fire_base_residual_units_hit.saturating_add(hits);
 
         self.queue_audio_event(
             AudioEventRequest::new(FIRE_BASE_FIRE_AUDIO)
@@ -23765,9 +23747,7 @@ impl GameLogic {
     }
 
     /// Host USA Strategy Center battle-plan residual registry (select + honesty).
-    pub fn battle_plans(
-        &self,
-    ) -> &crate::game_logic::host_strategy_center::HostBattlePlanRegistry {
+    pub fn battle_plans(&self) -> &crate::game_logic::host_strategy_center::HostBattlePlanRegistry {
         &self.battle_plans
     }
 
@@ -23858,14 +23838,17 @@ impl GameLogic {
     /// - When idle, acquire nearest legal enemy in StrategyCenterGun range band
     /// - Aim pitch/yaw at target (FirePitch **45**), flag `m_targetWasSetByIdleMood`
     /// - While held: re-aim each frame; clear when dead / OOR / illegal (team/air/UC)
+    /// - Mood matrix Sleep → IgnoreAll (no acquire); Passive → WaitForAttack
+    ///   (only last_damage_source residual); Normal/Alert/Aggressive → free
     /// - Fire residual ownership: bombardment fire clears mood flag if it engages
     ///   a different target (see `try_strategy_center_bombardment_turret_fire`)
     fn tick_strategy_center_turret_mood_target(&mut self) {
         use crate::game_logic::host_strategy_center::{
             is_strategy_center_template, strategy_center_gun_in_range,
-            strategy_center_mood_target_eligible, strategy_center_mood_target_enemy_legal,
-            strategy_center_mood_target_should_clear, strategy_center_turret_aim_at,
-            HostBattlePlan, HostBattlePlanTransition,
+            strategy_center_mood_target_eligible_with_attitude,
+            strategy_center_mood_target_enemy_legal, strategy_center_mood_target_should_clear,
+            strategy_center_turret_aim_at, HostAiAttitude, HostBattlePlan,
+            HostBattlePlanTransition,
         };
 
         // Bombardment ACTIVE centers.
@@ -23896,6 +23879,8 @@ impl GameLogic {
             let team = obj.team;
             let fire_pos = obj.get_position();
             let has_mood = obj.turret_mood_target;
+            let attitude = HostAiAttitude::from_i8(obj.ai_attitude);
+            let last_dmg = obj.last_damage_source;
             // "Busy" for acquire: only non-mood attacking (pack recenter / explicit
             // non-mood attack). Mood-set Attacking is the hold state, not busy.
             let busy_non_mood = !has_mood
@@ -23916,8 +23901,7 @@ impl GameLogic {
                         let dx = tp.x - fire_pos.x;
                         let dz = tp.z - fire_pos.z;
                         let dist = (dx * dx + dz * dz).sqrt();
-                        let is_air =
-                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
+                        let is_air = t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
                         let legal = strategy_center_mood_target_enemy_legal(
                             t.is_alive(),
                             t.team == team,
@@ -23927,11 +23911,9 @@ impl GameLogic {
                             dist,
                         );
                         let in_range = strategy_center_gun_in_range(dist);
-                        clear = strategy_center_mood_target_should_clear(
-                            true,
-                            t.is_alive(),
-                            in_range,
-                        ) || !legal;
+                        clear =
+                            strategy_center_mood_target_should_clear(true, t.is_alive(), in_range)
+                                || !legal;
                         if !clear {
                             aim_xz = Some((tp.x, tp.z));
                         }
@@ -23963,38 +23945,72 @@ impl GameLogic {
                 continue; // no re-acquire this frame while mood flag set
             }
 
-            if !strategy_center_mood_target_eligible(true, true, busy_non_mood, has_mood) {
+            // Passive WaitForAttack: only retaliate vs last_damage_source residual.
+            let passive_last = last_dmg.is_some();
+            if !strategy_center_mood_target_eligible_with_attitude(
+                true,
+                true,
+                busy_non_mood,
+                has_mood,
+                attitude,
+                passive_last,
+            ) {
                 continue;
             }
 
-            // Find nearest legal residual mood target.
+            // Find residual mood target: Passive uses last damage source only
+            // (C++ getNextMoodTarget Passive branch); else nearest legal enemy.
             let mut best: Option<(ObjectId, f32, f32, f32)> = None; // id, dist, x, z
-            for (oid, other) in self.objects.iter() {
-                if *oid == cid {
-                    continue;
+            if attitude.idle_mood_wait_for_attack() {
+                if let Some(tid) = last_dmg {
+                    if tid != cid {
+                        if let Some(other) = self.objects.get(&tid) {
+                            let op = other.get_position();
+                            let dx = op.x - fire_pos.x;
+                            let dz = op.z - fire_pos.z;
+                            let dist = (dx * dx + dz * dz).sqrt();
+                            let is_air =
+                                other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
+                            if strategy_center_mood_target_enemy_legal(
+                                other.is_alive(),
+                                other.team == team,
+                                other.team == Team::Neutral,
+                                other.status.under_construction,
+                                is_air,
+                                dist,
+                            ) {
+                                best = Some((tid, dist, op.x, op.z));
+                            }
+                        }
+                    }
                 }
-                let op = other.get_position();
-                let dx = op.x - fire_pos.x;
-                let dz = op.z - fire_pos.z;
-                let dist = (dx * dx + dz * dz).sqrt();
-                let is_air = other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
-                if !strategy_center_mood_target_enemy_legal(
-                    other.is_alive(),
-                    other.team == team,
-                    other.team == Team::Neutral,
-                    other.status.under_construction,
-                    is_air,
-                    dist,
-                ) {
-                    continue;
-                }
-                if best.map(|(_, bd, _, _)| dist < bd).unwrap_or(true) {
-                    best = Some((*oid, dist, op.x, op.z));
+            } else {
+                for (oid, other) in self.objects.iter() {
+                    if *oid == cid {
+                        continue;
+                    }
+                    let op = other.get_position();
+                    let dx = op.x - fire_pos.x;
+                    let dz = op.z - fire_pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    let is_air = other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
+                    if !strategy_center_mood_target_enemy_legal(
+                        other.is_alive(),
+                        other.team == team,
+                        other.team == Team::Neutral,
+                        other.status.under_construction,
+                        is_air,
+                        dist,
+                    ) {
+                        continue;
+                    }
+                    if best.map(|(_, bd, _, _)| dist < bd).unwrap_or(true) {
+                        best = Some((*oid, dist, op.x, op.z));
+                    }
                 }
             }
             if let Some((tid, _, tx, tz)) = best {
-                let (aim_a, aim_p) =
-                    strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
                 if let Some(o) = self.objects.get_mut(&cid) {
                     o.target = Some(tid);
                     o.turret_mood_target = true;
@@ -24034,9 +24050,9 @@ impl GameLogic {
     fn tick_strategy_center_turret_idle_scan(&mut self) {
         use crate::game_logic::host_strategy_center::{
             hold_turret_elapsed, hold_turret_until_frame, idle_scan_desired_angle_deg,
-            idle_scan_interval_frames, step_turret_toward_angles, step_turret_toward_natural,
-            turret_angles_are_natural, turret_angles_at, HostBattlePlan, HostBattlePlanTransition,
-            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, is_strategy_center_template,
+            idle_scan_interval_frames, is_strategy_center_template, step_turret_toward_angles,
+            step_turret_toward_natural, turret_angles_are_natural, turret_angles_at,
+            HostBattlePlan, HostBattlePlanTransition, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
         };
 
         let frame = self.frame;
@@ -24235,10 +24251,8 @@ impl GameLogic {
         let Some(pilot) = self.objects.get(&pilot_id) else {
             return false;
         };
-        if !should_apply_parachute_free_fall_damage(
-            pilot.is_parachuting(),
-            pilot.get_position().y,
-        ) {
+        if !should_apply_parachute_free_fall_damage(pilot.is_parachuting(), pilot.get_position().y)
+        {
             return false;
         }
         let max_hp = pilot.health.maximum.max(pilot.max_health);
@@ -24337,12 +24351,7 @@ impl GameLogic {
                     player_id,
                 } => {
                     // C++ setStatus(PACKING) → setBattlePlan(NONE) + paralyzeTroop.
-                    self.apply_battle_plan_set_battle_plan(
-                        player_id,
-                        None,
-                        Some(center_id),
-                        true,
-                    );
+                    self.apply_battle_plan_set_battle_plan(player_id, None, Some(center_id), true);
                     self.battle_plans.record_pack_clear();
                 }
                 HostBattlePlanDoorEvent::BeganRecenter { .. } => {
@@ -24474,8 +24483,8 @@ impl GameLogic {
                         let can_attack = obj.can_attack()
                             || obj.weapon.is_some()
                             || obj.secondary_weapon.is_some();
-                        let under_construction = obj.status.under_construction
-                            || obj.construction_percent + 0.001 < 1.0;
+                        let under_construction =
+                            obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                         let same_team = obj.team == team;
                         if !is_legal_battle_plan_member(
                             is_infantry,
@@ -24524,10 +24533,10 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                let is_structure = obj.is_kind_of(KindOf::Structure)
-                    || obj.object_type == ObjectType::Building;
-                let is_infantry = obj.is_kind_of(KindOf::Infantry)
-                    || obj.object_type == ObjectType::Infantry;
+                let is_structure =
+                    obj.is_kind_of(KindOf::Structure) || obj.object_type == ObjectType::Building;
+                let is_infantry =
+                    obj.is_kind_of(KindOf::Infantry) || obj.object_type == ObjectType::Infantry;
                 let is_vehicle =
                     obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
                 let is_aircraft =
@@ -24606,7 +24615,8 @@ impl GameLogic {
                         HostBattlePlan::Bombardment => {
                             // C++ enableTurret(true) after unpack ACTIVE.
                             center.weapon = Some(
-                                crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
+                                crate::game_logic::host_strategy_center::strategy_center_gun_weapon(
+                                ),
                             );
                             center.secondary_weapon = None;
                             // TurretAI idle-scan residual: schedule first idle scan
@@ -24617,7 +24627,9 @@ impl GameLogic {
                             center.turret_hold_until_frame = 0;
                             center.turret_idle_recentering = false;
                             center.turret_idle_scan_next_frame = frame.saturating_add(
-                                crate::game_logic::host_strategy_center::idle_scan_interval_frames(0),
+                                crate::game_logic::host_strategy_center::idle_scan_interval_frames(
+                                    0,
+                                ),
                             );
                             building_bonus = true;
                         }
@@ -24832,7 +24844,9 @@ impl GameLogic {
                         c.turret_angle_deg,
                         c.turret_pitch_deg,
                     );
-                    let busy = is_attacking || has_target || last_fire_age.is_some_and(|a| a < BATTLE_PLAN_TURRET_RECENTER_FRAMES);
+                    let busy = is_attacking
+                        || has_target
+                        || last_fire_age.is_some_and(|a| a < BATTLE_PLAN_TURRET_RECENTER_FRAMES);
                     let frames = strategy_center_turret_recenter_frames(
                         busy,
                         c.turret_angle_deg,
@@ -26142,10 +26156,10 @@ impl GameLogic {
             is_pilot_find_vehicle_collide_target, is_pilot_template,
             is_recrewable_unmanned_vehicle, pilot_collide_would_like_to_collide_with,
             pilot_find_vehicle_same_player_ok, pilot_find_vehicle_scan_eligible,
-            pilot_find_vehicle_scan_frame, pilot_levels_to_gain,
-            should_pilot_base_center_fallback, uses_air_eject_ocl,
-            vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
-            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
+            pilot_find_vehicle_scan_frame, pilot_levels_to_gain, should_pilot_base_center_fallback,
+            uses_air_eject_ocl, vehicle_can_gain_exp_for_levels,
+            vehicle_meets_pilot_find_min_health, PILOT_FIND_VEHICLE_MIN_HEALTH,
+            PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
 
         if !pilot_find_vehicle_scan_frame(self.frame) {
@@ -26193,10 +26207,10 @@ impl GameLogic {
             let is_air = vehicle.is_kind_of(KindOf::Aircraft)
                 || vehicle.object_type == ObjectType::Aircraft
                 || vehicle.status.airborne_target;
-            let under_construction = vehicle.status.under_construction
-                || vehicle.construction_percent + 0.001 < 1.0;
-            let is_dozer = vehicle.is_worker()
-                || vehicle.template_name.to_ascii_lowercase().contains("dozer");
+            let under_construction =
+                vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
+            let is_dozer =
+                vehicle.is_worker() || vehicle.template_name.to_ascii_lowercase().contains("dozer");
             let recrewable = is_recrewable_unmanned_vehicle(
                 true,
                 is_vehicle,
@@ -26231,7 +26245,8 @@ impl GameLogic {
             // Host residual: ground vehicles are trainable by default (not full
             // IsTrainable module matrix).
             let is_trainable = is_vehicle && !is_air;
-            let can_gain = vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
+            let can_gain =
+                vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
             let collide_ok = pilot_collide_would_like_to_collide_with(
                 true,
                 is_vehicle,
@@ -26253,7 +26268,9 @@ impl GameLogic {
                 continue;
             }
             if !same_player_ok
-                || !is_pilot_find_vehicle_collide_target(recrewable, health_ok, in_range, collide_ok)
+                || !is_pilot_find_vehicle_collide_target(
+                    recrewable, health_ok, in_range, collide_ok,
+                )
             {
                 continue;
             }
@@ -26474,8 +26491,8 @@ impl GameLogic {
             if pad.team != unit_team && pad.team != Team::Neutral {
                 continue;
             }
-            let under_construction = pad.status.under_construction
-                || pad.construction_percent + 0.001 < 1.0;
+            let under_construction =
+                pad.status.under_construction || pad.construction_percent + 0.001 < 1.0;
             if under_construction {
                 continue;
             }
@@ -26559,7 +26576,8 @@ impl GameLogic {
     ) -> (bool, bool) {
         use crate::game_logic::host_base_defense::{
             is_stinger_site_structure, next_stinger_slave_respawn_frame,
-            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors, STINGER_SOLDIER_DIE_AUDIO,
+            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,
+            STINGER_SOLDIER_DIE_AUDIO,
         };
 
         // Snapshot flags before mutating so we can update honesty counters after
@@ -26606,7 +26624,8 @@ impl GameLogic {
                         align_hive_roster_to_count(&mut obj.hive_slaves, obj.hive_slave_count);
                         // If mirror said one active partial HP and we just revived
                         // first slot from empty, apply mirror HP to first alive.
-                        if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0 {
+                        if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0
+                        {
                             if let Some(slot) = obj.hive_slaves.iter_mut().find(|s| s.alive) {
                                 slot.hp = obj.hive_slave_hp;
                             }
@@ -26651,8 +26670,9 @@ impl GameLogic {
             };
 
             if camo_reveal || was_stealthed_on_damage {
-                self.camo_netting_structure_residual_reveals =
-                    self.camo_netting_structure_residual_reveals.saturating_add(1);
+                self.camo_netting_structure_residual_reveals = self
+                    .camo_netting_structure_residual_reveals
+                    .saturating_add(1);
             }
             if result_slave_dmg > 0.0 {
                 self.stinger_hive_residual_slave_hits =
@@ -26691,8 +26711,9 @@ impl GameLogic {
             (destroyed, revealed)
         };
         if camo_reveal {
-            self.camo_netting_structure_residual_reveals =
-                self.camo_netting_structure_residual_reveals.saturating_add(1);
+            self.camo_netting_structure_residual_reveals = self
+                .camo_netting_structure_residual_reveals
+                .saturating_add(1);
         }
         (destroyed, false)
     }
@@ -26734,8 +26755,7 @@ impl GameLogic {
                 if obj.hive_slave_count < STINGER_SPAWN_NUMBER as u8
                     && obj.hive_slave_respawn_frame == 0
                 {
-                    obj.hive_slave_respawn_frame =
-                        next_stinger_slave_respawn_frame(frame, 0);
+                    obj.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
                 }
                 continue;
             }
@@ -28923,8 +28943,8 @@ impl GameLogic {
                         AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                     );
                 // C++ OBJECT_STATUS_IS_USING_ABILITY residual.
-                let using_ability = obj.status.using_ability
-                    || matches!(obj.ai_state, AIState::SpecialAbility);
+                let using_ability =
+                    obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
                 let Some(desired) = camo_netting_structure_stealth_desired(
                     obj.innate_stealth,
                     obj.is_alive(),
@@ -28966,8 +28986,7 @@ impl GameLogic {
                     {
                         opacity_cloaks = opacity_cloaks.saturating_add(1);
                     }
-                    let (op, next_phase) =
-                        camo_netting_pulse_opacity(obj.camo_opacity_pulse_phase);
+                    let (op, next_phase) = camo_netting_pulse_opacity(obj.camo_opacity_pulse_phase);
                     obj.camo_friendly_opacity = op;
                     obj.camo_opacity_pulse_phase = next_phase;
                 } else {
@@ -29017,7 +29036,10 @@ impl GameLogic {
                         o.is_alive()
                             && o.team != v_team
                             && o.team != Team::Neutral
-                            && !matches!(o.object_type, ObjectType::Building | ObjectType::Projectile)
+                            && !matches!(
+                                o.object_type,
+                                ObjectType::Building | ObjectType::Projectile
+                            )
                             && !o.is_kind_of(KindOf::Structure)
                             && !o.is_kind_of(KindOf::Worker)
                             && !o.is_worker()
@@ -29101,8 +29123,11 @@ impl GameLogic {
             if range <= 0.0 {
                 continue;
             }
-            if !stealth_detector_scan_due(o.detection_rate_frames, o.next_detection_scan_frame, frame)
-            {
+            if !stealth_detector_scan_due(
+                o.detection_rate_frames,
+                o.next_detection_scan_frame,
+                frame,
+            ) {
                 continue;
             }
             let flags = DetFlags {
@@ -29123,7 +29148,14 @@ impl GameLogic {
                     &o.template_name,
                 ) || o.is_troop_crawler_style_container(),
             };
-            detectors.push((*id, o.team, o.get_position(), range, flags, o.detection_rate_frames));
+            detectors.push((
+                *id,
+                o.team,
+                o.get_position(),
+                range,
+                flags,
+                o.detection_rate_frames,
+            ));
             scanned_detector_ids.push(*id);
         }
 
@@ -29168,34 +29200,35 @@ impl GameLogic {
             let mut detected_by_troop_crawler = false;
             // C++ markAsDetected(updateRate + 1); take max hold among detecting scanners.
             let mut best_expires: u32 = 0;
-            let detected_by_someone = detectors.iter().any(
-                |(_id, det_team, det_pos, range, flags, rate)| {
-                    let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
-                    if in_range {
-                        let hold = stealth_detector_hold_frames(*rate);
-                        let exp = frame.saturating_add(hold);
-                        if exp > best_expires {
-                            best_expires = exp;
+            let detected_by_someone =
+                detectors
+                    .iter()
+                    .any(|(_id, det_team, det_pos, range, flags, rate)| {
+                        let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
+                        if in_range {
+                            let hold = stealth_detector_hold_frames(*rate);
+                            let exp = frame.saturating_add(hold);
+                            if exp > best_expires {
+                                best_expires = exp;
+                            }
+                            if flags.is_sentry {
+                                detected_by_sentry = true;
+                            }
+                            if flags.is_pathfinder {
+                                detected_by_pathfinder = true;
+                            }
+                            if flags.is_scout {
+                                detected_by_scout = true;
+                            }
+                            if flags.is_listening_outpost {
+                                detected_by_listening_outpost = true;
+                            }
+                            if flags.is_troop_crawler {
+                                detected_by_troop_crawler = true;
+                            }
                         }
-                        if flags.is_sentry {
-                            detected_by_sentry = true;
-                        }
-                        if flags.is_pathfinder {
-                            detected_by_pathfinder = true;
-                        }
-                        if flags.is_scout {
-                            detected_by_scout = true;
-                        }
-                        if flags.is_listening_outpost {
-                            detected_by_listening_outpost = true;
-                        }
-                        if flags.is_troop_crawler {
-                            detected_by_troop_crawler = true;
-                        }
-                    }
-                    in_range
-                },
-            );
+                        in_range
+                    });
 
             if detected_by_someone {
                 if let Some(obj) = self.objects.get_mut(&sid) {
@@ -29265,9 +29298,7 @@ impl GameLogic {
         producer: Option<ObjectId>,
         has_gamma: bool,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_mines::{
-            demo_trap_profile, HostMineData, HostMineKind,
-        };
+        use crate::game_logic::host_mines::{demo_trap_profile, HostMineData, HostMineKind};
 
         let profile = demo_trap_profile(template_name, has_gamma, false);
         self.ensure_residual_mine_template(template_name, HostMineKind::DemoTrap);
@@ -29792,10 +29823,7 @@ impl GameLogic {
         let damage = data.detonation_damage;
         let radius = data.detonation_radius;
         let demo_profile = data.demo_trap_profile;
-        let is_demo_trap = matches!(
-            kind,
-            crate::game_logic::host_mines::HostMineKind::DemoTrap
-        );
+        let is_demo_trap = matches!(kind, crate::game_logic::host_mines::HostMineKind::DemoTrap);
         let mine_team = mine.team;
         let mine_pos = mine.get_position();
         let producer = data.producer_id;
@@ -37718,11 +37746,7 @@ mod tests {
         ensure_test_player_for_team(&mut game_logic, Team::USA);
 
         let saboteur_id = game_logic
-            .create_object(
-                "GLAInfantrySaboteur",
-                Team::GLA,
-                Vec3::new(150.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantrySaboteur", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
             .expect("saboteur should be created");
         let target_id = game_logic
             .create_object("AmericaPowerPlant", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -37789,11 +37813,7 @@ mod tests {
         ensure_test_tank_template(&mut game_logic);
 
         let saboteur_id = game_logic
-            .create_object(
-                "GLAInfantrySaboteur",
-                Team::GLA,
-                Vec3::new(10.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantrySaboteur", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
             .expect("saboteur should be created");
         let target_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -37824,11 +37844,7 @@ mod tests {
         ensure_test_war_factory_template(&mut game_logic);
 
         let saboteur_id = game_logic
-            .create_object(
-                "GLAInfantrySaboteur",
-                Team::GLA,
-                Vec3::new(2.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantrySaboteur", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
             .expect("saboteur");
         let target_id = game_logic
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -40308,11 +40324,7 @@ mod tests {
         ensure_test_player_for_team(&mut game_logic, Team::USA);
 
         let center_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         {
             let center = game_logic.find_object_mut(center_id).expect("center");
@@ -40416,9 +40428,7 @@ mod tests {
             ally.weapon_bonus_battle_plan_bombardment,
             "ally tank must receive Bombardment residual after ACTIVE"
         );
-        assert!(
-            (ally.battle_plan_damage_multiplier() - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001
-        );
+        assert!((ally.battle_plan_damage_multiplier() - BOMBARDMENT_DAMAGE_MULT).abs() < 0.001);
         let infantry = game_logic.find_object(infantry_id).expect("infantry");
         assert!(
             infantry.weapon_bonus_battle_plan_bombardment,
@@ -40485,10 +40495,7 @@ mod tests {
             center.special_power_ready = true;
             center.special_power_cooldown_remaining = 0.0;
         }
-        let center_max_before = game_logic
-            .find_object(center_id)
-            .unwrap()
-            .max_health;
+        let center_max_before = game_logic.find_object(center_id).unwrap().max_health;
         assert!(
             game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(center_id)),
             "HoldTheLine residual must activate"
@@ -40645,11 +40652,7 @@ mod tests {
         ensure_test_player_for_team(&mut game_logic, Team::USA);
 
         let center_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         let ally_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -40675,11 +40678,7 @@ mod tests {
         }
 
         // First select: unpack → ACTIVE applies buffs; no BattlePlanChangeParalyze.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(center_id)
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(center_id)));
         advance_battle_plan_door_to_active(&mut game_logic);
         assert!(!game_logic.honesty_battle_plan_paralyze_ok());
         assert_eq!(game_logic.battle_plans().paralyze_count(), 0);
@@ -40692,11 +40691,7 @@ mod tests {
         );
 
         // Plan switch: PACKING → setBattlePlan(NONE) paralyzes legal members.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::HoldTheLine,
-            Some(center_id)
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(center_id)));
         assert!(
             game_logic.honesty_battle_plan_paralyze_ok(),
             "plan change PACKING residual must record BattlePlanChangeParalyze honesty"
@@ -40862,9 +40857,7 @@ mod tests {
             .objects
             .values()
             .filter(|o| {
-                o.is_alive()
-                    && o.template_name == EJECT_PILOT_TEMPLATE
-                    && o.team == Team::USA
+                o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE && o.team == Team::USA
             })
             .collect();
         assert_eq!(pilots.len(), 1, "exactly one pilot must eject");
@@ -41200,11 +41193,7 @@ mod tests {
             .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
 
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -41443,11 +41432,7 @@ mod tests {
             .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
 
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -41533,22 +41518,17 @@ mod tests {
         human_logic
             .players
             .insert(0, Player::new(0, Team::USA, "USA Human", true));
-        human_logic.templates.insert(
-            "AmericaInfantryPilot".to_string(),
-            {
+        human_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), {
                 let mut t = ThingTemplate::new("AmericaInfantryPilot");
                 t.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(100.0);
                 t
-            },
-        );
+            });
         let hp = human_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("human pilot");
         {
             let p = human_logic.find_object_mut(hp).expect("hp");
@@ -41621,11 +41601,7 @@ mod tests {
             .create_object("AmericaCommandCenter", Team::USA, cc_pos)
             .expect("command center");
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -41643,7 +41619,9 @@ mod tests {
         );
         assert_eq!(game_logic.usa_pilot_residual().base_center_moves, 1);
         {
-            let p = game_logic.find_object(pilot_id).expect("pilot after fallback");
+            let p = game_logic
+                .find_object(pilot_id)
+                .expect("pilot after fallback");
             assert!(
                 p.status.pilot_did_move_to_base,
                 "m_didMoveToBase residual must latch after fallback"
@@ -41683,27 +41661,25 @@ mod tests {
         human_logic
             .players
             .insert(0, Player::new(0, Team::USA, "USA Human", true));
-        human_logic.templates.insert(
-            "AmericaInfantryPilot".to_string(),
-            {
+        human_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), {
                 let mut t = ThingTemplate::new("AmericaInfantryPilot");
                 t.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(100.0);
                 t
-            },
-        );
-        human_logic.templates.insert(
-            "AmericaCommandCenter".to_string(),
-            {
+            });
+        human_logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), {
                 let mut t = ThingTemplate::new("AmericaCommandCenter");
                 t.add_kind_of(KindOf::Structure)
                     .add_kind_of(KindOf::CommandCenter)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(4000.0);
                 t
-            },
-        );
+            });
         let hcc = human_logic
             .create_object(
                 "AmericaCommandCenter",
@@ -41712,11 +41688,7 @@ mod tests {
             )
             .expect("hcc");
         let hp = human_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("hp");
         {
             let p = human_logic.find_object_mut(hp).expect("hp");
@@ -41762,11 +41734,7 @@ mod tests {
             .create_object("TestHealPad", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("heal pad");
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -41819,25 +41787,20 @@ mod tests {
         healthy_logic
             .players
             .insert(0, Player::new(0, Team::USA, "USA AI", false));
-        healthy_logic.templates.insert(
-            "AmericaInfantryPilot".to_string(),
-            {
+        healthy_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), {
                 let mut t = ThingTemplate::new("AmericaInfantryPilot");
                 t.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(100.0);
                 t
-            },
-        );
+            });
         let hpad = healthy_logic
             .create_object("TestHealPad", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("pad");
         let hpilot = healthy_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("healthy pilot");
         {
             let p = healthy_logic.find_object_mut(hpilot).expect("hp");
@@ -41864,25 +41827,20 @@ mod tests {
         human_logic
             .players
             .insert(0, Player::new(0, Team::USA, "USA Human", true));
-        human_logic.templates.insert(
-            "AmericaInfantryPilot".to_string(),
-            {
+        human_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), {
                 let mut t = ThingTemplate::new("AmericaInfantryPilot");
                 t.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(100.0);
                 t
-            },
-        );
+            });
         let hpad2 = human_logic
             .create_object("TestHealPad", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("pad");
         let hp2 = human_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("human pilot");
         {
             let p = human_logic.find_object_mut(hp2).expect("hp");
@@ -41934,11 +41892,7 @@ mod tests {
             .create_object("TestHealPad", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("heal pad");
         let ranger_id = game_logic
-            .create_object(
-                "AmericaInfantryRanger",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
         {
             let r = game_logic.find_object_mut(ranger_id).expect("ranger");
@@ -41961,7 +41915,9 @@ mod tests {
         assert_eq!(game_logic.usa_pilot_residual().infantry_auto_heal_orders, 1);
         assert_eq!(game_logic.usa_pilot_residual().auto_heal_orders, 1);
         {
-            let r = game_logic.find_object(ranger_id).expect("ranger after scan");
+            let r = game_logic
+                .find_object(ranger_id)
+                .expect("ranger after scan");
             assert_eq!(
                 r.ai_state,
                 AIState::SeekingHealing,
@@ -41990,16 +41946,15 @@ mod tests {
         china_logic
             .players
             .insert(0, Player::new(0, Team::China, "China AI", false));
-        china_logic.templates.insert(
-            "ChinaInfantryRedguard".to_string(),
-            {
+        china_logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), {
                 let mut t = ThingTemplate::new("ChinaInfantryRedguard");
                 t.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(100.0);
                 t
-            },
-        );
+            });
         let cpad = china_logic
             .create_object("TestHealPad", Team::China, Vec3::new(5.0, 0.0, 0.0))
             .expect("pad");
@@ -42146,17 +42101,16 @@ mod tests {
 
         // Ground path control: y=0 death does not air-eject.
         let mut ground_logic = GameLogic::new();
-        ground_logic.templates.insert(
-            "AmericaVehicleHumvee".to_string(),
-            {
+        ground_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), {
                 let mut t = ThingTemplate::new("AmericaVehicleHumvee");
                 t.add_kind_of(KindOf::Vehicle)
                     .add_kind_of(KindOf::Selectable)
                     .add_kind_of(KindOf::Attackable)
                     .set_health(200.0);
                 t
-            },
-        );
+            });
         let g_id = ground_logic
             .create_object(
                 "AmericaVehicleHumvee",
@@ -42218,11 +42172,7 @@ mod tests {
             .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
 
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -42264,9 +42214,7 @@ mod tests {
             game_logic.honesty_pilot_find_vehicle_player_ok(),
             "PartitionFilterPlayer residual must reject foreign-owner unmanned"
         );
-        assert!(
-            game_logic.usa_pilot_residual().find_vehicle_player_rejects >= 1
-        );
+        assert!(game_logic.usa_pilot_residual().find_vehicle_player_rejects >= 1);
         assert!(
             game_logic.honesty_pilot_find_vehicle_ok(),
             "PilotFindVehicle residual must still Enter matching-owner vehicle"
@@ -42331,11 +42279,7 @@ mod tests {
         let low_y = PARACHUTE_OPEN_DIST * 1.5; // 150 < 200
         assert!(low_y < 2.0 * PARACHUTE_OPEN_DIST);
         let pilot_id = game_logic
-            .create_object(
-                EJECT_PILOT_TEMPLATE,
-                Team::USA,
-                Vec3::new(0.0, low_y, 0.0),
-            )
+            .create_object(EJECT_PILOT_TEMPLATE, Team::USA, Vec3::new(0.0, low_y, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot");
@@ -42416,8 +42360,9 @@ mod tests {
     fn strategy_center_turret_idle_scan_residual() {
         use crate::game_logic::host_strategy_center::{
             idle_scan_desired_angle_deg, turret_angles_are_natural, HostBattlePlan,
-            STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
-            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
+            STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+            STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
         };
 
         let mut game_logic = GameLogic::new();
@@ -42437,21 +42382,13 @@ mod tests {
         }
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
 
         assert!(!game_logic.honesty_strategy_center_turret_idle_scan_ok());
 
         // Activate Bombardment → ACTIVE equips gun + schedules first idle scan.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         advance_battle_plan_door_to_active(&mut game_logic);
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
@@ -42608,18 +42545,10 @@ mod tests {
         }
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
 
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         advance_battle_plan_door_to_active(&mut game_logic);
 
         // Force idle-scan complete at desired angle → enter Hold immediately.
@@ -42741,7 +42670,7 @@ mod tests {
     /// C++ friend_checkForIdleMoodTarget: Bombardment ACTIVE idle gun acquires
     /// enemy in StrategyCenterGun range band, aims FirePitch, flags mood target.
     /// Mood target leaving range clears so idle-scan can resume.
-    /// Fail-closed: not full mood matrix Sleep/Passive / bone pitch drawable.
+    /// Fail-closed: not full Partition filter / AI vision mood range matrix.
     #[test]
     fn strategy_center_turret_mood_target_residual() {
         use crate::game_logic::host_strategy_center::{
@@ -42767,17 +42696,9 @@ mod tests {
         }
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         advance_battle_plan_door_to_active(&mut game_logic);
 
         // Idle natural gun + enemy in gun range band (min 100).
@@ -42851,6 +42772,132 @@ mod tests {
         );
     }
 
+    /// Residual: TurretAI mood matrix Sleep/Passive + bone pitch drawable.
+    ///
+    /// C++ AttitudeType / getMoodMatrixActionAdjustment(MM_Action_Idle):
+    /// - Sleep → IgnoreAll (no idle mood-target acquire)
+    /// - Passive → WaitForAttack (only last_damage_source residual retaliate)
+    /// - Normal → free acquire (covered by mood_target_residual)
+    /// Bone pitch drawable residual exposes TurretAI pitch/yaw for presentation.
+    /// VisionObjectName createVisionObject disabled in retail — honesty only.
+    #[test]
+    fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
+        use crate::game_logic::host_strategy_center::{
+            strategy_center_turret_bone_drawable,
+            strategy_center_vision_object_spawn_enabled_in_retail, HostAiAttitude, HostBattlePlan,
+            STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_GUN_MIN_RANGE,
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        if !game_logic.players.contains_key(&0) {
+            game_logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        }
+
+        let sc_id = game_logic
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("strategy center");
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
+        advance_battle_plan_door_to_active(&mut game_logic);
+
+        let enemy_id = game_logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                Vec3::new(STRATEGY_CENTER_GUN_MIN_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+
+        // --- Sleep: IgnoreAll → no mood-target acquire ---
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+            sc.turret_mood_target = false;
+            sc.set_ai_attitude(HostAiAttitude::Sleep);
+            sc.last_damage_source = None;
+            sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+            sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+            sc.turret_idle_scanning = false;
+            sc.turret_holding = false;
+            sc.turret_idle_recentering = false;
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !sc.turret_mood_target,
+                "Sleep mood residual must not auto-acquire"
+            );
+            assert!(sc.target.is_none());
+        }
+
+        // --- Passive without last damage: WaitForAttack blocks free acquire ---
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.set_ai_attitude(HostAiAttitude::Passive);
+            sc.last_damage_source = None;
+            sc.turret_mood_target = false;
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !sc.turret_mood_target,
+                "Passive without last damage must not free-acquire"
+            );
+        }
+
+        // --- Passive with last damage source = enemy → retaliate residual ---
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.set_ai_attitude(HostAiAttitude::Passive);
+            sc.last_damage_source = Some(enemy_id);
+            sc.turret_mood_target = false;
+            sc.target = None;
+            sc.ai_state = AIState::Idle;
+            sc.status.attacking = false;
+        }
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                sc.turret_mood_target,
+                "Passive WaitForAttack residual must retaliate vs last damage source"
+            );
+            assert_eq!(sc.target, Some(enemy_id));
+            assert!(
+                (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+                "passive retaliate aims FirePitch, got {}",
+                sc.turret_pitch_deg
+            );
+            // Bone pitch drawable residual from TurretAI angles.
+            let bone =
+                strategy_center_turret_bone_drawable(sc.turret_angle_deg, sc.turret_pitch_deg);
+            assert!((bone.pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01);
+            assert!(!bone.is_natural || bone.yaw_deg.abs() < 5.0);
+        }
+
+        // VisionObjectName createVisionObject disabled in retail C++.
+        assert!(!strategy_center_vision_object_spawn_enabled_in_retail());
+    }
+
     /// Residual: AmericaParachute OpenDist freefall → open residual path.
     ///
     /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
@@ -42901,7 +42948,10 @@ mod tests {
             .expect("ejected pilot");
         let start_y = game_logic.find_object(pilot_id).unwrap().get_position().y;
         assert!(
-            !game_logic.find_object(pilot_id).unwrap().is_parachute_open(),
+            !game_logic
+                .find_object(pilot_id)
+                .unwrap()
+                .is_parachute_open(),
             "starts freefall closed"
         );
 
@@ -43047,8 +43097,8 @@ mod tests {
             "sway honesty residual must tick while chute open"
         );
         // Seed residual honesty: open sets deterministic mid rates.
-        let open_seed_ok = parachute_initial_pitch_rate().abs() > 0.0
-            && parachute_initial_roll_rate().abs() > 0.0;
+        let open_seed_ok =
+            parachute_initial_pitch_rate().abs() > 0.0 && parachute_initial_roll_rate().abs() > 0.0;
         assert!(open_seed_ok, "deterministic mid pitch/roll rate seed");
 
         // Land residual clears sway angles.
@@ -43060,10 +43110,7 @@ mod tests {
         }
         assert!(game_logic.honesty_pilot_parachute_land_ok());
         let landed = game_logic.find_object(pilot_id).expect("pilot");
-        assert!(
-            !landed.is_parachuting(),
-            "land residual clears parachuting"
-        );
+        assert!(!landed.is_parachuting(), "land residual clears parachuting");
         assert!(
             landed.parachute_pitch().abs() < 1e-6 && landed.parachute_roll().abs() < 1e-6,
             "land residual must clear pitch/roll sway state"
@@ -43106,11 +43153,7 @@ mod tests {
         }
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
 
         // Without Bombardment: no StrategyCenterGun residual.
@@ -43136,22 +43179,14 @@ mod tests {
         // Too-close enemy residual (inside min range) must not be preferred when
         // a legal in-band target exists; still create for range-band honesty.
         let close_id = game_logic
-            .create_object(
-                "TestTank",
-                Team::GLA,
-                Vec3::new(20.0, 0.0, 0.0),
-            )
+            .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("close enemy");
         let close_hp_before = game_logic.find_object(close_id).unwrap().health.current;
 
         assert!(!game_logic.honesty_battle_plan_turret_fire_ok());
 
         // Activate Bombardment → equip StrategyCenterGun only after unpack ACTIVE.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         assert!(
             game_logic.find_object(sc_id).unwrap().weapon.is_none(),
             "turret must not equip during UNPACKING residual"
@@ -43159,7 +43194,10 @@ mod tests {
         advance_battle_plan_door_to_active(&mut game_logic);
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
-            let w = sc.weapon.as_ref().expect("Bombardment ACTIVE must equip StrategyCenterGun");
+            let w = sc
+                .weapon
+                .as_ref()
+                .expect("Bombardment ACTIVE must equip StrategyCenterGun");
             assert!(
                 (w.damage - STRATEGY_CENTER_GUN_DAMAGE).abs() < 0.001,
                 "StrategyCenterGun damage residual 200"
@@ -43254,11 +43292,7 @@ mod tests {
                 w.last_fire_time = -100.0;
             }
         }
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::HoldTheLine,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(sc_id),));
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
             assert!(
@@ -43300,11 +43334,7 @@ mod tests {
             .insert("AmericaStrategyCenter".to_string(), sc_template);
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         {
             // InitiallyDisabled residual: Strategy Center is not a detector until S&D.
@@ -43345,11 +43375,7 @@ mod tests {
 
         // Activate SearchAndDestroy → DetectionRange 500 + is_detector after ACTIVE.
         assert!(!game_logic.honesty_battle_plan_stealth_detector_ok());
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::SearchAndDestroy,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(sc_id),));
         assert!(
             !game_logic.find_object(sc_id).unwrap().is_detector,
             "StealthDetector must wait for unpack ACTIVE residual"
@@ -43407,14 +43433,13 @@ mod tests {
         }
 
         // Leave S&D → PACKING setSDEnabled(false) residual.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
-            assert!(!sc.is_detector, "PACKING residual must disable StealthDetector");
+            assert!(
+                !sc.is_detector,
+                "PACKING residual must disable StealthDetector"
+            );
             assert!(
                 sc.detection_range.abs() < 0.1,
                 "PACKING residual must clear DetectionRange residual"
@@ -43473,11 +43498,7 @@ mod tests {
             .insert("AmericaStrategyCenter".to_string(), sc_template);
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         {
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
@@ -43494,11 +43515,7 @@ mod tests {
             e.apply_grant_stealth();
         }
 
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::SearchAndDestroy,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(sc_id),));
         advance_battle_plan_door_to_active(&mut game_logic);
 
         // Frame 0: immediate first DetectionRate residual scan.
@@ -43511,18 +43528,19 @@ mod tests {
         );
         {
             let e = game_logic.find_object(enemy_id).expect("enemy");
-            assert!(e.status.detected, "first scan must detect in-range stealthed");
+            assert!(
+                e.status.detected,
+                "first scan must detect in-range stealthed"
+            );
             assert_eq!(
-                e.detection_expires_frame,
-                STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
+                e.detection_expires_frame, STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
                 "markAsDetected(rate+1) residual hold must be 16 frames"
             );
         }
         {
             let sc = game_logic.find_object(sc_id).expect("sc");
             assert_eq!(
-                sc.next_detection_scan_frame,
-                STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
+                sc.next_detection_scan_frame, STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
                 "next scan residual at frame 15"
             );
         }
@@ -43546,7 +43564,10 @@ mod tests {
         );
         {
             let e = game_logic.find_object(enemy_id).expect("enemy");
-            assert!(e.status.detected, "rate re-scan must refresh detected residual");
+            assert!(
+                e.status.detected,
+                "rate re-scan must refresh detected residual"
+            );
             assert_eq!(
                 e.detection_expires_frame,
                 STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES
@@ -43585,11 +43606,7 @@ mod tests {
             .insert("AmericaStrategyCenter".to_string(), sc_template);
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         let ally_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -43608,11 +43625,7 @@ mod tests {
         assert!(!game_logic.honesty_battle_plan_door_ok());
 
         // First select Bombardment: door OPENING residual; army buffs deferred.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
         assert!(
             game_logic.honesty_battle_plan_door_ok(),
             "door residual must start on plan select"
@@ -43639,7 +43652,9 @@ mod tests {
         assert!(!game_logic.honesty_battle_plan_door_active_ok());
 
         // Advance AnimationTime frames → WAITING_TO_CLOSE + setBattlePlan.
-        game_logic.frame = game_logic.frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
         game_logic.tick_battle_plan_door_residuals();
         assert!(
             game_logic.honesty_battle_plan_door_active_ok(),
@@ -43663,11 +43678,7 @@ mod tests {
 
         // Plan switch → PACKING door1 CLOSING residual; clears buffs immediately.
         let pack_frame = game_logic.frame;
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::HoldTheLine,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(sc_id),));
         {
             let state = game_logic
                 .battle_plans()
@@ -43712,11 +43723,7 @@ mod tests {
                 .unwrap()
                 .weapon_bonus_battle_plan_hold_the_line
         );
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::SearchAndDestroy,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(sc_id),));
         // Pack HoldTheLine door2 closing first.
         {
             let state = game_logic
@@ -43766,11 +43773,7 @@ mod tests {
             .insert("AmericaStrategyCenter".to_string(), sc_template);
 
         let sc_id = game_logic
-            .create_object(
-                "AmericaStrategyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("strategy center");
         let ally_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -43790,12 +43793,11 @@ mod tests {
         assert!(!game_logic.honesty_battle_plan_turret_recenter_ok());
 
         // Select Bombardment — no buffs until ACTIVE.
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::Bombardment,
-            Some(sc_id),
-        ));
-        assert!(!game_logic.find_object(ally_id).unwrap().has_battle_plan_bonus());
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
+        assert!(!game_logic
+            .find_object(ally_id)
+            .unwrap()
+            .has_battle_plan_bonus());
         advance_battle_plan_door_to_active(&mut game_logic);
         assert!(game_logic.honesty_battle_plan_delayed_active_ok());
         assert!(
@@ -43823,11 +43825,7 @@ mod tests {
             }
         }
         let switch_frame = game_logic.frame;
-        assert!(game_logic.activate_battle_plan(
-            0,
-            HostBattlePlan::HoldTheLine,
-            Some(sc_id),
-        ));
+        assert!(game_logic.activate_battle_plan(0, HostBattlePlan::HoldTheLine, Some(sc_id),));
         assert!(
             game_logic.honesty_battle_plan_turret_recenter_ok(),
             "non-natural Bombardment turret must start recenter residual"
@@ -43869,10 +43867,11 @@ mod tests {
                     .unwrap_or(false);
                 assert!(centering, "must still be recentering at step {step}");
                 if let Some(sc) = game_logic.find_object_mut(sc_id) {
-                    let (a, p) = crate::game_logic::host_strategy_center::step_turret_toward_natural(
-                        sc.turret_angle_deg,
-                        sc.turret_pitch_deg,
-                    );
+                    let (a, p) =
+                        crate::game_logic::host_strategy_center::step_turret_toward_natural(
+                            sc.turret_angle_deg,
+                            sc.turret_pitch_deg,
+                        );
                     sc.turret_angle_deg = a;
                     sc.turret_pitch_deg = p;
                 }
@@ -54336,7 +54335,8 @@ mod tests {
                 "SpawnNumber residual must start with 3 soldiers"
             );
             assert!(
-                (s.hive_slave_hp - crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
+                (s.hive_slave_hp
+                    - crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
                     .abs()
                     < 0.01
             );
@@ -54463,11 +54463,8 @@ mod tests {
             s.hive_slave_hp = h.max(STINGER_SOLDIER_MAX_HEALTH);
             s.health.current = 1000.0;
         }
-        let _ = game_logic.apply_host_hive_damage(
-            stinger_id,
-            100.0,
-            HostHiveDamageClass::HitStructure,
-        );
+        let _ =
+            game_logic.apply_host_hive_damage(stinger_id, 100.0, HostHiveDamageClass::HitStructure);
         {
             let s = game_logic.find_object(stinger_id).unwrap();
             assert!((s.health.current - 900.0).abs() < 0.01);
@@ -54867,8 +54864,10 @@ mod tests {
         assert!(
             game_logic
                 .find_object(tunnel_id)
-                .map(|o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01
-                    || o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX)
+                .map(
+                    |o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01
+                        || o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX
+                )
                 .unwrap_or(false),
             "re-cloak residual must restore FriendlyOpacityMin (or pulse within min..max)"
         );
@@ -54903,9 +54902,7 @@ mod tests {
         assert!(game_logic.honesty_camo_netting_structure_stealth_ok());
 
         // StealthLook / heat-vision residual: detect cloaked structure → second pass.
-        use crate::game_logic::host_upgrades::{
-            camo_netting_stealth_look, HostCamoStealthLook,
-        };
+        use crate::game_logic::host_upgrades::{camo_netting_stealth_look, HostCamoStealthLook};
         {
             let t = game_logic.find_object_mut(tunnel_id).unwrap();
             t.status.stealthed = true;
@@ -55030,7 +55027,7 @@ mod tests {
     #[test]
     fn patriot_assisted_targeting_request_assist_range_residual() {
         use crate::game_logic::host_base_defense::{
-            PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_PRIMARY_WEAPON,
+            PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_ASSIST_DAMAGE, PATRIOT_PRIMARY_WEAPON,
             PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -55197,9 +55194,10 @@ mod tests {
         use crate::game_logic::host_base_defense::{
             patriot_laser_arc_peak_boost, sample_patriot_laser_arc_point,
             sample_patriot_laser_arc_segment, PatriotAssistLaserKind,
-            PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_ARC_HEIGHT,
-            PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE, PATRIOT_LASER_SEGMENTS,
-            PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+            PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM,
+            PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE,
+            PATRIOT_LASER_SEGMENTS, PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE,
+            PATRIOT_SECONDARY_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -55264,15 +55262,19 @@ mod tests {
             lasers.len()
         );
         assert!(
-            lasers.iter().any(|l| l.kind == PatriotAssistLaserKind::FromAssisted
-                && l.from_id == requester_id
-                && l.to_id == assistant_id),
+            lasers
+                .iter()
+                .any(|l| l.kind == PatriotAssistLaserKind::FromAssisted
+                    && l.from_id == requester_id
+                    && l.to_id == assistant_id),
             "LaserFromAssisted residual must link requestor → assistant"
         );
         assert!(
-            lasers.iter().any(|l| l.kind == PatriotAssistLaserKind::ToTarget
-                && l.from_id == assistant_id
-                && l.to_id == enemy_id),
+            lasers
+                .iter()
+                .any(|l| l.kind == PatriotAssistLaserKind::ToTarget
+                    && l.from_id == assistant_id
+                    && l.to_id == enemy_id),
             "LaserToTarget residual must link assistant → victim"
         );
         for l in lasers {
@@ -55343,8 +55345,13 @@ mod tests {
             mid.2,
             expected_mid_z
         );
-        let (seg0_s, _) =
-            sample_patriot_laser_arc_segment(from, to, 0, PATRIOT_LASER_SEGMENTS, to_target.arc_height());
+        let (seg0_s, _) = sample_patriot_laser_arc_segment(
+            from,
+            to,
+            0,
+            PATRIOT_LASER_SEGMENTS,
+            to_target.arc_height(),
+        );
         assert!(
             (seg0_s.2 - from.2).abs() < 0.5,
             "arc segment 0 start residual near base Z (end cos=0)"
@@ -59720,12 +59727,11 @@ mod tests {
 
     /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
 
-
     /// Residual: China MiG napalm dual-radius + BlackNapalm fire field residual.
     #[test]
     fn mig_residual_napalm_and_black_napalm() {
         use crate::game_logic::host_mig::{
-            is_mig_template, is_nuke_mig_template, MIG_PRIMARY_DAMAGE, MIG_RANGE, MIG_MIN_RANGE,
+            is_mig_template, is_nuke_mig_template, MIG_MIN_RANGE, MIG_PRIMARY_DAMAGE, MIG_RANGE,
             NAPALM_MISSILE_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -59871,7 +59877,7 @@ mod tests {
     #[test]
     fn mig_nuke_residual_tactical_nuke() {
         use crate::game_logic::host_mig::{
-            is_nuke_mig_template, NUKE_MIG_PRIMARY_DAMAGE, NUKE_MIG_MISSILE_WEAPON,
+            is_nuke_mig_template, NUKE_MIG_MISSILE_WEAPON, NUKE_MIG_PRIMARY_DAMAGE,
             NUKE_TACTICAL_PRIMARY_DAMAGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -59959,8 +59965,8 @@ mod tests {
     #[test]
     fn fire_base_residual_howitzer() {
         use crate::game_logic::host_fire_base::{
-            is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_MIN_RANGE,
-            FIRE_BASE_RANGE,
+            is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON,
+            FIRE_BASE_MIN_RANGE, FIRE_BASE_RANGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -63609,11 +63615,13 @@ mod tests {
         {
             let t = game_logic.find_object(tunnel_id).expect("tunnel");
             assert!(is_tunnel_network_template(&t.template_name));
-            assert!(crate::game_logic::host_base_defense::is_base_defense_structure(
-                &t.template_name,
-                true,
-                false
-            ));
+            assert!(
+                crate::game_logic::host_base_defense::is_base_defense_structure(
+                    &t.template_name,
+                    true,
+                    false
+                )
+            );
             let w = t.weapon.as_ref().expect("TunnelNetworkGun residual");
             assert!(
                 (w.damage - TUNNEL_NETWORK_GUN_DAMAGE).abs() < 0.5,
@@ -64683,8 +64691,9 @@ mod tests {
     fn anthrax_gamma_residual_toxin_stream_and_field() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_toxin_tractor::{
-            TOXIN_MED_FIELD_DAMAGE_UPGRADED, TOXIN_STREAM_DAMAGE_GAMMA, TOXIN_STREAM_DAMAGE_UPGRADED,
-            TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER, UPGRADE_GLA_ANTHRAX_GAMMA,
+            TOXIN_MED_FIELD_DAMAGE_UPGRADED, TOXIN_STREAM_DAMAGE_GAMMA,
+            TOXIN_STREAM_DAMAGE_UPGRADED, TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
+            UPGRADE_GLA_ANTHRAX_GAMMA,
         };
         use crate::game_logic::host_upgrades::HostUpgradeKind;
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -64901,11 +64910,7 @@ mod tests {
             .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
             .expect("barracks");
         let cc_id = game_logic
-            .create_object(
-                "Slth_GLACommandCenter",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("Slth_GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("slth cc");
         let tunnel_id = game_logic
             .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
@@ -65193,7 +65198,8 @@ mod tests {
             "Demo residual must deal ~700 primary (got {demo_dmg})"
         );
         assert_eq!(
-            game_logic.toxin_tractor_registry().zones_spawned, zones_mid,
+            game_logic.toxin_tractor_registry().zones_spawned,
+            zones_mid,
             "Demo residual must not spawn poison field"
         );
     }
@@ -65276,7 +65282,8 @@ mod tests {
             .unwrap_or(true);
         assert!(far_damaged, "Demo HE trap must damage enemy");
         assert_eq!(
-            game_logic.toxin_tractor_registry().zones_spawned, zones_mid,
+            game_logic.toxin_tractor_registry().zones_spawned,
+            zones_mid,
             "Demo HE trap must not spawn poison"
         );
         let _ = far; // secondary-ring placement residual (optional observability)
@@ -65424,11 +65431,7 @@ mod tests {
             .insert("TestTank".to_string(), tank_tpl);
 
         let rebel_id = game_logic
-            .create_object(
-                "Demo_GLAInfantryRebel",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("Demo_GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("demo rebel");
         let enemy_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
@@ -65568,11 +65571,7 @@ mod tests {
             .insert("TestTank".to_string(), tank_tpl);
 
         let rebel_id = game_logic
-            .create_object(
-                "Demo_GLAInfantryRebel",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("Demo_GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("demo rebel");
         let enemy_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -65680,7 +65679,8 @@ mod tests {
             "PlusFire + CommandSetUpgrade host path honesty"
         );
         assert_eq!(
-            game_logic.demo_suicide_bomb().death_detonations, 0,
+            game_logic.demo_suicide_bomb().death_detonations,
+            0,
             "normal DestroyedWeapon path must not fire on SUICIDED residual"
         );
         assert!(

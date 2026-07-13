@@ -68,12 +68,22 @@
 //!   C++ `friend_checkForIdleMoodTarget` acquires an enemy in StrategyCenterGun
 //!   range band (min **100** / max **400**), sets turret target + FirePitch aim,
 //!   flags `m_targetWasSetByIdleMood`. Mood target leaving range / dying clears
-//!   the target so IDLESCAN can resume. Fail-closed: not full mood matrix
-//!   (Sleep/Passive) / Partition filter / bone pitch matrix.
+//!   the target so IDLESCAN can resume.
+//!
+//! - **TurretAI mood matrix Sleep/Passive residual** (AttitudeType):
+//!   - Sleep → MAA_Affect_Range_IgnoreAll (no idle mood-target acquire)
+//!   - Passive → MAA_Affect_Range_WaitForAttack (only last-damage retaliate)
+//!   - Normal/Alert/Aggressive → free idle acquire residual
+//!
+//! - **Turret bone pitch/yaw drawable residual**: host exposes TurretAI
+//!   pitch/yaw for presentation consumers (not full W3D Turret/TurretPitch bones).
+//!
+//! - **VisionObjectName residual**: createVisionObject is **disabled in retail
+//!   C++** — host honesty documents the dead path (no spawn claim).
 //!
 //! Fail-closed honesty:
-//! - Not full TurretAI mood matrix Sleep/Passive / bone pitch drawable matrix
-//!   (idle mood-target acquire + out-of-range clear host residual closed)
+//! - Not full Partition filter / AI vision mood range matrix
+//! - Not full W3D Turret/TurretPitch bone hierarchy GPU draw
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -303,10 +313,7 @@ pub fn step_turret_toward_angles(
     target_pitch_deg: f32,
 ) -> (f32, f32) {
     let da = shortest_angle_delta_deg(angle_deg, target_angle_deg);
-    let step_a = da
-        .abs()
-        .min(STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME)
-        * da.signum();
+    let step_a = da.abs().min(STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME) * da.signum();
     let new_angle = if da.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
         normalize_angle_deg(target_angle_deg)
     } else {
@@ -314,10 +321,7 @@ pub fn step_turret_toward_angles(
     };
 
     let dp = target_pitch_deg - pitch_deg;
-    let step_p = dp
-        .abs()
-        .min(STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME)
-        * dp.signum();
+    let step_p = dp.abs().min(STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME) * dp.signum();
     let new_pitch = if dp.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
         target_pitch_deg
     } else {
@@ -404,20 +408,14 @@ pub enum HostBattlePlanDoorEvent {
         plan: HostBattlePlan,
     },
     /// TRANSITIONSTATUS_PACKING — apply setBattlePlan(NONE) + paralyze residual.
-    BeganPacking {
-        center_id: ObjectId,
-        player_id: u32,
-    },
+    BeganPacking { center_id: ObjectId, player_id: u32 },
     /// Pack/unpack audio residual to queue.
     Audio {
         center_id: ObjectId,
         event: &'static str,
     },
     /// Bombardment turret recenter residual started (pack deferred).
-    BeganRecenter {
-        center_id: ObjectId,
-        player_id: u32,
-    },
+    BeganRecenter { center_id: ObjectId, player_id: u32 },
 }
 
 /// Shortest signed delta from `from` to `to` in degrees (−180, 180].
@@ -653,8 +651,7 @@ impl HostBattlePlanDoorState {
                 self.status = HostBattlePlanTransition::Idle;
                 self.door = HostBattlePlanDoor::None;
                 self.door_plan = None;
-                self.next_ready_frame =
-                    frame.saturating_add(BATTLE_PLAN_TRANSITION_IDLE_FRAMES);
+                self.next_ready_frame = frame.saturating_add(BATTLE_PLAN_TRANSITION_IDLE_FRAMES);
                 // Immediately start unpack of desired if present (idle time 0).
                 if let Some(desired) = self.desired_plan {
                     let audio = desired.unpack_audio();
@@ -736,11 +733,102 @@ pub fn strategy_center_gun_in_range(distance: f32) -> bool {
 
 // --- TurretAI idle mood-target residual (friend_checkForIdleMoodTarget) ---
 
+/// C++ `AttitudeType` residual for AI mood matrix (AI.h).
+///
+/// Strategy Center host residual stores this on the object for TurretAI
+/// `getMoodMatrixActionAdjustment(MM_Action_Idle)` gates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[repr(i8)]
+pub enum HostAiAttitude {
+    /// AI_SLEEP = -2 — idle mood-target blocked (MAA_Affect_Range_IgnoreAll).
+    Sleep = -2,
+    /// AI_PASSIVE = -1 — idle mood-target only via last-damage retaliate
+    /// (MAA_Affect_Range_WaitForAttack).
+    Passive = -1,
+    /// AI_NORMAL = 0 — free idle mood-target residual.
+    #[default]
+    Normal = 0,
+    /// AI_ALERT = 1 — free acquire (host residual same as Normal for SC gun).
+    Alert = 1,
+    /// AI_AGGRESSIVE = 2 — free acquire (host residual same as Normal for SC gun).
+    Aggressive = 2,
+}
+
+impl HostAiAttitude {
+    /// Parse residual attitude from C++ AttitudeType ordinals (-2..=2).
+    /// Fail-closed: unknown → Normal.
+    pub fn from_i8(v: i8) -> Self {
+        match v {
+            -2 => HostAiAttitude::Sleep,
+            -1 => HostAiAttitude::Passive,
+            1 => HostAiAttitude::Alert,
+            2 => HostAiAttitude::Aggressive,
+            _ => HostAiAttitude::Normal,
+        }
+    }
+
+    pub fn as_i8(self) -> i8 {
+        self as i8
+    }
+
+    /// C++ `getMoodMatrixActionAdjustment(MM_Action_Idle)` residual flags.
+    ///
+    /// Returns (allow_free_acquire, wait_for_attack_only):
+    /// - Sleep → free=false (IgnoreAll)
+    /// - Passive → free=false, wait_for_attack=true
+    /// - Normal/Alert/Aggressive → free=true
+    pub fn idle_mood_acquire_mode(self) -> (bool, bool) {
+        match self {
+            HostAiAttitude::Sleep => (false, false),
+            HostAiAttitude::Passive => (false, true),
+            HostAiAttitude::Normal | HostAiAttitude::Alert | HostAiAttitude::Aggressive => {
+                (true, false)
+            }
+        }
+    }
+
+    /// Whether idle mood matrix blocks all auto-acquire (MAA_Affect_Range_IgnoreAll).
+    pub fn idle_mood_ignore_all(self) -> bool {
+        matches!(self, HostAiAttitude::Sleep)
+    }
+
+    /// Whether idle mood matrix is WaitForAttack-only (Passive retaliate).
+    pub fn idle_mood_wait_for_attack(self) -> bool {
+        matches!(self, HostAiAttitude::Passive)
+    }
+}
+
+/// C++ MAA_Affect_Range_IgnoreAll residual bit honesty (for presentation/debug).
+pub const MAA_AFFECT_RANGE_IGNORE_ALL: u32 = 0x0000_0010;
+/// C++ MAA_Affect_Range_WaitForAttack residual bit honesty.
+pub const MAA_AFFECT_RANGE_WAIT_FOR_ATTACK: u32 = 0x0000_0020;
+/// C++ MAA_Action_Ok residual bit honesty.
+pub const MAA_ACTION_OK: u32 = 0x0000_0001;
+
+/// C++ `getMoodMatrixActionAdjustment(MM_Action_Idle)` residual for AI controllers.
+///
+/// Host residual of AIUpdate.cpp Idle switch:
+/// - Sleep → Ok | IgnoreAll
+/// - Passive → Ok | WaitForAttack
+/// - Normal → Ok
+/// - Alert → Ok | Alert (host SC treats as free acquire)
+/// - Aggressive → Ok | Aggressive (host SC treats as free acquire)
+pub fn strategy_center_idle_mood_adjustment(attitude: HostAiAttitude) -> u32 {
+    match attitude {
+        HostAiAttitude::Sleep => MAA_ACTION_OK | MAA_AFFECT_RANGE_IGNORE_ALL,
+        HostAiAttitude::Passive => MAA_ACTION_OK | MAA_AFFECT_RANGE_WAIT_FOR_ATTACK,
+        HostAiAttitude::Normal => MAA_ACTION_OK,
+        HostAiAttitude::Alert => MAA_ACTION_OK | 0x0000_0040, // MAA_Affect_Range_Alert
+        HostAiAttitude::Aggressive => MAA_ACTION_OK | 0x0000_0080, // Aggressive
+    }
+}
+
 /// Whether idle mood-target residual may acquire an enemy.
 ///
 /// C++ TurretAI::friend_checkForIdleMoodTarget residual gates:
 /// - Bombardment ACTIVE turret idle (not attacking / no forced target busy)
-/// - Mood matrix does not IgnoreAll (host residual: always allow when idle)
+/// - Mood matrix does not IgnoreAll (Sleep blocks)
+/// - Passive only when WaitForAttack last-damage source is present (caller)
 /// - Enemy legal + in StrategyCenterGun range band
 pub fn strategy_center_mood_target_eligible(
     bombardment_active: bool,
@@ -748,7 +836,39 @@ pub fn strategy_center_mood_target_eligible(
     is_busy: bool,
     has_mood_target: bool,
 ) -> bool {
-    bombardment_active && is_alive && !is_busy && !has_mood_target
+    strategy_center_mood_target_eligible_with_attitude(
+        bombardment_active,
+        is_alive,
+        is_busy,
+        has_mood_target,
+        HostAiAttitude::Normal,
+        true, // free acquire path (not wait-for-attack gated)
+    )
+}
+
+/// Mood-target eligibility with C++ AttitudeType residual matrix.
+///
+/// `passive_has_last_damage_source`: for Passive, C++ getNextMoodTarget returns
+/// only the last damage source — host residual requires that source is present
+/// and was already validated legal by the caller when true.
+pub fn strategy_center_mood_target_eligible_with_attitude(
+    bombardment_active: bool,
+    is_alive: bool,
+    is_busy: bool,
+    has_mood_target: bool,
+    attitude: HostAiAttitude,
+    passive_has_last_damage_source: bool,
+) -> bool {
+    if !bombardment_active || !is_alive || is_busy || has_mood_target {
+        return false;
+    }
+    let (free, wait_for_attack) = attitude.idle_mood_acquire_mode();
+    if free {
+        return true;
+    }
+    // Sleep: IgnoreAll → no acquire.
+    // Passive: WaitForAttack → only if last damage source residual exists.
+    wait_for_attack && passive_has_last_damage_source
 }
 
 /// Whether a residual enemy is legal for idle mood-target residual.
@@ -779,6 +899,51 @@ pub fn strategy_center_mood_target_should_clear(
     target_was_set_by_mood && (!target_alive || !in_weapon_range)
 }
 
+// --- Turret bone pitch/yaw drawable residual (presentation feed) ---
+
+/// Host residual of AIUpdateInterface Turret bone drawable angles.
+///
+/// C++ W3DModelDraw uses Turret / TurretPitch bones driven by TurretAI
+/// angles. Host residual exposes pitch/yaw for presentation consumers without
+/// a full W3D bone hierarchy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostTurretBoneDrawable {
+    /// Absolute yaw residual (deg) — NaturalTurretAngle residual default **-90**.
+    pub yaw_deg: f32,
+    /// Absolute pitch residual (deg) — NaturalTurretPitch residual default **45**.
+    pub pitch_deg: f32,
+    /// Whether angles match natural position residual.
+    pub is_natural: bool,
+}
+
+/// Build residual turret bone drawable from host TurretAI angles.
+pub fn strategy_center_turret_bone_drawable(
+    yaw_deg: f32,
+    pitch_deg: f32,
+) -> HostTurretBoneDrawable {
+    HostTurretBoneDrawable {
+        yaw_deg,
+        pitch_deg,
+        is_natural: turret_angles_are_natural(yaw_deg, pitch_deg),
+    }
+}
+
+// --- VisionObjectName residual (retail createVisionObject disabled) ---
+
+/// Retail Strategy Center BattlePlanUpdate VisionObjectName honesty.
+///
+/// C++ `BattlePlanUpdate::createVisionObject()` exists but the call site is
+/// commented out (`//createVisionObject();`). Host residual documents this
+/// as intentionally dead retail path — do not claim spawn residual.
+pub const STRATEGY_CENTER_VISION_OBJECT_NAME: &str = "VisionObjectName";
+
+/// Whether retail C++ actually spawns VisionObject residual for Strategy Center.
+///
+/// Always **false** — createVisionObject is disabled in retail C++.
+pub fn strategy_center_vision_object_spawn_enabled_in_retail() -> bool {
+    false
+}
+
 /// Legal residual Strategy Center artillery target.
 pub fn is_legal_strategy_center_gun_target(
     is_alive: bool,
@@ -788,12 +953,8 @@ pub fn is_legal_strategy_center_gun_target(
     combat_kind: bool,
     is_air: bool,
 ) -> bool {
-    is_alive
-        && !same_team
-        && !is_neutral
-        && !under_construction
-        && combat_kind
-        && !is_air // ground residual only (can_target_air false)
+    is_alive && !same_team && !is_neutral && !under_construction && combat_kind && !is_air
+    // ground residual only (can_target_air false)
 }
 
 /// Convert BattlePlanChangeParalyzeTime ms → logic frames (30 FPS residual).
@@ -1186,8 +1347,7 @@ impl HostBattlePlanRegistry {
     }
 
     pub fn record_turret_mood_target_clear(&mut self) {
-        self.turret_mood_target_clear_count =
-            self.turret_mood_target_clear_count.saturating_add(1);
+        self.turret_mood_target_clear_count = self.turret_mood_target_clear_count.saturating_add(1);
     }
 
     /// Residual honesty: idle mood-target residual acquired at least once.
@@ -1247,8 +1407,7 @@ impl HostBattlePlanRegistry {
     }
 
     pub fn record_stealth_detector_disable(&mut self) {
-        self.stealth_detector_disable_count =
-            self.stealth_detector_disable_count.saturating_add(1);
+        self.stealth_detector_disable_count = self.stealth_detector_disable_count.saturating_add(1);
     }
 
     pub fn record_delayed_active_apply(&mut self) {
@@ -1320,8 +1479,7 @@ impl HostBattlePlanRegistry {
                     // Leaving Bombardment with non-natural turret → recenter first.
                     if state.door_plan == Some(HostBattlePlan::Bombardment) && !turret_natural {
                         state.begin_recenter(frame, Some(plan), recenter_frames);
-                        self.turret_recenter_count =
-                            self.turret_recenter_count.saturating_add(1);
+                        self.turret_recenter_count = self.turret_recenter_count.saturating_add(1);
                         events.push(HostBattlePlanDoorEvent::BeganRecenter {
                             center_id,
                             player_id,
@@ -1381,19 +1539,16 @@ impl HostBattlePlanRegistry {
             for ev in &tick_events {
                 match ev {
                     HostBattlePlanDoorEvent::Audio { .. } => {
-                        self.door_transition_count =
-                            self.door_transition_count.saturating_add(1);
+                        self.door_transition_count = self.door_transition_count.saturating_add(1);
                     }
                     HostBattlePlanDoorEvent::BecameActive { .. } => {
                         self.door_active_count = self.door_active_count.saturating_add(1);
                     }
                     HostBattlePlanDoorEvent::BeganPacking { .. } => {
-                        self.door_transition_count =
-                            self.door_transition_count.saturating_add(1);
+                        self.door_transition_count = self.door_transition_count.saturating_add(1);
                     }
                     HostBattlePlanDoorEvent::BeganRecenter { .. } => {
-                        self.turret_recenter_count =
-                            self.turret_recenter_count.saturating_add(1);
+                        self.turret_recenter_count = self.turret_recenter_count.saturating_add(1);
                     }
                 }
             }
@@ -1445,11 +1600,7 @@ impl HostBattlePlanRegistry {
     /// Delayed ACTIVE residual: pass buffs/building/paralyzed = 0 here; call
     /// `record_effect_application` + `set_active_plan` when door becomes ACTIVE.
     /// Immediate residual (no center): pass applied counts and set_active=true.
-    pub fn record_selection(
-        &mut self,
-        selection: HostBattlePlanSelection,
-        set_active: bool,
-    ) {
+    pub fn record_selection(&mut self, selection: HostBattlePlanSelection, set_active: bool) {
         self.selection_count = self.selection_count.saturating_add(1);
         self.buff_count = self.buff_count.saturating_add(selection.buffs);
         if selection.building_bonus {
@@ -1572,9 +1723,7 @@ mod tests {
         assert!(!strategy_center_stealth_detector_enabled_for_plan(
             HostBattlePlan::HoldTheLine
         ));
-        assert!(
-            (strategy_center_stealth_detection_range_when_enabled() - 500.0).abs() < 0.001
-        );
+        assert!((strategy_center_stealth_detection_range_when_enabled() - 500.0).abs() < 0.001);
         // DetectionRate residual: immediate first scan, then rate-gated; hold = rate+1.
         assert!(stealth_detector_scan_due(15, 0, 0));
         assert!(stealth_detector_scan_due(15, 0, 100));
@@ -1636,7 +1785,10 @@ mod tests {
             strategy_center_turret_recenter_frames(true, -90.0, 45.0),
             BATTLE_PLAN_TURRET_RECENTER_FRAMES
         );
-        assert_eq!(strategy_center_turret_recenter_frames(false, -30.0, 45.0), 30);
+        assert_eq!(
+            strategy_center_turret_recenter_frames(false, -30.0, 45.0),
+            30
+        );
 
         // TurretAI idle-scan residual matrix (Min/MaxIdleScanAngle/Interval).
         assert_eq!(STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, 15);
@@ -1666,10 +1818,18 @@ mod tests {
         assert!(!hold_turret_elapsed(100, 0));
 
         // TurretAI idle mood-target residual matrix.
-        assert!(strategy_center_mood_target_eligible(true, true, false, false));
-        assert!(!strategy_center_mood_target_eligible(false, true, false, false)); // no Bombardment
-        assert!(!strategy_center_mood_target_eligible(true, true, true, false)); // busy
-        assert!(!strategy_center_mood_target_eligible(true, true, false, true)); // already mood
+        assert!(strategy_center_mood_target_eligible(
+            true, true, false, false
+        ));
+        assert!(!strategy_center_mood_target_eligible(
+            false, true, false, false
+        )); // no Bombardment
+        assert!(!strategy_center_mood_target_eligible(
+            true, true, true, false
+        )); // busy
+        assert!(!strategy_center_mood_target_eligible(
+            true, true, false, true
+        )); // already mood
         assert!(strategy_center_mood_target_enemy_legal(
             true, false, false, false, false, 150.0
         ));
@@ -1682,7 +1842,101 @@ mod tests {
         assert!(strategy_center_mood_target_should_clear(true, true, false)); // OOR
         assert!(strategy_center_mood_target_should_clear(true, false, true)); // dead
         assert!(!strategy_center_mood_target_should_clear(true, true, true)); // still valid
-        assert!(!strategy_center_mood_target_should_clear(false, true, false)); // not mood-set
+        assert!(!strategy_center_mood_target_should_clear(
+            false, true, false
+        )); // not mood-set
+
+        // TurretAI mood matrix Sleep/Passive residual (AttitudeType).
+        assert_eq!(HostAiAttitude::from_i8(-2), HostAiAttitude::Sleep);
+        assert_eq!(HostAiAttitude::from_i8(-1), HostAiAttitude::Passive);
+        assert_eq!(HostAiAttitude::from_i8(0), HostAiAttitude::Normal);
+        assert_eq!(HostAiAttitude::from_i8(1), HostAiAttitude::Alert);
+        assert_eq!(HostAiAttitude::from_i8(2), HostAiAttitude::Aggressive);
+        assert_eq!(HostAiAttitude::from_i8(99), HostAiAttitude::Normal); // fail-closed
+        assert!(HostAiAttitude::Sleep.idle_mood_ignore_all());
+        assert!(!HostAiAttitude::Passive.idle_mood_ignore_all());
+        assert!(HostAiAttitude::Passive.idle_mood_wait_for_attack());
+        assert!(!HostAiAttitude::Normal.idle_mood_wait_for_attack());
+        assert_eq!(
+            strategy_center_idle_mood_adjustment(HostAiAttitude::Sleep),
+            MAA_ACTION_OK | MAA_AFFECT_RANGE_IGNORE_ALL
+        );
+        assert_eq!(
+            strategy_center_idle_mood_adjustment(HostAiAttitude::Passive),
+            MAA_ACTION_OK | MAA_AFFECT_RANGE_WAIT_FOR_ATTACK
+        );
+        assert_eq!(
+            strategy_center_idle_mood_adjustment(HostAiAttitude::Normal),
+            MAA_ACTION_OK
+        );
+        // Sleep: no free acquire, no wait-for-attack.
+        assert!(!strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Sleep,
+            true, // even with last damage, Sleep ignores all
+        ));
+        // Passive without last damage: blocked.
+        assert!(!strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Passive,
+            false,
+        ));
+        // Passive with last damage source residual: allowed.
+        assert!(strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Passive,
+            true,
+        ));
+        // Normal free acquire.
+        assert!(strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Normal,
+            false,
+        ));
+        // Alert/Aggressive free acquire residual.
+        assert!(strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Alert,
+            false,
+        ));
+        assert!(strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            false,
+            false,
+            HostAiAttitude::Aggressive,
+            false,
+        ));
+
+        // Turret bone pitch/yaw drawable residual.
+        let bone = strategy_center_turret_bone_drawable(
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+        );
+        assert!(bone.is_natural);
+        assert!((bone.yaw_deg - (-90.0)).abs() < 0.001);
+        assert!((bone.pitch_deg - 45.0).abs() < 0.001);
+        let bone_fire = strategy_center_turret_bone_drawable(0.0, STRATEGY_CENTER_FIRE_PITCH_DEG);
+        assert!(!bone_fire.is_natural || bone_fire.yaw_deg.abs() < 0.001);
+
+        // VisionObjectName createVisionObject disabled in retail C++.
+        assert!(!strategy_center_vision_object_spawn_enabled_in_retail());
+        assert!(!STRATEGY_CENTER_VISION_OBJECT_NAME.is_empty());
     }
 
     #[test]
@@ -1723,28 +1977,24 @@ mod tests {
             true,
             BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         );
-        assert!(
-            events.iter().any(|e| matches!(
-                e,
-                HostBattlePlanDoorEvent::Audio {
-                    event: BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO,
-                    ..
-                }
-            ))
-        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HostBattlePlanDoorEvent::Audio {
+                event: BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO,
+                ..
+            }
+        )));
         assert!(reg.honesty_door_residual_ok());
         // Complete unpack residual.
         let events = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
         assert!(reg.honesty_door_active_ok());
-        assert!(
-            events.iter().any(|e| matches!(
-                e,
-                HostBattlePlanDoorEvent::BecameActive {
-                    plan: HostBattlePlan::Bombardment,
-                    ..
-                }
-            ))
-        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HostBattlePlanDoorEvent::BecameActive {
+                plan: HostBattlePlan::Bombardment,
+                ..
+            }
+        )));
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Active);
         assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
@@ -1757,34 +2007,28 @@ mod tests {
             true,
             BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         );
-        assert!(
-            pack_events
-                .iter()
-                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
-        );
-        assert!(
-            pack_events.iter().any(|e| matches!(
-                e,
-                HostBattlePlanDoorEvent::Audio {
-                    event: BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO,
-                    ..
-                }
-            ))
-        );
+        assert!(pack_events
+            .iter()
+            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. })));
+        assert!(pack_events.iter().any(|e| matches!(
+            e,
+            HostBattlePlanDoorEvent::Audio {
+                event: BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO,
+                ..
+            }
+        )));
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Packing);
         assert_eq!(state.door, HostBattlePlanDoor::Door1Closing);
         // Pack complete → idle → unpack HoldTheLine (TransitionIdleTime 0).
         let events = reg.tick_door_residuals(300 + BATTLE_PLAN_ANIMATION_FRAMES);
-        assert!(
-            events.iter().any(|e| matches!(
-                e,
-                HostBattlePlanDoorEvent::Audio {
-                    event: BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO,
-                    ..
-                }
-            ))
-        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HostBattlePlanDoorEvent::Audio {
+                event: BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO,
+                ..
+            }
+        )));
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
         assert_eq!(state.door, HostBattlePlanDoor::Door2Opening);
@@ -1812,11 +2056,9 @@ mod tests {
             false,
             BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         );
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganRecenter { .. }))
-        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganRecenter { .. })));
         assert!(reg.honesty_turret_recenter_ok());
         let state = reg.door_state_for_center(cid).unwrap();
         assert!(state.centering_turret);
@@ -1827,11 +2069,9 @@ mod tests {
         );
         // Recenter complete → PACKING.
         let events = reg.tick_door_residuals(300 + BATTLE_PLAN_TURRET_RECENTER_FRAMES);
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
-        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. })));
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Packing);
         assert!(!state.centering_turret);
@@ -1912,7 +2152,9 @@ mod tests {
         assert!((HostBattlePlan::HoldTheLine.army_armor_damage_scalar() - 0.9).abs() < 0.001);
         assert!((HostBattlePlan::SearchAndDestroy.army_range_multiplier() - 1.20).abs() < 0.001);
         assert!((HostBattlePlan::SearchAndDestroy.army_sight_range_scalar() - 1.2).abs() < 0.001);
-        assert!((HostBattlePlan::Bombardment.army_armor_damage_scalar() - 1.0).abs() < f32::EPSILON);
+        assert!(
+            (HostBattlePlan::Bombardment.army_armor_damage_scalar() - 1.0).abs() < f32::EPSILON
+        );
         assert!((HostBattlePlan::HoldTheLine.army_damage_multiplier() - 1.0).abs() < f32::EPSILON);
     }
 
@@ -1972,5 +2214,4 @@ mod tests {
         assert_eq!(reg.turret_fire_count(), 1);
         assert_eq!(reg.turret_units_hit(), 2);
     }
-
 }
