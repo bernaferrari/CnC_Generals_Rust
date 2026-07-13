@@ -1,3 +1,34 @@
+## Residual Host Playability — Air Parachute Eject + USA Infantry AutoFindHealing (2026-07-13)
+**Closed (host-testable EjectPilotDie air OCL + non-pilot AutoFindHealing residual):**
+1. **Air OCL parachute residual** (`EjectPilotDie` / `isSignificantlyAboveTerrain`):
+   - When dying eligible vehicle height > **576** (`-(3*3)*Gravity`, Gravity=**-64**)
+     or `airborne_target`, residual uses OCL_EjectPilotViaParachute path.
+   - Pilot spawns elevated + `OBJECT_STATUS_PARACHUTING` residual; linear sink
+     **20** u/frame until ground; InvulnerableTime **60** frames still applies.
+   - Ground death (y≈0, not airborne) stays OCL_EjectPilotOnGround residual.
+   - Fail-closed: not full AmericaParachute container OpenClose / fall physics.
+2. **USA infantry AutoFindHealing residual** (beyond pilot-only):
+   - Templates: Pilot / Ranger / MissileDefender / Pathfinder / ColonelBurton
+     (+ general variants) residual AutoFindHealingUpdate module.
+   - Same AI-only idle gates: ScanRate **30** frames / ScanRange **300** /
+     NeverHeal **0.85** → SeekingHealing at HealPad.
+   - Fail-closed: AlwaysHeal busy path still not claimed (C++ early-return unreachable);
+     China/GLA infantry not claimed.
+3. Tests (not log-only):
+   - `eject_pilot_air_ocl_parachute_residual`
+   - `usa_infantry_auto_find_healing_hospital_path_residual`
+   - module unit tests in `host_usa_pilot` (air OCL gates / infantry template / honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+  (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
+- Full AmericaParachute container OpenClose / DeliverPayload fall-physics matrix
+- Full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Network air-eject / infantry-auto-heal replication (network deferred)
+
 ## Residual Host Playability — Pilot Base-Center + AutoFindHealing (2026-07-13)
 **Closed (host-testable PilotFindVehicle base-center fallback + AutoFindHealingUpdate residual):**
 1. **Base-center fallback residual** (`PilotFindVehicleUpdate::m_didMoveToBase`):
@@ -9,7 +40,9 @@
    - AI-only idle injured pilot auto-scan (C++ human early-return; host `is_local` gate).
    - ScanRate **1000**ms → **30** frames; ScanRange **300**; NeverHeal **0.85**.
    - Nearest HealPad residual → SeekingHealing → existing HealPad HP ticks.
-   - Fail-closed: AlwaysHeal busy-interrupt path not claimed; pilot-template residual only.
+   - Fail-closed: AlwaysHeal busy-interrupt path not claimed; pilot-template residual only
+     (non-pilot USA infantry residual closed 2026-07-13 — see Air Parachute Eject +
+     USA Infantry AutoFindHealing section).
 3. Tests (not log-only):
    - `pilot_find_vehicle_base_center_fallback_residual`
    - `pilot_auto_find_healing_hospital_path_residual`
@@ -20,8 +53,10 @@
 - Full Bombardment turret natural-position recenter / pitch scan matrix
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
 - Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+  (host residual closed 2026-07-13 — see Air Parachute Eject + USA Infantry AutoFindHealing)
 - Full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt / non-pilot infantry matrix
+  (non-pilot host residual closed 2026-07-13 — see Air Parachute Eject section)
 - Network base-center / auto-heal replication (network deferred)
 
 ## Residual Host Playability — Eject VeterancyLevels Gate + PilotFindVehicle (2026-07-13)

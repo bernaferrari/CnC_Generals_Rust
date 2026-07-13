@@ -22,14 +22,20 @@
 //!   C++ human players sleep forever (no auto-scan).
 //! - **Base-center fallback residual**: when no vehicle found, AI pilot moves once
 //!   toward team command-center / base (`m_didMoveToBase`).
-//! - **AutoFindHealingUpdate residual**: AI-only idle injured pilot auto-scan
-//!   (ScanRate **1000**ms → **30** frames, ScanRange **300**, NeverHeal **0.85**,
-//!   AlwaysHeal **0.25**) toward nearest HealPad → SeekingHealing residual.
+//! - **AutoFindHealingUpdate residual**: AI-only idle injured USA infantry
+//!   auto-scan (ScanRate **1000**ms → **30** frames, ScanRange **300**,
+//!   NeverHeal **0.85**, AlwaysHeal **0.25**) toward nearest HealPad →
+//!   SeekingHealing residual. Templates: Pilot / Ranger / MissileDefender /
+//!   Pathfinder / ColonelBurton residual family.
+//! - **Air OCL parachute residual**: when dying vehicle is significantly above
+//!   terrain (C++ `isSignificantlyAboveTerrain` / OCL_EjectPilotViaParachute),
+//!   pilot spawns elevated + parachuting residual sink until ground.
 //!
 //! Fail-closed honesty:
-//! - Not full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+//! - Not full AmericaParachute container OpenClose / fall-physics matrix
 //! - Not full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
 //! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
+//!   (C++ early-return makes busy path unreachable — host matches idle-only)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
 
@@ -83,8 +89,27 @@ pub const AUTO_FIND_HEALING_SCAN_RANGE: f32 = 300.0;
 pub const AUTO_FIND_HEALING_NEVER_HEAL: f32 = 0.85;
 
 /// Retail AutoFindHealingUpdate AlwaysHeal (busy-interrupt threshold residual).
-/// Host residual fail-closed: only idle units scan (C++ "for now, only heal if idle").
+/// Host residual fail-closed: only idle units scan (C++ "for now, only heal if idle"
+/// early-return makes the AlwaysHeal branch unreachable in retail).
 pub const AUTO_FIND_HEALING_ALWAYS_HEAL: f32 = 0.25;
+
+// --- EjectPilotDie air OCL / isSignificantlyAboveTerrain residual ---
+
+/// Retail GameData.ini Gravity residual.
+pub const HOST_GRAVITY: f32 = -64.0;
+
+/// C++ `Thing::isSignificantlyAboveTerrain` threshold: `-(3*3)*gravity`.
+/// With Gravity=-64 → height > **576** is significantly airborne.
+pub fn significantly_above_terrain_threshold() -> f32 {
+    -(3.0 * 3.0) * HOST_GRAVITY
+}
+
+/// Host residual parachute sink (world units per logic frame).
+/// Fail-closed: not full AmericaParachute OpenClose / PhysicsUpdate matrix.
+pub const EJECT_PARACHUTE_SINK_PER_FRAME: f32 = 20.0;
+
+/// Residual audio when air-ejected pilot lands (host of parachute open residual).
+pub const PILOT_PARACHUTE_LAND_AUDIO: &str = "ParadropLanding";
 
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
@@ -275,16 +300,101 @@ pub fn should_pilot_base_center_fallback(
     !found_vehicle && !did_move_to_base && has_base_center
 }
 
+/// Whether template has residual AutoFindHealingUpdate module.
+///
+/// Retail America infantry: Pilot / Ranger / MissileDefender / Pathfinder /
+/// ColonelBurton (+ general variants). Fail-closed name residual (not full INI
+/// module parse).
+pub fn is_auto_find_healing_template(template_name: &str) -> bool {
+    if is_pilot_template(template_name) {
+        return true;
+    }
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    if n.contains("weapon")
+        || n.contains("projectile")
+        || n.contains("missileweapon")
+        || n.contains("debris")
+        || n.contains("hulk")
+        || n.contains("dead")
+        || n.starts_with("upgrade")
+        || n.contains("science")
+        || n.contains("crate")
+        || n.contains("locomotor")
+        || n.contains("voice")
+        || n.contains("commandset")
+        || n.contains("flashbang")
+    {
+        return false;
+    }
+    // Explicit residual test / shorthand names.
+    if n == "testranger"
+        || n == "usa_ranger"
+        || n == "goldenranger"
+        || n == "testmissiledefender"
+        || n == "usa_missiledefender"
+        || n == "testpathfinder"
+        || n == "usa_pathfinder"
+        || n == "testcolonelburton"
+        || n == "usa_colonelburton"
+        || n == "testburton"
+    {
+        return true;
+    }
+    // AmericaInfantryRanger / *MissileDefender / *Pathfinder / *ColonelBurton
+    n.contains("infantryranger")
+        || (n.contains("ranger") && n.contains("america"))
+        || n.contains("missiledefender")
+        || n.contains("infantrypathfinder")
+        || (n.contains("pathfinder") && (n.contains("america") || n.contains("usa")))
+        || n.contains("colonelburton")
+}
+
+/// C++ Thing::isSignificantlyAboveTerrain residual.
+///
+/// Host: height_above_terrain > -(3*3)*Gravity (576 with Gravity=-64).
+pub fn is_significantly_above_terrain(height_above_terrain: f32) -> bool {
+    height_above_terrain > significantly_above_terrain_threshold()
+}
+
+/// Whether EjectPilotDie should use air OCL (OCL_EjectPilotViaParachute residual).
+///
+/// C++: `isSignificantlyAboveTerrain() ? m_oclInAir : m_oclOnGround`.
+/// Host also accepts `airborne_target` residual flag.
+pub fn uses_air_eject_ocl(height_above_terrain: f32, airborne_target: bool) -> bool {
+    airborne_target || is_significantly_above_terrain(height_above_terrain)
+}
+
+/// Residual air-eject spawn height (keep elevated; floor at threshold+1).
+pub fn air_eject_spawn_height(death_height: f32) -> f32 {
+    death_height.max(significantly_above_terrain_threshold() + 1.0)
+}
+
+/// Advance parachute residual sink toward ground (y height axis).
+///
+/// Returns (new_height, landed). Fail-closed linear sink (not full parachute physics).
+pub fn tick_parachute_height(current_height: f32, ground_height: f32) -> (f32, bool) {
+    if current_height <= ground_height + 0.01 {
+        return (ground_height, true);
+    }
+    let next = (current_height - EJECT_PARACHUTE_SINK_PER_FRAME).max(ground_height);
+    let landed = next <= ground_height + 0.01;
+    (if landed { ground_height } else { next }, landed)
+}
+
 /// Whether AutoFindHealingUpdate residual may auto-scan this unit.
 ///
 /// C++: human players return early (no scan); AI idle only (busy path fail-closed).
+/// `has_auto_find_healing` covers pilot + residual USA infantry module templates.
 pub fn auto_find_healing_scan_eligible(
-    is_pilot: bool,
+    has_auto_find_healing: bool,
     is_alive: bool,
     is_idle: bool,
     is_ai_controlled: bool,
 ) -> bool {
-    is_pilot && is_alive && is_idle && is_ai_controlled
+    has_auto_find_healing && is_alive && is_idle && is_ai_controlled
 }
 
 /// Whether health is low enough to seek healing residual.
@@ -377,6 +487,15 @@ pub struct HostUsaPilotRegistry {
     /// AutoFindHealingUpdate residual SeekingHealing orders issued.
     #[serde(default)]
     pub auto_heal_orders: u32,
+    /// EjectPilotDie air OCL parachute residual spawns (significantly above terrain).
+    #[serde(default)]
+    pub air_ejections: u32,
+    /// Air-ejected pilot parachute residual landings completed.
+    #[serde(default)]
+    pub parachute_lands: u32,
+    /// AutoFindHealingUpdate residual orders issued by non-pilot infantry.
+    #[serde(default)]
+    pub infantry_auto_heal_orders: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -420,6 +539,21 @@ impl HostUsaPilotRegistry {
     }
 
     pub fn record_auto_heal_order(&mut self) {
+        self.auto_heal_orders = self.auto_heal_orders.saturating_add(1);
+    }
+
+    pub fn record_air_ejection(&mut self) {
+        // Caller also records a normal ejection; this only tags air OCL residual.
+        self.air_ejections = self.air_ejections.saturating_add(1);
+    }
+
+    pub fn record_parachute_land(&mut self) {
+        self.parachute_lands = self.parachute_lands.saturating_add(1);
+    }
+
+    pub fn record_infantry_auto_heal_order(&mut self) {
+        // Caller may also use record_auto_heal_order for pilot; this tags non-pilot.
+        self.infantry_auto_heal_orders = self.infantry_auto_heal_orders.saturating_add(1);
         self.auto_heal_orders = self.auto_heal_orders.saturating_add(1);
     }
 
@@ -468,6 +602,21 @@ impl HostUsaPilotRegistry {
         self.auto_heal_orders > 0
     }
 
+    /// Residual honesty: at least one air OCL parachute eject residual.
+    pub fn honesty_air_eject_ok(&self) -> bool {
+        self.air_ejections > 0
+    }
+
+    /// Residual honesty: at least one parachute residual landing completed.
+    pub fn honesty_parachute_land_ok(&self) -> bool {
+        self.parachute_lands > 0
+    }
+
+    /// Residual honesty: non-pilot infantry AutoFindHealing residual issued.
+    pub fn honesty_infantry_auto_heal_ok(&self) -> bool {
+        self.infantry_auto_heal_orders > 0
+    }
+
     /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
         self.honesty_recrew_ok()
@@ -475,6 +624,8 @@ impl HostUsaPilotRegistry {
             || self.honesty_find_vehicle_ok()
             || self.honesty_base_center_ok()
             || self.honesty_auto_heal_ok()
+            || self.honesty_air_eject_ok()
+            || self.honesty_parachute_land_ok()
     }
 }
 
@@ -653,7 +804,19 @@ mod tests {
         assert!(auto_find_healing_scan_eligible(true, true, true, true));
         assert!(!auto_find_healing_scan_eligible(true, true, true, false)); // human
         assert!(!auto_find_healing_scan_eligible(true, true, false, true)); // not idle
-        assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // not pilot
+        assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // no module
+
+        assert!(is_auto_find_healing_template("AmericaInfantryPilot"));
+        assert!(is_auto_find_healing_template("AmericaInfantryRanger"));
+        assert!(is_auto_find_healing_template("AmericaInfantryMissileDefender"));
+        assert!(is_auto_find_healing_template("AmericaInfantryPathfinder"));
+        assert!(is_auto_find_healing_template("AmericaInfantryColonelBurton"));
+        assert!(is_auto_find_healing_template("AirF_AmericaInfantryRanger"));
+        assert!(is_auto_find_healing_template("TestRanger"));
+        assert!(!is_auto_find_healing_template("GLAInfantryRebel"));
+        assert!(!is_auto_find_healing_template("ChinaInfantryRedguard"));
+        assert!(!is_auto_find_healing_template("RangerFlashBangGrenadeWeapon"));
+        assert!(!is_auto_find_healing_template("Upgrade_AmericaRangerFlashBangGrenade"));
 
         assert!(health_needs_auto_find_healing(85.0, 100.0, 0.85));
         assert!(health_needs_auto_find_healing(50.0, 100.0, 0.85));
@@ -676,6 +839,40 @@ mod tests {
     }
 
     #[test]
+    fn air_eject_parachute_gates() {
+        let thr = significantly_above_terrain_threshold();
+        assert!((thr - 576.0).abs() < 0.001);
+        assert!(!is_significantly_above_terrain(0.0));
+        assert!(!is_significantly_above_terrain(thr));
+        assert!(is_significantly_above_terrain(thr + 1.0));
+        assert!(uses_air_eject_ocl(thr + 1.0, false));
+        assert!(uses_air_eject_ocl(0.0, true)); // airborne_target residual
+        assert!(!uses_air_eject_ocl(0.0, false));
+        assert!((air_eject_spawn_height(0.0) - (thr + 1.0)).abs() < 0.001);
+        assert!((air_eject_spawn_height(700.0) - 700.0).abs() < 0.001);
+
+        let (h1, landed1) = tick_parachute_height(thr + 1.0, 0.0);
+        assert!(!landed1);
+        assert!(h1 < thr + 1.0);
+        // Sink until land.
+        let mut h = thr + 1.0;
+        let mut landed = false;
+        for _ in 0..100 {
+            let (nh, l) = tick_parachute_height(h, 0.0);
+            h = nh;
+            if l {
+                landed = true;
+                break;
+            }
+        }
+        assert!(landed);
+        assert!((h - 0.0).abs() < 0.01);
+        let (ground, land_ground) = tick_parachute_height(0.0, 0.0);
+        assert!(land_ground);
+        assert!((ground - 0.0).abs() < 0.01);
+    }
+
+    #[test]
     fn base_center_and_auto_heal_honesty() {
         let mut reg = HostUsaPilotRegistry::new();
         assert!(!reg.honesty_base_center_ok());
@@ -687,6 +884,16 @@ mod tests {
         assert!(reg.honesty_auto_heal_ok());
         assert_eq!(reg.base_center_moves, 1);
         assert_eq!(reg.auto_heal_orders, 1);
+        reg.record_air_ejection();
+        assert!(reg.honesty_air_eject_ok());
+        assert_eq!(reg.air_ejections, 1);
+        reg.record_parachute_land();
+        assert!(reg.honesty_parachute_land_ok());
+        assert_eq!(reg.parachute_lands, 1);
+        reg.record_infantry_auto_heal_order();
+        assert!(reg.honesty_infantry_auto_heal_ok());
+        assert_eq!(reg.infantry_auto_heal_orders, 1);
+        assert_eq!(reg.auto_heal_orders, 2);
     }
 
     #[test]
