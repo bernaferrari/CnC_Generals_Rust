@@ -1,3 +1,35 @@
+## Residual Host Playability — Pathfinder Stealth Detect + Scout/Hellfire Drones (2026-07-12)
+**Closed (host-testable detect + stealth + drone attach/auto-fire):**
+1. **Pathfinder residual** (`AmericaInfantryPathfinder`):
+   - Spawns as stealth detector residual (DetectionRange unset → VisionRange **200**).
+   - Innate stealth; `stealth_breaks_on_attack = false` (stays stealthed while sniping).
+   - `stealth_breaks_on_move = true`: uncloaks while Moving/AttackMoving; re-cloaks when stopped
+     (StealthDelay = 0 residual).
+   - PRIMARY `USAPathfinderSniperRifle` (100 dmg / 300 range / 2000 ms).
+   - Honesty: `honesty_pathfinder_detect_ok` / `honesty_pathfinder_sniper_ok`.
+2. **Scout Drone residual** (`AmericaVehicleScoutDrone` / attach from Humvee):
+   - Spawns as detector residual (VisionRange **150**); no primary weapon.
+   - `residual_attach_slave_drone(master, Scout)` tags master with `Upgrade_AmericaScoutDrone`.
+   - Honesty: `honesty_scout_drone_attach_ok` / `honesty_scout_drone_detect_ok`.
+3. **Hellfire Drone residual** (`AmericaVehicleHellfireDrone` / attach from Humvee):
+   - PRIMARY `HellfireMissileWeapon` (40 dmg / 150 range / ~3s cycle).
+   - AutoAcquireEnemiesWhenIdle residual auto-fire (same idle-gate pattern as Sentry).
+   - `residual_attach_slave_drone(master, Hellfire)` tags master with `Upgrade_AmericaHellfireDrone`.
+   - Honesty: `honesty_hellfire_drone_attach_ok` / `honesty_hellfire_drone_auto_fire_ok`.
+4. Tests (not log-only):
+   - `pathfinder_residual_detect_stealth_and_sniper`
+   - `scout_and_hellfire_drone_residual_attach_detect_and_fire`
+   - `slave_drone_residual_rejects_non_master_attach`
+   - module unit tests in `host_pathfinder.rs` / `host_slave_drones.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SlavedUpdate guard/scout wander ranges / master layer lock
+- Full ObjectCreationUpgrade ConflictsWith / ProductionUpdate door UI per-vehicle
+- Full Pathfinder SCIENCE_Pathfinder prereq gate / FriendlyOpacity pulse / IR detector FX
+- Combat Chinook passenger-fire residual (AirF Chinook PassengersAllowedToFire) — still open
+- Humvee TOW / FlashBang remain partial via existing host upgrades
+- Network detector / drone replication (network deferred)
+
 # GeneralsRust Playability State (2026-04-02)
 
 ## Residual Host Playability — Microwave Tank + King Raptor Laser (2026-07-12)
