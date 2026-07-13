@@ -45,7 +45,8 @@
 //! - **LaserUpdate endpoint tracking residual**: each logic frame, residual
 //!   refreshes beam start/end from live `from_id` / `to_id` object positions
 //!   (C++ `LaserUpdate::updateStartPos` / `updateEndPos` without bone matrix).
-//!   Dead/missing target freezes the last end point residual. W3DLaserDraw
+//!   Dead/missing target applies PunchThroughScalar **1.3** residual (end =
+//!   start + (end−start)×scalar) then clears target id. W3DLaserDraw
 //!   residual honesty: NumBeams **1**, ScrollRate **-0.25**, ArcHeight **30**,
 //!   InnerBeamWidth **4**, Segments **20**; host advances scroll residual by
 //!   ScrollRate each frame while active.
@@ -189,6 +190,11 @@ pub const PATRIOT_LASER_TILING_SCALAR: f32 = 0.25;
 /// PatriotBinaryDataStream does not set SegmentOverlapRatio → **0.0**. Host sampler
 /// still applies the C++ non-end overlap formula so a non-zero override would work.
 pub const PATRIOT_LASER_SEGMENT_OVERLAP_RATIO: f32 = 0.0;
+/// Retail LaserUpdate PunchThroughScalar residual (PatriotBinaryDataStream / LaserGeneral).
+///
+/// When the tracked target dies or goes missing, C++ extends the end point along the
+/// start→end vector by this scalar then clears the target id (pierce residual).
+pub const PATRIOT_LASER_PUNCH_THROUGH_SCALAR: f32 = 1.3;
 
 /// Kind of residual assist feedback laser (AssistedTargetingUpdate::makeFeedbackLaser).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +223,8 @@ pub struct ResidualPatriotAssistLaser {
     pub scroll_offset: f32,
     /// Residual honesty: endpoint was refreshed from live parent/target at least once.
     pub endpoint_tracked: bool,
+    /// Residual honesty: PunchThroughScalar applied after target death/missing.
+    pub punched_through: bool,
     /// W3DLaserDraw arc mid-point residual (cos peak) for presentation consumers.
     pub arc_mid_x: f32,
     pub arc_mid_y: f32,
@@ -302,6 +310,7 @@ pub fn make_patriot_assist_lasers(
             expires_frame: expires,
             scroll_offset: 0.0,
             endpoint_tracked: false,
+            punched_through: false,
             arc_mid_x: 0.0,
             arc_mid_y: 0.0,
             arc_mid_z: 0.0,
@@ -319,6 +328,7 @@ pub fn make_patriot_assist_lasers(
             expires_frame: expires,
             scroll_offset: 0.0,
             endpoint_tracked: false,
+            punched_through: false,
             arc_mid_x: 0.0,
             arc_mid_y: 0.0,
             arc_mid_z: 0.0,
@@ -330,8 +340,36 @@ pub fn make_patriot_assist_lasers(
     beams
 }
 
+/// C++ LaserUpdate::updateEndPos PunchThroughScalar residual.
+///
+/// When the tracked target dies/vanishes and scalar **> 0**, end becomes
+/// `start + (end - start) * scalar` (beam pierces through the last aim point).
+pub fn punch_through_laser_end(
+    start: (f32, f32, f32),
+    end: (f32, f32, f32),
+    scalar: f32,
+) -> (f32, f32, f32) {
+    if scalar <= 0.0 {
+        return end;
+    }
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let dz = end.2 - start.2;
+    (
+        start.0 + dx * scalar,
+        start.1 + dy * scalar,
+        start.2 + dz * scalar,
+    )
+}
+
+/// Retail PatriotBinaryDataStream PunchThroughScalar residual honesty.
+pub fn honesty_patriot_laser_punch_through_constants_ok() -> bool {
+    (PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001
+}
+
 /// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
-/// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` freezes end.
+/// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` applies
+/// PunchThroughScalar **1.3** once then clears the target id residual.
 /// Also refreshes arc mid residual for presentation consumers.
 ///
 /// `lookup` returns `(x, y, z, alive)` for an ObjectId when present.
@@ -347,21 +385,27 @@ where
     for laser in lasers.iter_mut() {
         laser.scroll_offset += PATRIOT_LASER_SCROLL_RATE;
         let mut changed = false;
-        if let Some((x, y, z, alive)) = lookup(laser.from_id) {
-            if alive {
-                if (laser.from_x - x).abs() > 1e-4
-                    || (laser.from_y - y).abs() > 1e-4
-                    || (laser.from_z - z).abs() > 1e-4
-                {
-                    changed = true;
+        if laser.from_id.0 != 0 {
+            if let Some((x, y, z, alive)) = lookup(laser.from_id) {
+                if alive {
+                    if (laser.from_x - x).abs() > 1e-4
+                        || (laser.from_y - y).abs() > 1e-4
+                        || (laser.from_z - z).abs() > 1e-4
+                    {
+                        changed = true;
+                    }
+                    laser.from_x = x;
+                    laser.from_y = y;
+                    laser.from_z = z;
                 }
-                laser.from_x = x;
-                laser.from_y = y;
-                laser.from_z = z;
             }
         }
-        if let Some((x, y, z, alive)) = lookup(laser.to_id) {
-            if alive {
+        // C++ updateEndPos: only while m_targetID is valid.
+        if laser.to_id.0 != 0 {
+            let target_state = lookup(laser.to_id);
+            let target_alive = matches!(target_state, Some((_, _, _, true)));
+            if target_alive {
+                let (x, y, z, _) = target_state.unwrap();
                 if (laser.to_x - x).abs() > 1e-4
                     || (laser.to_y - y).abs() > 1e-4
                     || (laser.to_z - z).abs() > 1e-4
@@ -371,8 +415,27 @@ where
                 laser.to_x = x;
                 laser.to_y = y;
                 laser.to_z = z;
+            } else {
+                // Dead or missing: PunchThroughScalar pierce residual then clear target.
+                if PATRIOT_LASER_PUNCH_THROUGH_SCALAR > 0.0 {
+                    let punched = punch_through_laser_end(
+                        (laser.from_x, laser.from_y, laser.from_z),
+                        (laser.to_x, laser.to_y, laser.to_z),
+                        PATRIOT_LASER_PUNCH_THROUGH_SCALAR,
+                    );
+                    if (laser.to_x - punched.0).abs() > 1e-4
+                        || (laser.to_y - punched.1).abs() > 1e-4
+                        || (laser.to_z - punched.2).abs() > 1e-4
+                    {
+                        changed = true;
+                    }
+                    laser.to_x = punched.0;
+                    laser.to_y = punched.1;
+                    laser.to_z = punched.2;
+                    laser.punched_through = true;
+                }
+                laser.to_id = ObjectId(0);
             }
-            // Dead/missing target: freeze last end (fail-closed vs punchThroughScalar).
         }
         // Always refresh arc mid residual from current endpoints (math residual).
         laser.refresh_arc_mid();
@@ -2404,17 +2467,63 @@ mod tests {
         assert!((live[1].arc_mid_x - 80.0).abs() < 0.01); // mid of 100→60
                                                           // ScrollRate residual advances each track step.
         assert!((live[0].scroll_offset - PATRIOT_LASER_SCROLL_RATE).abs() < 0.001);
-        // Dead target freezes last end residual.
+        // Dead target: PunchThroughScalar residual pierces then clears to_id.
         positions.insert(ObjectId(3), (99.0, 0.0, 0.0, false));
         let end_before = (live[1].to_x, live[1].to_y, live[1].to_z);
+        let from_before = (live[1].from_x, live[1].from_y, live[1].from_z);
         track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
-        assert!((live[1].to_x - end_before.0).abs() < 0.01);
-        assert!((live[1].to_y - end_before.1).abs() < 0.01);
-        assert!((live[1].to_z - end_before.2).abs() < 0.01);
+        let expected = punch_through_laser_end(from_before, end_before, PATRIOT_LASER_PUNCH_THROUGH_SCALAR);
+        assert!((live[1].to_x - expected.0).abs() < 0.01);
+        assert!((live[1].to_y - expected.1).abs() < 0.01);
+        assert!((live[1].to_z - expected.2).abs() < 0.01);
+        assert!(live[1].punched_through);
+        assert_eq!(live[1].to_id, ObjectId(0));
+        // Second tick: target cleared → end stays at punched position.
+        let punched_end = (live[1].to_x, live[1].to_y, live[1].to_z);
+        track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
+        assert!((live[1].to_x - punched_end.0).abs() < 0.01);
         assert_eq!(expire_patriot_assist_lasers(&mut live, 27), 0);
         assert_eq!(live.len(), 2);
         assert_eq!(expire_patriot_assist_lasers(&mut live, 28), 2);
         assert!(live.is_empty());
+    }
+
+    #[test]
+    fn patriot_laser_punch_through_scalar_residual_honesty() {
+        assert!(honesty_patriot_laser_punch_through_constants_ok());
+        assert!((PATRIOT_LASER_PUNCH_THROUGH_SCALAR - 1.3).abs() < 0.001);
+        // start (0,0,0) end (100,0,0) → punched (130,0,0)
+        let punched = punch_through_laser_end((0.0, 0.0, 0.0), (100.0, 0.0, 0.0), 1.3);
+        assert!((punched.0 - 130.0).abs() < 0.01);
+        assert!((punched.1 - 0.0).abs() < 0.01);
+        assert!((punched.2 - 0.0).abs() < 0.01);
+        // scalar ≤ 0 leaves end unchanged.
+        let frozen = punch_through_laser_end((0.0, 0.0, 0.0), (10.0, 5.0, 2.0), 0.0);
+        assert!((frozen.0 - 10.0).abs() < 0.01);
+        assert!((frozen.1 - 5.0).abs() < 0.01);
+        // 3D pierce residual.
+        let p3 = punch_through_laser_end((10.0, 20.0, 30.0), (20.0, 40.0, 50.0), 1.3);
+        // delta (10,20,20) * 1.3 = (13,26,26) → (23,46,56)
+        assert!((p3.0 - 23.0).abs() < 0.01);
+        assert!((p3.1 - 46.0).abs() < 0.01);
+        assert!((p3.2 - 56.0).abs() < 0.01);
+
+        let beams = make_patriot_assist_lasers(
+            ObjectId(1),
+            ObjectId(2),
+            ObjectId(3),
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (100.0, 0.0, 0.0),
+            0,
+        );
+        let mut live = beams.to_vec();
+        assert!(!live[1].punched_through);
+        // Missing target (None) also punches once.
+        track_patriot_assist_laser_endpoints(&mut live, |_| None);
+        assert!(live[1].punched_through);
+        assert_eq!(live[1].to_id, ObjectId(0));
+        assert!((live[1].to_x - 130.0).abs() < 0.01);
     }
 
     #[test]
