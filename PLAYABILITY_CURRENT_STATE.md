@@ -237,6 +237,46 @@
 - Full Pathfinder SCIENCE_Pathfinder prereq gate / FriendlyOpacity pulse / IR detector FX
 - Full ChinookAIUpdate ropes / supply warehouse boxes / rappel / combat drop clear
 - Humvee TOW / FlashBang remain partial via existing host upgrades
+
+## Residual Host Playability — USA Crusader / Paladin / Avenger / Humvee (2026-07-13)
+**Closed (host-testable tank guns, FAERIE_FIRE paint, Composite Armor, Humvee polish):**
+1. **Crusader residual** (`AmericaTankCrusader` / `USA_Crusader`):
+   - PRIMARY `CrusaderTankGun` (60 dmg / 150 range / 2000 ms → 60 frames).
+   - Upgrade_AmericaCompositeArmor MaxHealthUpgrade residual **+100** HP
+     (ADD_CURRENT_HEALTH_TOO) on Crusader / Paladin.
+   - Honesty: CompositeArmor host upgrade kind + unit max_health observability.
+2. **Paladin residual** (point defense already partial; this pass):
+   - PRIMARY `PaladinTankGun` (same gun residual as Crusader).
+   - PDL secondary infantry intercept fail-closed to **Paladin only**
+     (Avenger / King Raptor / Combat Chinook: missiles only).
+   - Shares Composite Armor residual with Crusader.
+3. **Avenger residual** (`AmericaTankAvenger` / Target Designator):
+   - PRIMARY paints `OBJECT_STATUS_FAERIE_FIRE` (status residual; no HP damage).
+   - Duration 200 ms → 6 frames residual (retail continuous refresh).
+   - Allies shooting painted targets get TARGET_FAERIE_FIRE **150%** ROF residual.
+   - SECONDARY air laser residual (dual-turret collapse): 10 dmg / 300 range / AA only.
+   - PDL intercept remains via `host_point_defense`.
+   - Honesty: `honesty_avenger_paint_ok` / `honesty_avenger_air_laser_ok` /
+     `honesty_avenger_rof_ok` / `honesty_avenger_ok`.
+4. **Humvee residual polish** (`AmericaVehicleHumvee`):
+   - TransportContain Slots=**5**, PassengersAllowedToFire=Yes residual install.
+   - TOW secondary residual gains air tertiary capability after research
+     (range 320 / can_target_air; damage boost **50** vs aircraft residual).
+5. Tests (not log-only):
+   - `avenger_residual_designator_paint_and_rof`
+   - `avenger_residual_air_laser_damages_aircraft`
+   - `crusader_residual_tank_gun_and_composite_armor`
+   - `humvee_residual_transport_and_air_tow`
+   - module unit tests in `host_avenger.rs` / `host_usa_tanks.rs` / `host_humvee.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full portable AmericaTankAvengerLaserTurret OverlordContain dual-stream matrix
+- Full StatusDamageHelper Xfer / multi-status exclusivity
+- Full ArmorSet PLAYER_UPGRADE UpgradedTankArmor matrix
+- Full SCIENCE_PaladinTank prereq gate / ProductionUpdate door UI
+- Full WeaponSet PLAYER_UPGRADE Humvee turret visual swap
+- Network FAERIE_FIRE / composite / TOW air replication (network deferred)
+
 - Network detector / drone replication (network deferred)
 
 # GeneralsRust Playability State (2026-04-02)
