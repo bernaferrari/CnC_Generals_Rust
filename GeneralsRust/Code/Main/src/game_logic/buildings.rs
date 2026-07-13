@@ -57,14 +57,18 @@ impl BuildingType {
             BuildingType::RepairPad
         } else if lower.contains("hospital") || lower.contains("heal") || lower.contains("medic") {
             BuildingType::HealPad
+        } else if lower.contains("dropzone")
+            || lower.contains("drop zone")
+            || lower.contains("supplydropzone")
+        {
+            // Before generic "supply" so AmericaSupplyDropZone is not SupplyCenter.
+            BuildingType::SupplyDropZone
         } else if lower.contains("supply") || lower.contains("stash") {
             BuildingType::SupplyCenter
         } else if lower.contains("power") {
             BuildingType::PowerPlant
         } else if lower.contains("patri") || lower.contains("turret") || lower.contains("defense") {
             BuildingType::DefenseTurret
-        } else if lower.contains("dropzone") || lower.contains("drop zone") {
-            BuildingType::SupplyDropZone
         } else if lower.contains("palace") {
             BuildingType::Palace
         } else if lower.contains("propaganda") {
