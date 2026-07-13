@@ -4128,6 +4128,10 @@ impl SnapshotBuilder {
                 start_position: -1,
                 alliance_team: -1,
                 cash_bounty_percent,
+                // Recomputed from owned CommandCenter / RadarVan on next
+                // update_player_radar residual pass (fail-closed restore).
+                radar_count: 0,
+                radar_disabled: false,
             });
         }
 

@@ -73,7 +73,7 @@ impl TracePlayer {
             money: player.resources.supplies as i32,
             power: player.power_available,
             low_power: player.power_available < 0,
-            has_radar: player.power_available >= 0,
+            has_radar: player.has_radar(),
             is_dead: !player.is_alive,
             rank_level: 0,
             skill_points: 0,
