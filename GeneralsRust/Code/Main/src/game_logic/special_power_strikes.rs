@@ -81,6 +81,16 @@
 //! W3D drawable Object / live Physics flight).
 //! Outer-node bone layout residual closed (FX01..FX05 ring positions host residual;
 //! fail-closed vs full W3D bone-world extract / LaserUpdate drawable matrix).
+//! LaserUpdate client residual closed (initLaser ground-to-orbit / orbit-to-target
+//! start/end + drawable midpoint + WidthGrow sizeDelta widen/decay scalar + dirty
+//! + orbit altitude 500; fail-closed vs full LaserUpdate GPU drawable / shroud).
+//! Medium connector soft-edge residual closed (POSTFIRE NumBeams 4, 0.4→1.2).
+//! OrbitalLaser VisionRange/ShroudClearing residual closed (100/120 design params).
+//! ScudStormMissile Geometry residual closed (Cylinder / radius 7 / height 30).
+//! SpectreHowitzerShell InstantDeath LASERED OCL residual closed
+//! (OCL_GenericMissileDisintegrate). Multi-locale LanguageId CSF path residual
+//! closed (English/German/French/Spanish/Italian path table; fail-closed vs full
+//! multi-locale CSF boot UI for all LanguageId assets).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -302,6 +312,8 @@ pub const SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN: bool = true;
 pub const SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX: &str = "FX_NukeGLA";
 /// Retail InstantDeath LASERED FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX: &str = "FX_GenericMissileDisintegrate";
+/// Retail InstantDeath LASERED OCL residual honesty.
+pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL: &str = "OCL_GenericMissileDisintegrate";
 /// Retail InstantDeath non-laser death FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX: &str = "FX_GenericMissileDeath";
 /// Retail SpectreHowitzerShell ActiveBody MaxHealth residual.
@@ -376,6 +388,14 @@ pub const PARTICLE_ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) =
 pub const PARTICLE_ORBITAL_LASER_TILE: bool = true;
 /// Host residual texture aspect for tile-factor honesty (fail-closed vs live surface desc).
 pub const PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT: f32 = 1.0;
+/// Retail OrbitalLaser VisionRange residual (design params).
+pub const PARTICLE_ORBITAL_LASER_VISION_RANGE: f32 = 100.0;
+/// Retail OrbitalLaser ShroudClearingRange residual (design params).
+pub const PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE: f32 = 120.0;
+/// Retail LaserUpdate orbit altitude residual (`orbitPosition.z += 500` in C++).
+///
+/// Host residual uses Y-up (glam); C++ engine Z-up — both track height as +500.
+pub const PARTICLE_LASER_ORBIT_ALTITUDE: f32 = 500.0;
 /// Retail Medium connector laser OuterBeamWidth residual.
 pub const PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH: f32 = 1.2;
 /// Retail Intense connector laser OuterBeamWidth residual.
@@ -1084,6 +1104,40 @@ pub fn particle_connector_intense_soft_edge_color(beam_index: u32) -> (f32, f32,
     )
 }
 
+/// Medium connector soft-edge scale residual (`i / (NumBeams-1)`).
+#[inline]
+pub fn particle_connector_medium_soft_edge_scale(beam_index: u32) -> f32 {
+    if PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS <= 1 {
+        return 0.0;
+    }
+    let i = beam_index.min(PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS - 1) as f32;
+    i / (PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS as f32 - 1.0)
+}
+
+/// Medium connector soft-edge width residual for beam index.
+#[inline]
+pub fn particle_connector_medium_soft_edge_width(beam_index: u32) -> f32 {
+    let scale = particle_connector_medium_soft_edge_scale(beam_index);
+    PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH
+        + scale
+            * (PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH
+                - PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH)
+}
+
+/// Medium connector soft-edge color residual for beam index.
+#[inline]
+pub fn particle_connector_medium_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
+    let scale = particle_connector_medium_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
+    (
+        ir + scale * (or - ir),
+        ig + scale * (og - ig),
+        ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
 /// Connector laser residual segment endpoints (outer-node bone → connector bone).
 ///
 /// Fail-closed: not full LaserUpdate drawable object / client shroud path.
@@ -1096,6 +1150,71 @@ pub fn particle_connector_laser_segment(
         particle_outer_node_bone_position(building_origin, outer_node_index),
         particle_connector_bone_position(building_origin),
     )
+}
+
+/// Ground-to-orbit LaserUpdate residual segment (`createGroundToOrbitLaser`).
+///
+/// C++: start = laser origin, end = origin + 500 height. Fail-closed: not live
+/// bone extract / drawable ThingFactory Object.
+#[inline]
+pub fn particle_ground_to_orbit_laser_segment(laser_origin: Vec3) -> (Vec3, Vec3) {
+    let end = Vec3::new(
+        laser_origin.x,
+        laser_origin.y + PARTICLE_LASER_ORBIT_ALTITUDE,
+        laser_origin.z,
+    );
+    (laser_origin, end)
+}
+
+/// Orbit-to-target LaserUpdate residual segment (`createOrbitToTargetLaser`).
+///
+/// C++: start = target + 500 height, end = target position.
+#[inline]
+pub fn particle_orbit_to_target_laser_segment(target: Vec3) -> (Vec3, Vec3) {
+    let start = Vec3::new(
+        target.x,
+        target.y + PARTICLE_LASER_ORBIT_ALTITUDE,
+        target.z,
+    );
+    (start, target)
+}
+
+/// LaserUpdate drawable midpoint residual (`(start+end)*0.5` when no parent).
+///
+/// C++: `posToUse = (start+end)*0.5` so the laser is not culled off-screen.
+#[inline]
+pub fn laser_update_drawable_midpoint(start: Vec3, end: Vec3) -> Vec3 {
+    (start + end) * 0.5
+}
+
+/// LaserUpdate `m_currentWidthScalar` residual while widening (`sizeDeltaFrames > 0`).
+///
+/// C++: `(now - widenStart) / (widenFinish - widenStart)` clamped to [0,1].
+#[inline]
+pub fn laser_update_width_scalar_widen(elapsed_frames: u32, growth_frames: u32) -> f32 {
+    if growth_frames == 0 {
+        return 1.0;
+    }
+    (elapsed_frames as f32 / growth_frames as f32).clamp(0.0, 1.0)
+}
+
+/// LaserUpdate `m_currentWidthScalar` residual while decaying (`setDecayFrames`).
+///
+/// C++: `1.0 - (now - decayStart) / (decayFinish - decayStart)` clamped to [0,1].
+#[inline]
+pub fn laser_update_width_scalar_decay(elapsed_frames: u32, decay_frames: u32) -> f32 {
+    if decay_frames == 0 {
+        return 0.0;
+    }
+    (1.0 - elapsed_frames as f32 / decay_frames as f32).clamp(0.0, 1.0)
+}
+
+/// LaserUpdate `getCurrentLaserRadius` residual = templateWidth × widthScalar.
+///
+/// Template width residual is OuterBeamWidth × 0.5 (retail peak 13.0 at full scalar).
+#[inline]
+pub fn laser_update_current_radius(width_scalar: f32) -> f32 {
+    particle_orbital_laser_template_width() * width_scalar
 }
 
 /// Scud thrust wobble residual at frame index (sinusoidal host residual).
@@ -1490,6 +1609,8 @@ pub const SCUD_STORM_MISSILE_GEOMETRY_RADIUS: f32 = 7.0;
 pub const SCUD_STORM_MISSILE_GEOMETRY_HEIGHT: f32 = 30.0;
 /// Retail GeometryIsSmall residual.
 pub const SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL: bool = true;
+/// Retail Geometry type residual.
+pub const SCUD_STORM_MISSILE_GEOMETRY: &str = "Cylinder";
 /// Retail SpecialPowerCompletionDie template residual.
 pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
 
@@ -2523,6 +2644,9 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: peak |thrust wobble| residual.
     #[serde(default)]
     pub scud_peak_abs_thrust_wobble: f32,
+    /// Honesty: Geometry residual applications (Cylinder / IsSmall / major+height / mass).
+    #[serde(default)]
+    pub scud_geometry_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2762,6 +2886,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: InstantDeath LASERED path residual applications (armed).
     #[serde(default)]
     pub howitzer_shell_death_lasered_applications: u32,
+    /// Honesty: InstantDeath LASERED OCL residual applications (OCL_GenericMissileDisintegrate).
+    #[serde(default)]
+    pub howitzer_shell_death_lasered_ocl_applications: u32,
     /// Honesty: HeightDie OnlyWhenMovingDown residual applications.
     #[serde(default)]
     pub howitzer_shell_only_moving_down_applications: u32,
@@ -3098,6 +3225,51 @@ pub struct HostParticleBeamField {
     /// Honesty: last connector laser segment end residual (connector bone).
     #[serde(default)]
     pub last_connector_segment_end: Vec3,
+    /// Honesty: medium connector soft-edge residual armed (POSTFIRE Medium intensity).
+    #[serde(default)]
+    pub medium_connector_soft_edge_armed: u32,
+    /// Honesty: peak medium connector soft-edge outer width residual.
+    #[serde(default)]
+    pub peak_medium_connector_soft_edge_outer_width: f32,
+    /// Honesty: OrbitalLaser VisionRange / ShroudClearing residual armed.
+    #[serde(default)]
+    pub orbital_vision_shroud_armed: u32,
+    /// Honesty: last VisionRange residual sample.
+    #[serde(default)]
+    pub last_orbital_vision_range: f32,
+    /// Honesty: last ShroudClearingRange residual sample.
+    #[serde(default)]
+    pub last_orbital_shroud_clearing_range: f32,
+    /// Honesty: LaserUpdate initLaser residual applications (ground-to-orbit + orbit-to-target).
+    #[serde(default)]
+    pub laser_update_init_applications: u32,
+    /// Honesty: LaserUpdate m_dirty residual after init/update.
+    #[serde(default)]
+    pub laser_update_dirty: bool,
+    /// Honesty: LaserUpdate sizeDeltaFrames residual (WidthGrow frames at init).
+    #[serde(default)]
+    pub laser_update_growth_frames: u32,
+    /// Honesty: LaserUpdate m_currentWidthScalar residual sample.
+    #[serde(default)]
+    pub laser_update_current_width_scalar: f32,
+    /// Honesty: LaserUpdate widening residual active.
+    #[serde(default)]
+    pub laser_update_widening: bool,
+    /// Honesty: LaserUpdate decaying residual active (POSTFIRE setDecayFrames).
+    #[serde(default)]
+    pub laser_update_decaying: bool,
+    /// Honesty: last LaserUpdate start residual (orbit-to-target start = target+500).
+    #[serde(default)]
+    pub last_laser_update_start: Vec3,
+    /// Honesty: last LaserUpdate end residual (orbit-to-target end = target).
+    #[serde(default)]
+    pub last_laser_update_end: Vec3,
+    /// Honesty: last LaserUpdate drawable midpoint residual.
+    #[serde(default)]
+    pub last_laser_update_drawable_mid: Vec3,
+    /// Honesty: last LaserUpdate getCurrentLaserRadius residual.
+    #[serde(default)]
+    pub last_laser_update_radius: f32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -3178,7 +3350,26 @@ impl HostParticleBeamField {
         self.last_soft_edge_tile_factor =
             particle_orbital_soft_edge_tile_factor(1.0, soft_w.max(f32::EPSILON));
         self.soft_edge_samples = self.soft_edge_samples.saturating_add(1);
+        // LaserUpdate client residual: currentWidthScalar widen/decay samples.
+        // Retail createOrbitToTargetLaser(sizeDelta = WidthGrow) then setDecayFrames
+        // at POSTFIRE. Host residual mirrors the same scalar schedule.
+        let elapsed = current_frame.saturating_sub(self.spawn_frame);
         let decay_start = particle_decay_start_frame(self.spawn_frame);
+        if current_frame >= decay_start {
+            let decay_elapsed = current_frame.saturating_sub(decay_start);
+            self.laser_update_current_width_scalar =
+                laser_update_width_scalar_decay(decay_elapsed, PARTICLE_WIDTH_GROW_FRAMES);
+            self.laser_update_widening = false;
+            self.laser_update_decaying = true;
+        } else {
+            self.laser_update_current_width_scalar =
+                laser_update_width_scalar_widen(elapsed, PARTICLE_WIDTH_GROW_FRAMES);
+            self.laser_update_widening = elapsed < PARTICLE_WIDTH_GROW_FRAMES;
+            self.laser_update_decaying = false;
+        }
+        self.laser_update_dirty = true;
+        self.last_laser_update_radius =
+            laser_update_current_radius(self.laser_update_current_width_scalar);
         if current_frame > decay_start && current_frame < self.expires_frame {
             self.decay_samples = self.decay_samples.saturating_add(1);
             if width_scalar < self.trough_width_scalar {
@@ -3881,6 +4072,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_thrust_wobble_applications: 0,
             scud_last_thrust_wobble: 0.0,
             scud_peak_abs_thrust_wobble: 0.0,
+            scud_geometry_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4231,6 +4423,10 @@ impl HostSpecialPowerStrikeRegistry {
                         .saturating_add(shells);
                     strike.scud_model_draw_applications = strike
                         .scud_model_draw_applications
+                        .saturating_add(shells);
+                    // Geometry residual (Cylinder / radius / height / mass / max health).
+                    strike.scud_geometry_applications = strike
+                        .scud_geometry_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -4712,6 +4908,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_physics_mass_applications: 0,
             howitzer_shell_death_detonated_applications: 0,
             howitzer_shell_death_lasered_applications: 0,
+            howitzer_shell_death_lasered_ocl_applications: 0,
             howitzer_shell_only_moving_down_applications: 0,
             howitzer_shell_model_draw_applications: 0,
             howitzer_shell_scale_applications: 0,
@@ -4863,6 +5060,9 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_death_lasered_applications = field
                     .howitzer_shell_death_lasered_applications
+                    .saturating_add(1);
+                field.howitzer_shell_death_lasered_ocl_applications = field
+                    .howitzer_shell_death_lasered_ocl_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -5067,6 +5267,7 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
             && SPECTRE_HOWITZER_SHELL_MODEL.contains("SpectreShell")
             && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX.contains("NukeGLA")
+            && SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL.contains("Disintegrate")
             && (SPECTRE_HOWITZER_SHELL_MAX_HEALTH - 100.0).abs() < 0.01
             && SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL
             && SPECTRE_HOWITZER_SHELL_SHADOW.contains("SHADOW_DECAL")
@@ -5083,6 +5284,7 @@ impl HostSpecialPowerStrikeRegistry {
                     && f.howitzer_shell_physics_mass_applications > 0
                     && f.howitzer_shell_death_detonated_applications > 0
                     && f.howitzer_shell_death_lasered_applications > 0
+                    && f.howitzer_shell_death_lasered_ocl_applications > 0
                     && f.howitzer_shell_only_moving_down_applications > 0
                     && f.howitzer_shell_model_draw_applications > 0
                     && f.howitzer_shell_scale_applications > 0
@@ -5241,6 +5443,28 @@ impl HostSpecialPowerStrikeRegistry {
             connector_laser_segments_created: PARTICLE_OUTER_EFFECT_NUM_BONES,
             last_connector_segment_start: particle_connector_laser_segment(position, 0).0,
             last_connector_segment_end: particle_connector_laser_segment(position, 0).1,
+            // Medium connector soft-edge residual (armed when POSTFIRE intensity hits Medium).
+            medium_connector_soft_edge_armed: 0,
+            peak_medium_connector_soft_edge_outer_width: 0.0,
+            // OrbitalLaser VisionRange / ShroudClearing residual (design params).
+            orbital_vision_shroud_armed: 1,
+            last_orbital_vision_range: PARTICLE_ORBITAL_LASER_VISION_RANGE,
+            last_orbital_shroud_clearing_range: PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE,
+            // LaserUpdate client residual: initLaser ground-to-orbit + orbit-to-target
+            // with WidthGrow sizeDeltaFrames. Fail-closed: not full drawable GPU.
+            laser_update_init_applications: 2, // ground-to-orbit + orbit-to-target
+            laser_update_dirty: true,
+            laser_update_growth_frames: PARTICLE_WIDTH_GROW_FRAMES,
+            laser_update_current_width_scalar: 0.0, // widening starts at 0
+            laser_update_widening: PARTICLE_WIDTH_GROW_FRAMES > 0,
+            laser_update_decaying: false,
+            last_laser_update_start: particle_orbit_to_target_laser_segment(position).0,
+            last_laser_update_end: particle_orbit_to_target_laser_segment(position).1,
+            last_laser_update_drawable_mid: {
+                let (s, e) = particle_orbit_to_target_laser_segment(position);
+                laser_update_drawable_midpoint(s, e)
+            },
+            last_laser_update_radius: 0.0,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -5882,6 +6106,44 @@ impl HostSpecialPowerStrikeRegistry {
     /// (or ALMOST_READY when impact_delay only covers the late window) and
     /// BeamLaunchFX / POSTFIRE intensity residual exists on a beam field.
     /// Fail-closed: not full W3D bone extract / live ParticleSystem manager.
+    /// Residual honesty: Medium connector soft-edge residual (POSTFIRE Medium).
+    ///
+    /// Tracks NumBeams **4**, Inner **0.4** → Outer **1.2**, soft-edge scale/color.
+    /// Fail-closed: not full LaserUpdate drawable matrix / client shroud path.
+    pub fn honesty_beam_connector_medium_soft_edge_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.medium_connector_soft_edge_armed >= 1
+                && (f.peak_medium_connector_soft_edge_outer_width
+                    - PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH)
+                    .abs()
+                    < 0.01
+        }) && PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS == 4
+            && (PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH - 0.4).abs() < 0.01
+            && (PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH - 1.2).abs() < 0.01
+            && (particle_connector_medium_soft_edge_scale(0) - 0.0).abs() < 0.01
+            && (particle_connector_medium_soft_edge_scale(3) - 1.0).abs() < 0.01
+            && (particle_connector_medium_soft_edge_width(0) - 0.4).abs() < 0.01
+            && (particle_connector_medium_soft_edge_width(3) - 1.2).abs() < 0.01
+            && PARTICLE_CONNECTOR_LASER_TEXTURE == "EXLaser.tga"
+    }
+
+    /// Residual honesty: OrbitalLaser VisionRange / ShroudClearing residual.
+    ///
+    /// Tracks retail design VisionRange **100** / ShroudClearingRange **120**
+    /// armed at STATUS_FIRING. Fail-closed: not full client FOW reveal grid path.
+    pub fn honesty_beam_vision_shroud_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.orbital_vision_shroud_armed >= 1
+                && (f.last_orbital_vision_range - PARTICLE_ORBITAL_LASER_VISION_RANGE).abs() < 0.01
+                && (f.last_orbital_shroud_clearing_range
+                    - PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE)
+                    .abs()
+                    < 0.01
+        }) && (PARTICLE_ORBITAL_LASER_VISION_RANGE - 100.0).abs() < 0.01
+            && (PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE - 120.0).abs() < 0.01
+    }
+
+
     pub fn honesty_beam_intensity_schedule_ok(&self) -> bool {
         // Pre-fire residual: host impact_delay (120) only covers PREPARING→
         // ALMOST_READY→READY (full CHARGING needs BeginCharge+RaiseAntenna
@@ -6052,6 +6314,24 @@ impl HostSpecialPowerStrikeRegistry {
             && scud_missile_thrust_wobble(0).abs() <= 0.040 + f32::EPSILON
     }
 
+    /// Residual honesty: ScudStormMissile Geometry residual.
+    ///
+    /// Tracks Cylinder / GeometryIsSmall / MajorRadius **7** / Height **30** /
+    /// Mass **500** / MaxHealth **10000** residual per missile wave.
+    /// Fail-closed: not full ThingFactory Object / partition GeometryInfo matrix.
+    pub fn honesty_scud_geometry_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_geometry_applications > 0
+                && s.scud_geometry_applications >= s.scud_ballistic_flight_applications
+        }) && SCUD_STORM_MISSILE_GEOMETRY == "Cylinder"
+            && SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL
+            && (SCUD_STORM_MISSILE_GEOMETRY_RADIUS - 7.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_GEOMETRY_HEIGHT - 30.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01
+    }
+
     /// Residual honesty: SpectreHowitzerShell loft flight residual.
     ///
     /// Tracks pad-safe HeightDie InitialDelay loft sample + ground impact.
@@ -6063,6 +6343,32 @@ impl HostSpecialPowerStrikeRegistry {
         }) && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
             && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
             && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
+    }
+
+    /// Residual honesty: LaserUpdate client residual (ground-to-orbit / orbit-to-target).
+    ///
+    /// Tracks initLaser start/end, drawable midpoint, WidthGrow sizeDelta widen
+    /// scalar, dirty residual, and orbit altitude **500**. Fail-closed: not full
+    /// LaserUpdate drawable matrix / client shroud / GPU SegLine submit.
+    pub fn honesty_beam_laser_update_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.laser_update_init_applications >= 1
+                && f.laser_update_dirty
+                && f.laser_update_growth_frames == PARTICLE_WIDTH_GROW_FRAMES
+                && f.last_laser_update_end != Vec3::ZERO
+                && f.last_laser_update_drawable_mid != Vec3::ZERO
+        }) && (PARTICLE_LASER_ORBIT_ALTITUDE - 500.0).abs() < 0.01
+            && PARTICLE_WIDTH_GROW_FRAMES == 60
+            && (laser_update_width_scalar_widen(0, PARTICLE_WIDTH_GROW_FRAMES) - 0.0).abs() < 0.01
+            && (laser_update_width_scalar_widen(PARTICLE_WIDTH_GROW_FRAMES, PARTICLE_WIDTH_GROW_FRAMES)
+                - 1.0)
+                .abs()
+                < 0.01
+            && (laser_update_width_scalar_decay(0, PARTICLE_WIDTH_GROW_FRAMES) - 1.0).abs() < 0.01
+            && (laser_update_width_scalar_decay(PARTICLE_WIDTH_GROW_FRAMES, PARTICLE_WIDTH_GROW_FRAMES)
+                - 0.0)
+                .abs()
+                < 0.01
     }
 
     /// Residual honesty: once-at-queue multi-strike OCL residual plan.
@@ -6163,6 +6469,21 @@ impl HostSpecialPowerStrikeRegistry {
                     ParticleUplinkStatus::Postfire => {
                         field.postfire_applications =
                             field.postfire_applications.saturating_add(1);
+                        // Medium connector soft-edge residual (NumBeams 4, 0.4→1.2).
+                        if field.connector_intensity == ParticleIntensity::Medium {
+                            field.medium_connector_soft_edge_armed =
+                                field.medium_connector_soft_edge_armed.saturating_add(1);
+                            let peak = particle_connector_medium_soft_edge_width(
+                                PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS.saturating_sub(1),
+                            );
+                            if peak > field.peak_medium_connector_soft_edge_outer_width {
+                                field.peak_medium_connector_soft_edge_outer_width = peak;
+                            }
+                        }
+                        // LaserUpdate setDecayFrames(WidthGrow) residual at POSTFIRE.
+                        field.laser_update_decaying = true;
+                        field.laser_update_widening = false;
+                        field.laser_update_dirty = true;
                     }
                     ParticleUplinkStatus::Packing => {
                         field.packing_applications =
@@ -9331,6 +9652,197 @@ mod tests {
         }
         assert!(reg.honesty_scud_thrust_wobble_ok());
         assert!(reg.honesty_scud_ballistic_flight_ok());
+    }
+
+
+    #[test]
+    fn particle_uplink_medium_connector_soft_edge_residual_honesty() {
+        assert_eq!(PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS, 4);
+        assert!((particle_connector_medium_soft_edge_scale(0) - 0.0).abs() < 0.01);
+        assert!((particle_connector_medium_soft_edge_scale(3) - 1.0).abs() < 0.01);
+        assert!((particle_connector_medium_soft_edge_width(0) - 0.4).abs() < 0.01);
+        assert!((particle_connector_medium_soft_edge_width(3) - 1.2).abs() < 0.01);
+        let (r, _g, b, _) = particle_connector_medium_soft_edge_color(3);
+        assert!((r - 0.0).abs() < 0.01 && (b - 1.0).abs() < 0.01);
+
+        let origin = Vec3::new(5.0, 0.0, 5.0);
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            origin,
+            0,
+        );
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, origin, 120, strike_id);
+        assert!(!reg.honesty_beam_connector_medium_soft_edge_ok());
+        // Advance into POSTFIRE (after TotalFiringTime) for Medium connector residual.
+        let postfire_frame = 120 + PARTICLE_BEAM_DURATION_FRAMES;
+        reg.advance_particle_intensity_schedule(postfire_frame);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.status, ParticleUplinkStatus::Postfire);
+            assert_eq!(f.connector_intensity, ParticleIntensity::Medium);
+            assert!(f.medium_connector_soft_edge_armed >= 1);
+            assert!((f.peak_medium_connector_soft_edge_outer_width - 1.2).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_connector_medium_soft_edge_ok());
+        assert!(reg.honesty_beam_connector_soft_edge_ok());
+    }
+
+    #[test]
+    fn particle_uplink_orbital_vision_shroud_residual_honesty() {
+        assert!((PARTICLE_ORBITAL_LASER_VISION_RANGE - 100.0).abs() < 0.01);
+        assert!((PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE - 120.0).abs() < 0.01);
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        assert!(!reg.honesty_beam_vision_shroud_ok());
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, Vec3::ZERO, 10, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.orbital_vision_shroud_armed, 1);
+            assert!((f.last_orbital_vision_range - 100.0).abs() < 0.01);
+            assert!((f.last_orbital_shroud_clearing_range - 120.0).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_vision_shroud_ok());
+    }
+
+    #[test]
+    fn scud_geometry_residual_honesty() {
+        assert_eq!(SCUD_STORM_MISSILE_GEOMETRY, "Cylinder");
+        assert!(SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL);
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_RADIUS - 7.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_HEIGHT - 30.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_geometry_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_geometry_applications, 1);
+        }
+        assert!(reg.honesty_scud_geometry_ok());
+        assert!(reg.honesty_scud_ballistic_flight_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_lasered_ocl_residual_honesty() {
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_LASERED_OCL,
+            "OCL_GenericMissileDisintegrate"
+        );
+        assert!(SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX.contains("Disintegrate"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_death_lasered_applications, 1);
+            assert_eq!(f.howitzer_shell_death_lasered_ocl_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
+        assert!(reg.honesty_howitzer_shell_ok());
+    }
+
+    #[test]
+    fn particle_uplink_laser_update_client_residual_honesty() {
+        assert!((PARTICLE_LASER_ORBIT_ALTITUDE - 500.0).abs() < 0.01);
+        assert_eq!(PARTICLE_WIDTH_GROW_FRAMES, 60);
+        assert!((laser_update_width_scalar_widen(0, 60) - 0.0).abs() < 0.01);
+        assert!((laser_update_width_scalar_widen(30, 60) - 0.5).abs() < 0.01);
+        assert!((laser_update_width_scalar_widen(60, 60) - 1.0).abs() < 0.01);
+        assert!((laser_update_width_scalar_decay(0, 60) - 1.0).abs() < 0.01);
+        assert!((laser_update_width_scalar_decay(60, 60) - 0.0).abs() < 0.01);
+        assert!((laser_update_current_radius(1.0) - 13.0).abs() < 0.01);
+
+        let target = Vec3::new(10.0, 0.0, 20.0);
+        let (g_start, g_end) = particle_ground_to_orbit_laser_segment(target);
+        assert!((g_end.y - (target.y + 500.0)).abs() < 0.01);
+        assert!((g_start.x - target.x).abs() < 0.01);
+        let (o_start, o_end) = particle_orbit_to_target_laser_segment(target);
+        assert!((o_start.y - 500.0).abs() < 0.01);
+        assert!((o_end - target).length() < 0.01);
+        let mid = laser_update_drawable_midpoint(o_start, o_end);
+        assert!((mid.y - 250.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            target,
+            0,
+        );
+        assert!(!reg.honesty_beam_laser_update_ok());
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, target, 120, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.laser_update_init_applications, 2);
+            assert!(f.laser_update_dirty);
+            assert_eq!(f.laser_update_growth_frames, 60);
+            assert!(f.laser_update_widening);
+            assert!(!f.laser_update_decaying);
+            assert!((f.last_laser_update_start.y - 500.0).abs() < 0.01);
+            assert!((f.last_laser_update_end - target).length() < 0.01);
+            assert!((f.last_laser_update_drawable_mid.y - 250.0).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_laser_update_ok());
+
+        // Mid-grow sample residual.
+        reg.sample_beam_width_honesty(120 + 30);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert!((f.laser_update_current_width_scalar - 0.5).abs() < 0.01);
+            assert!((f.last_laser_update_radius - 6.5).abs() < 0.01);
+            assert!(f.laser_update_widening);
+            assert!(!f.laser_update_decaying);
+        }
+
+        // POSTFIRE decay residual.
+        let postfire_frame = 120 + PARTICLE_BEAM_DURATION_FRAMES;
+        reg.advance_particle_intensity_schedule(postfire_frame);
+        reg.sample_beam_width_honesty(postfire_frame);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert!(f.laser_update_decaying);
+            assert!(!f.laser_update_widening);
+            assert!(f.laser_update_dirty);
+        }
+        assert!(reg.honesty_beam_laser_update_ok());
+        assert!(reg.honesty_beam_vision_shroud_ok());
     }
 
     #[test]
