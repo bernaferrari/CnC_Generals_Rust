@@ -1,3 +1,64 @@
+## Residual Host Playability — Scud Death Damage Table + Howitzer Gun Fire Params + Remnant Fire/Deletion + DisplayString Text Ops + Full LanguageId Table (2026-07-13)
+**Closed (host-testable residual not covered by wave 38 FireOCL/aim/getTextLength residual):**
+1. **ScudStormDamageWeapon damage table residual** (`special_power_strikes`):
+   - PrimaryDamage **500** / PrimaryRadius **50** / Secondary **150**/**200** / SecondaryRadius **200**.
+   - DamageType **EXPLOSION**, DeathType **EXPLODED**, WeaponSpeed **600**, AttackRange **200**,
+     FireFX **ScudStormMissileDetonation**, RadiusDamageAffects **ALLIES ENEMIES NEUTRALS**,
+     DelayBetweenShots **0**, ClipSize **0**.
+   - Honesty: `honesty_scud_death_damage_table_ok`.
+   - Fail-closed: not full FireWeaponWhenDeadBehavior exclusive module matrix.
+2. **SpectreHowitzerGun fire params residual** (`special_power_strikes`):
+   - PrimaryDamage **80** / radius **25**, DelayBetweenShots **777** ms (frames **23**),
+     DamageType **EXPLOSION**, DeathType **EXPLODED**, RadiusDamageAffects ALLIES/ENEMIES/NEUTRALS,
+     FireFX/FireSound/DetonationFX residual, ClipSize **0**, ClipReloadTime **0**,
+     ShellLocomotor GroupMovementPriority **MOVES_BACK**.
+   - Distinct from HowitzerFiringRate **300** ms orbit residual cadence.
+   - Honesty: `honesty_howitzer_gun_fire_params_ok`.
+   - Fail-closed: not full WeaponTemplate store / live turret fire matrix.
+3. **TrailRemnant FireWeaponUpdate + DeletionUpdate residual** (`special_power_strikes`):
+   - FireWeaponUpdate Weapon **ParticleUplinkCannonBeamTrailRemnantWeapon**.
+   - PrimaryDamage **15** / radius **10** / DelayBetweenShots **250** ms → **7** frames.
+   - DamageType **PARTICLE_BEAM**, DeathType **BURNED**, WeaponSpeed **250**,
+     RadiusDamageAffects **ALLIES ENEMIES NEUTRALS**.
+   - DeletionUpdate MinLifetime **4000** == MaxLifetime **4000** → **120** frames.
+   - Honesty: `honesty_beam_remnant_fire_deletion_ok`.
+   - Fail-closed: not full ThingFactory ImmortalBody / live DeletionUpdate module stack.
+4. **DisplayString text ops residual** (`floating_text_layout`):
+   - getText identity residual; reset clears text+font without notify.
+   - appendChar / removeLastChar mutate + notifyTextChanged residual.
+   - getWidth monospaced charPos residual (skip `\n`; 8px glyph).
+   - Honesty: `honesty_display_string_get_text` / `reset` / `append_char` / `remove_last_char` / `get_width`.
+   - Fail-closed: not full FontCharsClass spacing / WW3D StretchRect draw.
+5. **Full LanguageId residual table** (`game_text_residual`):
+   - Discriminants US=0 UK=1 German=2 French=3 Spanish=4 Italian=5 Japanese=6 Jabber=7 Korean=8 Unknown=9.
+   - Japanese/Korean path tables residual; Jabber/Unknown fail-closed English pack paths.
+   - Honesty: multi_locale_path_count **10**.
+   - Fail-closed: not full multi-locale CSF boot UI for all LanguageId assets.
+6. Snapshot/Xfer: scud death damage table default + howitzer gun fire params + remnant fire/deletion residual fields appended.
+7. Tests (not log-only):
+   - `scud_death_damage_table_residual_honesty`
+   - `spectre_howitzer_gun_fire_params_residual_honesty`
+   - `particle_uplink_remnant_fire_deletion_residual_honesty`
+   - `display_string_get_text_and_reset_residual_honesty`
+   - `display_string_append_remove_char_residual_honesty`
+   - `display_string_get_width_residual_honesty`
+   - `multi_locale_csf_path_residual_table` (10 locales)
+   - all `special_power_strikes::` (**75**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Scud FireOCL/Speed Table + Howitzer Aim Params + getTextLength + UK Locale (2026-07-13)
 **Closed (host-testable residual not covered by wave 36/37 DestroyDie/loco/connector residual):**
 1. **ScudStormMissile DeathWeapon FireOCL residual** (`special_power_strikes`):

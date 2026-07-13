@@ -107,6 +107,14 @@
 //! SpeedDamaged/MinSpeed/MaxThrustAngle residual; SpectreHowitzerGun
 //! AcceptableAimDelta/AttackRange residual; DisplayString getTextLength residual;
 //! multi-locale UK LanguageId CSF path residual (graphics).
+//! Wave 39 residual closed: Scud DeathWeapon damage table (Primary/Secondary/
+//! DamageType/DeathType/WeaponSpeed/FireFX/AttackRange); SpectreHowitzerGun fire
+//! residual (DelayBetweenShots 777ms / DamageType / DeathType / RadiusDamageAffects /
+//! FireFX / FireSound / ClipSize / GroupMovementPriority MOVES_BACK); TrailRemnant
+//! FireWeaponUpdate + DeletionUpdate residual (DamageType PARTICLE_BEAM / DeathType
+//! BURNED / MinLifetime==MaxLifetime 4000ms); DisplayString getText/reset/appendChar/
+//! removeLastChar/getWidth residual + multi-locale Japanese/Jabber/Korean/Unknown
+//! LanguageId residual (graphics; fail-closed vs full CSF boot UI).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -386,6 +394,30 @@ pub const SPECTRE_HOWITZER_ATTACK_RANGE: f32 = 2222.0;
 pub const SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH: &str = "STRUCTURES WALLS";
 /// Retail SpectreHowitzerGun AntiGround residual.
 pub const SPECTRE_HOWITZER_ANTI_GROUND: bool = true;
+/// Retail SpectreHowitzerGun PrimaryDamage residual.
+pub const SPECTRE_HOWITZER_PRIMARY_DAMAGE: f32 = 80.0;
+/// Retail SpectreHowitzerGun DelayBetweenShots residual (msec).
+///
+/// Distinct from SpectreGunshipUpdate `HowitzerFiringRate` **300** ms used for
+/// orbit residual cadence ([`SPECTRE_ORBIT_TICK_INTERVAL_FRAMES`]). Host combat
+/// orbit still uses HowitzerFiringRate; this residual tracks the weapon template
+/// field honesty only.
+pub const SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_MS: u32 = 777;
+/// Retail DelayBetweenShots 777 ms → frames @ 30 FPS.
+pub const SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_FRAMES: u32 =
+    (SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_MS * 30) / 1000;
+/// Retail SpectreHowitzerGun DamageType residual.
+pub const SPECTRE_HOWITZER_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail SpectreHowitzerGun DeathType residual.
+pub const SPECTRE_HOWITZER_DEATH_TYPE: &str = "EXPLODED";
+/// Retail SpectreHowitzerGun RadiusDamageAffects residual.
+pub const SPECTRE_HOWITZER_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
+/// Retail SpectreHowitzerGun ClipSize residual (0 == infinite).
+pub const SPECTRE_HOWITZER_CLIP_SIZE: u32 = 0;
+/// Retail SpectreHowitzerGun ClipReloadTime residual (msec).
+pub const SPECTRE_HOWITZER_CLIP_RELOAD_TIME_MS: u32 = 0;
+/// Retail SpectreHowitzerShellLocomotor GroupMovementPriority residual.
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY: &str = "MOVES_BACK";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -1480,8 +1512,13 @@ pub const PARTICLE_REMNANT_DAMAGE_PER_TICK: f32 = 15.0;
 pub const PARTICLE_REMNANT_RADIUS: f32 = 10.0;
 /// Retail DelayBetweenShots 250 ms → 7 frames @ 30 FPS ((250*30)/1000).
 pub const PARTICLE_REMNANT_TICK_INTERVAL_FRAMES: u32 = (250 * 30) / 1000;
+/// Retail DeletionUpdate MinLifetime residual (msec).
+pub const PARTICLE_REMNANT_MIN_LIFETIME_MS: u32 = 4000;
+/// Retail DeletionUpdate MaxLifetime residual (msec; equals Min for fixed lifetime).
+pub const PARTICLE_REMNANT_MAX_LIFETIME_MS: u32 = 4000;
 /// Retail DeletionUpdate Min/MaxLifetime 4000 ms → 120 frames.
-pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 = (4000 * 30) / 1000;
+pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 =
+    (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
 /// Retail remnant Object template name residual (honesty).
 pub const PARTICLE_REMNANT_OBJECT_NAME: &str = "ParticleUplinkCannonTrailRemnant";
 /// Retail remnant weapon name residual (honesty).
@@ -1496,6 +1533,18 @@ pub const PARTICLE_REMNANT_INITIAL_HEALTH: f32 = 50.0;
 pub const PARTICLE_REMNANT_EDITOR_SORTING: &str = "SYSTEM";
 /// Retail TrailRemnant Body module residual.
 pub const PARTICLE_REMNANT_BODY: &str = "ImmortalBody";
+/// Retail TrailRemnant weapon DamageType residual.
+pub const PARTICLE_REMNANT_DAMAGE_TYPE: &str = "PARTICLE_BEAM";
+/// Retail TrailRemnant weapon DeathType residual.
+pub const PARTICLE_REMNANT_DEATH_TYPE: &str = "BURNED";
+/// Retail TrailRemnant FireWeaponUpdate module residual present.
+pub const PARTICLE_REMNANT_FIRE_WEAPON_UPDATE: bool = true;
+/// Retail TrailRemnant DeletionUpdate module residual present.
+pub const PARTICLE_REMNANT_DELETION_UPDATE: bool = true;
+/// Retail remnant weapon RadiusDamageAffects residual.
+pub const PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
+/// Retail remnant weapon WeaponSpeed residual (dist/sec).
+pub const PARTICLE_REMNANT_WEAPON_SPEED: f32 = 250.0;
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -1820,6 +1869,22 @@ pub const SCUD_STORM_MISSILE_DAMAGE_FX: &str = "None";
 pub const SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE: &str = "OCL_PoisonFieldLarge";
 /// Retail ScudStormDamageWeaponUpgraded FireOCL residual.
 pub const SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED: &str = "OCL_PoisonFieldUpgradedLarge";
+/// Retail ScudStormDamageWeapon DamageType residual.
+pub const SCUD_STORM_MISSILE_DEATH_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ScudStormDamageWeapon DeathType residual.
+pub const SCUD_STORM_MISSILE_DEATH_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ScudStormDamageWeapon WeaponSpeed residual (dist/sec).
+pub const SCUD_STORM_MISSILE_DEATH_WEAPON_SPEED: f32 = 600.0;
+/// Retail ScudStormDamageWeapon AttackRange residual.
+pub const SCUD_STORM_MISSILE_DEATH_ATTACK_RANGE: f32 = 200.0;
+/// Retail ScudStormDamageWeapon FireFX residual (detonation FX name).
+pub const SCUD_STORM_MISSILE_DEATH_FIRE_FX: &str = "ScudStormMissileDetonation";
+/// Retail ScudStormDamageWeapon RadiusDamageAffects residual.
+pub const SCUD_STORM_MISSILE_DEATH_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
+/// Retail ScudStormDamageWeapon DelayBetweenShots residual (msec; 0 instant).
+pub const SCUD_STORM_MISSILE_DEATH_DELAY_BETWEEN_SHOTS_MS: u32 = 0;
+/// Retail ScudStormDamageWeapon ClipSize residual (0 == infinite).
+pub const SCUD_STORM_MISSILE_DEATH_CLIP_SIZE: u32 = 0;
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2878,6 +2943,9 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: Locomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual applications.
     #[serde(default)]
     pub scud_locomotor_speed_table_applications: u32,
+    /// Honesty: DeathWeapon Primary/Secondary damage table residual applications.
+    #[serde(default)]
+    pub scud_death_damage_table_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3165,6 +3233,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: SpectreHowitzerGun AcceptableAimDelta/AttackRange residual applications.
     #[serde(default)]
     pub howitzer_gun_aim_params_applications: u32,
+    /// Honesty: SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip/GroupPriority) applications.
+    #[serde(default)]
+    pub howitzer_gun_fire_params_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -3750,6 +3821,9 @@ pub struct HostParticleRemnantField {
     /// Honesty: TrailRemnant KindOf / ImmortalBody residual applications.
     #[serde(default)]
     pub remnant_object_params_applications: u32,
+    /// Honesty: TrailRemnant FireWeaponUpdate + DeletionUpdate residual applications.
+    #[serde(default)]
+    pub remnant_fire_deletion_applications: u32,
 }
 
 impl HostParticleRemnantField {
@@ -4378,6 +4452,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_destroy_die_locomotor_name_applications: 0,
             scud_death_fire_ocl_applications: 0,
             scud_locomotor_speed_table_applications: 0,
+            scud_death_damage_table_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4764,6 +4839,10 @@ impl HostSpecialPowerStrikeRegistry {
                     // Locomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual.
                     strike.scud_locomotor_speed_table_applications = strike
                         .scud_locomotor_speed_table_applications
+                        .saturating_add(shells);
+                    // DeathWeapon Primary/Secondary damage table residual.
+                    strike.scud_death_damage_table_applications = strike
+                        .scud_death_damage_table_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -5261,6 +5340,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_locomotor_template_applications: 0,
             howitzer_shell_damage_fx_applications: 0,
             howitzer_gun_aim_params_applications: 0,
+            howitzer_gun_fire_params_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5426,6 +5506,10 @@ impl HostSpecialPowerStrikeRegistry {
                 // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
                 field.howitzer_gun_aim_params_applications = field
                     .howitzer_gun_aim_params_applications
+                    .saturating_add(1);
+                // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
+                field.howitzer_gun_fire_params_applications = field
+                    .howitzer_gun_fire_params_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -6122,6 +6206,8 @@ impl HostSpecialPowerStrikeRegistry {
             parent_strike_id,
             // KindOf / ImmortalBody residual armed on spawn.
             remnant_object_params_applications: 1,
+            // FireWeaponUpdate + DeletionUpdate residual armed on spawn.
+            remnant_fire_deletion_applications: 1,
         };
         self.remnant_fields.push(field);
         self.remnant_spawned_this_frame.push(id);
@@ -6948,6 +7034,32 @@ impl HostSpecialPowerStrikeRegistry {
             && (SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE - 540.0).abs() < 0.01
     }
 
+    /// Residual honesty: Scud DeathWeapon Primary/Secondary damage table residual.
+    ///
+    /// Tracks PrimaryDamage **500**, PrimaryDamageRadius **50**, SecondaryDamage
+    /// **150**/**200** (upgraded), SecondaryDamageRadius **200**, DamageType
+    /// **EXPLOSION**, DeathType **EXPLODED**, WeaponSpeed **600**, AttackRange **200**,
+    /// FireFX **ScudStormMissileDetonation**, RadiusDamageAffects ALLIES/ENEMIES/NEUTRALS.
+    /// Fail-closed: not full FireWeaponWhenDeadBehavior exclusive module matrix.
+    pub fn honesty_scud_death_damage_table_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_death_damage_table_applications > 0
+        }) && (SCUD_STORM_PRIMARY_DAMAGE - 500.0).abs() < 0.01
+            && (SCUD_STORM_PRIMARY_RADIUS - 50.0).abs() < 0.01
+            && (SCUD_STORM_SECONDARY_DAMAGE - 150.0).abs() < 0.01
+            && (SCUD_STORM_SECONDARY_DAMAGE_UPGRADED - 200.0).abs() < 0.01
+            && (SCUD_STORM_SECONDARY_RADIUS - 200.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_DEATH_DAMAGE_TYPE == "EXPLOSION"
+            && SCUD_STORM_MISSILE_DEATH_DEATH_TYPE == "EXPLODED"
+            && (SCUD_STORM_MISSILE_DEATH_WEAPON_SPEED - 600.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_DEATH_ATTACK_RANGE - 200.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_DEATH_FIRE_FX == "ScudStormMissileDetonation"
+            && SCUD_STORM_MISSILE_DEATH_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
+            && SCUD_STORM_MISSILE_DEATH_DELAY_BETWEEN_SHOTS_MS == 0
+            && SCUD_STORM_MISSILE_DEATH_CLIP_SIZE == 0
+    }
+
     /// Residual honesty: SpectreHowitzerShellLocomotor template residual.
     ///
     /// Tracks Surfaces **AIR**, Appearance **THRUST**, MinSpeed **1111**, Accel
@@ -6997,6 +7109,31 @@ impl HostSpecialPowerStrikeRegistry {
             && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
     }
 
+    /// Residual honesty: SpectreHowitzerGun fire residual.
+    ///
+    /// Tracks PrimaryDamage **80**, PrimaryDamageRadius **25**, DelayBetweenShots
+    /// **777** ms, DamageType **EXPLOSION**, DeathType **EXPLODED**,
+    /// RadiusDamageAffects **ALLIES ENEMIES NEUTRALS**, FireFX/FireSound/DetonationFX,
+    /// ClipSize **0**. Fail-closed: not full WeaponTemplate store / live turret fire matrix.
+    pub fn honesty_howitzer_gun_fire_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_gun_fire_params_applications > 0
+                && f.howitzer_gun_fire_params_applications >= f.howitzer_shells_spawned
+        }) && (SPECTRE_HOWITZER_PRIMARY_DAMAGE - 80.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_RADIUS - 25.0).abs() < 0.01
+            && SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_MS == 777
+            && SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_FRAMES == 23
+            && SPECTRE_HOWITZER_DAMAGE_TYPE == "EXPLOSION"
+            && SPECTRE_HOWITZER_DEATH_TYPE == "EXPLODED"
+            && SPECTRE_HOWITZER_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
+            && SPECTRE_HOWITZER_FIRE_FX.contains("GenericTankGunNoTracer")
+            && SPECTRE_HOWITZER_FIRE_SOUND.contains("ArtilleryRound")
+            && SPECTRE_HOWITZER_DETONATION_FX.contains("SpectreHowitzerExplosion")
+            && SPECTRE_HOWITZER_CLIP_SIZE == 0
+            && SPECTRE_HOWITZER_CLIP_RELOAD_TIME_MS == 0
+            && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY == "MOVES_BACK"
+    }
+
     /// Residual honesty: connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile.
     ///
     /// Tracks KindOf **IMMOBILE**, Segments **1**, MaxIntensityLifetime **0**,
@@ -7034,6 +7171,31 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_REMNANT_OBJECT_NAME == "ParticleUplinkCannonTrailRemnant"
     }
 
+    /// Residual honesty: TrailRemnant FireWeaponUpdate + DeletionUpdate residual.
+    ///
+    /// Tracks FireWeaponUpdate Weapon **ParticleUplinkCannonBeamTrailRemnantWeapon**,
+    /// PrimaryDamage **15** / radius **10** / DelayBetweenShots **250** ms,
+    /// DamageType **PARTICLE_BEAM**, DeathType **BURNED**, DeletionUpdate Min/Max
+    /// Lifetime **4000** ms. Fail-closed: not full ThingFactory Object / live
+    /// FireWeaponUpdate + DeletionUpdate module stack.
+    pub fn honesty_beam_remnant_fire_deletion_ok(&self) -> bool {
+        self.remnant_fields.iter().any(|f| {
+            f.remnant_fire_deletion_applications >= 1
+        }) && PARTICLE_REMNANT_FIRE_WEAPON_UPDATE
+            && PARTICLE_REMNANT_DELETION_UPDATE
+            && PARTICLE_REMNANT_WEAPON_NAME == "ParticleUplinkCannonBeamTrailRemnantWeapon"
+            && (PARTICLE_REMNANT_DAMAGE_PER_TICK - 15.0).abs() < 0.01
+            && (PARTICLE_REMNANT_RADIUS - 10.0).abs() < 0.01
+            && PARTICLE_REMNANT_TICK_INTERVAL_FRAMES == 7
+            && PARTICLE_REMNANT_DURATION_FRAMES == 120
+            && PARTICLE_REMNANT_MIN_LIFETIME_MS == 4000
+            && PARTICLE_REMNANT_MAX_LIFETIME_MS == 4000
+            && PARTICLE_REMNANT_MIN_LIFETIME_MS == PARTICLE_REMNANT_MAX_LIFETIME_MS
+            && PARTICLE_REMNANT_DAMAGE_TYPE == "PARTICLE_BEAM"
+            && PARTICLE_REMNANT_DEATH_TYPE == "BURNED"
+            && PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
+            && (PARTICLE_REMNANT_WEAPON_SPEED - 250.0).abs() < 0.01
+    }
 
     pub fn honesty_howitzer_shell_loft_flight_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
@@ -11115,6 +11277,111 @@ mod tests {
         }
         assert!(reg.honesty_howitzer_gun_aim_params_ok());
         assert!(reg.honesty_howitzer_shell_locomotor_template_ok());
+    }
+
+    #[test]
+    fn scud_death_damage_table_residual_honesty() {
+        assert!((SCUD_STORM_PRIMARY_DAMAGE - 500.0).abs() < 0.01);
+        assert!((SCUD_STORM_PRIMARY_RADIUS - 50.0).abs() < 0.01);
+        assert!((SCUD_STORM_SECONDARY_DAMAGE - 150.0).abs() < 0.01);
+        assert!((SCUD_STORM_SECONDARY_DAMAGE_UPGRADED - 200.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_DAMAGE_TYPE, "EXPLOSION");
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_DEATH_TYPE, "EXPLODED");
+        assert!((SCUD_STORM_MISSILE_DEATH_WEAPON_SPEED - 600.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DEATH_ATTACK_RANGE - 200.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_FIRE_FX, "ScudStormMissileDetonation");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(80.0, 0.0, 80.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_death_damage_table_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(80.0, 0.0, 80.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_death_damage_table_applications, 1);
+        }
+        assert!(reg.honesty_scud_death_damage_table_ok());
+        assert!(reg.honesty_scud_death_fire_ocl_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_gun_fire_params_residual_honesty() {
+        assert!((SPECTRE_HOWITZER_PRIMARY_DAMAGE - 80.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_RADIUS - 25.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_MS, 777);
+        assert_eq!(SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_FRAMES, 23);
+        assert_eq!(SPECTRE_HOWITZER_DAMAGE_TYPE, "EXPLOSION");
+        assert_eq!(SPECTRE_HOWITZER_DEATH_TYPE, "EXPLODED");
+        assert_eq!(SPECTRE_HOWITZER_RADIUS_DAMAGE_AFFECTS, "ALLIES ENEMIES NEUTRALS");
+        assert_eq!(SPECTRE_HOWITZER_CLIP_SIZE, 0);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY, "MOVES_BACK");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_gun_fire_params_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_gun_fire_params_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_gun_fire_params_ok());
+        assert!(reg.honesty_howitzer_gun_aim_params_ok());
+    }
+
+    #[test]
+    fn particle_uplink_remnant_fire_deletion_residual_honesty() {
+        assert!(PARTICLE_REMNANT_FIRE_WEAPON_UPDATE);
+        assert!(PARTICLE_REMNANT_DELETION_UPDATE);
+        assert_eq!(
+            PARTICLE_REMNANT_WEAPON_NAME,
+            "ParticleUplinkCannonBeamTrailRemnantWeapon"
+        );
+        assert_eq!(PARTICLE_REMNANT_DAMAGE_TYPE, "PARTICLE_BEAM");
+        assert_eq!(PARTICLE_REMNANT_DEATH_TYPE, "BURNED");
+        assert_eq!(PARTICLE_REMNANT_MIN_LIFETIME_MS, 4000);
+        assert_eq!(PARTICLE_REMNANT_MAX_LIFETIME_MS, 4000);
+        assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
+        assert_eq!(PARTICLE_REMNANT_TICK_INTERVAL_FRAMES, 7);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_beam_remnant_fire_deletion_ok());
+        let _id = reg.spawn_remnant_field(
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(10.0, 0.0, 10.0),
+            0,
+            0,
+            0,
+        );
+        {
+            let f = &reg.remnant_fields()[0];
+            assert_eq!(f.remnant_fire_deletion_applications, 1);
+        }
+        assert!(reg.honesty_beam_remnant_fire_deletion_ok());
+        assert!(reg.honesty_beam_remnant_object_params_ok());
+        assert!(reg.honesty_beam_remnant_ok());
     }
 
 
