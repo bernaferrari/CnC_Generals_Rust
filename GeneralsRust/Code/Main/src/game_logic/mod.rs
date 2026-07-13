@@ -26,6 +26,8 @@ pub mod host_cia_intelligence;
 pub mod host_hero_abilities;
 pub mod host_car_bomb;
 pub mod host_bomb_truck_disguise;
+pub mod host_bomb_truck_detonate;
+pub mod host_helix_napalm;
 pub mod host_repair;
 pub mod host_heal;
 pub mod host_propaganda;
@@ -341,6 +343,19 @@ pub use host_nuke_cannon::{
     is_nuke_cannon_template as is_nuke_cannon_primary_template, nuke_cannon_primary_damage_at,
     should_apply_nuke_cannon_primary, HostNukeCannonRegistry, MEDIUM_RADIATION_DAMAGE_PER_TICK,
     MEDIUM_RADIATION_RADIUS, NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS,
+};
+pub use host_helix_napalm::{
+    helix_napalm_blast_damage_at, helix_napalm_unlocked, is_helix_napalm_caster,
+    HostHelixNapalmRegistry, HELIX_FIRESTORM_DAMAGE_PER_TICK, HELIX_FIRESTORM_DURATION_FRAMES,
+    HELIX_FIRESTORM_RADIUS, HELIX_FIRESTORM_TICK_INTERVAL_FRAMES, HELIX_NAPALM_PRIMARY_DAMAGE,
+    HELIX_NAPALM_PRIMARY_RADIUS, HELIX_NAPALM_SECONDARY_DAMAGE, HELIX_NAPALM_SECONDARY_RADIUS,
+    UPGRADE_HELIX_NAPALM_BOMB,
+};
+pub use host_bomb_truck_detonate::{
+    bomb_truck_blast_damage_at, is_bomb_truck_template as is_bomb_truck_detonate_template,
+    BombTruckDetonationProfile, HostBombTruckDetonateRegistry, BOMB_TRUCK_DEFAULT_PRIMARY_DAMAGE,
+    BOMB_TRUCK_DEFAULT_PRIMARY_RADIUS, BOMB_TRUCK_HE_PRIMARY_DAMAGE, BOMB_TRUCK_HE_PRIMARY_RADIUS,
+    UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

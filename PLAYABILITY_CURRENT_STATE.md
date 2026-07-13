@@ -1,3 +1,35 @@
+## Residual Host Playability — Helix NapalmBomb + Bomb Truck HE/Bio (2026-07-13)
+**Closed (host-testable Helix NapalmBomb special power + Bomb Truck detonation residual):**
+1. **Helix NapalmBomb residual** (`SpecialAbilityHelixNapalmBomb` /
+   `SPECIAL_HELIX_NAPALM_BOMB` on `ChinaVehicleHelix` / `TestHelix`):
+   - Requires `Upgrade_HelixNapalmBomb` residual unlock (TestHelix always unlocked).
+   - Instant blast residual: PrimaryDamage **75** / radius **5** + Secondary **40** / **30**
+     (`NapalmBombWeapon` / BlackNapalm same blast numbers).
+   - Spawns residual FirestormSmall DoT: DamageAmount **100** (BlackNapalm **150**) /
+     tick **500**ms / lifetime **6000**ms / radius **90**.
+   - Reload residual: **10000** ms (300 frames).
+   - Honesty: `honesty_helix_napalm_drop_ok` / blast / firestorm / `honesty_helix_napalm_ok`.
+2. **Bomb Truck HE/Bio detonation residual** (`GLAVehicleBombTruck` FireWeaponWhenDead):
+   - Default death: Primary **1000**/radius **40** + Secondary **100**/radius **65**.
+   - HE upgrade (`Upgrade_GLABombTruckHighExplosiveBomb`): **2000**/50 + **200**/85.
+   - Bio upgrade (`Upgrade_GLABombTruckBioBomb`): + MediumPoisonField DoT
+     (2 / 80 / 30s / 500ms); Bio+Anthrax → 2.5 upgraded poison.
+   - HE+Bio combos supported (HE blast + bio poison residual).
+   - Honesty: `honesty_bomb_truck_detonate_ok` / he / bio / path.
+3. Tests (not log-only):
+   - `helix_napalm_bomb_special_power_residual_blast_and_firestorm`
+   - `helix_napalm_bomb_requires_upgrade_on_production_helix`
+   - `bomb_truck_default_detonation_residual_damages_nearby`
+   - `bomb_truck_he_and_bio_detonation_residual`
+   - module unit tests in `host_helix_napalm.rs` / `host_bomb_truck_detonate.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SpecialObject NapalmBomb HeightDie fall / UnpackTime charge matrix
+- Full FirestormDynamicGeometryInfoUpdate expand/reverse radius animation
+- Full FireWeaponWhenDead exclusive RequiresAllTriggers / SubObjectsUpgrade Bombload visuals
+- Full Anthrax Gamma / Demo_ red FX / WeaponBonus PLAYER_UPGRADE 125% HE matrix
+- Network Helix napalm / bomb-truck detonation replication (network deferred)
+
 ## Residual Host Playability — Overlord/Helix Addons + Nuke Cannon Primary (2026-07-13)
 **Closed (host-testable China Overlord/Helix/Emperor addons + Nuke Cannon primary residual):**
 1. **Overlord gattling / propaganda tower addons residual**
@@ -16,6 +48,7 @@
 3. **Helix residual** (`ChinaVehicleHelix`):
    - `HelixContain` Slots=**5** transport residual on spawn.
    - Same gattling / propaganda / bunker addon residual install path.
+   - **Helix NapalmBomb special ability closed 2026-07-13** (see section above).
 4. **Nuke Cannon primary residual** (`ChinaVehicleNukeCannon`):
    - PRIMARY `NukeCannonGun` area residual: PrimaryDamage **400** / radius **50**
      + SecondaryDamage **20** / radius **60**, range **350**, delay **300** frames.
@@ -33,7 +66,6 @@
 **Still residual (fail-closed, not claimed):**
 - Full OCL portable-structure passenger object + DamageModule share matrix
 - Full W3DOverlord*Draw / W3DDependencyModelDraw bone attach / CONTINUOUS_FIRE_* anim
-- Full Helix NapalmBomb special ability + BlackNapalm weapon-set residual
 - Full NukeCannon DeployStyleAIUpdate unpack / projectile lob / ScatterRadiusVsInfantry
 - Network addon / radiation replication (network deferred)
 
@@ -221,7 +253,7 @@
 - Full StealthUpdate disguise transition opacity / half-point model swap / FX
 - Full drawable indicator-color night/day matrix for disguised players
 - Full 2500ms StealthDelay re-cloak timer / FriendlyOpacity pulse for Camouflage
-- Bomb truck FireWeaponWhenDead upgrade matrix (HE/Bio/Anthrax) detonation residual
+- Bomb truck FireWeaponWhenDead HE/Bio residual closed 2026-07-13 (see Helix Napalm + Bomb Truck HE/Bio section)
 - Network disguise / camouflage replication (network deferred)
 
 ## Residual Host Playability — GLA Tunnel Network Enter/Exit (2026-07-12)

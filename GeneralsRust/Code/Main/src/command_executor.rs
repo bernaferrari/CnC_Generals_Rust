@@ -907,6 +907,7 @@ impl<'a> CommandExecutor<'a> {
             // Paradrop residual queues America Airborne infantry drop at target.
             // Ambush residual queues GLA Rebel Ambush infantry spawn at target.
             // FireWall residual creates a line of fire damage zones toward target.
+            // HelixNapalmBomb residual drops NapalmBomb blast + FirestormSmall at target.
             // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
             // Frenzy residual buffs ally attack damage in radius (FRENZY_ONE/TWO/THREE).
             // EmergencyRepair residual SingleBurst-heals ally vehicles in radius.
@@ -1041,6 +1042,14 @@ impl<'a> CommandExecutor<'a> {
                     if self
                         .game_logic
                         .activate_firewall(unit_id, pos)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::HelixNapalmBomb {
+                    if self
+                        .game_logic
+                        .activate_helix_napalm_bomb(unit_id, pos)
                         .is_none()
                     {
                         continue;
