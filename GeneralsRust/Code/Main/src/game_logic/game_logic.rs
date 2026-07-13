@@ -4784,15 +4784,19 @@ impl GameLogic {
             }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
+            // TARGET_FAERIE_FIRE residual: painted targets grant 150% ROF readiness.
+            let target_has_faerie = attacker
+                .target
+                .and_then(|tid| self.objects.get(&tid))
+                .map(|t| t.is_faerie_fire())
+                .unwrap_or(false);
+
             // Any slot ready on reload timer? If all reloading, skip (no chase).
-            let any_ready = attacker
-                .weapon
-                .as_ref()
-                .is_some_and(|w| Object::weapon_ready(w, current_time))
-                || attacker
-                    .secondary_weapon
-                    .as_ref()
-                    .is_some_and(|w| Object::weapon_ready(w, current_time));
+            let any_ready = attacker.weapon.as_ref().is_some_and(|w| {
+                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
+            }) || attacker.secondary_weapon.as_ref().is_some_and(|w| {
+                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
+            });
             if !any_ready {
                 continue;
             }
@@ -41206,6 +41210,479 @@ mod tests {
         assert!(
             game_logic.combat_cycle_residual_loads() >= 1,
             "combat cycle load residual honesty"
+        );
+    }
+
+    /// Residual: Avenger paints FAERIE_FIRE; ally shoots painted target faster residual.
+    #[test]
+    fn avenger_residual_designator_paint_and_rof() {
+        use crate::game_logic::host_avenger::{
+            is_avenger_template, FAERIE_FIRE_ROF_MULTIPLIER,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut avenger_tpl = crate::game_logic::ThingTemplate::new("USA_Avenger");
+        avenger_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::AVENGER_TARGET_DESIGNATOR)
+            .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::AVENGER_AIR_LASER);
+        game_logic
+            .templates
+            .insert("USA_Avenger".to_string(), avenger_tpl);
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let mut ally_tpl = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        ally_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Ranger".to_string(), ally_tpl);
+
+        let avenger_id = game_logic
+            .create_object("USA_Avenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("avenger");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        let ally_id = game_logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+
+        {
+            let a = game_logic.find_object(avenger_id).expect("avenger");
+            assert!(is_avenger_template(&a.template_name));
+            assert!(a.weapon.is_some(), "designator primary residual");
+            assert!(a.secondary_weapon.is_some(), "air laser secondary residual");
+        }
+        assert!(!game_logic.honesty_avenger_paint_ok());
+
+        // Avenger paints enemy.
+        {
+            let a = game_logic.find_object_mut(avenger_id).unwrap();
+            a.target = Some(enemy_id);
+            a.ai_state = AIState::Attacking;
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.frame = 1;
+        game_logic.update_combat(&[avenger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_avenger_paint_ok(),
+            "designator residual honesty must record paint"
+        );
+        assert!(
+            game_logic.avenger_residual_paints() > 0,
+            "paint counter must advance"
+        );
+        {
+            let e = game_logic.find_object(enemy_id).expect("enemy");
+            assert!(e.is_faerie_fire(), "enemy must have FAERIE_FIRE residual");
+            // Designator deals no HP damage residual.
+            assert!(
+                (e.health.current - e.health.maximum).abs() < 0.01
+                    || e.health.current >= e.health.maximum - 1.0,
+                "designator must not deal hitpoint damage residual"
+            );
+        }
+
+        // Ally fires at painted target — ROF residual readiness + honesty.
+        // Retail paint duration is 6 frames; keep paint alive for the ROF check.
+        {
+            let until = game_logic.frame.saturating_add(60);
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.apply_faerie_fire(until);
+        }
+        {
+            let ally = game_logic.find_object_mut(ally_id).unwrap();
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            if let Some(w) = ally.weapon.as_mut() {
+                w.damage = 10.0;
+                w.range = 200.0;
+                w.reload_time = 1.0;
+                // Not ready under normal ROF (0.5s < 1.0s), ready under 150% ROF (~0.667).
+                w.last_fire_time = 0.0;
+            }
+        }
+        // t=0.7s with last_fire=0 reload=1.0 → only ready with FAERIE 150% ROF.
+        game_logic.frame = 21;
+        let current_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        {
+            let ally = game_logic.find_object(ally_id).unwrap();
+            let enemy = game_logic.find_object(enemy_id).unwrap();
+            assert!(enemy.is_faerie_fire(), "paint must still be active for ROF residual");
+            let w = ally.weapon.as_ref().unwrap();
+            assert!(
+                !Object::weapon_ready(w, current_time),
+                "without FAERIE_FIRE ROF, reload 1.0 not ready at t=0.7"
+            );
+            assert!(
+                Object::weapon_ready_vs_target(w, current_time, enemy.is_faerie_fire()),
+                "with FAERIE_FIRE ROF 150%, ready at t=0.7 (effective reload ~0.667)"
+            );
+            assert!(
+                (FAERIE_FIRE_ROF_MULTIPLIER - 1.5).abs() < 0.001,
+                "retail ROF mult residual"
+            );
+            let slot = ally.select_combat_weapon_slot(enemy, current_time);
+            assert_eq!(slot, Some(0), "ally must select primary vs painted target");
+        }
+        game_logic.update_combat(&[ally_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_avenger_rof_ok(),
+            "shooting painted target must record ROF residual honesty"
+        );
+        assert!(game_logic.honesty_avenger_ok());
+    }
+
+    /// Residual: Avenger air laser secondary damages aircraft.
+    #[test]
+    fn avenger_residual_air_laser_damages_aircraft() {
+        use crate::game_logic::host_avenger::AVENGER_AIR_LASER_DAMAGE;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut avenger_tpl = crate::game_logic::ThingTemplate::new("AmericaTankAvenger");
+        avenger_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        game_logic
+            .templates
+            .insert("AmericaTankAvenger".to_string(), avenger_tpl);
+
+        let mut jet_tpl = crate::game_logic::ThingTemplate::new("TestJet");
+        jet_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestJet".to_string(), jet_tpl);
+
+        let avenger_id = game_logic
+            .create_object(
+                "AmericaTankAvenger",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("avenger");
+        let jet_id = game_logic
+            .create_object("TestJet", Team::China, Vec3::new(100.0, 50.0, 0.0))
+            .expect("jet");
+
+        let hp_before = game_logic.find_object(jet_id).unwrap().health.current;
+        {
+            let a = game_logic.find_object_mut(avenger_id).unwrap();
+            a.target = Some(jet_id);
+            a.ai_state = AIState::Attacking;
+            if let Some(w) = a.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+            }
+            // Force secondary slot preference residual.
+            a.active_weapon_slot = 1;
+        }
+        game_logic.frame = 5;
+        game_logic.update_combat(&[avenger_id, jet_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_avenger_air_laser_ok(),
+            "air laser residual honesty"
+        );
+        let hp_after = game_logic.find_object(jet_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "air laser must damage aircraft residual (before={hp_before} after={hp_after})"
+        );
+        let dealt = hp_before - hp_after;
+        assert!(
+            dealt + 0.01 >= AVENGER_AIR_LASER_DAMAGE * 0.5,
+            "air laser damage residual ~10 (armor may reduce); dealt={dealt}"
+        );
+    }
+
+    /// Residual: CrusaderTankGun combat + Composite Armor +100 HP.
+    #[test]
+    fn crusader_residual_tank_gun_and_composite_armor() {
+        use crate::game_logic::host_usa_tanks::{
+            is_crusader_template, COMPOSITE_ARMOR_ADD_MAX_HEALTH, USA_TANK_GUN_DAMAGE,
+            UPGRADE_AMERICA_COMPOSITE_ARMOR,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, CRUSADER_TANK_GUN};
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut crusader_tpl = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        crusader_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(480.0)
+            .set_primary_weapon_name(CRUSADER_TANK_GUN);
+        game_logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), crusader_tpl);
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let crusader_id = game_logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("crusader");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let c = game_logic.find_object(crusader_id).expect("crusader");
+            assert!(is_crusader_template(&c.template_name));
+            let w = c.weapon.as_ref().expect("CrusaderTankGun residual");
+            assert!(
+                (w.damage - USA_TANK_GUN_DAMAGE).abs() < 0.5,
+                "CrusaderTankGun damage residual 60, got {}",
+                w.damage
+            );
+            assert!((c.max_health - 480.0).abs() < 0.01);
+        }
+
+        // Combat residual: tank gun damages enemy.
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let c = game_logic.find_object_mut(crusader_id).unwrap();
+            c.target = Some(enemy_id);
+            c.ai_state = AIState::Attacking;
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.frame = 10;
+        game_logic.update_combat(&[crusader_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "Crusader tank gun must damage residual"
+        );
+
+        // Composite Armor residual: +100 max+current HP (MaxHealthUpgrade path).
+        {
+            use crate::game_logic::host_usa_tanks::apply_composite_armor_health;
+            if let Some(c) = game_logic.find_object_mut(crusader_id) {
+                let mut max_h = c.max_health;
+                let mut cur = c.health.current;
+                let mut maximum = c.health.maximum;
+                apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
+                c.max_health = max_h;
+                c.health.current = cur;
+                c.health.maximum = maximum;
+                c.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
+            }
+            let frame = game_logic.frame;
+            game_logic.host_upgrades_mut().record_queue(
+                UPGRADE_AMERICA_COMPOSITE_ARMOR,
+                Team::USA,
+                0,
+                0,
+                None,
+            );
+            game_logic.host_upgrades_mut().record_complete(
+                UPGRADE_AMERICA_COMPOSITE_ARMOR,
+                0,
+                frame,
+                1,
+            );
+        }
+
+        {
+            let c = game_logic.find_object(crusader_id).expect("crusader");
+            assert!(
+                c.has_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR),
+                "composite armor tag residual"
+            );
+            assert!(
+                (c.max_health - (480.0 + COMPOSITE_ARMOR_ADD_MAX_HEALTH)).abs() < 0.5,
+                "max health residual 580, got {}",
+                c.max_health
+            );
+            assert!(
+                c.health.maximum >= 580.0 - 0.5,
+                "health.maximum residual"
+            );
+        }
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::CompositeArmor),
+            "composite armor host residual path honesty"
+        );
+    }
+
+    /// Residual: Humvee transport slots=5 + TOW air residual vs aircraft.
+    #[test]
+    fn humvee_residual_transport_and_air_tow() {
+        use crate::game_logic::host_humvee::{
+            is_humvee_template, HUMVEE_AIR_TOW_DAMAGE, HUMVEE_TRANSPORT_SLOTS,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let mut ranger_tpl = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        ranger_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("USA_Ranger".to_string(), ranger_tpl);
+
+        let mut jet_tpl = crate::game_logic::ThingTemplate::new("TestJet");
+        jet_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("TestJet".to_string(), jet_tpl);
+
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        {
+            let h = game_logic.find_object(humvee_id).expect("humvee");
+            assert!(is_humvee_template(&h.template_name));
+            assert!(h.is_humvee_style_container());
+            assert_eq!(h.transport_capacity(), HUMVEE_TRANSPORT_SLOTS);
+            assert!(h.passengers_allowed_to_fire);
+        }
+
+        // Load residual infantry.
+        let r1 = game_logic
+            .create_object("USA_Ranger", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("r1");
+        {
+            let unit = game_logic.find_object_mut(r1).unwrap();
+            unit.target = Some(humvee_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[r1, humvee_id], 1.0 / 30.0);
+        {
+            let h = game_logic.find_object(humvee_id).expect("humvee");
+            assert!(
+                h.contained_units().contains(&r1),
+                "humvee residual transport must load infantry"
+            );
+        }
+
+        // TOW unlock residual: secondary can target air + damage boost.
+        // Direct residual TOW equip (same as research complete path).
+        {
+            use crate::game_logic::weapon_bootstrap::{
+                ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON,
+            };
+            ensure_host_weapon_store();
+            let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
+            if let Some(h) = game_logic.find_object_mut(humvee_id) {
+                if let Some(mut w) = secondary {
+                    w.can_target_air = true;
+                    w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
+                    h.secondary_weapon = Some(w);
+                }
+                h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
+            }
+        }
+
+        let jet_id = game_logic
+            .create_object("TestJet", Team::GLA, Vec3::new(100.0, 40.0, 0.0))
+            .expect("jet");
+        let hp_before = game_logic.find_object(jet_id).unwrap().health.current;
+        {
+            let h = game_logic.find_object_mut(humvee_id).unwrap();
+            assert!(
+                h.has_upgrade_tag(UPGRADE_AMERICA_TOW),
+                "TOW upgrade tag residual"
+            );
+            let sec = h.secondary_weapon.as_ref().expect("TOW secondary");
+            assert!(sec.can_target_air, "TOW residual must target air");
+            h.target = Some(jet_id);
+            h.ai_state = AIState::Attacking;
+            if let Some(w) = h.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            h.active_weapon_slot = 1;
+        }
+        game_logic.frame = 20;
+        game_logic.update_combat(&[humvee_id, jet_id], LOGIC_FRAME_TIMESTEP);
+        let hp_after = game_logic.find_object(jet_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "humvee air TOW residual must damage aircraft"
+        );
+        let dealt = hp_before - hp_after;
+        assert!(
+            dealt + 0.01 >= HUMVEE_AIR_TOW_DAMAGE * 0.4,
+            "air TOW damage residual ~50 (armor may reduce); dealt={dealt}"
         );
     }
 }

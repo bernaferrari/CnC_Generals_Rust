@@ -142,6 +142,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(600.0)
         .set_cost(1200, 0)
         .set_model("avcrusader") // USA Crusader tank
+        .set_primary_weapon_name(super::weapon_bootstrap::CRUSADER_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     templates.insert("USA_Crusader".to_string(), usa_crusader);
 
