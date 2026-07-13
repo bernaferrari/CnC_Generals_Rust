@@ -6,14 +6,20 @@
 //! - DepositAmount residual **20**, DepositTiming residual **2000 ms → 60 frames**
 //!   at 30 FPS logic.
 //! - Fake black markets (`*Fake*BlackMarket*`) residual-skip (ActualMoney=No).
+//! - AutoDeposit floating cash text residual: host `+$N` at building pos + Z **10**,
+//!   player color RGB + alpha **230** (presentation state, not full InGameUI draw).
 //!
 //! Fail-closed honesty:
-//! - Not full AutoDepositUpdate floating text / InitialCaptureBonus / UpgradedBoost
+//! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
+//! - Not full InitialCaptureBonus (retail = 0) / UpgradedBoost (none in GLABlackMarket)
 //! - Oil derrick / hacker residuals live in host_oil_derrick / host_hacker_income
 //!   (this module is black-market only)
 //! - Not disabled / underpowered / neutral-owner gates beyond is_alive + constructed
+//! - Network deferred
 
 use super::ObjectId;
+use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -31,6 +37,15 @@ pub const BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES: u32 = 60;
 
 /// Audio residual when black market deposits (fail-closed host cue name).
 pub const BLACK_MARKET_DEPOSIT_AUDIO: &str = "BlackMarketDeposit";
+
+/// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
+pub const BLACK_MARKET_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
+
+/// Residual GameText key honesty for cash gain caption.
+pub const BLACK_MARKET_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Residual floating text alpha (C++ GameMakeColor(0,0,0,230) OR'd onto player color).
+pub const BLACK_MARKET_FLOATING_TEXT_ALPHA: u8 = 230;
 
 /// Convert deposit timing milliseconds to logic frames (30 FPS residual).
 pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
@@ -73,6 +88,12 @@ pub struct HostBlackMarketRegistry {
     pub deposits: u32,
     /// Total cash deposited via residual black market path.
     pub cash_total: u32,
+    /// Floating cash text residual descriptors spawned this session.
+    #[serde(default)]
+    pub floating_texts: Vec<HostAutoDepositFloatingText>,
+    /// Floating cash text residual spawn count (honesty).
+    #[serde(default)]
+    pub floating_texts_total: u32,
     /// Next absolute logic frame each market may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
 }
@@ -92,6 +113,10 @@ impl HostBlackMarketRegistry {
 
     pub fn cash_total(&self) -> u32 {
         self.cash_total
+    }
+
+    pub fn floating_texts_total(&self) -> u32 {
+        self.floating_texts_total
     }
 
     /// Ensure market is tracked; returns the next deposit frame for this market.
@@ -124,6 +149,16 @@ impl HostBlackMarketRegistry {
         amount
     }
 
+    /// Record residual AutoDeposit floating cash text presentation.
+    pub fn record_floating_text(&mut self, text: HostAutoDepositFloatingText) {
+        self.floating_texts_total = self.floating_texts_total.saturating_add(1);
+        self.floating_texts.push(text);
+        if self.floating_texts.len() > 32 {
+            let drain = self.floating_texts.len() - 32;
+            self.floating_texts.drain(0..drain);
+        }
+    }
+
     /// Drop schedule when a market is destroyed / gone.
     pub fn forget(&mut self, market_id: ObjectId) {
         self.next_deposit_frame.remove(&market_id);
@@ -137,6 +172,22 @@ impl HostBlackMarketRegistry {
     /// Residual honesty: at least one deposit completed.
     pub fn honesty_deposit_ok(&self) -> bool {
         self.deposits > 0 && self.cash_total > 0
+    }
+
+    /// Residual honesty: floating cash text presentation spawned.
+    pub fn honesty_floating_text_ok(&self) -> bool {
+        self.floating_texts_total > 0
+            && self.floating_texts.iter().any(|t| {
+                t.amount > 0
+                    && t.text_key == BLACK_MARKET_FLOATING_TEXT_ADD_CASH_KEY
+                    && t.color_rgba.3 == BLACK_MARKET_FLOATING_TEXT_ALPHA
+            })
+    }
+
+    pub fn honesty_floating_text_constants_ok() -> bool {
+        BLACK_MARKET_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+            && (BLACK_MARKET_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
+            && BLACK_MARKET_FLOATING_TEXT_ALPHA == 230
     }
 
     /// Combined residual honesty alias (deposit path completed).
@@ -187,5 +238,25 @@ mod tests {
         assert!(reg.honesty_ok());
         assert_eq!(reg.deposits(), 2);
         assert_eq!(reg.cash_total(), 40);
+    }
+
+    #[test]
+    fn floating_text_residual_constants() {
+        assert!(HostBlackMarketRegistry::honesty_floating_text_constants_ok());
+        let mut reg = HostBlackMarketRegistry::new();
+        let id = ObjectId(2);
+        let ft = HostAutoDepositFloatingText::new(
+            id,
+            Vec3::new(5.0, 1.0, 7.0),
+            BLACK_MARKET_DEPOSIT_AMOUNT,
+            (200, 50, 50),
+            60,
+            false,
+        );
+        assert_eq!(ft.text, "+$20");
+        assert!((ft.position.y - 11.0).abs() < 0.01);
+        assert_eq!(ft.color_rgba.3, 230);
+        reg.record_floating_text(ft);
+        assert!(reg.honesty_floating_text_ok());
     }
 }

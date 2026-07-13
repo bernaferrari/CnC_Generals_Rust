@@ -832,7 +832,7 @@ pub struct GameLogic {
     black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry,
 
     /// Host Tech Oil Derrick residual cash (AutoDepositUpdate residual).
-    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+    /// AutoDeposit residual (SupplyLines boost + floating text host residual closed).
     oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry,
 
     /// Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
@@ -4563,11 +4563,11 @@ impl GameLogic {
         // Phase 10: Player Resources
         // -----------------------------------------------------------------------
         self.update_player_resources(dt);
-        // GLA Black Market residual cash (AutoDepositUpdate discrete deposits).
-        // Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost.
+        // GLA Black Market residual cash (AutoDepositUpdate discrete deposits + floating text).
+        // Fail-closed: not full InGameUI GPU / InitialCaptureBonus (retail 0).
         self.update_black_market_deposits();
-        // Tech Oil Derrick residual cash (AutoDepositUpdate discrete deposits).
-        // Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+        // Tech Oil Derrick residual cash (AutoDeposit + SupplyLines boost + floating text).
+        // Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
         self.update_oil_derrick_deposits();
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
@@ -10034,13 +10034,14 @@ impl GameLogic {
     ///
     /// Retail FactionBuilding.ini GLABlackMarket:
     /// DepositAmount=20, DepositTiming=2000 ms → 60 logic frames @ 30 FPS.
-    /// Fail-closed: not full floating text / InitialCaptureBonus / UpgradedBoost
-    /// (black market residual only this slice; oil derrick / hacker are separate).
+    /// Floating cash text residual: GUI:AddCash @ pos+Z10, player color | A230.
+    /// Fail-closed: not full InGameUI GPU draw / InitialCaptureBonus (retail 0).
     fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
             is_black_market_template, is_legal_black_market_income_source,
             BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_AUDIO,
         };
+        use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
 
         let frame = self.frame;
         let markets: Vec<(ObjectId, Team, Vec3)> = self
@@ -10089,6 +10090,12 @@ impl GameLogic {
             if deposited == 0 {
                 continue;
             }
+            let player_color = self
+                .players
+                .values()
+                .find(|p| p.team == team)
+                .map(|p| p.color_rgb)
+                .unwrap_or((200, 200, 200));
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
                 player.statistics.resources_collected = player
@@ -10096,6 +10103,15 @@ impl GameLogic {
                     .resources_collected
                     .saturating_add(deposited);
             }
+            // AutoDeposit floating text residual (presentation state, not GPU).
+            self.black_markets.record_floating_text(HostAutoDepositFloatingText::new(
+                market_id,
+                pos,
+                deposited,
+                player_color,
+                frame,
+                false,
+            ));
             self.queue_audio_event(
                 AudioEventRequest::new(BLACK_MARKET_DEPOSIT_AUDIO)
                     .with_object(market_id)
@@ -10109,14 +10125,16 @@ impl GameLogic {
     ///
     /// Retail CivilianBuilding.ini TechOilDerrick:
     /// DepositAmount=200, DepositTiming=12000 ms → 360 logic frames @ 30 FPS,
-    /// InitialCaptureBonus=1000 once when first non-neutral owned.
-    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines matrix.
+    /// InitialCaptureBonus=1000 once when first non-neutral owned,
+    /// UpgradedBoost SupplyLines +20, floating cash text residual.
+    /// Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
     fn update_oil_derrick_deposits(&mut self) {
         use crate::game_logic::host_oil_derrick::{
-            is_legal_oil_derrick_income_source, is_oil_derrick_template,
-            OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
+            is_legal_oil_derrick_income_source, is_oil_derrick_template, oil_derrick_deposit_amount,
+            HostAutoDepositFloatingText, OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AUDIO,
             OIL_DERRICK_INITIAL_CAPTURE_BONUS,
         };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         let frame = self.frame;
         // Collect all oil derricks (including neutral — need for stale cleanup / capture detect).
@@ -10151,6 +10169,17 @@ impl GameLogic {
                 continue;
             }
 
+            let player_color = self
+                .players
+                .values()
+                .find(|p| p.team == team)
+                .map(|p| p.color_rgb)
+                .unwrap_or((200, 200, 200));
+            let has_supply_lines = self
+                .players
+                .values()
+                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+
             // InitialCaptureBonus residual: first non-neutral ownership.
             let bonus = self
                 .oil_derricks
@@ -10163,6 +10192,14 @@ impl GameLogic {
                     player.statistics.resources_collected =
                         player.statistics.resources_collected.saturating_add(bonus);
                 }
+                self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
+                    derrick_id,
+                    pos,
+                    bonus,
+                    player_color,
+                    frame,
+                    true,
+                ));
                 self.queue_audio_event(
                     AudioEventRequest::new(OIL_DERRICK_CAPTURE_BONUS_AUDIO)
                         .with_object(derrick_id)
@@ -10171,11 +10208,16 @@ impl GameLogic {
                 );
             }
 
-            let deposited =
-                self.oil_derricks
-                    .try_deposit(derrick_id, frame, OIL_DERRICK_DEPOSIT_AMOUNT);
+            let (amount, boost) = oil_derrick_deposit_amount(has_supply_lines);
+            let deposited = self
+                .oil_derricks
+                .try_deposit(derrick_id, frame, amount, boost);
             if deposited == 0 {
                 continue;
+            }
+            if boost > 0 {
+                self.supply_lines_bonus_cash_total =
+                    self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
@@ -10184,6 +10226,14 @@ impl GameLogic {
                     .resources_collected
                     .saturating_add(deposited);
             }
+            self.oil_derricks.record_floating_text(HostAutoDepositFloatingText::new(
+                derrick_id,
+                pos,
+                deposited,
+                player_color,
+                frame,
+                false,
+            ));
             self.queue_audio_event(
                 AudioEventRequest::new(OIL_DERRICK_DEPOSIT_AUDIO)
                     .with_object(derrick_id)
@@ -14489,9 +14539,14 @@ impl GameLogic {
     }
 
     /// Residual GLA Black Market honesty: at least one AutoDeposit cash credit.
-    /// Fail-closed: not full Fake ActualMoney=No / capture-bonus / floating text.
+    /// Fail-closed: not full Fake ActualMoney=No / capture-bonus / InGameUI GPU draw.
     pub fn honesty_black_market_ok(&self) -> bool {
         self.black_markets.honesty_ok()
+    }
+
+    /// Residual Black Market floating cash text honesty.
+    pub fn honesty_black_market_floating_text_ok(&self) -> bool {
+        self.black_markets.honesty_floating_text_ok()
     }
 
     /// Residual Black Market deposit count (observability).
@@ -14505,7 +14560,7 @@ impl GameLogic {
     }
 
     /// Residual Tech Oil Derrick honesty: at least one deposit or capture bonus.
-    /// Fail-closed: not full UpgradedBoost / floating text.
+    /// Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
     pub fn honesty_oil_derrick_ok(&self) -> bool {
         self.oil_derricks.honesty_ok()
     }
@@ -14518,6 +14573,16 @@ impl GameLogic {
     /// Residual Oil Derrick capture bonus honesty.
     pub fn honesty_oil_derrick_capture_bonus_ok(&self) -> bool {
         self.oil_derricks.honesty_capture_bonus_ok()
+    }
+
+    /// Residual Oil Derrick SupplyLines UpgradedBoost honesty.
+    pub fn honesty_oil_derrick_supply_lines_boost_ok(&self) -> bool {
+        self.oil_derricks.honesty_supply_lines_boost_ok()
+    }
+
+    /// Residual Oil Derrick floating cash text honesty.
+    pub fn honesty_oil_derrick_floating_text_ok(&self) -> bool {
+        self.oil_derricks.honesty_floating_text_ok()
     }
 
     /// Residual Oil Derrick deposit count (observability).
@@ -14533,6 +14598,11 @@ impl GameLogic {
     /// Total residual cash from Oil Derrick InitialCaptureBonus (observability).
     pub fn oil_derrick_capture_bonus_cash_total(&self) -> u32 {
         self.oil_derricks.capture_bonus_cash_total()
+    }
+
+    /// Total residual SupplyLines boost cash on oil derrick deposits (observability).
+    pub fn oil_derrick_supply_lines_boost_cash_total(&self) -> u32 {
+        self.oil_derricks.supply_lines_boost_cash_total()
     }
 
     /// Residual Hacker / Internet Center honesty: at least one cash ping.
@@ -39433,6 +39503,20 @@ mod tests {
             game_logic.black_markets().cash_total,
             BLACK_MARKET_DEPOSIT_AMOUNT
         );
+        // AutoDeposit floating cash text residual (GUI:AddCash @ +Z10).
+        assert!(
+            game_logic.honesty_black_market_floating_text_ok(),
+            "black market deposit must spawn floating cash text residual"
+        );
+        let bm_ft = game_logic
+            .black_markets()
+            .floating_texts
+            .last()
+            .expect("black market floating text");
+        assert_eq!(bm_ft.amount, BLACK_MARKET_DEPOSIT_AMOUNT);
+        assert_eq!(bm_ft.text_key, "GUI:AddCash");
+        assert_eq!(bm_ft.color_rgba.3, 230);
+        assert!((bm_ft.position.y - 10.0).abs() < 0.01);
 
         // Second interval deposit.
         game_logic.frame = BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES * 2;
@@ -39473,17 +39557,23 @@ mod tests {
 
     /// Residual: TechOilDerrick AutoDeposit deposits $200 every 360 logic frames
     /// and awards InitialCaptureBonus $1000 once when first non-neutral owned.
-    /// Fail-closed: not full floating text / UpgradedBoost SupplyLines.
+    /// Floating text + SupplyLines UpgradedBoost +20 residual.
+    /// Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
     #[test]
     fn oil_derrick_residual_deposits_cash_on_interval() {
         use crate::game_logic::host_oil_derrick::{
             OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
-            OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+            OIL_DERRICK_INITIAL_CAPTURE_BONUS, OIL_DERRICK_SUPPLY_LINES_BOOST,
         };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, Team::USA);
+        // Distinct player color for floating text residual honesty.
+        if let Some(p) = game_logic.get_player_mut_by_team(Team::USA) {
+            p.color_rgb = (0, 120, 255);
+        }
 
         if !game_logic.templates.contains_key("TestOilDerrick") {
             let mut t = ThingTemplate::new("TestOilDerrick");
@@ -39536,6 +39626,21 @@ mod tests {
             game_logic.honesty_oil_derrick_capture_bonus_ok(),
             "oil derrick capture bonus residual honesty"
         );
+        // Capture bonus floating text residual.
+        assert!(
+            game_logic.honesty_oil_derrick_floating_text_ok(),
+            "capture bonus must spawn floating cash text residual"
+        );
+        let capture_ft = game_logic
+            .oil_derricks()
+            .floating_texts
+            .iter()
+            .find(|t| t.is_capture_bonus)
+            .expect("capture floating text");
+        assert_eq!(capture_ft.amount, OIL_DERRICK_INITIAL_CAPTURE_BONUS);
+        assert_eq!(capture_ft.text_key, "GUI:AddCash");
+        assert_eq!(capture_ft.color_rgba, (0, 120, 255, 230));
+        assert!((capture_ft.position.y - 10.0).abs() < 0.01);
         // Periodic deposit not yet due (rescheduled after capture).
         assert!(!game_logic.honesty_oil_derrick_deposit_ok());
 
@@ -39572,6 +39677,7 @@ mod tests {
             game_logic.oil_derrick_capture_bonus_cash_total(),
             OIL_DERRICK_INITIAL_CAPTURE_BONUS
         );
+        assert_eq!(game_logic.oil_derrick_supply_lines_boost_cash_total(), 0);
 
         // Second interval.
         game_logic.frame = OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES * 2;
@@ -39581,6 +39687,37 @@ mod tests {
             game_logic.oil_derrick_residual_cash_total(),
             OIL_DERRICK_DEPOSIT_AMOUNT * 2
         );
+
+        // SupplyLines UpgradedBoost residual: +20 per deposit.
+        if let Some(p) = game_logic.get_player_mut_by_team(Team::USA) {
+            p.unlock_science(UPGRADE_AMERICA_SUPPLY_LINES);
+        }
+        game_logic.frame = OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES * 3;
+        game_logic.update_oil_derrick_deposits();
+        assert_eq!(game_logic.oil_derricks().deposits, 3);
+        assert_eq!(
+            game_logic.oil_derrick_residual_cash_total(),
+            OIL_DERRICK_DEPOSIT_AMOUNT * 2
+                + OIL_DERRICK_DEPOSIT_AMOUNT
+                + OIL_DERRICK_SUPPLY_LINES_BOOST
+        );
+        assert_eq!(
+            game_logic.oil_derrick_supply_lines_boost_cash_total(),
+            OIL_DERRICK_SUPPLY_LINES_BOOST
+        );
+        assert!(game_logic.honesty_oil_derrick_supply_lines_boost_ok());
+        let deposit_ft = game_logic
+            .oil_derricks()
+            .floating_texts
+            .iter()
+            .rev()
+            .find(|t| !t.is_capture_bonus)
+            .expect("deposit floating text");
+        assert_eq!(
+            deposit_ft.amount,
+            OIL_DERRICK_DEPOSIT_AMOUNT + OIL_DERRICK_SUPPLY_LINES_BOOST
+        );
+        assert_eq!(deposit_ft.text, "+$220");
     }
 
     /// Residual: AmericaSupplyDropZone OCL queues cargo DeliverPayload every 3600
