@@ -29,17 +29,26 @@
 //! - C++ `AIUpdateInterface` AutoAcquireEnemiesWhenIdle residual for stationary
 //!   base defenses (not full turret pitch / LOS).
 //!
+//! - **AssistedTargetingUpdate residual** (AmericaPatriotBattery ModuleTag_07):
+//!   When a Patriot fires PRIMARY/AA with `RequestAssistRange` **200**, same-team
+//!   equivalent Patriots within range that are free to assist fire
+//!   `AssistingClipSize` **4** shots of the assist weapon (retail SECONDARY
+//!   `PatriotMissileAssistWeapon` / Lazr / SupW variants, AttackRange **450**).
+//!   Host residual processes the assist clip over DelayBetweenShots **250**ms
+//!   (**8** frames) cadence. Fail-closed: not full BinaryDataStream laser
+//!   drawable feedback (`LaserFromAssisted` / `LaserToTarget`).
+//!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
-//! - Not full Lazr Patriot AssistedTargetingModule SECONDARY assist clip matrix
-//! - Not full SupW assist clip / RequestAssistRange matrix (EMP residual is impact-only)
+//!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
+//!   secondary for auto-acquire)
+//! - Not full BinaryDataStream laser drawable feedback for assist beams
 //! - Not full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
-//! - Not full AssistedTargetingModule Patriot assist clips / RequestAssistRange
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
 //! - Not network base-defense replication (network deferred)
 
-use super::Weapon;
+use super::{ObjectId, Weapon};
 use crate::game_logic::host_gattling_tank::{GattlingFireLevel, GATTLING_CHAIN_GUN_DAMAGE_MULT};
 use std::collections::HashSet;
 
@@ -85,6 +94,28 @@ pub const PATRIOT_CLIP_RELOAD_FRAMES: u32 = 60;
 pub const PATRIOT_FIRE_AUDIO: &str = "PatriotBatteryWeapon";
 /// Residual Laser General Patriot fire audio honesty.
 pub const LAZR_PATRIOT_FIRE_AUDIO: &str = "Lazr_WeaponFX_LaserCrusader";
+
+// --- AssistedTargetingUpdate residual (Patriot ModuleTag_07) ---
+/// Retail PatriotMissileWeapon / Air `RequestAssistRange`.
+pub const PATRIOT_REQUEST_ASSIST_RANGE: f32 = 200.0;
+/// Retail AssistedTargetingUpdate `AssistingClipSize`.
+pub const PATRIOT_ASSISTING_CLIP_SIZE: u32 = 4;
+/// Retail PatriotMissileAssistWeapon AttackRange.
+pub const PATRIOT_ASSIST_RANGE: f32 = 450.0;
+/// Retail PatriotMissileAssistWeapon / SupW_PatriotMissileAssistWeapon PrimaryDamage.
+pub const PATRIOT_ASSIST_DAMAGE: f32 = 25.0;
+/// Retail Lazr_PatriotMissileAssistWeapon PrimaryDamage residual.
+pub const LAZR_PATRIOT_ASSIST_DAMAGE: f32 = 35.0;
+/// Retail assist DelayBetweenShots 250ms → 8 frames @ 30 FPS.
+pub const PATRIOT_ASSIST_DELAY_FRAMES: u32 = 8;
+/// Retail assist ClipReloadTime 1000ms → 30 frames residual honesty.
+pub const PATRIOT_ASSIST_CLIP_RELOAD_FRAMES: u32 = 30;
+/// Retail assist weapon template names (honesty / docs).
+pub const PATRIOT_ASSIST_WEAPON: &str = "PatriotMissileAssistWeapon";
+pub const LAZR_PATRIOT_ASSIST_WEAPON: &str = "Lazr_PatriotMissileAssistWeapon";
+pub const SUPW_PATRIOT_ASSIST_WEAPON: &str = "SupW_PatriotMissileAssistWeapon";
+/// Residual BinaryDataStream laser honesty cue (not full LaserUpdate drawable).
+pub const PATRIOT_ASSIST_LASER_AUDIO: &str = "PatriotBinaryDataStream";
 
 // --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
 /// Retail EMPPatriotEffectSpheroid EffectRadius residual.
@@ -520,6 +551,110 @@ pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
         can_target_ground: false,
         projectile_speed: if laser { 999_999.0 } else { 600.0 },
         pre_attack_delay: 0.0,
+    }
+}
+
+/// Residual assist damage for a Patriot template family (stock / Lazr / SupW).
+pub fn patriot_assist_damage_for_template(template_name: &str) -> f32 {
+    if is_laser_patriot_template(template_name) {
+        LAZR_PATRIOT_ASSIST_DAMAGE
+    } else {
+        // Stock + SupW assist shells both use PrimaryDamage 25 residual.
+        PATRIOT_ASSIST_DAMAGE
+    }
+}
+
+/// Residual assist weapon name honesty for a Patriot template family.
+pub fn patriot_assist_weapon_name_for_template(template_name: &str) -> &'static str {
+    if is_laser_patriot_template(template_name) {
+        LAZR_PATRIOT_ASSIST_WEAPON
+    } else if is_supw_patriot_template(template_name) {
+        SUPW_PATRIOT_ASSIST_WEAPON
+    } else {
+        PATRIOT_ASSIST_WEAPON
+    }
+}
+
+/// Whether two Patriot residual templates are "equivalent" for assist requests.
+///
+/// C++ `ThingTemplate::isEquivalentTo` residual: same general family (stock / Lazr /
+/// SupW). Fail-closed: not full reskin / faction-building inheritance matrix.
+pub fn patriots_are_assist_equivalent(requester: &str, assistant: &str) -> bool {
+    if !is_patriot_battery_structure(requester) || !is_patriot_battery_structure(assistant) {
+        return false;
+    }
+    is_laser_patriot_template(requester) == is_laser_patriot_template(assistant)
+        && is_supw_patriot_template(requester) == is_supw_patriot_template(assistant)
+}
+
+/// Whether a Patriot is free to answer an AssistedTargeting residual request.
+///
+/// C++ `AssistedTargetingUpdate::isFreeToAssist`: able to attack + current weapon
+/// READY_TO_FIRE. Host residual: constructed, can attack, not under construction,
+/// and not already mid-assist clip.
+pub fn is_patriot_free_to_assist(
+    is_alive: bool,
+    is_constructed: bool,
+    can_attack: bool,
+    under_construction: bool,
+    already_assisting: bool,
+    weapon_ready: bool,
+) -> bool {
+    is_alive
+        && is_constructed
+        && can_attack
+        && !under_construction
+        && !already_assisting
+        && weapon_ready
+}
+
+/// Whether assistant is within RequestAssistRange of the requesting Patriot.
+pub fn is_within_patriot_request_assist_range(dist_2d: f32) -> bool {
+    dist_2d <= PATRIOT_REQUEST_ASSIST_RANGE
+}
+
+/// Whether victim is within assist weapon AttackRange from the assistant.
+pub fn is_within_patriot_assist_weapon_range(dist_2d: f32) -> bool {
+    dist_2d <= PATRIOT_ASSIST_RANGE
+}
+
+/// Pending assist clip residual (AssistingClipSize shots at DelayBetweenShots).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingPatriotAssist {
+    pub assistant_id: ObjectId,
+    pub victim_id: ObjectId,
+    pub requester_id: ObjectId,
+    pub shots_remaining: u32,
+    pub next_shot_frame: u32,
+    /// Template name snapshot for damage / EMP family residual.
+    pub assistant_template: String,
+}
+
+impl PendingPatriotAssist {
+    pub fn new(
+        assistant_id: ObjectId,
+        victim_id: ObjectId,
+        requester_id: ObjectId,
+        start_frame: u32,
+        assistant_template: impl Into<String>,
+    ) -> Self {
+        Self {
+            assistant_id,
+            victim_id,
+            requester_id,
+            shots_remaining: PATRIOT_ASSISTING_CLIP_SIZE,
+            // First shot is immediate (C++ assistAttack locks and fires ASAP).
+            next_shot_frame: start_frame,
+            assistant_template: assistant_template.into(),
+        }
+    }
+
+    pub fn damage(&self) -> f32 {
+        patriot_assist_damage_for_template(&self.assistant_template)
+    }
+
+    pub fn is_supw(&self) -> bool {
+        is_supw_patriot_template(&self.assistant_template)
     }
 }
 
@@ -1017,5 +1152,81 @@ mod tests {
 
         assert_eq!(preferred_gattling_building_slot(false), 0);
         assert_eq!(preferred_gattling_building_slot(true), 1);
+    }
+
+    #[test]
+    fn patriot_assist_matrix_honesty() {
+        assert!((PATRIOT_REQUEST_ASSIST_RANGE - 200.0).abs() < 0.01);
+        assert_eq!(PATRIOT_ASSISTING_CLIP_SIZE, 4);
+        assert!((PATRIOT_ASSIST_RANGE - 450.0).abs() < 0.01);
+        assert!((PATRIOT_ASSIST_DAMAGE - 25.0).abs() < 0.01);
+        assert!((LAZR_PATRIOT_ASSIST_DAMAGE - 35.0).abs() < 0.01);
+        assert_eq!(PATRIOT_ASSIST_DELAY_FRAMES, 8);
+        assert_eq!(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES, 30);
+
+        assert!((patriot_assist_damage_for_template("AmericaPatriotBattery") - 25.0).abs() < 0.01);
+        assert!((patriot_assist_damage_for_template("Lazr_AmericaPatriotBattery") - 35.0).abs() < 0.01);
+        assert!((patriot_assist_damage_for_template("SupW_AmericaPatriotBattery") - 25.0).abs() < 0.01);
+        assert_eq!(
+            patriot_assist_weapon_name_for_template("AmericaPatriotBattery"),
+            PATRIOT_ASSIST_WEAPON
+        );
+        assert_eq!(
+            patriot_assist_weapon_name_for_template("Lazr_AmericaPatriotBattery"),
+            LAZR_PATRIOT_ASSIST_WEAPON
+        );
+        assert_eq!(
+            patriot_assist_weapon_name_for_template("SupW_AmericaPatriotBattery"),
+            SUPW_PATRIOT_ASSIST_WEAPON
+        );
+
+        assert!(patriots_are_assist_equivalent(
+            "AmericaPatriotBattery",
+            "USA_Patriot"
+        ));
+        assert!(patriots_are_assist_equivalent(
+            "Lazr_AmericaPatriotBattery",
+            "TestLazrPatriot"
+        ));
+        assert!(!patriots_are_assist_equivalent(
+            "AmericaPatriotBattery",
+            "Lazr_AmericaPatriotBattery"
+        ));
+        assert!(!patriots_are_assist_equivalent(
+            "AmericaPatriotBattery",
+            "SupW_AmericaPatriotBattery"
+        ));
+        assert!(!patriots_are_assist_equivalent(
+            "AmericaPatriotBattery",
+            "ChinaGattlingCannon"
+        ));
+
+        assert!(is_patriot_free_to_assist(true, true, true, false, false, true));
+        assert!(!is_patriot_free_to_assist(
+            true, true, true, false, true, true
+        )); // mid-assist
+        assert!(!is_patriot_free_to_assist(
+            true, true, true, false, false, false
+        )); // weapon not ready
+        assert!(!is_patriot_free_to_assist(
+            true, false, true, false, false, true
+        )); // not constructed
+
+        assert!(is_within_patriot_request_assist_range(200.0));
+        assert!(!is_within_patriot_request_assist_range(201.0));
+        assert!(is_within_patriot_assist_weapon_range(450.0));
+        assert!(!is_within_patriot_assist_weapon_range(451.0));
+
+        let pending = PendingPatriotAssist::new(
+            ObjectId(1),
+            ObjectId(2),
+            ObjectId(3),
+            10,
+            "AmericaPatriotBattery",
+        );
+        assert_eq!(pending.shots_remaining, 4);
+        assert_eq!(pending.next_shot_frame, 10);
+        assert!((pending.damage() - 25.0).abs() < 0.01);
+        assert!(!pending.is_supw());
     }
 }
