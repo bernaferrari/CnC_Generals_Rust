@@ -1,3 +1,28 @@
+## Residual Host Playability — GLA Rebel + RPG Trooper (2026-07-13)
+**Closed (host-testable GLA Rebel gun/AP Bullets + RPG Trooper rocket/AP Rockets residual):**
+1. **Rebel residual** (`GLAInfantryRebel` / Chem_/Demo_/Slth_/GC_* / GLA_Soldier / TestRebel):
+   - PRIMARY `GLARebelMachineGun` residual: PrimaryDamage **5** / range **100** /
+     Delay **100**ms (3 frames). ClipSize **3** honesty (volley matrix fail-closed).
+   - AP Bullets PLAYER_UPGRADE residual (`Upgrade_GLAAPBullets`): DAMAGE **125%** → **6.25**.
+   - Camouflage residual already closed via host_upgrades (not re-opened).
+   - Honesty: `honesty_rebel_ok` / ap / fires.
+2. **RPG Trooper residual** (`GLAInfantryTunnelDefender` / variants / GLA_RPG / TestRPGTrooper):
+   - PRIMARY `TunnelDefenderRocketWeapon` residual: PrimaryDamage **40** /
+     radius **5** / range **175** / min **5** / Delay **1000**ms / AA+ground.
+   - Fire residual: intended + PrimaryDamageRadius **5** splash take full PrimaryDamage.
+   - AP Rockets PLAYER_UPGRADE residual (`Upgrade_GLAAPRockets`): DAMAGE **125%** → **50**.
+   - Honesty: `honesty_rpg_trooper_ok` / ap / fires / units_hit.
+3. Tests (not log-only):
+   - `rebel_residual_gun_and_ap_bullets`
+   - `rpg_trooper_residual_rocket_and_ap_rockets`
+   - module unit tests in `host_gla_rebel.rs` / `host_rpg_trooper.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley matrix
+- CaptureBuilding / BoobyTrap special ability residual for Rebel
+- Full ScatterRadiusVsInfantry / projectile exhaust FX matrix for RPG Trooper
+- Network AP / fire replication (network deferred)
+
 ## Residual Host Playability — China Red Guard + Tank Hunter (2026-07-13)
 **Closed (host-testable China Red Guard gun/horde/nationalism/bayonet + Tank Hunter RPG/TNT residual):**
 1. **Red Guard residual** (`ChinaInfantryRedguard` / China_RedGuard / Tank_/Nuke_):

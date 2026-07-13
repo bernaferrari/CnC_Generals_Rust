@@ -910,6 +910,17 @@ pub struct GameLogic {
     /// Per-unit TNT special residual last plant frame (ReloadTime 7500ms).
     tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
 
+    /// Host residual: GLA Rebel machine gun + AP Bullets honesty.
+    /// Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
+    rebel_residual_fires: u32,
+    rebel_residual_ap_upgrades: u32,
+
+    /// Host residual: GLA RPG Trooper / Tunnel Defender rocket + AP Rockets honesty.
+    /// Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
+    rpg_trooper_residual_fires: u32,
+    rpg_trooper_residual_units_hit: u32,
+    rpg_trooper_residual_ap_upgrades: u32,
+
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
     combat_cycle_residual_fires: u32,
@@ -1856,6 +1867,11 @@ impl GameLogic {
             tank_hunter_residual_nationalism_upgrades: 0,
             tank_hunter_residual_horde_grants: 0,
             tank_hunter_tnt_last_frame: HashMap::new(),
+            rebel_residual_fires: 0,
+            rebel_residual_ap_upgrades: 0,
+            rpg_trooper_residual_fires: 0,
+            rpg_trooper_residual_units_hit: 0,
+            rpg_trooper_residual_ap_upgrades: 0,
             combat_cycle_residual_fires: 0,
             combat_cycle_residual_units_hit: 0,
             combat_cycle_residual_rider_switches: 0,
@@ -2104,6 +2120,11 @@ impl GameLogic {
         self.tank_hunter_residual_nationalism_upgrades = 0;
         self.tank_hunter_residual_horde_grants = 0;
         self.tank_hunter_tnt_last_frame.clear();
+        self.rebel_residual_fires = 0;
+        self.rebel_residual_ap_upgrades = 0;
+        self.rpg_trooper_residual_fires = 0;
+        self.rpg_trooper_residual_units_hit = 0;
+        self.rpg_trooper_residual_ap_upgrades = 0;
         self.combat_cycle_residual_fires = 0;
         self.combat_cycle_residual_units_hit = 0;
         self.combat_cycle_residual_rider_switches = 0;
@@ -5424,6 +5445,55 @@ impl GameLogic {
                             .unwrap_or(false)
                     } {
                         let (hits, _destroyed_any) = self.apply_red_guard_residual_at(
+                            target_position,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
+                    } else if {
+                        // GLA RPG Trooper residual: rocket splash + AA capable residual.
+                        use crate::game_logic::host_rpg_trooper::{
+                            is_rpg_trooper_template, should_apply_rpg_trooper_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_rpg_trooper_residual(is_rpg_trooper_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_rpg_trooper_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // GLA Rebel residual: machine gun intended-only residual.
+                        use crate::game_logic::host_gla_rebel::{
+                            is_gla_rebel_template, should_apply_rebel_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_rebel_residual(is_gla_rebel_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let (hits, _destroyed_any) = self.apply_rebel_residual_at(
                             target_position,
                             Some(attacker_id),
                             Some(target_id),
@@ -9272,6 +9342,22 @@ impl GameLogic {
             if crate::game_logic::host_tank_hunter::is_tank_hunter_template(template_name) {
                 use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
                 object.weapon = Some(tank_hunter_weapon(false, false));
+            }
+
+            // Host residual: GLA Rebel PRIMARY machine gun residual.
+            // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
+            if crate::game_logic::host_gla_rebel::is_gla_rebel_template(template_name) {
+                use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
+                let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
+                object.weapon = Some(rebel_weapon(ap));
+            }
+
+            // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
+            // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
+            if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
+                use crate::game_logic::host_rpg_trooper::{has_ap_rockets_upgrade, rpg_trooper_weapon};
+                let ap = has_ap_rockets_upgrade(&object.applied_upgrades);
+                object.weapon = Some(rpg_trooper_weapon(ap));
             }
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
@@ -13236,6 +13322,44 @@ impl GameLogic {
         self.tank_hunter_residual_tnt_plants
     }
 
+    /// Residual honesty: GLA Rebel gun / AP Bullets residual.
+    pub fn honesty_rebel_ok(&self) -> bool {
+        self.rebel_residual_fires > 0 || self.rebel_residual_ap_upgrades > 0
+    }
+
+    pub fn honesty_rebel_ap_ok(&self) -> bool {
+        self.rebel_residual_ap_upgrades > 0
+    }
+
+    pub fn rebel_residual_fires(&self) -> u32 {
+        self.rebel_residual_fires
+    }
+
+    pub fn rebel_residual_ap_upgrades(&self) -> u32 {
+        self.rebel_residual_ap_upgrades
+    }
+
+    /// Residual honesty: GLA RPG Trooper rocket / AP Rockets residual.
+    pub fn honesty_rpg_trooper_ok(&self) -> bool {
+        self.rpg_trooper_residual_fires > 0 || self.rpg_trooper_residual_ap_upgrades > 0
+    }
+
+    pub fn honesty_rpg_trooper_ap_ok(&self) -> bool {
+        self.rpg_trooper_residual_ap_upgrades > 0
+    }
+
+    pub fn rpg_trooper_residual_fires(&self) -> u32 {
+        self.rpg_trooper_residual_fires
+    }
+
+    pub fn rpg_trooper_residual_units_hit(&self) -> u32 {
+        self.rpg_trooper_residual_units_hit
+    }
+
+    pub fn rpg_trooper_residual_ap_upgrades(&self) -> u32 {
+        self.rpg_trooper_residual_ap_upgrades
+    }
+
     /// Residual honesty: Combat Cycle rider weapon residual path.
     pub fn honesty_combat_cycle_ok(&self) -> bool {
         self.combat_cycle_residual_fires > 0
@@ -15589,6 +15713,253 @@ impl GameLogic {
 
         self.queue_audio_event(
             AudioEventRequest::new(TANK_HUNTER_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Refresh GLA Rebel gun residual from current AP Bullets upgrade tag.
+    fn refresh_rebel_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_gla_rebel::{
+            has_ap_bullets_upgrade, is_gla_rebel_template, rebel_weapon,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_gla_rebel_template(&obj.template_name) {
+            return;
+        }
+        let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut w = rebel_weapon(ap);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+    }
+
+    /// Apply AP Bullets residual tag to a GLA Rebel (damage × 1.25).
+    pub fn apply_rebel_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_gla_rebel::{is_gla_rebel_template, UPGRADE_GLA_AP_BULLETS};
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_gla_rebel_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_AP_BULLETS.to_string());
+        self.rebel_residual_ap_upgrades = self.rebel_residual_ap_upgrades.saturating_add(1);
+        self.refresh_rebel_weapon(object_id);
+        true
+    }
+
+    /// Apply GLA Rebel residual fire: intended-only gun damage residual.
+    fn apply_rebel_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_gla_rebel::{
+            is_legal_rebel_target, REBEL_DAMAGE, REBEL_FIRE_AUDIO,
+        };
+
+        let damage = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+            .unwrap_or(REBEL_DAMAGE);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let Some(target_id) = intended_target else {
+            return (0, false);
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return (0, false);
+        };
+        let combat_kind = target.is_kind_of(KindOf::Attackable)
+            || target.is_kind_of(KindOf::Structure)
+            || target.is_kind_of(KindOf::Infantry)
+            || target.is_kind_of(KindOf::Vehicle)
+            || target.is_kind_of(KindOf::Aircraft);
+        if !is_legal_rebel_target(
+            target.is_alive(),
+            source == Some(target_id),
+            target.status.under_construction,
+            combat_kind,
+        ) {
+            return (0, false);
+        }
+        let target_pos = target.get_position();
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        if let Some(obj) = self.objects.get_mut(&target_id) {
+            let destroyed = obj.take_damage(damage);
+            hits = 1;
+            if destroyed {
+                any_destroyed = true;
+                self.mark_object_for_destruction(target_id, Some(source_team));
+            }
+        }
+
+        self.rebel_residual_fires = self.rebel_residual_fires.saturating_add(1);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(REBEL_FIRE_AUDIO)
+                .with_position(target_pos)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(target_pos),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Refresh RPG Trooper residual from current AP Rockets upgrade tag.
+    fn refresh_rpg_trooper_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_rpg_trooper::{
+            has_ap_rockets_upgrade, is_rpg_trooper_template, rpg_trooper_weapon,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_rpg_trooper_template(&obj.template_name) {
+            return;
+        }
+        let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut w = rpg_trooper_weapon(ap);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+    }
+
+    /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
+    pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_rpg_trooper::{is_rpg_trooper_template, UPGRADE_GLA_AP_ROCKETS};
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_rpg_trooper_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+        self.rpg_trooper_residual_ap_upgrades =
+            self.rpg_trooper_residual_ap_upgrades.saturating_add(1);
+        self.refresh_rpg_trooper_weapon(object_id);
+        true
+    }
+
+    /// Apply RPG Trooper residual rocket fire (primary on intended + small splash radius).
+    fn apply_rpg_trooper_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_rpg_trooper::{
+            is_legal_rpg_trooper_splash_target, rpg_trooper_splash_damage_at, RPG_TROOPER_DAMAGE,
+            RPG_TROOPER_FIRE_AUDIO, RPG_TROOPER_SPLASH_RADIUS,
+        };
+
+        let damage = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+            .unwrap_or(RPG_TROOPER_DAMAGE);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_rpg_trooper_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= RPG_TROOPER_SPLASH_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = rpg_trooper_splash_damage_at(is_intended, dist, damage);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.rpg_trooper_residual_fires = self.rpg_trooper_residual_fires.saturating_add(1);
+        self.rpg_trooper_residual_units_hit =
+            self.rpg_trooper_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(RPG_TROOPER_FIRE_AUDIO)
                 .with_position(impact)
                 .with_priority(150),
         );
@@ -45623,6 +45994,225 @@ mod tests {
         );
     }
 
+    /// Residual: GLA Rebel machine gun + AP Bullets damage upgrade.
+    /// Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
+    #[test]
+    fn rebel_residual_gun_and_ap_bullets() {
+        use crate::game_logic::host_gla_rebel::{
+            is_gla_rebel_template, REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE,
+            UPGRADE_GLA_AP_BULLETS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut rebel_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+        rebel_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(REBEL_MACHINE_GUN);
+        game_logic
+            .templates
+            .insert("GLAInfantryRebel".to_string(), rebel_tpl);
+
+        let rebel_id = game_logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("rebel");
+        {
+            let rebel = game_logic.find_object(rebel_id).expect("rebel");
+            assert!(is_gla_rebel_template(&rebel.template_name));
+            let w = rebel.weapon.as_ref().expect("GLARebelMachineGun residual");
+            assert!(
+                (w.damage - REBEL_DAMAGE).abs() < 0.5,
+                "base damage residual 5, got {}",
+                w.damage
+            );
+            assert!((w.range - REBEL_RANGE).abs() < 1.0);
+            assert!(
+                (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
+                "base reload residual ~0.1s (3 frames), got {}",
+                w.reload_time
+            );
+            assert!(!w.can_target_air && w.can_target_ground);
+        }
+
+        // AP Bullets residual: damage × 1.25 → 6.25.
+        assert!(game_logic.apply_rebel_ap_bullets_upgrade(rebel_id));
+        assert!(game_logic.honesty_rebel_ap_ok());
+        {
+            let rebel = game_logic.find_object(rebel_id).expect("rebel ap");
+            assert!(rebel.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS));
+            let w = rebel.weapon.as_ref().expect("ap gun");
+            assert!(
+                (w.damage - 6.25).abs() < 0.05,
+                "AP Bullets residual damage 6.25, got {}",
+                w.damage
+            );
+            // ROF unchanged by AP.
+            assert!((w.reload_time - (3.0 / 30.0)).abs() < 0.05);
+        }
+
+        // Gun fire residual vs enemy infantry.
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let rebel = game_logic.find_object_mut(rebel_id).unwrap();
+            rebel.attack_target(enemy);
+            if let Some(w) = rebel.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[rebel_id, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.rebel_residual_fires() > 0,
+            "rebel residual fire honesty"
+        );
+        assert!(game_logic.honesty_rebel_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "rebel residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        // AP residual damage applied on fire (≥5 base; with AP ~6.25).
+        let dmg_dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            dmg_dealt >= 5.0 - 0.1,
+            "AP residual fire should deal at least base damage, got {dmg_dealt}"
+        );
+    }
+
+    /// Residual: GLA RPG Trooper / Tunnel Defender rocket splash + AP Rockets.
+    /// Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
+    #[test]
+    fn rpg_trooper_residual_rocket_and_ap_rockets() {
+        use crate::game_logic::host_rpg_trooper::{
+            is_rpg_trooper_template, RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE,
+            TUNNEL_DEFENDER_ROCKET_WEAPON, UPGRADE_GLA_AP_ROCKETS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut rpg_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTunnelDefender");
+        rpg_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(TUNNEL_DEFENDER_ROCKET_WEAPON);
+        game_logic
+            .templates
+            .insert("GLAInfantryTunnelDefender".to_string(), rpg_tpl);
+
+        let rpg_id = game_logic
+            .create_object(
+                "GLAInfantryTunnelDefender",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rpg");
+        {
+            let rpg = game_logic.find_object(rpg_id).expect("rpg");
+            assert!(is_rpg_trooper_template(&rpg.template_name));
+            let w = rpg.weapon.as_ref().expect("RPG residual");
+            assert!((w.damage - RPG_TROOPER_DAMAGE).abs() < 0.5);
+            assert!((w.range - RPG_TROOPER_RANGE).abs() < 1.0);
+            assert!(w.can_target_air && w.can_target_ground);
+            assert!((w.reload_time - 1.0).abs() < 0.05);
+            assert!((w.min_range - 5.0).abs() < 0.1);
+        }
+
+        // AP Rockets residual: damage × 1.25 → 50.
+        assert!(game_logic.apply_rpg_trooper_ap_rockets_upgrade(rpg_id));
+        assert!(game_logic.honesty_rpg_trooper_ap_ok());
+        {
+            let rpg = game_logic.find_object(rpg_id).expect("rpg ap");
+            assert!(rpg.has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+            let w = rpg.weapon.as_ref().expect("ap rocket");
+            assert!(
+                (w.damage - 50.0).abs() < 0.05,
+                "AP Rockets residual damage 50, got {}",
+                w.damage
+            );
+        }
+
+        // Rocket fire residual: intended + radius-5 splash.
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy tank");
+        let splash = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let rpg = game_logic.find_object_mut(rpg_id).unwrap();
+            rpg.attack_target(enemy);
+            if let Some(w) = rpg.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0; // residual test bypass for host placement
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[rpg_id, enemy, splash], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.rpg_trooper_residual_fires() > 0,
+            "rpg trooper residual fire honesty"
+        );
+        assert!(game_logic.honesty_rpg_trooper_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "RPG radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+        // AP residual damage on intended (50).
+        let dmg_dealt = enemy_hp_before - enemy_hp_after;
+        assert!(
+            dmg_dealt >= 40.0 - 0.1,
+            "AP residual rocket should deal at least base damage, got {dmg_dealt}"
+        );
+    }
 
     /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
     
