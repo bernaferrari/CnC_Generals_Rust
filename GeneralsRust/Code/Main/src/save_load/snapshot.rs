@@ -2897,6 +2897,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_applications)?;
         xfer.xfer_marker_label("HowitzerShellDeathLaseredOclApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_ocl_applications)?;
+        xfer.xfer_marker_label("HowitzerShellObjectParamsApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_object_params_applications)?;
         xfer.xfer_marker_label("HowitzerShellOnlyMovingDownApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_only_moving_down_applications)?;
         // SpectreHowitzerShell W3D ModelDraw residual (appended).
@@ -3088,6 +3090,10 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_f32(&mut self.last_soft_edge_tile_factor)?;
         xfer.xfer_marker_label("SoftEdgeColorArmed")?;
         xfer.xfer_u32(&mut self.soft_edge_color_armed)?;
+        xfer.xfer_marker_label("SoftEdgePremulSamples")?;
+        xfer.xfer_u32(&mut self.soft_edge_premul_samples)?;
+        xfer.xfer_marker_label("LastSoftEdgePremulOuterR")?;
+        xfer.xfer_f32(&mut self.last_soft_edge_premul_outer_r)?;
         // Outer-node bone layout residual (appended).
         xfer.xfer_marker_label("OuterNodeBoneLayoutApplications")?;
         xfer.xfer_u32(&mut self.outer_node_bone_layout_applications)?;
@@ -3207,6 +3213,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_last_thrust_wobble: 0.0,
                 scud_peak_abs_thrust_wobble: 0.0,
                 scud_geometry_applications: 0,
+                scud_object_params_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3307,6 +3314,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_death_detonated_applications: 0,
                 howitzer_shell_death_lasered_applications: 0,
                 howitzer_shell_death_lasered_ocl_applications: 0,
+                howitzer_shell_object_params_applications: 0,
                 howitzer_shell_only_moving_down_applications: 0,
                 howitzer_shell_model_draw_applications: 0,
                 howitzer_shell_scale_applications: 0,
@@ -3398,6 +3406,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 last_soft_edge_outer_alpha: 0.0,
                 last_soft_edge_tile_factor: 0.0,
                 soft_edge_color_armed: 0,
+                soft_edge_premul_samples: 0,
+                last_soft_edge_premul_outer_r: 0.0,
                 outer_node_bone_layout_applications: 0,
                 last_outer_node_bone_position: Vec3::ZERO,
                 connector_bone_layout_applications: 0,
