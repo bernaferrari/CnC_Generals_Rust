@@ -921,6 +921,19 @@ pub struct GameLogic {
     rpg_trooper_residual_units_hit: u32,
     rpg_trooper_residual_ap_upgrades: u32,
 
+    /// Host residual: GLA Terrorist SuicideDynamitePack detonation honesty.
+    /// Fail-closed: not ConvertToCarBomb full matrix / Chem anthrax death weapons.
+    terrorist_residual_detonations: u32,
+    terrorist_residual_units_hit: u32,
+    terrorist_residual_damage_dealt: f32,
+
+    /// Host residual: USA Missile Defender missile + laser guided special honesty.
+    /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam object matrix.
+    missile_defender_residual_fires: u32,
+    missile_defender_residual_units_hit: u32,
+    missile_defender_residual_laser_specials: u32,
+    missile_defender_residual_laser_fires: u32,
+
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
     combat_cycle_residual_fires: u32,
@@ -1872,6 +1885,13 @@ impl GameLogic {
             rpg_trooper_residual_fires: 0,
             rpg_trooper_residual_units_hit: 0,
             rpg_trooper_residual_ap_upgrades: 0,
+            terrorist_residual_detonations: 0,
+            terrorist_residual_units_hit: 0,
+            terrorist_residual_damage_dealt: 0.0,
+            missile_defender_residual_fires: 0,
+            missile_defender_residual_units_hit: 0,
+            missile_defender_residual_laser_specials: 0,
+            missile_defender_residual_laser_fires: 0,
             combat_cycle_residual_fires: 0,
             combat_cycle_residual_units_hit: 0,
             combat_cycle_residual_rider_switches: 0,
@@ -2125,6 +2145,13 @@ impl GameLogic {
         self.rpg_trooper_residual_fires = 0;
         self.rpg_trooper_residual_units_hit = 0;
         self.rpg_trooper_residual_ap_upgrades = 0;
+        self.terrorist_residual_detonations = 0;
+        self.terrorist_residual_units_hit = 0;
+        self.terrorist_residual_damage_dealt = 0.0;
+        self.missile_defender_residual_fires = 0;
+        self.missile_defender_residual_units_hit = 0;
+        self.missile_defender_residual_laser_specials = 0;
+        self.missile_defender_residual_laser_fires = 0;
         self.combat_cycle_residual_fires = 0;
         self.combat_cycle_residual_units_hit = 0;
         self.combat_cycle_residual_rider_switches = 0;
@@ -5473,6 +5500,58 @@ impl GameLogic {
                             impact,
                             Some(attacker_id),
                             Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // GLA Terrorist residual: SuicideDynamitePack self-detonation.
+                        use crate::game_logic::host_terrorist::{
+                            is_terrorist_template, should_apply_terrorist_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_terrorist_residual(is_terrorist_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let (hits, _destroyed_any) =
+                            self.apply_terrorist_residual_at(Some(attacker_id), Some(target_id));
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
+                    } else if {
+                        // USA Missile Defender residual: missile splash + laser guided secondary.
+                        use crate::game_logic::host_missile_defender::{
+                            is_missile_defender_template, should_apply_missile_defender_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_missile_defender_residual(
+                                    is_missile_defender_template(&a.template_name),
+                                )
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let laser_slot = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| a.active_weapon_slot == 1)
+                            .unwrap_or(false);
+                        let (hits, _destroyed_any) = self.apply_missile_defender_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            laser_slot,
                         );
                         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if hits > 0 {
@@ -9360,6 +9439,25 @@ impl GameLogic {
                 object.weapon = Some(rpg_trooper_weapon(ap));
             }
 
+            // Host residual: GLA Terrorist PRIMARY TerroristSuicideWeapon residual.
+            // Fail-closed: not ConvertToCarBomb full matrix / Chem anthrax death weapons.
+            if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
+                use crate::game_logic::host_terrorist::terrorist_suicide_weapon;
+                object.weapon = Some(terrorist_suicide_weapon());
+                object.secondary_weapon = None;
+            }
+
+            // Host residual: USA Missile Defender PRIMARY missile + SECONDARY laser guided.
+            // Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam object matrix.
+            if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
+            {
+                use crate::game_logic::host_missile_defender::{
+                    missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+                };
+                object.weapon = Some(missile_defender_primary_weapon());
+                object.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+            }
+
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
                 object.is_detector = true;
@@ -11144,9 +11242,13 @@ impl GameLogic {
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
-            .set_health(50.0)
-            .set_cost(120, 0)
-            .set_model("aimissletm"); // USA Missile Defender
+            .set_health(100.0)
+            .set_cost(300, 0)
+            .set_model("aimissletm") // USA Missile Defender
+            .set_primary_weapon_name(super::weapon_bootstrap::MISSILE_DEFENDER_MISSILE_WEAPON)
+            .set_secondary_weapon_name(
+                super::weapon_bootstrap::MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
+            );
         self.templates
             .insert("USA_MissileDefender".to_string(), usa_missile_defender);
 
@@ -13358,6 +13460,51 @@ impl GameLogic {
 
     pub fn rpg_trooper_residual_ap_upgrades(&self) -> u32 {
         self.rpg_trooper_residual_ap_upgrades
+    }
+
+    /// Residual honesty: GLA Terrorist SuicideDynamitePack detonation residual.
+    pub fn honesty_terrorist_ok(&self) -> bool {
+        self.terrorist_residual_detonations > 0 && self.terrorist_residual_damage_dealt > 0.0
+    }
+
+    pub fn terrorist_residual_detonations(&self) -> u32 {
+        self.terrorist_residual_detonations
+    }
+
+    pub fn terrorist_residual_units_hit(&self) -> u32 {
+        self.terrorist_residual_units_hit
+    }
+
+    pub fn terrorist_residual_damage_dealt(&self) -> f32 {
+        self.terrorist_residual_damage_dealt
+    }
+
+    /// Residual honesty: USA Missile Defender missile / laser guided residual.
+    pub fn honesty_missile_defender_ok(&self) -> bool {
+        self.missile_defender_residual_fires > 0
+            || self.missile_defender_residual_laser_specials > 0
+            || self.missile_defender_residual_laser_fires > 0
+    }
+
+    pub fn honesty_missile_defender_laser_ok(&self) -> bool {
+        self.missile_defender_residual_laser_specials > 0
+            || self.missile_defender_residual_laser_fires > 0
+    }
+
+    pub fn missile_defender_residual_fires(&self) -> u32 {
+        self.missile_defender_residual_fires
+    }
+
+    pub fn missile_defender_residual_units_hit(&self) -> u32 {
+        self.missile_defender_residual_units_hit
+    }
+
+    pub fn missile_defender_residual_laser_specials(&self) -> u32 {
+        self.missile_defender_residual_laser_specials
+    }
+
+    pub fn missile_defender_residual_laser_fires(&self) -> u32 {
+        self.missile_defender_residual_laser_fires
     }
 
     /// Residual honesty: Combat Cycle rider weapon residual path.
@@ -15977,6 +16124,304 @@ impl GameLogic {
         }
 
         (hits, any_destroyed)
+    }
+
+    /// Apply GLA Terrorist residual: SuicideDynamitePack AOE at self + destroy self.
+    ///
+    /// Fail-closed: not ConvertToCarBomb matrix / Chem anthrax death-weapon variants.
+    fn apply_terrorist_residual_at(
+        &mut self,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_terrorist::{
+            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at, TERRORIST_DETONATE_AUDIO,
+            SUICIDE_DYNAMITE_SECONDARY_RADIUS,
+        };
+
+        let Some(source_id) = source else {
+            return (0, false);
+        };
+        let Some(source_obj) = self.objects.get(&source_id) else {
+            return (0, false);
+        };
+        if !source_obj.is_alive() {
+            return (0, false);
+        }
+        let source_team = source_obj.team;
+        let center = source_obj.get_position();
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut damage_dealt = 0.0f32;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if *id == source_id {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_terrorist_aoe_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = center.x - pos.x;
+                    let dz = center.z - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= SUICIDE_DYNAMITE_SECONDARY_RADIUS {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = suicide_dynamite_damage_at(dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let applied = dmg.min(obj.health.current.max(0.0));
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                damage_dealt += applied;
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        // Intended-target residual honesty: ensure we counted the attack target
+        // even if already dead/out of range residual (fail-closed soft).
+        let _ = intended_target;
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        // Self-kill residual (TerroristSuicideWeapon SUICIDED + FireWeaponWhenDead).
+        if let Some(src) = self.objects.get_mut(&source_id) {
+            src.status.destroyed = true;
+        }
+        self.mark_object_for_destruction(source_id, Some(source_team));
+
+        self.terrorist_residual_detonations =
+            self.terrorist_residual_detonations.saturating_add(1);
+        self.terrorist_residual_units_hit =
+            self.terrorist_residual_units_hit.saturating_add(hits);
+        self.terrorist_residual_damage_dealt += damage_dealt;
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TERRORIST_DETONATE_AUDIO)
+                .with_object(source_id)
+                .with_position(center)
+                .with_priority(190),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            center,
+            self.frame,
+            Some(source_id),
+            intended_target,
+        );
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply USA Missile Defender residual rocket fire (primary or laser guided secondary).
+    ///
+    /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam attach matrix.
+    fn apply_missile_defender_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        laser_slot: bool,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_missile_defender::{
+            is_legal_missile_defender_splash_target, missile_defender_splash_damage_at,
+            MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_FIRE_AUDIO, MISSILE_DEFENDER_SPLASH_RADIUS,
+        };
+
+        let damage = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| {
+                if laser_slot {
+                    o.secondary_weapon
+                        .as_ref()
+                        .or(o.weapon.as_ref())
+                        .map(|w| w.damage)
+                } else {
+                    o.weapon.as_ref().map(|w| w.damage)
+                }
+            })
+            .unwrap_or(MISSILE_DEFENDER_DAMAGE);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_missile_defender_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= MISSILE_DEFENDER_SPLASH_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = missile_defender_splash_damage_at(is_intended, dist, damage);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.missile_defender_residual_fires =
+            self.missile_defender_residual_fires.saturating_add(1);
+        self.missile_defender_residual_units_hit =
+            self.missile_defender_residual_units_hit.saturating_add(hits);
+        if laser_slot {
+            self.missile_defender_residual_laser_fires =
+                self.missile_defender_residual_laser_fires.saturating_add(1);
+        }
+
+        self.queue_audio_event(
+            AudioEventRequest::new(MISSILE_DEFENDER_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Activate Missile Defender laser guided special residual: lock secondary + attack.
+    ///
+    /// Fail-closed: not full PreparationTime / PersistentPrepTime / LaserBeam object matrix.
+    /// SpecialPower ReloadTime = 0 residual (always ready).
+    pub fn activate_missile_defender_laser_guided(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        use crate::game_logic::host_missile_defender::{
+            can_activate_laser_guided, is_missile_defender_template, laser_guided_in_start_range,
+            LASER_GUIDED_INITIATE_AUDIO,
+        };
+
+        let Some(obj) = self.objects.get(&object_id) else {
+            return false;
+        };
+        if !can_activate_laser_guided(is_missile_defender_template(&obj.template_name), obj.is_alive())
+        {
+            return false;
+        }
+        if obj.secondary_weapon.is_none() {
+            return false;
+        }
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+        if !target.is_alive() {
+            return false;
+        }
+        let src_pos = obj.get_position();
+        let tgt_pos = target.get_position();
+        let dist = {
+            let dx = src_pos.x - tgt_pos.x;
+            let dz = src_pos.z - tgt_pos.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+        // Retail StartAbilityRange = 200 residual.
+        if !laser_guided_in_start_range(dist) {
+            return false;
+        }
+
+        let src_pos = src_pos;
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.active_weapon_slot = 1;
+            obj.attack_target(target_id);
+        }
+        self.missile_defender_residual_laser_specials = self
+            .missile_defender_residual_laser_specials
+            .saturating_add(1);
+        self.queue_audio_event(
+            AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
+                .with_object(object_id)
+                .with_position(src_pos)
+                .with_priority(160),
+        );
+        true
     }
 
     /// Record Combat Cycle residual rider load honesty.
@@ -46211,6 +46656,278 @@ mod tests {
         assert!(
             dmg_dealt >= 40.0 - 0.1,
             "AP residual rocket should deal at least base damage, got {dmg_dealt}"
+        );
+    }
+
+    /// Residual: GLA Terrorist SuicideDynamitePack self-detonation (500/18 + 300/50).
+    /// Fail-closed: not ConvertToCarBomb full matrix / Chem anthrax death weapons.
+    #[test]
+    fn terrorist_residual_suicide_dynamite_pack() {
+        use crate::game_logic::host_terrorist::{
+            is_terrorist_template, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
+            TERRORIST_SUICIDE_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut terror_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTerrorist");
+        terror_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(TERRORIST_SUICIDE_WEAPON);
+        game_logic
+            .templates
+            .insert("GLAInfantryTerrorist".to_string(), terror_tpl);
+
+        let terror_id = game_logic
+            .create_object(
+                "GLAInfantryTerrorist",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("terrorist");
+        {
+            let t = game_logic.find_object(terror_id).expect("terrorist");
+            assert!(is_terrorist_template(&t.template_name));
+            let w = t.weapon.as_ref().expect("suicide residual");
+            assert!(
+                (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE).abs() < 1.0,
+                "suicide residual damage flag, got {}",
+                w.damage
+            );
+            assert!(w.range <= 5.5, "close-range residual, got {}", w.range);
+            assert_eq!(w.ammo, Some(1));
+        }
+
+        // Primary radius victim (full 500 residual).
+        let near = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("near tank");
+        // Secondary radius victim (300 residual).
+        let far = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                Vec3::new(SUICIDE_DYNAMITE_PRIMARY_RADIUS + 5.0, 0.0, 0.0),
+            )
+            .expect("far infantry");
+        {
+            let t = game_logic.find_object_mut(terror_id).unwrap();
+            t.attack_target(near);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.range = 20.0; // residual test bypass for host placement
+            }
+        }
+        let near_hp_before = game_logic
+            .find_object(near)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let far_hp_before = game_logic
+            .find_object(far)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[terror_id, near, far], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.terrorist_residual_detonations() > 0,
+            "terrorist detonation residual honesty"
+        );
+        assert!(
+            game_logic.honesty_terrorist_ok(),
+            "terrorist residual honesty with observable damage"
+        );
+        let near_hp_after = game_logic
+            .find_object(near)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "primary ring residual must damage near target (before={near_hp_before} after={near_hp_after})"
+        );
+        let far_hp_after = game_logic
+            .find_object(far)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            far_hp_after < far_hp_before,
+            "secondary ring residual must damage far target (before={far_hp_before} after={far_hp_after})"
+        );
+        // Terrorist self-destroyed residual.
+        let terror_alive = game_logic
+            .find_object(terror_id)
+            .map(|t| t.is_alive())
+            .unwrap_or(false);
+        assert!(!terror_alive, "terrorist self-kill residual");
+    }
+
+    /// Residual: USA Missile Defender primary missile + laser guided special secondary.
+    /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam object matrix.
+    #[test]
+    fn missile_defender_residual_missile_and_laser_guided() {
+        use crate::game_logic::host_missile_defender::{
+            is_missile_defender_template, MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_RANGE,
+            MISSILE_DEFENDER_PRIMARY_RANGE, MISSILE_DEFENDER_MISSILE_WEAPON,
+            MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut md_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryMissileDefender");
+        md_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(MISSILE_DEFENDER_MISSILE_WEAPON)
+            .set_secondary_weapon_name(MISSILE_DEFENDER_LASER_GUIDED_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaInfantryMissileDefender".to_string(), md_tpl);
+
+        let md_id = game_logic
+            .create_object(
+                "AmericaInfantryMissileDefender",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("missile defender");
+        {
+            let md = game_logic.find_object(md_id).expect("md");
+            assert!(is_missile_defender_template(&md.template_name));
+            let w = md.weapon.as_ref().expect("primary missile residual");
+            assert!((w.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
+            assert!((w.range - MISSILE_DEFENDER_PRIMARY_RANGE).abs() < 1.0);
+            assert!(w.can_target_air && w.can_target_ground);
+            assert!((w.reload_time - 1.0).abs() < 0.05);
+            let sw = md
+                .secondary_weapon
+                .as_ref()
+                .expect("laser guided residual");
+            assert!((sw.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
+            assert!((sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0);
+            assert!((sw.reload_time - 0.5).abs() < 0.05);
+            assert!(sw.can_target_air && sw.can_target_ground);
+        }
+
+        // Primary fire residual: intended + radius-5 splash.
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy tank");
+        let splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let md = game_logic.find_object_mut(md_id).unwrap();
+            md.active_weapon_slot = 0;
+            md.attack_target(enemy);
+            if let Some(w) = md.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[md_id, enemy, splash], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.missile_defender_residual_fires() > 0,
+            "missile defender residual fire honesty"
+        );
+        assert!(game_logic.honesty_missile_defender_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "missile residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "missile radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+
+        // Laser guided special residual: lock secondary within StartAbilityRange 200.
+        let far_enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(180.0, 0.0, 0.0))
+            .expect("far tank");
+        assert!(
+            game_logic.activate_missile_defender_laser_guided(md_id, far_enemy),
+            "laser guided special residual activate"
+        );
+        assert!(
+            game_logic.missile_defender_residual_laser_specials() > 0,
+            "laser special honesty counter"
+        );
+        {
+            let md = game_logic.find_object(md_id).expect("md laser");
+            assert_eq!(md.active_weapon_slot, 1, "laser locks secondary slot");
+            assert_eq!(md.target, Some(far_enemy));
+            if let Some(sw) = md.secondary_weapon.as_ref() {
+                assert!(
+                    (sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0,
+                    "laser range residual 300"
+                );
+            }
+        }
+        {
+            let md = game_logic.find_object_mut(md_id).unwrap();
+            if let Some(w) = md.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let far_hp_before = game_logic
+            .find_object(far_enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[md_id, far_enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.missile_defender_residual_laser_fires() > 0
+                || game_logic
+                    .find_object(far_enemy)
+                    .map(|e| e.health.current)
+                    .unwrap_or(0.0)
+                    < far_hp_before,
+            "laser guided residual fire honesty"
+        );
+        assert!(game_logic.honesty_missile_defender_laser_ok());
+        let far_hp_after = game_logic
+            .find_object(far_enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            far_hp_after < far_hp_before,
+            "laser guided residual must damage target at extended range (before={far_hp_before} after={far_hp_after})"
         );
     }
 
