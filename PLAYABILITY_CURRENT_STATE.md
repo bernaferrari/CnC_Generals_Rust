@@ -1,3 +1,72 @@
+## Residual Host Playability — AutoDeposit Floating Text + Oil SupplyLines Boost (2026-07-13)
+**Closed (host-testable AutoDepositUpdate floating cash text + TechOilDerrick UpgradedBoost residual):**
+1. **AutoDeposit floating cash text residual** (`host_oil_derrick` / `host_black_market`):
+   - Host `+$N` presentation at building pos + Z offset **10** (C++ `pos.z += 10`).
+   - Player color RGB OR alpha **230** (C++ `GameMakeColor(0,0,0,230)`).
+   - GameText key honesty `GUI:AddCash`.
+   - Recorded on oil derrick deposit / capture bonus and black market deposit.
+   - Host-testable: floating text on deposit; amount/color/key constants.
+   - Fail-closed: not full InGameUI GPU draw / STEALTHED local-player display gate /
+     Unicode GameText localization.
+2. **TechOilDerrick UpgradedBoost residual** (`host_oil_derrick`):
+   - Retail `Upgrade_AmericaSupplyLines` Boost **+20** on DepositAmount **200** → **220**.
+   - Host-testable: base 200 without upgrade; 220 with SupplyLines; boost honesty counter.
+   - Fail-closed: not full upgrade-mux edge matrix beyond SupplyLines name residual.
+3. Tests (not log-only):
+   - host_oil_derrick floating text + SupplyLines boost unit tests
+   - host_black_market floating text unit tests
+   - updated oil derrick / black market GameLogic residual integration tests
+
+**Still residual (fail-closed, not claimed):**
+- Full InGameUI::addFloatingText GPU draw / STEALTHED local display gate
+- Full AutoDeposit upgrade-mux beyond SupplyLines residual
+- Network AutoDeposit floating-text replication (network deferred)
+
+## Residual Host Playability — calcMinTurnRadius + MaxAttempts Re-Approach + Off-Map Recover (2026-07-13)
+**Closed (host-testable DeliverPayloadAIUpdate calcMinTurnRadius + ConsiderNewApproach + HeadOffMap/RecoverFromOffMap residual):**
+1. **calcMinTurnRadius residual** (`host_deliver_payload`):
+   - C++ `maxSpeed / maxTurnRate` (both per logic frame).
+   - B52Locomotor: Speed **125**/sec, TurnRate **25**°/sec → radius ≈ **286.48**
+     (`5 × 180/π`); zero turn rate → sentinel **999999**.
+   - ConsiderNewApproach min re-approach dist = radius × **DIST_FUDGE 2.2**.
+   - RecoverFromOffMap delay frames = `ceil(radius / maxSpeed)` ≈ **69**.
+   - Host-testable: formula constants; B52 radius / reapproach / recover frames.
+   - Fail-closed: not full locomotor damage-state matrix / pathfinder turn arcs.
+2. **MaxAttempts ConsiderNewApproach residual** (`HostCargoPlaneFlight`):
+   - Leave DeliveryDistance band mid-stagger (items incomplete) → re-approach.
+   - Re-approach waypoint = position + heading × minReApproachDist.
+   - `reapproach_count` increments; when **> MaxAttempts (4)** → HeadOffMap give-up.
+   - Delivery phases fly-through on residual heading (not home-to-target).
+   - Host-testable: band exit → ConsideringNewApproach; 4 re-approaches then Departing.
+   - Fail-closed: not full AI_MOVE_TO pathfinder / setAllowInvalidPosition locomotor.
+3. **isOffMap / HeadOffMap / RecoverFromOffMap residual**:
+   - isOffMap residual: XZ outside residual map extent (no Z).
+   - HeadOffMap: fly straight on heading until off-map → Complete; `accepting_commands=false`.
+   - RecoverFromOffMap: hide + turn-radius frame delay → closest-edge re-entry → Approaching.
+   - Host-testable: depart completes off-map; recover unhides at PreferredHeight edge.
+   - Fail-closed: not full Partition unRegister / drawable GPU hide / TerrainLogic border.
+4. Tests (not log-only):
+   - `calc_min_turn_radius_b52_residual`
+   - `consider_new_approach_max_attempts_residual`
+   - `head_off_map_and_recover_from_off_map_residual`
+   - `is_off_map_and_reapproach_point_residual`
+   - updated CreateAtEdge flight residual (HeadOffMap depart still host-testable)
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / full pathfinder locomotor matrix
+  (calcMinTurnRadius + MaxAttempts re-approach + HeadOffMap/Recover residual closed
+  2026-07-13)
+- Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
+  supply OCL has none)
+- Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
+- Full CollideModule partition / Anim2DCollection GPU / InGameUI floating text draw
+- Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
+- Full W3D pristine bone extract for cargo plane doors (DOOR_1 condition residual closed)
+- Full ControlBar OCL timer UI / SabotageSupplyDropzone timer-reset (retail saboteur
+  module commented in base INI)
+- Network DeliverPayload / MoneyCrate / CreateAtEdge / re-approach replication
+  (network deferred)
+
 ## Residual Host Playability — CreateAtEdge Flight + Crate Bone Attach + Money Floating Text (2026-07-13)
 **Closed (host-testable CreateAtEdge cargo-plane flight + AmericaCrateParachute bones + floating cash text residual):**
 1. **CreateAtEdge AmericaJetCargoPlane flight residual** (`host_deliver_payload`):
@@ -37,9 +106,10 @@
    - host_money_crate floating text unit tests
 
 **Still residual (fail-closed, not claimed):**
-- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate pathfinder
-  re-approach / calcMinTurnRadius / off-map recover (edge spawn + approach band +
-  door residual closed 2026-07-13)
+- Full CreateAtEdge AmericaJetCargoPlane Object / full pathfinder locomotor matrix
+  (edge spawn + approach band + door residual closed 2026-07-13; calcMinTurnRadius +
+  MaxAttempts re-approach + HeadOffMap/Recover residual closed 2026-07-13 — see
+  calcMinTurnRadius + MaxAttempts Re-Approach + Off-Map Recover section)
 - Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
   supply OCL has none)
 - Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
@@ -2080,7 +2150,7 @@
    - unit tests in `host_oil_derrick.rs` / `host_hacker_income.rs`
 
 **Still residual (fail-closed, not claimed):**
-- Full AutoDeposit floating text / UpgradedBoost (SupplyLines +20 on derrick)
+- Full InGameUI AutoDeposit floating text GPU / STEALTHED gate (host floating text + SupplyLines +20 residual closed 2026-07-13 — see AutoDeposit Floating Cash + Oil SupplyLines Boost section)
 - Full HackInternet unpack/pack state machine / variation factor / model conditions
 - Full InternetHackContain passenger order matrix / microwave resume path
 - Supply Drop Zone residual (OCL crate plane every 120s — not this slice)
@@ -2113,7 +2183,7 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full StickyBombUpdate attach bones / max-charge special-object list / packing anim
-- Full AutoDeposit floating text / UpgradedBoost pairs (oil derrick + hacker closed above)
+- Full InGameUI AutoDeposit floating text GPU (host floating text residual closed 2026-07-13 — see AutoDeposit Floating Cash section)
 - Supply Drop Zone residual (OCL crate plane — still open)
 - Fuel Air Bomb is already covered by DaisyCutter host strike path (not reopened)
 - Network remote-charge / black-market replication (network deferred)

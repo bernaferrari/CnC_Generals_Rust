@@ -7,14 +7,20 @@
 //!   at 30 FPS logic.
 //! - InitialCaptureBonus residual **1000** once when a neutral derrick first becomes
 //!   non-neutral owned (Player::gainObject → awardInitialCaptureBonus residual).
+//! - UpgradedBoost residual: `Upgrade_AmericaSupplyLines` **+20** (C++ getUpgradedSupplyBoost).
+//! - AutoDeposit floating cash text residual: host `+$N` at building pos + Z **10**,
+//!   player color RGB + alpha **230** (presentation state, not full InGameUI draw).
 //!
 //! Fail-closed honesty:
-//! - Not full AutoDepositUpdate floating text / UpgradedBoost (SupplyLines +20)
+//! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
+//! - Not full STEALTHED local-player display gate matrix
 //! - Not full capture flow module wiring beyond residual team-change detect
 //! - Neutral / under-construction residual-skip (C++ isNeutralControlled +
 //!   construction-complete gates)
+//! - Network deferred
 
 use super::ObjectId;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -33,11 +39,26 @@ pub const OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES: u32 = 360;
 /// Retail InitialCaptureBonus.
 pub const OIL_DERRICK_INITIAL_CAPTURE_BONUS: u32 = 1000;
 
+/// Retail UpgradedBoost UpgradeType:Upgrade_AmericaSupplyLines Boost:**20**.
+pub const OIL_DERRICK_SUPPLY_LINES_BOOST: u32 = 20;
+
+/// Retail Upgrade_AmericaSupplyLines name honesty for oil derrick boost.
+pub const OIL_DERRICK_SUPPLY_LINES_UPGRADE: &str = "Upgrade_AmericaSupplyLines";
+
 /// Audio residual when oil derrick deposits (fail-closed host cue name).
 pub const OIL_DERRICK_DEPOSIT_AUDIO: &str = "OilDerrickDeposit";
 
 /// Audio residual when capture bonus is awarded.
 pub const OIL_DERRICK_CAPTURE_BONUS_AUDIO: &str = "OilDerrickCaptureBonus";
+
+/// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
+pub const OIL_DERRICK_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
+
+/// Residual GameText key honesty for cash gain caption (C++ "GUI:AddCash").
+pub const OIL_DERRICK_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Residual floating text alpha (C++ GameMakeColor(0,0,0,230) OR'd onto player color).
+pub const OIL_DERRICK_FLOATING_TEXT_ALPHA: u8 = 230;
 
 /// Convert deposit timing milliseconds to logic frames (30 FPS residual).
 pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
@@ -70,17 +91,89 @@ pub fn is_legal_oil_derrick_income_source(
     is_alive && is_constructed && !is_neutral
 }
 
+/// C++ AutoDepositUpdate::getUpgradedSupplyBoost residual for oil derrick.
+///
+/// Retail: UpgradedBoost UpgradeType:Upgrade_AmericaSupplyLines Boost:20.
+pub fn oil_derrick_deposit_amount(has_supply_lines: bool) -> (u32, u32) {
+    let boost = if has_supply_lines {
+        OIL_DERRICK_SUPPLY_LINES_BOOST
+    } else {
+        0
+    };
+    (
+        OIL_DERRICK_DEPOSIT_AMOUNT.saturating_add(boost),
+        boost,
+    )
+}
+
+/// Host residual AutoDeposit floating cash text presentation.
+///
+/// C++ AutoDepositUpdate::update → InGameUI::addFloatingText(GUI:AddCash, pos+Z10,
+/// playerColor | A230). Fail-closed: not full InGameUI GPU / STEALTHED local gate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostAutoDepositFloatingText {
+    pub text: String,
+    pub text_key: String,
+    pub position: Vec3,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub amount: u32,
+    pub spawn_frame: u32,
+    pub source_id: ObjectId,
+    /// True when this text was from InitialCaptureBonus residual.
+    pub is_capture_bonus: bool,
+}
+
+impl HostAutoDepositFloatingText {
+    pub fn new(
+        source_id: ObjectId,
+        position: Vec3,
+        amount: u32,
+        player_color_rgb: (u8, u8, u8),
+        spawn_frame: u32,
+        is_capture_bonus: bool,
+    ) -> Self {
+        Self {
+            text: format!("+${amount}"),
+            text_key: OIL_DERRICK_FLOATING_TEXT_ADD_CASH_KEY.to_string(),
+            position: Vec3::new(
+                position.x,
+                position.y + OIL_DERRICK_FLOATING_TEXT_Z_OFFSET,
+                position.z,
+            ),
+            color_rgba: (
+                player_color_rgb.0,
+                player_color_rgb.1,
+                player_color_rgb.2,
+                OIL_DERRICK_FLOATING_TEXT_ALPHA,
+            ),
+            amount,
+            spawn_frame,
+            source_id,
+            is_capture_bonus,
+        }
+    }
+}
+
 /// Host residual honesty + per-derrick deposit schedule + capture bonus tracking.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostOilDerrickRegistry {
     /// Number of successful residual periodic deposits.
     pub deposits: u32,
-    /// Total cash from periodic AutoDeposit residual.
+    /// Total cash from periodic AutoDeposit residual (includes SupplyLines boost).
     pub cash_total: u32,
+    /// SupplyLines UpgradedBoost cash portion observed.
+    #[serde(default)]
+    pub supply_lines_boost_cash_total: u32,
     /// Number of residual capture bonuses awarded.
     pub capture_bonuses: u32,
     /// Total cash from InitialCaptureBonus residual.
     pub capture_bonus_cash_total: u32,
+    /// Floating cash text residual descriptors spawned this session.
+    #[serde(default)]
+    pub floating_texts: Vec<HostAutoDepositFloatingText>,
+    /// Floating cash text residual spawn count (honesty).
+    #[serde(default)]
+    pub floating_texts_total: u32,
     /// Next absolute logic frame each derrick may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
     /// Derricks that have already received InitialCaptureBonus this instance life.
@@ -114,6 +207,14 @@ impl HostOilDerrickRegistry {
         self.capture_bonus_cash_total
     }
 
+    pub fn supply_lines_boost_cash_total(&self) -> u32 {
+        self.supply_lines_boost_cash_total
+    }
+
+    pub fn floating_texts_total(&self) -> u32 {
+        self.floating_texts_total
+    }
+
     /// Combined residual cash (periodic + capture bonus).
     pub fn total_cash_awarded(&self) -> u32 {
         self.cash_total.saturating_add(self.capture_bonus_cash_total)
@@ -129,7 +230,16 @@ impl HostOilDerrickRegistry {
 
     /// When due, schedule next interval and record a deposit of `amount`.
     /// Returns deposited amount (0 if not yet due).
-    pub fn try_deposit(&mut self, derrick_id: ObjectId, current_frame: u32, amount: u32) -> u32 {
+    ///
+    /// `supply_lines_boost` is the UpgradedBoost portion included in `amount`
+    /// (honesty tracking only; amount is already base+boost).
+    pub fn try_deposit(
+        &mut self,
+        derrick_id: ObjectId,
+        current_frame: u32,
+        amount: u32,
+        supply_lines_boost: u32,
+    ) -> u32 {
         if amount == 0 {
             return 0;
         }
@@ -143,7 +253,20 @@ impl HostOilDerrickRegistry {
         );
         self.deposits = self.deposits.saturating_add(1);
         self.cash_total = self.cash_total.saturating_add(amount);
+        self.supply_lines_boost_cash_total = self
+            .supply_lines_boost_cash_total
+            .saturating_add(supply_lines_boost.min(amount));
         amount
+    }
+
+    /// Record residual AutoDeposit floating cash text presentation.
+    pub fn record_floating_text(&mut self, text: HostAutoDepositFloatingText) {
+        self.floating_texts_total = self.floating_texts_total.saturating_add(1);
+        self.floating_texts.push(text);
+        if self.floating_texts.len() > 32 {
+            let drain = self.floating_texts.len() - 32;
+            self.floating_texts.drain(0..drain);
+        }
     }
 
     /// Award InitialCaptureBonus once when derrick first becomes non-neutral.
@@ -200,6 +323,30 @@ impl HostOilDerrickRegistry {
         self.capture_bonuses > 0 && self.capture_bonus_cash_total > 0
     }
 
+    /// Residual honesty: SupplyLines UpgradedBoost cash observed.
+    pub fn honesty_supply_lines_boost_ok(&self) -> bool {
+        self.supply_lines_boost_cash_total > 0
+            && OIL_DERRICK_SUPPLY_LINES_BOOST == 20
+            && OIL_DERRICK_SUPPLY_LINES_UPGRADE == "Upgrade_AmericaSupplyLines"
+    }
+
+    /// Residual honesty: floating cash text presentation spawned.
+    pub fn honesty_floating_text_ok(&self) -> bool {
+        self.floating_texts_total > 0
+            && self.floating_texts.iter().any(|t| {
+                t.amount > 0
+                    && t.text_key == OIL_DERRICK_FLOATING_TEXT_ADD_CASH_KEY
+                    && t.color_rgba.3 == OIL_DERRICK_FLOATING_TEXT_ALPHA
+            })
+    }
+
+    pub fn honesty_floating_text_constants_ok() -> bool {
+        OIL_DERRICK_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+            && (OIL_DERRICK_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
+            && OIL_DERRICK_FLOATING_TEXT_ALPHA == 230
+            && OIL_DERRICK_SUPPLY_LINES_BOOST == 20
+    }
+
     /// Combined residual honesty (any cash path completed).
     pub fn honesty_ok(&self) -> bool {
         self.honesty_deposit_ok() || self.honesty_capture_bonus_ok()
@@ -239,13 +386,45 @@ mod tests {
 
         let mut reg = HostOilDerrickRegistry::new();
         let id = ObjectId(1);
-        assert_eq!(reg.try_deposit(id, 0, OIL_DERRICK_DEPOSIT_AMOUNT), 0);
-        assert_eq!(reg.try_deposit(id, 360, OIL_DERRICK_DEPOSIT_AMOUNT), 200);
-        assert_eq!(reg.try_deposit(id, 360, OIL_DERRICK_DEPOSIT_AMOUNT), 0);
-        assert_eq!(reg.try_deposit(id, 720, OIL_DERRICK_DEPOSIT_AMOUNT), 200);
+        assert_eq!(reg.try_deposit(id, 0, OIL_DERRICK_DEPOSIT_AMOUNT, 0), 0);
+        assert_eq!(reg.try_deposit(id, 360, OIL_DERRICK_DEPOSIT_AMOUNT, 0), 200);
+        assert_eq!(reg.try_deposit(id, 360, OIL_DERRICK_DEPOSIT_AMOUNT, 0), 0);
+        assert_eq!(reg.try_deposit(id, 720, OIL_DERRICK_DEPOSIT_AMOUNT, 0), 200);
         assert!(reg.honesty_deposit_ok());
         assert_eq!(reg.deposits(), 2);
         assert_eq!(reg.cash_total(), 400);
+    }
+
+    #[test]
+    fn supply_lines_boost_and_floating_text_residual() {
+        assert!(HostOilDerrickRegistry::honesty_floating_text_constants_ok());
+        assert_eq!(oil_derrick_deposit_amount(false), (200, 0));
+        assert_eq!(oil_derrick_deposit_amount(true), (220, 20));
+
+        let mut reg = HostOilDerrickRegistry::new();
+        let id = ObjectId(3);
+        let (amount, boost) = oil_derrick_deposit_amount(true);
+        // First observe schedules next deposit at frame 360.
+        assert_eq!(reg.try_deposit(id, 0, amount, boost), 0);
+        assert_eq!(reg.try_deposit(id, 360, amount, boost), 220);
+        assert_eq!(reg.supply_lines_boost_cash_total(), 20);
+        assert!(reg.honesty_supply_lines_boost_ok());
+
+        let ft = HostAutoDepositFloatingText::new(
+            id,
+            Vec3::new(10.0, 0.0, 20.0),
+            220,
+            (0, 128, 255),
+            360,
+            false,
+        );
+        assert_eq!(ft.text, "+$220");
+        assert_eq!(ft.text_key, "GUI:AddCash");
+        assert!((ft.position.y - 10.0).abs() < 0.01);
+        assert_eq!(ft.color_rgba, (0, 128, 255, 230));
+        reg.record_floating_text(ft);
+        assert!(reg.honesty_floating_text_ok());
+        assert_eq!(reg.floating_texts_total(), 1);
     }
 
     #[test]

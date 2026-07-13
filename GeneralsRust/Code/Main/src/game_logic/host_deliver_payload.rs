@@ -27,10 +27,13 @@
 //! - isCloseEnough residual (inbound + PreOpenDistance).
 //! - Door residual: DoorDelay → MODELCONDITION_DOOR_1_OPENING (AVCargoPln_A2).
 //! - StartAtPreferredHeight / StartAtMaxSpeed OCL honesty.
+//! - calcMinTurnRadius residual (`maxSpeed / maxTurnRate`) + ConsiderNewApproach
+//!   re-approach (MaxAttempts **4**, DIST_FUDGE **2.2**).
+//! - isOffMap / HeadOffMap / RecoverFromOffMap residual (turn-radius hide delay).
 //!
 //! Fail-closed honesty:
-//! - Not full CreateAtEdge cargo-plane Object / full DeliverPayloadAIUpdate state machine
-//! - Not full pathfinder re-approach / calcMinTurnRadius / off-map recover
+//! - Not full CreateAtEdge cargo-plane Object / full pathfinder locomotor matrix
+//! - Not full AI state-machine command ignore / ultra-accurate locomotor flags
 //! - Not full DropVariance random scatter (OCL supply drop has no DropVariance)
 //! - Not full AmericaCrateParachute container Object / W3D pristine bone extract GPU
 //! - Not full VisiblePayload bone / subobject bomb rack matrix
@@ -160,7 +163,14 @@ pub const B52_SPEED_PER_FRAME: f32 = B52_LOCOMOTOR_SPEED / DELIVER_PAYLOAD_LOGIC
 pub const B52_LOCOMOTOR_MIN_SPEED: f32 = 60.0;
 
 /// Retail B52Locomotor TurnRate residual honesty (deg/sec).
+/// C++ stores rad/frame via `parseAngularVelocityReal`.
 pub const B52_LOCOMOTOR_TURN_RATE: f32 = 25.0;
+
+/// C++ ConsiderNewApproachState DIST_FUDGE (minReApproachDist = radius × fudge).
+pub const CONSIDER_NEW_APPROACH_DIST_FUDGE: f32 = 2.2;
+
+/// C++ HeadOffMapState extent diagonal multiplier for HUGE_DIST.
+pub const HEAD_OFF_MAP_EXTENT_FUDGE: f32 = 1.2;
 
 /// Retail OCL StartAtPreferredHeight residual honesty.
 pub const SUPPLY_DROP_START_AT_PREFERRED_HEIGHT: bool = true;
@@ -307,6 +317,122 @@ pub fn tick_cargo_plane_approach(
     (next, new_dist)
 }
 
+/// Advance residual position along a unit direction (fly-through / head-off-map).
+pub fn tick_cargo_plane_heading(
+    current: Vec3,
+    dir_x: f32,
+    dir_z: f32,
+    preferred_height: f32,
+    speed_per_frame: f32,
+) -> Vec3 {
+    let mut next = current;
+    next.y = preferred_height;
+    let len = (dir_x * dir_x + dir_z * dir_z).sqrt();
+    if len <= 0.001 {
+        return next;
+    }
+    next.x = current.x + dir_x / len * speed_per_frame;
+    next.z = current.z + dir_z / len * speed_per_frame;
+    next
+}
+
+/// C++ `DeliverPayloadAIUpdate::calcMinTurnRadius` residual.
+///
+/// `minTurnRadius = maxSpeed / maxTurnRate` (both per logic frame).
+/// When turn rate is 0, returns a large sentinel (C++ 999999).
+pub fn calc_min_turn_radius_residual(
+    max_speed_per_frame: f32,
+    max_turn_rate_rad_per_frame: f32,
+) -> f32 {
+    if max_turn_rate_rad_per_frame > 0.0 {
+        max_speed_per_frame / max_turn_rate_rad_per_frame
+    } else {
+        999_999.0
+    }
+}
+
+/// B52 residual max speed in dist/frame (C++ `getMaxSpeedForCondition` units).
+pub fn b52_max_speed_per_frame() -> f32 {
+    B52_LOCOMOTOR_SPEED / DELIVER_PAYLOAD_LOGIC_FPS
+}
+
+/// B52 residual max turn rate in rads/frame
+/// (`ConvertAngularVelocityInDegreesPerSecToRadsPerFrame`).
+pub fn b52_max_turn_rate_rad_per_frame() -> f32 {
+    B52_LOCOMOTOR_TURN_RATE * (std::f32::consts::PI / 180.0) / DELIVER_PAYLOAD_LOGIC_FPS
+}
+
+/// B52 residual calcMinTurnRadius (dist).
+pub fn b52_min_turn_radius_residual() -> f32 {
+    calc_min_turn_radius_residual(b52_max_speed_per_frame(), b52_max_turn_rate_rad_per_frame())
+}
+
+/// C++ ConsiderNewApproach min re-approach distance (`radius × DIST_FUDGE`).
+pub fn b52_min_reapproach_dist_residual() -> f32 {
+    b52_min_turn_radius_residual() * CONSIDER_NEW_APPROACH_DIST_FUDGE
+}
+
+/// C++ RecoverFromOffMap re-entry delay frames (`ceil(radius / maxSpeed)`).
+pub fn b52_recover_off_map_frames_residual() -> u32 {
+    let t = b52_min_turn_radius_residual() / b52_max_speed_per_frame().max(0.0001);
+    t.ceil() as u32
+}
+
+/// C++ `DeliverPayloadAIUpdate::isOffMap` residual (XZ vs map extent, no Z).
+pub fn is_off_map_residual(
+    pos: Vec3,
+    map_min_x: f32,
+    map_min_z: f32,
+    map_max_x: f32,
+    map_max_z: f32,
+) -> bool {
+    pos.x < map_min_x || pos.x > map_max_x || pos.z < map_min_z || pos.z > map_max_z
+}
+
+/// Default residual map extent off-map check.
+pub fn is_off_map_default_residual(pos: Vec3) -> bool {
+    is_off_map_residual(
+        pos,
+        RESIDUAL_MAP_EXTENT_MIN_X,
+        RESIDUAL_MAP_EXTENT_MIN_Z,
+        RESIDUAL_MAP_EXTENT_MAX_X,
+        RESIDUAL_MAP_EXTENT_MAX_Z,
+    )
+}
+
+/// C++ ConsiderNewApproach re-approach point residual (`pos + dir * minReApproachDist`).
+pub fn reapproach_point_residual(pos: Vec3, dir_x: f32, dir_z: f32, min_dist: f32) -> Vec3 {
+    let len = (dir_x * dir_x + dir_z * dir_z).sqrt();
+    let (ux, uz) = if len > 0.001 {
+        (dir_x / len, dir_z / len)
+    } else {
+        (1.0, 0.0)
+    };
+    Vec3::new(pos.x + ux * min_dist, pos.y, pos.z + uz * min_dist)
+}
+
+/// C++ HeadOffMap HUGE_DIST exit point residual (straight ahead past map diagonal).
+pub fn head_off_map_exit_point_residual(
+    pos: Vec3,
+    dir_x: f32,
+    dir_z: f32,
+    map_min_x: f32,
+    map_min_z: f32,
+    map_max_x: f32,
+    map_max_z: f32,
+) -> Vec3 {
+    let len = (dir_x * dir_x + dir_z * dir_z).sqrt();
+    let (ux, uz) = if len > 0.001 {
+        (dir_x / len, dir_z / len)
+    } else {
+        (1.0, 0.0)
+    };
+    let dx = map_max_x - map_min_x;
+    let dz = map_max_z - map_min_z;
+    let huge = HEAD_OFF_MAP_EXTENT_FUDGE * (dx * dx + dz * dz).sqrt();
+    Vec3::new(pos.x + ux * huge, pos.y, pos.z + uz * huge)
+}
+
 /// Host residual DeliverPayloadAIUpdate flight phase presentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostCargoPlaneFlightPhase {
@@ -315,6 +441,11 @@ pub enum HostCargoPlaneFlightPhase {
     InDeliveryBand,
     DoorOpening,
     Delivering,
+    /// C++ ConsiderNewApproachState residual (turn-radius fly-out then re-approach).
+    ConsideringNewApproach,
+    /// C++ RecoverFromOffMapState residual (hide + turn-radius delay + edge re-entry).
+    RecoveringFromOffMap,
+    /// C++ HeadOffMapState residual (fly straight until off-map).
     Departing,
     Complete,
 }
@@ -336,6 +467,9 @@ pub struct HostCargoPlaneFlight {
     pub delivery_distance: f32,
     pub pre_open_distance: f32,
     pub max_attempts: u32,
+    /// Initial approach starts at 0; each ConsiderNewApproach increments (C++ m_numberEntriesToState).
+    pub reapproach_count: u32,
+    /// Legacy alias honesty: 1 + reapproach_count (first approach counted).
     pub approach_attempt: u32,
     pub previous_distance: f32,
     pub start_at_preferred_height: bool,
@@ -343,12 +477,26 @@ pub struct HostCargoPlaneFlight {
     pub door_open: bool,
     pub door_condition: String,
     pub exit_pitch_rate: f32,
+    /// Unit direction residual (XZ) for fly-through / re-approach / head-off-map.
+    pub dir_x: f32,
+    pub dir_z: f32,
+    /// ConsiderNewApproach fly-out waypoint residual.
+    pub reapproach_pos: Vec3,
+    /// RecoverFromOffMap frames remaining residual.
+    pub recover_frames_left: u32,
+    /// C++ unRegisterObject / drawable hidden residual during off-map recover.
+    pub hidden: bool,
+    /// C++ friend_setAcceptingCommands(false) residual once HeadOffMap starts.
+    pub accepting_commands: bool,
 }
 
 impl HostCargoPlaneFlight {
     pub fn new_supply_drop(mission_id: u32, target: Vec3) -> Self {
         let edge = create_at_edge_spawn_residual(target);
         let dist = horizontal_distance_xz(edge, target);
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
+        let dlen = (dx * dx + dz * dz).sqrt().max(0.001);
         Self {
             mission_id,
             transport_template: SUPPLY_DROP_CARGO_TRANSPORT.to_string(),
@@ -368,6 +516,7 @@ impl HostCargoPlaneFlight {
             delivery_distance: SUPPLY_DROP_DELIVERY_DISTANCE,
             pre_open_distance: SUPPLY_DROP_PRE_OPEN_DISTANCE,
             max_attempts: SUPPLY_DROP_MAX_ATTEMPTS,
+            reapproach_count: 0,
             approach_attempt: 1,
             previous_distance: dist,
             start_at_preferred_height: SUPPLY_DROP_START_AT_PREFERRED_HEIGHT,
@@ -375,6 +524,12 @@ impl HostCargoPlaneFlight {
             door_open: false,
             door_condition: String::new(),
             exit_pitch_rate: CARGO_PLANE_EXIT_PITCH_RATE,
+            dir_x: dx / dlen,
+            dir_z: dz / dlen,
+            reapproach_pos: edge,
+            recover_frames_left: 0,
+            hidden: false,
+            accepting_commands: true,
         }
     }
 
@@ -388,29 +543,168 @@ impl HostCargoPlaneFlight {
         )
     }
 
+    pub fn min_turn_radius(&self) -> f32 {
+        // Prefer residual B52 constants (host flight uses B52 max speed residual).
+        b52_min_turn_radius_residual()
+    }
+
+    pub fn min_reapproach_dist(&self) -> f32 {
+        self.min_turn_radius() * CONSIDER_NEW_APPROACH_DIST_FUDGE
+    }
+
+    /// Enter ConsiderNewApproach residual (or HeadOffMap when MaxAttempts exceeded).
+    ///
+    /// Returns true when a re-approach was scheduled; false when giving up.
+    pub fn begin_new_approach(&mut self) -> bool {
+        self.reapproach_count = self.reapproach_count.saturating_add(1);
+        self.approach_attempt = self.reapproach_count.saturating_add(1);
+        if self.reapproach_count > self.max_attempts {
+            self.begin_head_off_map();
+            return false;
+        }
+        self.reapproach_pos = reapproach_point_residual(
+            self.current_pos,
+            self.dir_x,
+            self.dir_z,
+            self.min_reapproach_dist(),
+        );
+        self.phase = HostCargoPlaneFlightPhase::ConsideringNewApproach;
+        self.door_open = false;
+        self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+        true
+    }
+
+    pub fn begin_head_off_map(&mut self) {
+        self.phase = HostCargoPlaneFlightPhase::Departing;
+        self.door_open = false;
+        self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+        self.accepting_commands = false;
+    }
+
+    pub fn begin_recover_from_off_map(&mut self) {
+        self.phase = HostCargoPlaneFlightPhase::RecoveringFromOffMap;
+        self.recover_frames_left = b52_recover_off_map_frames_residual().max(1);
+        self.hidden = true;
+        self.door_open = false;
+    }
+
+    fn face_toward_target(&mut self) {
+        let dx = self.target_pos.x - self.current_pos.x;
+        let dz = self.target_pos.z - self.current_pos.z;
+        let dlen = (dx * dx + dz * dz).sqrt().max(0.001);
+        self.dir_x = dx / dlen;
+        self.dir_z = dz / dlen;
+    }
+
     pub fn tick(&mut self, items_dropped: u32, payload_count: u32, mission_complete: bool) {
-        if matches!(
-            self.phase,
-            HostCargoPlaneFlightPhase::Complete | HostCargoPlaneFlightPhase::Departing
-        ) {
-            if mission_complete && self.phase != HostCargoPlaneFlightPhase::Complete {
-                self.phase = HostCargoPlaneFlightPhase::Complete;
-                self.door_open = false;
+        if self.phase == HostCargoPlaneFlightPhase::Complete {
+            return;
+        }
+
+        // HeadOffMap residual: fly straight until off map, then Complete.
+        if self.phase == HostCargoPlaneFlightPhase::Departing {
+            self.current_pos = tick_cargo_plane_heading(
+                self.current_pos,
+                self.dir_x,
+                self.dir_z,
+                self.preferred_height,
+                self.speed_per_frame,
+            );
+            self.previous_distance =
+                horizontal_distance_xz(self.current_pos, self.target_pos);
+            self.accepting_commands = false;
+            self.door_open = false;
+            if self.door_condition.is_empty() {
                 self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+            }
+            if is_off_map_default_residual(self.current_pos) || mission_complete {
+                self.phase = HostCargoPlaneFlightPhase::Complete;
+            }
+            return;
+        }
+
+        // RecoverFromOffMap residual: hide, wait turn-radius time, re-enter edge.
+        if self.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap {
+            if self.recover_frames_left > 0 {
+                self.recover_frames_left -= 1;
+            }
+            if self.recover_frames_left == 0 {
+                let edge = create_at_edge_spawn_residual(self.target_pos);
+                self.current_pos = edge;
+                self.hidden = false;
+                self.face_toward_target();
+                self.previous_distance =
+                    horizontal_distance_xz(self.current_pos, self.target_pos);
+                self.phase = HostCargoPlaneFlightPhase::Approaching;
+            }
+            return;
+        }
+
+        // ConsiderNewApproach residual: fly to re-approach waypoint, then Approach.
+        if self.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach {
+            let (next, _) = tick_cargo_plane_approach(
+                self.current_pos,
+                self.reapproach_pos,
+                self.preferred_height,
+                self.speed_per_frame,
+            );
+            // Update heading toward re-approach point.
+            let dx = self.reapproach_pos.x - self.current_pos.x;
+            let dz = self.reapproach_pos.z - self.current_pos.z;
+            let dlen = (dx * dx + dz * dz).sqrt();
+            if dlen > 0.001 {
+                self.dir_x = dx / dlen;
+                self.dir_z = dz / dlen;
+            }
+            self.current_pos = next;
+            if is_off_map_default_residual(self.current_pos) {
+                self.begin_recover_from_off_map();
+                return;
+            }
+            let rem = horizontal_distance_xz(self.current_pos, self.reapproach_pos);
+            if rem <= self.speed_per_frame.max(1.0) {
+                self.face_toward_target();
+                self.previous_distance =
+                    horizontal_distance_xz(self.current_pos, self.target_pos);
+                self.phase = HostCargoPlaneFlightPhase::Approaching;
             }
             return;
         }
 
         if self.phase == HostCargoPlaneFlightPhase::EdgeSpawn {
             self.phase = HostCargoPlaneFlightPhase::Approaching;
+            self.face_toward_target();
         }
 
-        let (next, dist) = tick_cargo_plane_approach(
-            self.current_pos,
-            self.target_pos,
-            self.preferred_height,
-            self.speed_per_frame,
+        let was_delivery = matches!(
+            self.phase,
+            HostCargoPlaneFlightPhase::InDeliveryBand
+                | HostCargoPlaneFlightPhase::DoorOpening
+                | HostCargoPlaneFlightPhase::Delivering
         );
+
+        // Approach homes toward target; delivery phases fly through on heading
+        // (C++ keeps moving past target while dropping).
+        let (next, dist) = if was_delivery {
+            let n = tick_cargo_plane_heading(
+                self.current_pos,
+                self.dir_x,
+                self.dir_z,
+                self.preferred_height,
+                self.speed_per_frame,
+            );
+            let d = horizontal_distance_xz(n, self.target_pos);
+            (n, d)
+        } else {
+            // Keep dir aligned to target during approach.
+            self.face_toward_target();
+            tick_cargo_plane_approach(
+                self.current_pos,
+                self.target_pos,
+                self.preferred_height,
+                self.speed_per_frame,
+            )
+        };
         let prev = self.previous_distance;
         self.current_pos = next;
         let close = is_close_enough_to_target_residual(
@@ -421,14 +715,33 @@ impl HostCargoPlaneFlight {
         );
         self.previous_distance = dist;
 
+        // Left delivery band with incomplete payload → re-approach residual.
+        if was_delivery
+            && !close
+            && payload_count > 0
+            && items_dropped < payload_count
+            && !mission_complete
+        {
+            let _ = self.begin_new_approach();
+            return;
+        }
+
         if items_dropped > 0 && payload_count > 0 && items_dropped < payload_count {
             self.phase = HostCargoPlaneFlightPhase::Delivering;
             self.door_open = true;
             self.door_condition = CARGO_PLANE_DOOR_OPENING_CONDITION.to_string();
-        } else if items_dropped > 0 && payload_count > 0 && items_dropped >= payload_count {
-            self.phase = HostCargoPlaneFlightPhase::Departing;
-            self.door_open = false;
-            self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+        } else if (items_dropped > 0 && payload_count > 0 && items_dropped >= payload_count)
+            || mission_complete
+        {
+            self.begin_head_off_map();
+            if mission_complete {
+                // Allow immediate Complete when mission bookkeeping finishes
+                // (HeadOffMap still flies until off-map on subsequent ticks
+                // when mission_complete stays true — first tick sets Departing).
+                if is_off_map_default_residual(self.current_pos) {
+                    self.phase = HostCargoPlaneFlightPhase::Complete;
+                }
+            }
         } else if close {
             if self.phase == HostCargoPlaneFlightPhase::Approaching
                 || self.phase == HostCargoPlaneFlightPhase::EdgeSpawn
@@ -449,13 +762,13 @@ impl HostCargoPlaneFlight {
             }
         }
 
-        if mission_complete {
-            self.phase = HostCargoPlaneFlightPhase::Complete;
-            self.door_open = false;
-            if self.door_condition.is_empty()
-                || self.door_condition == CARGO_PLANE_DOOR_OPENING_CONDITION
-            {
-                self.door_condition = CARGO_PLANE_DOOR_CLOSING_CONDITION.to_string();
+        if mission_complete && self.phase != HostCargoPlaneFlightPhase::Complete {
+            // Prefer HeadOffMap residual over instant Complete when still on map.
+            if self.phase != HostCargoPlaneFlightPhase::Departing {
+                self.begin_head_off_map();
+            }
+            if is_off_map_default_residual(self.current_pos) {
+                self.phase = HostCargoPlaneFlightPhase::Complete;
             }
         }
     }
@@ -910,6 +1223,12 @@ pub struct HostDeliverPayloadRegistry {
     pub door_open_events: u32,
     /// AmericaCrateParachute bone attach presentation builds (honesty).
     pub crate_bone_attach_builds: u32,
+    /// ConsiderNewApproach residual entries (honesty).
+    pub reapproach_events: u32,
+    /// RecoverFromOffMap residual entries (honesty).
+    pub off_map_recover_events: u32,
+    /// HeadOffMap residual entries (honesty).
+    pub head_off_map_events: u32,
 }
 
 impl HostDeliverPayloadRegistry {
@@ -931,6 +1250,9 @@ impl HostDeliverPayloadRegistry {
             delivery_band_entries: 0,
             door_open_events: 0,
             crate_bone_attach_builds: 0,
+            reapproach_events: 0,
+            off_map_recover_events: 0,
+            head_off_map_events: 0,
         }
     }
 
@@ -1186,6 +1508,10 @@ impl HostDeliverPayloadRegistry {
                     | HostCargoPlaneFlightPhase::Delivering
             );
             let was_door = flight.door_open;
+            let was_reapproach =
+                flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach;
+            let was_recover = flight.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap;
+            let was_depart = flight.phase == HostCargoPlaneFlightPhase::Departing;
             flight.tick(items_dropped, payload_count, complete);
             let now_band = matches!(
                 flight.phase,
@@ -1200,6 +1526,19 @@ impl HostDeliverPayloadRegistry {
             }
             if !was_door && flight.door_open {
                 self.door_open_events = self.door_open_events.saturating_add(1);
+            }
+            if !was_reapproach
+                && flight.phase == HostCargoPlaneFlightPhase::ConsideringNewApproach
+            {
+                self.reapproach_events = self.reapproach_events.saturating_add(1);
+            }
+            if !was_recover
+                && flight.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap
+            {
+                self.off_map_recover_events = self.off_map_recover_events.saturating_add(1);
+            }
+            if !was_depart && flight.phase == HostCargoPlaneFlightPhase::Departing {
+                self.head_off_map_events = self.head_off_map_events.saturating_add(1);
             }
         }
     }
@@ -1551,6 +1890,50 @@ impl HostDeliverPayloadRegistry {
             && (CRATE_RIDER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
             && (CRATE_PARA_PITCH_RATE_MAX_DEG - 60.0).abs() < 0.01
     }
+
+    /// calcMinTurnRadius residual honesty (B52 maxSpeed / maxTurnRate).
+    pub fn honesty_calc_min_turn_radius_ok() -> bool {
+        let r = b52_min_turn_radius_residual();
+        // 125/sec @ 25°/sec → radius ≈ 5 * (180/π) ≈ 286.479
+        (r - 5.0 * (180.0 / std::f32::consts::PI)).abs() < 0.5
+            && (CONSIDER_NEW_APPROACH_DIST_FUDGE - 2.2).abs() < 0.001
+            && SUPPLY_DROP_MAX_ATTEMPTS == 4
+    }
+
+    pub fn honesty_reapproach_ok(&self) -> bool {
+        self.reapproach_events > 0
+            || self
+                .cargo_flights
+                .values()
+                .any(|f| f.reapproach_count > 0)
+    }
+
+    pub fn honesty_off_map_recover_ok(&self) -> bool {
+        self.off_map_recover_events > 0
+            || self.cargo_flights.values().any(|f| {
+                f.hidden
+                    || f.phase == HostCargoPlaneFlightPhase::RecoveringFromOffMap
+                    || f.recover_frames_left > 0
+            })
+    }
+
+    pub fn honesty_head_off_map_ok(&self) -> bool {
+        self.head_off_map_events > 0
+            || self.cargo_flights.values().any(|f| {
+                matches!(
+                    f.phase,
+                    HostCargoPlaneFlightPhase::Departing | HostCargoPlaneFlightPhase::Complete
+                ) && !f.accepting_commands
+            })
+    }
+
+    /// Combined re-approach + off-map residual honesty.
+    pub fn honesty_pathfinder_reapproach_off_map_ok(&self) -> bool {
+        Self::honesty_calc_min_turn_radius_ok()
+            && (self.honesty_reapproach_ok()
+                || self.honesty_off_map_recover_ok()
+                || self.honesty_head_off_map_ok())
+    }
 }
 
 /// DropDelay / DoorDelay ms → logic frames residual (30 FPS).
@@ -1870,5 +2253,166 @@ mod tests {
         let sway_mag = (delta.0 * delta.0 + delta.1 * delta.1 + delta.2 * delta.2).sqrt();
         assert!(sway_mag > 0.001, "open chute must apply non-zero sway residual");
         assert!(reg.honesty_crate_bone_attach_ok());
+    }
+
+    #[test]
+    fn calc_min_turn_radius_b52_residual() {
+        assert!(HostDeliverPayloadRegistry::honesty_calc_min_turn_radius_ok());
+        let speed = b52_max_speed_per_frame();
+        let turn = b52_max_turn_rate_rad_per_frame();
+        let radius = calc_min_turn_radius_residual(speed, turn);
+        assert!((radius - b52_min_turn_radius_residual()).abs() < 0.001);
+        // maxSpeed 125/sec, turn 25°/sec → radius = 125 / (25 * π/180) = 5*180/π
+        let expected = 5.0 * (180.0 / std::f32::consts::PI);
+        assert!((radius - expected).abs() < 0.5, "radius={radius} expected≈{expected}");
+        let reapproach = b52_min_reapproach_dist_residual();
+        assert!((reapproach - radius * 2.2).abs() < 0.01);
+        let recover = b52_recover_off_map_frames_residual();
+        // time = radius/speed_pf ≈ (286.48) / (125/30) ≈ 68.75 → 69
+        assert!(recover >= 68 && recover <= 70, "recover_frames={recover}");
+        // Zero turn rate → huge sentinel.
+        assert!((calc_min_turn_radius_residual(1.0, 0.0) - 999_999.0).abs() < 0.1);
+        assert!((B52_LOCOMOTOR_TURN_RATE - 25.0).abs() < 0.01);
+        assert!((CONSIDER_NEW_APPROACH_DIST_FUDGE - 2.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn consider_new_approach_max_attempts_residual() {
+        let mut flight =
+            HostCargoPlaneFlight::new_supply_drop(1, Vec3::new(250.0, 0.0, 250.0));
+        // Place in delivery band mid-map with outbound heading so leave-band can fire.
+        flight.current_pos = Vec3::new(250.0, CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
+        flight.dir_x = 1.0;
+        flight.dir_z = 0.0;
+        flight.previous_distance = 0.0;
+        flight.phase = HostCargoPlaneFlightPhase::Delivering;
+        flight.door_open = true;
+        // Force leave band: previous_distance low so not inbound; place far past target.
+        flight.current_pos = Vec3::new(250.0 + SUPPLY_DROP_DELIVERY_DISTANCE + 50.0,
+            CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
+        flight.previous_distance = SUPPLY_DROP_DELIVERY_DISTANCE + 20.0;
+        // items_dropped < payload, not complete → re-approach
+        flight.tick(1, 6, false);
+        assert_eq!(
+            flight.phase,
+            HostCargoPlaneFlightPhase::ConsideringNewApproach,
+            "must enter ConsiderNewApproach residual"
+        );
+        assert_eq!(flight.reapproach_count, 1);
+        assert!(!flight.door_open);
+        let waypoint_dist =
+            horizontal_distance_xz(flight.reapproach_pos, flight.current_pos);
+        // reapproach_pos set at begin from current + dir * minDist
+        assert!(
+            (waypoint_dist - b52_min_reapproach_dist_residual()).abs() < 1.0
+                || waypoint_dist < 1.0,
+            "reapproach waypoint residual, dist={waypoint_dist}"
+        );
+
+        // Exhaust MaxAttempts (4 re-approaches then give up).
+        let mut f2 = HostCargoPlaneFlight::new_supply_drop(2, Vec3::new(100.0, 0.0, 100.0));
+        f2.current_pos = Vec3::new(100.0, CARGO_PLANE_PREFERRED_HEIGHT, 100.0);
+        f2.dir_x = 0.0;
+        f2.dir_z = 1.0;
+        for i in 1..=4 {
+            assert!(f2.begin_new_approach(), "re-approach {i} should schedule");
+            assert_eq!(f2.reapproach_count, i);
+            assert_eq!(f2.phase, HostCargoPlaneFlightPhase::ConsideringNewApproach);
+        }
+        assert!(!f2.begin_new_approach(), "5th re-approach must give up");
+        assert_eq!(f2.phase, HostCargoPlaneFlightPhase::Departing);
+        assert!(!f2.accepting_commands);
+    }
+
+    #[test]
+    fn head_off_map_and_recover_from_off_map_residual() {
+        // HeadOffMap: fly until off residual map extent → Complete.
+        let mut flight =
+            HostCargoPlaneFlight::new_supply_drop(3, Vec3::new(250.0, 0.0, 250.0));
+        flight.current_pos = Vec3::new(490.0, CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
+        flight.dir_x = 1.0;
+        flight.dir_z = 0.0;
+        flight.begin_head_off_map();
+        assert_eq!(flight.phase, HostCargoPlaneFlightPhase::Departing);
+        assert!(!flight.accepting_commands);
+        let mut completed = false;
+        for _ in 0..60 {
+            flight.tick(6, 6, false);
+            if flight.phase == HostCargoPlaneFlightPhase::Complete {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed, "HeadOffMap must complete once off residual map");
+        assert!(is_off_map_default_residual(flight.current_pos));
+
+        // RecoverFromOffMap: hide → wait turn-radius frames → edge re-entry → Approach.
+        let mut f2 = HostCargoPlaneFlight::new_supply_drop(4, Vec3::new(250.0, 0.0, 250.0));
+        f2.current_pos = Vec3::new(-10.0, CARGO_PLANE_PREFERRED_HEIGHT, 250.0);
+        f2.begin_recover_from_off_map();
+        assert!(f2.hidden);
+        assert_eq!(f2.phase, HostCargoPlaneFlightPhase::RecoveringFromOffMap);
+        assert_eq!(
+            f2.recover_frames_left,
+            b52_recover_off_map_frames_residual().max(1)
+        );
+        let wait = f2.recover_frames_left;
+        for _ in 0..wait {
+            f2.tick(0, 6, false);
+        }
+        assert!(!f2.hidden, "must unhide after recover delay");
+        assert_eq!(f2.phase, HostCargoPlaneFlightPhase::Approaching);
+        assert!(!is_off_map_default_residual(f2.current_pos));
+        assert!((f2.current_pos.y - CARGO_PLANE_PREFERRED_HEIGHT).abs() < 0.01);
+
+        // Registry honesty path via re-approach event.
+        let mut reg = HostDeliverPayloadRegistry::new();
+        let id = reg.queue(
+            HostDeliverPayloadKind::SupplyDropZoneCrate,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(250.0, 0.0, 250.0),
+            0,
+            SUPPLY_DROP_PAYLOAD_TEMPLATE,
+        );
+        {
+            let f = reg.cargo_flight_mut(id).unwrap();
+            f.phase = HostCargoPlaneFlightPhase::Delivering;
+            f.door_open = true;
+            f.current_pos = Vec3::new(
+                250.0 + SUPPLY_DROP_DELIVERY_DISTANCE + 80.0,
+                CARGO_PLANE_PREFERRED_HEIGHT,
+                250.0,
+            );
+            f.previous_distance = SUPPLY_DROP_DELIVERY_DISTANCE + 10.0;
+            f.dir_x = 1.0;
+            f.dir_z = 0.0;
+        }
+        // Record one item so mission is mid-stagger incomplete.
+        reg.record_item_spawned(id, Some(ObjectId(99)));
+        reg.tick_cargo_flights();
+        assert!(reg.reapproach_events > 0 || reg.honesty_reapproach_ok());
+        assert!(HostDeliverPayloadRegistry::honesty_calc_min_turn_radius_ok());
+        assert!(reg.honesty_pathfinder_reapproach_off_map_ok());
+    }
+
+    #[test]
+    fn is_off_map_and_reapproach_point_residual() {
+        assert!(!is_off_map_default_residual(Vec3::new(250.0, 100.0, 250.0)));
+        assert!(is_off_map_default_residual(Vec3::new(-1.0, 100.0, 250.0)));
+        assert!(is_off_map_default_residual(Vec3::new(501.0, 100.0, 250.0)));
+        let p = reapproach_point_residual(Vec3::new(0.0, 100.0, 0.0), 1.0, 0.0, 100.0);
+        assert!((p.x - 100.0).abs() < 0.01);
+        assert!((p.y - 100.0).abs() < 0.01);
+        let exit = head_off_map_exit_point_residual(
+            Vec3::new(0.0, 100.0, 0.0),
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            500.0,
+            500.0,
+        );
+        assert!(exit.x > 500.0);
     }
 }
