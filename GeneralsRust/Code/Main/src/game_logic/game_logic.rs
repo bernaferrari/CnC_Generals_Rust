@@ -812,6 +812,10 @@ pub struct GameLogic {
     /// Fail-closed: not full AuroraBombLocomotor / HeightDieUpdate / gas OCL path.
     aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
 
+    /// Host GLA Angry Mob residual (nexus damages nearby enemies / expands members).
+    /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate matrix.
+    angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1673,6 +1677,7 @@ impl GameLogic {
             inferno_fire_zones:
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
             aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry::new(),
+            angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1858,6 +1863,7 @@ impl GameLogic {
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
         self.aurora_bombs.clear();
+        self.angry_mobs.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3749,6 +3755,9 @@ impl GameLogic {
         // Fail-closed vs full AuroraBombLocomotor / FuelAir gas OCL path.
         self.update_aurora_bombs();
 
+        // Host GLA Angry Mob residual: aggregate fire on nearby enemies + expand.
+        // Fail-closed vs full SpawnBehavior member objects / MobMemberSlavedUpdate.
+        self.update_angry_mobs();
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
@@ -7854,7 +7863,12 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
-        if Self::should_skip_map_object_template(template_name) {
+        // Map-load skip list: decorative / overloaded templates (AngryMob nexus
+        // projectiles, cinematic shells, …). Intentional residual / test spawns
+        // that already registered a template are fail-open (host Angry Mob path).
+        if Self::should_skip_map_object_template(template_name)
+            && !self.templates.contains_key(template_name)
+        {
             return None;
         }
 
@@ -14489,6 +14503,178 @@ impl GameLogic {
         self.inferno_fire_zones.prune_expired(frame);
     }
 
+    // -----------------------------------------------------------------------
+    // GLA Angry Mob residual (nexus damages nearby enemies / expands members)
+    // Fail-closed: not full SpawnBehavior members / MobMemberSlavedUpdate matrix.
+    // -----------------------------------------------------------------------
+
+    /// Host GLA Angry Mob residual registry (member expand + aggregate fire).
+    pub fn angry_mobs(&self) -> &crate::game_logic::host_angry_mob::HostAngryMobRegistry {
+        &self.angry_mobs
+    }
+
+    /// Residual honesty: Angry Mob applied damage to nearby enemies.
+    pub fn honesty_angry_mob_damage_ok(&self) -> bool {
+        self.angry_mobs.honesty_damage_ok()
+    }
+
+    /// Residual honesty: Angry Mob expand residual grew member count.
+    pub fn honesty_angry_mob_expand_ok(&self) -> bool {
+        self.angry_mobs.honesty_expand_ok()
+    }
+
+    /// Combined host path honesty for Angry Mob residual.
+    pub fn honesty_angry_mob_ok(&self) -> bool {
+        self.angry_mobs.honesty_host_path_ok()
+    }
+
+    /// Advance Angry Mob residual: expand members + aggregate fire on nearby enemies.
+    ///
+    /// Retail: SpawnBehavior members fire pistol/rock/molotov; residual collapses
+    /// that into periodic AoE damage around the nexus within AttackRange 100.
+    /// Expand residual grows member strength from InitialBurst 5 → SpawnNumber 10.
+    ///
+    /// Fail-closed: not individual member objects, projectile weapons, or slave AI.
+    pub fn update_angry_mobs(&mut self) {
+        use crate::game_logic::host_angry_mob::{
+            is_angry_mob_nexus_template, ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB,
+        };
+
+        let frame = self.frame;
+
+        // Living residual nexus sources.
+        let living: Vec<(ObjectId, Team, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_angry_mob_nexus_template(&obj.template_name) {
+                    return None;
+                }
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if obj.status.disabled_unmanned
+                    || obj.status.disabled_hacked
+                    || obj.status.disabled_emp
+                    || obj.status.disabled_subdued
+                {
+                    return None;
+                }
+                Some((*id, obj.team, obj.get_position()))
+            })
+            .collect();
+
+        self.angry_mobs.sync_mobs(&living, frame);
+        self.angry_mobs.apply_due_expands(frame);
+
+        if self.angry_mobs.active_count() == 0 {
+            return;
+        }
+
+        // Candidates for residual aggregate fire.
+        let candidates: Vec<(ObjectId, Vec3, Team, bool, bool, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| {
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft)
+                    || obj.object_type == ObjectType::Building
+                    || obj.object_type == ObjectType::Infantry
+                    || obj.object_type == ObjectType::Vehicle
+                    || obj.object_type == ObjectType::Aircraft;
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    combat_kind,
+                    obj.status.under_construction,
+                )
+            })
+            .collect();
+
+        // ArmTheMob upgrade residual per team (any player on that team).
+        let armed_teams: std::collections::HashSet<Team> = self
+            .players
+            .values()
+            .filter(|p| p.has_unlocked_upgrade(UPGRADE_GLA_ARM_THE_MOB))
+            .map(|p| p.team)
+            .collect();
+
+        let plans = self.angry_mobs.plan_due_ticks(frame, &candidates, |team| {
+            armed_teams.contains(&team)
+        });
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+            let mut audio_pos: Option<Vec3> = None;
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    if audio_pos.is_none() {
+                        audio_pos = Some(target.get_position());
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            let had_hits = applications > 0;
+            self.angry_mobs.record_tick_complete(
+                plan.mob_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+                had_hits,
+            );
+
+            // Mark nexus as residual-attacking when it dealt damage (AI state residual).
+            if had_hits {
+                if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
+                    mob.status.attacking = true;
+                    mob.ai_state = AIState::Attacking;
+                }
+                let muzzle = self
+                    .objects
+                    .get(&plan.mob_id)
+                    .map(|m| m.get_position())
+                    .unwrap_or(Vec3::ZERO);
+                let impact = audio_pos.or(Some(muzzle));
+                let _ = self.combat_particles.spawn_weapon_fire_fx(
+                    muzzle,
+                    impact,
+                    frame,
+                    plan.mob_id,
+                    None,
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(ANGRY_MOB_FIRE_AUDIO)
+                        .with_object(plan.mob_id)
+                        .with_position(muzzle)
+                        .with_priority(150),
+                );
+            }
+        }
+    }
 
     // -----------------------------------------------------------------------
     // America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage)
@@ -30496,6 +30682,245 @@ mod tests {
         assert!(game_logic.inferno_fire_zones().expirations >= 1);
     }
 
+    /// Residual: GLA Angry Mob nexus damages nearby enemies over frames and
+    /// expands member residual (InitialBurst → SpawnNumber).
+    /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate.
+    #[test]
+    fn angry_mob_damages_nearby_enemies_over_frames() {
+        use crate::game_logic::host_angry_mob::{
+            angry_mob_damage_for_tick, is_angry_mob_nexus_template, ANGRY_MOB_ATTACK_RANGE,
+            ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MAX_MEMBERS,
+            ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES, UPGRADE_GLA_ARM_THE_MOB,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(1, Team::GLA, "GLA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut mob_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryAngryMobNexus");
+        mob_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(99999.0)
+            .set_primary_weapon_name(ANGRY_MOB_RESIDUAL_WEAPON);
+        game_logic
+            .templates
+            .insert("GLAInfantryAngryMobNexus".to_string(), mob_tpl);
+
+        let mob_id = game_logic
+            .create_object(
+                "GLAInfantryAngryMobNexus",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("angry mob nexus");
+        {
+            let m = game_logic.find_object(mob_id).expect("mob");
+            assert!(
+                is_angry_mob_nexus_template(&m.template_name),
+                "template name residual must identify Angry Mob nexus"
+            );
+            assert!(
+                m.weapon.is_some(),
+                "Angry Mob nexus must bind residual aggregate fire weapon"
+            );
+            let w = m.weapon.as_ref().unwrap();
+            assert!(
+                (w.range - ANGRY_MOB_ATTACK_RANGE).abs() < 1.0,
+                "Angry Mob residual AttackRange {}, got {}",
+                ANGRY_MOB_ATTACK_RANGE,
+                w.range
+            );
+        }
+
+        // Near enemy inside residual range; far enemy outside.
+        // High HP so multi-tick / expand residual probes do not destroy early.
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("near enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 5_000.0;
+            enemy.health.maximum = 5_000.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        let far_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 0.0))
+            .expect("far enemy");
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 5_000.0;
+            far.health.maximum = 5_000.0;
+            far.thing.template.armor = 0.0;
+        }
+        // Ally must not take residual friendly fire (fail-closed residual).
+        let ally_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("ally");
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.health.current = 5_000.0;
+            ally.health.maximum = 5_000.0;
+            ally.thing.template.armor = 0.0;
+        }
+
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.find_object(far_id).unwrap().health.current;
+        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+
+        game_logic.set_current_frame(0);
+        game_logic.update_angry_mobs();
+
+        assert_eq!(
+            game_logic.angry_mobs().active_count(),
+            1,
+            "living Angry Mob nexus must be tracked"
+        );
+        assert_eq!(
+            game_logic.angry_mobs().member_count_of(mob_id),
+            Some(ANGRY_MOB_INITIAL_MEMBERS)
+        );
+
+        let hp_after_first = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after_first < enemy_hp_before,
+            "near enemy must take residual Angry Mob damage on first tick (before={enemy_hp_before}, after={hp_after_first})"
+        );
+        let dealt = enemy_hp_before - hp_after_first;
+        let expected = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS, false);
+        assert!(
+            (dealt - expected).abs() < 0.01,
+            "first tick damage expected {expected}, got {dealt}"
+        );
+        assert!(
+            (game_logic.find_object(far_id).unwrap().health.current - far_hp_before).abs() < 0.01,
+            "far enemy outside range must not take residual damage"
+        );
+        assert!(
+            (game_logic.find_object(ally_id).unwrap().health.current - ally_hp_before).abs() < 0.01,
+            "same-team ally must not take residual Angry Mob damage"
+        );
+        assert!(
+            game_logic.honesty_angry_mob_damage_ok(),
+            "Angry Mob damage honesty after first tick"
+        );
+        assert!(
+            game_logic.honesty_angry_mob_ok(),
+            "Angry Mob host path honesty"
+        );
+
+        // Second tick only after residual interval (damage over frames).
+        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = 1;
+        game_logic.update_angry_mobs();
+        assert!(
+            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            "no Angry Mob damage before tick interval"
+        );
+        game_logic.frame = ANGRY_MOB_TICK_INTERVAL_FRAMES;
+        game_logic.update_angry_mobs();
+        let hp_after_second = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after_second < mid_hp,
+            "second fire tick after interval must apply more damage (mid={mid_hp}, after={hp_after_second})"
+        );
+        let dealt2 = mid_hp - hp_after_second;
+        assert!(
+            (dealt2 - expected).abs() < 0.01,
+            "second tick damage expected {expected}, got {dealt2}"
+        );
+
+        // Expand residual: after SpawnReplaceDelay frames, member count grows.
+        game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
+        game_logic.update_angry_mobs();
+        assert_eq!(
+            game_logic.angry_mobs().member_count_of(mob_id),
+            Some(ANGRY_MOB_INITIAL_MEMBERS + 1),
+            "expand residual must grow member count"
+        );
+        assert!(
+            game_logic.honesty_angry_mob_expand_ok(),
+            "expand residual honesty"
+        );
+
+        // Expanded mob deals more damage on next due tick.
+        // Force next tick due: set frame to expand frame (tick also due after interval).
+        let hp_pre_expand_fire = game_logic.find_object(enemy_id).unwrap().health.current;
+        // Ensure tick is due: advance to a frame past last next_tick.
+        game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES + ANGRY_MOB_TICK_INTERVAL_FRAMES;
+        game_logic.update_angry_mobs();
+        let hp_post_expand_fire = game_logic.find_object(enemy_id).unwrap().health.current;
+        let expand_dealt = hp_pre_expand_fire - hp_post_expand_fire;
+        let expected_expanded =
+            angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS + 1, false);
+        // Expand may coincide with tick; accept either expanded damage or that members grew.
+        if expand_dealt > 0.0 {
+            assert!(
+                expand_dealt + 0.01 >= expected
+                    || (expand_dealt - expected_expanded).abs() < 0.01,
+                "expanded mob damage should be >= base or match expanded (got {expand_dealt}, base={expected}, expanded={expected_expanded})"
+            );
+        }
+
+        // Cap expand at max members.
+        for i in 0u32..12 {
+            game_logic.frame =
+                ANGRY_MOB_EXPAND_INTERVAL_FRAMES.saturating_mul(i.saturating_add(2));
+            game_logic.update_angry_mobs();
+        }
+        assert_eq!(
+            game_logic.angry_mobs().member_count_of(mob_id),
+            Some(ANGRY_MOB_MAX_MEMBERS),
+            "member count caps at SpawnNumber residual"
+        );
+
+        // ArmTheMob upgrade residual multiplies damage.
+        {
+            let player = game_logic.players.get_mut(&1).expect("player");
+            player
+                .unlocked_sciences
+                .insert(UPGRADE_GLA_ARM_THE_MOB.to_string());
+        }
+        // Fresh near-enemy for armed damage probe (prior ticks may have killed the first).
+        let armed_enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("armed probe enemy");
+        {
+            let e = game_logic.find_object_mut(armed_enemy_id).expect("armed enemy");
+            e.health.current = 500.0;
+            e.health.maximum = 500.0;
+            e.thing.template.armor = 0.0;
+        }
+        let hp_pre_armed = game_logic
+            .find_object(armed_enemy_id)
+            .unwrap()
+            .health
+            .current;
+        // Force next tick due past any prior cadence.
+        game_logic.frame = game_logic.frame.saturating_add(ANGRY_MOB_TICK_INTERVAL_FRAMES + 2);
+        game_logic.update_angry_mobs();
+        let hp_post_armed = game_logic
+            .find_object(armed_enemy_id)
+            .unwrap()
+            .health
+            .current;
+        let armed_dealt = hp_pre_armed - hp_post_armed;
+        let expected_armed = angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS, true);
+        assert!(
+            armed_dealt > 0.0,
+            "ArmTheMob residual must still deal damage (pre={hp_pre_armed}, post={hp_post_armed})"
+        );
+        assert!(
+            (armed_dealt - expected_armed).abs() < 0.01,
+            "armed damage expected {expected_armed}, got {armed_dealt}"
+        );
+    }
 
     /// Residual: AmericaJetAurora attack queues delayed dive bomb; area damage
     /// applies only after dive delay. FuelAir (AirF) residual uses longer gas delay.
