@@ -764,6 +764,52 @@ impl PresentationFrame {
         );
     }
 
+    /// Selection IDs for multi-consumer apply (player list or object.selected flags).
+    pub fn selection_ids_for_consumers(&self) -> Vec<crate::game_logic::ObjectId> {
+        let mut ids = self.selected.clone();
+        if ids.is_empty() {
+            ids = self
+                .selected_unit_display_infos()
+                .into_iter()
+                .map(|i| i.object_id)
+                .collect();
+        }
+        ids
+    }
+
+    /// Apply selection panel to RTS interface (command/selection residual consumer).
+    pub fn apply_to_rts_interface(&self, rts: &mut crate::ui::RTSInterface) {
+        rts.apply_selection_panel(
+            self.control_bar_selection_panel(),
+            self.selection_ids_for_consumers(),
+        );
+    }
+
+    /// Apply selection panel to unit command grid (context-sensitive residual).
+    pub fn apply_to_unit_command_panel(&self, panel: &mut crate::ui::UnitCommandPanel) {
+        panel.apply_selection_panel(
+            self.control_bar_selection_panel(),
+            self.selection_ids_for_consumers(),
+        );
+    }
+
+    /// Dual-tick multi-consumer residual: HUD + UI state + RTS + unit command panel
+    /// (+ ControlBar when `game_client` is enabled). Snapshot-owned only.
+    ///
+    /// Does **not** claim full windowed WND/GPU playthrough.
+    pub fn apply_to_shell_ui_consumers(
+        &self,
+        hud: &mut crate::ui::GameHUD,
+        ui: &mut crate::ui::GameUIState,
+        rts: &mut crate::ui::RTSInterface,
+        command_panel: &mut crate::ui::UnitCommandPanel,
+    ) {
+        self.apply_to_game_hud(hud);
+        self.apply_to_ui_state(ui);
+        self.apply_to_rts_interface(rts);
+        self.apply_to_unit_command_panel(command_panel);
+    }
+
     /// Dual-tick presentation consumer after map load / logic step:
     /// build snapshot from authority and apply it to the production GameHUD.
     ///
@@ -775,6 +821,24 @@ impl PresentationFrame {
     ) -> Self {
         let frame = Self::build_from_logic(logic, local_player_id);
         frame.apply_to_game_hud(hud);
+        frame
+    }
+
+    /// Dual-tick residual: build snapshot and apply to all headless shell UI consumers.
+    ///
+    /// Order matches production StartGame: authority step (caller) → presentation freeze
+    /// → HUD / UIState / RTS / unit command panel. Optional ControlBar is applied by
+    /// the engine path when `game_client` is present.
+    pub fn build_and_apply_for_shell_consumers(
+        logic: &GameLogic,
+        local_player_id: u32,
+        hud: &mut crate::ui::GameHUD,
+        ui: &mut crate::ui::GameUIState,
+        rts: &mut crate::ui::RTSInterface,
+        command_panel: &mut crate::ui::UnitCommandPanel,
+    ) -> Self {
+        let frame = Self::build_from_logic(logic, local_player_id);
+        frame.apply_to_shell_ui_consumers(hud, ui, rts, command_panel);
         frame
     }
 }
@@ -968,6 +1032,54 @@ mod tests {
             o.health.current = 1.0;
         }
         assert!((info.health_current - 88.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
+        // Residual: presentation selection panel feeds HUD + UIState + RTS + unit
+        // command panel from one dual-tick apply (no live re-read).
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DualTickConsumers");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("MultiUiUnit");
+        t.set_health(64.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("MultiUiUnit".into(), t);
+        let id = logic
+            .create_object("MultiUiUnit", Team::USA, glam::Vec3::new(2.0, 0.0, 3.0))
+            .expect("unit");
+        if let Some(p) = logic.get_player_mut(0) {
+            p.selected_objects = vec![id];
+        }
+        if let Some(o) = logic.get_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+        }
+        logic.update();
+        let mut hud = crate::ui::GameHUD::new();
+        let mut ui = crate::ui::GameUIState::default();
+        let mut rts = crate::ui::RTSInterface::new();
+        let mut cmd = crate::ui::UnitCommandPanel::new();
+        let snap = PresentationFrame::build_and_apply_for_shell_consumers(
+            &logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
+        );
+        assert_eq!(snap.frame.0, logic.get_frame());
+        assert!(hud.selection_panel().has_positive_health());
+        assert!((hud.selection_panel().health_current - 64.0).abs() < 0.01);
+        assert!(ui.selection_panel.has_positive_health());
+        assert!((ui.selection_panel.health_current - 64.0).abs() < 0.01);
+        assert!(rts.selection_panel().has_positive_health());
+        assert!(rts.selected_ids().contains(&id));
+        assert!(cmd.is_visible());
+        assert!((cmd.selection_panel().health_current - 64.0).abs() < 0.01);
+        // Live mutation must not rewrite consumer snapshots.
+        if let Some(o) = logic.get_object_mut(id) {
+            o.health.current = 1.0;
+        }
+        assert!((hud.selection_panel().health_current - 64.0).abs() < 0.01);
+        assert!((rts.selection_panel().health_current - 64.0).abs() < 0.01);
+        assert!((cmd.selection_panel().health_current - 64.0).abs() < 0.01);
     }
 
     #[test]
