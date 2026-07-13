@@ -856,7 +856,7 @@ impl<'a> CommandExecutor<'a> {
 
         // Resolve impact position for residual superweapon path
         // (DaisyCutter/A10/Scud/PUC/NuclearMissile/AnthraxBomb/SpectreGunship/
-        // CarpetBomb/ArtilleryBarrage).
+        // CarpetBomb/ArtilleryBarrage/CruiseMissile).
         let target_position: Option<Vec3> = match target {
             PowerTarget::Location(loc) => Some(*loc),
             PowerTarget::Object(id) => self
@@ -895,7 +895,8 @@ impl<'a> CommandExecutor<'a> {
             // NuclearMissile + radiation residual / AnthraxBomb + toxin residual /
             // SpectreGunship + delayed orbit damage ticks residual /
             // CarpetBomb + delayed line multi-strike residual /
-            // ArtilleryBarrage + delayed multi-shell scatter residual).
+            // ArtilleryBarrage + delayed multi-shell scatter residual /
+            // CruiseMissile + delayed loft MOAB area damage residual).
             // ClusterMines residual places a ring of land mines at target.
             // RadarScan residual temporarily reveals FOW at target (RadarVanPing).
             // SpySatellite residual temporarily reveals FOW at target (SpySatellitePing).

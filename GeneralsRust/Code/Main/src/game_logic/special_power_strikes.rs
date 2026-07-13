@@ -2,25 +2,30 @@
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
 //! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb /
-//! ArtilleryBarrage queues a real strike that completes with area damage on host
-//! GameLogic objects. NuclearMissile also spawns a residual radiation field
-//! (`NukeRadiationFieldWeapon`) that ticks after impact. AnthraxBomb also
-//! spawns a residual toxin field (`AnthraxBombPoisonFieldWeapon` /
-//! `OCL_PoisonFieldAnthraxBomb`) that ticks after impact. SpectreGunship
-//! completes orbit insertion with no one-shot blast, then spawns a residual
-//! orbit field (`SpectreHowitzerGun` residual) that periodically damages in
-//! `AttackAreaRadius` for `OrbitTime`. CarpetBomb is a delayed multi-strike
-//! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
-//! approach delay, applies explosive damage at multiple epicenters along a
-//! line through the target (fail-closed vs full B52 OCL drop path / variance /
-//! staggered DropDelay). ArtilleryBarrage is a delayed multi-shell scatter
-//! residual (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`):
-//! after DelayDeliveryMax residual, applies explosive damage at multiple shell
-//! epicenters within WeaponErrorRadius (fail-closed vs full ChinaArtilleryCannon
-//! OCL DeliverPayload / science tiers 12/24/36 / staggered shell drops). Pending
-//! strikes (absolute `impact_frame`) are captured in
-//! `WorldSnapshot.special_power_strikes` so mid-flight save/load continues
-//! remaining delay and still fires impact / orbit residual damage.
+//! ArtilleryBarrage / CruiseMissile queues a real strike that completes with
+//! area damage on host GameLogic objects. NuclearMissile also spawns a residual
+//! radiation field (`NukeRadiationFieldWeapon`) that ticks after impact.
+//! AnthraxBomb also spawns a residual toxin field
+//! (`AnthraxBombPoisonFieldWeapon` / `OCL_PoisonFieldAnthraxBomb`) that ticks
+//! after impact. SpectreGunship completes orbit insertion with no one-shot
+//! blast, then spawns a residual orbit field (`SpectreHowitzerGun` residual)
+//! that periodically damages in `AttackAreaRadius` for `OrbitTime`. CarpetBomb
+//! is a delayed multi-strike line residual (`SUPERWEAPON_CarpetBomb` /
+//! `CarpetBombWeapon`): after bomber approach delay, applies explosive damage
+//! at multiple epicenters along a line through the target (fail-closed vs full
+//! B52 OCL drop path / variance / staggered DropDelay). ArtilleryBarrage is a
+//! delayed multi-shell scatter residual (`SUPERWEAPON_ArtilleryBarrage1` /
+//! `ArtilleryBarrageDamageWeapon`): after DelayDeliveryMax residual, applies
+//! explosive damage at multiple shell epicenters within WeaponErrorRadius
+//! (fail-closed vs full ChinaArtilleryCannon OCL DeliverPayload / science tiers
+//! 12/24/36 / staggered shell drops). CruiseMissile is a delayed loft-to-target
+//! residual (`SUPR_SPECIAL_CRUISE_MISSILE` / `SupW_CruiseMissile` /
+//! `SUPERWEAPON_CruiseMissile` / `MOABDetonationWeapon`): after NeutronMissile
+//! loft residual delay, applies MOAB area damage at the target (fail-closed vs
+//! full NeutronMissileUpdate door/loft path / OCL FireWeapon projectile /
+//! MOABFlameWeapon secondary). Pending strikes (absolute `impact_frame`) are
+//! captured in `WorldSnapshot.special_power_strikes` so mid-flight save/load
+//! continues remaining delay and still fires impact / orbit residual damage.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
@@ -31,7 +36,9 @@
 //! AmericaJetB52 DeliverPayload / DropVariance / per-bomb DropDelay stagger).
 //! ArtilleryBarrage residual is multi-point simultaneous shell blasts (not full
 //! ChinaArtilleryCannon transport / random WeaponErrorRadius draw / per-shell
-//! DelayDelivery stagger / science upgrade FormationSize matrix).
+//! DelayDelivery stagger / science upgrade FormationSize matrix). CruiseMissile
+//! residual is a single MOAB blast (not full loft projectile / HeightDieUpdate /
+//! door animation / MOABFlameWeapon tree-ignite).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -114,6 +121,19 @@ pub const ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES: u32 = 90;
 /// (retail random draw within WeaponErrorRadius deferred).
 pub const ARTILLERY_BARRAGE_RING_RADIUS: f32 = 75.0;
 
+// --- Cruise Missile residual (retail SupW_CruiseMissile / MOABDetonationWeapon) ---
+
+/// Retail `MOABDetonationWeapon` PrimaryDamage (CruiseMissile FireWeaponWhenDead).
+pub const CRUISE_MISSILE_DAMAGE: f32 = 2000.0;
+/// Retail `MOABDetonationWeapon` PrimaryDamageRadius.
+pub const CRUISE_MISSILE_RADIUS: f32 = 150.0;
+/// Residual inner full-damage radius (host falloff; retail MOAB is flat primary).
+pub const CRUISE_MISSILE_FALLOFF_INNER: f32 = 90.0;
+/// Residual loft/approach frames before impact damage applies
+/// (fail-closed vs full NeutronMissileUpdate DistanceToTravelBeforeTurning /
+/// SpecialSpeedTime / HeightDieUpdate / MissileLauncherBuildingUpdate doors).
+pub const CRUISE_MISSILE_IMPACT_DELAY_FRAMES: u32 = 180;
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -135,6 +155,9 @@ pub enum HostSuperweaponKind {
     CarpetBomb,
     /// China Artillery Barrage residual host path (delayed multi-shell scatter).
     ArtilleryBarrage,
+    /// USA Superweapon General Cruise Missile residual host path
+    /// (delayed loft + MOABDetonationWeapon area damage).
+    CruiseMissile,
 }
 
 impl HostSuperweaponKind {
@@ -152,6 +175,7 @@ impl HostSuperweaponKind {
             SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
             SpecialPowerType::CarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
             SpecialPowerType::Artillery => Some(HostSuperweaponKind::ArtilleryBarrage),
+            SpecialPowerType::CruiseMissile => Some(HostSuperweaponKind::CruiseMissile),
             _ => None,
         }
     }
@@ -168,6 +192,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => "SpectreGunship",
             HostSuperweaponKind::CarpetBomb => "CarpetBomb",
             HostSuperweaponKind::ArtilleryBarrage => "ArtilleryBarrage",
+            HostSuperweaponKind::CruiseMissile => "CruiseMissile",
         }
     }
 
@@ -195,6 +220,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_IMPACT_DELAY_FRAMES,
             // Retail DelayDeliveryMax = 3000 ms residual (artillerist reaction).
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES,
+            // Cruise loft residual (NeutronMissileUpdate family; doors deferred).
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_IMPACT_DELAY_FRAMES,
         }
     }
 
@@ -215,6 +242,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_DAMAGE,
             // Retail ArtilleryBarrageDamageWeapon PrimaryDamage (per shell).
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_DAMAGE,
+            // Retail MOABDetonationWeapon PrimaryDamage (CruiseMissile death weapon).
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_DAMAGE,
         }
     }
 
@@ -235,6 +264,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
             // Retail ArtilleryBarrageDamageWeapon PrimaryDamageRadius (per shell).
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
+            // Retail MOABDetonationWeapon PrimaryDamageRadius.
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_RADIUS,
         }
     }
 
@@ -255,6 +286,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
             // Flat primary blast per shell epicenter.
             HostSuperweaponKind::ArtilleryBarrage => ARTILLERY_BARRAGE_RADIUS,
+            // Residual two-stage falloff for MOAB primary blast.
+            HostSuperweaponKind::CruiseMissile => CRUISE_MISSILE_FALLOFF_INNER,
         }
     }
 
@@ -311,6 +344,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => "SuperweaponSpectreGunship",
             HostSuperweaponKind::CarpetBomb => "SuperweaponCarpetBomb",
             HostSuperweaponKind::ArtilleryBarrage => "SuperweaponArtilleryBarrage",
+            // Retail InitiateSound AirRaidSiren residual label for honesty.
+            HostSuperweaponKind::CruiseMissile => "SuperweaponCruiseMissile",
         }
     }
 
@@ -329,6 +364,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CarpetBomb => "ExplosionCarpetBomb",
             // Retail FX_ArtilleryBarrage residual cue.
             HostSuperweaponKind::ArtilleryBarrage => "FX_ArtilleryBarrage",
+            // Retail WeaponFX_MOAB_Blast residual cue.
+            HostSuperweaponKind::CruiseMissile => "CruiseMissileImpact",
         }
     }
 }
@@ -1524,6 +1561,10 @@ mod tests {
             Some(HostSuperweaponKind::ArtilleryBarrage)
         );
         assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::CruiseMissile),
+            Some(HostSuperweaponKind::CruiseMissile)
+        );
+        assert_eq!(
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
@@ -1740,6 +1781,78 @@ mod tests {
         reg.record_impact_complete(id, ARTILLERY_BARRAGE_DAMAGE * 2.0, 2, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::ArtilleryBarrage));
+        assert!(reg.radiation_fields().is_empty());
+        assert!(reg.toxin_fields().is_empty());
+        assert!(reg.orbit_fields().is_empty());
+    }
+
+    #[test]
+    fn cruise_missile_params_match_retail_moab() {
+        let kind = HostSuperweaponKind::CruiseMissile;
+        assert_eq!(
+            kind.impact_delay_frames(),
+            CRUISE_MISSILE_IMPACT_DELAY_FRAMES
+        );
+        assert!((kind.max_damage() - CRUISE_MISSILE_DAMAGE).abs() < 0.1);
+        assert!((kind.damage_radius() - CRUISE_MISSILE_RADIUS).abs() < 0.1);
+        assert!((kind.falloff_inner() - CRUISE_MISSILE_FALLOFF_INNER).abs() < 0.1);
+        assert!(!kind.is_multi_strike());
+        assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
+        assert!(!kind.spawns_orbit_field());
+        assert_eq!(kind.activate_audio(), "SuperweaponCruiseMissile");
+        assert_eq!(kind.impact_audio(), "CruiseMissileImpact");
+        assert_eq!(CRUISE_MISSILE_IMPACT_DELAY_FRAMES, 180);
+        assert!((CRUISE_MISSILE_DAMAGE - 2000.0).abs() < 0.1);
+        assert!((CRUISE_MISSILE_RADIUS - 150.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn cruise_missile_delayed_area_damage_after_loft() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::CruiseMissile,
+            ObjectId(1),
+            Team::USA,
+            target,
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::CruiseMissile));
+        assert_eq!(
+            reg.get(id).unwrap().impact_frame,
+            CRUISE_MISSILE_IMPACT_DELAY_FRAMES
+        );
+
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::USA, true),
+            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true), // epicenter
+            (ObjectId(3), Vec3::new(50.0, 0.0, 0.0), Team::GLA, true), // inside radius
+            (ObjectId(4), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true), // far
+            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // friendly
+        ];
+
+        // Before impact: no damage plan.
+        assert!(reg
+            .plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty());
+
+        let plans = reg.plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        // Epicenter + near enemy hit; far + friendly excluded.
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - CRUISE_MISSILE_DAMAGE).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && h.damage > 0.0));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+
+        reg.record_impact_complete(id, CRUISE_MISSILE_DAMAGE * 2.0, 2, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::CruiseMissile));
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CruiseMissile));
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());

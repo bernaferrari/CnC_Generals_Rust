@@ -16,9 +16,10 @@
 //!
 //! Host `HostSpecialPowerStrikeRegistry` queues DaisyCutter / A10 / ScudStorm /
 //! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb /
-//! ArtilleryBarrage impacts with a multi-frame delay (nuke also spawns residual
-//! radiation; anthrax also spawns residual toxin; carpet bomb multi-point line
-//! damage; artillery multi-shell scatter damage).
+//! ArtilleryBarrage / CruiseMissile impacts with a multi-frame delay (nuke also
+//! spawns residual radiation; anthrax also spawns residual toxin; carpet bomb
+//! multi-point line damage; artillery multi-shell scatter damage; cruise missile
+//! loft then MOAB area damage).
 //! Without snapshot persistence, save mid-flight dropped the pending strike
 //! and impact never fired after load.
 //!
@@ -2628,6 +2629,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::SpectreGunship => 6,
             HostSuperweaponKind::CarpetBomb => 7,
             HostSuperweaponKind::ArtilleryBarrage => 8,
+            HostSuperweaponKind::CruiseMissile => 9,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -2640,6 +2642,7 @@ impl XferData for HostSuperweaponKind {
             6 => HostSuperweaponKind::SpectreGunship,
             7 => HostSuperweaponKind::CarpetBomb,
             8 => HostSuperweaponKind::ArtilleryBarrage,
+            9 => HostSuperweaponKind::CruiseMissile,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"
