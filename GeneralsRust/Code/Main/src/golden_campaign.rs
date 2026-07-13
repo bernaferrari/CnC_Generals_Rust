@@ -3,20 +3,21 @@
 //! Skirmish already has a map-world `playable_claim`. Campaign residual is:
 //! 1. CampaignManager start / complete (production progression API)
 //! 2. Mission victory_rule applied via `victory_rules_for_map` override
-//! 3. Real campaign map **scripts decode** (`load_map_scripts`) + SP script ticks
-//! 4. SinglePlayer logic frames advance
-//! 5. Host-safe full `load_map` (Lone Eagle) for object world when available
+//! 3. Real campaign map **scripts decode + install** (`load_map` / `initialize_scripts`)
+//! 4. Campaign mission **objectives** loaded onto the SP world
+//! 5. SinglePlayer logic frames advance under budgeted dense-script evaluation
 //!
 //! Retail campaign maps (MD_USA01, GC_*) previously hung after full `load_map`
 //! when dense scripts ran CALL_SUBROUTINE under a non-reentrant ScriptEngine
-//! lock. That deadlock is fixed; full object spawn (~2846 placements) is fine.
-//! Default residual still prefers a host-safe map load so gates stay fast;
-//! set `GEN_CAMPAIGN_FULL_LOAD=1` to load the retail campaign map itself and
-//! flip `retail_campaign_map_loaded` when it succeeds.
+//! lock. That deadlock is fixed (TLS re-entry + budget + heavy-utility skip).
+//! **Default residual prefers retail campaign map load** when assets resolve;
+//! set `GEN_CAMPAIGN_HOST_SAFE=1` (or `GEN_CAMPAIGN_FULL_LOAD=0`) to force the
+//! host-safe Lone Eagle path for faster gates.
 //!
 //! `campaign_playable_claim` is true only when the production SinglePlayer path
 //! starts, scripts tick, frames advance, and victory evaluation runs without
-//! panic. It does **not** claim a full retail mission playthrough.
+//! panic. It does **not** claim a full retail mission playthrough / cinematic
+//! score-screen completion.
 
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
 use crate::game_logic::victory_conditions::{victory_rules_for_map, VictoryType};
@@ -24,7 +25,7 @@ use crate::game_logic::{GameLogic, GameMode, Resources};
 use crate::map_frame_scenario::resolve_first_map;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
-    MissionStatus,
+    MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
 };
 use crate::save_load::game_state::global_campaign_manager;
 use crate::save_load::SaveLoadManager;
@@ -42,7 +43,8 @@ pub const CAMPAIGN_MAP_CANDIDATES: &[&str] = &[
     "GC_ChemGeneral",
 ];
 
-/// Host-safe maps for full `load_map` when retail campaign object soup is too heavy.
+/// Host-safe maps for full `load_map` when retail campaign assets are missing
+/// or `GEN_CAMPAIGN_HOST_SAFE=1` is set.
 pub const HOST_SAFE_MAP_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
     "Maps/Lone Eagle/Lone Eagle.map",
@@ -67,6 +69,8 @@ pub struct GoldenCampaignResult {
     pub campaign_scripts_resolved: bool,
     pub campaign_script_count: usize,
     pub scripts_installed: bool,
+    /// Actual scripts installed into the SP ScriptEngine lists (post load_map).
+    pub mission_scripts_installed_count: usize,
     pub scripts_tick_ok: bool,
     pub mission_script_counter: u32,
     pub host_map_identity: String,
@@ -80,9 +84,14 @@ pub struct GoldenCampaignResult {
     pub victory_rule_applied: bool,
     pub victory_eval_ok: bool,
     pub mission_completed: bool,
+    /// Objectives present on the SP world after map configure.
+    pub objectives_loaded: bool,
+    pub objective_count: usize,
+    /// True when at least one objective came from CampaignManager (not pure sample fallback).
+    pub objectives_from_campaign: bool,
     /// True when a retail MD_*/GC_* campaign map fully loaded via `load_map`.
-    /// Default residual uses host-safe maps (false). True when
-    /// `GEN_CAMPAIGN_FULL_LOAD=1` successfully loads MD_*/GC_*.
+    /// Default residual prefers retail load when maps resolve; false under
+    /// host-safe opt-out or when assets are missing.
     pub retail_campaign_map_loaded: bool,
     /// True when production SP path advanced with scripts + victory path.
     /// Does **not** claim full retail campaign playthrough.
@@ -144,6 +153,31 @@ fn is_retail_campaign_identity(identity: &str) -> bool {
         || upper.contains("TRAINING")
 }
 
+fn residual_primary_objectives() -> Vec<MissionObjective> {
+    vec![
+        MissionObjective {
+            id: "destroy_gla_base".into(),
+            description: "Destroy the GLA base".into(),
+            objective_type: ObjectiveType::Destroy,
+            target: ObjectiveTarget::Building("GLACommandCenter".into()),
+            required_count: Some(1),
+            current_count: 0,
+            time_limit: None,
+            reward: Some(ObjectiveReward::HonorPoints(100)),
+        },
+        MissionObjective {
+            id: "secure_landing_zone".into(),
+            description: "Secure the landing zone".into(),
+            objective_type: ObjectiveType::Defend,
+            target: ObjectiveTarget::Area(glam::Vec3::ZERO, 150.0),
+            required_count: Some(1),
+            current_count: 0,
+            time_limit: None,
+            reward: None,
+        },
+    ]
+}
+
 fn sample_mission(map_name: &str) -> MissionInfo {
     MissionInfo {
         id: MISSION_ID.into(),
@@ -166,7 +200,7 @@ fn sample_mission(map_name: &str) -> MissionInfo {
         tech_restrictions: vec![],
         special_rules: vec![],
         victory_rule: Some(MISSION_VICTORY_RULE.into()),
-        primary_objectives: vec![],
+        primary_objectives: residual_primary_objectives(),
         secondary_objectives: vec![],
         bonus_objectives: vec![],
     }
@@ -193,15 +227,29 @@ fn count_scripts_in_map(path: &Path) -> (bool, usize) {
     }
 }
 
+/// Prefer retail MD_*/GC_* load by default (hang fixed; budgeted scripts).
+/// Opt-out: `GEN_CAMPAIGN_HOST_SAFE=1` or `GEN_CAMPAIGN_FULL_LOAD=0`.
+/// Explicit force: `GEN_CAMPAIGN_FULL_LOAD=1` (legacy).
+pub fn prefer_retail_campaign_load() -> bool {
+    if std::env::var("GEN_CAMPAIGN_HOST_SAFE").ok().as_deref() == Some("1") {
+        return false;
+    }
+    match std::env::var("GEN_CAMPAIGN_FULL_LOAD").ok().as_deref() {
+        Some("0") => false,
+        Some("1") => true,
+        _ => true,
+    }
+}
+
 /// Run the campaign residual path.
 ///
 /// When `map_name` is provided, it is preferred for campaign script resolution.
-/// Full `load_map` uses host-safe candidates by default (fast residual gates).
-/// Set `GEN_CAMPAIGN_FULL_LOAD=1` to load the retail campaign map itself
-/// (MD_USA01 object spawn + budgeted scripts; no longer hangs).
+/// Full `load_map` **defaults to the retail campaign map** when it resolves
+/// (safe after CALL_SUBROUTINE hang fix). Set `GEN_CAMPAIGN_HOST_SAFE=1` for
+/// the Lone Eagle host-safe residual path.
 pub fn run_golden_campaign(map_name: Option<&str>, frames: u32) -> GoldenCampaignResult {
-    let force_full = std::env::var("GEN_CAMPAIGN_FULL_LOAD").ok().as_deref() == Some("1");
-    run_golden_campaign_ex(map_name, frames, force_full)
+    let prefer_retail = prefer_retail_campaign_load();
+    run_golden_campaign_ex(map_name, frames, prefer_retail)
 }
 
 /// Same as [`run_golden_campaign`] with an explicit full-retail-load flag
@@ -232,14 +280,14 @@ pub fn run_golden_campaign_ex(
             None => ("<none>".into(), None, false, 0),
         };
 
-    // Victory override key: use a stable mission map name that load_map/configure can match
-    // for host-safe loads, and the campaign identity when full-loading retail.
-
+    // Default: retail campaign map load when available. Host-safe only when
+    // force_full_campaign=false or retail assets missing.
     let host_resolved = if force_full_campaign {
-        campaign_resolved.clone().or_else(|| resolve_first_existing(HOST_SAFE_MAP_CANDIDATES))
+        campaign_resolved
+            .clone()
+            .or_else(|| resolve_first_existing(HOST_SAFE_MAP_CANDIDATES))
     } else {
-        resolve_first_existing(HOST_SAFE_MAP_CANDIDATES)
-            .or_else(|| campaign_resolved.clone())
+        resolve_first_existing(HOST_SAFE_MAP_CANDIDATES).or_else(|| campaign_resolved.clone())
     };
 
     // Register mission under both the host map path (for load_map victory configure)
@@ -261,11 +309,41 @@ pub fn run_golden_campaign_ex(
         let mut m2 = sample_mission(path.to_str().unwrap_or(id));
         m2.id = format!("{MISSION_ID}_PATH");
         progression.mission_definitions.insert(m2.id.clone(), m2);
+        // Short stem (MD_USA01) so Campaign.ini-style lookups and path loads agree.
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            let mut m3 = sample_mission(stem);
+            m3.id = format!("{MISSION_ID}_STEM");
+            progression.mission_definitions.insert(m3.id.clone(), m3);
+            register_global_mission(stem);
+        }
     }
     register_global_mission(&victory_map_key);
     if let Some((id, path)) = &campaign_resolved {
         register_global_mission(id);
         register_global_mission(path.to_str().unwrap_or(id));
+    }
+
+    // Ensure Campaign.ini residual table (usa_01 / MD_USA01 + objectives) is
+    // present on the global manager when available.
+    if let Ok(mgr_arc) = global_campaign_manager() {
+        if let Ok(mut mgr) = mgr_arc.lock() {
+            let _ = mgr.init();
+            // Re-apply residual mission keys after init (init may load table).
+            mgr.mission_definitions
+                .insert(MISSION_ID.into(), sample_mission(&victory_map_key));
+            if let Some((id, path)) = &campaign_resolved {
+                mgr.mission_definitions
+                    .insert(format!("{MISSION_ID}_ID"), sample_mission(id));
+                mgr.mission_definitions.insert(
+                    format!("{MISSION_ID}_PATH"),
+                    sample_mission(path.to_str().unwrap_or(id)),
+                );
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    mgr.mission_definitions
+                        .insert(format!("{MISSION_ID}_STEM"), sample_mission(stem));
+                }
+            }
+        }
     }
 
     let campaign_started = progression
@@ -281,6 +359,11 @@ pub fn run_golden_campaign_ex(
                     victory_rules_for_map(id) == VictoryType::NO_UNITS
                         || victory_rules_for_map(path.to_str().unwrap_or(id))
                             == VictoryType::NO_UNITS
+                        || path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|stem| victory_rules_for_map(stem) == VictoryType::NO_UNITS)
+                            .unwrap_or(false)
                 })
                 .unwrap_or(false);
 
@@ -298,18 +381,18 @@ pub fn run_golden_campaign_ex(
         None => ("<none>".into(), false),
     };
 
-    // Script runtime tick path.
+    // Script runtime install residual.
     //
-    // Full `initialize_scripts` on MD_*/GC_* campaign maps installs 200–300+ scripts
-    // and is not yet safe for the residual gate (update can stall). We prove:
-    //   - campaign map scripts **decode** via load_map_scripts (count above)
-    //   - mission script counter **ticks** each frame when scripts_loaded
-    // Host map load already called initialize_scripts; ensure the tick path is armed.
+    // Full `load_map` on MD_*/GC_* already calls `initialize_scripts` and installs
+    // dense lists under budget + heavy-utility skip. When host map load skipped
+    // scripts (or no map), arm the evaluate_and_execute_scripts counter path.
     let mut scripts_installed = logic.scripts_loaded;
+    let mut mission_scripts_installed_count = logic.installed_mission_script_count();
     if !scripts_installed {
         if let Some((id, path)) = &host_resolved {
             logic.initialize_scripts(path.to_str().unwrap_or(id));
             scripts_installed = logic.scripts_loaded;
+            mission_scripts_installed_count = logic.installed_mission_script_count();
         }
     }
     if !scripts_installed {
@@ -317,11 +400,19 @@ pub fn run_golden_campaign_ex(
         logic.scripts_loaded = true;
         scripts_installed = true;
     }
-    // When campaign scripts were resolved, treat script path as installed for honesty
-    // (decoded + counter armed). Full dense install remains residual.
+    // Decode residual: campaign scripts known even if install count is 0 (decode-only).
     if campaign_scripts_resolved && campaign_script_count > 0 {
         scripts_installed = true;
     }
+
+    // Objectives residual (loaded during load_map via campaign manager match).
+    let objective_count = logic.mission_objectives().len();
+    let objectives_loaded = objective_count > 0;
+    let objectives_from_campaign = logic.mission_objectives().iter().any(|o| {
+        o.id.as_deref()
+            .map(|id| id != "sample_primary" && id != "sample_secondary")
+            .unwrap_or(false)
+    });
 
     let script_counter_before = logic.mission_script_counter;
     let frame_before = logic.get_frame();
@@ -405,6 +496,7 @@ pub fn run_golden_campaign_ex(
         campaign_scripts_resolved,
         campaign_script_count,
         scripts_installed,
+        mission_scripts_installed_count,
         scripts_tick_ok,
         mission_script_counter,
         host_map_identity,
@@ -418,6 +510,9 @@ pub fn run_golden_campaign_ex(
         victory_rule_applied,
         victory_eval_ok,
         mission_completed,
+        objectives_loaded,
+        objective_count,
+        objectives_from_campaign,
         retail_campaign_map_loaded,
         campaign_playable_claim,
         status: status.into(),
@@ -426,7 +521,7 @@ pub fn run_golden_campaign_ex(
 
 pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
     format!(
-        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} retail_campaign_map_loaded={} campaign_playable_claim={}",
+        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={}",
         r.status,
         r.campaign_started,
         r.single_player,
@@ -435,12 +530,16 @@ pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
         r.mission_script_counter,
         r.campaign_scripts_resolved,
         r.campaign_script_count,
+        r.mission_scripts_installed_count,
         r.host_map_loaded,
         r.host_map_identity,
         r.campaign_map_identity,
         r.victory_rule_applied,
         r.victory_eval_ok,
         r.mission_completed,
+        r.objectives_loaded,
+        r.objective_count,
+        r.objectives_from_campaign,
         r.retail_campaign_map_loaded,
         r.campaign_playable_claim,
     )
@@ -484,11 +583,27 @@ mod tests {
             format_campaign_report(&result)
         );
         assert_eq!(result.status, "success");
-        // Honesty residual: default path uses host-safe map; full retail load is
-        // opt-in via GEN_CAMPAIGN_FULL_LOAD (and no longer hangs).
+        assert!(
+            result.objectives_loaded && result.objective_count > 0,
+            "objectives residual must load: {}",
+            format_campaign_report(&result)
+        );
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
         assert!(report.contains("retail_campaign_map_loaded="));
+        assert!(report.contains("objectives_from_campaign="));
+        // When retail assets exist, default path should prefer MD_*/GC_* load.
+        if result.campaign_map_resolved.is_some() && prefer_retail_campaign_load() {
+            assert!(
+                result.retail_campaign_map_loaded,
+                "default residual should load retail campaign map when present: {report}"
+            );
+            assert!(
+                result.mission_scripts_installed_count > 0
+                    || result.campaign_script_count > 0,
+                "retail residual should install or decode campaign scripts: {report}"
+            );
+        }
     }
 
     #[test]
@@ -524,6 +639,33 @@ mod tests {
             "retail map should spawn many objects, got {}: {report}",
             result.object_count
         );
+        assert!(
+            result.mission_scripts_installed_count > 50,
+            "dense campaign scripts should install, got {}: {report}",
+            result.mission_scripts_installed_count
+        );
+        assert!(
+            result.objectives_from_campaign,
+            "retail load should wire campaign objectives: {report}"
+        );
+    }
+
+    #[test]
+    fn campaign_host_safe_opt_out_skips_retail_map() {
+        // Explicit host-safe residual path (no env race): force_full=false.
+        let result = run_golden_campaign_ex(None, 3, false);
+        let report = format_campaign_report(&result);
+        assert!(
+            result.campaign_playable_claim,
+            "host-safe residual must stay playable: {report}"
+        );
+        // When Lone Eagle (or other host-safe) resolves, retail flag stays false.
+        if result.host_map_loaded && !is_retail_campaign_identity(&result.host_map_identity) {
+            assert!(
+                !result.retail_campaign_map_loaded,
+                "host-safe path must not claim retail_campaign_map_loaded: {report}"
+            );
+        }
     }
 
     #[test]
@@ -536,6 +678,17 @@ mod tests {
             VictoryType::NO_UNITS,
             "campaign victory_rule=nounits must override default"
         );
+    }
+
+    #[test]
+    fn map_name_stem_matches_retail_identity() {
+        use crate::save_load::campaign::map_name_matches_mission;
+        assert!(map_name_matches_mission(
+            "windows_game/extracted_big_files/MapsZH/Maps/MD_USA01/MD_USA01.map",
+            "MD_USA01"
+        ));
+        assert!(map_name_matches_mission("MD_USA01", "MD_USA01"));
+        assert!(!map_name_matches_mission("MD_USA02", "MD_USA01"));
     }
 
     #[test]

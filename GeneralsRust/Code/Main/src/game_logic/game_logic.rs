@@ -1829,11 +1829,9 @@ impl GameLogic {
             return Self::seed_sample_objectives();
         };
 
-        let Some(mission) = guard
-            .mission_definitions
-            .values()
-            .find(|info| info.map_name.eq_ignore_ascii_case(map_name))
-        else {
+        // Path-stem + short-name match (MD_USA01 ↔ .../MD_USA01.map); prefer
+        // missions that actually define objectives (Campaign.ini residual table).
+        let Some(mission) = guard.find_mission_for_map(map_name) else {
             log::info!(
                 "No campaign mission metadata found for map '{}'; using sample objectives",
                 map_name
@@ -1916,6 +1914,16 @@ impl GameLogic {
 
     pub fn mark_objective_failed(&mut self, objective_id: &str) -> bool {
         self.set_objective_status(objective_id, ObjectiveStatus::Failed)
+    }
+
+    /// Current mission objective displays (campaign residual / UI snapshot source).
+    pub fn mission_objectives(&self) -> &[ObjectiveDisplay] {
+        &self.mission_objectives
+    }
+
+    /// Number of mission scripts currently installed from the last map load.
+    pub fn installed_mission_script_count(&self) -> usize {
+        self.mission_script_count()
     }
 }
 
