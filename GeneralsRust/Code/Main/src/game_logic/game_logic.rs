@@ -5056,7 +5056,11 @@ impl GameLogic {
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.
+            // Base-center fallback residual when no vehicle found (m_didMoveToBase).
             self.try_pilot_find_vehicle_residual(object_id);
+            // AutoFindHealingUpdate residual: AI idle injured pilot → HealPad.
+            // ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85 (AlwaysHeal busy path fail-closed).
+            self.try_auto_find_healing_residual(object_id);
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world
@@ -24601,6 +24605,16 @@ impl GameLogic {
         self.usa_pilot.honesty_eject_veterancy_gate_ok()
     }
 
+    /// Residual honesty: PilotFindVehicle base-center fallback issued at least once.
+    pub fn honesty_pilot_base_center_ok(&self) -> bool {
+        self.usa_pilot.honesty_base_center_ok()
+    }
+
+    /// Residual honesty: AutoFindHealingUpdate issued at least one SeekingHealing order.
+    pub fn honesty_pilot_auto_heal_ok(&self) -> bool {
+        self.usa_pilot.honesty_auto_heal_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
@@ -24612,13 +24626,14 @@ impl GameLogic {
     /// C++ PilotFindVehicleUpdate: human players sleep forever; AI issues
     /// `aiEnter` on closest valid target. Host residual maps valid targets onto
     /// the recrewable-unmanned path (not full VeterancyCrate same-team matrix).
-    /// Fail-closed: not full base-center fallback / CollideModule iterate.
+    /// When no vehicle found: one-shot base-center fallback (`m_didMoveToBase`).
+    /// Fail-closed: not full CollideModule wouldLikeToCollideWith iterate.
     fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
             is_pilot_find_vehicle_target, is_pilot_template, is_recrewable_unmanned_vehicle,
             pilot_find_vehicle_scan_eligible, pilot_find_vehicle_scan_frame,
-            vehicle_meets_pilot_find_min_health, PILOT_FIND_VEHICLE_MIN_HEALTH,
-            PILOT_FIND_VEHICLE_SCAN_RANGE,
+            should_pilot_base_center_fallback, vehicle_meets_pilot_find_min_health,
+            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
 
         if !pilot_find_vehicle_scan_frame(self.frame) {
@@ -24639,11 +24654,16 @@ impl GameLogic {
                 if !pilot_find_vehicle_scan_eligible(is_pilot, true, is_idle, is_ai) {
                     return;
                 }
-                (obj.get_position(), obj.team, obj.selection_radius)
+                (
+                    obj.get_position(),
+                    obj.team,
+                    obj.selection_radius,
+                    obj.status.pilot_did_move_to_base,
+                )
             }
             _ => return,
         };
-        let (pilot_pos, pilot_team, pilot_radius) = snapshot;
+        let (pilot_pos, pilot_team, pilot_radius, did_move_to_base) = snapshot;
 
         // Scan nearest recrewable unmanned vehicle in range with MinHealth residual.
         let mut best: Option<(ObjectId, f32, Vec3)> = None;
@@ -24685,20 +24705,139 @@ impl GameLogic {
             }
         }
 
-        let Some((vehicle_id, _, vehicle_pos)) = best else {
+        if let Some((vehicle_id, _, vehicle_pos)) = best {
+            // Issue Enter residual (matches player Enter command → recrew path).
+            // C++ clears m_didMoveToBase when a vehicle target is found.
+            if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+                pilot.set_target(Some(vehicle_id));
+                pilot.set_destination(vehicle_pos);
+                pilot.ai_state = AIState::Entering;
+                pilot.status.pilot_did_move_to_base = false;
+                // Keep selection radius residual for enter-range calc in process_ai_behavior.
+                let _ = pilot_radius;
+                let _ = pilot_team;
+            }
+            self.usa_pilot.record_find_vehicle_order();
+            return;
+        }
+
+        // No vehicle: one-shot base-center fallback residual (getAiBaseCenter).
+        // Fail-closed: only a real CommandCenter residual (not any structure /
+        // unit fallback — avoids stealing AutoFindHealing hospital residual).
+        let base_pos = self.objects.values().find_map(|obj| {
+            if obj.team == pilot_team
+                && obj.is_alive()
+                && (obj.is_kind_of(KindOf::CommandCenter) || obj.is_command_center())
+            {
+                Some(obj.get_position())
+            } else {
+                None
+            }
+        });
+        if !should_pilot_base_center_fallback(false, did_move_to_base, base_pos.is_some()) {
+            return;
+        }
+        let Some(base_pos) = base_pos else {
+            return;
+        };
+        if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+            pilot.set_target(None);
+            pilot.set_destination(base_pos);
+            pilot.ai_state = AIState::Moving;
+            pilot.status.pilot_did_move_to_base = true;
+        }
+        self.usa_pilot.record_base_center_move();
+    }
+
+    /// AutoFindHealingUpdate residual: AI idle injured pilot auto-scan for HealPad.
+    ///
+    /// Retail AmericaInfantryPilot ModuleTag_06: ScanRate 1000ms → 30 frames,
+    /// ScanRange 300, NeverHeal 0.85, AlwaysHeal 0.25. C++ human players skip;
+    /// host residual: is_local → no auto-scan. Idle-only residual (AlwaysHeal
+    /// busy-interrupt path fail-closed). Issues SeekingHealing toward nearest
+    /// HealPad in range.
+    fn try_auto_find_healing_residual(&mut self, pilot_id: ObjectId) {
+        use crate::game_logic::host_usa_pilot::{
+            auto_find_healing_scan_eligible, auto_find_healing_scan_frame,
+            health_needs_auto_find_healing, is_auto_find_healing_target, is_pilot_template,
+            AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_RANGE,
+        };
+
+        if !auto_find_healing_scan_frame(self.frame) {
+            return;
+        }
+
+        let snapshot = match self.objects.get(&pilot_id) {
+            Some(obj) if obj.is_alive() => {
+                let is_pilot = is_pilot_template(&obj.template_name);
+                let is_idle = matches!(obj.ai_state, AIState::Idle);
+                let is_ai = self
+                    .player_id_for_team(obj.team)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|p| !p.is_local)
+                    .unwrap_or(false);
+                if !auto_find_healing_scan_eligible(is_pilot, true, is_idle, is_ai) {
+                    return;
+                }
+                let max_hp = obj.max_health.max(obj.health.maximum);
+                if !health_needs_auto_find_healing(
+                    obj.health.current,
+                    max_hp,
+                    AUTO_FIND_HEALING_NEVER_HEAL,
+                ) {
+                    return;
+                }
+                (obj.get_position(), obj.team)
+            }
+            _ => return,
+        };
+        let (pilot_pos, pilot_team) = snapshot;
+
+        // Nearest HealPad residual (C++ KINDOF_HEAL_PAD; host name/BuildingType residual).
+        let mut best: Option<(ObjectId, f32, Vec3)> = None;
+        for (hid, pad) in &self.objects {
+            if *hid == pilot_id || !pad.is_alive() {
+                continue;
+            }
+            // Fail-closed: only own/ally heal pads (retail filter is kind-only; host
+            // avoids enemy hospital residual until relationship matrix is claimed).
+            if pad.team != pilot_team && pad.team != Team::Neutral {
+                continue;
+            }
+            let under_construction = pad.status.under_construction
+                || pad.construction_percent + 0.001 < 1.0;
+            if under_construction {
+                continue;
+            }
+            let is_heal_pad = pad
+                .building_data
+                .as_ref()
+                .map(|b| b.building_type == BuildingType::HealPad)
+                .unwrap_or_else(|| {
+                    let lower = pad.template_name.to_ascii_lowercase();
+                    lower.contains("hospital") || lower.contains("heal") || lower.contains("medic")
+                });
+            let ppos = pad.get_position();
+            let dist = ((pilot_pos.x - ppos.x).powi(2) + (pilot_pos.z - ppos.z).powi(2)).sqrt();
+            let in_range = dist <= AUTO_FIND_HEALING_SCAN_RANGE;
+            if !is_auto_find_healing_target(is_heal_pad, true, in_range) {
+                continue;
+            }
+            if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+                best = Some((*hid, dist, ppos));
+            }
+        }
+
+        let Some((pad_id, _, pad_pos)) = best else {
             return;
         };
 
-        // Issue Enter residual (matches player Enter command → recrew path).
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-            pilot.set_target(Some(vehicle_id));
-            pilot.set_destination(vehicle_pos);
-            pilot.ai_state = AIState::Entering;
-            // Keep selection radius residual for enter-range calc in process_ai_behavior.
-            let _ = pilot_radius;
-            let _ = pilot_team;
+            pilot.set_target(Some(pad_id));
+            pilot.set_destination(pad_pos);
+            pilot.ai_state = AIState::SeekingHealing;
         }
-        self.usa_pilot.record_find_vehicle_order();
+        self.usa_pilot.record_auto_heal_order();
     }
 
     /// Apply residual damage to an object, honoring InvulnerableTime residual.
@@ -38972,6 +39111,326 @@ mod tests {
         assert!(
             !human_logic.honesty_pilot_recrew_ok(),
             "human residual must not recrew via PilotFindVehicle"
+        );
+    }
+
+    /// Residual: PilotFindVehicleUpdate base-center fallback when no vehicle found.
+    ///
+    /// C++: when scan finds nothing and `!m_didMoveToBase`, issue one
+    /// `aiMoveToPosition(getAiBaseCenter)`. Host residual: command center position.
+    /// Fail-closed: not full CollideModule matrix / repeated base retreats.
+    #[test]
+    fn pilot_find_vehicle_base_center_fallback_residual() {
+        use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
+
+        let mut game_logic = GameLogic::new();
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        let mut cc_tpl = ThingTemplate::new("AmericaCommandCenter");
+        cc_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(4000.0);
+        game_logic
+            .templates
+            .insert("AmericaCommandCenter".to_string(), cc_tpl);
+
+        let cc_pos = Vec3::new(120.0, 0.0, 80.0);
+        let cc_id = game_logic
+            .create_object("AmericaCommandCenter", Team::USA, cc_pos)
+            .expect("command center");
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            p.ai_state = AIState::Idle;
+            assert!(!p.status.pilot_did_move_to_base);
+        }
+
+        assert!(!game_logic.honesty_pilot_base_center_ok());
+        game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        game_logic.update_ai(&[pilot_id, cc_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_pilot_base_center_ok(),
+            "base-center fallback residual must record honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().base_center_moves, 1);
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after fallback");
+            assert!(
+                p.status.pilot_did_move_to_base,
+                "m_didMoveToBase residual must latch after fallback"
+            );
+            assert_eq!(
+                p.ai_state,
+                AIState::Moving,
+                "fallback residual must issue Move to base"
+            );
+            let dest = p
+                .movement
+                .target_position
+                .expect("fallback residual must set move destination");
+            assert!(
+                (dest.x - cc_pos.x).abs() < 0.1 && (dest.z - cc_pos.z).abs() < 0.1,
+                "fallback destination must be command center ({cc_pos:?}), got {dest:?}"
+            );
+        }
+
+        // Second scan while still idle must not re-issue (m_didMoveToBase).
+        // Reset to Idle so residual is eligible again but did_move latches.
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            p.ai_state = AIState::Idle;
+            p.stop_moving();
+        }
+        game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES * 2;
+        game_logic.update_ai(&[pilot_id, cc_id], 1.0 / 30.0);
+        assert_eq!(
+            game_logic.usa_pilot_residual().base_center_moves,
+            1,
+            "base-center residual must be one-shot (m_didMoveToBase)"
+        );
+
+        // Human residual: no base-center fallback.
+        let mut human_logic = GameLogic::new();
+        human_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA Human", true));
+        human_logic.templates.insert(
+            "AmericaInfantryPilot".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaInfantryPilot");
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0);
+                t
+            },
+        );
+        human_logic.templates.insert(
+            "AmericaCommandCenter".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaCommandCenter");
+                t.add_kind_of(KindOf::Structure)
+                    .add_kind_of(KindOf::CommandCenter)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(4000.0);
+                t
+            },
+        );
+        let hcc = human_logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("hcc");
+        let hp = human_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("hp");
+        {
+            let p = human_logic.find_object_mut(hp).expect("hp");
+            p.ai_state = AIState::Idle;
+        }
+        human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        human_logic.update_ai(&[hp, hcc], 1.0 / 30.0);
+        assert!(
+            !human_logic.honesty_pilot_base_center_ok(),
+            "human pilot residual must not base-center fallback"
+        );
+        assert_eq!(human_logic.usa_pilot_residual().base_center_moves, 0);
+    }
+
+    /// Residual: AutoFindHealingUpdate AI pilot auto-scan → SeekingHealing at HealPad.
+    ///
+    /// Retail ModuleTag_06: ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85.
+    /// AI-only idle; human skips. Fail-closed: AlwaysHeal busy-interrupt path.
+    #[test]
+    fn pilot_auto_find_healing_hospital_path_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_heal_pad_template(&mut game_logic);
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        // Pad within INTERACT_RANGE (14) so update_ai SeekingHealing ticks without
+        // requiring full update_movement approach residual.
+        let pad_id = game_logic
+            .create_object("TestHealPad", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("heal pad");
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            // Below NeverHeal 0.85 residual (50% HP).
+            p.health.current = 50.0;
+            p.ai_state = AIState::Idle;
+        }
+
+        assert!(!game_logic.honesty_pilot_auto_heal_ok());
+        game_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
+        game_logic.update_ai(&[pilot_id, pad_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_pilot_auto_heal_ok(),
+            "AutoFindHealing residual must issue SeekingHealing honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().auto_heal_orders, 1);
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            assert_eq!(
+                p.ai_state,
+                AIState::SeekingHealing,
+                "injured AI pilot residual must SeekHealing"
+            );
+            assert_eq!(p.target, Some(pad_id), "must target HealPad residual");
+        }
+
+        // Complete heal residual at pad (existing SeekingHealing honesty path).
+        // First scan tick already issued SeekingHealing; subsequent frames tick HP.
+        for _ in 0..60 {
+            game_logic.update_ai(&[pilot_id, pad_id], 1.0 / 30.0);
+        }
+        let hp_after = game_logic
+            .find_object(pilot_id)
+            .expect("pilot")
+            .health
+            .current;
+        assert!(
+            hp_after > 50.0,
+            "SeekingHealing residual must restore pilot HP (after={hp_after})"
+        );
+        assert!(
+            game_logic.honesty_heal_pad_ok(),
+            "heal-pad honesty must record SeekingHealing ticks"
+        );
+
+        // Healthy pilot (> NeverHeal) must not auto-scan.
+        let mut healthy_logic = GameLogic::new();
+        ensure_test_heal_pad_template(&mut healthy_logic);
+        healthy_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+        healthy_logic.templates.insert(
+            "AmericaInfantryPilot".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaInfantryPilot");
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0);
+                t
+            },
+        );
+        let hpad = healthy_logic
+            .create_object("TestHealPad", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("pad");
+        let hpilot = healthy_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("healthy pilot");
+        {
+            let p = healthy_logic.find_object_mut(hpilot).expect("hp");
+            // Just above NeverHeal threshold residual.
+            p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
+            p.ai_state = AIState::Idle;
+        }
+        healthy_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
+        healthy_logic.update_ai(&[hpilot, hpad], 1.0 / 30.0);
+        assert!(
+            !healthy_logic.honesty_pilot_auto_heal_ok(),
+            "NeverHeal residual must skip healthy pilot auto-scan"
+        );
+        assert_eq!(healthy_logic.usa_pilot_residual().auto_heal_orders, 0);
+        assert_eq!(
+            healthy_logic.find_object(hpilot).unwrap().ai_state,
+            AIState::Idle,
+            "healthy pilot residual stays Idle"
+        );
+
+        // Human residual: no AutoFindHealing auto-scan.
+        let mut human_logic = GameLogic::new();
+        ensure_test_heal_pad_template(&mut human_logic);
+        human_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA Human", true));
+        human_logic.templates.insert(
+            "AmericaInfantryPilot".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaInfantryPilot");
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0);
+                t
+            },
+        );
+        let hpad2 = human_logic
+            .create_object("TestHealPad", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("pad");
+        let hp2 = human_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("human pilot");
+        {
+            let p = human_logic.find_object_mut(hp2).expect("hp");
+            p.health.current = 40.0;
+            p.ai_state = AIState::Idle;
+        }
+        human_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
+        human_logic.update_ai(&[hp2, hpad2], 1.0 / 30.0);
+        assert!(
+            !human_logic.honesty_pilot_auto_heal_ok(),
+            "human pilot residual must not AutoFindHealing"
+        );
+        assert_eq!(human_logic.usa_pilot_residual().auto_heal_orders, 0);
+        assert_eq!(
+            human_logic.find_object(hp2).unwrap().ai_state,
+            AIState::Idle,
+            "human injured pilot residual stays Idle without GetHealed command"
         );
     }
 

@@ -20,11 +20,16 @@
 //!   (ScanRate **1000**ms → **30** frames, ScanRange **300**, MinHealth **0.5**)
 //!   toward nearest recrewable unmanned vehicle → Enter residual.
 //!   C++ human players sleep forever (no auto-scan).
+//! - **Base-center fallback residual**: when no vehicle found, AI pilot moves once
+//!   toward team command-center / base (`m_didMoveToBase`).
+//! - **AutoFindHealingUpdate residual**: AI-only idle injured pilot auto-scan
+//!   (ScanRate **1000**ms → **30** frames, ScanRange **300**, NeverHeal **0.85**,
+//!   AlwaysHeal **0.25**) toward nearest HealPad → SeekingHealing residual.
 //!
 //! Fail-closed honesty:
 //! - Not full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
-//! - Not full PilotFindVehicleUpdate base-center fallback / CollideModule matrix
-//! - Not full AutoFindHealingUpdate hospital path residual
+//! - Not full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
+//! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
 
@@ -62,6 +67,24 @@ pub const PILOT_FIND_VEHICLE_SCAN_RANGE: f32 = 300.0;
 
 /// Retail PilotFindVehicleUpdate MinHealth (don't enter vehicle below this ratio).
 pub const PILOT_FIND_VEHICLE_MIN_HEALTH: f32 = 0.5;
+
+// --- AutoFindHealingUpdate residual (AmericaInfantryPilot ModuleTag_06) ---
+
+/// Retail AutoFindHealingUpdate ScanRate (ms).
+pub const AUTO_FIND_HEALING_SCAN_RATE_MS: u32 = 1000;
+
+/// ScanRate → frames at 30 FPS (1000 / (1000/30) = 30).
+pub const AUTO_FIND_HEALING_SCAN_FRAMES: u32 = 30;
+
+/// Retail AutoFindHealingUpdate ScanRange.
+pub const AUTO_FIND_HEALING_SCAN_RANGE: f32 = 300.0;
+
+/// Retail AutoFindHealingUpdate NeverHeal (don't heal above this ratio).
+pub const AUTO_FIND_HEALING_NEVER_HEAL: f32 = 0.85;
+
+/// Retail AutoFindHealingUpdate AlwaysHeal (busy-interrupt threshold residual).
+/// Host residual fail-closed: only idle units scan (C++ "for now, only heal if idle").
+pub const AUTO_FIND_HEALING_ALWAYS_HEAL: f32 = 0.25;
 
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
@@ -240,6 +263,50 @@ pub fn pilot_find_vehicle_scan_frame(frame: u32) -> bool {
     frame.is_multiple_of(PILOT_FIND_VEHICLE_SCAN_FRAMES)
 }
 
+/// Whether PilotFindVehicle residual should issue base-center fallback.
+///
+/// C++: when `scanClosestTarget()` is null and `!m_didMoveToBase` and
+/// `getAiBaseCenter` succeeds → `aiMoveToPosition` once.
+pub fn should_pilot_base_center_fallback(
+    found_vehicle: bool,
+    did_move_to_base: bool,
+    has_base_center: bool,
+) -> bool {
+    !found_vehicle && !did_move_to_base && has_base_center
+}
+
+/// Whether AutoFindHealingUpdate residual may auto-scan this unit.
+///
+/// C++: human players return early (no scan); AI idle only (busy path fail-closed).
+pub fn auto_find_healing_scan_eligible(
+    is_pilot: bool,
+    is_alive: bool,
+    is_idle: bool,
+    is_ai_controlled: bool,
+) -> bool {
+    is_pilot && is_alive && is_idle && is_ai_controlled
+}
+
+/// Whether health is low enough to seek healing residual.
+///
+/// C++ skips scan when `health > maxHealth * NeverHeal` (retail pilot NeverHeal 0.85).
+pub fn health_needs_auto_find_healing(health: f32, max_health: f32, never_heal: f32) -> bool {
+    if max_health <= 0.0 {
+        return false;
+    }
+    health <= max_health * never_heal
+}
+
+/// Whether current frame is an AutoFindHealing scan tick residual.
+pub fn auto_find_healing_scan_frame(frame: u32) -> bool {
+    frame.is_multiple_of(AUTO_FIND_HEALING_SCAN_FRAMES)
+}
+
+/// Whether a candidate is a valid AutoFindHealing HealPad residual target.
+pub fn is_auto_find_healing_target(is_heal_pad: bool, is_alive: bool, in_scan_range: bool) -> bool {
+    is_heal_pad && is_alive && in_scan_range
+}
+
 /// Rank for residual veterancy transfer (higher wins).
 pub fn veterancy_rank(level: VeterancyLevel) -> u8 {
     match level {
@@ -304,6 +371,12 @@ pub struct HostUsaPilotRegistry {
     /// Rookie / REGULAR deaths skipped by VeterancyLevels gate residual.
     #[serde(default)]
     pub eject_veterancy_blocks: u32,
+    /// PilotFindVehicleUpdate base-center fallback residual moves issued.
+    #[serde(default)]
+    pub base_center_moves: u32,
+    /// AutoFindHealingUpdate residual SeekingHealing orders issued.
+    #[serde(default)]
+    pub auto_heal_orders: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -342,6 +415,14 @@ impl HostUsaPilotRegistry {
         self.eject_veterancy_blocks = self.eject_veterancy_blocks.saturating_add(1);
     }
 
+    pub fn record_base_center_move(&mut self) {
+        self.base_center_moves = self.base_center_moves.saturating_add(1);
+    }
+
+    pub fn record_auto_heal_order(&mut self) {
+        self.auto_heal_orders = self.auto_heal_orders.saturating_add(1);
+    }
+
     /// Residual honesty: at least one recrew completed.
     pub fn honesty_recrew_ok(&self) -> bool {
         self.recrews > 0
@@ -377,9 +458,23 @@ impl HostUsaPilotRegistry {
         self.eject_veterancy_blocks > 0
     }
 
+    /// Residual honesty: PilotFindVehicle base-center fallback issued at least once.
+    pub fn honesty_base_center_ok(&self) -> bool {
+        self.base_center_moves > 0
+    }
+
+    /// Residual honesty: AutoFindHealingUpdate issued at least one SeekingHealing order.
+    pub fn honesty_auto_heal_ok(&self) -> bool {
+        self.auto_heal_orders > 0
+    }
+
     /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
-        self.honesty_recrew_ok() || self.honesty_eject_ok() || self.honesty_find_vehicle_ok()
+        self.honesty_recrew_ok()
+            || self.honesty_eject_ok()
+            || self.honesty_find_vehicle_ok()
+            || self.honesty_base_center_ok()
+            || self.honesty_auto_heal_ok()
     }
 }
 
@@ -543,6 +638,55 @@ mod tests {
         assert!(reg.honesty_eject_veterancy_gate_ok());
         assert_eq!(reg.find_vehicle_orders, 1);
         assert_eq!(reg.eject_veterancy_blocks, 1);
+    }
+
+    #[test]
+    fn pilot_base_center_fallback_gate() {
+        assert!(should_pilot_base_center_fallback(false, false, true));
+        assert!(!should_pilot_base_center_fallback(true, false, true)); // found vehicle
+        assert!(!should_pilot_base_center_fallback(false, true, true)); // already moved
+        assert!(!should_pilot_base_center_fallback(false, false, false)); // no base
+    }
+
+    #[test]
+    fn auto_find_healing_gates() {
+        assert!(auto_find_healing_scan_eligible(true, true, true, true));
+        assert!(!auto_find_healing_scan_eligible(true, true, true, false)); // human
+        assert!(!auto_find_healing_scan_eligible(true, true, false, true)); // not idle
+        assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // not pilot
+
+        assert!(health_needs_auto_find_healing(85.0, 100.0, 0.85));
+        assert!(health_needs_auto_find_healing(50.0, 100.0, 0.85));
+        assert!(!health_needs_auto_find_healing(86.0, 100.0, 0.85));
+        assert!(!health_needs_auto_find_healing(100.0, 100.0, 0.85));
+        assert!(!health_needs_auto_find_healing(10.0, 0.0, 0.85));
+
+        assert!(is_auto_find_healing_target(true, true, true));
+        assert!(!is_auto_find_healing_target(false, true, true));
+        assert!(!is_auto_find_healing_target(true, false, true));
+        assert!(!is_auto_find_healing_target(true, true, false));
+
+        assert!(auto_find_healing_scan_frame(0));
+        assert!(auto_find_healing_scan_frame(30));
+        assert!(!auto_find_healing_scan_frame(1));
+        assert_eq!(AUTO_FIND_HEALING_SCAN_FRAMES, 30);
+        assert!((AUTO_FIND_HEALING_SCAN_RANGE - 300.0).abs() < 0.001);
+        assert!((AUTO_FIND_HEALING_NEVER_HEAL - 0.85).abs() < 0.001);
+        assert!((AUTO_FIND_HEALING_ALWAYS_HEAL - 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn base_center_and_auto_heal_honesty() {
+        let mut reg = HostUsaPilotRegistry::new();
+        assert!(!reg.honesty_base_center_ok());
+        assert!(!reg.honesty_auto_heal_ok());
+        reg.record_base_center_move();
+        assert!(reg.honesty_base_center_ok());
+        assert!(reg.honesty_pilot_ok());
+        reg.record_auto_heal_order();
+        assert!(reg.honesty_auto_heal_ok());
+        assert_eq!(reg.base_center_moves, 1);
+        assert_eq!(reg.auto_heal_orders, 1);
     }
 
     #[test]
