@@ -648,6 +648,16 @@ pub struct GameLogic {
     /// Fail-closed: not SlowDeath undeath SECOND_LIFE / multi-door exit matrix.
     battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
 
+    /// Host GLA Tunnel Network residual (TunnelContain shared MaxTunnelCapacity=10).
+    /// Enter any allied tunnel; exit/evacuate at any allied tunnel (cross-tunnel).
+    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem cave-in.
+    tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
+
+    /// Host AirF Combat Chinook residual honesty counters
+    /// (load / unload / passenger fire / armed-riders weapon-set).
+    /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry,
+
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
     mine_residual_places: u32,
@@ -1604,6 +1614,10 @@ impl GameLogic {
             overlord_bunker_residual_enters: 0,
             overlord_bunker_residual_exits: 0,
             battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry::new(),
+            tunnel_network:
+                crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(),
+            combat_chinook:
+                crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(),
             mine_residual_places: 0,
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
@@ -1796,6 +1810,8 @@ impl GameLogic {
         self.overlord_bunker_residual_enters = 0;
         self.overlord_bunker_residual_exits = 0;
         self.battle_bus.clear();
+        self.tunnel_network.clear();
+        self.combat_chinook.clear();
         self.mine_residual_places = 0;
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
@@ -4522,7 +4538,7 @@ impl GameLogic {
             // are not converted into weapon fire or Attacking chase.
             // Garrisoned: residual fire-from-garrison path (no chase, container origin).
             // Docked: residual fire-from-transport when container allows passengers to fire
-            // (Battle Bus / Humvee PassengersAllowedToFire residual).
+            // (Battle Bus / Combat Chinook / Humvee PassengersAllowedToFire residual).
             if matches!(
                 attacker.ai_state,
                 AIState::Capturing
@@ -5866,6 +5882,8 @@ impl GameLogic {
                         container_is_faction_structure,
                         container_is_overlord_bunker,
                         container_is_battle_bus,
+                        container_is_combat_chinook,
+                        container_is_tunnel_network,
                         container_is_alive,
                         container_under_construction,
                         container_can_contain,
@@ -5882,6 +5900,8 @@ impl GameLogic {
                             container.is_overlord_style_container()
                                 && container.overlord_bunker_slot_capacity() > 0,
                             container.is_battle_bus_style_container(),
+                            container.is_combat_chinook_style_container(),
+                            container.is_tunnel_network_style_container(),
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
@@ -5900,12 +5920,28 @@ impl GameLogic {
 
                     // Residual garrison / Overlord BattleBunker / Battle Bus:
                     // infantry/heroes only (C++ AllowInsideKindOf = INFANTRY).
+                    // Combat Chinook allows INFANTRY + VEHICLE (not AIRCRAFT).
+                    // Tunnel Network: C++ allows all units except aircraft.
                     let unit_can_garrison_structure = self
                         .objects
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Infantry) || o.is_hero())
                         .unwrap_or(false);
-                    if (container_is_structure
+                    let unit_is_aircraft = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.is_kind_of(KindOf::Aircraft))
+                        .unwrap_or(false);
+                    if container_is_tunnel_network {
+                        // TunnelContain residual: reject aircraft only.
+                        if unit_is_aircraft {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
+                    } else if (container_is_structure
                         || container_is_overlord_bunker
                         || container_is_battle_bus)
                         && !unit_can_garrison_structure
@@ -5916,8 +5952,24 @@ impl GameLogic {
                         }
                         continue;
                     }
+                    // Combat Chinook ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE residual.
+                    if container_is_combat_chinook && unit_is_aircraft {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_moving();
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
 
-                    if !can_move
+                    // Tunnel network residual: units already in the shared pool may
+                    // transfer to another allied tunnel without walking (can_move false).
+                    let already_in_tunnel_network = container_is_tunnel_network
+                        && self
+                            .tunnel_network
+                            .team_holding_unit(object_id)
+                            .is_some();
+
+                    if (!can_move && !already_in_tunnel_network)
                         || !container_is_alive
                         || container_under_construction
                         || !container_can_contain
@@ -5941,7 +5993,11 @@ impl GameLogic {
                     }
 
                     let enter_range = selection_radius + container_radius + 4.0;
-                    if can_move && position.distance(container_pos) > enter_range {
+                    // Cross-tunnel residual transfer: skip walk when already in pool.
+                    if !already_in_tunnel_network
+                        && can_move
+                        && position.distance(container_pos) > enter_range
+                    {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(container_pos);
                             obj.ai_state = state;
@@ -5949,7 +6005,16 @@ impl GameLogic {
                         continue;
                     }
 
-                    let can_enter = container_has_unit || container_has_space;
+                    // Tunnel shared capacity (MaxTunnelCapacity=10) overrides local space.
+                    let tunnel_has_space = if container_is_tunnel_network {
+                        self.tunnel_network.is_in_network(team, object_id)
+                            || self.tunnel_network.has_capacity(team)
+                    } else {
+                        true
+                    };
+                    let can_enter = container_has_unit
+                        || (container_has_space && tunnel_has_space)
+                        || already_in_tunnel_network;
                     if !can_enter {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
@@ -5970,6 +6035,24 @@ impl GameLogic {
                         continue;
                     }
 
+                    // Shared pool bookkeeping for tunnel residual.
+                    if container_is_tunnel_network {
+                        if !self
+                            .tunnel_network
+                            .record_enter(team, object_id, container_id)
+                        {
+                            // Capacity race: undo local occupant add.
+                            if let Some(container) = self.objects.get_mut(&container_id) {
+                                container.remove_occupant(object_id);
+                            }
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
+                    }
+
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.stop_moving();
                         obj.status.attacking = false;
@@ -5985,7 +6068,9 @@ impl GameLogic {
                         };
                         obj.status.moving = false;
                     }
-                    if container_is_structure {
+                    if container_is_tunnel_network {
+                        // Enter counter already incremented in record_enter.
+                    } else if container_is_structure {
                         self.record_garrison_residual_enter();
                     } else if container_is_overlord_bunker {
                         // China Overlord BattleBunker residual load (redirected bunker slots).
@@ -5993,6 +6078,10 @@ impl GameLogic {
                     } else if container_is_battle_bus {
                         // GLA Battle Bus residual load (Slots=8 infantry transport).
                         self.record_battle_bus_residual_load();
+                        self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+                    } else if container_is_combat_chinook {
+                        // AirF Combat Chinook residual load (Slots=8 + passenger fire).
+                        self.record_combat_chinook_residual_load();
                         self.refresh_battle_bus_armed_riders_weapon_set(container_id);
                     } else {
                         // Vehicle transport residual load (Humvee / generic transport).
@@ -7880,6 +7969,18 @@ impl GameLogic {
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
+            }
+
+            // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10).
+            // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
+            if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
+                object.install_tunnel_network_residual();
+            }
+
+            // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
+            // Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+            if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
+                object.install_combat_chinook_transport();
             }
 
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
@@ -10443,10 +10544,125 @@ impl GameLogic {
         self.battle_bus.honesty_weapon_set_upgrade_ok()
     }
 
+    /// Residual Tunnel Network honesty: enter count.
+    pub fn tunnel_network_residual_enters(&self) -> u32 {
+        self.tunnel_network.enters
+    }
+
+    /// Residual Tunnel Network honesty: exit count.
+    pub fn tunnel_network_residual_exits(&self) -> u32 {
+        self.tunnel_network.exits
+    }
+
+    /// Residual Tunnel Network honesty: cross-tunnel exit count (enter A, exit B).
+    pub fn tunnel_network_residual_cross_exits(&self) -> u32 {
+        self.tunnel_network.cross_exits
+    }
+
+    /// Residual honesty: tunnel enter → exit path.
+    pub fn honesty_tunnel_network_enter_exit_ok(&self) -> bool {
+        self.tunnel_network.honesty_enter_exit_ok()
+    }
+
+    /// Residual honesty: cross-tunnel exit (enter A, exit B) exercised.
+    pub fn honesty_tunnel_network_cross_exit_ok(&self) -> bool {
+        self.tunnel_network.honesty_cross_exit_ok()
+    }
+
+    /// Residual honesty: any tunnel network residual path.
+    pub fn honesty_tunnel_network_ok(&self) -> bool {
+        self.tunnel_network.honesty_any_ok()
+    }
+
+    /// Shared tunnel pool accessors for command residual.
+    pub fn tunnel_network_residual(
+        &self,
+    ) -> &crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry {
+        &self.tunnel_network
+    }
+
+    /// Exit one unit from the team's tunnel network at `exit_tunnel`.
+    /// Removes local occupant bookkeeping from the entry tunnel if different.
+    /// Returns true when the unit was in the shared pool and was released.
+    pub fn exit_tunnel_network_unit(
+        &mut self,
+        unit_id: ObjectId,
+        exit_tunnel: ObjectId,
+    ) -> bool {
+        let Some(team) = self.tunnel_network.team_holding_unit(unit_id) else {
+            return false;
+        };
+        let entry = self.tunnel_network.record_exit(team, unit_id, exit_tunnel);
+        // Remove from entry tunnel local list (and exit tunnel if mirrored).
+        if let Some(entry_id) = entry {
+            if let Some(container) = self.objects.get_mut(&entry_id) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        if entry != Some(exit_tunnel) {
+            if let Some(container) = self.objects.get_mut(&exit_tunnel) {
+                container.remove_occupant(unit_id);
+            }
+        }
+        true
+    }
+
+    /// List all units in a team's shared tunnel pool (for Evacuate residual).
+    pub fn tunnel_network_contained_for_team(&self, team: Team) -> Vec<ObjectId> {
+        self.tunnel_network.contained_for_team(team)
+    }
+
+    /// Residual Combat Chinook honesty: successful load count.
+    pub fn combat_chinook_residual_loads(&self) -> u32 {
+        self.combat_chinook.loads
+    }
+
+    /// Residual Combat Chinook honesty: successful unload/evacuate count.
+    pub fn combat_chinook_residual_unloads(&self) -> u32 {
+        self.combat_chinook.unloads
+    }
+
+    /// Residual Combat Chinook honesty: passenger fire-from-chinook shots.
+    pub fn combat_chinook_residual_passenger_fires(&self) -> u32 {
+        self.combat_chinook.passenger_fires
+    }
+
+    /// Residual Combat Chinook honesty: armed-riders weapon-set upgrades.
+    pub fn combat_chinook_residual_weapon_set_upgrades(&self) -> u32 {
+        self.combat_chinook.weapon_set_upgrades
+    }
+
+    /// Record a residual Combat Chinook load (tests / host path).
+    pub fn record_combat_chinook_residual_load(&mut self) {
+        self.combat_chinook.record_load();
+    }
+
+    /// Record a residual Combat Chinook unload/evacuate (tests / host path).
+    pub fn record_combat_chinook_residual_unload(&mut self) {
+        self.combat_chinook.record_unload();
+    }
+
+    /// Residual honesty: Combat Chinook load → docked → unload path.
+    pub fn honesty_combat_chinook_load_unload_ok(&self) -> bool {
+        self.combat_chinook.honesty_load_unload_ok()
+    }
+
+    /// Residual honesty: Combat Chinook passenger residual fire.
+    pub fn honesty_combat_chinook_passenger_fire_ok(&self) -> bool {
+        self.combat_chinook.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Combat Chinook armed-riders weapon-set upgrade.
+    pub fn honesty_combat_chinook_weapon_set_upgrade_ok(&self) -> bool {
+        self.combat_chinook.honesty_weapon_set_upgrade_ok()
+    }
+
     /// C++ TransportContain armed-riders weapon-set residual.
     /// When `armed_riders_upgrade_weapon_set` and any infantry rider has a viable
     /// ranged damage weapon, set WEAPONSET_PLAYER_UPGRADE and bind the passenger
     /// dummy weapon. Clears the flag when no armed riders remain.
+    /// Battle Bus binds BattleBusPassengerDummyWeapon; Combat Chinook binds
+    /// ListeningOutpostUpgradedDummyWeapon.
     pub fn refresh_battle_bus_armed_riders_weapon_set(&mut self, container_id: ObjectId) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -10454,16 +10670,27 @@ impl GameLogic {
         if !container.armed_riders_upgrade_weapon_set {
             return;
         }
+        let is_combat_chinook = container.is_combat_chinook_style_container();
+        let is_battle_bus = container.is_battle_bus_style_container();
         let occupant_ids = container.contained_units();
         let was_upgraded = container.weapon_set_player_upgrade;
 
         let mut any_armed = false;
         for oid in &occupant_ids {
             if let Some(rider) = self.objects.get(oid) {
-                if crate::game_logic::host_battle_bus::rider_has_viable_weapon(
-                    rider.weapon.as_ref(),
-                    rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
-                ) {
+                let armed = if is_combat_chinook {
+                    crate::game_logic::host_combat_chinook::combat_chinook_rider_has_viable_weapon(
+                        rider.weapon.as_ref(),
+                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                        rider.is_kind_of(KindOf::Vehicle),
+                    )
+                } else {
+                    crate::game_logic::host_battle_bus::rider_has_viable_weapon(
+                        rider.weapon.as_ref(),
+                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                    )
+                };
+                if armed {
                     any_armed = true;
                     break;
                 }
@@ -10474,16 +10701,22 @@ impl GameLogic {
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.weapon_set_player_upgrade = any_armed;
             if any_armed {
-                // Bind residual BattleBusPassengerDummyWeapon when primary is empty
-                // or still the negligible dummy (PLAYER_UPGRADE weapon set residual).
+                // Bind residual dummy weapon when primary is empty or still a
+                // passenger dummy (PLAYER_UPGRADE weapon set residual).
                 let need_dummy = match container.weapon.as_ref() {
                     None => true,
-                    Some(w) => w.damage < 0.01,
+                    Some(w) => {
+                        crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
+                            || w.damage < 0.01
+                    }
                 };
                 if need_dummy {
-                    container.weapon = Some(
-                        crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon(),
-                    );
+                    container.weapon = Some(if is_combat_chinook {
+                        crate::game_logic::host_combat_chinook::listening_outpost_upgraded_dummy_weapon(
+                        )
+                    } else {
+                        crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon()
+                    });
                 }
                 newly_upgraded = !was_upgraded;
             } else if was_upgraded {
@@ -10491,7 +10724,10 @@ impl GameLogic {
                 if container
                     .weapon
                     .as_ref()
-                    .map(|w| w.damage < 0.01)
+                    .map(|w| {
+                        crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
+                            || w.damage < 0.01
+                    })
                     .unwrap_or(false)
                 {
                     container.weapon = None;
@@ -10499,7 +10735,11 @@ impl GameLogic {
             }
         }
         if newly_upgraded {
-            self.battle_bus.record_weapon_set_upgrade();
+            if is_combat_chinook {
+                self.combat_chinook.record_weapon_set_upgrade();
+            } else if is_battle_bus {
+                self.battle_bus.record_weapon_set_upgrade();
+            }
         }
     }
 
@@ -11613,7 +11853,7 @@ impl GameLogic {
 
     /// Residual fire-from-transport: docked passengers auto-engage nearest
     /// enemy in weapon range from the **container position** when the container
-    /// has `passengers_allowed_to_fire` (Battle Bus / Humvee residual).
+    /// has `passengers_allowed_to_fire` (Battle Bus / Combat Chinook / Humvee residual).
     /// Fail-closed: not C++ transport weapon bone positions / multi-slot matrix.
     fn try_transport_passenger_residual_fire(&mut self, passenger_id: ObjectId) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -11643,6 +11883,7 @@ impl GameLogic {
             return;
         }
         let is_battle_bus = container.is_battle_bus_style_container();
+        let is_combat_chinook = container.is_combat_chinook_style_container();
         let team = attacker.team;
         let range = weapon.range;
         let damage = weapon.damage;
@@ -11699,6 +11940,8 @@ impl GameLogic {
 
         if is_battle_bus {
             self.battle_bus.record_passenger_fire();
+        } else if is_combat_chinook {
+            self.combat_chinook.record_passenger_fire();
         }
     }
 
@@ -19684,6 +19927,72 @@ mod tests {
         if let Some(obj) = game_logic.find_object_mut(id) {
             if !obj.is_battle_bus_style_container() {
                 obj.install_battle_bus_transport();
+            }
+        }
+        id
+    }
+
+    /// Residual GLA Tunnel Network structure (TunnelContain MaxTunnelCapacity=10).
+    /// Fail-closed: not GuardTunnelNetwork AI / CaveSystem / TimeForFullHeal.
+    fn ensure_test_tunnel_network_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("GLATunnelNetwork") {
+            return;
+        }
+        let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+        tunnel
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("GLATunnelNetwork".to_string(), tunnel);
+    }
+
+    /// Spawn residual GLA Tunnel Network entrance with TunnelContain residual.
+    fn create_test_tunnel_network(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
+        ensure_test_tunnel_network_template(game_logic);
+        let id = game_logic
+            .create_object("GLATunnelNetwork", Team::GLA, pos)
+            .expect("GLATunnelNetwork");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            if !obj.is_tunnel_network_style_container() {
+                obj.install_tunnel_network_residual();
+            }
+        }
+        id
+    }
+
+    /// Residual AirF Combat Chinook template (TransportContain Slots=8 + fire residual).
+    /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    fn ensure_test_combat_chinook_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("AirF_AmericaVehicleChinook") {
+            return;
+        }
+
+        let mut chinook = ThingTemplate::new("AirF_AmericaVehicleChinook");
+        chinook
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(350.0)
+            .set_cost(1200, 0);
+        game_logic
+            .templates
+            .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
+    }
+
+    /// Spawn residual AirF Combat Chinook with TransportContain residual installed.
+    fn create_test_combat_chinook(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
+        ensure_test_combat_chinook_template(game_logic);
+        let id = game_logic
+            .create_object("AirF_AmericaVehicleChinook", Team::USA, pos)
+            .expect("AirF_AmericaVehicleChinook");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            if !obj.is_combat_chinook_style_container() {
+                obj.install_combat_chinook_transport();
             }
         }
         id
@@ -32395,6 +32704,595 @@ mod tests {
             .unwrap()
             .contained_units()
             .is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // GLA Tunnel Network residual (shared MaxTunnelCapacity=10, cross-tunnel exit)
+    // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / TimeForFullHeal.
+    // -----------------------------------------------------------------------
+
+    /// Residual: create installs TunnelContain capacity residual.
+    #[test]
+    fn tunnel_network_residual_flags_and_capacity_installed() {
+        let mut game_logic = GameLogic::new();
+        let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel");
+        assert!(tunnel.is_tunnel_network_style_container());
+        assert!(tunnel.can_contain());
+        assert_eq!(
+            tunnel.garrison_capacity(),
+            crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY
+        );
+    }
+
+    /// Residual: Enter tunnel A → Garrisoned + shared pool bookkeeping.
+    #[test]
+    fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: tunnel_id,
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[infantry_id, tunnel_id], 1.0 / 30.0);
+
+        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel after");
+        assert!(
+            tunnel.contained_units().contains(&infantry_id),
+            "entry tunnel must list occupant"
+        );
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(infantry.ai_state, AIState::Garrisoned);
+        assert_eq!(infantry.contained_by, Some(tunnel_id));
+        assert!(!infantry.can_move());
+        assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
+        assert!(game_logic
+            .tunnel_network_residual()
+            .is_in_network(Team::GLA, infantry_id));
+    }
+
+    /// Residual: enter tunnel A, Evacuate tunnel B → unit exits at B (cross-tunnel).
+    #[test]
+    fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(200.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+
+        // Enter A.
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.target = Some(tunnel_a);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().ai_state,
+            AIState::Garrisoned
+        );
+        assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
+        assert!(!game_logic.honesty_tunnel_network_cross_exit_ok());
+
+        // Evacuate B dumps shared pool at B (cross-tunnel residual).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tunnel_b],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let infantry = game_logic.find_object(infantry_id).expect("exited");
+        assert_eq!(infantry.ai_state, AIState::Idle);
+        assert!(infantry.contained_by.is_none());
+        assert!(infantry.can_move());
+        // Dropped near tunnel B, not tunnel A.
+        let pos = infantry.get_position();
+        let b_pos = game_logic.find_object(tunnel_b).unwrap().get_position();
+        let a_pos = game_logic.find_object(tunnel_a).unwrap().get_position();
+        assert!(
+            pos.distance(b_pos) < 20.0,
+            "cross-exit must place unit near tunnel B (got dist {})",
+            pos.distance(b_pos)
+        );
+        assert!(
+            pos.distance(a_pos) > 100.0,
+            "cross-exit must not leave unit at tunnel A"
+        );
+        assert!(
+            !game_logic
+                .find_object(tunnel_a)
+                .unwrap()
+                .contained_units()
+                .contains(&infantry_id),
+            "entry tunnel A capacity freed"
+        );
+        assert_eq!(game_logic.tunnel_network_residual_exits(), 1);
+        assert_eq!(game_logic.tunnel_network_residual_cross_exits(), 1);
+        assert!(
+            game_logic.honesty_tunnel_network_enter_exit_ok(),
+            "enter+exit honesty"
+        );
+        assert!(
+            game_logic.honesty_tunnel_network_cross_exit_ok(),
+            "cross-tunnel honesty"
+        );
+        assert!(game_logic.honesty_tunnel_network_ok());
+    }
+
+    /// Residual: shared MaxTunnelCapacity=10 rejects 11th enter across two tunnels.
+    #[test]
+    fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(50.0, 0.0, 0.0));
+
+        let cap = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+        let mut unit_ids = Vec::new();
+        for i in 0..cap {
+            // Fill half via A, half via B to prove shared pool.
+            // Spawn near the chosen tunnel so enter-range residual succeeds.
+            let tunnel = if i < cap / 2 { tunnel_a } else { tunnel_b };
+            let base = if i < cap / 2 {
+                Vec3::new(1.0, 0.0, 0.0)
+            } else {
+                Vec3::new(51.0, 0.0, 0.0)
+            };
+            let id = game_logic
+                .create_object(
+                    "TestInfantry",
+                    Team::GLA,
+                    base + Vec3::new(i as f32 * 0.1, 0.0, 0.0),
+                )
+                .expect("infantry");
+            unit_ids.push(id);
+            {
+                let unit = game_logic.find_object_mut(id).unwrap();
+                unit.target = Some(tunnel);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0);
+        }
+        assert_eq!(game_logic.tunnel_network_residual_enters() as usize, cap);
+        assert!(!game_logic.tunnel_network_residual().has_capacity(Team::GLA));
+
+        let overflow = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("overflow");
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: tunnel_a,
+            },
+            player_id: 2,
+            command_id: 99,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![overflow],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        // Enter command may still set Entering, but AI must reject capacity.
+        game_logic.update_ai(&[overflow, tunnel_a, tunnel_b], 1.0 / 30.0);
+        let overflow_obj = game_logic.find_object(overflow).unwrap();
+        assert_ne!(
+            overflow_obj.ai_state,
+            AIState::Garrisoned,
+            "11th unit must not enter shared tunnel pool"
+        );
+        assert_eq!(
+            game_logic.tunnel_network_residual_enters() as usize,
+            cap,
+            "enter counter must not grow past capacity"
+        );
+    }
+
+    /// Residual: aircraft rejected from tunnel network.
+    #[test]
+    fn tunnel_network_residual_rejects_aircraft() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_aircraft_template(&mut game_logic);
+        let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let air_id = game_logic
+            .create_object("TestAircraft", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("aircraft");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: tunnel_id,
+            },
+            player_id: 2,
+            command_id: 5,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![air_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let air = game_logic.find_object(air_id).expect("aircraft");
+        assert_ne!(
+            air.ai_state,
+            AIState::Entering,
+            "aircraft must not enter tunnel residual"
+        );
+        assert_eq!(game_logic.tunnel_network_residual_enters(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // AirF Combat Chinook residual (capacity 8 + passenger fire + armed-riders)
+    // Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Combat Chinook create binds Slots=8 + passengers fire + armed-riders flags.
+    #[test]
+    fn combat_chinook_residual_capacity_and_flags_installed() {
+        let mut game_logic = GameLogic::new();
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let chinook = game_logic.find_object(chinook_id).expect("chinook");
+        assert!(chinook.is_combat_chinook_style_container());
+        assert!(chinook.can_contain());
+        assert_eq!(
+            chinook.transport_capacity(),
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
+        );
+        assert!(chinook.passengers_allowed_to_fire);
+        assert!(chinook.armed_riders_upgrade_weapon_set);
+        assert!(!chinook.weapon_set_player_upgrade);
+        assert!(
+            chinook.is_kind_of(KindOf::Attackable),
+            "Combat Chinook KindOf residual includes CAN_ATTACK"
+        );
+    }
+
+    /// Residual: Enter Combat Chinook → Docked + capacity bookkeeping + weapon-set upgrade.
+    #[test]
+    fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+        // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.5,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: chinook_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[infantry_id, chinook_id], 1.0 / 30.0);
+
+        let chinook = game_logic.find_object(chinook_id).expect("chinook after");
+        assert!(chinook.contained_units().contains(&infantry_id));
+        assert_eq!(chinook.transport_count(), 1);
+        assert!(
+            chinook.weapon_set_player_upgrade,
+            "armed riders must upgrade Combat Chinook weapon set"
+        );
+        assert!(
+            chinook.weapon.is_some(),
+            "PLAYER_UPGRADE residual binds ListeningOutpost dummy weapon"
+        );
+        let dummy = chinook.weapon.as_ref().unwrap();
+        assert!(
+            crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(dummy),
+            "Combat Chinook dummy must be ListeningOutpost residual (damage ~0.1)"
+        );
+        assert!(
+            (dummy.damage
+                - crate::game_logic::host_combat_chinook::LISTENING_OUTPOST_DUMMY_DAMAGE)
+                .abs()
+                < f32::EPSILON
+        );
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(infantry.ai_state, AIState::Docked);
+        assert_eq!(infantry.contained_by, Some(chinook_id));
+        assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
+        assert_eq!(
+            game_logic.transport_residual_loads(),
+            0,
+            "Combat Chinook load must not count as generic transport load"
+        );
+        assert_eq!(
+            game_logic.battle_bus_residual_loads(),
+            0,
+            "Combat Chinook load must not count as Battle Bus load"
+        );
+        assert!(
+            game_logic.honesty_combat_chinook_weapon_set_upgrade_ok(),
+            "weapon-set upgrade residual honesty"
+        );
+    }
+
+    /// Residual acceptance: load 2 infantry → unload all → both free + honesty.
+    #[test]
+    fn combat_chinook_residual_load_two_unload_both_free() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.weapon = Some(Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    last_fire_time: -10.0,
+                    ..Weapon::default()
+                });
+                unit.target = Some(chinook_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, chinook_id], 1.0 / 30.0);
+        }
+
+        let chinook = game_logic.find_object(chinook_id).expect("chinook loaded");
+        assert!(
+            chinook.contained_units().contains(&unit_a)
+                && chinook.contained_units().contains(&unit_b),
+            "both infantry must be loaded into Combat Chinook residual"
+        );
+        assert_eq!(chinook.transport_count(), 2);
+        assert_eq!(game_logic.combat_chinook_residual_loads(), 2);
+        assert!(chinook.weapon_set_player_upgrade);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            assert_eq!(unit.ai_state, AIState::Docked);
+            assert_eq!(unit.contained_by, Some(chinook_id));
+            assert!(!unit.can_move());
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![chinook_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let chinook = game_logic.find_object(chinook_id).expect("chinook empty");
+        assert!(
+            chinook.contained_units().is_empty(),
+            "evacuate must clear all Combat Chinook residual occupants"
+        );
+        assert_eq!(chinook.transport_count(), 0);
+        assert!(
+            !chinook.weapon_set_player_upgrade,
+            "weapon set upgrade must clear when empty"
+        );
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+            assert!(unit.contained_by.is_none(), "contained_by must clear");
+            assert!(unit.can_move(), "unloaded unit must be free to move");
+        }
+
+        assert_eq!(game_logic.combat_chinook_residual_unloads(), 2);
+        assert!(
+            game_logic.honesty_combat_chinook_load_unload_ok(),
+            "load+unload residual honesty"
+        );
+        assert_eq!(
+            game_logic.transport_residual_unloads(),
+            0,
+            "Combat Chinook unload must not count as generic transport unload"
+        );
+        assert_eq!(
+            game_logic.battle_bus_residual_unloads(),
+            0,
+            "Combat Chinook unload must not count as Battle Bus unload"
+        );
+        assert_eq!(
+            game_logic.garrison_residual_exits(),
+            0,
+            "Combat Chinook unload must not count as garrison exit"
+        );
+    }
+
+    /// Residual: passengers fire from chinook origin at nearby enemies.
+    /// Fail-closed: fires from container origin; not C++ rider weapon bones / ropes.
+    #[test]
+    fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("infantry");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            unit.target = Some(chinook_id);
+            unit.contained_by = Some(chinook_id);
+            unit.ai_state = AIState::Docked;
+            unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        }
+        {
+            let chinook = game_logic.find_object_mut(chinook_id).unwrap();
+            assert!(chinook.add_occupant(infantry_id));
+        }
+        game_logic.refresh_battle_bus_armed_riders_weapon_set(chinook_id);
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.update_combat(&[infantry_id, chinook_id, enemy_id], 1.0 / 30.0);
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Combat Chinook passenger residual fire must damage nearby enemy (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_combat_chinook_passenger_fire_ok(),
+            "passenger fire residual honesty"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().ai_state,
+            AIState::Docked,
+            "firing must not eject Combat Chinook passenger"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().contained_by,
+            Some(chinook_id)
+        );
+    }
+
+    /// Residual: full capacity (8) rejects further Enter.
+    #[test]
+    fn combat_chinook_residual_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        for i in 0..crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS {
+            let id = game_logic
+                .create_object(
+                    "TestInfantry",
+                    Team::USA,
+                    Vec3::new(1.0 + i as f32 * 0.1, 0.0, 0.0),
+                )
+                .expect("infantry");
+            {
+                let unit = game_logic.find_object_mut(id).unwrap();
+                unit.target = Some(chinook_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[id, chinook_id], 1.0 / 30.0);
+        }
+        assert_eq!(
+            game_logic.find_object(chinook_id).unwrap().transport_count(),
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
+        );
+
+        let extra_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .expect("extra");
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: chinook_id,
+            },
+            player_id: 0,
+            command_id: 9,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![extra_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let extra = game_logic.find_object(extra_id).expect("extra after");
+        assert_ne!(
+            extra.ai_state,
+            AIState::Entering,
+            "full Combat Chinook residual must reject Enter"
+        );
+        assert_eq!(
+            game_logic.find_object(chinook_id).unwrap().transport_count(),
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
+        );
+    }
+
+    /// Residual: ground vehicles may enter Combat Chinook (AllowInsideKindOf=INFANTRY VEHICLE).
+    #[test]
+    fn combat_chinook_residual_allows_vehicle_enter() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+
+        {
+            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            unit.target = Some(chinook_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[tank_id, chinook_id], 1.0 / 30.0);
+
+        let chinook = game_logic.find_object(chinook_id).expect("chinook");
+        assert!(
+            chinook.contained_units().contains(&tank_id),
+            "vehicles may enter Combat Chinook residual"
+        );
+        assert_eq!(game_logic.combat_chinook_residual_loads(), 1);
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert_eq!(tank.ai_state, AIState::Docked);
     }
 
     // -----------------------------------------------------------------------

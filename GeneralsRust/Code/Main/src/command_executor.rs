@@ -15,7 +15,7 @@ use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Command executor that processes game commands
 pub struct CommandExecutor<'a> {
@@ -1112,10 +1112,19 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
+            let unit_in_tunnel = self
+                .game_logic
+                .tunnel_network_residual()
+                .team_holding_unit(unit_id)
+                .is_some();
             let previous_container = self.game_logic.get_object(unit_id).and_then(|unit| {
-                matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned)
-                    .then_some(unit.target)
-                    .flatten()
+                if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned)
+                    || unit_in_tunnel
+                {
+                    unit.container_id().or(unit.target)
+                } else {
+                    None
+                }
             });
             if let Some(previous_container) = previous_container {
                 if previous_container != target_id {
@@ -1147,6 +1156,8 @@ impl<'a> CommandExecutor<'a> {
     fn execute_exit(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut to_unload: Vec<(ObjectId, Option<ObjectId>, Vec3)> = Vec::new();
         let mut seen_units: HashSet<ObjectId> = HashSet::new();
+        // Tunnel network residual: exit tunnel id for shared-pool bookkeeping.
+        let mut tunnel_exit_for: HashMap<ObjectId, ObjectId> = HashMap::new();
 
         for &selected_id in units {
             let Some(selected_obj) = self.game_logic.get_object(selected_id) else {
@@ -1154,11 +1165,35 @@ impl<'a> CommandExecutor<'a> {
             };
 
             if selected_obj.can_contain() {
+                // Prefer get_position() (authoritative Thing pos). The pub `position`
+                // field is often left at default ZERO after create_object set_position.
                 let origin = selected_obj
                     .building_data
                     .as_ref()
                     .and_then(|b| b.rally_point)
-                    .unwrap_or(selected_obj.position);
+                    .unwrap_or_else(|| selected_obj.get_position());
+
+                // Tunnel Network residual: Evacuate/Exit on ANY team tunnel dumps the
+                // shared MaxTunnelCapacity pool at THIS tunnel (cross-tunnel path).
+                if selected_obj.is_tunnel_network_style_container() {
+                    let team = selected_obj.team;
+                    let shared = self.game_logic.tunnel_network_contained_for_team(team);
+                    for contained in shared {
+                        if seen_units.insert(contained) {
+                            to_unload.push((contained, Some(selected_id), origin));
+                            tunnel_exit_for.insert(contained, selected_id);
+                        }
+                    }
+                    // Also include any local-only occupants not yet in the shared list.
+                    for contained in selected_obj.contained_units() {
+                        if seen_units.insert(contained) {
+                            to_unload.push((contained, Some(selected_id), origin));
+                            tunnel_exit_for.insert(contained, selected_id);
+                        }
+                    }
+                    continue;
+                }
+
                 for contained in selected_obj.contained_units() {
                     if seen_units.insert(contained) {
                         to_unload.push((contained, Some(selected_id), origin));
@@ -1171,7 +1206,13 @@ impl<'a> CommandExecutor<'a> {
                 selected_obj.ai_state,
                 AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
             );
-            if !is_contained {
+            // Units in tunnel network may only have contained_by set.
+            let in_tunnel = self
+                .game_logic
+                .tunnel_network_residual()
+                .team_holding_unit(selected_id)
+                .is_some();
+            if !is_contained && !in_tunnel {
                 continue;
             }
 
@@ -1179,16 +1220,29 @@ impl<'a> CommandExecutor<'a> {
             let (origin, container_id) = if let Some(container_id) = selected_obj.container_id() {
                 if let Some(container) = self.game_logic.get_object(container_id) {
                     let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
-                    (rally.unwrap_or(container.position), Some(container_id))
+                    (
+                        rally.unwrap_or_else(|| container.get_position()),
+                        Some(container_id),
+                    )
                 } else {
-                    (selected_obj.position, None)
+                    (selected_obj.get_position(), None)
                 }
             } else {
-                (selected_obj.position, None)
+                (selected_obj.get_position(), None)
             };
 
             if seen_units.insert(selected_id) {
                 to_unload.push((selected_id, container_id, origin));
+                if let Some(cid) = container_id {
+                    if self
+                        .game_logic
+                        .get_object(cid)
+                        .map(|c| c.is_tunnel_network_style_container())
+                        .unwrap_or(false)
+                    {
+                        tunnel_exit_for.insert(selected_id, cid);
+                    }
+                }
             }
         }
 
@@ -1202,57 +1256,93 @@ impl<'a> CommandExecutor<'a> {
             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 6.0;
             let drop_position = origin + offset;
 
-            if let Some(container_id) = container_id {
-                if let Some(container) = self.game_logic.get_object_mut(container_id) {
-                    container.remove_occupant(unit_id);
+            let tunnel_exit = tunnel_exit_for.get(&unit_id).copied();
+            let was_tunnel = if let Some(exit_tid) = tunnel_exit {
+                self.game_logic
+                    .exit_tunnel_network_unit(unit_id, exit_tid)
+            } else if let Some(cid) = container_id {
+                // Fallback: unit in shared pool exiting via entry tunnel.
+                if self
+                    .game_logic
+                    .tunnel_network_residual()
+                    .team_holding_unit(unit_id)
+                    .is_some()
+                {
+                    self.game_logic.exit_tunnel_network_unit(unit_id, cid)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !was_tunnel {
+                if let Some(container_id) = container_id {
+                    if let Some(container) = self.game_logic.get_object_mut(container_id) {
+                        container.remove_occupant(unit_id);
+                    }
                 }
             }
 
             // Classify residual exit before mutating unit state.
             // Prefer AI state; fall back to container kind when only contained_by is set.
-            // Overlord BattleBunker / GLA Battle Bus residuals are vehicle-docked but
-            // tracked separately from generic Humvee transport residual.
-            let (was_garrisoned, was_overlord_bunker, was_battle_bus, was_transport) =
-                if let Some(unit) = self.game_logic.get_object(unit_id) {
-                    let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
-                    let docked = matches!(unit.ai_state, AIState::Docked);
-                    let cid = unit.contained_by.or(container_id);
-                    let container = cid.and_then(|id| self.game_logic.get_object(id));
-                    let is_overlord = container
-                        .map(|c| c.is_overlord_style_container())
-                        .unwrap_or(false);
-                    let is_battle_bus = container
-                        .map(|c| c.is_battle_bus_style_container())
-                        .unwrap_or(false);
-                    let is_structure = container
-                        .map(|c| c.is_kind_of(KindOf::Structure))
-                        .unwrap_or(false);
-                    if garrisoned {
-                        (true, false, false, false)
-                    } else if docked {
-                        if is_overlord {
-                            (false, true, false, false)
-                        } else if is_battle_bus {
-                            (false, false, true, false)
-                        } else {
-                            (false, false, false, true)
-                        }
-                    } else if unit.contained_by.is_some() || container_id.is_some() {
-                        if is_structure {
-                            (true, false, false, false)
-                        } else if is_overlord {
-                            (false, true, false, false)
-                        } else if is_battle_bus {
-                            (false, false, true, false)
-                        } else {
-                            (false, false, false, true)
-                        }
+            // Overlord BattleBunker / GLA Battle Bus / Combat Chinook residuals are
+            // vehicle-docked but tracked separately from generic Humvee transport residual.
+            let (
+                was_garrisoned,
+                was_overlord_bunker,
+                was_battle_bus,
+                was_combat_chinook,
+                was_transport,
+            ) = if was_tunnel {
+                (false, false, false, false, false)
+            } else if let Some(unit) = self.game_logic.get_object(unit_id) {
+                let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
+                let docked = matches!(unit.ai_state, AIState::Docked);
+                let cid = unit.contained_by.or(container_id);
+                let container = cid.and_then(|id| self.game_logic.get_object(id));
+                let is_overlord = container
+                    .map(|c| c.is_overlord_style_container())
+                    .unwrap_or(false);
+                let is_battle_bus = container
+                    .map(|c| c.is_battle_bus_style_container())
+                    .unwrap_or(false);
+                let is_combat_chinook = container
+                    .map(|c| c.is_combat_chinook_style_container())
+                    .unwrap_or(false);
+                let is_structure = container
+                    .map(|c| c.is_kind_of(KindOf::Structure))
+                    .unwrap_or(false);
+                if garrisoned {
+                    (true, false, false, false, false)
+                } else if docked {
+                    if is_overlord {
+                        (false, true, false, false, false)
+                    } else if is_battle_bus {
+                        (false, false, true, false, false)
+                    } else if is_combat_chinook {
+                        (false, false, false, true, false)
                     } else {
-                        (false, false, false, false)
+                        (false, false, false, false, true)
+                    }
+                } else if unit.contained_by.is_some() || container_id.is_some() {
+                    if is_structure {
+                        (true, false, false, false, false)
+                    } else if is_overlord {
+                        (false, true, false, false, false)
+                    } else if is_battle_bus {
+                        (false, false, true, false, false)
+                    } else if is_combat_chinook {
+                        (false, false, false, true, false)
+                    } else {
+                        (false, false, false, false, true)
                     }
                 } else {
-                    (false, false, false, false)
-                };
+                    (false, false, false, false, false)
+                }
+            } else {
+                (false, false, false, false, false)
+            };
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_moving();
@@ -1262,12 +1352,16 @@ impl<'a> CommandExecutor<'a> {
                 unit.set_ai_state(AIState::Idle);
                 unit.status.moving = false;
                 unit.status.attacking = false;
-                if was_garrisoned {
+                if was_tunnel {
+                    // Counters already recorded in exit_tunnel_network_unit.
+                } else if was_garrisoned {
                     self.game_logic.record_garrison_residual_exit();
                 } else if was_overlord_bunker {
                     self.game_logic.record_overlord_bunker_residual_exit();
                 } else if was_battle_bus {
                     self.game_logic.record_battle_bus_residual_unload();
+                } else if was_combat_chinook {
+                    self.game_logic.record_combat_chinook_residual_unload();
                 } else if was_transport {
                     self.game_logic.record_transport_residual_unload();
                 }
@@ -1277,9 +1371,9 @@ impl<'a> CommandExecutor<'a> {
                 );
             }
 
-            // Refresh Battle Bus armed-riders weapon set after unload residual.
+            // Refresh armed-riders weapon set after unload residual.
             if let Some(cid) = container_id {
-                if was_battle_bus {
+                if was_battle_bus || was_combat_chinook {
                     self.game_logic
                         .refresh_battle_bus_armed_riders_weapon_set(cid);
                 }
@@ -2603,7 +2697,17 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        if !unit.can_move() || unit.is_kind_of(KindOf::Structure) {
+        // Tunnel network residual: units already in the shared pool may transfer
+        // to another allied tunnel without can_move (Garrisoned).
+        let unit_in_tunnel = self
+            .game_logic
+            .tunnel_network_residual()
+            .team_holding_unit(unit_id)
+            .is_some();
+        if unit.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if !unit.can_move() && !unit_in_tunnel {
             return false;
         }
 
@@ -2613,7 +2717,33 @@ impl<'a> CommandExecutor<'a> {
 
         // Residual garrison / Overlord BattleBunker / Battle Bus: infantry (and heroes)
         // only. C++ AllowInsideKindOf = INFANTRY. Generic transports still accept any
-        // mobile unit. Fail-closed vs full C++ garrison filters.
+        // mobile unit. Combat Chinook allows INFANTRY + VEHICLE (rejects AIRCRAFT).
+        // Tunnel Network: all units except aircraft (C++ TunnelTracker residual).
+        // Fail-closed vs full C++ garrison filters.
+        if target.is_tunnel_network_style_container() {
+            if unit.is_kind_of(KindOf::Aircraft) {
+                return false;
+            }
+            // Shared MaxTunnelCapacity=10 residual (team pool).
+            let in_pool = self
+                .game_logic
+                .tunnel_network_residual()
+                .is_in_network(unit.team, unit_id);
+            if !in_pool
+                && !self
+                    .game_logic
+                    .tunnel_network_residual()
+                    .has_capacity(unit.team)
+            {
+                return false;
+            }
+            // Ally tunnels only for residual enter (not enemy capture residual).
+            if target.team != unit.team && target.team != Team::Neutral {
+                return false;
+            }
+            return true;
+        }
+
         let infantry_only_container = target.is_kind_of(KindOf::Structure)
             || (target.is_overlord_style_container()
                 && target.overlord_bunker_slot_capacity() > 0)
@@ -2622,6 +2752,10 @@ impl<'a> CommandExecutor<'a> {
             && !unit.is_kind_of(KindOf::Infantry)
             && !unit.is_hero()
         {
+            return false;
+        }
+        // Combat Chinook ForbidInsideKindOf = AIRCRAFT residual.
+        if target.is_combat_chinook_style_container() && unit.is_kind_of(KindOf::Aircraft) {
             return false;
         }
 
