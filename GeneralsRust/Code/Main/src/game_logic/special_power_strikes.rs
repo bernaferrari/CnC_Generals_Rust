@@ -1,25 +1,29 @@
 //! Host special-power / superweapon strike residual.
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship queues a real
-//! strike that completes with area damage on host GameLogic objects.
-//! NuclearMissile also spawns a residual radiation field
+//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb
+//! queues a real strike that completes with area damage on host GameLogic
+//! objects. NuclearMissile also spawns a residual radiation field
 //! (`NukeRadiationFieldWeapon`) that ticks after impact. AnthraxBomb also
 //! spawns a residual toxin field (`AnthraxBombPoisonFieldWeapon` /
 //! `OCL_PoisonFieldAnthraxBomb`) that ticks after impact. SpectreGunship
 //! completes orbit insertion with no one-shot blast, then spawns a residual
 //! orbit field (`SpectreHowitzerGun` residual) that periodically damages in
-//! `AttackAreaRadius` for `OrbitTime`. Pending strikes (absolute
-//! `impact_frame`) are captured in `WorldSnapshot.special_power_strikes` so
-//! mid-flight save/load continues remaining delay and still fires impact /
-//! orbit residual damage.
+//! `AttackAreaRadius` for `OrbitTime`. CarpetBomb is a delayed multi-strike
+//! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
+//! approach delay, applies explosive damage at multiple epicenters along a
+//! line through the target (fail-closed vs full B52 OCL drop path / variance /
+//! staggered DropDelay). Pending strikes (absolute `impact_frame`) are
+//! captured in `WorldSnapshot.special_power_strikes` so mid-flight save/load
+//! continues remaining delay and still fires impact / orbit residual damage.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
 //! Xfer tables. Radiation / toxin / Spectre orbit residual is a single host
 //! field (not full HazardousMaterialArmor / cleanup-hazard object stack /
 //! gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer projectile
-//! path).
+//! path). CarpetBomb residual is multi-point simultaneous blasts (not full
+//! AmericaJetB52 DeliverPayload / DropVariance / per-bomb DropDelay stagger).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -70,6 +74,21 @@ pub const SPECTRE_ORBIT_DURATION_FRAMES: u32 = 450;
 /// Residual ambient cue for active Spectre orbit (`SpectreGunshipAmbientLoop`).
 pub const SPECTRE_ORBIT_AUDIO: &str = "SpectreGunshipAmbientLoop";
 
+// --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
+
+/// Retail `SUPERWEAPON_CarpetBomb` Payload count (`Payload = CarpetBomb 15`).
+pub const CARPET_BOMB_COUNT: u32 = 15;
+/// Residual spacing between bomb epicenters along the drop line
+/// (host residual; retail DropVariance + DeliveryDistance flight path deferred).
+pub const CARPET_BOMB_SPACING: f32 = 25.0;
+/// Retail `CarpetBombWeapon` PrimaryDamage.
+pub const CARPET_BOMB_DAMAGE: f32 = 300.0;
+/// Retail `CarpetBombWeapon` PrimaryDamageRadius.
+pub const CARPET_BOMB_RADIUS: f32 = 50.0;
+/// Bomber approach residual frames before multi-strike damage applies
+/// (fail-closed vs full edge-spawn + transit locomotor).
+pub const CARPET_BOMB_IMPACT_DELAY_FRAMES: u32 = 90;
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -87,6 +106,8 @@ pub enum HostSuperweaponKind {
     AnthraxBomb,
     /// USA Spectre Gunship residual host path (delayed orbit + damage ticks).
     SpectreGunship,
+    /// Carpet Bomb residual host path (delayed line multi-strike damage).
+    CarpetBomb,
 }
 
 impl HostSuperweaponKind {
@@ -102,6 +123,7 @@ impl HostSuperweaponKind {
             SpecialPowerType::NuclearMissile => Some(HostSuperweaponKind::NuclearMissile),
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
             SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
+            SpecialPowerType::CarpetBomb => Some(HostSuperweaponKind::CarpetBomb),
             _ => None,
         }
     }
@@ -116,6 +138,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => "NuclearMissile",
             HostSuperweaponKind::AnthraxBomb => "AnthraxBomb",
             HostSuperweaponKind::SpectreGunship => "SpectreGunship",
+            HostSuperweaponKind::CarpetBomb => "CarpetBomb",
         }
     }
 
@@ -138,6 +161,9 @@ impl HostSuperweaponKind {
             // Spectre insertion residual (fail-closed vs full edge spawn +
             // transit locomotor + GUNSHIP_STATUS_INSERTING approach).
             HostSuperweaponKind::SpectreGunship => 90,
+            // Carpet bomber approach residual (fail-closed vs full edge spawn +
+            // DeliverPayload transit + staggered DropDelay).
+            HostSuperweaponKind::CarpetBomb => CARPET_BOMB_IMPACT_DELAY_FRAMES,
         }
     }
 
@@ -154,6 +180,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => 200.0,
             // Spectre has no one-shot impact blast; damage is orbit residual only.
             HostSuperweaponKind::SpectreGunship => 0.0,
+            // Retail CarpetBombWeapon PrimaryDamage (per bomb epicenter).
+            HostSuperweaponKind::CarpetBomb => CARPET_BOMB_DAMAGE,
         }
     }
 
@@ -170,6 +198,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => 100.0,
             // Retail AttackAreaRadius / RadiusCursorRadius.
             HostSuperweaponKind::SpectreGunship => SPECTRE_ORBIT_RADIUS,
+            // Retail CarpetBombWeapon PrimaryDamageRadius (per bomb).
+            HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
         }
     }
 
@@ -186,6 +216,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => 100.0,
             // No impact blast falloff (orbit residual handles damage).
             HostSuperweaponKind::SpectreGunship => 0.0,
+            // Flat primary blast per bomb epicenter.
+            HostSuperweaponKind::CarpetBomb => CARPET_BOMB_RADIUS,
         }
     }
 
@@ -204,6 +236,11 @@ impl HostSuperweaponKind {
         matches!(self, HostSuperweaponKind::SpectreGunship)
     }
 
+    /// Whether this kind applies multi-point line damage (CarpetBomb residual).
+    pub fn is_line_multi_strike(self) -> bool {
+        matches!(self, HostSuperweaponKind::CarpetBomb)
+    }
+
     /// Audio event name queued on activation (host residual).
     pub fn activate_audio(self) -> &'static str {
         match self {
@@ -214,6 +251,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => "SuperweaponNuclearMissile",
             HostSuperweaponKind::AnthraxBomb => "SuperweaponAnthraxBomb",
             HostSuperweaponKind::SpectreGunship => "SuperweaponSpectreGunship",
+            HostSuperweaponKind::CarpetBomb => "SuperweaponCarpetBomb",
         }
     }
 
@@ -228,8 +266,26 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::AnthraxBomb => "AnthraxBombImpact",
             // Orbit insertion complete residual (retail SpectreGunshipVoiceArrive).
             HostSuperweaponKind::SpectreGunship => "SpectreGunshipVoiceArrive",
+            // Retail ExplosionCarpetBomb residual cue.
+            HostSuperweaponKind::CarpetBomb => "ExplosionCarpetBomb",
         }
     }
+}
+
+/// Build residual bomb epicenters along a line centered on `target`.
+///
+/// Fail-closed orientation: east-west (+X) through the target (retail flight
+/// path / DeliveryDistance / DropVariance deferred). Line length is
+/// `(CARPET_BOMB_COUNT - 1) * CARPET_BOMB_SPACING` centered on target.
+pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
+    let count = CARPET_BOMB_COUNT.max(1);
+    let half = (count as f32 - 1.0) * 0.5;
+    let mut points = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let offset = (i as f32 - half) * CARPET_BOMB_SPACING;
+        points.push(Vec3::new(target.x + offset, target.y, target.z));
+    }
+    points
 }
 
 /// Lifecycle of a queued host superweapon strike.
@@ -806,6 +862,10 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Build impact damage plans for all strikes whose impact frame has arrived.
     /// Does not mutate object health — GameLogic applies hits.
+    ///
+    /// CarpetBomb residual: multi-point line damage — each living enemy takes the
+    /// max damage from any bomb epicenter along the residual drop line (not a
+    /// single circular blast at the click point).
     pub fn plan_due_impacts(
         &self,
         current_frame: u32,
@@ -816,6 +876,11 @@ impl HostSpecialPowerStrikeRegistry {
             if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
                 continue;
             }
+            let bomb_points = if strike.kind.is_line_multi_strike() {
+                Some(carpet_bomb_points(strike.target_position))
+            } else {
+                None
+            };
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == strike.source_object {
@@ -825,8 +890,21 @@ impl HostSpecialPowerStrikeRegistry {
                 if team == strike.source_team {
                     continue;
                 }
-                let dist = horizontal_distance(pos, strike.target_position);
-                let dmg = Self::damage_at_distance(strike.kind, dist);
+                let dmg = if let Some(ref points) = bomb_points {
+                    // Multi-strike: best (nearest) bomb epicenter damage.
+                    points
+                        .iter()
+                        .map(|epicenter| {
+                            Self::damage_at_distance(
+                                strike.kind,
+                                horizontal_distance(pos, *epicenter),
+                            )
+                        })
+                        .fold(0.0_f32, f32::max)
+                } else {
+                    let dist = horizontal_distance(pos, strike.target_position);
+                    Self::damage_at_distance(strike.kind, dist)
+                };
                 if dmg > 0.0 {
                     hits.push(HostStrikeDamageHit {
                         target_id: id,
@@ -1353,6 +1431,10 @@ mod tests {
             Some(HostSuperweaponKind::SpectreGunship)
         );
         assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::CarpetBomb),
+            Some(HostSuperweaponKind::CarpetBomb)
+        );
+        assert_eq!(
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
@@ -1413,6 +1495,79 @@ mod tests {
         assert_eq!(SPECTRE_ORBIT_RADIUS, 200.0);
         assert_eq!(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, 9);
         assert_eq!(SPECTRE_ORBIT_DURATION_FRAMES, 450);
+    }
+
+    #[test]
+    fn carpet_bomb_params_match_retail_multi_strike() {
+        let kind = HostSuperweaponKind::CarpetBomb;
+        assert_eq!(kind.impact_delay_frames(), CARPET_BOMB_IMPACT_DELAY_FRAMES);
+        assert!((kind.max_damage() - CARPET_BOMB_DAMAGE).abs() < 0.1);
+        assert!((kind.damage_radius() - CARPET_BOMB_RADIUS).abs() < 0.1);
+        assert!((kind.falloff_inner() - CARPET_BOMB_RADIUS).abs() < 0.1);
+        assert!(kind.is_line_multi_strike());
+        assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
+        assert!(!kind.spawns_orbit_field());
+        assert!(!HostSuperweaponKind::DaisyCutter.is_line_multi_strike());
+        assert_eq!(CARPET_BOMB_COUNT, 15);
+        assert!((CARPET_BOMB_SPACING - 25.0).abs() < 0.1);
+        let points = carpet_bomb_points(Vec3::new(100.0, 0.0, 50.0));
+        assert_eq!(points.len(), CARPET_BOMB_COUNT as usize);
+        // Centered on target along +X.
+        assert!((points[7].x - 100.0).abs() < 0.1);
+        assert!((points[0].x - (100.0 - 7.0 * CARPET_BOMB_SPACING)).abs() < 0.1);
+        assert!((points[14].x - (100.0 + 7.0 * CARPET_BOMB_SPACING)).abs() < 0.1);
+    }
+
+    #[test]
+    fn carpet_bomb_delayed_line_multi_strike_damage() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::CarpetBomb,
+            ObjectId(1),
+            Team::China,
+            target,
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::CarpetBomb));
+        assert_eq!(
+            reg.get(id).unwrap().impact_frame,
+            CARPET_BOMB_IMPACT_DELAY_FRAMES
+        );
+
+        // Bomb epicenters along X: …, -50, -25, 0, 25, 50, …
+        // Enemy at epicenter, enemy on outer bomb, enemy far off-line, friendly at epicenter.
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::China, true),
+            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // center bomb
+            (ObjectId(3), Vec3::new(7.0 * CARPET_BOMB_SPACING, 0.0, 0.0), Team::USA, true), // outer bomb
+            (ObjectId(4), Vec3::new(0.0, 0.0, 500.0), Team::USA, true), // far off-line
+            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::China, true), // friendly
+        ];
+
+        // Before impact: no damage plan.
+        assert!(reg
+            .plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty());
+
+        let plans = reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        // Center + outer-bomb enemies hit; far + friendly excluded.
+        assert_eq!(plans[0].hits.len(), 2);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+
+        reg.record_impact_complete(id, CARPET_BOMB_DAMAGE * 2.0, 2, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CarpetBomb));
+        assert!(reg.radiation_fields().is_empty());
+        assert!(reg.toxin_fields().is_empty());
+        assert!(reg.orbit_fields().is_empty());
     }
 
     #[test]
