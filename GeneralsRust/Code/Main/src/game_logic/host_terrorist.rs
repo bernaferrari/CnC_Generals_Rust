@@ -12,6 +12,19 @@
 //!   - Demo: `Demo_SuicideDynamitePack` Primary **700**/r**18** + Secondary **300**/r**50**
 //! - Damage nearby combatants, destroy self (FireWeaponWhenDead + SUICIDED residual).
 //!
+//! Wave 60 residual pack (retail INI honesty):
+//! - Trigger residual: `TerroristSuicideWeapon` AttackRange **1**, PrimaryDamage **999999**,
+//!   LeechRangeWeapon **Yes**, ClipSize **1**, AutoReloadsClip **No**,
+//!   DamageDealtAtSelfPosition **Yes**, DamageType **EXPLOSION**, DeathType **SUICIDED**.
+//!   Host combat path uses dynamite AttackRange **5** residual (fail-closed vs exact 1).
+//! - Death weapon residual: dual rings Primary **500**/r**18** + Secondary **300**/r**50**,
+//!   FireFX **WeaponFX_SuicideDynamitePackDetonation**, FireSound **CarBomberDie**,
+//!   RadiusAffects SELF SUICIDE ALLIES ENEMIES NEUTRALS NOT_SIMILAR.
+//! - Chem/Demo profile residual: Gamma primary **600**, Demo primary **700**,
+//!   Demo FireFX **WeaponFX_DemoSuicideDynamitePackDetonation**.
+//! - Body residual: MaxHealth **120**, Vision **150**, Shroud **200**, BuildCost **200**.
+//! - ConvertToCarBomb residual name honesty (full convert closed in host_car_bomb).
+//!
 //! Fail-closed honesty:
 //! - Not full ConvertToCarBombCrateCollide matrix (separate host_car_bomb residual)
 //! - Not full SlowDeath SUICIDED fling / OCL poison particle bone matrix
@@ -25,6 +38,9 @@ use crate::game_logic::host_toxin_tractor::{
     is_chem_general_template, AnthraxResidualTier,
 };
 
+/// Logic frames per second (host fixed step).
+pub const TERRORIST_LOGIC_FPS: f32 = 30.0;
+
 /// Retail primary self-kill trigger weapon.
 pub const TERRORIST_SUICIDE_WEAPON: &str = "TerroristSuicideWeapon";
 /// Retail FireWeaponWhenDead death weapon.
@@ -35,6 +51,21 @@ pub const CHEM_SUICIDE_DYNAMITE_BETA: &str = "GC_Chem_SuicideDynamitePackBeta";
 pub const CHEM_SUICIDE_DYNAMITE_GAMMA: &str = "GC_Chem_SuicideDynamitePackGamma";
 /// Demo General death weapon residual.
 pub const DEMO_SUICIDE_DYNAMITE_PACK: &str = "Demo_SuicideDynamitePack";
+
+/// Retail TerroristSuicideWeapon AttackRange residual.
+pub const TERRORIST_SUICIDE_TRIGGER_RANGE: f32 = 1.0;
+/// Retail TerroristSuicideWeapon PrimaryDamage residual (self-kill flag).
+pub const TERRORIST_SUICIDE_TRIGGER_DAMAGE: f32 = 999_999.0;
+/// Retail LeechRangeWeapon residual.
+pub const TERRORIST_SUICIDE_LEECH_RANGE: bool = true;
+/// Retail ClipSize residual (trigger + death weapon).
+pub const TERRORIST_SUICIDE_CLIP_SIZE: u32 = 1;
+/// Retail AutoReloadsClip residual.
+pub const TERRORIST_SUICIDE_AUTO_RELOADS: bool = false;
+/// Retail DamageDealtAtSelfPosition residual.
+pub const TERRORIST_DAMAGE_DEALT_AT_SELF: bool = true;
+/// Retail DelayBetweenShots residual (msec).
+pub const TERRORIST_SUICIDE_DELAY_MS: u32 = 0;
 
 /// SuicideDynamitePack PrimaryDamage residual.
 pub const SUICIDE_DYNAMITE_PRIMARY_DAMAGE: f32 = 500.0;
@@ -50,9 +81,40 @@ pub const SUICIDE_DYNAMITE_SECONDARY_DAMAGE: f32 = 300.0;
 pub const SUICIDE_DYNAMITE_SECONDARY_RADIUS: f32 = 50.0;
 /// Residual attack range (SuicideDynamitePack AttackRange 5; host close-range).
 pub const SUICIDE_DYNAMITE_ATTACK_RANGE: f32 = 5.0;
+/// Retail DamageType residual.
+pub const SUICIDE_DYNAMITE_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail DeathType residual.
+pub const SUICIDE_DYNAMITE_DEATH_TYPE: &str = "SUICIDED";
+/// Retail WeaponSpeed residual.
+pub const SUICIDE_DYNAMITE_WEAPON_SPEED: f32 = 99_999.0;
+/// Retail FireFX residual (standard / chem).
+pub const SUICIDE_DYNAMITE_FIRE_FX: &str = "WeaponFX_SuicideDynamitePackDetonation";
+/// Retail Demo FireFX residual.
+pub const DEMO_SUICIDE_DYNAMITE_FIRE_FX: &str = "WeaponFX_DemoSuicideDynamitePackDetonation";
+/// Retail RadiusDamageAffects residual tokens.
+pub const SUICIDE_DYNAMITE_RADIUS_AFFECTS: &str =
+    "SELF SUICIDE ALLIES ENEMIES NEUTRALS NOT_SIMILAR";
+/// Chem Beta FireOCL residual.
+pub const CHEM_SUICIDE_FIRE_OCL_BETA: &str = "OCL_PoisonFieldUpgradedMedium";
+/// Chem Gamma FireOCL residual.
+pub const CHEM_SUICIDE_FIRE_OCL_GAMMA: &str = "OCL_PoisonFieldGammaMedium";
 
 /// Residual detonation audio (retail FireSound = CarBomberDie).
 pub const TERRORIST_DETONATE_AUDIO: &str = "CarBomberDie";
+
+/// ConvertToCarBomb residual FX name honesty (full path in host_car_bomb).
+pub const TERRORIST_CAR_BOMB_CONVERT_FX: &str = "FX_MakeCarBombSuccess";
+
+// --- Body residual ---
+
+/// Retail MaxHealth residual.
+pub const TERRORIST_MAX_HEALTH: f32 = 120.0;
+/// Retail VisionRange residual.
+pub const TERRORIST_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const TERRORIST_SHROUD_CLEARING_RANGE: f32 = 200.0;
+/// Retail BuildCost residual.
+pub const TERRORIST_BUILD_COST: u32 = 200;
 
 /// Host residual terrorist death-weapon profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -119,6 +181,31 @@ impl TerroristDeathProfile {
             Self::Demo => DEMO_SUICIDE_DYNAMITE_PACK,
         }
     }
+
+    /// Retail FireFX residual for profile.
+    pub fn fire_fx(self) -> &'static str {
+        match self {
+            Self::Demo => DEMO_SUICIDE_DYNAMITE_FIRE_FX,
+            Self::Standard | Self::ChemBeta | Self::ChemGamma => SUICIDE_DYNAMITE_FIRE_FX,
+        }
+    }
+
+    /// Retail FireOCL residual for chem poison fields (empty otherwise).
+    pub fn fire_ocl(self) -> Option<&'static str> {
+        match self {
+            Self::ChemBeta => Some(CHEM_SUICIDE_FIRE_OCL_BETA),
+            Self::ChemGamma => Some(CHEM_SUICIDE_FIRE_OCL_GAMMA),
+            Self::Standard | Self::Demo => None,
+        }
+    }
+}
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn terrorist_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * TERRORIST_LOGIC_FPS / 1000.0).round() as u32
 }
 
 /// Whether template is Demo General residual (Demo_ prefix).
@@ -201,7 +288,8 @@ pub fn is_terrorist_template(template_name: &str) -> bool {
 ///
 /// Host residual uses SuicideDynamitePack primary damage as the attack-damage
 /// flag so combat fire path can detect suicide residual; real AOE is applied
-/// via `suicide_dynamite_damage_at_profile`.
+/// via `suicide_dynamite_damage_at_profile`. Host AttackRange uses dynamite
+/// range **5** (fail-closed vs trigger weapon range **1**).
 pub fn terrorist_suicide_weapon() -> Weapon {
     terrorist_suicide_weapon_for_profile(TerroristDeathProfile::Standard)
 }
@@ -254,6 +342,106 @@ pub fn is_legal_terrorist_aoe_target(
 /// Whether residual fire should apply Terrorist suicide residual path.
 pub fn should_apply_terrorist_residual(is_terrorist: bool) -> bool {
     is_terrorist
+}
+
+/// Whether residual detonation range gate is legal (host dynamite range).
+pub fn terrorist_detonate_range_ok(distance: f32) -> bool {
+    distance <= SUICIDE_DYNAMITE_ATTACK_RANGE
+}
+
+// --- Wave 60 residual honesty packs ---
+
+/// Wave 60 residual honesty: trigger weapon residual.
+pub fn honesty_terrorist_trigger_residual_ok() -> bool {
+    TERRORIST_SUICIDE_WEAPON == "TerroristSuicideWeapon"
+        && (TERRORIST_SUICIDE_TRIGGER_RANGE - 1.0).abs() < 0.01
+        && (TERRORIST_SUICIDE_TRIGGER_DAMAGE - 999_999.0).abs() < 0.1
+        && TERRORIST_SUICIDE_LEECH_RANGE
+        && TERRORIST_SUICIDE_CLIP_SIZE == 1
+        && !TERRORIST_SUICIDE_AUTO_RELOADS
+        && TERRORIST_DAMAGE_DEALT_AT_SELF
+        && TERRORIST_SUICIDE_DELAY_MS == 0
+        && terrorist_ms_to_frames(TERRORIST_SUICIDE_DELAY_MS) == 0
+        // Host combat path uses dynamite AttackRange 5 (fail-closed vs trigger 1).
+        && (SUICIDE_DYNAMITE_ATTACK_RANGE - 5.0).abs() < 0.01
+        && SUICIDE_DYNAMITE_ATTACK_RANGE > TERRORIST_SUICIDE_TRIGGER_RANGE
+        && {
+            let w = terrorist_suicide_weapon();
+            (w.range - SUICIDE_DYNAMITE_ATTACK_RANGE).abs() < 0.01
+                && w.ammo == Some(1)
+                && w.can_target_ground
+                && !w.can_target_air
+        }
+}
+
+/// Wave 60 residual honesty: death weapon dual-ring residual.
+pub fn honesty_terrorist_death_weapon_residual_ok() -> bool {
+    SUICIDE_DYNAMITE_PACK == "SuicideDynamitePack"
+        && (SUICIDE_DYNAMITE_PRIMARY_DAMAGE - 500.0).abs() < 0.01
+        && (SUICIDE_DYNAMITE_PRIMARY_RADIUS - 18.0).abs() < 0.01
+        && (SUICIDE_DYNAMITE_SECONDARY_DAMAGE - 300.0).abs() < 0.01
+        && (SUICIDE_DYNAMITE_SECONDARY_RADIUS - 50.0).abs() < 0.01
+        && SUICIDE_DYNAMITE_DAMAGE_TYPE == "EXPLOSION"
+        && SUICIDE_DYNAMITE_DEATH_TYPE == "SUICIDED"
+        && (SUICIDE_DYNAMITE_WEAPON_SPEED - 99_999.0).abs() < 0.1
+        && SUICIDE_DYNAMITE_FIRE_FX == "WeaponFX_SuicideDynamitePackDetonation"
+        && TERRORIST_DETONATE_AUDIO == "CarBomberDie"
+        && SUICIDE_DYNAMITE_RADIUS_AFFECTS.contains("SELF")
+        && SUICIDE_DYNAMITE_RADIUS_AFFECTS.contains("SUICIDE")
+        && SUICIDE_DYNAMITE_RADIUS_AFFECTS.contains("NOT_SIMILAR")
+        && (suicide_dynamite_damage_at(0.0) - 500.0).abs() < 0.01
+        && (suicide_dynamite_damage_at(18.0) - 500.0).abs() < 0.01
+        && (suicide_dynamite_damage_at(18.1) - 300.0).abs() < 0.01
+        && (suicide_dynamite_damage_at(50.0) - 300.0).abs() < 0.01
+        && suicide_dynamite_damage_at(50.1) <= 0.0
+        && terrorist_detonate_range_ok(5.0)
+        && !terrorist_detonate_range_ok(5.1)
+}
+
+/// Wave 60 residual honesty: chem / demo profile residual.
+pub fn honesty_terrorist_profile_residual_ok() -> bool {
+    CHEM_SUICIDE_DYNAMITE_BETA == "GC_Chem_SuicideDynamitePackBeta"
+        && CHEM_SUICIDE_DYNAMITE_GAMMA == "GC_Chem_SuicideDynamitePackGamma"
+        && DEMO_SUICIDE_DYNAMITE_PACK == "Demo_SuicideDynamitePack"
+        && (SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA - 600.0).abs() < 0.01
+        && (SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO - 700.0).abs() < 0.01
+        && TerroristDeathProfile::ChemGamma.spawns_poison()
+        && TerroristDeathProfile::ChemBeta.spawns_poison()
+        && !TerroristDeathProfile::Demo.spawns_poison()
+        && !TerroristDeathProfile::Standard.spawns_poison()
+        && TerroristDeathProfile::ChemBeta.fire_ocl() == Some(CHEM_SUICIDE_FIRE_OCL_BETA)
+        && TerroristDeathProfile::ChemGamma.fire_ocl() == Some(CHEM_SUICIDE_FIRE_OCL_GAMMA)
+        && TerroristDeathProfile::Standard.fire_ocl().is_none()
+        && TerroristDeathProfile::Demo.fire_fx() == DEMO_SUICIDE_DYNAMITE_FIRE_FX
+        && TerroristDeathProfile::Standard.fire_fx() == SUICIDE_DYNAMITE_FIRE_FX
+        && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::ChemGamma, 0.0) - 600.0)
+            .abs()
+            < 0.01
+        && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::Demo, 0.0) - 700.0).abs()
+            < 0.01
+        && terrorist_death_profile("GLAInfantryTerrorist", false, false)
+            == TerroristDeathProfile::Standard
+        && terrorist_death_profile("Chem_GLAInfantryTerrorist", false, false)
+            == TerroristDeathProfile::ChemBeta
+        && terrorist_death_profile("Demo_GLAInfantryTerrorist", false, false)
+            == TerroristDeathProfile::Demo
+}
+
+/// Wave 60 residual honesty: body + car-bomb convert name residual.
+pub fn honesty_terrorist_body_residual_ok() -> bool {
+    (TERRORIST_MAX_HEALTH - 120.0).abs() < 0.01
+        && (TERRORIST_VISION_RANGE - 150.0).abs() < 0.01
+        && (TERRORIST_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && TERRORIST_BUILD_COST == 200
+        && TERRORIST_CAR_BOMB_CONVERT_FX == "FX_MakeCarBombSuccess"
+}
+
+/// Combined Wave 60 Terrorist residual honesty pack.
+pub fn honesty_terrorist_residual_pack_ok() -> bool {
+    honesty_terrorist_trigger_residual_ok()
+        && honesty_terrorist_death_weapon_residual_ok()
+        && honesty_terrorist_profile_residual_ok()
+        && honesty_terrorist_body_residual_ok()
 }
 
 #[cfg(test)]
@@ -357,5 +545,16 @@ mod tests {
         assert!(is_legal_terrorist_aoe_target(true, false, false, true));
         assert!(!is_legal_terrorist_aoe_target(false, false, false, true));
         assert!(!is_legal_terrorist_aoe_target(true, true, false, true));
+    }
+
+    #[test]
+    fn terrorist_residual_pack_honesty() {
+        assert!(honesty_terrorist_trigger_residual_ok());
+        assert!(honesty_terrorist_death_weapon_residual_ok());
+        assert!(honesty_terrorist_profile_residual_ok());
+        assert!(honesty_terrorist_body_residual_ok());
+        assert!(honesty_terrorist_residual_pack_ok());
+        assert_eq!(terrorist_ms_to_frames(0), 0);
+        assert_eq!(terrorist_ms_to_frames(1_000), 30);
     }
 }
