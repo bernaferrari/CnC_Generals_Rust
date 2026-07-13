@@ -17,10 +17,14 @@
 //! - `dual_tick_presentation_ok` — seed + logic update + multi-consumer presentation apply
 //! - `minimap_fow_presentation_ok` — FOW grid snapshot usable for minimap texture path
 //! - `laser_segment_upload_ok` — presentation → CPU SegLine pack residual (incl. synthetic)
+//! - `multi_beam_soft_edge_ok` — OrbitalLaser NumBeams soft-edge CPU pack residual
 //! - `floating_text_layout_ok` — presentation → CPU InGameUI floating-text layout residual
 //! - `world_anim_presentation_ok` — MoneyPickUp Anim2D residual frozen on presentation
 //! - `world_anim_layout_ok` — presentation → CPU Anim2D layout pack residual
+//! - `anim2d_frame_ok` — MoneyPickUp Anim2D frame advance residual
 //! - `game_text_caption_ok` — GUI:AddCash caption residual on floating-text pack
+//! - `game_text_csf_str_ok` — CSF/STR parse + retail `$%d` printf + DisplayString measure
+//! - `display_string_measure_ok` — monospaced glyph measure residual on floating-text pack
 //! - `rng_stream_residual_ok` — GameLogic/GameClient RandomValue ADC stream residual
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
@@ -33,7 +37,10 @@ use crate::gameplay_layout::{
 use crate::graphics::floating_text_layout::{
     pack_floating_text_and_mark_ready, FloatingTextLayout,
 };
-use crate::graphics::laser_segment_upload::{pack_and_mark_upload_ready, LaserSegmentUpload};
+use crate::graphics::game_text_residual::exercise_host_game_text_residual;
+use crate::graphics::laser_segment_upload::{
+    pack_and_mark_upload_ready, LaserSegmentUpload,
+};
 use crate::graphics::world_anim_layout::{
     pack_world_anim_and_mark_ready, WorldAnimLayout,
 };
@@ -73,14 +80,22 @@ pub struct ShellSmokeResult {
     pub minimap_fow_presentation_ok: bool,
     /// Laser residual: presentation → CPU SegLine vertex pack (+ synthetic non-empty pack).
     pub laser_segment_upload_ok: bool,
+    /// OrbitalLaser multi-beam soft-edge CPU pack residual (NumBeams width/color lerp).
+    pub multi_beam_soft_edge_ok: bool,
     /// Floating-text residual: presentation freeze + CPU layout pack (+ synthetic).
     pub floating_text_layout_ok: bool,
     /// MoneyPickUp Anim2D residual: presentation freeze honesty (empty or template ok).
     pub world_anim_presentation_ok: bool,
     /// World-anim residual: presentation → CPU Anim2D layout pack (+ synthetic).
     pub world_anim_layout_ok: bool,
+    /// MoneyPickUp Anim2D frame advance residual (LOOP / SCPDollarNNN).
+    pub anim2d_frame_ok: bool,
     /// GameText `GUI:AddCash` caption residual on synthetic floating-text pack.
     pub game_text_caption_ok: bool,
+    /// CSF/STR GameText residual + retail `$%d` printf + DisplayString measure.
+    pub game_text_csf_str_ok: bool,
+    /// DisplayString monospaced measure residual on floating-text pack.
+    pub display_string_measure_ok: bool,
     /// GameLogic/GameClient RandomValue ADC stream residual honesty.
     pub rng_stream_residual_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
@@ -241,6 +256,16 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && synth_pack.honesty.honesty_geometry_ok()
         && synth_pack.honesty.segments_packed >= 20
         && synth_pack.honesty.beams_packed == 2;
+    // OrbitalLaser multi-beam soft-edge CPU residual (NumBeams 12 width/color lerp).
+    let multi_beam_pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 200.0),
+        1.0,
+        1.0,
+    );
+    let multi_beam_soft_edge_ok = multi_beam_pack.honesty.honesty_cpu_pack_ok()
+        && multi_beam_pack.honesty.honesty_geometry_ok()
+        && multi_beam_pack.honesty.honesty_multi_beam_soft_edge_ok();
 
     // InGameUI floating text + MoneyPickUp Anim2D residual (CPU layout; no live GPU).
     // Empty host texts → honest empty pack; synthetic cash exercises geometry.
@@ -264,6 +289,15 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
             .first()
             .map(|e| e.caption == "+$100")
             .unwrap_or(false);
+    let display_string_measure_ok = floating_text_layout_ok
+        && ft_synth.honesty.honesty_display_string_measure_ok()
+        && ft_synth
+            .entries
+            .first()
+            .map(|e| e.measure_width > 0 && e.measure_height == 8)
+            .unwrap_or(false);
+    // CSF/STR GameText residual exercise (retail `$%d` + optional live CSF).
+    let game_text_csf_str_ok = exercise_host_game_text_residual().honesty.honesty_ok();
     let world_anim_presentation_ok = presentation_ok && pres.world_anim_presentation_ok();
     // World-anim CPU layout residual (empty + synthetic MoneyPickUp).
     let wa_empty = pack_world_anim_and_mark_ready(&pres);
@@ -275,6 +309,13 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && wa_synth.honesty.honesty_geometry_ok()
         && wa_synth.honesty.anims_packed == 1
         && wa_synth.honesty.honesty_template_ok();
+    let anim2d_frame_ok = world_anim_layout_ok
+        && wa_synth.honesty.honesty_anim2d_frame_ok()
+        && wa_synth
+            .entries
+            .first()
+            .map(|e| e.frame_image.starts_with("SCPDollar"))
+            .unwrap_or(false);
     // GameLogic / GameClient RandomValue ADC stream residual.
     let rng_stream_residual_ok = exercise_host_rng_residual(0x5A6E_2710).honesty_ok();
 
@@ -416,10 +457,14 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         hud_selection_ok,
         minimap_fow_presentation_ok,
         laser_segment_upload_ok,
+        multi_beam_soft_edge_ok,
         floating_text_layout_ok,
         world_anim_presentation_ok,
         world_anim_layout_ok,
+        anim2d_frame_ok,
         game_text_caption_ok,
+        game_text_csf_str_ok,
+        display_string_measure_ok,
         rng_stream_residual_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
@@ -432,7 +477,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} floating_text={floating_text_layout_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} game_text={game_text_caption_ok} rng={rng_stream_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} floating_text={floating_text_layout_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} anim2d={anim2d_frame_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -472,6 +517,11 @@ mod tests {
             r.detail
         );
         assert!(
+            r.multi_beam_soft_edge_ok,
+            "multi-beam soft-edge residual: {}",
+            r.detail
+        );
+        assert!(
             r.floating_text_layout_ok,
             "floating text CPU layout residual: {}",
             r.detail
@@ -482,8 +532,23 @@ mod tests {
             r.detail
         );
         assert!(
+            r.game_text_csf_str_ok,
+            "CSF/STR GameText residual: {}",
+            r.detail
+        );
+        assert!(
+            r.display_string_measure_ok,
+            "DisplayString measure residual: {}",
+            r.detail
+        );
+        assert!(
             r.world_anim_layout_ok,
             "world anim CPU layout residual: {}",
+            r.detail
+        );
+        assert!(
+            r.anim2d_frame_ok,
+            "Anim2D frame advance residual: {}",
             r.detail
         );
         assert!(

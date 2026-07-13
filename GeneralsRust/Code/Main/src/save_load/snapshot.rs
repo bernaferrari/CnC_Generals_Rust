@@ -2897,6 +2897,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_applications)?;
         xfer.xfer_marker_label("HowitzerShellOnlyMovingDownApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_only_moving_down_applications)?;
+        // SpectreHowitzerShell W3D ModelDraw residual (appended).
+        xfer.xfer_marker_label("HowitzerShellModelDrawApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_model_draw_applications)?;
+        xfer.xfer_marker_label("HowitzerShellScaleApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_scale_applications)?;
+        xfer.xfer_marker_label("HowitzerShellShadowApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_shadow_applications)?;
+        xfer.xfer_marker_label("HowitzerShellGeometryApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_geometry_applications)?;
+        xfer.xfer_marker_label("HowitzerShellMaxHealthApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_max_health_applications)?;
         Ok(())
     }
 }
@@ -3055,6 +3066,26 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_f32(&mut self.peak_abs_scroll_uv)?;
         xfer.xfer_marker_label("ScrollUvSamples")?;
         xfer.xfer_u32(&mut self.scroll_uv_samples)?;
+        // Multi-beam soft-edge residual (appended).
+        xfer.xfer_marker_label("SoftEdgeSamples")?;
+        xfer.xfer_u32(&mut self.soft_edge_samples)?;
+        xfer.xfer_marker_label("PeakSoftEdgeOuterWidth")?;
+        xfer.xfer_f32(&mut self.peak_soft_edge_outer_width)?;
+        xfer.xfer_marker_label("LastSoftEdgeOuterWidth")?;
+        xfer.xfer_f32(&mut self.last_soft_edge_outer_width)?;
+        xfer.xfer_marker_label("LastSoftEdgeOuterAlpha")?;
+        xfer.xfer_f32(&mut self.last_soft_edge_outer_alpha)?;
+        xfer.xfer_marker_label("LastSoftEdgeTileFactor")?;
+        xfer.xfer_f32(&mut self.last_soft_edge_tile_factor)?;
+        xfer.xfer_marker_label("SoftEdgeColorArmed")?;
+        xfer.xfer_u32(&mut self.soft_edge_color_armed)?;
+        // Outer-node bone layout residual (appended).
+        xfer.xfer_marker_label("OuterNodeBoneLayoutApplications")?;
+        xfer.xfer_u32(&mut self.outer_node_bone_layout_applications)?;
+        xfer.xfer_marker_label("LastOuterNodeBonePosition")?;
+        self.last_outer_node_bone_position.xfer(xfer)?;
+        xfer.xfer_marker_label("ConnectorBoneLayoutApplications")?;
+        xfer.xfer_u32(&mut self.connector_bone_layout_applications)?;
         Ok(())
     }
 }
@@ -3113,6 +3144,13 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_preferred_height_spring_applications: 0,
                 scud_loft_phase_peak: crate::game_logic::special_power_strikes::ScudMissileLoftPhase::Loft,
                 scud_last_spring_height: 0.0,
+                scud_ballistic_flight_applications: 0,
+                scud_only_moving_down_applications: 0,
+                scud_snap_to_ground_applications: 0,
+                scud_model_draw_applications: 0,
+                scud_last_flight_distance: 0.0,
+                scud_peak_flight_distance: 0.0,
+                scud_last_flight_height: 0.0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3213,6 +3251,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_death_detonated_applications: 0,
                 howitzer_shell_death_lasered_applications: 0,
                 howitzer_shell_only_moving_down_applications: 0,
+                howitzer_shell_model_draw_applications: 0,
+                howitzer_shell_scale_applications: 0,
+                howitzer_shell_shadow_applications: 0,
+                howitzer_shell_geometry_applications: 0,
+                howitzer_shell_max_health_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3289,6 +3332,15 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 last_scroll_uv: 0.0,
                 peak_abs_scroll_uv: 0.0,
                 scroll_uv_samples: 0,
+                soft_edge_samples: 0,
+                peak_soft_edge_outer_width: 0.0,
+                last_soft_edge_outer_width: 0.0,
+                last_soft_edge_outer_alpha: 0.0,
+                last_soft_edge_tile_factor: 0.0,
+                soft_edge_color_armed: 0,
+                outer_node_bone_layout_applications: 0,
+                last_outer_node_bone_position: Vec3::ZERO,
+                connector_bone_layout_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
