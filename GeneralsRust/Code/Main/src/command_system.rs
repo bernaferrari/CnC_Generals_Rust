@@ -181,6 +181,14 @@ pub enum CommandType {
     PlantTimedDemoCharge {
         target_id: ObjectId,
     },
+    /// Colonel Burton residual: plant remote demo charge on structure/vehicle
+    /// (SPECIAL_REMOTE_CHARGES — no auto-timer until DetonateRemoteDemoCharges).
+    PlantRemoteDemoCharge {
+        target_id: ObjectId,
+    },
+    /// Colonel Burton residual: detonate all remote demo charges planted by
+    /// the selected unit(s) (SPECIAL_REMOTE_CHARGES no-target path).
+    DetonateRemoteDemoCharges,
     /// Black Lotus residual: steal cash from enemy supply/cash building.
     StealCashHack {
         target_id: ObjectId,

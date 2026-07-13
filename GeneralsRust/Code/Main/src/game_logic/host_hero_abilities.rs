@@ -5,6 +5,9 @@
 //!   unmanned + Neutral (no HP damage), so infantry can later recrew/capture.
 //! - Colonel Burton `PlantTimedDemoCharge`: walk to structure/vehicle → plant
 //!   sticky timed charge (reuses host_mines TimedDemoCharge residual).
+//! - Colonel Burton `PlantRemoteDemoCharge` + `DetonateRemoteDemoCharges`:
+//!   plant sticky remote charge (no auto-timer) then remote-detonate all charges
+//!   planted by that producer (SPECIAL_REMOTE_CHARGES residual).
 //! - Black Lotus `StealCashHack`: walk to enemy supply/cash building → steal
 //!   a fixed residual cash amount into the hero's player resources.
 //! - Black Lotus `DisableVehicleHack`: walk to enemy ground vehicle → apply
@@ -13,7 +16,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate preparation timers / packing / flee-after-plant
-//! - Not full StickyBombUpdate attach bones / geometry splash / remote-detonate UI
+//! - Not full StickyBombUpdate attach bones / geometry splash / max-charge list UI
 //! - Not full CashHackSpecialPower science upgrade money matrix
 //! - Not combat-bike rider-eject / academy sniped-vehicle stats
 //! - Not full laser attach / disable FX particle interleave / VoiceDisableVehicleComplete
@@ -53,6 +56,10 @@ pub struct HostHeroAbilityRegistry {
     pub snipe_kills: u32,
     /// Burton timed demo charge planted via special ability.
     pub timed_charges_planted: u32,
+    /// Burton remote demo charge planted via special ability.
+    pub remote_charges_planted: u32,
+    /// Remote demo charge detonations resolved (count of charges blown).
+    pub remote_charges_detonated: u32,
     /// Black Lotus cash-hack steals completed.
     pub cash_steals: u32,
     /// Total cash transferred via residual cash-hack.
@@ -78,6 +85,14 @@ impl HostHeroAbilityRegistry {
         self.timed_charges_planted = self.timed_charges_planted.saturating_add(1);
     }
 
+    pub fn record_remote_charge_plant(&mut self) {
+        self.remote_charges_planted = self.remote_charges_planted.saturating_add(1);
+    }
+
+    pub fn record_remote_charge_detonate(&mut self, count: u32) {
+        self.remote_charges_detonated = self.remote_charges_detonated.saturating_add(count);
+    }
+
     pub fn record_cash_steal(&mut self, amount: u32) {
         self.cash_steals = self.cash_steals.saturating_add(1);
         self.cash_stolen_total = self.cash_stolen_total.saturating_add(amount);
@@ -97,6 +112,16 @@ impl HostHeroAbilityRegistry {
         self.timed_charges_planted > 0
     }
 
+    /// Residual honesty: at least one remote charge planted by hero ability.
+    pub fn honesty_remote_charge_plant_ok(&self) -> bool {
+        self.remote_charges_planted > 0
+    }
+
+    /// Residual honesty: plant → remote detonate path exercised.
+    pub fn honesty_remote_charge_detonate_ok(&self) -> bool {
+        self.remote_charges_planted > 0 && self.remote_charges_detonated > 0
+    }
+
     /// Residual honesty: at least one cash steal completed.
     pub fn honesty_cash_steal_ok(&self) -> bool {
         self.cash_steals > 0 && self.cash_stolen_total > 0
@@ -111,6 +136,8 @@ impl HostHeroAbilityRegistry {
     pub fn honesty_any_ok(&self) -> bool {
         self.honesty_snipe_ok()
             || self.honesty_timed_charge_plant_ok()
+            || self.honesty_remote_charge_plant_ok()
+            || self.honesty_remote_charge_detonate_ok()
             || self.honesty_cash_steal_ok()
             || self.honesty_vehicle_disable_ok()
     }
@@ -159,6 +186,10 @@ mod tests {
         assert_eq!(reg.cash_stolen_total, 500);
         reg.record_timed_charge_plant();
         assert!(reg.honesty_timed_charge_plant_ok());
+        reg.record_remote_charge_plant();
+        reg.record_remote_charge_detonate(2);
+        assert!(reg.honesty_remote_charge_detonate_ok());
+        assert_eq!(reg.remote_charges_detonated, 2);
         reg.record_vehicle_disable();
         assert!(reg.honesty_vehicle_disable_ok());
         assert_eq!(DISABLE_VEHICLE_HACK_DURATION_FRAMES, 900);
