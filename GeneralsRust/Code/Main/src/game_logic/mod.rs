@@ -445,10 +445,14 @@ pub use host_unit_training::{
     SCIENCE_TECHNICAL_TRAINING,
 };
 pub use host_demo_suicide_bomb::{
-    demo_destroyed_damage_at, has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
-    is_demo_suicide_bomb_upgrade, HostDemoSuicideBombRegistry, DEMO_DESTROYED_PRIMARY_DAMAGE,
-    DEMO_DESTROYED_PRIMARY_RADIUS, DEMO_DESTROYED_SECONDARY_DAMAGE, DEMO_DESTROYED_SECONDARY_RADIUS,
-    DEMO_DESTROYED_WEAPON, UPGRADE_DEMO_SUICIDE_BOMB,
+    can_issue_demo_tertiary_suicide, command_set_enables_tertiary_suicide,
+    demo_command_set_upgrade_for_template, demo_destroyed_damage_at, demo_plus_fire_damage_at,
+    has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
+    is_demo_suicide_bomb_upgrade, plan_demo_plus_fire_hits, HostDemoSuicideBombRegistry,
+    DEMO_COMMAND_TERTIARY_SUICIDE, DEMO_DESTROYED_PRIMARY_DAMAGE, DEMO_DESTROYED_PRIMARY_RADIUS,
+    DEMO_DESTROYED_SECONDARY_DAMAGE, DEMO_DESTROYED_SECONDARY_RADIUS, DEMO_DESTROYED_WEAPON,
+    DEMO_PLUS_FIRE_PRIMARY_DAMAGE, DEMO_PLUS_FIRE_PRIMARY_RADIUS, DEMO_PLUS_FIRE_SECONDARY_DAMAGE,
+    DEMO_PLUS_FIRE_SECONDARY_RADIUS, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE, UPGRADE_DEMO_SUICIDE_BOMB,
 };
 pub use host_troop_crawler::{
     is_troop_crawler_template, resolve_payload_template_name,
