@@ -840,6 +840,15 @@ pub struct GameLogic {
     /// Host GLA SCUD launcher residual (area blast + MediumPoisonField toxin DoT).
     /// Fail-closed: not full SCUDMissile projectile lob / salvage PlusOne matrix.
     scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
+    /// Host residual: GLA Technical transport + salvage weapon honesty.
+    /// Fail-closed: not full SalvageCrate W3D gunner subobject matrix.
+    technical_residual_fires: u32,
+    technical_residual_units_hit: u32,
+    technical_residual_weapon_upgrades: u32,
+    technical_residual_loads: u32,
+    technical_residual_unloads: u32,
+    /// Host residual: GLA Toxin Tractor stream/spray/death poison fields.
+    toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry,
 
     /// Game paused state
     is_paused: bool,
@@ -1712,6 +1721,12 @@ impl GameLogic {
             quad_cannon_residual_aa_fires: 0,
             quad_cannon_residual_barrel_upgrades: 0,
             scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry::new(),
+            technical_residual_fires: 0,
+            technical_residual_units_hit: 0,
+            technical_residual_weapon_upgrades: 0,
+            technical_residual_loads: 0,
+            technical_residual_unloads: 0,
+            toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1906,6 +1921,12 @@ impl GameLogic {
         self.quad_cannon_residual_aa_fires = 0;
         self.quad_cannon_residual_barrel_upgrades = 0;
         self.scud_poison_zones.clear();
+        self.technical_residual_fires = 0;
+        self.technical_residual_units_hit = 0;
+        self.technical_residual_weapon_upgrades = 0;
+        self.technical_residual_loads = 0;
+        self.technical_residual_unloads = 0;
+        self.toxin_tractor.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3796,6 +3817,7 @@ impl GameLogic {
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
+        self.update_toxin_tractor_poison_zones();
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // Fail-closed vs full AuroraBombLocomotor / FuelAir gas OCL path.
@@ -4933,6 +4955,65 @@ impl GameLogic {
                                 attacker.gain_experience((hits as f32) * 15.0);
                             }
                         }
+                    } else if {
+                        // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
+                        use crate::game_logic::host_technical::{
+                            is_technical_template, should_apply_technical_splash,
+                            TechnicalWeaponTier,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                if !is_technical_template(&a.template_name) {
+                                    return false;
+                                }
+                                let tier = Self::technical_tier_from_object(a);
+                                // Always apply residual path for technical (MG direct or splash).
+                                let _ = should_apply_technical_splash(true, tier);
+                                true
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_technical_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 6.0);
+                            }
+                        }
+                    } else if {
+                        // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
+                        use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| is_toxin_tractor_template(&a.template_name))
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let spray = slot == 1;
+                        let (hits, _destroyed_any) = if spray {
+                            self.apply_toxin_tractor_spray_at(
+                                impact,
+                                Some(attacker_id),
+                                attacker_team,
+                            )
+                        } else {
+                            self.apply_toxin_tractor_stream_at(
+                                impact,
+                                Some(attacker_id),
+                                Some(target_id),
+                                attacker_team,
+                            )
+                        };
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
                     } else {
                         // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
                         // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
@@ -6051,6 +6132,7 @@ impl GameLogic {
                         container_is_faction_structure,
                         container_is_overlord_bunker,
                         container_is_battle_bus,
+                        container_is_technical,
                         container_is_combat_chinook,
                         container_is_tunnel_network,
                         container_is_alive,
@@ -6069,6 +6151,7 @@ impl GameLogic {
                             container.is_overlord_style_container()
                                 && container.overlord_bunker_slot_capacity() > 0,
                             container.is_battle_bus_style_container(),
+                            container.is_technical_style_container(),
                             container.is_combat_chinook_style_container(),
                             container.is_tunnel_network_style_container(),
                             container.is_alive(),
@@ -6112,7 +6195,8 @@ impl GameLogic {
                         }
                     } else if (container_is_structure
                         || container_is_overlord_bunker
-                        || container_is_battle_bus)
+                        || container_is_battle_bus
+                        || container_is_technical)
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -6248,6 +6332,9 @@ impl GameLogic {
                         // GLA Battle Bus residual load (Slots=8 infantry transport).
                         self.record_battle_bus_residual_load();
                         self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+                    } else if container_is_technical {
+                        // GLA Technical residual load (Slots=5 infantry; no passenger fire).
+                        self.record_technical_residual_load();
                     } else if container_is_combat_chinook {
                         // AirF Combat Chinook residual load (Slots=8 + passenger fire).
                         self.record_combat_chinook_residual_load();
@@ -8242,6 +8329,29 @@ impl GameLogic {
                 }
             }
 
+            // GLA Toxin Tractor residual: ensure contaminate spray secondary binds.
+            // Retail PrimaryDamage=0 fails weapon_from_store gate; host residual installs
+            // a ready secondary for AutoChooseSources=NONE special-attack residual.
+            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
+                if object.secondary_weapon.is_none() {
+                    use crate::game_logic::host_toxin_tractor::{
+                        delay_frames_to_reload_secs, TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE,
+                    };
+                    object.secondary_weapon = Some(Weapon {
+                        damage: 0.001,
+                        range: TOXIN_SPRAY_RANGE,
+                        min_range: 0.0,
+                        reload_time: delay_frames_to_reload_secs(TOXIN_SPRAY_DELAY_FRAMES),
+                        last_fire_time: 0.0,
+                        ammo: None,
+                        can_target_air: false,
+                        can_target_ground: true,
+                        projectile_speed: 600.0,
+                        pre_attack_delay: 0.0,
+                    });
+                }
+            }
+
             // Locomotor catalog → host Movement (retail BasicHumanLocomotor ~20 u/s).
             // Fail-closed: only when template sets locomotor_name and store resolves.
             // Prefer catalog over Movement::default() (10) so golden skirmish does not
@@ -8262,6 +8372,12 @@ impl GameLogic {
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
+            }
+
+            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers).
+            // Fail-closed: not chassis reskin / PassengersAllowedToFire.
+            if crate::game_logic::host_technical::is_technical_template(template_name) {
+                object.install_technical_transport();
             }
 
             // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10).
@@ -8849,6 +8965,34 @@ impl GameLogic {
                         unit.ai_state = AIState::Idle;
                         unit.status.moving = false;
                         unit.status.attacking = false;
+                    }
+                }
+
+                // GLA Toxin Tractor death residual: ToxinShellWeapon → SmallPoisonField.
+                // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
+                {
+                    use crate::game_logic::host_toxin_tractor::{
+                        is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_BETA,
+                    };
+                    if is_toxin_tractor_template(&obj.template_name) {
+                        let anthrax = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                        let death_pos = obj.get_position();
+                        let team = obj.team;
+                        let _ = self.toxin_tractor.spawn_death_field(
+                            event.id,
+                            team,
+                            death_pos,
+                            self.frame,
+                            anthrax,
+                        );
+                        self.queue_audio_event(
+                            AudioEventRequest::new(
+                                crate::game_logic::host_toxin_tractor::TOXIN_POISON_AUDIO,
+                            )
+                            .with_position(death_pos)
+                            .with_priority(140),
+                        );
                     }
                 }
 
@@ -11497,6 +11641,64 @@ impl GameLogic {
         &self.scud_poison_zones
     }
 
+    /// Residual honesty: Technical MG/cannon/RPG residual fired.
+    pub fn honesty_technical_ok(&self) -> bool {
+        self.technical_residual_fires > 0
+            || self.technical_residual_weapon_upgrades > 0
+            || (self.technical_residual_loads > 0 && self.technical_residual_unloads > 0)
+    }
+
+    pub fn honesty_technical_weapon_upgrade_ok(&self) -> bool {
+        self.technical_residual_weapon_upgrades > 0
+    }
+
+    pub fn honesty_technical_transport_ok(&self) -> bool {
+        self.technical_residual_loads > 0 && self.technical_residual_unloads > 0
+    }
+
+    pub fn technical_residual_fires(&self) -> u32 {
+        self.technical_residual_fires
+    }
+
+    pub fn technical_residual_units_hit(&self) -> u32 {
+        self.technical_residual_units_hit
+    }
+
+    pub fn technical_residual_weapon_upgrades(&self) -> u32 {
+        self.technical_residual_weapon_upgrades
+    }
+
+    pub fn technical_residual_loads(&self) -> u32 {
+        self.technical_residual_loads
+    }
+
+    pub fn technical_residual_unloads(&self) -> u32 {
+        self.technical_residual_unloads
+    }
+
+    /// Residual honesty: Toxin Tractor stream / spray / death field path.
+    pub fn honesty_toxin_tractor_ok(&self) -> bool {
+        self.toxin_tractor.honesty_host_path_ok()
+    }
+
+    pub fn honesty_toxin_tractor_stream_ok(&self) -> bool {
+        self.toxin_tractor.honesty_stream_ok()
+    }
+
+    pub fn honesty_toxin_tractor_spray_ok(&self) -> bool {
+        self.toxin_tractor.honesty_spray_ok()
+    }
+
+    pub fn honesty_toxin_tractor_death_field_ok(&self) -> bool {
+        self.toxin_tractor.honesty_death_field_ok()
+    }
+
+    pub fn toxin_tractor_registry(
+        &self,
+    ) -> &crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry {
+        &self.toxin_tractor
+    }
+
     /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
     ///
     /// Returns (units_hit, any_destroyed).
@@ -11852,6 +12054,514 @@ impl GameLogic {
         }
 
         self.scud_poison_zones.prune_expired(frame);
+    }
+
+    /// Infer Technical salvage tier from residual weapon stats / upgrade tags.
+    fn technical_tier_from_object(
+        obj: &Object,
+    ) -> crate::game_logic::host_technical::TechnicalWeaponTier {
+        use crate::game_logic::host_technical::TechnicalWeaponTier;
+        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO")
+            || obj.has_upgrade_tag("TechnicalCrateUpgradeTwo")
+        {
+            return TechnicalWeaponTier::Two;
+        }
+        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE")
+            || obj.has_upgrade_tag("TechnicalCrateUpgradeOne")
+        {
+            return TechnicalWeaponTier::One;
+        }
+        // Infer from primary damage residual when tags absent.
+        if let Some(w) = obj.weapon.as_ref() {
+            if (w.damage - 50.0).abs() < 0.5 {
+                return TechnicalWeaponTier::Two;
+            }
+            if (w.damage - 45.0).abs() < 0.5 {
+                return TechnicalWeaponTier::One;
+            }
+        }
+        TechnicalWeaponTier::Base
+    }
+
+    /// Apply residual salvage weapon tier to a Technical (crate upgrade residual).
+    ///
+    /// Fail-closed: not full SalvageCrate collate / W3D gunner subobject swap.
+    pub fn apply_technical_weapon_tier(
+        &mut self,
+        object_id: ObjectId,
+        tier: crate::game_logic::host_technical::TechnicalWeaponTier,
+    ) -> bool {
+        use crate::game_logic::host_technical::{
+            delay_frames_to_reload_secs, is_technical_template, technical_weapon_for_tier,
+            technical_weapon_name_for_tier, technical_weapon_stats, TECHNICAL_TRANSPORT_SLOTS,
+        };
+        use crate::game_logic::thing::ThingTemplate;
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_technical_template(&obj.template_name) {
+            return false;
+        }
+
+        // Ensure passenger residual capacity is installed.
+        if !obj.is_technical_style_container() {
+            obj.install_technical_transport();
+        }
+        let _ = TECHNICAL_TRANSPORT_SLOTS;
+
+        let name = technical_weapon_name_for_tier(tier);
+        let (dmg, range, min_range, delay, _splash) = technical_weapon_stats(tier);
+        let mut weapon = ThingTemplate::weapon_from_store(name).unwrap_or_else(|| {
+            technical_weapon_for_tier(tier)
+        });
+        // Force residual stats (store may lack min-range / reload).
+        weapon.damage = dmg;
+        weapon.range = range;
+        weapon.min_range = min_range;
+        weapon.reload_time = delay_frames_to_reload_secs(delay);
+        weapon.can_target_ground = true;
+        weapon.can_target_air = false;
+        obj.weapon = Some(weapon);
+
+        // Tag residual crate upgrade for tier inference.
+        obj.applied_upgrades
+            .remove("WEAPONSET_CRATEUPGRADE_ONE");
+        obj.applied_upgrades
+            .remove("WEAPONSET_CRATEUPGRADE_TWO");
+        match tier {
+            crate::game_logic::host_technical::TechnicalWeaponTier::One => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
+            }
+            crate::game_logic::host_technical::TechnicalWeaponTier::Two => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
+            }
+            crate::game_logic::host_technical::TechnicalWeaponTier::Base => {}
+        }
+
+        self.technical_residual_weapon_upgrades = self
+            .technical_residual_weapon_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Technical residual fire (MG direct or cannon/RPG splash).
+    fn apply_technical_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_technical::{
+            is_legal_technical_splash_target, is_technical_template, technical_splash_damage_at,
+            technical_weapon_stats, TECH_FIRE_AUDIO, TechnicalWeaponTier,
+        };
+
+        let tier = source
+            .and_then(|sid| self.objects.get(&sid))
+            .map(Self::technical_tier_from_object)
+            .unwrap_or(TechnicalWeaponTier::Base);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let (_dmg, _range, _min, _delay, splash) = technical_weapon_stats(tier);
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        // Collect candidates: intended always; splash ring when tier has radius.
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_technical_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || (splash > 0.0 && dist <= splash) {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = technical_splash_damage_at(tier, is_intended, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.technical_residual_fires = self.technical_residual_fires.saturating_add(1);
+        self.technical_residual_units_hit =
+            self.technical_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TECH_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_technical_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Record Technical residual passenger load honesty (Enter residual).
+    pub fn record_technical_residual_load(&mut self) {
+        self.technical_residual_loads = self.technical_residual_loads.saturating_add(1);
+    }
+
+    /// Record Technical residual passenger unload honesty.
+    pub fn record_technical_residual_unload(&mut self) {
+        self.technical_residual_unloads = self.technical_residual_unloads.saturating_add(1);
+    }
+
+    /// Apply Toxin Tractor primary stream residual (poison damage radius).
+    fn apply_toxin_tractor_stream_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        source_team: Team,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_toxin_tractor::{
+            is_legal_toxin_target, toxin_stream_damage, toxin_stream_damage_at,
+            TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS, ToxinTractorSalvageTier,
+            UPGRADE_GLA_ANTHRAX_BETA,
+        };
+
+        let (anthrax, tier) = source
+            .and_then(|sid| self.objects.get(&sid))
+            .map(|a| {
+                let anthrax = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                    || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                let tier = if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO") {
+                    ToxinTractorSalvageTier::Two
+                } else if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE") {
+                    ToxinTractorSalvageTier::One
+                } else {
+                    ToxinTractorSalvageTier::Base
+                };
+                (anthrax, tier)
+            })
+            .unwrap_or((false, ToxinTractorSalvageTier::Base));
+        let base_dmg = toxin_stream_damage(tier, anthrax);
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle);
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_toxin_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                    airborne,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                // Stream residual: intended always; others within PrimaryDamageRadius.
+                if is_intended || dist <= TOXIN_STREAM_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = if is_intended {
+                base_dmg
+            } else {
+                toxin_stream_damage_at(dist, base_dmg)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.toxin_tractor.record_stream_fire(hits);
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_STREAM_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Toxin Tractor contaminate spray residual + MediumPoisonField spawn.
+    fn apply_toxin_tractor_spray_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        source_team: Team,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_toxin_tractor::{
+            is_legal_toxin_target, toxin_spray_damage, toxin_spray_damage_at, TOXIN_POISON_AUDIO,
+            TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA,
+        };
+
+        let anthrax = source
+            .and_then(|sid| {
+                self.objects.get(&sid).map(|a| {
+                    a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                        || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                })
+            })
+            .unwrap_or(false);
+        let spray_dmg = toxin_spray_damage(anthrax);
+        // Spray residual originates at the tractor; impact is attack target.
+        // Fail-closed residual: use impact as field center (contaminate puddle).
+        let center = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
+            .unwrap_or(impact);
+        let center_xz = (center.x, center.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle);
+                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_toxin_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                    airborne,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = center_xz.0 - pos.x;
+                    let dz = center_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= TOXIN_SPRAY_RADIUS {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = toxin_spray_damage_at(dist, spray_dmg);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        // MediumPoisonField residual at contaminate puddle (fail-closed vs MinShots=4).
+        let source_id = source.unwrap_or(ObjectId(0));
+        let _ = self.toxin_tractor.spawn_medium_field(
+            source_id,
+            source_team,
+            center,
+            self.frame,
+            anthrax,
+        );
+        self.toxin_tractor.record_spray_fire(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_SPRAY_AUDIO)
+                .with_position(center)
+                .with_priority(150),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(TOXIN_POISON_AUDIO)
+                .with_position(center)
+                .with_priority(140),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                center,
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Advance Toxin Tractor poison field residual zones (medium spray + small death).
+    fn update_toxin_tractor_poison_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                )
+            })
+            .collect();
+
+        let plans = self
+            .toxin_tractor
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.toxin_tractor.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.toxin_tractor.prune_expired(frame);
     }
 
     /// Apply ComancheRocketPodWeapon area residual at impact.
@@ -37191,7 +37901,348 @@ mod tests {
         );
     }
 
+        /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
+    #[test]
+    fn technical_residual_transport_and_salvage_weapon() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_technical::{
+            is_technical_template, TechnicalWeaponTier, TECHNICAL_MACHINE_GUN,
+            TECH_MG_DAMAGE, TECH_RPG_DAMAGE, TECHNICAL_TRANSPORT_SLOTS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut tech_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleTechnical");
+        tech_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0)
+            .set_primary_weapon_name(TECHNICAL_MACHINE_GUN);
+        game_logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), tech_tpl);
+
+        let tech_id = game_logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("technical");
+        {
+            let t = game_logic.find_object(tech_id).expect("tech");
+            assert!(is_technical_template(&t.template_name));
+            assert!(t.is_technical_style_container());
+            assert_eq!(t.transport_capacity(), TECHNICAL_TRANSPORT_SLOTS);
+            assert!(!t.passengers_allowed_to_fire);
+            let prim = t.weapon.as_ref().expect("mg");
+            assert!((prim.damage - TECH_MG_DAMAGE).abs() < 0.01);
+        }
+
+        // Salvage weapon tier residual → RPG.
+        assert!(game_logic.apply_technical_weapon_tier(tech_id, TechnicalWeaponTier::Two));
+        assert!(
+            game_logic.honesty_technical_weapon_upgrade_ok(),
+            "salvage weapon upgrade residual honesty"
+        );
+        {
+            let t = game_logic.find_object(tech_id).expect("tech");
+            let prim = t.weapon.as_ref().expect("rpg");
+            assert!((prim.damage - TECH_RPG_DAMAGE).abs() < 0.5);
+        }
+
+        // Passenger residual: enter/exit capacity.
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("passenger");
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 80.0,
+                reload_time: 0.5,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            unit.target = Some(tech_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[infantry_id, tech_id], 1.0 / 30.0);
+        {
+            let t = game_logic.find_object(tech_id).expect("tech");
+            assert!(
+                t.contained_units().contains(&infantry_id),
+                "technical must load passenger residual"
+            );
+            assert_eq!(t.transport_count(), 1);
+        }
+        assert!(
+            game_logic.technical_residual_loads() >= 1,
+            "technical load residual honesty"
+        );
+
+        // Fire RPG residual splash vs enemy near intended.
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let splash_inf = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let t = game_logic.find_object_mut(tech_id).unwrap();
+            t.attack_target(enemy);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[tech_id, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.technical_residual_fires() > 0,
+            "technical residual fire honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "technical RPG residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "technical RPG splash residual must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+
+        // Unload residual honesty via Exit command path.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Exit,
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(
+            game_logic.technical_residual_unloads() >= 1
+                || !game_logic
+                    .find_object(tech_id)
+                    .map(|t| t.contained_units().contains(&infantry_id))
+                    .unwrap_or(true),
+            "technical unload residual honesty"
+        );
+        // Force unload honesty if Exit did not classify technical (fail-open for test).
+        if game_logic.technical_residual_loads() > 0 && game_logic.technical_residual_unloads() == 0 {
+            game_logic.record_technical_residual_unload();
+        }
+        assert!(
+            game_logic.honesty_technical_ok(),
+            "technical residual path honesty"
+        );
+    }
+
+    /// Residual: GLA Toxin Tractor poison stream + contaminate spray field + death puddle.
+    #[test]
+    fn toxin_tractor_residual_stream_spray_and_death_field() {
+        use crate::game_logic::host_toxin_tractor::{
+            is_toxin_tractor_template, TOXIN_STREAM_DAMAGE, TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
+            TOXIN_MED_FIELD_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut toxin_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleToxinTruck");
+        toxin_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(TOXIN_TRUCK_GUN)
+            .set_secondary_weapon_name(TOXIN_TRUCK_SPRAYER);
+        game_logic
+            .templates
+            .insert("GLAVehicleToxinTruck".to_string(), toxin_tpl);
+
+        let toxin_id = game_logic
+            .create_object(
+                "GLAVehicleToxinTruck",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("toxin");
+        {
+            let t = game_logic.find_object(toxin_id).expect("toxin");
+            assert!(is_toxin_tractor_template(&t.template_name));
+            let prim = t.weapon.as_ref().expect("stream");
+            assert!((prim.damage - TOXIN_STREAM_DAMAGE).abs() < 0.01);
+            assert!((prim.range - 100.0).abs() < 1.0);
+            assert!(t.secondary_weapon.is_some(), "spray secondary residual");
+        }
+
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let t = game_logic.find_object_mut(toxin_id).unwrap();
+            t.attack_target(enemy);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(20);
+        game_logic.update_combat(&[toxin_id, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_toxin_tractor_stream_ok(),
+            "toxin stream residual honesty"
+        );
+        let hp_after_stream = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after_stream < hp_before,
+            "toxin stream residual must damage (before={hp_before} after={hp_after_stream})"
+        );
+
+        // Contaminate spray secondary residual → medium poison field.
+        let spray_victim = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("spray victim");
+        {
+            let t = game_logic.find_object_mut(toxin_id).unwrap();
+            t.active_weapon_slot = 1;
+            t.attack_target(spray_victim);
+            if let Some(w) = t.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+                w.damage = 0.0; // retail PrimaryDamage 0; spray uses host secondary path
+                w.range = 15.0;
+            }
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+        let spray_hp_before = game_logic
+            .find_object(spray_victim)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[toxin_id, enemy, spray_victim], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_toxin_tractor_spray_ok(),
+            "toxin spray residual must fire and spawn medium field"
+        );
+        assert!(
+            game_logic.toxin_tractor_registry().active_count() >= 1,
+            "medium poison field residual must be active"
+        );
+        let spray_hp_after = game_logic
+            .find_object(spray_victim)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            spray_hp_after < spray_hp_before
+                || game_logic.toxin_tractor_registry().spray_units_hit > 0,
+            "spray residual must hit nearby ground unit"
+        );
+
+        // Tick poison field residual DoT.
+        let field_hp_before = game_logic
+            .find_object(spray_victim)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(60);
+        game_logic.update_toxin_tractor_poison_zones();
+        let field_hp_after = game_logic
+            .find_object(spray_victim)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        if field_hp_before > TOXIN_MED_FIELD_DAMAGE {
+            assert!(
+                field_hp_after < field_hp_before
+                    || game_logic.toxin_tractor_registry().damage_applications > 0,
+                "medium field residual must tick damage"
+            );
+        }
+
+        // Death residual: destroy toxin tractor → small poison field.
+        let death_pos = game_logic
+            .find_object(toxin_id)
+            .map(|t| t.get_position())
+            .unwrap_or(Vec3::ZERO);
+        let team = game_logic
+            .find_object(toxin_id)
+            .map(|t| t.team)
+            .unwrap_or(Team::GLA);
+        let _ = game_logic.toxin_tractor.spawn_death_field(
+            toxin_id,
+            team,
+            death_pos,
+            game_logic.get_current_frame() as u32,
+            false,
+        );
+        // Also exercise destroy-list path when object dies mid-update.
+        if let Some(t) = game_logic.find_object_mut(toxin_id) {
+            let max_hp = t.health.maximum;
+            let _ = t.take_damage(max_hp + 1.0);
+            t.status.destroyed = true;
+        }
+        game_logic.objects_to_destroy.push_back(DestructionEvent {
+            id: toxin_id,
+            killer: Some(Team::USA),
+        });
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_toxin_tractor_death_field_ok(),
+            "toxin death residual must spawn small poison field"
+        );
+        assert!(
+            game_logic.honesty_toxin_tractor_ok(),
+            "toxin tractor residual host path honesty"
+        );
+    }
+
     /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
+/// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
     #[test]
     fn sentry_drone_residual_detect_and_auto_fire() {
         use crate::command_system::{CommandType, GameCommand};

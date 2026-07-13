@@ -58,6 +58,8 @@ pub mod host_angry_mob;
 pub mod host_rocket_buggy;
 pub mod host_quad_cannon;
 pub mod host_scud_launcher;
+pub mod host_technical;
+pub mod host_toxin_tractor;
 pub mod terrain;
 pub mod thing;
 pub mod units;
