@@ -13,6 +13,14 @@
 //!   cargo-plane residual flight; after approach delay, spawn crate payloads at
 //!   the zone and credit BuildingPickup residual cash (not full aircraft flight).
 //!
+//! Wave 64 residual pack (retail FactionBuilding.ini / ObjectCreationList.ini):
+//! - Body: MaxHealth **1000**, BuildCost **2500**, BuildTime **45**s → **1350**f,
+//!   EnergyProduction **-4**, ShroudClearingRange **100**, Geometry BOX **27**/ **27**/ **9**
+//! - OCLUpdate: OCL_AmericaSupplyDropZoneCrateDrop, Min/MaxDelay **120000**ms → **3600**f,
+//!   CreateAtEdge **Yes**
+//! - Drop cash residual: 6 × 250 (+25 SupplyLines) → **1500** / **1650**
+//! - Prerequisites residual: AmericaStrategyCenter; KindOf FS_SUPPLY_DROPZONE
+//!
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate flight path
 //!   (DropDelay stagger + delayed spawn residual closed via host_deliver_payload)
@@ -55,6 +63,35 @@ pub const SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES: u32 = SUPPLY_DROP_ZONE_C
 
 /// Audio residual when supply drop zone credits cash (fail-closed host cue).
 pub const SUPPLY_DROP_ZONE_DROP_AUDIO: &str = "SupplyDropZoneDrop";
+
+/// Retail OCLUpdate OCL name residual.
+pub const SUPPLY_DROP_ZONE_OCL: &str = "OCL_AmericaSupplyDropZoneCrateDrop";
+/// Retail OCLUpdate CreateAtEdge residual.
+pub const SUPPLY_DROP_ZONE_CREATE_AT_EDGE: bool = true;
+/// Retail ActiveBody MaxHealth residual.
+pub const SUPPLY_DROP_ZONE_MAX_HEALTH: f32 = 1000.0;
+/// Retail BuildCost residual.
+pub const SUPPLY_DROP_ZONE_BUILD_COST: u32 = 2500;
+/// Retail BuildTime residual (seconds).
+pub const SUPPLY_DROP_ZONE_BUILD_TIME_SEC: f32 = 45.0;
+/// BuildTime 45s → 1350 frames @ 30 FPS.
+pub const SUPPLY_DROP_ZONE_BUILD_TIME_FRAMES: u32 = 1350;
+/// Retail EnergyProduction residual.
+pub const SUPPLY_DROP_ZONE_ENERGY_PRODUCTION: i32 = -4;
+/// Retail ShroudClearingRange residual.
+pub const SUPPLY_DROP_ZONE_SHROUD_CLEARING_RANGE: f32 = 100.0;
+/// Retail GeometryMajorRadius residual.
+pub const SUPPLY_DROP_ZONE_GEOMETRY_MAJOR_RADIUS: f32 = 27.0;
+/// Retail GeometryMinorRadius residual.
+pub const SUPPLY_DROP_ZONE_GEOMETRY_MINOR_RADIUS: f32 = 27.0;
+/// Retail GeometryHeight residual.
+pub const SUPPLY_DROP_ZONE_GEOMETRY_HEIGHT: f32 = 9.0;
+/// Retail Prerequisites residual.
+pub const SUPPLY_DROP_ZONE_PREREQUISITE: &str = "AmericaStrategyCenter";
+/// Retail KindOf FS_SUPPLY_DROPZONE residual token honesty.
+pub const SUPPLY_DROP_ZONE_KIND_OF_FS_TOKEN: &str = "FS_SUPPLY_DROPZONE";
+/// Retail UpgradeCameo residual for SupplyLines.
+pub const SUPPLY_DROP_ZONE_SUPPLY_LINES_UPGRADE: &str = "Upgrade_AmericaSupplyLines";
 
 /// Convert delay milliseconds to logic frames (30 FPS residual).
 pub fn drop_interval_frames_from_ms(ms: u32) -> u32 {
@@ -245,6 +282,52 @@ impl HostSupplyDropZoneRegistry {
     }
 }
 
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: OCLUpdate schedule residual.
+pub fn honesty_supply_drop_zone_ocl_residual_ok() -> bool {
+    SUPPLY_DROP_ZONE_OCL == "OCL_AmericaSupplyDropZoneCrateDrop"
+        && SUPPLY_DROP_ZONE_CREATE_AT_EDGE
+        && SUPPLY_DROP_ZONE_DELAY_MS == 120_000
+        && SUPPLY_DROP_ZONE_INTERVAL_FRAMES == drop_interval_frames_from_ms(SUPPLY_DROP_ZONE_DELAY_MS)
+        && SUPPLY_DROP_ZONE_CRATE_COUNT == 6
+}
+
+/// Wave 64 residual honesty: drop cash residual.
+pub fn honesty_supply_drop_zone_cash_residual_ok() -> bool {
+    SUPPLY_DROP_ZONE_MONEY_PER_CRATE == 250
+        && SUPPLY_DROP_ZONE_SUPPLY_LINES_BOOST_PER_CRATE == 25
+        && SUPPLY_DROP_ZONE_DROP_CASH == 1500
+        && SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES == 1650
+        && drop_cash_amount(false) == 1500
+        && drop_cash_amount(true) == 1650
+        && SUPPLY_DROP_ZONE_SUPPLY_LINES_UPGRADE == "Upgrade_AmericaSupplyLines"
+}
+
+/// Wave 64 residual honesty: body / build residual.
+pub fn honesty_supply_drop_zone_body_residual_ok() -> bool {
+    (SUPPLY_DROP_ZONE_MAX_HEALTH - 1000.0).abs() < 0.01
+        && SUPPLY_DROP_ZONE_BUILD_COST == 2500
+        && (SUPPLY_DROP_ZONE_BUILD_TIME_SEC - 45.0).abs() < 0.01
+        && SUPPLY_DROP_ZONE_BUILD_TIME_FRAMES
+            == (SUPPLY_DROP_ZONE_BUILD_TIME_SEC * SUPPLY_DROP_ZONE_LOGIC_FPS).round() as u32
+        && SUPPLY_DROP_ZONE_ENERGY_PRODUCTION == -4
+        && (SUPPLY_DROP_ZONE_SHROUD_CLEARING_RANGE - 100.0).abs() < 0.01
+        && (SUPPLY_DROP_ZONE_GEOMETRY_MAJOR_RADIUS - 27.0).abs() < 0.01
+        && (SUPPLY_DROP_ZONE_GEOMETRY_MINOR_RADIUS - 27.0).abs() < 0.01
+        && (SUPPLY_DROP_ZONE_GEOMETRY_HEIGHT - 9.0).abs() < 0.01
+        && SUPPLY_DROP_ZONE_PREREQUISITE == "AmericaStrategyCenter"
+        && SUPPLY_DROP_ZONE_KIND_OF_FS_TOKEN == "FS_SUPPLY_DROPZONE"
+        && is_supply_drop_zone_template("AmericaSupplyDropZone")
+}
+
+/// Combined Wave 64 Supply Drop Zone residual honesty pack.
+pub fn honesty_supply_drop_zone_residual_pack_ok() -> bool {
+    honesty_supply_drop_zone_ocl_residual_ok()
+        && honesty_supply_drop_zone_cash_residual_ok()
+        && honesty_supply_drop_zone_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,5 +419,13 @@ mod tests {
         assert_eq!(reg.drops(), 1);
         assert_eq!(reg.cash_total(), 1500);
         assert!(reg.honesty_ok());
+    }
+
+    #[test]
+    fn supply_drop_zone_residual_pack_honesty() {
+        assert!(honesty_supply_drop_zone_ocl_residual_ok());
+        assert!(honesty_supply_drop_zone_cash_residual_ok());
+        assert!(honesty_supply_drop_zone_body_residual_ok());
+        assert!(honesty_supply_drop_zone_residual_pack_ok());
     }
 }

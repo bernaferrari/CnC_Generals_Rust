@@ -1,3 +1,71 @@
+## Residual Host Playability — Wave 64: tunnel/oil/crate/technical/troop residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Tunnel Network residual pack** (`host_tunnel_network`):
+   - Body residual: MaxHealth **1000**, BuildCost **800**, BuildTime **15**s → **450**f,
+     Vision/Shroud **200**, EnergyProduction **0**, TurretTurnRate **180**.
+   - TunnelContain: TimeForFullHeal **5000**ms → **150**f, MaxTunnelCapacity **10**.
+   - TunnelNetworkGun residual: dmg **15** / range **175** / Delay **250**ms → **8**f /
+     WeaponSpeed **600** / FireSound HumveeWeapon / FireFX WeaponFX_TechnicalGunFire.
+   - StealthDetector residual: DetectionRate **500**ms → **15**f, DetectionRange **150**.
+   - Spawn residual: SpawnNumber **2**, GLAInfantryTunnelDefender OneShot.
+   - CamoNetting residual: Upgrade_GLACamoNetting, StealthDelay **2500**ms → **75**f,
+     Forbidden ATTACKING USING_ABILITY TAKING_DAMAGE; Hole GLAHoleTunnelNetwork **500**hp.
+   - Honesty: `honesty_tunnel_network_residual_pack_ok` + layer honesty tests.
+2. **Oil Derrick residual pack** (`host_oil_derrick`):
+   - AutoDeposit residual: DepositTiming **12000**ms → **360**f, DepositAmount **200**,
+     InitialCaptureBonus **1000**, SupplyLines Boost **+20**.
+   - Body residual: MaxHealth **2000**, Shroud **100**, Geometry **23**/ **21**/ **30**.
+   - Floating text residual: GUI:AddCash, Z lift **10**, alpha **230**, scatter **0.3**.
+   - Flammable residual: FlameDamageLimit **20**, Expiration **2000**ms → **60**f,
+     AflameDuration **5000**ms → **150**f, Damage **25** / Delay **500**ms → **15**f;
+     death FX WeaponFX_BombTruckDefaultBombDetonation / FX_BuildingDie.
+   - Honesty: `honesty_oil_derrick_residual_pack_ok` + layer honesty tests.
+3. **Money Crate residual pack** (`host_money_crate`):
+   - SupplyDropZoneCrate residual: Money **250**, BuildingPickup **Yes**, SupplyLines **+25**,
+     ForbiddenKindOf PROJECTILE, KindOf PARACHUTABLE CRATE.
+   - Dollar crate matrix residual: 1000DollarCrate **1000**, 2500DollarCrate **2500**.
+   - Geometry residual BOX **12**/ **12**/ **12**, Physics Mass **75**.
+   - OCL_AmericaSupplyDropZoneCrateDrop residual: Payload **6**, DropDelay **350**ms → **11**f,
+     DeliveryDistance **410**, AmericaJetCargoPlane + AmericaCrateParachute, MaxAttempts **4**.
+   - Honesty: `honesty_money_crate_residual_pack_ok` + layer honesty tests.
+4. **Technical residual pack** (`host_technical`):
+   - Salvage weapon residual: MG **10**/r**150**/200ms→**6**f; Cannon **45**/r**25**/scatter**10**/
+     1000ms→**30**f; RPG **50**/r**5**/min**5**/1000ms→**30**f; AP **125%**.
+   - Transport residual: Slots **5**, INFANTRY only, DamagePercentToUnits **10%**,
+     GoAggressiveOnExit **Yes**, PassengersAllowedToFire **No**.
+   - Body residual: MaxHealth **180**, Vision **150**, Shroud **300**, BuildCost **500**,
+     BuildTime **5**s → **150**f, TurretTurnRate **240**, Locomotor Speed **90**/Damaged **80**.
+   - Training residual: StartingLevel VETERAN + SCIENCE_TechnicalTraining; XP matrices.
+   - Honesty: `honesty_technical_residual_pack_ok` + layer honesty tests.
+5. **Troop Crawler residual pack** (`host_troop_crawler`):
+   - Transport residual: Slots **8**, ExitDelay **250**ms → **8**f, NumberOfExitPaths **3**,
+     HealthRegen **10%**/s, DamagePercentToUnits **10%**, GoAggressiveOnExit **Yes**,
+     ScatterNearbyOnExit **No**, InitialPayload ChinaInfantryRedguard × **8**.
+   - Assault residual: TroopCrawlerAssault DEPLOY dmg~0 / range **175** / Delay **1000**ms → **30**f;
+     MembersGetHealedAtLifeRatio **0.5**.
+   - Detector residual: DetectionRate **900**ms → **27**f, DetectionRange unset → Vision **175**.
+   - Body residual: MaxHealth **240**, BuildCost **1400**, BuildTime **15**s → **450**f,
+     Shroud **400**, Locomotor Speed **40**/Damaged **30**.
+   - Honesty: `honesty_troop_crawler_residual_pack_ok` + layer honesty tests.
+6. **Supply Drop Zone residual pack** (`host_supply_drop_zone`):
+   - OCL residual: OCL_AmericaSupplyDropZoneCrateDrop, Min/MaxDelay **120000**ms → **3600**f,
+     CreateAtEdge **Yes**.
+   - Cash residual: 6 × 250 (+25 SupplyLines) → **1500** / **1650**.
+   - Body residual: MaxHealth **1000**, BuildCost **2500**, BuildTime **45**s → **1350**f,
+     EnergyProduction **-4**, Shroud **100**, Geometry **27**/ **27**/ **9**,
+     Prerequisite AmericaStrategyCenter, KindOf FS_SUPPLY_DROPZONE.
+   - Honesty: `honesty_supply_drop_zone_residual_pack_ok` + layer honesty tests.
+7. Tests / gates (not log-only):
+   - `tunnel_network_residual_pack_honesty` / gun / contain / body / detector_spawn / camo_hole
+   - `oil_derrick_residual_pack_honesty` / deposit / body / floating_text / flammable_death
+   - `money_crate_residual_pack_honesty` / supply_drop / dollar_matrix / geometry / ocl / presentation
+   - `technical_residual_pack_honesty` / weapon / transport / body / training
+   - `troop_crawler_residual_pack_honesty` / transport / assault / detector / body
+   - `supply_drop_zone_residual_pack_honesty` / ocl / cash / body
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 63: helix/fire-base/worker/radar/buggy/quad/overlord residual packs (2026-07-13)
 
 **Closed (host-testable residual peels):**

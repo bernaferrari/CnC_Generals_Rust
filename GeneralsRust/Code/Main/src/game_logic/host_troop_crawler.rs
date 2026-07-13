@@ -9,6 +9,16 @@
 //!   healthy infantry and order them to attack the designated target.
 //! - Passengers do **not** fire from inside (retail GoAggressiveOnExit / exit-to-fight).
 //!
+//! Wave 64 residual pack (retail ChinaVehicle.ini / Weapon.ini / Locomotor.ini):
+//! - Body: MaxHealth **240**, BuildCost **1400**, BuildTime **15**s → **450**f,
+//!   Vision **175**, ShroudClearingRange **400**, Locomotor Speed **40** / Damaged **30**
+//! - TransportContain: Slots **8**, ExitDelay **250**ms → **8**f, NumberOfExitPaths **3**,
+//!   HealthRegen%PerSec **10**, DamagePercentToUnits **10%**, GoAggressiveOnExit **Yes**,
+//!   ScatterNearbyOnExit **No**, AllowInsideKindOf INFANTRY, InitialPayload Redguard×8
+//! - StealthDetectorUpdate: DetectionRate **900**ms → **27**f (DetectionRange unset → 175)
+//! - AssaultTransportAIUpdate: MembersGetHealedAtLifeRatio **0.5**
+//! - TroopCrawlerAssault DEPLOY residual: dmg ~0 / range **175** / Delay **1000**ms → **30**f
+//!
 //! Fail-closed honesty:
 //! - Not full multi-exit-path ExitStart01-nn / ExitDelay 250ms stagger
 //! - Not full HealthRegen%PerSec / DamagePercentToUnits / wounded retrieve matrix
@@ -18,6 +28,9 @@
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};
+
+/// Logic frames per second (host fixed step).
+pub const TROOP_CRAWLER_LOGIC_FPS: f32 = 30.0;
 
 /// Retail TransportContain Slots residual.
 pub const TROOP_CRAWLER_TRANSPORT_SLOTS: usize = 8;
@@ -37,16 +50,74 @@ pub const TROOP_CRAWLER_ASSAULT_WEAPON: &str = "TroopCrawlerAssault";
 pub const TROOP_CRAWLER_VISION_RANGE: f32 = 175.0;
 /// Detection residual equals vision when DetectionRange is unset.
 pub const TROOP_CRAWLER_DETECTION_RANGE: f32 = TROOP_CRAWLER_VISION_RANGE;
+/// Retail ShroudClearingRange residual.
+pub const TROOP_CRAWLER_SHROUD_CLEARING_RANGE: f32 = 400.0;
 
 /// Retail TroopCrawlerAssault PrimaryDamage (negligible deploy trigger).
 pub const TROOP_CRAWLER_ASSAULT_DAMAGE: f32 = 0.00001;
 /// Retail TroopCrawlerAssault AttackRange.
 pub const TROOP_CRAWLER_ASSAULT_RANGE: f32 = 175.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TROOP_CRAWLER_ASSAULT_DELAY_MS: u32 = 1000;
 /// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const TROOP_CRAWLER_ASSAULT_DELAY_FRAMES: u32 = 30;
+/// Retail DamageType residual token.
+pub const TROOP_CRAWLER_ASSAULT_DAMAGE_TYPE: &str = "DEPLOY";
 
 /// Residual assault-deploy audio.
 pub const TROOP_CRAWLER_DEPLOY_AUDIO: &str = "TroopCrawlerVoiceUnload";
+
+/// Retail ActiveBody MaxHealth residual.
+pub const TROOP_CRAWLER_MAX_HEALTH: f32 = 240.0;
+/// Retail BuildCost residual.
+pub const TROOP_CRAWLER_BUILD_COST: u32 = 1400;
+/// Retail BuildTime residual (seconds).
+pub const TROOP_CRAWLER_BUILD_TIME_SEC: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS.
+pub const TROOP_CRAWLER_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail TroopCrawlerLocomotor Speed residual.
+pub const TROOP_CRAWLER_LOCOMOTOR_SPEED: f32 = 40.0;
+/// Retail TroopCrawlerLocomotor SpeedDamaged residual.
+pub const TROOP_CRAWLER_LOCOMOTOR_SPEED_DAMAGED: f32 = 30.0;
+
+/// Retail TransportContain ExitDelay residual (msec).
+pub const TROOP_CRAWLER_EXIT_DELAY_MS: u32 = 250;
+/// ExitDelay 250ms → 8 frames @ 30 FPS.
+pub const TROOP_CRAWLER_EXIT_DELAY_FRAMES: u32 = 8;
+/// Retail NumberOfExitPaths residual.
+pub const TROOP_CRAWLER_NUMBER_OF_EXIT_PATHS: u32 = 3;
+/// Retail HealthRegen%PerSec residual.
+pub const TROOP_CRAWLER_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 10.0;
+/// Retail DamagePercentToUnits residual (percent).
+pub const TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS: f32 = 10.0;
+/// Retail GoAggressiveOnExit residual.
+pub const TROOP_CRAWLER_GO_AGGRESSIVE_ON_EXIT: bool = true;
+/// Retail ScatterNearbyOnExit residual.
+pub const TROOP_CRAWLER_SCATTER_NEARBY_ON_EXIT: bool = false;
+/// Retail AllowInsideKindOf INFANTRY residual.
+pub const TROOP_CRAWLER_ALLOW_INFANTRY_ONLY: bool = true;
+/// Retail TransportSlotCount residual (slots this vehicle takes when carried).
+pub const TROOP_CRAWLER_TRANSPORT_SLOT_COUNT: u32 = 8;
+
+/// Retail StealthDetectorUpdate DetectionRate residual (msec).
+pub const TROOP_CRAWLER_DETECTION_RATE_MS: u32 = 900;
+/// DetectionRate 900ms → 27 frames @ 30 FPS.
+pub const TROOP_CRAWLER_DETECTION_RATE_FRAMES: u32 = 27;
+/// Retail IR ping audio residual.
+pub const TROOP_CRAWLER_IR_PING_SOUND: &str = "IRPing";
+/// Retail IR beacon particle residual.
+pub const TROOP_CRAWLER_IR_BEACON_PARTICLE: &str = "IRLenzflare";
+
+/// Retail AssaultTransportAIUpdate MembersGetHealedAtLifeRatio residual.
+pub const TROOP_CRAWLER_MEMBERS_HEAL_LIFE_RATIO: f32 = 0.5;
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn troop_crawler_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / TROOP_CRAWLER_LOGIC_FPS)).round() as u32
+}
 
 /// Host residual honesty counters for Troop Crawler load / unload / deploy / detect.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -212,6 +283,69 @@ pub fn resolve_payload_template_name(has_template: impl Fn(&str) -> bool) -> Opt
     }
 }
 
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: TransportContain residual.
+pub fn honesty_troop_crawler_transport_residual_ok() -> bool {
+    TROOP_CRAWLER_TRANSPORT_SLOTS == 8
+        && TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT == 8
+        && TROOP_CRAWLER_PAYLOAD_TEMPLATE == "ChinaInfantryRedguard"
+        && TROOP_CRAWLER_ALLOW_INFANTRY_ONLY
+        && TROOP_CRAWLER_EXIT_DELAY_MS == 250
+        && TROOP_CRAWLER_EXIT_DELAY_FRAMES
+            == troop_crawler_ms_to_frames(TROOP_CRAWLER_EXIT_DELAY_MS)
+        && TROOP_CRAWLER_NUMBER_OF_EXIT_PATHS == 3
+        && (TROOP_CRAWLER_HEALTH_REGEN_PERCENT_PER_SEC - 10.0).abs() < 0.01
+        && (TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS - 10.0).abs() < 0.01
+        && TROOP_CRAWLER_GO_AGGRESSIVE_ON_EXIT
+        && !TROOP_CRAWLER_SCATTER_NEARBY_ON_EXIT
+        && TROOP_CRAWLER_TRANSPORT_SLOT_COUNT == 8
+}
+
+/// Wave 64 residual honesty: assault DEPLOY weapon residual.
+pub fn honesty_troop_crawler_assault_residual_ok() -> bool {
+    TROOP_CRAWLER_ASSAULT_WEAPON == "TroopCrawlerAssault"
+        && TROOP_CRAWLER_ASSAULT_DAMAGE < 0.001
+        && (TROOP_CRAWLER_ASSAULT_RANGE - 175.0).abs() < 0.01
+        && TROOP_CRAWLER_ASSAULT_DELAY_MS == 1000
+        && TROOP_CRAWLER_ASSAULT_DELAY_FRAMES
+            == troop_crawler_ms_to_frames(TROOP_CRAWLER_ASSAULT_DELAY_MS)
+        && TROOP_CRAWLER_ASSAULT_DAMAGE_TYPE == "DEPLOY"
+        && TROOP_CRAWLER_DEPLOY_AUDIO == "TroopCrawlerVoiceUnload"
+        && (TROOP_CRAWLER_MEMBERS_HEAL_LIFE_RATIO - 0.5).abs() < 0.001
+}
+
+/// Wave 64 residual honesty: detector residual.
+pub fn honesty_troop_crawler_detector_residual_ok() -> bool {
+    (TROOP_CRAWLER_VISION_RANGE - 175.0).abs() < 0.01
+        && (TROOP_CRAWLER_DETECTION_RANGE - 175.0).abs() < 0.01
+        && TROOP_CRAWLER_DETECTION_RATE_MS == 900
+        && TROOP_CRAWLER_DETECTION_RATE_FRAMES
+            == troop_crawler_ms_to_frames(TROOP_CRAWLER_DETECTION_RATE_MS)
+        && TROOP_CRAWLER_IR_PING_SOUND == "IRPing"
+        && TROOP_CRAWLER_IR_BEACON_PARTICLE == "IRLenzflare"
+}
+
+/// Wave 64 residual honesty: body / build / locomotor residual.
+pub fn honesty_troop_crawler_body_residual_ok() -> bool {
+    (TROOP_CRAWLER_MAX_HEALTH - 240.0).abs() < 0.01
+        && TROOP_CRAWLER_BUILD_COST == 1400
+        && (TROOP_CRAWLER_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && TROOP_CRAWLER_BUILD_TIME_FRAMES
+            == (TROOP_CRAWLER_BUILD_TIME_SEC * TROOP_CRAWLER_LOGIC_FPS).round() as u32
+        && (TROOP_CRAWLER_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
+        && (TROOP_CRAWLER_LOCOMOTOR_SPEED - 40.0).abs() < 0.01
+        && (TROOP_CRAWLER_LOCOMOTOR_SPEED_DAMAGED - 30.0).abs() < 0.01
+}
+
+/// Combined Wave 64 Troop Crawler residual honesty pack.
+pub fn honesty_troop_crawler_residual_pack_ok() -> bool {
+    honesty_troop_crawler_transport_residual_ok()
+        && honesty_troop_crawler_assault_residual_ok()
+        && honesty_troop_crawler_detector_residual_ok()
+        && honesty_troop_crawler_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,5 +417,17 @@ mod tests {
         assert!(reg.honesty_assault_deploy_ok());
         reg.record_detect();
         assert!(reg.honesty_detect_ok());
+    }
+
+    #[test]
+    fn troop_crawler_residual_pack_honesty() {
+        assert_eq!(troop_crawler_ms_to_frames(250), 8);
+        assert_eq!(troop_crawler_ms_to_frames(900), 27);
+        assert_eq!(troop_crawler_ms_to_frames(1000), 30);
+        assert!(honesty_troop_crawler_transport_residual_ok());
+        assert!(honesty_troop_crawler_assault_residual_ok());
+        assert!(honesty_troop_crawler_detector_residual_ok());
+        assert!(honesty_troop_crawler_body_residual_ok());
+        assert!(honesty_troop_crawler_residual_pack_ok());
     }
 }
