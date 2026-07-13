@@ -2923,6 +2923,11 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_f32(&mut self.howitzer_shell_last_loft_height)?;
         xfer.xfer_marker_label("HowitzerShellLoftHeightDieApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_loft_height_die_applications)?;
+        // SpectreHowitzerShellLocomotor template + Armor DamageFX residual (appended).
+        xfer.xfer_marker_label("HowitzerShellLocomotorTemplateApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_locomotor_template_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDamageFxApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_damage_fx_applications)?;
         Ok(())
     }
 }
@@ -3109,6 +3114,15 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.orbital_segments_armed)?;
         xfer.xfer_marker_label("OrbitalArcHeightArmed")?;
         xfer.xfer_u32(&mut self.orbital_arc_height_armed)?;
+        // Connector KindOf / Segments / MaxIntensity / Tile residual (appended).
+        xfer.xfer_marker_label("ConnectorKindofImmobileArmed")?;
+        xfer.xfer_u32(&mut self.connector_kindof_immobile_armed)?;
+        xfer.xfer_marker_label("ConnectorSegmentsArmed")?;
+        xfer.xfer_u32(&mut self.connector_segments_armed)?;
+        xfer.xfer_marker_label("ConnectorMaxIntensityFadeArmed")?;
+        xfer.xfer_u32(&mut self.connector_max_intensity_fade_armed)?;
+        xfer.xfer_marker_label("ConnectorTileNoArmed")?;
+        xfer.xfer_u32(&mut self.connector_tile_no_armed)?;
         // Outer-node bone layout residual (appended).
         xfer.xfer_marker_label("OuterNodeBoneLayoutApplications")?;
         xfer.xfer_u32(&mut self.outer_node_bone_layout_applications)?;
@@ -3233,6 +3247,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_fire_weapon_when_dead_applications: 0,
                 scud_body_draw_params_applications: 0,
                 scud_locomotor_appearance_applications: 0,
+                scud_destroy_die_locomotor_name_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3345,6 +3360,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_loft_flight_applications: 0,
                 howitzer_shell_last_loft_height: 0.0,
                 howitzer_shell_loft_height_die_applications: 0,
+                howitzer_shell_locomotor_template_applications: 0,
+                howitzer_shell_damage_fx_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3434,6 +3451,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 orbital_kindof_immobile_armed: 0,
                 orbital_segments_armed: 0,
                 orbital_arc_height_armed: 0,
+                connector_kindof_immobile_armed: 0,
+                connector_segments_armed: 0,
+                connector_max_intensity_fade_armed: 0,
+                connector_tile_no_armed: 0,
                 outer_node_bone_layout_applications: 0,
                 last_outer_node_bone_position: Vec3::ZERO,
                 connector_bone_layout_applications: 0,
@@ -3483,6 +3504,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 objects_destroyed: 0,
                 parent_beam_id: 0,
                 parent_strike_id: 0,
+                remnant_object_params_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
@@ -3520,6 +3542,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantF
         xfer.xfer_u32(&mut self.parent_beam_id)?;
         xfer.xfer_marker_label("ParentStrikeId")?;
         xfer.xfer_u32(&mut self.parent_strike_id)?;
+        // TrailRemnant KindOf / ImmortalBody residual (appended).
+        xfer.xfer_marker_label("RemnantObjectParamsApplications")?;
+        xfer.xfer_u32(&mut self.remnant_object_params_applications)?;
         Ok(())
     }
 }
