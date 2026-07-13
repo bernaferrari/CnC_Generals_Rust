@@ -60,6 +60,7 @@ pub mod host_tunnel_network;
 pub mod host_combat_chinook;
 pub mod host_cleanup_area;
 pub mod host_comanche_rocket_pods;
+pub mod host_stealth_fighter;
 pub mod host_sentry_drone;
 pub mod host_pathfinder;
 pub mod host_slave_drones;
@@ -306,10 +307,22 @@ pub use host_cleanup_area::{
     HOST_CLEANUP_AREA_RADIUS, HOST_CLEANUP_MAX_MOVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
 };
 pub use host_comanche_rocket_pods::{
-    is_comanche_template, rocket_pod_damage_at_distance, rocket_pod_ground_fire_active,
-    should_apply_rocket_pod_area_attack, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
-    ROCKET_POD_ATTACK_RANGE, ROCKET_POD_PRIMARY_DAMAGE, ROCKET_POD_SECONDARY_DAMAGE,
-    ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS,
+    comanche_antitank_damage_at, comanche_antitank_weapon, comanche_cannon_weapon,
+    comanche_rocket_pod_weapon, is_comanche_template, rocket_pod_damage_at_distance,
+    rocket_pod_ground_fire_active, should_apply_comanche_antitank_residual,
+    should_apply_comanche_cannon_residual, should_apply_comanche_residual,
+    should_apply_rocket_pod_area_attack, COMANCHE_ANTITANK_WEAPON, COMANCHE_AT_PRIMARY_DAMAGE,
+    COMANCHE_AT_SECONDARY_RADIUS, COMANCHE_CANNON_DAMAGE, COMANCHE_PRIMARY_WEAPON,
+    COMANCHE_ROCKET_POD_WEAPON, ROCKET_POD_ATTACK_RANGE, ROCKET_POD_PRIMARY_DAMAGE,
+    ROCKET_POD_SECONDARY_DAMAGE, ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS,
+};
+pub use host_stealth_fighter::{
+    is_stealth_fighter_template, player_may_produce_stealth_aircraft,
+    requires_stealth_fighter_science, should_apply_stealth_fighter_residual,
+    stealth_fighter_damage_at, stealth_fighter_weapon, HostStealthFighterRegistry,
+    AMERICA_JET_STEALTH_FIGHTER, SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_DAMAGE,
+    STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_PRIMARY_RADIUS, STEALTH_FIGHTER_RANGE,
+    STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON, USA_STEALTH_FIGHTER,
 };
 pub use host_sentry_drone::{
     is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,

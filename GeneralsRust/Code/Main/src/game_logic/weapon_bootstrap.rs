@@ -89,8 +89,9 @@ pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
 /// Retail MicrowaveTankBuildingClearer residual (KILL_GARRISONED damage type).
 pub const MICROWAVE_BUILDING_CLEARER_WEAPON: &str = "MicrowaveTankBuildingClearer";
 
-/// Retail Comanche primary / rocket-pod residual weapons.
+/// Retail Comanche primary / anti-tank / rocket-pod residual weapons.
 pub const COMANCHE_PRIMARY_WEAPON: &str = "Comanche20mmCannonWeapon";
+pub const COMANCHE_ANTITANK_WEAPON: &str = "ComancheAntiTankMissileWeapon";
 pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
 
 /// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
@@ -616,12 +617,13 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Nuke_ChinaVehicleNukeCannon"
         | "TestNukeCannon" => Some(NUKE_CANNON_NEUTRON_WEAPON),
         // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
+        // Comanche residual SECONDARY anti-tank until rocket-pods upgrade replaces slot.
         "AmericaVehicleComanche"
         | "USA_Comanche"
         | "TestComanche"
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
-        | "Lazr_AmericaVehicleComanche" => None,
+        | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_ANTITANK_WEAPON),
         // Quad Cannon residual AA secondary (ground primary + air secondary).
         "GLAVehicleQuadCannon"
         | "GLA_QuadCannon"
@@ -671,8 +673,12 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
+            } else if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
+                template_name,
+            ) {
+                // Comanche residual SECONDARY anti-tank; rocket pods replace after upgrade.
+                Some(COMANCHE_ANTITANK_WEAPON)
             } else {
-                // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
             }
         }
@@ -1061,7 +1067,17 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 999_999.0,
         },
-        // ComancheRocketPodWeapon residual SECONDARY (retail TERTIARY).
+        // ComancheAntiTankMissileWeapon residual SECONDARY — PrimaryDamage 50,
+        // radius dual residual via host (50/5 + 30/25), Range 200, Delay 500ms → 15 frames.
+        SeedWeapon {
+            name: COMANCHE_ANTITANK_WEAPON,
+            primary_damage: 50.0,
+            attack_range: 200.0,
+            delay_frames: 15,
+            clip_size: 4,
+            weapon_speed: 99999.0,
+        },
+        // ComancheRocketPodWeapon residual SECONDARY after upgrade (retail TERTIARY).
         // PrimaryDamage 30, AttackRange 200, Delay 200ms → 6 frames.
         // Area damage applied by host residual (primary/secondary rings).
         SeedWeapon {
