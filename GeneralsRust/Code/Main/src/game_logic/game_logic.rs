@@ -31396,9 +31396,16 @@ impl GameLogic {
     }
 
     /// Tick residual Particle Uplink continuous beam fields after charge residual.
-    /// Fail-closed vs full ParticleUplinkCannonUpdate outer nodes / manual beam
-    /// driving / laser width grow matrix. Swath + DamagePulseRemnant residual closed.
+    /// Manual drive + WidthGrow grow/hold/decay + outer-node honesty residual closed.
+    /// Fail-closed vs full bone-extract lasers / GPU OuterBeamWidth matrix.
+    /// Swath + DamagePulseRemnant residual closed.
     fn update_particle_beam_fields(&mut self) {
+        let frame = self.frame;
+        // Manual beam driving residual: advance current target toward override
+        // before damage / scorch planning (retail update order).
+        self.special_power_strikes
+            .advance_manual_beam_drive(frame);
+
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
             .iter()
@@ -31407,8 +31414,7 @@ impl GameLogic {
 
         let plans = self
             .special_power_strikes
-            .plan_due_beam_ticks(self.frame, &object_positions);
-        let frame = self.frame;
+            .plan_due_beam_ticks(frame, &object_positions);
 
         for plan in plans {
             let mut total_damage = 0.0_f32;
@@ -31444,6 +31450,11 @@ impl GameLogic {
                 frame,
             );
         }
+
+        // WidthGrow grow/hold/decay honesty sample (even when no damage pulse due).
+        // Retail LASERSTATUS_DECAYING after TotalFiringTime shrinks m_currentWidthScalar.
+        self.special_power_strikes
+            .sample_beam_width_honesty(frame);
 
         // TotalScorchMarks / GroundHitFX / RevealRange residual (retail STATUS_FIRING).
         // C++: doShroudReveal + undoShroudReveal at current target with RevealRange

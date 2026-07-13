@@ -2926,10 +2926,44 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_f32(&mut self.peak_width_scalar)?;
         xfer.xfer_marker_label("LastDamageRadius")?;
         xfer.xfer_f32(&mut self.last_damage_radius)?;
+        // WidthGrow decay residual honesty (appended after grow fields).
+        xfer.xfer_marker_label("LastWidthScalar")?;
+        xfer.xfer_f32(&mut self.last_width_scalar)?;
+        xfer.xfer_marker_label("TroughWidthScalar")?;
+        xfer.xfer_f32(&mut self.trough_width_scalar)?;
+        xfer.xfer_marker_label("DecaySamples")?;
+        xfer.xfer_u32(&mut self.decay_samples)?;
         xfer.xfer_marker_label("LastScorchPosition")?;
         self.last_scorch_position.xfer(xfer)?;
         xfer.xfer_marker_label("LastScorchRadius")?;
         xfer.xfer_f32(&mut self.last_scorch_radius)?;
+        // Manual beam driving + outer-node/connector laser residual (appended).
+        xfer.xfer_marker_label("ManualTargetMode")?;
+        xfer.xfer_bool(&mut self.manual_target_mode)?;
+        xfer.xfer_marker_label("OverrideDestination")?;
+        self.override_destination.xfer(xfer)?;
+        xfer.xfer_marker_label("CurrentTargetPosition")?;
+        self.current_target_position.xfer(xfer)?;
+        xfer.xfer_marker_label("LastDrivingClickFrame")?;
+        xfer.xfer_u32(&mut self.last_driving_click_frame)?;
+        xfer.xfer_marker_label("SecondLastDrivingClickFrame")?;
+        xfer.xfer_u32(&mut self.second_last_driving_click_frame)?;
+        xfer.xfer_marker_label("LastDriveUpdateFrame")?;
+        xfer.xfer_u32(&mut self.last_drive_update_frame)?;
+        xfer.xfer_marker_label("ManualDriveDistanceTotal")?;
+        xfer.xfer_f32(&mut self.manual_drive_distance_total)?;
+        xfer.xfer_marker_label("ManualDriveApplications")?;
+        xfer.xfer_u32(&mut self.manual_drive_applications)?;
+        xfer.xfer_marker_label("FastDriveApplications")?;
+        xfer.xfer_u32(&mut self.fast_drive_applications)?;
+        xfer.xfer_marker_label("OuterNodeSystemsCreated")?;
+        xfer.xfer_u32(&mut self.outer_node_systems_created)?;
+        xfer.xfer_marker_label("ConnectorLasersCreated")?;
+        xfer.xfer_u32(&mut self.connector_lasers_created)?;
+        xfer.xfer_marker_label("LaserBaseFlareCreated")?;
+        xfer.xfer_u32(&mut self.laser_base_flare_created)?;
+        xfer.xfer_marker_label("GroundToOrbitLaserCreated")?;
+        xfer.xfer_u32(&mut self.ground_to_orbit_laser_created)?;
         Ok(())
     }
 }
@@ -3084,8 +3118,24 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 ground_hit_fx_applications: 0,
                 peak_width_scalar: 0.0,
                 last_damage_radius: 0.0,
+                last_width_scalar: 0.0,
+                trough_width_scalar: 1.0,
+                decay_samples: 0,
                 last_scorch_position: Vec3::ZERO,
                 last_scorch_radius: 0.0,
+                manual_target_mode: false,
+                override_destination: Vec3::ZERO,
+                current_target_position: Vec3::ZERO,
+                last_driving_click_frame: 0,
+                second_last_driving_click_frame: 0,
+                last_drive_update_frame: 0,
+                manual_drive_distance_total: 0.0,
+                manual_drive_applications: 0,
+                fast_drive_applications: 0,
+                outer_node_systems_created: 0,
+                connector_lasers_created: 0,
+                laser_base_flare_created: 0,
+                ground_to_orbit_laser_created: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
