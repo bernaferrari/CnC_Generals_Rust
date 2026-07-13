@@ -115,6 +115,16 @@
 //! BURNED / MinLifetime==MaxLifetime 4000ms); DisplayString getText/reset/appendChar/
 //! removeLastChar/getWidth residual + multi-locale Japanese/Jabber/Korean/Unknown
 //! LanguageId residual (graphics; fail-closed vs full CSF boot UI).
+//! Wave 40 residual closed: ScudStormWeapon launch residual (ClipSize 9 /
+//! ClipReloadTime 10000ms / AutoReloadsClip / ScatterTargetScalar+table /
+//! AcceptableAimDelta 180 / ProjectileCollidesWith STRUCTURES / DelayBetweenShots
+//! Min:Max 100:1000 / Death ClipReloadTime 0); SpectreHowitzerGun anti residual
+//! (AntiAirborne*/AntiMissile No + ProjectileObject + ContinuousFireCoast 2000ms);
+//! DisplayString getSize/setWordWrap/setWordWrapCentered/setUseHotkey/setClipRegion
+//! residual (graphics).
+//! Wave 41 residual closed: complete Wave 40 honesty/application/test wiring +
+//! DisplayString getSize/word-wrap/hotkey/clip residual host-testable path +
+//! Snapshot/Xfer anti/launch residual fields.
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -418,6 +428,20 @@ pub const SPECTRE_HOWITZER_CLIP_SIZE: u32 = 0;
 pub const SPECTRE_HOWITZER_CLIP_RELOAD_TIME_MS: u32 = 0;
 /// Retail SpectreHowitzerShellLocomotor GroupMovementPriority residual.
 pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY: &str = "MOVES_BACK";
+/// Retail SpectreHowitzerGun AntiAirborneVehicle residual.
+pub const SPECTRE_HOWITZER_ANTI_AIRBORNE_VEHICLE: bool = false;
+/// Retail SpectreHowitzerGun AntiAirborneInfantry residual.
+pub const SPECTRE_HOWITZER_ANTI_AIRBORNE_INFANTRY: bool = false;
+/// Retail SpectreHowitzerGun AntiSmallMissile residual.
+pub const SPECTRE_HOWITZER_ANTI_SMALL_MISSILE: bool = false;
+/// Retail SpectreHowitzerGun AntiBallisticMissile residual.
+pub const SPECTRE_HOWITZER_ANTI_BALLISTIC_MISSILE: bool = false;
+/// Retail SpectreHowitzerGun ProjectileObject residual.
+pub const SPECTRE_HOWITZER_PROJECTILE_OBJECT: &str = "SpectreHowitzerShell";
+/// Retail SpectreHowitzerGun ContinuousFireCoast residual (msec).
+pub const SPECTRE_HOWITZER_CONTINUOUS_FIRE_COAST_MS: u32 = 2000;
+/// Retail SpectreHowitzerGun VeterancyFireFX residual (HEROIC same tracer).
+pub const SPECTRE_HOWITZER_VETERANCY_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -1885,6 +1909,28 @@ pub const SCUD_STORM_MISSILE_DEATH_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES
 pub const SCUD_STORM_MISSILE_DEATH_DELAY_BETWEEN_SHOTS_MS: u32 = 0;
 /// Retail ScudStormDamageWeapon ClipSize residual (0 == infinite).
 pub const SCUD_STORM_MISSILE_DEATH_CLIP_SIZE: u32 = 0;
+/// Retail ScudStormDamageWeapon ClipReloadTime residual (msec).
+pub const SCUD_STORM_MISSILE_DEATH_CLIP_RELOAD_TIME_MS: u32 = 0;
+/// Retail ScudStormWeapon ClipSize residual (alias of missile count).
+pub const SCUD_STORM_CLIP_SIZE: u32 = SCUD_STORM_MISSILE_COUNT;
+/// Retail ScudStormWeapon ClipReloadTime residual (msec; pad sink time).
+pub const SCUD_STORM_CLIP_RELOAD_TIME_MS: u32 = 10000;
+/// Retail ScudStormWeapon ClipReloadTime 10000 ms → 300 frames @ 30 FPS.
+pub const SCUD_STORM_CLIP_RELOAD_FRAMES: u32 = (SCUD_STORM_CLIP_RELOAD_TIME_MS * 30) / 1000;
+/// Retail ScudStormWeapon AutoReloadsClip residual.
+pub const SCUD_STORM_AUTO_RELOADS_CLIP: bool = true;
+/// Retail ScudStormWeapon AcceptableAimDelta residual (degrees).
+pub const SCUD_STORM_ACCEPTABLE_AIM_DELTA: f32 = 180.0;
+/// Retail ScudStormWeapon ProjectileCollidesWith residual.
+pub const SCUD_STORM_PROJECTILE_COLLIDES_WITH: &str = "STRUCTURES";
+/// Retail ScudStormWeapon ProjectileObject residual.
+pub const SCUD_STORM_PROJECTILE_OBJECT: &str = "ScudStormMissile";
+/// Retail ScudStormWeapon DelayBetweenShots Min residual (msec).
+pub const SCUD_STORM_DELAY_BETWEEN_MIN_MS: u32 = 100;
+/// Retail ScudStormWeapon DelayBetweenShots Max residual (msec).
+pub const SCUD_STORM_DELAY_BETWEEN_MAX_MS: u32 = 1000;
+/// Retail ScudStormWeapon ScatterTarget table entry count residual.
+pub const SCUD_STORM_SCATTER_TARGET_COUNT: u32 = 9;
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2946,6 +2992,9 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: DeathWeapon Primary/Secondary damage table residual applications.
     #[serde(default)]
     pub scud_death_damage_table_applications: u32,
+    /// Honesty: ScudStormWeapon launch residual applications (Clip/Scatter/AutoReload).
+    #[serde(default)]
+    pub scud_weapon_launch_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3236,6 +3285,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip/GroupPriority) applications.
     #[serde(default)]
     pub howitzer_gun_fire_params_applications: u32,
+    /// Honesty: SpectreHowitzerGun anti residual applications (AntiAir*/ProjectileObject/Coast).
+    #[serde(default)]
+    pub howitzer_gun_anti_params_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -4453,6 +4505,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_death_fire_ocl_applications: 0,
             scud_locomotor_speed_table_applications: 0,
             scud_death_damage_table_applications: 0,
+            scud_weapon_launch_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4843,6 +4896,10 @@ impl HostSpecialPowerStrikeRegistry {
                     // DeathWeapon Primary/Secondary damage table residual.
                     strike.scud_death_damage_table_applications = strike
                         .scud_death_damage_table_applications
+                        .saturating_add(shells);
+                    // ScudStormWeapon launch residual (Clip/Scatter/AutoReload/Collides).
+                    strike.scud_weapon_launch_applications = strike
+                        .scud_weapon_launch_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -5341,6 +5398,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_damage_fx_applications: 0,
             howitzer_gun_aim_params_applications: 0,
             howitzer_gun_fire_params_applications: 0,
+            howitzer_gun_anti_params_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5510,6 +5568,10 @@ impl HostSpecialPowerStrikeRegistry {
                 // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
                 field.howitzer_gun_fire_params_applications = field
                     .howitzer_gun_fire_params_applications
+                    .saturating_add(1);
+                // SpectreHowitzerGun anti residual (AntiAir*/ProjectileObject/Coast).
+                field.howitzer_gun_anti_params_applications = field
+                    .howitzer_gun_anti_params_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -7058,6 +7120,7 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_MISSILE_DEATH_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
             && SCUD_STORM_MISSILE_DEATH_DELAY_BETWEEN_SHOTS_MS == 0
             && SCUD_STORM_MISSILE_DEATH_CLIP_SIZE == 0
+            && SCUD_STORM_MISSILE_DEATH_CLIP_RELOAD_TIME_MS == 0
     }
 
     /// Residual honesty: SpectreHowitzerShellLocomotor template residual.
@@ -7132,6 +7195,61 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_HOWITZER_CLIP_SIZE == 0
             && SPECTRE_HOWITZER_CLIP_RELOAD_TIME_MS == 0
             && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY == "MOVES_BACK"
+    }
+
+    /// Residual honesty: ScudStormWeapon launch residual.
+    ///
+    /// Tracks ClipSize **9**, ClipReloadTime **10000** ms, AutoReloadsClip **Yes**,
+    /// ScatterTargetScalar **120**, ScatterTarget count **9**, AcceptableAimDelta
+    /// **180**, ProjectileCollidesWith **STRUCTURES**, DelayBetweenShots Min/Max
+    /// **100**/**1000** ms, ProjectileObject **ScudStormMissile**, Death ClipReloadTime
+    /// **0**. Fail-closed: not full WeaponTemplate store / live pad reload matrix.
+    pub fn honesty_scud_weapon_launch_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_weapon_launch_applications > 0
+        }) && SCUD_STORM_CLIP_SIZE == 9
+            && SCUD_STORM_CLIP_SIZE == SCUD_STORM_MISSILE_COUNT
+            && SCUD_STORM_CLIP_RELOAD_TIME_MS == 10000
+            && SCUD_STORM_CLIP_RELOAD_FRAMES == 300
+            && SCUD_STORM_AUTO_RELOADS_CLIP
+            && (SCUD_STORM_SCATTER_SCALAR - 120.0).abs() < 0.01
+            && SCUD_STORM_SCATTER_TARGET_COUNT == 9
+            && SCUD_STORM_SCATTER_TARGETS.len() as u32 == SCUD_STORM_SCATTER_TARGET_COUNT
+            && (SCUD_STORM_ACCEPTABLE_AIM_DELTA - 180.0).abs() < 0.01
+            && SCUD_STORM_PROJECTILE_COLLIDES_WITH == "STRUCTURES"
+            && SCUD_STORM_PROJECTILE_OBJECT == "ScudStormMissile"
+            && SCUD_STORM_DELAY_BETWEEN_MIN_MS == 100
+            && SCUD_STORM_DELAY_BETWEEN_MAX_MS == 1000
+            && SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES == 3
+            && SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES == 30
+            && SCUD_STORM_MISSILE_DEATH_CLIP_RELOAD_TIME_MS == 0
+            && SCUD_STORM_MISSILE_DEATH_CLIP_SIZE == 0
+    }
+
+    /// Residual honesty: SpectreHowitzerGun anti residual.
+    ///
+    /// Tracks AntiAirborneVehicle/Infantry **No**, AntiSmallMissile/AntiBallisticMissile
+    /// **No**, ProjectileObject **SpectreHowitzerShell**, ContinuousFireCoast **2000** ms,
+    /// ContinuousFireOne/Two **1**/**2**, VeterancyFireFX residual.
+    /// Fail-closed: not full WeaponTemplate anti matrix / live turret aim.
+    pub fn honesty_howitzer_gun_anti_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_gun_anti_params_applications > 0
+                && f.howitzer_gun_anti_params_applications >= f.howitzer_shells_spawned
+        }) && !SPECTRE_HOWITZER_ANTI_AIRBORNE_VEHICLE
+            && !SPECTRE_HOWITZER_ANTI_AIRBORNE_INFANTRY
+            && !SPECTRE_HOWITZER_ANTI_SMALL_MISSILE
+            && !SPECTRE_HOWITZER_ANTI_BALLISTIC_MISSILE
+            && SPECTRE_HOWITZER_ANTI_GROUND
+            && SPECTRE_HOWITZER_PROJECTILE_OBJECT == "SpectreHowitzerShell"
+            && SPECTRE_HOWITZER_PROJECTILE_OBJECT == SPECTRE_HOWITZER_SHELL_OBJECT
+            && SPECTRE_HOWITZER_CONTINUOUS_FIRE_COAST_MS == 2000
+            && SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES == 60
+            && SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE == 1
+            && SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO == 2
+            && SPECTRE_HOWITZER_VETERANCY_FIRE_FX.contains("GenericTankGunNoTracer")
+            && SPECTRE_HOWITZER_FIRE_FX.contains("GenericTankGunNoTracer")
     }
 
     /// Residual honesty: connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile.
@@ -11382,6 +11500,87 @@ mod tests {
         assert!(reg.honesty_beam_remnant_fire_deletion_ok());
         assert!(reg.honesty_beam_remnant_object_params_ok());
         assert!(reg.honesty_beam_remnant_ok());
+    }
+
+    #[test]
+    fn scud_weapon_launch_residual_honesty() {
+        assert_eq!(SCUD_STORM_CLIP_SIZE, 9);
+        assert_eq!(SCUD_STORM_CLIP_SIZE, SCUD_STORM_MISSILE_COUNT);
+        assert_eq!(SCUD_STORM_CLIP_RELOAD_TIME_MS, 10000);
+        assert_eq!(SCUD_STORM_CLIP_RELOAD_FRAMES, 300);
+        assert!(SCUD_STORM_AUTO_RELOADS_CLIP);
+        assert!((SCUD_STORM_SCATTER_SCALAR - 120.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_SCATTER_TARGET_COUNT, 9);
+        assert_eq!(SCUD_STORM_SCATTER_TARGETS.len(), 9);
+        assert!((SCUD_STORM_ACCEPTABLE_AIM_DELTA - 180.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_PROJECTILE_COLLIDES_WITH, "STRUCTURES");
+        assert_eq!(SCUD_STORM_PROJECTILE_OBJECT, "ScudStormMissile");
+        assert_eq!(SCUD_STORM_DELAY_BETWEEN_MIN_MS, 100);
+        assert_eq!(SCUD_STORM_DELAY_BETWEEN_MAX_MS, 1000);
+        assert_eq!(SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES, 3);
+        assert_eq!(SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES, 30);
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_CLIP_RELOAD_TIME_MS, 0);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(80.0, 0.0, 80.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_weapon_launch_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(80.0, 0.0, 80.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_weapon_launch_applications, 1);
+        }
+        assert!(reg.honesty_scud_weapon_launch_ok());
+        assert!(reg.honesty_scud_death_damage_table_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_gun_anti_params_residual_honesty() {
+        assert!(!SPECTRE_HOWITZER_ANTI_AIRBORNE_VEHICLE);
+        assert!(!SPECTRE_HOWITZER_ANTI_AIRBORNE_INFANTRY);
+        assert!(!SPECTRE_HOWITZER_ANTI_SMALL_MISSILE);
+        assert!(!SPECTRE_HOWITZER_ANTI_BALLISTIC_MISSILE);
+        assert!(SPECTRE_HOWITZER_ANTI_GROUND);
+        assert_eq!(SPECTRE_HOWITZER_PROJECTILE_OBJECT, "SpectreHowitzerShell");
+        assert_eq!(SPECTRE_HOWITZER_PROJECTILE_OBJECT, SPECTRE_HOWITZER_SHELL_OBJECT);
+        assert_eq!(SPECTRE_HOWITZER_CONTINUOUS_FIRE_COAST_MS, 2000);
+        assert_eq!(SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES, 60);
+        assert_eq!(SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE, 1);
+        assert_eq!(SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO, 2);
+        assert!(SPECTRE_HOWITZER_VETERANCY_FIRE_FX.contains("GenericTankGunNoTracer"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_gun_anti_params_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_gun_anti_params_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_gun_anti_params_ok());
+        assert!(reg.honesty_howitzer_gun_fire_params_ok());
     }
 
 

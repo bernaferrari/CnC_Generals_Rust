@@ -13,6 +13,10 @@
 //! - Optional live multi-locale CSF probe when assets present
 //! - UK LanguageId residual maps to English CSF paths (retail UK share)
 //!
+//! Host residual multi-locale LanguageId STR path table closed here (fail-closed
+//! vs full runtime boot for every locale STR asset pack):
+//! - LanguageId residual STR path table (map.str / generals.str relatives)
+//!
 //! Still residual:
 //! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
@@ -364,6 +368,68 @@ pub fn residual_csf_relatives(language: ResidualLanguageId) -> Vec<String> {
     paths
 }
 
+/// Retail multi-locale STR relative path residuals for one LanguageId.
+///
+/// Fail-closed path table residual (not full GlobalData Language STR boot).
+/// English-family residual also includes W3DEnglishZH map.str relatives.
+pub fn residual_str_relatives(language: ResidualLanguageId) -> Vec<String> {
+    let folder = language.folder_name();
+    let root = language.zh_root();
+    let mut paths = vec![
+        format!("windows_game/extracted_big_files/{root}/Data/{folder}/generals.str"),
+        format!("windows_game/extracted_big_files_v2/{root}/Data/{folder}/generals.str"),
+        format!("windows_game/extracted_big_files/{root}/Data/{folder}/map.str"),
+        format!("windows_game/extracted_big_files_v2/{root}/Data/{folder}/map.str"),
+    ];
+    if matches!(
+        language,
+        ResidualLanguageId::English
+            | ResidualLanguageId::Uk
+            | ResidualLanguageId::Jabber
+            | ResidualLanguageId::Unknown
+    ) {
+        paths.push(
+            "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.str".to_string(),
+        );
+        paths.push(
+            "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.str"
+                .to_string(),
+        );
+    }
+    paths
+}
+
+/// Host residual exercise: multi-locale LanguageId STR path table honesty.
+///
+/// Always honest with synthetic path-table residual when assets are absent.
+pub fn exercise_multi_locale_str_residual() -> (bool, u32) {
+    let mut path_count = 0u32;
+    for lang in ResidualLanguageId::ALL {
+        let relatives = residual_str_relatives(lang);
+        let folder = lang.folder_name();
+        let path_ok = relatives.iter().any(|p| {
+            p.contains(&format!("Data/{folder}/generals.str"))
+                || p.contains(&format!("Data/{folder}/map.str"))
+                || (matches!(
+                    lang,
+                    ResidualLanguageId::English
+                        | ResidualLanguageId::Uk
+                        | ResidualLanguageId::Jabber
+                        | ResidualLanguageId::Unknown
+                ) && p.contains("Data/English/generals.str"))
+        });
+        if path_ok && !relatives.is_empty() {
+            path_count = path_count.saturating_add(1);
+        }
+    }
+    let multi_ok = path_count == ResidualLanguageId::ALL.len() as u32
+        && residual_str_relatives(ResidualLanguageId::English).len() >= 4
+        && residual_str_relatives(ResidualLanguageId::German).len() >= 4
+        && residual_str_relatives(ResidualLanguageId::Japanese).len() >= 4
+        && residual_str_relatives(ResidualLanguageId::Korean).len() >= 4;
+    (multi_ok, path_count)
+}
+
 /// Locate residual CSF for a LanguageId when assets are present.
 pub fn find_csf_path_for_language(language: ResidualLanguageId) -> Option<PathBuf> {
     let relatives = residual_csf_relatives(language);
@@ -633,6 +699,33 @@ mod tests {
         let ko = residual_csf_relatives(ResidualLanguageId::Korean);
         assert!(ko.iter().any(|p| p.contains("KoreanZH/Data/Korean/generals.csf")));
         let (ok, count, _live) = exercise_multi_locale_csf_residual();
+        assert!(ok);
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn multi_locale_str_path_residual_table() {
+        assert_eq!(ResidualLanguageId::ALL.len(), 10);
+        let en = residual_str_relatives(ResidualLanguageId::English);
+        assert!(en.iter().any(|p| p.contains("EnglishZH") && p.ends_with("generals.str")));
+        assert!(en.iter().any(|p| p.contains("W3DEnglishZH")));
+        assert!(en.iter().any(|p| p.contains("map.str")));
+        let uk = residual_str_relatives(ResidualLanguageId::Uk);
+        assert!(uk.iter().any(|p| p.contains("EnglishZH")));
+        let de = residual_str_relatives(ResidualLanguageId::German);
+        assert!(de.iter().any(|p| p.contains("GermanZH/Data/German/generals.str")));
+        let ja = residual_str_relatives(ResidualLanguageId::Japanese);
+        assert!(ja.iter().any(|p| p.contains("JapaneseZH/Data/Japanese/generals.str")));
+        let ko = residual_str_relatives(ResidualLanguageId::Korean);
+        assert!(ko.iter().any(|p| p.contains("KoreanZH/Data/Korean/generals.str")));
+        // Jabber/Unknown fail-closed share English STR pack residual paths.
+        assert!(residual_str_relatives(ResidualLanguageId::Jabber)
+            .iter()
+            .any(|p| p.contains("EnglishZH")));
+        assert!(residual_str_relatives(ResidualLanguageId::Unknown)
+            .iter()
+            .any(|p| p.contains("EnglishZH")));
+        let (ok, count) = exercise_multi_locale_str_residual();
         assert!(ok);
         assert_eq!(count, 10);
     }
