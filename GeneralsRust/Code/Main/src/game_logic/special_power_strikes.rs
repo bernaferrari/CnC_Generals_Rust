@@ -39,16 +39,17 @@
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
 //! Xfer tables. Radiation / toxin / Spectre orbit / PUC beam residual is a
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
-//! stack / gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer
-//! projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
+//! stack / SpectreGunshipUpdate continuous-fire ROF residual (host residual)
+//! / full howitzer projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
 //! wave + manual driving). CarpetBomb residual is DropDelay-staggered multi-point
 //! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
 //! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
 //! stream). ScudStorm residual is ClipSize-9 ScatterTarget multi-missile +
-//! ScudStormDamageWeapon primary/secondary + LargePoisonField residual (not full
-//! ScudStormMissile projectile / PreAttack animation / anthrax-upgraded weapon).
+//! ScudStormDamageWeapon primary/secondary + LargePoisonField residual, with
+//! Anthrax Beta/Gamma upgraded Secondary 200 + upgraded poison 25 residual
+//! (not full ScudStormMissile projectile / PreAttack animation Object).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -107,9 +108,89 @@ pub const SPECTRE_HOWITZER_RANDOM_OFFSET: f32 = 20.0;
 /// Retail `SpectreGattlingGun` PrimaryDamage (single-target residual).
 pub const SPECTRE_GATTLING_DAMAGE: f32 = 90.0;
 /// Retail `SpectreGattlingGun` DelayBetweenShots = 100 ms → 3 frames @ 30 FPS.
+/// Base interval (ContinuousFire Normal / ROF 100%).
 pub const SPECTRE_GATTLING_TICK_INTERVAL_FRAMES: u32 = 3;
+/// Retail ContinuousFireOne — consecutive shots needed before MEAN ROF residual.
+pub const SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE: u32 = 1;
+/// Retail ContinuousFireTwo — consecutive shots needed before FAST ROF residual.
+pub const SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO: u32 = 2;
+/// Retail WeaponBonus CONTINUOUS_FIRE_MEAN RATE_OF_FIRE **200%**.
+pub const SPECTRE_GATTLING_ROF_MEAN: f32 = 2.0;
+/// Retail WeaponBonus CONTINUOUS_FIRE_FAST RATE_OF_FIRE **300%**.
+pub const SPECTRE_GATTLING_ROF_FAST: f32 = 3.0;
 /// Residual honesty audio for gattling strafe residual.
 pub const SPECTRE_GATTLING_AUDIO: &str = "SpectreGunshipGattlingWeapon";
+
+/// Residual Spectre gattling ContinuousFire stage (FiringTracker MEAN/FAST).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum SpectreGattlingFireStage {
+    /// Base DelayBetweenShots (ROF 100%).
+    #[default]
+    Normal,
+    /// CONTINUOUS_FIRE_MEAN — ROF 200% residual.
+    Mean,
+    /// CONTINUOUS_FIRE_FAST — ROF 300% residual.
+    Fast,
+}
+
+impl SpectreGattlingFireStage {
+    /// Retail RATE_OF_FIRE multiplier for this continuous-fire stage.
+    pub fn rate_of_fire(self) -> f32 {
+        match self {
+            SpectreGattlingFireStage::Normal => 1.0,
+            SpectreGattlingFireStage::Mean => SPECTRE_GATTLING_ROF_MEAN,
+            SpectreGattlingFireStage::Fast => SPECTRE_GATTLING_ROF_FAST,
+        }
+    }
+
+    /// Tick interval frames: `floor(base_delay / ROF)` (C++ getDelayBetweenShots).
+    pub fn tick_interval_frames(self) -> u32 {
+        let base = SPECTRE_GATTLING_TICK_INTERVAL_FRAMES as f32;
+        let rof = self.rate_of_fire().max(f32::EPSILON);
+        ((base / rof).floor() as u32).max(1)
+    }
+}
+
+/// Advance ContinuousFire stage after a gattling shot (FiringTracker residual).
+///
+/// Retail: ContinuousFireOne=1, ContinuousFireTwo=2 on `SpectreGattlingGun`.
+/// - From Normal: consecutive > One → MEAN
+/// - From Mean: consecutive > Two → FAST
+/// - From Fast: stay FAST while consecutive holds (coast cool-down deferred)
+pub fn spectre_gattling_stage_after_shot(
+    stage: SpectreGattlingFireStage,
+    consecutive_shots: u32,
+) -> SpectreGattlingFireStage {
+    match stage {
+        SpectreGattlingFireStage::Normal => {
+            if consecutive_shots > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
+                SpectreGattlingFireStage::Mean
+            } else {
+                SpectreGattlingFireStage::Normal
+            }
+        }
+        SpectreGattlingFireStage::Mean => {
+            if consecutive_shots > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
+                SpectreGattlingFireStage::Fast
+            } else {
+                SpectreGattlingFireStage::Mean
+            }
+        }
+        SpectreGattlingFireStage::Fast => SpectreGattlingFireStage::Fast,
+    }
+}
+
+/// Alias residual ROF multipliers used by interval helpers.
+pub const SPECTRE_GATTLING_MEAN_ROF_MULT: f32 = SPECTRE_GATTLING_ROF_MEAN;
+pub const SPECTRE_GATTLING_FAST_ROF_MULT: f32 = SPECTRE_GATTLING_ROF_FAST;
+/// Retail `SpectreHowitzerGun` ContinuousFireOne.
+pub const SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE: u32 = 1;
+/// Retail `SpectreHowitzerGun` ContinuousFireTwo.
+pub const SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO: u32 = 2;
+/// Retail WeaponBonus CONTINUOUS_FIRE_MEAN RATE_OF_FIRE 150% (howitzer).
+pub const SPECTRE_HOWITZER_MEAN_ROF_MULT: f32 = 1.5;
+/// Retail WeaponBonus CONTINUOUS_FIRE_FAST RATE_OF_FIRE 200% (howitzer).
+pub const SPECTRE_HOWITZER_FAST_ROF_MULT: f32 = 2.0;
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -274,6 +355,8 @@ pub const SCUD_STORM_PRIMARY_DAMAGE: f32 = 500.0;
 pub const SCUD_STORM_PRIMARY_RADIUS: f32 = 50.0;
 /// Retail `ScudStormDamageWeapon` SecondaryDamage.
 pub const SCUD_STORM_SECONDARY_DAMAGE: f32 = 150.0;
+/// Retail `ScudStormDamageWeaponUpgraded` SecondaryDamage (`Upgrade_GLAAnthraxBeta`).
+pub const SCUD_STORM_SECONDARY_DAMAGE_UPGRADED: f32 = 200.0;
 /// Retail `ScudStormDamageWeapon` SecondaryDamageRadius.
 pub const SCUD_STORM_SECONDARY_RADIUS: f32 = 200.0;
 /// Retail PreAttackDelay = 3000 ms → 90 frames @ 30 FPS (first missile due).
@@ -284,6 +367,8 @@ pub const SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES: u32 = 3;
 pub const SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES: u32 = 30;
 /// Retail `LargePoisonFieldWeapon` PrimaryDamage (OCL_PoisonFieldLarge residual).
 pub const SCUD_STORM_POISON_DAMAGE_PER_TICK: f32 = 15.0;
+/// Retail `LargePoisonFieldWeaponUpgraded` PrimaryDamage (OCL_PoisonFieldUpgradedLarge).
+pub const SCUD_STORM_POISON_DAMAGE_PER_TICK_UPGRADED: f32 = 25.0;
 /// Retail `LargePoisonFieldWeapon` PrimaryDamageRadius.
 pub const SCUD_STORM_POISON_RADIUS: f32 = 140.0;
 /// Retail LargePoisonField DelayBetweenShots 500 ms → 15 frames.
@@ -292,6 +377,32 @@ pub const SCUD_STORM_POISON_TICK_INTERVAL_FRAMES: u32 = 15;
 pub const SCUD_STORM_POISON_DURATION_FRAMES: u32 = 1350;
 /// Residual ambient cue for ScudStorm poison pools.
 pub const SCUD_STORM_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
+/// Retail player upgrade selecting ScudStormDamageWeaponUpgraded / UpgradedLarge poison.
+pub const UPGRADE_GLA_ANTHRAX_BETA_SCUD: &str = "Upgrade_GLAAnthraxBeta";
+
+/// Secondary damage for ScudStorm residual (base 150 / Anthrax Beta 200).
+pub fn scud_storm_secondary_damage(anthrax_beta: bool) -> f32 {
+    if anthrax_beta {
+        SCUD_STORM_SECONDARY_DAMAGE_UPGRADED
+    } else {
+        SCUD_STORM_SECONDARY_DAMAGE
+    }
+}
+
+/// Poison tick damage for ScudStorm residual (base 15 / Anthrax Beta 25).
+pub fn scud_storm_poison_damage_per_tick(anthrax_beta: bool) -> f32 {
+    if anthrax_beta {
+        SCUD_STORM_POISON_DAMAGE_PER_TICK_UPGRADED
+    } else {
+        SCUD_STORM_POISON_DAMAGE_PER_TICK
+    }
+}
+/// Alias for LargePoisonFieldWeaponUpgraded PrimaryDamage residual.
+pub const SCUD_STORM_POISON_DAMAGE_UPGRADED: f32 = SCUD_STORM_POISON_DAMAGE_PER_TICK_UPGRADED;
+/// Retail `Chem_ScudStormDamageWeaponGamma` PrimaryDamage.
+pub const SCUD_STORM_PRIMARY_DAMAGE_GAMMA: f32 = 550.0;
+/// Residual ambient cue for upgraded anthrax poison pools.
+pub const SCUD_STORM_POISON_AUDIO_UPGRADED: &str = "AnthraxPoolAmbientLoop";
 
 /// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
 /// Host maps C++ X → X, C++ Y → Z.
@@ -306,6 +417,89 @@ pub const SCUD_STORM_SCATTER_TARGETS: [(f32, f32); 9] = [
     (-0.600, -0.1333),
     (-0.567, 0.433),
 ];
+
+// --- ScudStorm anthrax-upgrade residual (ScudStormDamageWeaponUpgraded / Chem_Gamma) ---
+
+/// Residual ScudStorm anthrax warhead tier.
+///
+/// Retail:
+/// - Base `ScudStormDamageWeapon`: Primary **500** / Secondary **150** + LargePoison **15**
+/// - Anthrax Beta `ScudStormDamageWeaponUpgraded`: Primary **500** / Secondary **200**
+///   + LargePoison upgraded **25**
+/// - Chem Gamma `Chem_ScudStormDamageWeaponGamma`: Primary **550** / Secondary **200**
+///   + LargePoison gamma **25**
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ScudStormAnthraxTier {
+    /// Unupgraded ScudStormDamageWeapon residual.
+    #[default]
+    Base,
+    /// Upgrade_GLAAnthraxBeta residual (Secondary 200 + poison 25).
+    AnthraxBeta,
+    /// Chem_Upgrade_GLAAnthraxGamma residual (Primary 550 + Secondary 200 + poison 25).
+    AnthraxGamma,
+}
+
+impl ScudStormAnthraxTier {
+    /// Primary blast damage residual for this anthrax tier.
+    pub fn primary_damage(self) -> f32 {
+        match self {
+            ScudStormAnthraxTier::AnthraxGamma => SCUD_STORM_PRIMARY_DAMAGE_GAMMA,
+            _ => SCUD_STORM_PRIMARY_DAMAGE,
+        }
+    }
+
+    /// Secondary blast damage residual for this anthrax tier.
+    pub fn secondary_damage(self) -> f32 {
+        match self {
+            ScudStormAnthraxTier::Base => SCUD_STORM_SECONDARY_DAMAGE,
+            ScudStormAnthraxTier::AnthraxBeta | ScudStormAnthraxTier::AnthraxGamma => {
+                SCUD_STORM_SECONDARY_DAMAGE_UPGRADED
+            }
+        }
+    }
+
+    /// LargePoisonField residual damage per tick for this anthrax tier.
+    pub fn poison_damage_per_tick(self) -> f32 {
+        match self {
+            ScudStormAnthraxTier::Base => SCUD_STORM_POISON_DAMAGE_PER_TICK,
+            ScudStormAnthraxTier::AnthraxBeta | ScudStormAnthraxTier::AnthraxGamma => {
+                SCUD_STORM_POISON_DAMAGE_UPGRADED
+            }
+        }
+    }
+
+    /// Whether residual spawns upgraded (Beta/Gamma) LargePoison field stats.
+    pub fn is_upgraded(self) -> bool {
+        !matches!(self, ScudStormAnthraxTier::Base)
+    }
+
+    /// Select highest anthrax tier from unlocked science/upgrade name list.
+    pub fn highest_from_upgrades<'a, I>(upgrades: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut tier = ScudStormAnthraxTier::Base;
+        for name in upgrades {
+            let n: String = name
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .flat_map(|c| c.to_lowercase())
+                .collect();
+            if n.contains("anthraxgamma") || n.contains("chem_upgrade_glaanthraxgamma") {
+                return ScudStormAnthraxTier::AnthraxGamma;
+            }
+            if n.contains("anthraxbeta") || n.contains("upgrade_glaanthraxbeta") {
+                tier = ScudStormAnthraxTier::AnthraxBeta;
+            }
+            // Chem general ScudStorm residual defaults to gamma warhead when
+            // source template / science mentions Chem Scud Storm.
+            if n.contains("chem") && n.contains("scudstorm") {
+                return ScudStormAnthraxTier::AnthraxGamma;
+            }
+        }
+        tier
+    }
+}
 
 // --- Spectre science-tier OrbitTime residual ---
 
@@ -945,6 +1139,10 @@ pub struct HostSpecialPowerStrike {
     /// Ignored for non-Spectre kinds. Default Level2 (retail 15s).
     #[serde(default)]
     pub spectre_tier: SpectreGunshipScienceTier,
+    /// ScudStorm anthrax-upgrade residual (Base / Beta / Gamma).
+    /// Ignored for non-ScudStorm kinds. Default Base.
+    #[serde(default)]
+    pub scud_anthrax_tier: ScudStormAnthraxTier,
     /// Multi-strike residual: how many shells/bombs have already applied damage.
     /// One-shot kinds leave this at 0 and complete in a single wave.
     #[serde(default)]
@@ -1123,6 +1321,18 @@ pub struct HostSpectreOrbitField {
     /// Honesty: gattling residual ticks applied.
     #[serde(default)]
     pub gattling_ticks: u32,
+    /// Consecutive gattling shots residual (ContinuousFire One/Two ramp).
+    #[serde(default)]
+    pub gattling_consecutive: u32,
+    /// Consecutive howitzer shots residual (ContinuousFire One/Two ramp).
+    #[serde(default)]
+    pub howitzer_consecutive: u32,
+    /// Peak gattling continuous-fire level reached (0 base / 1 mean / 2 fast).
+    #[serde(default)]
+    pub gattling_fire_level: u8,
+    /// Peak howitzer continuous-fire level reached (0 base / 1 mean / 2 fast).
+    #[serde(default)]
+    pub howitzer_fire_level: u8,
 }
 
 impl HostSpectreOrbitField {
@@ -1155,6 +1365,41 @@ pub fn spectre_howitzer_offset(tick_index: u32) -> Vec3 {
     let ox = (phase.fract() * 2.0 - 1.0) * SPECTRE_HOWITZER_RANDOM_OFFSET;
     let oz = ((phase + 0.37).fract() * 2.0 - 1.0) * SPECTRE_HOWITZER_RANDOM_OFFSET;
     Vec3::new(ox, 0.0, oz)
+}
+
+/// Residual gattling ContinuousFire ROF interval frames for consecutive shots.
+///
+/// Retail: DelayBetweenShots 100 ms → 3 frames base; CONTINUOUS_FIRE_MEAN 200%
+/// → floor(3/2)=1; CONTINUOUS_FIRE_FAST 300% → floor(3/3)=1.
+/// Thresholds: ContinuousFireOne=1 / ContinuousFireTwo=2 (exclusive `>`).
+pub fn spectre_gattling_interval_frames(consecutive_shots: u32) -> u32 {
+    let mult = if consecutive_shots > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
+        SPECTRE_GATTLING_FAST_ROF_MULT
+    } else if consecutive_shots > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
+        SPECTRE_GATTLING_MEAN_ROF_MULT
+    } else {
+        1.0
+    };
+    ((SPECTRE_GATTLING_TICK_INTERVAL_FRAMES as f32) / mult)
+        .floor()
+        .max(1.0) as u32
+}
+
+/// Residual howitzer ContinuousFire ROF interval frames for consecutive shots.
+///
+/// Host base uses HowitzerFiringRate residual **9** frames; MEAN 150% →
+/// floor(9/1.5)=6; FAST 200% → floor(9/2)=4.
+pub fn spectre_howitzer_interval_frames(consecutive_shots: u32) -> u32 {
+    let mult = if consecutive_shots > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
+        SPECTRE_HOWITZER_FAST_ROF_MULT
+    } else if consecutive_shots > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
+        SPECTRE_HOWITZER_MEAN_ROF_MULT
+    } else {
+        1.0
+    };
+    ((SPECTRE_ORBIT_TICK_INTERVAL_FRAMES as f32) / mult)
+        .floor()
+        .max(1.0) as u32
 }
 
 /// Damage application plan for a single Spectre orbit victim this tick.
@@ -1671,6 +1916,30 @@ impl HostSpecialPowerStrikeRegistry {
         artillery_tier: ArtilleryBarrageScienceTier,
         spectre_tier: SpectreGunshipScienceTier,
     ) -> u32 {
+        self.queue_with_all_tiers(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            artillery_tier,
+            spectre_tier,
+            ScudStormAnthraxTier::Base,
+        )
+    }
+
+    /// Queue with Artillery + Spectre + ScudStorm anthrax residual tiers.
+    pub fn queue_with_all_tiers(
+        &mut self,
+        kind: HostSuperweaponKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        artillery_tier: ArtilleryBarrageScienceTier,
+        spectre_tier: SpectreGunshipScienceTier,
+        scud_anthrax_tier: ScudStormAnthraxTier,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         // First multi-strike shell/bomb/missile due frame residual.
@@ -1689,6 +1958,7 @@ impl HostSpecialPowerStrikeRegistry {
             objects_destroyed: 0,
             artillery_tier,
             spectre_tier,
+            scud_anthrax_tier,
             multi_strike_applied: 0,
         };
         self.strikes.insert(id, strike);
@@ -1702,12 +1972,21 @@ impl HostSpecialPowerStrikeRegistry {
     /// (`ScudStormDamageWeapon`): full Primary inside PrimaryRadius, Secondary
     /// out to SecondaryRadius (not linear falloff).
     pub fn damage_at_distance(kind: HostSuperweaponKind, distance: f32) -> f32 {
+        Self::damage_at_distance_with_scud_tier(kind, distance, ScudStormAnthraxTier::Base)
+    }
+
+    /// Falloff residual with ScudStorm anthrax-upgrade tier (Secondary 150/200, Primary 500/550).
+    pub fn damage_at_distance_with_scud_tier(
+        kind: HostSuperweaponKind,
+        distance: f32,
+        scud_tier: ScudStormAnthraxTier,
+    ) -> f32 {
         if kind == HostSuperweaponKind::ScudStorm {
             if distance <= SCUD_STORM_PRIMARY_RADIUS {
-                return SCUD_STORM_PRIMARY_DAMAGE;
+                return scud_tier.primary_damage();
             }
             if distance <= SCUD_STORM_SECONDARY_RADIUS {
-                return SCUD_STORM_SECONDARY_DAMAGE;
+                return scud_tier.secondary_damage();
             }
             return 0.0;
         }
@@ -1805,15 +2084,16 @@ impl HostSpecialPowerStrikeRegistry {
                     due_points
                         .iter()
                         .map(|epicenter| {
-                            Self::damage_at_distance(
+                            Self::damage_at_distance_with_scud_tier(
                                 strike.kind,
                                 horizontal_distance(pos, *epicenter),
+                                strike.scud_anthrax_tier,
                             )
                         })
                         .fold(0.0_f32, f32::max)
                 } else {
                     let dist = horizontal_distance(pos, strike.target_position);
-                    let primary = Self::damage_at_distance(strike.kind, dist);
+                    let primary = Self::damage_at_distance_with_scud_tier(strike.kind, dist, strike.scud_anthrax_tier);
                     // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
                     // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
                     let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS {
@@ -1897,7 +2177,8 @@ impl HostSpecialPowerStrikeRegistry {
     ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
-        let mut spawn_scud_poison: Vec<(ObjectId, super::Team, Vec3, u32)> = Vec::new();
+        let mut spawn_scud_poison: Vec<(ObjectId, super::Team, Vec3, u32, ScudStormAnthraxTier)> =
+            Vec::new();
         let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32, SpectreGunshipScienceTier)> = None;
         let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
@@ -1915,11 +2196,18 @@ impl HostSpecialPowerStrikeRegistry {
                     let source = strike.source_object;
                     let team = strike.source_team;
                     let frame = strike.impact_frame;
+                    let anthrax = strike.scud_anthrax_tier;
                     if epicenters.is_empty() {
-                        spawn_scud_poison.push((source, team, strike.target_position, frame));
+                        spawn_scud_poison.push((
+                            source,
+                            team,
+                            strike.target_position,
+                            frame,
+                            anthrax,
+                        ));
                     } else {
                         for p in epicenters {
-                            spawn_scud_poison.push((source, team, *p, frame));
+                            spawn_scud_poison.push((source, team, *p, frame, anthrax));
                         }
                     }
                 }
@@ -1969,8 +2257,15 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some((source, team, pos, impact_frame)) = spawn_toxin {
             self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
         }
-        for (source, team, pos, impact_frame) in spawn_scud_poison {
-            self.spawn_scud_poison_field(source, team, pos, impact_frame, strike_id);
+        for (source, team, pos, impact_frame, anthrax) in spawn_scud_poison {
+            self.spawn_scud_poison_field_with_tier(
+                source,
+                team,
+                pos,
+                impact_frame,
+                strike_id,
+                anthrax,
+            );
         }
         if let Some((source, team, pos, impact_frame, spectre_tier)) = spawn_orbit {
             self.spawn_orbit_field_with_tier(
@@ -2119,13 +2414,33 @@ impl HostSpecialPowerStrikeRegistry {
         spawn_frame: u32,
         parent_strike_id: u32,
     ) -> u32 {
+        self.spawn_scud_poison_field_with_tier(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            ScudStormAnthraxTier::Base,
+        )
+    }
+
+    /// Spawn ScudStorm LargePoison residual with anthrax-upgrade tier stats.
+    pub fn spawn_scud_poison_field_with_tier(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        anthrax_tier: ScudStormAnthraxTier,
+    ) -> u32 {
         self.spawn_toxin_field_with_params(
             source_object,
             source_team,
             position,
             spawn_frame,
             parent_strike_id,
-            SCUD_STORM_POISON_DAMAGE_PER_TICK,
+            anthrax_tier.poison_damage_per_tick(),
             SCUD_STORM_POISON_RADIUS,
             SCUD_STORM_POISON_TICK_INTERVAL_FRAMES,
             SCUD_STORM_POISON_DURATION_FRAMES,
@@ -2288,6 +2603,10 @@ impl HostSpecialPowerStrikeRegistry {
             parent_strike_id,
             howitzer_ticks: 0,
             gattling_ticks: 0,
+            gattling_consecutive: 0,
+            howitzer_consecutive: 0,
+            gattling_fire_level: 0,
+            howitzer_fire_level: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -2302,8 +2621,9 @@ impl HostSpecialPowerStrikeRegistry {
     ///   **25** around reticle + deterministic RandomOffsetForHowitzer residual.
     /// - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to nearest living
     ///   enemy in AttackAreaRadius **200** (single-target residual).
-    /// Both exclude source launcher and same-team friendlies. Fail-closed vs full
-    /// projectile path / continuous-fire rate matrix / contain gunner Object.
+    /// Both exclude source launcher and same-team friendlies.
+    /// Continuous-fire ROF residual advances on record_orbit_tick_complete.
+    /// Fail-closed vs full projectile path / gunner Object / model-condition matrix.
     pub fn plan_due_orbit_ticks(
         &self,
         current_frame: u32,
@@ -2392,15 +2712,29 @@ impl HostSpecialPowerStrikeRegistry {
             field.damage_applications += applications;
             field.objects_destroyed += objects_destroyed;
             // Advance whichever residual streams were due this frame.
+            // Continuous-fire residual: consecutive shot counters raise ROF
+            // (gattling 200%/300%, howitzer 150%/200%) after ContinuousFireOne/Two.
             if current_frame >= field.next_tick_frame {
-                field.next_tick_frame =
-                    current_frame.saturating_add(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES);
+                field.howitzer_consecutive = field.howitzer_consecutive.saturating_add(1);
+                let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive);
+                field.next_tick_frame = current_frame.saturating_add(interval);
                 field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
+                if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
+                    field.howitzer_fire_level = 2;
+                } else if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
+                    field.howitzer_fire_level = field.howitzer_fire_level.max(1);
+                }
             }
             if current_frame >= field.next_gattling_tick_frame {
-                field.next_gattling_tick_frame =
-                    current_frame.saturating_add(SPECTRE_GATTLING_TICK_INTERVAL_FRAMES);
+                field.gattling_consecutive = field.gattling_consecutive.saturating_add(1);
+                let interval = spectre_gattling_interval_frames(field.gattling_consecutive);
+                field.next_gattling_tick_frame = current_frame.saturating_add(interval);
                 field.gattling_ticks = field.gattling_ticks.saturating_add(1);
+                if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
+                    field.gattling_fire_level = 2;
+                } else if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
+                    field.gattling_fire_level = field.gattling_fire_level.max(1);
+                }
             }
             self.orbit_damage_applications_total = self
                 .orbit_damage_applications_total
@@ -2420,6 +2754,16 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: at least one gattling strafe tick applied.
     pub fn honesty_gattling_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| f.gattling_ticks > 0)
+    }
+
+    /// Residual honesty: gattling continuous-fire ramp reached MEAN or FAST.
+    pub fn honesty_gattling_continuous_fire_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.gattling_fire_level >= 1)
+    }
+
+    /// Residual honesty: howitzer continuous-fire ramp reached MEAN or FAST.
+    pub fn honesty_howitzer_continuous_fire_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.howitzer_fire_level >= 1)
     }
 
     /// Drop expired Spectre orbit fields.
@@ -3961,5 +4305,168 @@ mod tests {
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
         // Object 2 at 100 is outside howitzer and not nearest for gattling.
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
+    }
+
+    #[test]
+    fn scud_storm_anthrax_upgrade_secondary_and_poison_residual() {
+        // Base residual.
+        assert!((ScudStormAnthraxTier::Base.secondary_damage() - 150.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::Base.poison_damage_per_tick() - 15.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::Base.primary_damage() - 500.0).abs() < 0.1);
+        // Anthrax Beta upgraded: Secondary 200 + poison 25.
+        assert!((ScudStormAnthraxTier::AnthraxBeta.secondary_damage() - 200.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::AnthraxBeta.poison_damage_per_tick() - 25.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::AnthraxBeta.primary_damage() - 500.0).abs() < 0.1);
+        // Chem Gamma: Primary 550 + Secondary 200 + poison 25.
+        assert!((ScudStormAnthraxTier::AnthraxGamma.primary_damage() - 550.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::AnthraxGamma.secondary_damage() - 200.0).abs() < 0.1);
+        assert!((ScudStormAnthraxTier::AnthraxGamma.poison_damage_per_tick() - 25.0).abs() < 0.1);
+
+        assert_eq!(
+            ScudStormAnthraxTier::highest_from_upgrades(["Upgrade_GLAAnthraxBeta"]),
+            ScudStormAnthraxTier::AnthraxBeta
+        );
+        assert_eq!(
+            ScudStormAnthraxTier::highest_from_upgrades([
+                "Upgrade_GLAAnthraxBeta",
+                "Chem_Upgrade_GLAAnthraxGamma",
+            ]),
+            ScudStormAnthraxTier::AnthraxGamma
+        );
+        assert_eq!(
+            ScudStormAnthraxTier::highest_from_upgrades(["SCIENCE_Rank3"]),
+            ScudStormAnthraxTier::Base
+        );
+
+        // Damage step residual for upgraded Secondary 200.
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance_with_scud_tier(
+                HostSuperweaponKind::ScudStorm,
+                100.0,
+                ScudStormAnthraxTier::AnthraxBeta,
+            ) - 200.0)
+                .abs()
+                < 0.1
+        );
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance_with_scud_tier(
+                HostSuperweaponKind::ScudStorm,
+                0.0,
+                ScudStormAnthraxTier::AnthraxGamma,
+            ) - 550.0)
+                .abs()
+                < 0.1
+        );
+
+        // Host path: queue with Beta → secondary 200 hit + poison 25 field.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue_with_all_tiers(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            target,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+            SpectreGunshipScienceTier::Level2,
+            ScudStormAnthraxTier::AnthraxBeta,
+        );
+        assert_eq!(
+            reg.get(id).unwrap().scud_anthrax_tier,
+            ScudStormAnthraxTier::AnthraxBeta
+        );
+        let points = scud_storm_points(target);
+        // Unit in secondary ring (between 50 and 200) of first epicenter.
+        let secondary_pos = Vec3::new(points[0].x + 80.0, 0.0, points[0].z);
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::GLA, true),
+            (ObjectId(2), secondary_pos, Team::USA, true),
+        ];
+        let plans = reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        assert!(plans[0].hits.iter().any(|h| {
+            h.target_id == ObjectId(2) && (h.damage - SCUD_STORM_SECONDARY_DAMAGE_UPGRADED).abs() < 0.1
+        }));
+        reg.record_impact_wave(
+            id,
+            SCUD_STORM_SECONDARY_DAMAGE_UPGRADED,
+            1,
+            0,
+            plans[0].wave_shell_count,
+            false,
+            &plans[0].epicenters,
+        );
+        assert!(!reg.toxin_fields().is_empty());
+        let field = &reg.toxin_fields()[0];
+        assert!((field.damage_per_tick - SCUD_STORM_POISON_DAMAGE_UPGRADED).abs() < 0.1);
+        assert!((field.radius - SCUD_STORM_POISON_RADIUS).abs() < 0.1);
+    }
+
+    #[test]
+    fn spectre_continuous_fire_rof_residual_honesty() {
+        // Interval residual: base 3; MEAN floor(3/2)=1; FAST floor(3/3)=1.
+        assert_eq!(spectre_gattling_interval_frames(0), 3);
+        assert_eq!(spectre_gattling_interval_frames(1), 3);
+        assert_eq!(spectre_gattling_interval_frames(2), 1); // > ContinuousFireOne=1
+        assert_eq!(spectre_gattling_interval_frames(3), 1); // > ContinuousFireTwo=2
+        // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
+        assert_eq!(spectre_howitzer_interval_frames(0), 9);
+        assert_eq!(spectre_howitzer_interval_frames(1), 9);
+        assert_eq!(spectre_howitzer_interval_frames(2), 6);
+        assert_eq!(spectre_howitzer_interval_frames(3), 4);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert_eq!(reg.orbit_fields().len(), 1);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+
+        // Tick 1: base interval scheduled after.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_consecutive, 1);
+            assert_eq!(f.howitzer_consecutive, 1);
+            assert_eq!(f.gattling_fire_level, 0);
+            assert_eq!(f.next_gattling_tick_frame, spawn + 3);
+            assert_eq!(f.next_tick_frame, spawn + 9);
+        }
+
+        // Tick 2 at spawn+3: consecutive → MEAN for gattling.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 3);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_consecutive, 2);
+            assert_eq!(f.gattling_fire_level, 1);
+            assert_eq!(f.next_gattling_tick_frame, spawn + 3 + 1);
+            // Howitzer not due at +3 (next is spawn+9).
+            assert_eq!(f.howitzer_consecutive, 1);
+        }
+        assert!(reg.honesty_gattling_continuous_fire_ok());
+
+        // Third gattling tick → FAST.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_consecutive, 3);
+            assert_eq!(f.gattling_fire_level, 2);
+        }
+
+        // Advance howitzer to MEAN at spawn+9.
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 9);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_consecutive, 2);
+            assert_eq!(f.howitzer_fire_level, 1);
+            assert_eq!(f.next_tick_frame, spawn + 9 + 6);
+        }
+        assert!(reg.honesty_howitzer_continuous_fire_ok());
     }
 }
