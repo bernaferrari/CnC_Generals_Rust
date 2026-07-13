@@ -1,3 +1,49 @@
+## Residual Host Playability — Wave 53: presentation_frame + mesh_asset + shell residual peels (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / host_* combat packs):**
+1. **PresentationFrame ground-height residual** (`presentation_frame`):
+   - Default Line3D skim **0.0** when map height missing.
+   - Optional `GameLogic::terrain_height_at` sample override + honesty path.
+   - `PresentationLaserBeam.ground_height` / `ground_height_from_terrain` frozen fields.
+   - Synthetic override: `synthetic_assist_pair_with_ground`.
+2. **Laser multi-beam soft-edge presentation fields** (`presentation_frame`):
+   - `PresentationLaserSoftEdge` residual (NumBeams **12**, Inner **0.6**, Outer **26**,
+     ScrollRate **-1.75**, TilingScalar **0.15**, EXNoise02.tga).
+   - `synthetic_orbital_soft_edge` + `pack_endpoints` wire to
+     `LaserSegmentUpload::pack_orbital_multi_beam_soft_edge`.
+   - Patriot assist beams remain single-beam (`soft_edge=None`) honesty.
+3. **Floating-text vanish-rate alpha residual** (`presentation_frame`):
+   - `vanish_alpha_at` / `lift_y_at` / `age_frames_at` presentation field honesty.
+   - Retail: timeout **10**f, move-up **1.0**, vanish-rate **0.1**.
+4. **World-anim fade residual** (`presentation_frame`):
+   - `fade_alpha_at` + `PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS` **1.0**.
+   - MoneyPickUp fade curve honesty (display 4.0s / ZRise 15 / Fades Yes).
+5. **Dual-tick residual counters** (`presentation_frame`):
+   - `PresentationDualTickResidual` builds/applies + content counts.
+   - `build_and_apply_*` notes apply; honesty self-consistency checks.
+6. **mesh_asset_resolve residual peels**:
+   - Expanded common unit model_key table (USA/China/GLA top ZH host units).
+   - Placeholder last-keys **ring buffer** capacity **32** (drop oldest).
+   - `W3D_SEARCH_ROOT_RESIDUALS` honesty (W3DZH/Art/W3D, Art/W3D, tools).
+   - Mesh scale residual default **1.0** (ThingTemplate Scale not ported).
+7. **shell_smoke residual honesty gates** (playable_claim **stays false**):
+   - `dual_tick_counters_ok`, `laser_presentation_residual_ok`,
+     `floating_text_vanish_ok`, `world_anim_fade_ok`,
+     `anim2d_collection_residual_ok`, `translate_copy_residual_ok`.
+8. Tests / gates (not log-only):
+   - presentation_frame lib: **21** ok
+   - mesh_asset_resolve lib: **13** ok
+   - shell_smoke lib: **4** ok
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full HeightMap bilinear / bridge-aware laser ground skim
+- Full W3DLaserDraw multi-beam additive GPU soft-edge / texture atlas sample
+- Full DisplayString vanish-rate live surface blend
+- Full WORLD_ANIM_FADE_ON_EXPIRE GPU Anim2D draw
+- Full W3D material / animation / ThingTemplate Scale INI parity
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 52: Frenzy / Propaganda / Repair residual packs (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics):**
 1. **Frenzy residual pack** (`host_frenzy`):

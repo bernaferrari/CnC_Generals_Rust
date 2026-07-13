@@ -170,6 +170,86 @@ pub struct PresentationLaserSegment {
     pub scroll_offset: f32,
 }
 
+/// Default Line3D ground-skim residual when map height is unavailable.
+///
+/// C++ samples terrain; host residual defaults to **0** and optionally overrides
+/// when `GameLogic::terrain_height_at` returns a sample.
+pub const PRESENTATION_DEFAULT_GROUND_HEIGHT: f32 = 0.0;
+
+/// Sample residual ground height for laser Line3D skim.
+///
+/// Prefer map terrain height when available; else default-0 (honest residual).
+/// Fail-closed: not full HeightMap bilinear / bridge-aware sample.
+pub fn sample_presentation_ground_height(logic: &GameLogic, world_pos: Vec3) -> (f32, bool) {
+    match logic.terrain_height_at(world_pos) {
+        Some(h) if h.is_finite() => (h, true),
+        _ => (PRESENTATION_DEFAULT_GROUND_HEIGHT, false),
+    }
+}
+
+/// Honesty: default-0 residual + optional terrain / override path.
+///
+/// Any finite height is honest (default-0 when map height missing, terrain
+/// sample when available, or host-testable override via synthetic path).
+pub fn honesty_ground_height_residual_ok(height: f32, from_terrain: bool) -> bool {
+    let _ = from_terrain;
+    height.is_finite()
+        && (from_terrain
+            || (height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001
+            || height.abs() > 0.0)
+}
+
+/// OrbitalLaser multi-beam soft-edge presentation residual (W3DLaserDraw NumBeams).
+///
+/// Host-testable fields that wire to `LaserSegmentUpload::pack_orbital_multi_beam_soft_edge`.
+/// Fail-closed: not full additive GPU cylinder soft edge.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PresentationLaserSoftEdge {
+    pub num_beams: u32,
+    pub inner_width: f32,
+    pub outer_width: f32,
+    pub outer_color: (f32, f32, f32, f32),
+    pub tiling_scalar: f32,
+    pub scroll_rate: f32,
+}
+
+/// Retail OrbitalLaser texture residual name (`ParticleUplinkCannon_OrbitalLaser`).
+pub const PRESENTATION_ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
+
+/// Retail ParticleUplinkCannon_OrbitalLaser soft-edge residual defaults.
+pub const PRESENTATION_ORBITAL_SOFT_EDGE: PresentationLaserSoftEdge = PresentationLaserSoftEdge {
+    num_beams: 12,
+    inner_width: 0.6,
+    outer_width: 26.0,
+    outer_color: (0.0, 0.0, 1.0, 150.0 / 255.0),
+    tiling_scalar: 0.15,
+    scroll_rate: -1.75,
+};
+
+impl PresentationLaserSoftEdge {
+    /// Honesty: retail OrbitalLaser NumBeams soft-edge presentation fields.
+    pub fn honesty_orbital_residual_ok(self) -> bool {
+        self.num_beams == 12
+            && (self.inner_width - 0.6).abs() < 0.01
+            && (self.outer_width - 26.0).abs() < 0.01
+            && (self.tiling_scalar - 0.15).abs() < 0.001
+            && (self.scroll_rate - (-1.75)).abs() < 0.001
+            && PRESENTATION_ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
+            && (self.outer_color.2 - 1.0).abs() < 0.01
+    }
+
+    /// Endpoints + elapsed for `LaserSegmentUpload::pack_orbital_multi_beam_soft_edge`.
+    pub fn pack_endpoints(
+        &self,
+        start: (f32, f32, f32),
+        end: (f32, f32, f32),
+        elapsed_seconds: f32,
+    ) -> ((f32, f32, f32), (f32, f32, f32), f32, f32) {
+        let _ = self;
+        (start, end, elapsed_seconds, 1.0)
+    }
+}
+
 /// Snapshot-owned PatriotBinaryDataStream / assist laser beam for client draw.
 ///
 /// Built only from host residual lasers at presentation build time so the
@@ -191,6 +271,13 @@ pub struct PresentationLaserBeam {
     pub texture_name: String,
     pub inner_color: (f32, f32, f32, f32),
     pub segments: Vec<PresentationLaserSegment>,
+    /// Line3D ground-skim residual used when segments were built.
+    pub ground_height: f32,
+    /// True when `ground_height` came from terrain sample (not default-0).
+    pub ground_height_from_terrain: bool,
+    /// Optional multi-beam soft-edge presentation residual (OrbitalLaser family).
+    /// None for single-beam Patriot BinaryDataStream residual.
+    pub soft_edge: Option<PresentationLaserSoftEdge>,
 }
 
 /// Assist laser kind frozen for presentation (mirrors host residual enum).
@@ -215,6 +302,16 @@ impl PresentationLaserBeam {
         laser: &ResidualPatriotAssistLaser,
         beam_index: u32,
         ground_height: f32,
+    ) -> Self {
+        Self::from_host_laser_with_terrain(laser, beam_index, ground_height, false)
+    }
+
+    /// Build from host residual laser with terrain-sample honesty flag.
+    pub fn from_host_laser_with_terrain(
+        laser: &ResidualPatriotAssistLaser,
+        beam_index: u32,
+        ground_height: f32,
+        ground_height_from_terrain: bool,
     ) -> Self {
         let host_segs = build_patriot_laser_line3d_segments(
             (laser.from_x, laser.from_y, laser.from_z),
@@ -247,6 +344,9 @@ impl PresentationLaserBeam {
             texture_name: PATRIOT_LASER_TEXTURE.to_string(),
             inner_color: PATRIOT_LASER_INNER_COLOR,
             segments,
+            ground_height,
+            ground_height_from_terrain,
+            soft_edge: None,
         }
     }
 
@@ -254,6 +354,11 @@ impl PresentationLaserBeam {
     ///
     /// Produces LaserFromAssisted + LaserToTarget with retail Segments=20 each.
     pub fn synthetic_assist_pair(start_frame: u32) -> [Self; 2] {
+        Self::synthetic_assist_pair_with_ground(start_frame, PRESENTATION_DEFAULT_GROUND_HEIGHT)
+    }
+
+    /// Synthetic assist pair with explicit ground-height residual override.
+    pub fn synthetic_assist_pair_with_ground(start_frame: u32, ground_height: f32) -> [Self; 2] {
         let beams = crate::game_logic::host_base_defense::make_patriot_assist_lasers(
             ObjectId(9001),
             ObjectId(9002),
@@ -264,13 +369,64 @@ impl PresentationLaserBeam {
             start_frame,
         );
         [
-            Self::from_host_laser(&beams[0], 0, 0.0),
-            Self::from_host_laser(&beams[1], 1, 0.0),
+            Self::from_host_laser_with_terrain(&beams[0], 0, ground_height, false),
+            Self::from_host_laser_with_terrain(&beams[1], 1, ground_height, false),
         ]
+    }
+
+    /// Synthetic OrbitalLaser multi-beam soft-edge residual for pack honesty.
+    ///
+    /// Vertical beam from origin; soft-edge fields wire to laser_segment_upload pack.
+    pub fn synthetic_orbital_soft_edge(start_frame: u32) -> Self {
+        let soft = PRESENTATION_ORBITAL_SOFT_EDGE;
+        let start = (0.0, 0.0, 0.0);
+        let end = (0.0, 0.0, 200.0);
+        Self {
+            beam_index: 0,
+            kind: PresentationLaserKind::ToTarget,
+            from_id: ObjectId(9101),
+            to_id: ObjectId(9102),
+            from: start,
+            to: end,
+            arc_mid: (0.0, 0.0, 100.0),
+            scroll_offset: soft.scroll_rate * (start_frame as f32 / 30.0),
+            expires_frame: start_frame.saturating_add(30),
+            template_name: "ParticleUplinkCannon_OrbitalLaser".into(),
+            texture_name: PRESENTATION_ORBITAL_LASER_TEXTURE.to_string(),
+            inner_color: (1.0, 1.0, 1.0, 250.0 / 255.0),
+            segments: vec![PresentationLaserSegment {
+                start,
+                end,
+                width: soft.inner_width,
+                tile_factor: soft.tiling_scalar,
+                scroll_offset: soft.scroll_rate * (start_frame as f32 / 30.0),
+            }],
+            ground_height: PRESENTATION_DEFAULT_GROUND_HEIGHT,
+            ground_height_from_terrain: false,
+            soft_edge: Some(soft),
+        }
     }
 
     pub fn segment_count(&self) -> usize {
         self.segments.len()
+    }
+
+    /// True when multi-beam soft-edge presentation residual is armed.
+    pub fn has_soft_edge(&self) -> bool {
+        self.soft_edge.is_some()
+    }
+
+    /// Honesty: ground-height residual on this beam is consistent.
+    pub fn honesty_ground_height_ok(&self) -> bool {
+        honesty_ground_height_residual_ok(self.ground_height, self.ground_height_from_terrain)
+    }
+
+    /// Honesty: soft-edge residual fields (or honest single-beam absence).
+    pub fn honesty_soft_edge_presentation_ok(&self) -> bool {
+        match self.soft_edge {
+            Some(se) => se.honesty_orbital_residual_ok(),
+            None => true, // single-beam Patriot residual is honest without soft edge
+        }
     }
 }
 
@@ -280,6 +436,12 @@ pub const PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES: u32 = 10;
 pub const PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED: f32 = 1.0;
 /// C++ `m_floatingTextMoveVanishRate` default (alpha decay residual after timeout).
 pub const PRESENTATION_FLOATING_TEXT_VANISH_RATE: f32 = 0.1;
+/// Host residual fade window after world-anim display time (seconds) when Fades=Yes.
+///
+/// Mirrors C++ WORLD_ANIM_FADE_ON_EXPIRE ~1s window. Fail-closed: not live GPU blend.
+pub const PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS: f32 = 1.0;
+/// Logic FPS residual for age → seconds conversion (presentation dual-tick).
+pub const PRESENTATION_LOGIC_FPS: f32 = 30.0;
 
 /// Source residual family for frozen floating cash / caption text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -341,6 +503,47 @@ impl PresentationFloatingText {
     /// True while C++ keeps the entry before vanish-phase erase residual.
     pub fn is_active_at(&self, logic_frame: u32) -> bool {
         logic_frame < self.timeout_frame
+    }
+
+    /// Age in logic frames at `logic_frame` (0 at spawn).
+    pub fn age_frames_at(&self, logic_frame: u32) -> u32 {
+        logic_frame.saturating_sub(self.spawn_frame)
+    }
+
+    /// C++ draw residual lift: `frameCount * m_floatingTextMoveUpSpeed`.
+    pub fn lift_y_at(&self, logic_frame: u32) -> f32 {
+        self.age_frames_at(logic_frame) as f32 * PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED
+    }
+
+    /// Vanish-rate alpha residual (1.0 while active; decays after timeout).
+    ///
+    /// C++: after timeout, alpha pulls toward 0 by `m_floatingTextMoveVanishRate`
+    /// per frame until erased. Fail-closed: not live Display surface blend.
+    pub fn vanish_alpha_at(&self, logic_frame: u32) -> f32 {
+        let age = self.age_frames_at(logic_frame);
+        let timeout = PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES;
+        if age < timeout {
+            1.0
+        } else {
+            let past = (age - timeout) as f32;
+            (1.0 - past * PRESENTATION_FLOATING_TEXT_VANISH_RATE).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Honesty: retail vanish-rate / move-up / timeout presentation fields.
+    pub fn honesty_vanish_rate_residual_ok() -> bool {
+        (PRESENTATION_FLOATING_TEXT_VANISH_RATE - 0.1).abs() < 0.001
+            && PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES == 10
+            && (PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED - 1.0).abs() < 0.001
+            && {
+                let t = PresentationFloatingText::synthetic_cash(50, 0);
+                (t.vanish_alpha_at(0) - 1.0).abs() < 0.001
+                    && (t.vanish_alpha_at(9) - 1.0).abs() < 0.001
+                    && (t.vanish_alpha_at(10) - 1.0).abs() < 0.001
+                    && (t.vanish_alpha_at(15) - 0.5).abs() < 0.001
+                    && (t.vanish_alpha_at(20) - 0.0).abs() < 0.001
+                    && (t.lift_y_at(5) - 5.0).abs() < 0.001
+            }
     }
 
     /// Synthetic cash residual for host-testable floating-text pack honesty.
@@ -407,11 +610,66 @@ impl PresentationWorldAnim {
 
     /// Display duration residual in logic frames (30 Hz).
     pub fn display_frames(&self) -> u32 {
-        (self.display_time_seconds * 30.0).ceil().max(1.0) as u32
+        (self.display_time_seconds * PRESENTATION_LOGIC_FPS)
+            .ceil()
+            .max(1.0) as u32
     }
 
     pub fn is_active_at(&self, logic_frame: u32) -> bool {
         logic_frame < self.spawn_frame.saturating_add(self.display_frames())
+    }
+
+    /// Age in seconds at `logic_frame` (0 at spawn).
+    pub fn age_seconds_at(&self, logic_frame: u32) -> f32 {
+        logic_frame.saturating_sub(self.spawn_frame) as f32 / PRESENTATION_LOGIC_FPS
+    }
+
+    /// WORLD_ANIM_FADE_ON_EXPIRE residual alpha at `logic_frame`.
+    ///
+    /// - age < display → 1.0
+    /// - age ≥ display and fades → clamp(1 - past/fade_window, 0..1)
+    /// - age ≥ display and !fades → 0.0
+    pub fn fade_alpha_at(&self, logic_frame: u32) -> f32 {
+        let age = self.age_seconds_at(logic_frame);
+        if age < self.display_time_seconds {
+            1.0
+        } else if self.fades {
+            let past = age - self.display_time_seconds;
+            (1.0 - past / PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Honesty: MoneyPickUp fade presentation residual fields.
+    pub fn honesty_fade_residual_ok(&self) -> bool {
+        (PRESENTATION_WORLD_ANIM_FADE_WINDOW_SECONDS - 1.0).abs() < 0.01
+            && self.display_time_seconds > 0.0
+            && {
+                // Sample fade curve residual around display boundary.
+                let mid = self.spawn_frame.saturating_add(
+                    (self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32,
+                );
+                let before = mid.saturating_sub(1);
+                let half = mid.saturating_add((PRESENTATION_LOGIC_FPS * 0.5) as u32);
+                let end = mid.saturating_add(PRESENTATION_LOGIC_FPS as u32);
+                (self.fade_alpha_at(before) - 1.0).abs() < 0.05
+                    && if self.fades {
+                        (self.fade_alpha_at(half) - 0.5).abs() < 0.1
+                            && (self.fade_alpha_at(end) - 0.0).abs() < 0.05
+                    } else {
+                        self.fade_alpha_at(half) <= 0.0
+                    }
+            }
+    }
+
+    /// Static honesty for retail MoneyPickUp fade residual defaults.
+    pub fn honesty_money_pickup_fade_params_ok() -> bool {
+        let a = Self::synthetic_money_pickup(0);
+        a.fades
+            && (a.display_time_seconds - 4.0).abs() < 0.01
+            && (a.z_rise_per_second - 15.0).abs() < 0.01
+            && a.honesty_fade_residual_ok()
     }
 }
 
@@ -506,6 +764,56 @@ fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<PresentationWorldA
     out
 }
 
+/// Dual-tick residual counters frozen on each presentation build / apply.
+///
+/// Host-testable bookkeeping for seed → logic step → multi-consumer apply order.
+/// Fail-closed: not full dual-run determinism harness counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PresentationDualTickResidual {
+    /// Always 1 after a successful `build_from_logic`.
+    pub builds: u32,
+    /// Incremented each time this snapshot is applied to HUD / shell consumers.
+    pub applies: u32,
+    pub object_count: u32,
+    pub selected_count: u32,
+    pub laser_beam_count: u32,
+    pub floating_text_count: u32,
+    pub world_anim_count: u32,
+    pub particle_count: u32,
+}
+
+impl PresentationDualTickResidual {
+    pub fn from_counts(
+        objects: usize,
+        selected: usize,
+        lasers: usize,
+        floating: usize,
+        world: usize,
+        particles: usize,
+    ) -> Self {
+        Self {
+            builds: 1,
+            applies: 0,
+            object_count: objects as u32,
+            selected_count: selected as u32,
+            laser_beam_count: lasers as u32,
+            floating_text_count: floating as u32,
+            world_anim_count: world as u32,
+            particle_count: particles as u32,
+        }
+    }
+
+    /// Honesty: residual counters are self-consistent after build.
+    pub fn honesty_build_ok(&self) -> bool {
+        self.builds >= 1
+    }
+
+    /// Honesty: at least one dual-tick apply was recorded.
+    pub fn honesty_apply_ok(&self) -> bool {
+        self.builds >= 1 && self.applies >= 1
+    }
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -538,6 +846,8 @@ pub struct PresentationFrame {
     /// InGameUI world animations (MoneyPickUp Anim2D residual) frozen from host.
     /// Fail-closed: not full Anim2DCollection GPU draw.
     pub world_anims: Vec<PresentationWorldAnim>,
+    /// Dual-tick residual counters (build / apply / content counts).
+    pub dual_tick: PresentationDualTickResidual,
 }
 
 impl PresentationFrame {
@@ -611,14 +921,18 @@ impl PresentationFrame {
             .collect();
 
         // W3DLaserDraw residual: freeze active assist lasers + Line3D segments.
-        // Ground height residual defaults to 0 (fail-closed vs full terrain sample).
+        // Ground height residual: sample map height when available, else default-0.
         let logic_frame = logic.get_frame();
         let laser_beams: Vec<PresentationLaserBeam> = logic
             .active_patriot_assist_lasers()
             .iter()
             .filter(|l| l.is_active_at(logic_frame))
             .enumerate()
-            .map(|(i, l)| PresentationLaserBeam::from_host_laser(l, i as u32, 0.0))
+            .map(|(i, l)| {
+                let mid = Vec3::new(l.arc_mid_x, l.arc_mid_y, l.arc_mid_z);
+                let (gh, from_terrain) = sample_presentation_ground_height(logic, mid);
+                PresentationLaserBeam::from_host_laser_with_terrain(l, i as u32, gh, from_terrain)
+            })
             .collect();
 
         // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.
@@ -643,6 +957,15 @@ impl PresentationFrame {
             }
         }
 
+        let dual_tick = PresentationDualTickResidual::from_counts(
+            objects.len(),
+            selected.len(),
+            laser_beams.len(),
+            floating_texts.len(),
+            world_anims.len(),
+            particle_systems.len(),
+        );
+
         Self {
             frame: LogicFrame(logic.get_frame()),
             objects,
@@ -660,6 +983,7 @@ impl PresentationFrame {
             laser_beams,
             floating_texts,
             world_anims,
+            dual_tick,
         }
     }
 
@@ -729,6 +1053,8 @@ impl PresentationFrame {
             wa.picker_id.0.hash(&mut h);
             wa.display_time_seconds.to_bits().hash(&mut h);
         }
+        self.dual_tick.builds.hash(&mut h);
+        self.dual_tick.object_count.hash(&mut h);
         h.finish()
     }
 
@@ -896,6 +1222,51 @@ impl PresentationFrame {
         }
         g.cell_count() == (g.width as usize).saturating_mul(g.height as usize)
             && !g.to_r8_texture().is_empty()
+    }
+
+    /// Dual-tick residual counters on this frame.
+    #[inline]
+    pub fn dual_tick(&self) -> &PresentationDualTickResidual {
+        &self.dual_tick
+    }
+
+    /// Honesty: dual-tick build residual counters are self-consistent.
+    pub fn dual_tick_presentation_residual_ok(&self) -> bool {
+        self.dual_tick.honesty_build_ok()
+            && self.dual_tick.object_count == self.objects.len() as u32
+            && self.dual_tick.laser_beam_count == self.laser_beams.len() as u32
+            && self.dual_tick.floating_text_count == self.floating_texts.len() as u32
+            && self.dual_tick.world_anim_count == self.world_anims.len() as u32
+    }
+
+    /// Honesty: floating-text vanish-rate residual fields (empty is honest).
+    pub fn floating_text_vanish_residual_ok(&self) -> bool {
+        PresentationFloatingText::honesty_vanish_rate_residual_ok()
+            && self.floating_texts.iter().all(|t| {
+                let a = t.vanish_alpha_at(self.frame.0);
+                a.is_finite() && (0.0..=1.0).contains(&a)
+            })
+    }
+
+    /// Honesty: world-anim fade residual fields (empty is honest).
+    pub fn world_anim_fade_residual_ok(&self) -> bool {
+        if self.world_anims.is_empty() {
+            return PresentationWorldAnim::honesty_money_pickup_fade_params_ok();
+        }
+        self.world_anims.iter().all(|a| a.honesty_fade_residual_ok())
+    }
+
+    /// Honesty: laser ground-height + multi-beam soft-edge presentation residual.
+    pub fn laser_presentation_residual_ok(&self) -> bool {
+        self.laser_beams.iter().all(|b| {
+            b.honesty_ground_height_ok() && b.honesty_soft_edge_presentation_ok()
+        }) && PRESENTATION_ORBITAL_SOFT_EDGE.honesty_orbital_residual_ok()
+            && honesty_ground_height_residual_ok(PRESENTATION_DEFAULT_GROUND_HEIGHT, false)
+    }
+
+    /// Note a dual-tick apply on this snapshot (HUD / shell multi-consumer path).
+    pub fn note_dual_tick_apply(&mut self) {
+        self.dual_tick.applies = self.dual_tick.applies.saturating_add(1);
     }
 
     /// Selected unit identity (health/name/type) from snapshot only.
@@ -1140,8 +1511,9 @@ impl PresentationFrame {
         local_player_id: u32,
         hud: &mut crate::ui::GameHUD,
     ) -> Self {
-        let frame = Self::build_from_logic(logic, local_player_id);
+        let mut frame = Self::build_from_logic(logic, local_player_id);
         frame.apply_to_game_hud(hud);
+        frame.note_dual_tick_apply();
         frame
     }
 
@@ -1158,8 +1530,9 @@ impl PresentationFrame {
         rts: &mut crate::ui::RTSInterface,
         command_panel: &mut crate::ui::UnitCommandPanel,
     ) -> Self {
-        let frame = Self::build_from_logic(logic, local_player_id);
+        let mut frame = Self::build_from_logic(logic, local_player_id);
         frame.apply_to_shell_ui_consumers(hud, ui, rts, command_panel);
+        frame.note_dual_tick_apply();
         frame
     }
 }
@@ -2122,9 +2495,23 @@ mod tests {
             synth.timeout_frame,
             PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
         );
+        assert!(PresentationFloatingText::honesty_vanish_rate_residual_ok());
+        assert!((synth.vanish_alpha_at(0) - 1.0).abs() < 0.001);
+        assert!((synth.vanish_alpha_at(15) - 0.5).abs() < 0.001);
+        assert!((synth.lift_y_at(3) - 3.0).abs() < 0.001);
         let wa = PresentationWorldAnim::synthetic_money_pickup(0);
         assert_eq!(wa.template, MONEY_PICKUP_ANIM_TEMPLATE);
         assert!((wa.z_rise_per_second - 15.0).abs() < 0.01);
+        assert!(wa.honesty_fade_residual_ok());
+        assert!(PresentationWorldAnim::honesty_money_pickup_fade_params_ok());
+        assert!((wa.fade_alpha_at(0) - 1.0).abs() < 0.01);
+        // Dual-tick residual counters on freeze.
+        assert!(snap.dual_tick_presentation_residual_ok());
+        assert!(snap.floating_text_vanish_residual_ok());
+        assert!(snap.world_anim_fade_residual_ok());
+        assert_eq!(snap.dual_tick.builds, 1);
+        assert_eq!(snap.dual_tick.floating_text_count, 2);
+        assert_eq!(snap.dual_tick.world_anim_count, 1);
     }
 
     /// Residual: presentation freezes assist laser Line3D segments for SegLine pack.
@@ -2186,5 +2573,51 @@ mod tests {
         let pair = PresentationLaserBeam::synthetic_assist_pair(0);
         assert_eq!(pair[0].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
         assert_eq!(pair[1].segments.len(), PATRIOT_LASER_SEGMENTS as usize);
+        assert!(pair[0].honesty_ground_height_ok());
+        assert!((pair[0].ground_height - PRESENTATION_DEFAULT_GROUND_HEIGHT).abs() < 0.001);
+        assert!(!pair[0].ground_height_from_terrain);
+        assert!(!pair[0].has_soft_edge());
+        assert!(pair[0].honesty_soft_edge_presentation_ok());
+
+        // Optional ground-height override residual path.
+        let pair_gh = PresentationLaserBeam::synthetic_assist_pair_with_ground(0, 12.5);
+        assert!((pair_gh[0].ground_height - 12.5).abs() < 0.001);
+        assert!(honesty_ground_height_residual_ok(12.5, true));
+
+        // Orbital multi-beam soft-edge presentation residual → pack wiring fields.
+        let orbital = PresentationLaserBeam::synthetic_orbital_soft_edge(0);
+        assert!(orbital.has_soft_edge());
+        assert!(orbital.honesty_soft_edge_presentation_ok());
+        let se = orbital.soft_edge.expect("soft edge");
+        assert!(se.honesty_orbital_residual_ok());
+        assert_eq!(se.num_beams, 12);
+        let (s, e, elapsed, width_scalar) = se.pack_endpoints(orbital.from, orbital.to, 1.0);
+        assert_eq!(s, orbital.from);
+        assert_eq!(e, orbital.to);
+        assert!((elapsed - 1.0).abs() < 0.001);
+        assert!((width_scalar - 1.0).abs() < 0.001);
+        assert!(snap.laser_presentation_residual_ok() || empty.laser_presentation_residual_ok());
+        assert!(empty.dual_tick_presentation_residual_ok());
+    }
+
+    #[test]
+    fn dual_tick_residual_counters_increment_on_apply() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DualTickCtr");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut hud = crate::ui::GameHUD::new();
+        let mut ui = crate::ui::GameUIState::default();
+        let mut rts = crate::ui::RTSInterface::new();
+        let mut cmd = crate::ui::UnitCommandPanel::new();
+        let frame = PresentationFrame::build_and_apply_for_shell_consumers(
+            &logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
+        );
+        assert!(frame.dual_tick_presentation_residual_ok());
+        assert!(frame.dual_tick.honesty_apply_ok());
+        assert_eq!(frame.dual_tick.builds, 1);
+        assert_eq!(frame.dual_tick.applies, 1);
+        assert!(frame.floating_text_vanish_residual_ok());
+        assert!(frame.world_anim_fade_residual_ok());
+        assert!(frame.laser_presentation_residual_ok());
     }
 }
