@@ -134,14 +134,18 @@ pub use host_avenger::{
 };
 pub use host_base_defense::{
     gattling_building_air_weapon, gattling_building_ground_weapon, is_base_defense_structure,
-    is_dual_slot_base_defense, is_gattling_cannon_structure, is_legal_base_defense_target,
-    is_patriot_battery_structure, is_stinger_site_structure, patriot_air_weapon,
-    patriot_ground_weapon, preferred_dual_defense_slot, preferred_gattling_building_slot,
-    primary_weapon_name_for_defense, secondary_weapon_name_for_defense, stinger_air_weapon,
-    stinger_ground_weapon, GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
+    is_dual_slot_base_defense, is_gattling_cannon_structure, is_laser_patriot_template,
+    is_legal_base_defense_target, is_patriot_battery_structure, is_stinger_site_structure,
+    patriot_air_weapon, patriot_air_weapon_for_template, patriot_ground_weapon,
+    patriot_ground_weapon_for_template, preferred_dual_defense_slot,
+    preferred_gattling_building_slot, primary_weapon_name_for_defense,
+    secondary_weapon_name_for_defense, stinger_air_weapon, stinger_ground_weapon,
+    GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
     GATTLING_BUILDING_GROUND_DAMAGE, GATTLING_BUILDING_GROUND_RANGE,
-    GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
-    PATRIOT_SECONDARY_WEAPON, STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
+    GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON,
+    LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON,
+    LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+    STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
 };
 pub use host_battle_bus::{
     battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
@@ -430,8 +434,9 @@ pub use host_troop_crawler::{
     TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
 };
 pub use host_tunnel_network::{
-    is_tunnel_network_template, unit_can_use_tunnel, HostTunnelNetworkRegistry,
-    MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES,
+    is_tunnel_network_template, tunnel_network_gun_weapon, unit_can_use_tunnel,
+    HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
+    TUNNEL_NETWORK_GUN_DAMAGE, TUNNEL_NETWORK_GUN_RANGE,
 };
 pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
@@ -441,8 +446,10 @@ pub use host_usa_pilot::{
     HostUsaPilotRegistry, PILOT_RECREW_AUDIO,
 };
 pub use host_usa_tanks::{
-    is_composite_armor_unit_template, is_crusader_template, is_paladin_template, CRUSADER_TANK_GUN,
-    PALADIN_TANK_GUN, UPGRADE_AMERICA_COMPOSITE_ARMOR,
+    is_composite_armor_unit_template, is_crusader_template, is_laser_general_tank_template,
+    is_paladin_template, usa_tank_gun_weapon_for_template, CRUSADER_TANK_GUN,
+    LAZR_CRUSADER_TANK_GUN, LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN,
+    LAZR_PALADIN_TANK_GUN_DAMAGE, PALADIN_TANK_GUN, UPGRADE_AMERICA_COMPOSITE_ARMOR,
 };
 pub use locomotor_bootstrap::{
     ensure_host_locomotor_store, locomotor_name_for_unit, resolve_host_movement,

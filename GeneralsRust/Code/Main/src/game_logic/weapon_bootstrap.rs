@@ -78,10 +78,18 @@ pub const AVENGER_POINT_DEFENSE_LASER: &str = "AvengerPointDefenseLaserOne";
 /// Retail America main battle tank guns + Avenger residual weapons.
 pub const CRUSADER_TANK_GUN: &str = "CrusaderTankGun";
 pub const PALADIN_TANK_GUN: &str = "PaladinTankGun";
+/// Retail Laser General tank laser residual weapons.
+pub const LAZR_CRUSADER_TANK_GUN: &str = "Lazr_CrusaderTankGun";
+pub const LAZR_PALADIN_TANK_GUN: &str = "Lazr_PaladinTankGun";
 pub const AVENGER_TARGET_DESIGNATOR: &str = "AvengerTargetDesignator";
 pub const AVENGER_AIR_LASER: &str = "AvengerAirLaserOne";
 /// Retail Humvee TOW air tertiary residual.
 pub const HUMVEE_MISSILE_WEAPON_AIR: &str = "HumveeMissileWeaponAir";
+/// Retail Laser General Patriot residual weapons.
+pub const LAZR_PATRIOT_PRIMARY_WEAPON: &str = "Lazr_PatriotMissileWeapon";
+pub const LAZR_PATRIOT_SECONDARY_WEAPON: &str = "Lazr_PatriotMissileWeaponAir";
+/// Retail GLA Tunnel Network structure gun residual.
+pub const TUNNEL_NETWORK_GUN: &str = "TunnelNetworkGun";
 
 /// Retail StealthJetMissileWeapon residual (Bunker Buster carrier primary).
 pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
@@ -259,9 +267,11 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" | "TestCrusader" => {
             Some(CRUSADER_TANK_GUN)
         }
+        "Lazr_AmericaTankCrusader" | "TestLazrCrusader" => Some(LAZR_CRUSADER_TANK_GUN),
         "USA_Paladin" | "USA_PaladinTank" | "AmericaTankPaladin" | "TestPaladin" => {
             Some(PALADIN_TANK_GUN)
         }
+        "Lazr_AmericaTankPaladin" | "TestLazrPaladin" => Some(LAZR_PALADIN_TANK_GUN),
         "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
             Some(AVENGER_TARGET_DESIGNATOR)
         }
@@ -271,6 +281,16 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AmericaPatriotBattery"
         | "PatriotMissile"
         | "TestPatriot" => Some(PATRIOT_PRIMARY_WEAPON),
+        "Lazr_AmericaPatriotBattery"
+        | "Lazr_PatriotMissileSystem"
+        | "TestLazrPatriot" => Some(LAZR_PATRIOT_PRIMARY_WEAPON),
+        "GLATunnelNetwork"
+        | "GLA_TunnelNetwork"
+        | "Demo_GLATunnelNetwork"
+        | "Chem_GLATunnelNetwork"
+        | "Slth_GLATunnelNetwork"
+        | "GLASneakAttackTunnelNetwork"
+        | "TestTunnelNetwork" => Some(TUNNEL_NETWORK_GUN),
         "GLA_StingerSite"
         | "GLAStingerSite"
         | "Chem_GLAStingerSite"
@@ -636,6 +656,9 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "AmericaPatriotBattery"
         | "PatriotMissile"
         | "TestPatriot" => Some(PATRIOT_SECONDARY_WEAPON),
+        "Lazr_AmericaPatriotBattery"
+        | "Lazr_PatriotMissileSystem"
+        | "TestLazrPatriot" => Some(LAZR_PATRIOT_SECONDARY_WEAPON),
         "GLA_StingerSite"
         | "GLAStingerSite"
         | "Chem_GLAStingerSite"
@@ -703,7 +726,12 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             } else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
                 template_name,
             ) {
-                Some(PATRIOT_SECONDARY_WEAPON)
+                Some(
+                    crate::game_logic::host_base_defense::secondary_weapon_name_for_defense(
+                        template_name,
+                    )
+                    .unwrap_or(PATRIOT_SECONDARY_WEAPON),
+                )
             } else if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name)
             {
                 Some(STINGER_SECONDARY_WEAPON)
@@ -977,6 +1005,55 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 300.0,
+        },
+        // Lazr_CrusaderTankGun PRIMARY — PrimaryDamage 80, AttackRange 150,
+        // DelayBetweenShots 2000ms → 60 frames. Instant laser residual.
+        SeedWeapon {
+            name: LAZR_CRUSADER_TANK_GUN,
+            primary_damage: 80.0,
+            attack_range: 150.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 99999.0,
+        },
+        // Lazr_PaladinTankGun PRIMARY — PrimaryDamage 70, AttackRange 150,
+        // DelayBetweenShots 1000ms → 30 frames.
+        SeedWeapon {
+            name: LAZR_PALADIN_TANK_GUN,
+            primary_damage: 70.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 99999.0,
+        },
+        // Lazr_PatriotMissileWeapon PRIMARY — PrimaryDamage 40, Range 225,
+        // ClipReload residual cadence 2000ms → 60 frames.
+        SeedWeapon {
+            name: LAZR_PATRIOT_PRIMARY_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 225.0,
+            delay_frames: 60,
+            clip_size: 3,
+            weapon_speed: 999999.0,
+        },
+        // Lazr_PatriotMissileWeaponAir residual secondary — PrimaryDamage 35, Range 350.
+        SeedWeapon {
+            name: LAZR_PATRIOT_SECONDARY_WEAPON,
+            primary_damage: 35.0,
+            attack_range: 350.0,
+            delay_frames: 60,
+            clip_size: 4,
+            weapon_speed: 999999.0,
+        },
+        // TunnelNetworkGun PRIMARY — PrimaryDamage 15, Range 175,
+        // DelayBetweenShots 250ms → 8 frames.
+        SeedWeapon {
+            name: TUNNEL_NETWORK_GUN,
+            primary_damage: 15.0,
+            attack_range: 175.0,
+            delay_frames: 8,
+            clip_size: 0,
+            weapon_speed: 600.0,
         },
         // AvengerTargetDesignator PRIMARY — STATUS paint residual (0 HP dmg).
         // PrimaryDamage in retail is duration ms; host residual damage=0.
@@ -1624,6 +1701,7 @@ fn seed_known_host_weapons() -> usize {
         }
         // Base-defense AA secondaries: airborne only residual.
         if seed.name == PATRIOT_SECONDARY_WEAPON
+            || seed.name == LAZR_PATRIOT_SECONDARY_WEAPON
             || seed.name == STINGER_SECONDARY_WEAPON
             || seed.name == GATTLING_BUILDING_SECONDARY_WEAPON
         {
@@ -1635,9 +1713,17 @@ fn seed_known_host_weapons() -> usize {
         if seed.name == STINGER_PRIMARY_WEAPON
             || seed.name == PATRIOT_PRIMARY_WEAPON
             || seed.name == PATRIOT_SECONDARY_WEAPON
+            || seed.name == LAZR_PATRIOT_PRIMARY_WEAPON
+            || seed.name == LAZR_PATRIOT_SECONDARY_WEAPON
             || seed.name == STINGER_SECONDARY_WEAPON
         {
-            t.primary_damage_radius = 5.0;
+            t.primary_damage_radius = if seed.name == LAZR_PATRIOT_PRIMARY_WEAPON
+                || seed.name == LAZR_PATRIOT_SECONDARY_WEAPON
+            {
+                3.0
+            } else {
+                5.0
+            };
         }
         if seed.name == STINGER_SECONDARY_WEAPON {
             t.primary_damage_radius = 10.0;
