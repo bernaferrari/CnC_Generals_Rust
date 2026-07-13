@@ -2077,6 +2077,10 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
+        use crate::game_logic::host_hero_abilities::{
+            can_capture_without_upgrade, is_black_lotus_template,
+        };
+
         let (building_pos, is_structure, is_alive, is_under_construction, target_team) =
             match self.game_logic.get_object(target_id) {
                 Some(building) => (
@@ -2103,7 +2107,10 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .get_object(unit_id)
                 .map(|unit| {
-                    let capture_ability = unit.is_hero()
+                    let is_lotus = is_black_lotus_template(&unit.template_name);
+                    // Black Lotus / heroes capture without infantry Capture research.
+                    // Regular infantry require completed CaptureBuilding upgrade.
+                    let capture_ability = can_capture_without_upgrade(unit.is_hero(), is_lotus)
                         || (unit.is_kind_of(KindOf::Infantry)
                             && self
                                 .game_logic
@@ -2355,23 +2362,54 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// Black Lotus residual: steal cash from enemy supply/cash building.
+    ///
+    /// Fail-closed: only Black Lotus templates; target must be residual
+    /// cash generator (C++ KINDOF_CASH_GENERATOR). StartAbilityRange 150
+    /// resolved on reach in GameLogic SpecialAbility update.
     fn execute_steal_cash_hack(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_structure) =
-            match self.game_logic.get_object(target_id) {
-                Some(target) => (
-                    target.team,
-                    target.get_position(),
-                    target.is_alive(),
-                    target.is_kind_of(KindOf::Structure),
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
+        use crate::game_logic::host_hero_abilities::{
+            can_activate_black_lotus_ability, is_black_lotus_template, is_cash_hack_target,
+            is_legal_steal_cash_target,
+        };
 
-        if !target_alive || !target_is_structure || target_team == Team::Neutral {
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            is_cash_generator,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Structure),
+                target.status.under_construction,
+                is_cash_hack_target(
+                    &target.template_name,
+                    target.is_kind_of(KindOf::SupplyCenter),
+                    target.is_kind_of(KindOf::FSSupplyCenter),
+                    target.is_kind_of(KindOf::FSBlackMarket),
+                    target.is_kind_of(KindOf::FSSupplyDropzone),
+                ),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        // Target residual: enemy cash generator structure (not under construction).
+        // Per-unit enemy check below; here require non-neutral cash structure.
+        if !is_legal_steal_cash_target(
+            target_alive,
+            target_is_structure,
+            target_under_construction,
+            target_team != Team::Neutral,
+            is_cash_generator,
+        ) {
             return CommandResult::InvalidTarget;
         }
 
@@ -2381,7 +2419,14 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .get_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .map(|unit| {
+                    can_activate_black_lotus_ability(
+                        is_black_lotus_template(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;
@@ -2415,13 +2460,20 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// Black Lotus residual: disable enemy ground vehicle (DISABLED_HACKED).
+    ///
+    /// Fail-closed: only Black Lotus templates. C++ ActionManager
+    /// canDisableVehicleViaHacking residual: enemy ground vehicle, not already
+    /// hacked-disabled, not unmanned. StartAbilityRange 150 on reach.
     fn execute_disable_vehicle_hack(
         &mut self,
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        // C++ ActionManager::canDisableVehicleViaHacking residual:
-        // enemy ground vehicle, not already hacked-disabled, not unmanned.
+        use crate::game_logic::host_hero_abilities::{
+            can_activate_black_lotus_ability, is_black_lotus_template,
+            is_legal_disable_vehicle_target,
+        };
+
         let (
             target_team,
             target_pos,
@@ -2443,13 +2495,14 @@ impl<'a> CommandExecutor<'a> {
             None => return CommandResult::InvalidTarget,
         };
 
-        if !target_alive
-            || !target_is_vehicle
-            || target_is_airborne
-            || target_hacked
-            || target_unmanned
-            || target_team == Team::Neutral
-        {
+        if !is_legal_disable_vehicle_target(
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_team != Team::Neutral,
+            target_hacked,
+            target_unmanned,
+        ) {
             return CommandResult::InvalidTarget;
         }
 
@@ -2459,7 +2512,14 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .get_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .map(|unit| {
+                    can_activate_black_lotus_ability(
+                        is_black_lotus_template(&unit.template_name),
+                        unit.is_alive(),
+                    ) && unit.can_move()
+                        && unit.team != target_team
+                        && unit.team != Team::Neutral
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;
