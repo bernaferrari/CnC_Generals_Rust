@@ -69,6 +69,8 @@ pub mod host_marauder;
 pub mod host_battlemaster;
 pub mod host_red_guard;
 pub mod host_tank_hunter;
+pub mod host_gla_rebel;
+pub mod host_rpg_trooper;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
@@ -323,6 +325,15 @@ pub use host_red_guard::{
 pub use host_tank_hunter::{
     is_tank_hunter_template, should_apply_tank_hunter_residual, tank_hunter_weapon,
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
+};
+pub use host_gla_rebel::{
+    is_gla_rebel_template, rebel_weapon, should_apply_rebel_residual, REBEL_DAMAGE,
+    REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS,
+};
+pub use host_rpg_trooper::{
+    is_rpg_trooper_template, rpg_trooper_weapon, should_apply_rpg_trooper_residual,
+    RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
+    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS,
 };
 pub use host_combat_cycle::{
     combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,
