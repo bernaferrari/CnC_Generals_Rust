@@ -1,3 +1,47 @@
+## Residual Host Playability — PUC DamagePulseRemnant + Spectre CONTINUOUS_FIRE ModelCondition (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 16 swath/VoiceRapidFire):**
+1. **Particle Uplink DamagePulseRemnant trail residual** (`special_power_strikes` /
+   `ParticleUplinkCannonUpdate`):
+   - Retail `DamagePulseRemnantObjectName` = `ParticleUplinkCannonTrailRemnant`
+     with `ParticleUplinkCannonBeamTrailRemnantWeapon` Primary **15** / r**10**,
+     DelayBetweenShots **250** ms → **7** frames, DeletionUpdate lifetime **4000** ms
+     → **120** frames.
+   - Host residual: each completed beam pulse spawns a `HostParticleRemnantField`
+     at the pulse SwathOfDeath epicenter; ticks residual damage (ALLIES ENEMIES
+     NEUTRALS — all living except source) until lifetime expires.
+   - Honesty: `remnant_fields_spawned_total` / `remnant_damage_applications_total`
+     / `honesty_beam_remnant_ok` / `honesty_beam_remnant_damage_ok`.
+   - Snapshot/Xfer: remnant fields + totals appended after beam residual.
+   - Fail-closed: not full ThingFactory Object / ImmortalBody / outer-node lasers /
+     manual beam driving / laser width grow GPU.
+2. **Spectre MODELCONDITION_CONTINUOUS_FIRE residual** (`special_power_strikes` /
+   FiringTracker):
+   - Retail `FiringTracker::speedUp` sets MODELCONDITION_CONTINUOUS_FIRE_MEAN /
+     FAST; `coolDown` sets CONTINUOUS_FIRE_SLOW and clears MEAN/FAST.
+   - Host residual honesty counters on orbit field:
+     `model_condition_mean_sets` / `model_condition_fast_sets` /
+     `model_condition_slow_sets` (incremented on fire-level transitions + coast).
+   - Honesty: `honesty_model_condition_continuous_fire_ok` /
+     `honesty_model_condition_slow_ok`.
+   - Fail-closed: not full drawable W3D model-condition anim / SpectreHowitzerShell
+     projectile Object.
+3. Tests (not log-only):
+   - `particle_uplink_damage_pulse_remnant_residual_honesty`
+   - `spectre_model_condition_continuous_fire_residual_honesty`
+   - updated `spectre_continuous_fire_rof_residual_honesty` (model-condition)
+   - updated `spectre_continuous_fire_coast_cooldown_residual` (SLOW residual)
+   - all `special_power_strikes::` (**31**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / full W3D CONTINUOUS_FIRE anim draw
+- Full PUC outer-node lasers / manual beam driving / laser width grow matrix
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — Particle Uplink SwathOfDeath + Spectre VoiceRapidFire (2026-07-13)
 **Closed (host-testable combat/power residual not covered by wave 16 coast/SupW/structure):**
 1. **Particle Uplink SwathOfDeath residual** (`special_power_strikes` /

@@ -17825,6 +17825,43 @@ impl GameLogic {
         self.patriot_assist_lasers.clear();
     }
 
+    /// Presentation residual inject: record host floating cash text for dual-tick freeze tests.
+    ///
+    /// Fail-closed: not full InGameUI GPU draw. Routes AutoDeposit residual into oil derrick
+    /// registry (shared HostAutoDepositFloatingText type with black market).
+    pub fn push_residual_auto_deposit_floating_text_for_presentation(
+        &mut self,
+        text: crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText,
+    ) {
+        self.oil_derricks.record_floating_text(text);
+    }
+
+    /// Presentation residual inject: record MoneyPickUp Anim2D + money floating text.
+    pub fn push_residual_money_pickup_presentation(
+        &mut self,
+        anim: crate::game_logic::host_money_crate::HostMoneyPickUpAnim,
+        text: crate::game_logic::host_money_crate::HostMoneyFloatingText,
+    ) {
+        self.host_money_crates.record_money_pickup_anim(anim);
+        self.host_money_crates.record_money_floating_text(text);
+    }
+
+    /// Clear residual floating text / world-anim host registries for dual-tick freeze tests.
+    pub fn clear_residual_floating_text_for_presentation(&mut self) {
+        self.oil_derricks.floating_texts.clear();
+        self.oil_derricks.floating_texts_total = 0;
+        self.black_markets.floating_texts.clear();
+        self.black_markets.floating_texts_total = 0;
+        self.hacker_income.floating_texts.clear();
+        self.hacker_income.floating_texts_total = 0;
+        self.cash_bounty.floating_texts.clear();
+        self.cash_bounty.floating_texts_total = 0;
+        self.host_money_crates.money_floating_texts.clear();
+        self.host_money_crates.money_floating_texts_total = 0;
+        self.host_money_crates.money_pickup_anims.clear();
+        self.host_money_crates.money_pickup_anims_total = 0;
+    }
+
     /// Residual honesty: StealthDetectorUpdate DetectionRate residual scan fired.
     pub fn honesty_stealth_detector_rate_ok(&self) -> bool {
         self.stealth_detector_rate_scans > 0
@@ -31198,6 +31235,8 @@ impl GameLogic {
         self.update_spectre_orbit_fields();
         // ParticleCannon residual continuous beam pulses (after charge residual).
         self.update_particle_beam_fields();
+        // Particle Uplink DamagePulseRemnant trail residual ticks.
+        self.update_particle_remnant_fields();
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
@@ -31357,8 +31396,8 @@ impl GameLogic {
     }
 
     /// Tick residual Particle Uplink continuous beam fields after charge residual.
-    /// Fail-closed vs full ParticleUplinkCannonUpdate outer nodes / swath sine /
-    /// manual beam driving / remnant trail objects.
+    /// Fail-closed vs full ParticleUplinkCannonUpdate outer nodes / manual beam
+    /// driving / laser width grow matrix. Swath + DamagePulseRemnant residual closed.
     fn update_particle_beam_fields(&mut self) {
         let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
             .objects
@@ -31407,6 +31446,58 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_beam(frame);
+    }
+
+    /// Tick residual DamagePulseRemnant trail fields spawned by Particle Uplink
+    /// beam pulses. Fail-closed vs full ParticleUplinkCannonTrailRemnant Object.
+    fn update_particle_remnant_fields(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_remnant_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.special_power_strikes.record_remnant_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.special_power_strikes.prune_expired_remnant(frame);
     }
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
