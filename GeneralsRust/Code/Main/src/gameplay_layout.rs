@@ -95,24 +95,35 @@ pub fn validate_control_bar_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Host-testable honesty for ControlBar.wnd residual (no GUI init required).
+/// Host-testable honesty for ControlBar.wnd residual.
+///
+/// Dry-run (`attempt_window_load=false`) never claims `window_loaded`.
+/// Full ensure attempts `WindowManager::load_window` headlessly when assets exist
+/// (C++ ShowControlBar residual; not full windowed W3D retail claim).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlBarLayoutHonesty {
     pub path_resolved: bool,
     pub wnd_validated: bool,
     pub assets_unavailable: bool,
     pub window_loaded: bool,
+    /// GameWindow instances created by WindowManager parse (0 when not loaded).
+    pub window_count: usize,
     pub status: GameplayLayoutStatus,
 }
 
 impl ControlBarLayoutHonesty {
     pub fn from_status(status: GameplayLayoutStatus) -> Self {
+        Self::from_status_with_count(status, 0)
+    }
+
+    pub fn from_status_with_count(status: GameplayLayoutStatus, window_count: usize) -> Self {
         match &status {
             GameplayLayoutStatus::Ready { loaded, .. } => Self {
                 path_resolved: true,
                 wnd_validated: true,
                 assets_unavailable: false,
                 window_loaded: *loaded,
+                window_count: if *loaded { window_count } else { 0 },
                 status,
             },
             GameplayLayoutStatus::AssetsUnavailable { .. } => Self {
@@ -120,6 +131,7 @@ impl ControlBarLayoutHonesty {
                 wnd_validated: false,
                 assets_unavailable: true,
                 window_loaded: false,
+                window_count: 0,
                 status,
             },
             GameplayLayoutStatus::LoadFailed { .. } => Self {
@@ -127,6 +139,7 @@ impl ControlBarLayoutHonesty {
                 wnd_validated: false,
                 assets_unavailable: false,
                 window_loaded: false,
+                window_count: 0,
                 status,
             },
         }
@@ -139,8 +152,12 @@ impl ControlBarLayoutHonesty {
 }
 
 /// Resolve + validate ControlBar and return host-testable honesty flags.
+///
+/// When `attempt_window_load` is true and assets exist, prefers a real
+/// `WindowManager` parse (`window_loaded=true`, non-zero `window_count`).
 pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayoutHonesty {
-    ControlBarLayoutHonesty::from_status(ensure_control_bar_layout(attempt_window_load))
+    let (status, window_count) = ensure_control_bar_layout_with_count(attempt_window_load);
+    ControlBarLayoutHonesty::from_status_with_count(status, window_count)
 }
 
 /// Shipped ensure path: resolve ControlBar.wnd, validate, and attempt load.
@@ -148,36 +165,56 @@ pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayout
 /// When `attempt_window_load` is false, only resolve+validate (unit-test friendly).
 /// When true and `game_client` is enabled, try WindowManager::load_window.
 pub fn ensure_control_bar_layout(attempt_window_load: bool) -> GameplayLayoutStatus {
+    ensure_control_bar_layout_with_count(attempt_window_load).0
+}
+
+/// Like [`ensure_control_bar_layout`] but also returns WindowManager window count
+/// when a headless parse succeeds (0 otherwise).
+pub fn ensure_control_bar_layout_with_count(
+    attempt_window_load: bool,
+) -> (GameplayLayoutStatus, usize) {
     let Some(path) = resolve_control_bar_path() else {
-        return GameplayLayoutStatus::AssetsUnavailable {
-            searched: CONTROL_BAR_CANDIDATES
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        };
+        return (
+            GameplayLayoutStatus::AssetsUnavailable {
+                searched: CONTROL_BAR_CANDIDATES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
+            0,
+        );
     };
     let path_str = path.display().to_string();
     if let Err(e) = validate_control_bar_file(&path) {
-        return GameplayLayoutStatus::LoadFailed {
-            path: path_str,
-            error: e,
-        };
+        return (
+            GameplayLayoutStatus::LoadFailed {
+                path: path_str,
+                error: e,
+            },
+            0,
+        );
     }
 
     if !attempt_window_load {
-        return GameplayLayoutStatus::Ready {
-            path: path_str,
-            loaded: false,
-        };
+        return (
+            GameplayLayoutStatus::Ready {
+                path: path_str,
+                loaded: false,
+            },
+            0,
+        );
     }
 
     #[cfg(feature = "game_client")]
     {
         match try_load_control_bar_via_window_manager(&path_str) {
-            Ok(()) => GameplayLayoutStatus::Ready {
-                path: path_str,
-                loaded: true,
-            },
+            Ok(count) => (
+                GameplayLayoutStatus::Ready {
+                    path: path_str,
+                    loaded: true,
+                },
+                count,
+            ),
             Err(e) => {
                 // Assets exist; load may fail without full GUI init — still Ready with
                 // loaded=false after validation so host does not silently no-op.
@@ -186,34 +223,51 @@ pub fn ensure_control_bar_layout(attempt_window_load: bool) -> GameplayLayoutSta
                     path_str,
                     e
                 );
-                GameplayLayoutStatus::Ready {
-                    path: path_str,
-                    loaded: false,
-                }
+                (
+                    GameplayLayoutStatus::Ready {
+                        path: path_str,
+                        loaded: false,
+                    },
+                    0,
+                )
             }
         }
     }
     #[cfg(not(feature = "game_client"))]
     {
         let _ = attempt_window_load;
-        GameplayLayoutStatus::Ready {
-            path: path_str,
-            loaded: false,
-        }
+        (
+            GameplayLayoutStatus::Ready {
+                path: path_str,
+                loaded: false,
+            },
+            0,
+        )
     }
 }
 
+/// Headless WindowManager parse of ControlBar.wnd (C++ ShowControlBar residual).
+///
+/// Returns the number of GameWindow instances materialised. Does **not** require
+/// a display/GPU — pure layout script → window tree construction.
 #[cfg(feature = "game_client")]
-fn try_load_control_bar_via_window_manager(path: &str) -> Result<(), String> {
+fn try_load_control_bar_via_window_manager(path: &str) -> Result<usize, String> {
     use game_client::gui::window_manager::WindowManager;
     let mut wm = WindowManager::new();
     wm.init();
-    // Prefer retail relative name C++ uses; fall back to absolute path.
-    let names = ["ControlBar.wnd", "Window/ControlBar.wnd", path];
+    // Prefer absolute/resolved path first (reliable in tests/CI cwd), then retail names
+    // C++ ShowControlBar uses via the file system search path.
+    let names = [path, "ControlBar.wnd", "Window/ControlBar.wnd"];
     let mut last_err = String::from("no load attempted");
     for name in names {
         match wm.load_window(name) {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                let count = wm.window_count();
+                if count == 0 {
+                    return Err(format!("{name}: load returned window but window_count=0"));
+                }
+                return Ok(count);
+            }
             Err(e) => last_err = format!("{name}: {e:?}"),
         }
     }
@@ -236,6 +290,18 @@ pub fn format_gameplay_layout_status(s: &GameplayLayoutStatus) -> String {
             format!("control_bar status=load_failed path={path} error={error}")
         }
     }
+}
+
+/// Format honesty for shell_smoke / gate detail lines.
+pub fn format_control_bar_honesty(h: &ControlBarLayoutHonesty) -> String {
+    format!(
+        "{} path_resolved={} wnd_validated={} window_loaded={} windows={}",
+        format_gameplay_layout_status(&h.status),
+        h.path_resolved,
+        h.wnd_validated,
+        h.window_loaded,
+        h.window_count
+    )
 }
 
 #[cfg(test)]
@@ -297,6 +363,7 @@ mod tests {
         if h.path_resolved {
             assert!(h.wnd_validated, "resolved path must validate: {:?}", h.status);
             assert!(!h.window_loaded, "dry-run must not claim window_loaded");
+            assert_eq!(h.window_count, 0, "dry-run window_count must be 0");
             if let GameplayLayoutStatus::Ready { path, .. } = &h.status {
                 assert!(
                     validate_control_bar_file(Path::new(path)).is_ok(),
@@ -306,5 +373,47 @@ mod tests {
         } else {
             assert!(h.assets_unavailable);
         }
+    }
+
+    #[test]
+    #[cfg(feature = "game_client")]
+    fn control_bar_window_manager_load_when_assets_present() {
+        // Residual close: headless WindowManager parse of ControlBar.wnd without
+        // display/GPU. Fail-closed honesty when WindowZH is not checked out.
+        let h = control_bar_layout_honesty(true);
+        assert!(
+            h.shell_residual_ok(),
+            "load path must remain honest residual: {:?}",
+            h.status
+        );
+        if h.path_resolved {
+            assert!(h.wnd_validated, "path must structurally validate");
+            // When assets are present on this host, prefer real load.
+            if matches!(
+                h.status,
+                GameplayLayoutStatus::Ready {
+                    loaded: true,
+                    ..
+                }
+            ) {
+                assert!(
+                    h.window_loaded && h.window_count > 0,
+                    "WindowManager parse must materialise windows: {:?}",
+                    h
+                );
+            } else {
+                // Validated-only residual (parse deferred/failed): still not silent.
+                assert!(!h.window_loaded);
+                assert_eq!(h.window_count, 0);
+            }
+        } else {
+            assert!(h.assets_unavailable);
+            assert!(!h.window_loaded);
+        }
+        let report = format_control_bar_honesty(&h);
+        assert!(
+            report.contains("window_loaded="),
+            "honesty report must surface load flag: {report}"
+        );
     }
 }

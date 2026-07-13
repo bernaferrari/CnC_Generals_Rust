@@ -2242,13 +2242,15 @@ impl CnCGameEngine {
     /// it resolves retail assets, validates them, and attempts a window load when
     /// the client GUI is available. Missing assets are logged honestly.
     fn ensure_gameplay_layouts(&mut self) {
-        let status = crate::gameplay_layout::ensure_control_bar_layout(true);
-        let report = crate::gameplay_layout::format_gameplay_layout_status(&status);
-        match &status {
+        // C++ ShowControlBar residual: resolve + validate + headless WindowManager load
+        // when assets present. Does not claim windowed W3D retail draw.
+        let honesty = crate::gameplay_layout::control_bar_layout_honesty(true);
+        let report = crate::gameplay_layout::format_control_bar_honesty(&honesty);
+        match &honesty.status {
             crate::gameplay_layout::GameplayLayoutStatus::Ready { path, loaded } => {
                 info!(
-                    "ensure_gameplay_layouts: {} (path={}, loaded={})",
-                    report, path, loaded
+                    "ensure_gameplay_layouts: {} (path={}, loaded={}, windows={})",
+                    report, path, loaded, honesty.window_count
                 );
             }
             crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {
