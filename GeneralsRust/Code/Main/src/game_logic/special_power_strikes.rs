@@ -58,15 +58,19 @@
 //! DropDelay-staggered multi-point blasts with DropVariance residual scatter
 //! (not full AmericaJetB52 Object / pathfinder). ArtilleryBarrage residual is
 //! WeaponErrorRadius-scattered shells with per-shell DelayDelivery stagger and
-//! science-tier FormationSize (pure ADC GameLogicRandomValueReal residual by
-//! formation index — re-query stable; fail-closed vs once-at-queue global stream
-//! storage / full ChinaArtilleryCannon transport Object). ScudStorm residual is ClipSize-9
+//! science-tier FormationSize (once-at-queue pure ADC GameLogicRandomValueReal residual
+//! stored on the strike at queue; plan_due uses stored epicenters/shell frames —
+//! fail-closed vs live mid-sim global stream mutation / full ChinaArtilleryCannon
+//! transport Object). ScudStorm residual is ClipSize-9
 //! ScatterTarget multi-missile + ScudStormDamageWeapon primary/secondary +
 //! LargePoisonField residual, with Anthrax Beta/Gamma upgraded Secondary 200 +
 //! upgraded poison 25 residual; PreAttack PER_CLIP + FireFX/IgnitionFX/launch
 //! residual + Chem FXBone residual + ScudStormMissile MissileAIUpdate loft /
-//! HeightDie / preferred-height residual closed (not full ThingFactory projectile
-//! Object / live MissileAIUpdate flight sim).
+//! HeightDie / PreferredHeight spring residual closed (not full ThingFactory
+//! projectile Object / live MissileAIUpdate physics flight sim).
+//! OuterBeamWidth multi-beam NumBeams + ScrollRate / TilingScalar residual closed
+//! (host tracks multi-beam cylinder count + scroll UV honesty; fail-closed vs
+//! full GPU multi-beam soft edge / texture atlas submit).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -844,10 +848,40 @@ pub fn particle_orbital_laser_current_radius(spawn_frame: u32, current_frame: u3
 
 /// Retail visual OuterBeamWidth × width_scalar residual (W3DLaserDraw cylinder width).
 ///
-/// Fail-closed: not full GPU multi-beam NumBeams draw / texture scroll submit.
+/// Fail-closed: not full GPU multi-beam soft edge / texture atlas submit
+/// (NumBeams + ScrollRate residual tracked separately).
 #[inline]
 pub fn particle_orbital_laser_draw_width(spawn_frame: u32, current_frame: u32) -> f32 {
     PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Retail W3DLaserDraw multi-beam cylinder count residual (`NumBeams`).
+#[inline]
+pub fn particle_orbital_laser_num_beams() -> u32 {
+    PARTICLE_ORBITAL_LASER_NUM_BEAMS
+}
+
+/// Retail W3DLaserDraw texture scroll UV residual (`ScrollRate` × elapsed seconds).
+///
+/// C++ accumulates `m_textureScrollRate * dt` each client draw; host residual
+/// samples elapsed logic frames as seconds (`frames / SP_LOGIC_FPS`).
+/// Negative ScrollRate scrolls toward muzzle.
+#[inline]
+pub fn particle_orbital_laser_scroll_uv(spawn_frame: u32, current_frame: u32) -> f32 {
+    if current_frame <= spawn_frame {
+        return 0.0;
+    }
+    let elapsed_sec = (current_frame - spawn_frame) as f32 / SP_LOGIC_FPS;
+    PARTICLE_ORBITAL_LASER_SCROLL_RATE * elapsed_sec
+}
+
+/// Retail W3DLaserDraw tiling residual (`TilingScalar` honesty).
+///
+/// Full UV packing uses segment length / beam width × aspect × TilingScalar;
+/// host residual exposes the scalar constant for multi-beam honesty.
+#[inline]
+pub fn particle_orbital_laser_tiling_scalar() -> f32 {
+    PARTICLE_ORBITAL_LASER_TILING_SCALAR
 }
 
 /// Retail damage-radius formula honesty residual
@@ -1160,6 +1194,87 @@ pub const SCUD_STORM_MISSILE_GEOMETRY_RADIUS: f32 = 7.0;
 pub const SCUD_STORM_MISSILE_GEOMETRY_HEIGHT: f32 = 30.0;
 /// Retail SpecialPowerCompletionDie template residual.
 pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
+
+/// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
+///
+/// Host residual tracks phase honesty without a full ThingFactory Object flight sim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ScudMissileLoftPhase {
+    /// Initial ballistic loft toward PreferredHeight residual.
+    #[default]
+    Loft = 0,
+    /// Past DistanceToTravelBeforeTurning residual (begin course correction).
+    Turn = 1,
+    /// Within DistanceToTargetBeforeDiving residual (dive to HeightDie target).
+    Dive = 2,
+    /// HeightDieUpdate residual (below TargetHeight after InitialDelay).
+    HeightDie = 3,
+}
+
+impl ScudMissileLoftPhase {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Retail spawn height residual (`PreferredHeight` above surface).
+///
+/// Fail-closed: not full terrain surface height sample / StartAtPreferredHeight
+/// OCL nugget Object path (host residual assumes flat ground surfaceHt = 0).
+#[inline]
+pub fn scud_missile_spawn_height() -> f32 {
+    SCUD_STORM_MISSILE_PREFERRED_HEIGHT
+}
+
+/// Retail Locomotor PreferredHeight spring residual for one logic frame.
+///
+/// C++ `Locomotor::locoUpdate_moveTowards` (when preferred height set):
+/// ```text
+/// localGoal.z = preferredHeight + surfaceHt;
+/// delta = (localGoal.z - pos.z) * PreferredHeightDamping;
+/// localGoal.z = pos.z + delta;
+/// ```
+/// Host residual: `new = current + (preferred - current) * damping`.
+#[inline]
+pub fn scud_missile_preferred_height_spring(current_height: f32) -> f32 {
+    let preferred = SCUD_STORM_MISSILE_PREFERRED_HEIGHT;
+    let damping = SCUD_STORM_MISSILE_PREFERRED_HEIGHT_DAMPING;
+    current_height + (preferred - current_height) * damping
+}
+
+/// Sample PreferredHeight spring residual after `frames` logic steps from `start_height`.
+#[inline]
+pub fn scud_missile_preferred_height_after_frames(start_height: f32, frames: u32) -> f32 {
+    let mut h = start_height;
+    for _ in 0..frames {
+        h = scud_missile_preferred_height_spring(h);
+    }
+    h
+}
+
+/// Residual loft phase for a ScudStormMissile given travel distances.
+///
+/// Order (retail MissileAIUpdate): loft → turn after DistanceBeforeTurning →
+/// dive when within DistanceBeforeDiving of target → HeightDie near ground.
+#[inline]
+pub fn scud_missile_loft_phase(
+    distance_traveled: f32,
+    distance_to_target: f32,
+    current_height: f32,
+) -> ScudMissileLoftPhase {
+    if current_height <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET
+        && distance_traveled > 0.0
+    {
+        return ScudMissileLoftPhase::HeightDie;
+    }
+    if distance_to_target <= SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING {
+        return ScudMissileLoftPhase::Dive;
+    }
+    if distance_traveled >= SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING {
+        return ScudMissileLoftPhase::Turn;
+    }
+    ScudMissileLoftPhase::Loft
+}
 
 /// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
 /// Host maps C++ X → X, C++ Y → Z.
@@ -1975,6 +2090,30 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: SpecialPowerCompletionDie residual applications.
     #[serde(default)]
     pub scud_special_power_completion_applications: u32,
+    /// Once-at-queue multi-strike OCL residual epicenters (Artillery/Carpet/Scud).
+    ///
+    /// Drawn via pure ADC at queue time so plan_due reuses the same offsets
+    /// (retail once-at-create GameLogic stream residual). Empty for one-shot kinds.
+    #[serde(default)]
+    pub ocl_points: Vec<Vec3>,
+    /// Once-at-queue absolute impact frames per multi-strike shell/bomb/missile.
+    #[serde(default)]
+    pub ocl_shell_frames: Vec<u32>,
+    /// Honesty: once-at-queue OCL residual armed (1 when multi-strike plan stored).
+    #[serde(default)]
+    pub ocl_once_at_queue_armed: u32,
+    /// Honesty: Scud PreferredHeight spawn residual applications.
+    #[serde(default)]
+    pub scud_spawn_height_applications: u32,
+    /// Honesty: PreferredHeight spring residual applications (per missile wave).
+    #[serde(default)]
+    pub scud_preferred_height_spring_applications: u32,
+    /// Honesty: peak loft phase observed (Loft/Turn/Dive/HeightDie residual).
+    #[serde(default)]
+    pub scud_loft_phase_peak: ScudMissileLoftPhase,
+    /// Honesty: last sampled PreferredHeight spring height residual.
+    #[serde(default)]
+    pub scud_last_spring_height: f32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2469,6 +2608,21 @@ pub struct HostParticleBeamField {
     /// Honesty: intense connector OuterBeamWidth residual armed at STATUS_FIRING.
     #[serde(default)]
     pub connector_outer_beam_width_armed: u32,
+    /// Honesty: multi-beam NumBeams residual armed at STATUS_FIRING (retail 12).
+    #[serde(default)]
+    pub num_beams_armed: u32,
+    /// Honesty: TilingScalar residual armed at STATUS_FIRING.
+    #[serde(default)]
+    pub tiling_scalar_armed: u32,
+    /// Honesty: last ScrollRate UV offset residual (toward muzzle negative).
+    #[serde(default)]
+    pub last_scroll_uv: f32,
+    /// Honesty: peak |ScrollRate UV| residual observed this beam.
+    #[serde(default)]
+    pub peak_abs_scroll_uv: f32,
+    /// Honesty: multi-beam scroll samples taken (sample_width_honesty residual).
+    #[serde(default)]
+    pub scroll_uv_samples: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -2527,6 +2681,14 @@ impl HostParticleBeamField {
         self.last_retail_damage_radius = retail_dmg;
         if retail_dmg > self.peak_retail_damage_radius {
             self.peak_retail_damage_radius = retail_dmg;
+        }
+        // Multi-beam NumBeams + ScrollRate UV residual (W3DLaserDraw honesty).
+        let scroll = particle_orbital_laser_scroll_uv(self.spawn_frame, current_frame);
+        self.last_scroll_uv = scroll;
+        self.scroll_uv_samples = self.scroll_uv_samples.saturating_add(1);
+        let abs_scroll = scroll.abs();
+        if abs_scroll > self.peak_abs_scroll_uv {
+            self.peak_abs_scroll_uv = abs_scroll;
         }
         let decay_start = particle_decay_start_frame(self.spawn_frame);
         if current_frame > decay_start && current_frame < self.expires_frame {
@@ -3214,7 +3376,35 @@ impl HostSpecialPowerStrikeRegistry {
             scud_exhaust_applications: 0,
             scud_height_die_applications: 0,
             scud_special_power_completion_applications: 0,
+            ocl_points: Vec::new(),
+            ocl_shell_frames: Vec::new(),
+            ocl_once_at_queue_armed: 0,
+            scud_spawn_height_applications: 0,
+            scud_preferred_height_spring_applications: 0,
+            scud_loft_phase_peak: ScudMissileLoftPhase::Loft,
+            scud_last_spring_height: 0.0,
         };
+        // Once-at-queue multi-strike OCL residual: store epicenters + shell
+        // frames so plan_due reuses the same ADC draws (retail once-at-create).
+        if kind.is_multi_strike() {
+            let points = kind
+                .multi_strike_points_with_tier(target_position, artillery_tier)
+                .unwrap_or_default();
+            let mut frames = Vec::with_capacity(points.len());
+            for i in 0..points.len() as u32 {
+                let shell_frame = if kind.is_scatter_multi_strike() {
+                    artillery_shell_impact_frame(activate_frame, i)
+                } else if kind.is_scud_multi_strike() {
+                    scud_missile_impact_frame(activate_frame, i)
+                } else {
+                    carpet_bomb_impact_frame(activate_frame, i)
+                };
+                frames.push(shell_frame);
+            }
+            strike.ocl_points = points;
+            strike.ocl_shell_frames = frames;
+            strike.ocl_once_at_queue_armed = 1;
+        }
         // Seed ParticleCannon pre-fire intensity residual at activate frame.
         if kind == HostSuperweaponKind::ParticleCannon {
             apply_particle_charge_status(&mut strike, activate_frame);
@@ -3289,13 +3479,19 @@ impl HostSpecialPowerStrikeRegistry {
             }
 
             let (due_points, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
-                let all_points = strike
-                    .kind
-                    .multi_strike_points_with_tier(
-                        strike.target_position,
-                        strike.artillery_tier,
-                    )
-                    .unwrap_or_default();
+                // Prefer once-at-queue residual plan (stored ADC draws); fall back
+                // to re-query for older snapshots without ocl_points.
+                let all_points = if !strike.ocl_points.is_empty() {
+                    strike.ocl_points.clone()
+                } else {
+                    strike
+                        .kind
+                        .multi_strike_points_with_tier(
+                            strike.target_position,
+                            strike.artillery_tier,
+                        )
+                        .unwrap_or_default()
+                };
                 let total = all_points.len() as u32;
                 if total == 0 || strike.multi_strike_applied >= total {
                     continue;
@@ -3307,7 +3503,9 @@ impl HostSpecialPowerStrikeRegistry {
                     if idx < strike.multi_strike_applied {
                         continue;
                     }
-                    let shell_frame = if strike.kind.is_scatter_multi_strike() {
+                    let shell_frame = if let Some(&f) = strike.ocl_shell_frames.get(i) {
+                        f
+                    } else if strike.kind.is_scatter_multi_strike() {
                         artillery_shell_impact_frame(strike.activate_frame, idx)
                     } else if strike.kind.is_scud_multi_strike() {
                         scud_missile_impact_frame(strike.activate_frame, idx)
@@ -3487,6 +3685,32 @@ impl HostSpecialPowerStrikeRegistry {
                     strike.scud_special_power_completion_applications = strike
                         .scud_special_power_completion_applications
                         .saturating_add(shells);
+                    // PreferredHeight spring residual (Locomotor damping path).
+                    // Host residual: spawn at PreferredHeight, spring sample, and
+                    // loft phase honesty per missile wave. Fail-closed: not full
+                    // live MissileAIUpdate physics / ThingFactory Object.
+                    strike.scud_spawn_height_applications = strike
+                        .scud_spawn_height_applications
+                        .saturating_add(shells);
+                    strike.scud_preferred_height_spring_applications = strike
+                        .scud_preferred_height_spring_applications
+                        .saturating_add(shells);
+                    // Sample spring from ground (0) over HeightDie InitialDelay
+                    // frames toward PreferredHeight (retail loft climb residual).
+                    let spring_h = scud_missile_preferred_height_after_frames(
+                        0.0,
+                        SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+                    );
+                    strike.scud_last_spring_height = spring_h;
+                    // Peak loft phase residual: full path ends in HeightDie.
+                    let phase = scud_missile_loft_phase(
+                        SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING + 1.0,
+                        SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING * 0.5,
+                        SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET * 0.5,
+                    );
+                    if phase.as_u8() > strike.scud_loft_phase_peak.as_u8() {
+                        strike.scud_loft_phase_peak = phase;
+                    }
                     if epicenters.is_empty() {
                         spawn_scud_poison.push((
                             source,
@@ -4360,6 +4584,12 @@ impl HostSpecialPowerStrikeRegistry {
             // Orbital laser W3DLaserDraw params + Intense connector OuterBeamWidth.
             orbital_laser_draw_params_armed: 1,
             connector_outer_beam_width_armed: 1,
+            // Multi-beam NumBeams + TilingScalar residual armed at STATUS_FIRING.
+            num_beams_armed: PARTICLE_ORBITAL_LASER_NUM_BEAMS,
+            tiling_scalar_armed: 1,
+            last_scroll_uv: 0.0,
+            peak_abs_scroll_uv: 0.0,
+            scroll_uv_samples: 0,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -4838,13 +5068,34 @@ impl HostSpecialPowerStrikeRegistry {
                 == PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES
     }
 
+    /// Residual honesty: multi-beam NumBeams + ScrollRate / TilingScalar residual.
+    ///
+    /// Tracks W3DLaserDraw NumBeams **12**, ScrollRate UV accumulation, and
+    /// TilingScalar honesty on a live beam field. Fail-closed: not full GPU
+    /// multi-beam soft edge / texture atlas submit.
+    pub fn honesty_beam_num_beams_scroll_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.num_beams_armed == PARTICLE_ORBITAL_LASER_NUM_BEAMS
+                && f.tiling_scalar_armed >= 1
+                && f.scroll_uv_samples >= 1
+                && f.peak_abs_scroll_uv > 0.0
+        }) && PARTICLE_ORBITAL_LASER_NUM_BEAMS == 12
+            && (PARTICLE_ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01
+            && (PARTICLE_ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.01
+            && particle_orbital_laser_num_beams() == 12
+            && (particle_orbital_laser_tiling_scalar() - 0.15).abs() < 0.01
+            // 30 frames at ScrollRate -1.75 → UV = -1.75
+            && (particle_orbital_laser_scroll_uv(0, 30) + 1.75).abs() < 0.01
+    }
+
     /// Residual honesty: OuterBeamWidth × width_scalar orbital laser residual.
     ///
     /// Tracks W3DLaserDraw OuterBeamWidth draw width, `getCurrentLaserRadius`
     /// (OuterBeamWidth×0.5×scalar), and retail damage formula
     /// (laser radius × DamageRadiusScalar = peak 44.2). Host combat damage
     /// still uses [`PARTICLE_BEAM_RADIUS`] (50). Fail-closed: not full GPU
-    /// multi-beam NumBeams / texture scroll submit.
+    /// multi-beam soft edge / texture atlas submit (NumBeams residual closed
+    /// separately via [`honesty_beam_num_beams_scroll_ok`]).
     pub fn honesty_beam_outer_beam_width_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
             f.orbital_laser_draw_params_armed >= 1
@@ -4974,8 +5225,9 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Tracks loft / IgnitionFX / FireSound / exhaust / HeightDie /
     /// SpecialPowerCompletionDie residual per missile wave. Fail-closed: not
-    /// full ThingFactory projectile Object / live MissileAIUpdate flight sim /
-    /// PreferredHeight spring path.
+    /// full ThingFactory projectile Object / live MissileAIUpdate physics sim
+    /// (PreferredHeight spring residual closed separately via
+    /// [`honesty_scud_preferred_height_spring_ok`]).
     pub fn honesty_scud_missile_loft_ok(&self) -> bool {
         self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ScudStorm
@@ -5001,6 +5253,46 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_MISSILE_LAUNCH_SOUND.contains("Launch")
             && SCUD_STORM_MISSILE_EXHAUST.contains("Exhaust")
             && SCUD_STORM_MISSILE_SPECIAL_POWER.contains("ScudStorm")
+    }
+
+    /// Residual honesty: ScudStormMissile PreferredHeight spring residual.
+    ///
+    /// Tracks spawn-at-PreferredHeight, Locomotor damping spring samples, and
+    /// loft phase peak (Loft→Turn→Dive→HeightDie). Fail-closed: not full
+    /// ThingFactory Object / live physics flight path.
+    pub fn honesty_scud_preferred_height_spring_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_spawn_height_applications > 0
+                && s.scud_preferred_height_spring_applications
+                    >= s.scud_spawn_height_applications
+                && s.scud_loft_phase_peak.as_u8() >= ScudMissileLoftPhase::HeightDie.as_u8()
+                && s.scud_last_spring_height > 0.0
+        }) && (scud_missile_spawn_height() - 240.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_PREFERRED_HEIGHT_DAMPING - 0.7).abs() < 0.01
+            // One spring step from ground: 0 + (240-0)*0.7 = 168.
+            && (scud_missile_preferred_height_spring(0.0) - 168.0).abs() < 0.01
+            // Already at preferred: spring holds height.
+            && (scud_missile_preferred_height_spring(240.0) - 240.0).abs() < 0.01
+            && scud_missile_loft_phase(0.0, 1000.0, 100.0) == ScudMissileLoftPhase::Loft
+            && scud_missile_loft_phase(500.0, 1000.0, 200.0) == ScudMissileLoftPhase::Turn
+            && scud_missile_loft_phase(600.0, 100.0, 100.0) == ScudMissileLoftPhase::Dive
+            && scud_missile_loft_phase(600.0, 50.0, 10.0) == ScudMissileLoftPhase::HeightDie
+    }
+
+    /// Residual honesty: once-at-queue multi-strike OCL residual plan.
+    ///
+    /// True when a multi-strike Artillery/Carpet/Scud strike stored epicenters
+    /// + shell frames at queue (retail once-at-create stream residual).
+    /// Fail-closed: not live mid-sim global stream mutation / full transport Object.
+    pub fn honesty_once_at_queue_ocl_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind.is_multi_strike()
+                && s.ocl_once_at_queue_armed >= 1
+                && !s.ocl_points.is_empty()
+                && s.ocl_shell_frames.len() == s.ocl_points.len()
+                && s.ocl_shell_frames.first().copied().unwrap_or(0) >= s.impact_frame
+        })
     }
 
     /// Advance ParticleCannon pre-fire intensity schedule + beam FIRING/POSTFIRE/
@@ -7766,5 +8058,210 @@ mod tests {
             assert_eq!(s.scud_height_die_applications, 2);
         }
         assert!(reg.honesty_scud_missile_loft_ok());
+    }
+
+    #[test]
+    fn once_at_queue_multi_strike_ocl_residual_honesty() {
+        // ArtilleryBarrage: FormationSize Level1 (12) once-at-queue residual.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(50.0, 0.0, 50.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ArtilleryBarrage,
+            ObjectId(1),
+            Team::China,
+            target,
+            0,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.ocl_once_at_queue_armed, 1);
+            assert_eq!(s.ocl_points.len(), 12);
+            assert_eq!(s.ocl_shell_frames.len(), 12);
+            // Formation index 0 is spot-on at click target.
+            assert!((s.ocl_points[0].x - target.x).abs() < 0.01);
+            assert!((s.ocl_points[0].z - target.z).abs() < 0.01);
+            // First shell impact matches strike impact_frame residual.
+            assert_eq!(s.ocl_shell_frames[0], s.impact_frame);
+            // Stored plan matches pure ADC re-query (once-at-queue = index seed).
+            let expected = artillery_barrage_points(target);
+            assert_eq!(s.ocl_points.len(), expected.len());
+            for (a, b) in s.ocl_points.iter().zip(expected.iter()) {
+                assert!((a.x - b.x).abs() < 0.01);
+                assert!((a.z - b.z).abs() < 0.01);
+            }
+        }
+        assert!(reg.honesty_once_at_queue_ocl_ok());
+
+        // CarpetBomb once-at-queue residual.
+        let carpet_id = reg.queue(
+            HostSuperweaponKind::CarpetBomb,
+            ObjectId(2),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            10,
+        );
+        {
+            let s = reg.get(carpet_id).unwrap();
+            assert_eq!(s.ocl_once_at_queue_armed, 1);
+            assert_eq!(s.ocl_points.len() as u32, CARPET_BOMB_COUNT);
+            assert_eq!(s.ocl_shell_frames.len() as u32, CARPET_BOMB_COUNT);
+        }
+        assert!(reg.honesty_once_at_queue_ocl_ok());
+
+        // ScudStorm once-at-queue residual (ClipSize 9).
+        let scud_id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(3),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        {
+            let s = reg.get(scud_id).unwrap();
+            assert_eq!(s.ocl_once_at_queue_armed, 1);
+            assert_eq!(s.ocl_points.len() as u32, SCUD_STORM_MISSILE_COUNT);
+            assert_eq!(s.ocl_shell_frames.len() as u32, SCUD_STORM_MISSILE_COUNT);
+        }
+
+        // One-shot kinds do not arm OCL residual.
+        let nuke_id = reg.queue(
+            HostSuperweaponKind::NuclearMissile,
+            ObjectId(4),
+            Team::China,
+            Vec3::ZERO,
+            0,
+        );
+        {
+            let s = reg.get(nuke_id).unwrap();
+            assert_eq!(s.ocl_once_at_queue_armed, 0);
+            assert!(s.ocl_points.is_empty());
+        }
+
+        // plan_due uses stored ocl_points (Artillery first shell at impact_frame).
+        let objects = vec![(ObjectId(99), target, Team::USA, true)];
+        let plans = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
+        assert!(!plans.is_empty());
+        let plan = plans.iter().find(|p| p.strike_id == id).unwrap();
+        assert_eq!(plan.wave_shell_count, 1);
+        assert!((plan.epicenters[0].x - target.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn scud_preferred_height_spring_residual_honesty() {
+        assert!((scud_missile_spawn_height() - 240.0).abs() < 0.01);
+        assert!((scud_missile_preferred_height_spring(0.0) - 168.0).abs() < 0.01);
+        assert!((scud_missile_preferred_height_spring(240.0) - 240.0).abs() < 0.01);
+        // Multi-frame spring converges toward PreferredHeight.
+        let after_10 = scud_missile_preferred_height_after_frames(0.0, 10);
+        assert!(after_10 > 168.0);
+        assert!(after_10 < 240.0);
+        let after_30 = scud_missile_preferred_height_after_frames(0.0, 30);
+        assert!(after_30 > after_10);
+        assert!(after_30 < 240.0 + 0.01);
+        // Phase residual matrix.
+        assert_eq!(
+            scud_missile_loft_phase(0.0, 1000.0, 100.0),
+            ScudMissileLoftPhase::Loft
+        );
+        assert_eq!(
+            scud_missile_loft_phase(500.0, 1000.0, 200.0),
+            ScudMissileLoftPhase::Turn
+        );
+        assert_eq!(
+            scud_missile_loft_phase(600.0, 100.0, 100.0),
+            ScudMissileLoftPhase::Dive
+        );
+        assert_eq!(
+            scud_missile_loft_phase(600.0, 50.0, 10.0),
+            ScudMissileLoftPhase::HeightDie
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_preferred_height_spring_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_spawn_height_applications, 1);
+            assert_eq!(s.scud_preferred_height_spring_applications, 1);
+            assert_eq!(s.scud_loft_phase_peak, ScudMissileLoftPhase::HeightDie);
+            assert!(s.scud_last_spring_height > 0.0);
+            // 30 spring steps from 0 with damping 0.7: 1 - 0.7^30 of the way to 240.
+            let expected = scud_missile_preferred_height_after_frames(0.0, 30);
+            assert!((s.scud_last_spring_height - expected).abs() < 0.01);
+        }
+        assert!(reg.honesty_scud_preferred_height_spring_ok());
+        assert!(reg.honesty_scud_missile_loft_ok());
+        assert!(reg.honesty_once_at_queue_ocl_ok());
+    }
+
+    #[test]
+    fn particle_uplink_num_beams_scroll_residual_honesty() {
+        assert_eq!(particle_orbital_laser_num_beams(), 12);
+        assert!((particle_orbital_laser_tiling_scalar() - 0.15).abs() < 0.01);
+        assert!((PARTICLE_ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01);
+        // ScrollRate * (30/30) = -1.75 after one second.
+        assert!((particle_orbital_laser_scroll_uv(0, 30) + 1.75).abs() < 0.01);
+        assert!((particle_orbital_laser_scroll_uv(100, 100) - 0.0).abs() < 0.01);
+        // Two seconds → -3.5.
+        assert!((particle_orbital_laser_scroll_uv(0, 60) + 3.5).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        // Spawn beam at impact residual (STATUS_FIRING).
+        let field_id = reg.spawn_beam_field(
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            120,
+            strike_id,
+        );
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.num_beams_armed, 12);
+            assert_eq!(f.tiling_scalar_armed, 1);
+            assert_eq!(f.scroll_uv_samples, 0);
+        }
+        assert!(!reg.honesty_beam_num_beams_scroll_ok());
+
+        // Sample width honesty advances scroll UV residual.
+        reg.sample_beam_width_honesty(150); // 30 frames after spawn
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.scroll_uv_samples, 1);
+            assert!((f.last_scroll_uv + 1.75).abs() < 0.01);
+            assert!((f.peak_abs_scroll_uv - 1.75).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_num_beams_scroll_ok());
+
+        // Further samples accumulate scroll residual.
+        reg.sample_beam_width_honesty(180); // 60 frames after spawn
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.scroll_uv_samples, 2);
+            assert!((f.last_scroll_uv + 3.5).abs() < 0.01);
+            assert!((f.peak_abs_scroll_uv - 3.5).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_num_beams_scroll_ok());
     }
 }

@@ -103,6 +103,15 @@ impl RandomState {
         ax = ax.wrapping_add(0x6fdf3b64u32.wrapping_sub(0x9e353f7d));
         self.seed[5] = ax;
     }
+
+    /// Direct 6-word seed residual (C++ RandomValue seed array).
+    fn set_seed_words(&mut self, words: [u32; 6]) {
+        self.seed = words;
+    }
+
+    fn seed_words(&self) -> [u32; 6] {
+        self.seed
+    }
 }
 
 /// Global random states
@@ -226,6 +235,32 @@ pub fn get_game_logic_random_seed() -> u32 {
         }
     };
     *base_seed
+}
+
+/// Set the raw 6-word GameLogic RandomValue seed state (C++ seed array residual).
+///
+/// Used by GameLogic helpers bridge so crate-local RNG draws share the Common stream.
+pub fn set_game_logic_random_seed_state(words: [u32; 6]) {
+    let mut logic = match GAME_LOGIC_RANDOM.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("WARN: GAME_LOGIC_RANDOM poisoned, recovering...");
+            poisoned.into_inner()
+        }
+    };
+    logic.set_seed_words(words);
+}
+
+/// Read the raw 6-word GameLogic RandomValue seed state.
+pub fn get_game_logic_random_seed_state() -> [u32; 6] {
+    let logic = match GAME_LOGIC_RANDOM.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("WARN: GAME_LOGIC_RANDOM poisoned, recovering...");
+            poisoned.into_inner()
+        }
+    };
+    logic.seed_words()
 }
 
 /// Get CRC of the game logic random seed

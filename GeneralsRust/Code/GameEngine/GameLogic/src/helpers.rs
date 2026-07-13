@@ -518,90 +518,19 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
     }
 }
 
-/// Global random number generator state for game logic
-static GAME_LOGIC_SEED: Mutex<[u32; 6]> = Mutex::new([
-    0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x702c49c, 0x9e353f7d, 0x6fdf3b64,
-]);
-static GAME_CLIENT_SEED: Lazy<Mutex<[u32; 6]>> = Lazy::new(|| {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0x1234_5678);
-    Mutex::new([
-        0x1d2c3b4a ^ nanos,
-        0x8b31_26e9 ^ nanos.rotate_left(5),
-        0xc624_dd2f ^ nanos.rotate_left(11),
-        0x0702_c49c ^ nanos.rotate_left(17),
-        0x9e35_3f7d ^ nanos.rotate_left(23),
-        0x6fdf_3b64 ^ nanos.rotate_left(29),
-    ])
-});
+// Residual closed (wave 29): GameLogic helpers RNG draws share the Common
+// `random_value` ADC stream (no parallel GAME_LOGIC_SEED / GAME_CLIENT_SEED).
+// Fail-closed: network residual still deferred; CRC of seed words remains
+// host-local crc32fast of the Common 6-word state.
 
-/// Adds two numbers with carry flag (matching C++ ADC macro)
-fn adc(a: u32, b: u32, carry: u32) -> (u32, u32) {
-    let sum = a.wrapping_add(b).wrapping_add(carry);
-    let new_carry = if sum < a || sum < b { 1 } else { 0 };
-    (sum, new_carry)
-}
-
-/// Generate random value using game logic seed (matching C++ randomValue function)
-fn random_value(seed: &mut [u32; 6]) -> u32 {
-    let mut ax;
-    let mut c = 0;
-
-    // Add with carry operations
-    (ax, c) = adc(seed[5], seed[4], c);
-    seed[4] = ax;
-
-    (ax, c) = adc(ax, seed[3], c);
-    seed[3] = ax;
-
-    (ax, c) = adc(ax, seed[2], c);
-    seed[2] = ax;
-
-    (ax, c) = adc(ax, seed[1], c);
-    seed[1] = ax;
-
-    (ax, c) = adc(ax, seed[0], c);
-    seed[0] = ax;
-
-    // Increment seed array, bubbling up the carries
-    seed[5] = seed[5].wrapping_add(1);
-    if seed[5] == 0 {
-        seed[4] = seed[4].wrapping_add(1);
-        if seed[4] == 0 {
-            seed[3] = seed[3].wrapping_add(1);
-            if seed[3] == 0 {
-                seed[2] = seed[2].wrapping_add(1);
-                if seed[2] == 0 {
-                    seed[1] = seed[1].wrapping_add(1);
-                    if seed[1] == 0 {
-                        seed[0] = seed[0].wrapping_add(1);
-                        ax = ax.wrapping_add(1);
-                    }
-                }
-            }
-        }
-    }
-
-    let _ = c; // carry explicitly ignored after bubbling
-    ax
-}
-
-/// Gets game logic random integer value (matching C++ GetGameLogicRandomValue)
+/// Gets game logic random integer value (matching C++ GetGameLogicRandomValue).
+///
+/// Unified with `game_engine::common::random_value` Common stream residual.
 pub fn get_game_logic_random_value(lo: Int, hi: Int) -> Int {
     if hi < lo {
         return hi;
     }
-
-    let delta = (hi - lo + 1) as u32;
-    if delta == 0 {
-        return hi;
-    }
-
-    let mut seed = GAME_LOGIC_SEED.lock().unwrap();
-    let rval = (random_value(&mut *seed) % delta) as Int + lo;
-    rval
+    game_engine::common::random_value::get_game_logic_random_value(lo, hi)
 }
 
 /// Gets game logic random u32 value (convenience wrapper for u32 params)
@@ -610,15 +539,7 @@ pub fn game_logic_random_value(lo: u32, hi: u32) -> u32 {
     if hi < lo {
         return hi;
     }
-
-    let delta = hi - lo + 1;
-    if delta == 0 {
-        return hi;
-    }
-
-    let mut seed = GAME_LOGIC_SEED.lock().unwrap();
-    let rval = (random_value(&mut *seed) % delta) + lo;
-    rval
+    game_engine::common::random_value::get_game_logic_random_value(lo as i32, hi as i32) as u32
 }
 
 /// Gets game logic random real value (matching C++ GetGameLogicRandomValueReal)
@@ -626,29 +547,16 @@ pub fn get_game_logic_random_value_real(lo: Real, hi: Real) -> Real {
     if hi <= lo {
         return hi;
     }
-
-    let delta = hi - lo;
-    let mult_factor = 1.0 / (2.0_f32.powi(32) - 1.0);
-
-    let mut seed = GAME_LOGIC_SEED.lock().unwrap();
-    let rval = (random_value(&mut *seed) as Real * mult_factor) * delta + lo;
-    rval
+    game_engine::common::random_value::get_game_logic_random_value_real(lo, hi)
 }
 
 /// Client-side random value (visual-only; not network-synchronized).
+/// Unified with Common client stream residual.
 pub fn game_client_random_value(lo: Int, hi: Int) -> Int {
     if hi < lo {
         return hi;
     }
-
-    let delta = (hi - lo + 1) as u32;
-    if delta == 0 {
-        return hi;
-    }
-
-    let mut seed = GAME_CLIENT_SEED.lock().unwrap();
-    let rval = (random_value(&mut *seed) % delta) as Int + lo;
-    rval
+    game_engine::common::random_value::get_game_client_random_value(lo, hi)
 }
 
 /// Client-side random real (visual-only; not network-synchronized).
@@ -656,29 +564,25 @@ pub fn game_client_random_value_real(lo: Real, hi: Real) -> Real {
     if hi <= lo {
         return hi;
     }
-
-    let delta = hi - lo;
-    let mult_factor = 1.0 / (2.0_f32.powi(32) - 1.0);
-
-    let mut seed = GAME_CLIENT_SEED.lock().unwrap();
-    let rval = (random_value(&mut *seed) as Real * mult_factor) * delta + lo;
-    rval
+    game_engine::common::random_value::get_game_client_random_value_real(lo, hi)
 }
 
 /// Gets the CRC of the game logic random seed state (matching C++ GetGameLogicRandomSeedCRC)
-/// CRITICAL for network synchronization - ensures all players have same random state
+/// CRITICAL for network synchronization - ensures all players have same random state.
+///
+/// Residual: hashes the Common stream 6-word seed via crc32fast (helpers path).
 pub fn get_game_logic_random_seed_crc() -> UnsignedInt {
-    let seed = GAME_LOGIC_SEED.lock().unwrap();
-    // Calculate CRC32 of the entire seed array - 6 * 4 = 24 bytes
+    let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
     let seed_bytes: &[u8] =
         unsafe { std::slice::from_raw_parts(seed.as_ptr() as *const u8, 6 * 4) };
     crc32fast::hash(seed_bytes)
 }
 
-/// Sets the game logic random seed (matching C++ SetGameLogicRandomSeed)
+/// Sets the game logic random seed (matching C++ SetGameLogicRandomSeed).
+///
+/// Writes into the Common stream residual so helpers and Main host RNG share one ADC state.
 pub fn set_game_logic_random_seed(new_seed: [u32; 6]) {
-    let mut seed = GAME_LOGIC_SEED.lock().unwrap();
-    *seed = new_seed;
+    game_engine::common::random_value::set_game_logic_random_seed_state(new_seed);
 }
 
 /// Game logic random value macro (matching C++ GameLogicRandomValue macro)
