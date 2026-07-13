@@ -1,3 +1,50 @@
+## Residual Host Playability — DeliverPayload Cargo Plane Delayed Spawn (2026-07-13)
+**Closed (host-testable DeliverPayload cargo residual — delayed payload spawn):**
+1. **DeliverPayload cargo plane residual** (`host_deliver_payload`):
+   - Models retail OCL `DeliverPayload` cargo missions without full aircraft
+     edge-spawn / locomotor flight / door animation.
+   - Approach delay residual **90** frames @ 30 FPS, then spawn payload units
+     at target in line formation.
+   - Retail OCL honesty constants: Transport `AmericaJetCargoPlane`,
+     PutInContainer `AmericaCrateParachute` / `AmericaParachute`,
+     DropDelay **350** ms → **11** frames (stagger fail-closed; constant retained),
+     DeliveryDistance **410**, Payload count **6** for supply crates.
+   - Host-testable: queue → inbound; approach delay → spawn; transport name honesty.
+   - Fail-closed: not full CreateAtEdge aircraft Object / DeliverPayloadAIUpdate
+     state machine / DropDelay per-item stagger / parachute fall physics.
+2. **America Supply Drop Zone cargo path residual**:
+   - OCL interval (**3600** frames) queues cargo DeliverPayload flight (not
+     immediate cash).
+   - After approach delay: spawn **6** residual crates near zone + BuildingPickup
+     residual cash **$1500** (SupplyLines **$1650**).
+   - Template guard: crate / cargo / parachute names do **not** match zone
+     structure residual (false-positive fix).
+   - Honesty: `honesty_supply_drop_zone_flight_ok`,
+     `honesty_supply_drop_cargo_deliver_payload_ok`,
+     `honesty_deliver_payload_cargo_ok`.
+   - Host-testable: no cash/crates during approach; spawn + cash on drop frame.
+   - Fail-closed: not full MoneyCrateCollide unit path / ControlBar OCL timer UI.
+3. **America Paradrop DeliverPayload cargo bookkeeping residual**:
+   - `queue_paradrop` also records AmericaParadrop cargo mission residual
+     (AmericaJetCargoPlane honesty). Infantry spawn remains host_paradrop.
+   - Host-testable: cargo mission completes with paradrop drop frame.
+4. Tests (not log-only):
+   - `supply_drop_zone_residual_credits_cash_on_interval` (cargo delay + crates)
+   - `deliver_payload_cargo_residual_constants_and_skip`
+   - `host_deliver_payload` unit tests (queue/spawn/constants)
+   - updated supply drop zone template false-positive guard
+   - `america_paradrop_host_path_queues_and_spawns_infantry` (cargo bookkeeping)
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
+  state machine / MaxAttempts / PreOpenDistance geometry
+- Full DropDelay per-item stagger / DropVariance / VisiblePayload bone matrix
+- Full AmericaCrateParachute / AmericaParachute container fall-physics for cargo
+  (PARA_COG host residual already closed for eject path)
+- Full MoneyCrateCollide unit pickup matrix (BuildingPickup cash residual closed)
+- Full W3D pristine bone extract for cargo plane doors
+- Network DeliverPayload / cargo replication (network deferred)
+
 ## Residual Host Playability — CamoNet Sub-Object + Physical Soldier Attach + Vision Mood + SegLine (2026-07-13)
 **Closed (host-testable CamoNetting sub-object + stinger soldier attach + Partition vision mood + SegLine UV residual):**
 1. **CamoNetting sub-object net mesh residual** (presentation state, not GPU):

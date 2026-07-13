@@ -85,6 +85,7 @@ pub mod host_technical;
 pub mod host_terrorist;
 pub mod host_unit_training;
 pub mod host_demo_suicide_bomb;
+pub mod host_deliver_payload;
 pub mod host_tomahawk;
 pub mod host_toxin_tractor;
 pub mod host_troop_crawler;
@@ -417,6 +418,15 @@ pub use host_stealth_fighter::{
     AMERICA_JET_STEALTH_FIGHTER, SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_DAMAGE,
     STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_PRIMARY_RADIUS, STEALTH_FIGHTER_RANGE,
     STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON, USA_STEALTH_FIGHTER,
+};
+pub use host_deliver_payload::{
+    drop_delay_frames_from_ms, HostDeliverPayloadDropPlan, HostDeliverPayloadKind,
+    HostDeliverPayloadMission, HostDeliverPayloadPhase, HostDeliverPayloadRegistry,
+    CARGO_PLANE_APPROACH_DELAY_FRAMES, PARADROP_CARGO_TRANSPORT, PARADROP_PUT_IN_CONTAINER,
+    SUPPLY_DROP_CARGO_TRANSPORT, SUPPLY_DROP_CRATE_SPACING, SUPPLY_DROP_DELIVERY_DISTANCE,
+    SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_MS, SUPPLY_DROP_PAYLOAD_COUNT,
+    SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE, SUPPLY_DROP_PAYLOAD_TEMPLATE,
+    SUPPLY_DROP_PUT_IN_CONTAINER,
 };
 pub use host_supply_drop_zone::{
     drop_cash_amount, drop_interval_frames_from_ms, is_legal_supply_drop_zone_income_source,

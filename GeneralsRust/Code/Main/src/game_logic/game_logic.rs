@@ -840,8 +840,14 @@ pub struct GameLogic {
     hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
 
     /// Host America Supply Drop Zone residual cash (OCLUpdate residual).
-    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    /// Fail-closed: not full CreateAtEdge cargo plane / parachute crate fall path
+    /// (delayed DeliverPayload spawn residual via host_deliver_payloads).
     supply_drop_zones: crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
+
+    /// Host DeliverPayload cargo residual (delayed payload spawn at location).
+    /// Fail-closed: not full AmericaJetCargoPlane flight / DeliverPayloadAIUpdate
+    /// state machine / DropDelay stagger / parachute container physics.
+    host_deliver_payloads: crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry,
 
     /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
     /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
@@ -2027,6 +2033,8 @@ impl GameLogic {
             hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry::new(),
             supply_drop_zones:
                 crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
+            host_deliver_payloads:
+                crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry::new(),
@@ -2376,6 +2384,7 @@ impl GameLogic {
         self.oil_derricks.clear();
         self.hacker_income.clear();
         self.supply_drop_zones.clear();
+        self.host_deliver_payloads.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
         self.saboteur.clear();
@@ -4357,6 +4366,10 @@ impl GameLogic {
         // Fail-closed vs full OCL cargo plane / parachute payload path.
         self.update_paradrops();
 
+        // Host DeliverPayload cargo residual: delayed spawn of payload units at
+        // location (Supply Drop Zone crates). Fail-closed vs full aircraft flight.
+        self.update_deliver_payloads();
+
         // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
         // Fail-closed vs full OCL CreateObject / science upgrade tiers.
         self.update_ambushes();
@@ -4541,8 +4554,9 @@ impl GameLogic {
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
         self.update_hacker_income();
-        // America Supply Drop Zone residual cash (OCLUpdate discrete drops).
-        // Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+        // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
+        // residual; cash credits after approach delay + crate spawn.
+        // Fail-closed: not full CreateAtEdge cargo plane / parachute fall path.
         self.update_supply_drop_zone_drops();
         // USA Battle Drone residual master repair (RepairRatePerSecond when HP < 60%).
         // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
@@ -10317,19 +10331,24 @@ impl GameLogic {
         self.hacker_income.stop_hacking(hacker_id);
     }
 
-    /// America Supply Drop Zone residual cash (OCLUpdate residual).
+    /// America Supply Drop Zone residual: OCL interval queues cargo DeliverPayload.
     ///
     /// Retail FactionBuilding.ini AmericaSupplyDropZone:
     /// MinDelay/MaxDelay=120000 ms → 3600 logic frames @ 30 FPS,
-    /// OCL_AmericaSupplyDropZoneCrateDrop → 6× SupplyDropZoneCrate @ $250
-    /// (+25 each with Upgrade_AmericaSupplyLines) → $1500 / $1650 residual cash.
-    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    /// OCL_AmericaSupplyDropZoneCrateDrop → AmericaJetCargoPlane DeliverPayload
+    /// with 6× SupplyDropZoneCrate @ $250 (+25 each with Upgrade_AmericaSupplyLines).
+    ///
+    /// Host residual: when OCL is due, queue a cargo flight (approach delay), then
+    /// [`Self::update_deliver_payloads`] spawns crates and credits BuildingPickup cash.
+    /// Fail-closed: not full CreateAtEdge aircraft Object / parachute fall physics.
     fn update_supply_drop_zone_drops(&mut self) {
-        use crate::game_logic::host_supply_drop_zone::{
-            drop_cash_amount, is_legal_supply_drop_zone_income_source,
-            is_supply_drop_zone_template, SUPPLY_DROP_ZONE_DROP_AUDIO, SUPPLY_DROP_ZONE_DROP_CASH,
+        use crate::game_logic::host_deliver_payload::{
+            HostDeliverPayloadKind, SUPPLY_DROP_CARGO_APPROACH_AUDIO,
+            SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE, SUPPLY_DROP_PAYLOAD_TEMPLATE,
         };
-        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+        use crate::game_logic::host_supply_drop_zone::{
+            is_legal_supply_drop_zone_income_source, is_supply_drop_zone_template,
+        };
 
         let frame = self.frame;
         let zones: Vec<(ObjectId, Team, Vec3)> = self
@@ -10362,38 +10381,167 @@ impl GameLogic {
             .collect();
         for id in stale {
             self.supply_drop_zones.forget(id);
+            self.host_deliver_payloads.cancel_for_source(id);
         }
 
         for (zone_id, team, pos) in zones {
-            let has_supply_lines = self
-                .players
-                .values()
-                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
-            let amount = drop_cash_amount(has_supply_lines);
-            let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
-            let deposited = self
-                .supply_drop_zones
-                .try_drop(zone_id, frame, amount, boost);
-            if deposited == 0 {
+            if !self.supply_drop_zones.try_start_flight(zone_id, frame) {
                 continue;
             }
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected = player
-                    .statistics
-                    .resources_collected
-                    .saturating_add(deposited);
-            }
-            if boost > 0 {
-                self.supply_lines_bonus_cash_total =
-                    self.supply_lines_bonus_cash_total.saturating_add(boost);
-            }
+
+            // Prefer retail crate template; residual TestSupplyDropZoneCrate otherwise.
+            let payload_template = if self.templates.contains_key(SUPPLY_DROP_PAYLOAD_TEMPLATE) {
+                SUPPLY_DROP_PAYLOAD_TEMPLATE.to_string()
+            } else {
+                self.ensure_residual_supply_drop_crate_template();
+                SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
+            };
+
+            let mission_id = self.host_deliver_payloads.queue(
+                HostDeliverPayloadKind::SupplyDropZoneCrate,
+                zone_id,
+                team,
+                pos,
+                frame,
+                payload_template,
+            );
+
             self.queue_audio_event(
-                AudioEventRequest::new(SUPPLY_DROP_ZONE_DROP_AUDIO)
+                AudioEventRequest::new(SUPPLY_DROP_CARGO_APPROACH_AUDIO)
                     .with_object(zone_id)
                     .with_position(pos)
                     .with_priority(120),
             );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::WeaponMuzzleFlash,
+                pos,
+                frame,
+                Some(zone_id),
+                None,
+            );
+
+            log::info!(
+                "Host SupplyDropZone cargo DeliverPayload mission {} queued at {:?} (frame={})",
+                mission_id,
+                pos,
+                frame
+            );
+        }
+    }
+
+    /// Ensure residual SupplyDropZoneCrate template for cargo DeliverPayload path.
+    fn ensure_residual_supply_drop_crate_template(&mut self) {
+        use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
+        if self
+            .templates
+            .contains_key(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE)
+        {
+            return;
+        }
+        let mut t = ThingTemplate::new(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE);
+        t.add_kind_of(KindOf::Resource)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1.0)
+            .set_cost(0, 0);
+        self.templates
+            .insert(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string(), t);
+    }
+
+    /// Advance pending DeliverPayload cargo missions: spawn payload units and
+    /// credit BuildingPickup residual cash (Supply Drop Zone crates).
+    ///
+    /// Fail-closed: not full cargo-plane flight / parachute container physics /
+    /// DropDelay per-item stagger (formation simultaneous residual).
+    pub fn update_deliver_payloads(&mut self) {
+        use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
+        use crate::game_logic::host_supply_drop_zone::{
+            drop_cash_amount, SUPPLY_DROP_ZONE_DROP_CASH,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+
+        self.host_deliver_payloads.clear_frame_events();
+        // AmericaParadrop cargo bookkeeping is completed from update_paradrops
+        // (infantry spawn ownership). Only spawn-capable kinds resolve here.
+        let plans: Vec<_> = self
+            .host_deliver_payloads
+            .plan_due_drops(self.frame)
+            .into_iter()
+            .filter(|p| p.kind.spawns_payload_objects())
+            .collect();
+
+        for plan in plans {
+            // Spawn residual payload units at formation positions.
+            if !self.templates.contains_key(&plan.payload_template) {
+                self.ensure_residual_supply_drop_crate_template();
+            }
+            let template_name = if self.templates.contains_key(&plan.payload_template) {
+                plan.payload_template.clone()
+            } else {
+                SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
+            };
+
+            let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
+            for pos in &plan.spawn_positions {
+                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                    spawned.push(id);
+                }
+            }
+
+            // BuildingPickup residual cash for Supply Drop Zone crates.
+            let mut cash_credited = 0_u32;
+            if plan.kind.credits_building_pickup_cash() {
+                let has_supply_lines = self.players.values().any(|p| {
+                    p.team == plan.source_team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+                });
+                let amount = drop_cash_amount(has_supply_lines);
+                let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
+                self.supply_drop_zones
+                    .record_payload_cash(amount, boost);
+                if let Some(player) = self.get_player_mut_by_team(plan.source_team) {
+                    player.resources.supplies = player.resources.supplies.saturating_add(amount);
+                    player.statistics.resources_collected = player
+                        .statistics
+                        .resources_collected
+                        .saturating_add(amount);
+                }
+                if boost > 0 {
+                    self.supply_lines_bonus_cash_total =
+                        self.supply_lines_bonus_cash_total.saturating_add(boost);
+                }
+                cash_credited = amount;
+            }
+
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.drop_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(130),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+
+            let spawned_count = spawned.len();
+            self.host_deliver_payloads.record_drop_complete(
+                plan.mission_id,
+                spawned,
+                cash_credited,
+            );
+
+            log::info!(
+                "Host DeliverPayload {} mission {} completed at {:?} (spawned={}/{}, cash={})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                spawned_count,
+                plan.spawn_positions.len(),
+                cash_credited
+            );
+
         }
     }
 
@@ -10793,10 +10941,32 @@ impl GameLogic {
                 object.install_battle_bus_transport();
             }
 
-            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers).
+            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers)
+            // + PRIMARY TechnicalMachineGunWeapon residual (salvage tiers swap later).
             // Fail-closed: not chassis reskin / PassengersAllowedToFire.
             if crate::game_logic::host_technical::is_technical_template(template_name) {
+                use crate::game_logic::host_technical::{
+                    technical_weapon_for_tier, TechnicalWeaponTier,
+                };
                 object.install_technical_transport();
+                // Force residual MG when template lacked primary_weapon_name (Weapon::default path).
+                object.weapon = Some(technical_weapon_for_tier(TechnicalWeaponTier::Base));
+            }
+
+            // Host residual: China Battlemaster PRIMARY BattleMasterTankGun residual.
+            // Fail-closed: Uranium/horde/nationalism applied via refresh_battlemaster_weapon.
+            if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
+                use crate::game_logic::host_battlemaster::battlemaster_weapon;
+                object.weapon = Some(battlemaster_weapon(false, false, false));
+            }
+
+            // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
+            // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
+            if crate::game_logic::host_marauder::is_marauder_template(template_name) {
+                use crate::game_logic::host_marauder::{
+                    marauder_weapon_for_tier, MarauderWeaponTier,
+                };
+                object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
             }
 
             // Host residual: GLA Combat Cycle RiderChangeContain Slots=1 + rider weapon.
@@ -13326,6 +13496,7 @@ impl GameLogic {
             .set_health(400.0)
             .set_cost(1200, 0)
             .set_model("avcrusader") // USA Crusader tank
+            .set_primary_weapon_name(super::weapon_bootstrap::CRUSADER_TANK_GUN)
             .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
         self.templates
             .insert("USA_CrusaderTank".to_string(), usa_crusader);
@@ -13337,7 +13508,9 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(600.0)
             .set_cost(1800, 0)
-            .set_model("avcrusader"); // USA Paladin tank (using Crusader model since avpaldin doesn't exist)
+            .set_model("avcrusader") // USA Paladin tank (using Crusader model since avpaldin doesn't exist)
+            .set_primary_weapon_name(super::weapon_bootstrap::PALADIN_TANK_GUN)
+            .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
         self.templates
             .insert("USA_PaladinTank".to_string(), usa_paladin);
 
@@ -13349,7 +13522,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(180.0)
             .set_cost(1000, 0)
-            .set_model("avraptorag"); // USA F-22 Raptor
+            .set_model("avraptorag") // USA F-22 Raptor
+            .set_primary_weapon_name(super::weapon_bootstrap::RAPTOR_JET_MISSILE_WEAPON);
         self.templates.insert("USA_Raptor".to_string(), usa_raptor);
 
         // ====== GLA FACTION UNITS ======
@@ -13375,7 +13549,9 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(60.0)
             .set_cost(100, 0)
-            .set_model("uirguard02"); // GLA RPG Trooper (using guard model since uirpgtrp doesn't exist)
+            .set_model("uirguard02") // GLA RPG Trooper (using guard model since uirpgtrp doesn't exist)
+            .set_primary_weapon_name(super::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON)
+            .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
         self.templates.insert("GLA_RPGTrooper".to_string(), gla_rpg);
 
         // GLA Vehicles
@@ -13387,6 +13563,7 @@ impl GameLogic {
             .set_health(200.0)
             .set_cost(400, 0)
             .set_model("uvtechvan_d1") // GLA Technical vehicle model
+            .set_primary_weapon_name(super::weapon_bootstrap::TECHNICAL_MACHINE_GUN)
             .set_locomotor_name(super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
         self.templates
             .insert("GLA_Technical".to_string(), gla_technical);
@@ -13411,7 +13588,9 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(450.0)
             .set_cost(1400, 0)
-            .set_model("uvlitetank"); // GLA Marauder tank (using lite tank model since uvmarudr doesn't exist)
+            .set_model("uvlitetank") // GLA Marauder tank (using lite tank model since uvmarudr doesn't exist)
+            .set_primary_weapon_name(super::weapon_bootstrap::MARAUDER_TANK_GUN)
+            .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
         self.templates
             .insert("GLA_MarauderTank".to_string(), gla_marauder);
 
@@ -13476,7 +13655,9 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(360.0)
             .set_cost(1100, 0)
-            .set_model("uvscorpion"); // China Battlemaster tank (using scorpion model since cvbtlmst doesn't exist)
+            .set_model("uvscorpion") // China Battlemaster tank (using scorpion model since cvbtlmst doesn't exist)
+            .set_primary_weapon_name(super::weapon_bootstrap::BATTLE_MASTER_TANK_GUN)
+            .set_locomotor_name(super::locomotor_bootstrap::BATTLE_MASTER_LOCOMOTOR);
         self.templates
             .insert("China_BattlemasterTank".to_string(), china_battlemaster);
 
@@ -13487,7 +13668,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(700.0)
             .set_cost(2000, 0)
-            .set_model("nvovrlrdt"); // China Overlord tank (using correct nv pattern model)
+            .set_model("nvovrlrdt") // China Overlord tank (using correct nv pattern model)
+            .set_primary_weapon_name(super::weapon_bootstrap::OVERLORD_TANK_GUN);
         self.templates
             .insert("China_OverlordTank".to_string(), china_overlord);
 
@@ -14012,7 +14194,7 @@ impl GameLogic {
     }
 
     /// Residual America Supply Drop Zone honesty: at least one OCL cash credit.
-    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    /// Fail-closed: not full CreateAtEdge aircraft Object / parachute fall physics.
     pub fn honesty_supply_drop_zone_ok(&self) -> bool {
         self.supply_drop_zones.honesty_ok()
     }
@@ -14022,9 +14204,31 @@ impl GameLogic {
         self.supply_drop_zones.honesty_drop_ok()
     }
 
+    /// Residual Supply Drop Zone cargo flight started honesty (OCL create residual).
+    pub fn honesty_supply_drop_zone_flight_ok(&self) -> bool {
+        self.supply_drop_zones.honesty_flight_ok()
+    }
+
+    /// Residual DeliverPayload cargo host path honesty (crates spawned + cash).
+    /// Fail-closed: not full AmericaJetCargoPlane flight / DropDelay stagger.
+    pub fn honesty_deliver_payload_cargo_ok(&self) -> bool {
+        self.host_deliver_payloads.honesty_host_path_ok()
+    }
+
+    /// Residual Supply Drop Zone cargo DeliverPayload host path honesty.
+    pub fn honesty_supply_drop_cargo_deliver_payload_ok(&self) -> bool {
+        self.host_deliver_payloads
+            .honesty_supply_drop_cargo_host_path_ok()
+    }
+
     /// Residual Supply Drop Zone drop count (observability).
     pub fn supply_drop_zone_residual_drops(&self) -> u32 {
         self.supply_drop_zones.drops()
+    }
+
+    /// Residual Supply Drop Zone cargo flights started (observability).
+    pub fn supply_drop_zone_residual_flights(&self) -> u32 {
+        self.supply_drop_zones.flights_started()
     }
 
     /// Total residual cash credited via Supply Drop Zone OCL residual (observability).
@@ -14035,6 +14239,13 @@ impl GameLogic {
     /// Residual SupplyLines boost cash from Supply Drop Zone crates (observability).
     pub fn supply_drop_zone_supply_lines_boost_cash_total(&self) -> u32 {
         self.supply_drop_zones.supply_lines_boost_cash_total()
+    }
+
+    /// Host DeliverPayload registry (observability / tests).
+    pub fn host_deliver_payloads(
+        &self,
+    ) -> &crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry {
+        &self.host_deliver_payloads
     }
 
     /// Residual CommandCenter / RadarVan radar-online honesty.
@@ -30477,6 +30688,18 @@ impl GameLogic {
             unit_template,
         );
 
+        // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
+        // Infantry spawn remains owned by host_paradrops; this records the cargo
+        // plane mission residual for host path honesty without full aircraft flight.
+        let _cargo_id = self.host_deliver_payloads.queue(
+            crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::AmericaParadrop,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+            String::new(),
+        );
+
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
                 .with_object(source_object)
@@ -30551,6 +30774,22 @@ impl GameLogic {
             let spawned_count = spawned.len();
             self.host_paradrops
                 .record_drop_complete(plan.mission_id, spawned);
+
+            // Complete matching DeliverPayload cargo residual bookkeeping
+            // (AmericaJetCargoPlane honesty; infantry already spawned above).
+            let cargo_due = self.host_deliver_payloads.plan_due_drops(self.frame);
+            for cargo_plan in cargo_due {
+                if cargo_plan.kind
+                    == crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::AmericaParadrop
+                    && cargo_plan.source_object == plan.source_object
+                {
+                    self.host_deliver_payloads.record_drop_complete(
+                        cargo_plan.mission_id,
+                        Vec::new(),
+                        0,
+                    );
+                }
+            }
 
             log::info!(
                 "Host paradrop {} mission {} completed at {:?} (spawned={}/{})",
@@ -38928,11 +39167,16 @@ mod tests {
         );
     }
 
-    /// Residual: AmericaSupplyDropZone OCL credits $1500 every 3600 logic frames
-    /// (6 × SupplyDropZoneCrate @ $250). With SupplyLines, +25/crate → $1650.
-    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    /// Residual: AmericaSupplyDropZone OCL queues cargo DeliverPayload every 3600
+    /// logic frames; after approach delay, spawns 6 crates and credits $1500
+    /// (BuildingPickup residual). With SupplyLines, +25/crate → $1650.
+    /// Fail-closed: not full CreateAtEdge aircraft Object / parachute fall physics.
     #[test]
     fn supply_drop_zone_residual_credits_cash_on_interval() {
+        use crate::game_logic::host_deliver_payload::{
+            HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
+            SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
+        };
         use crate::game_logic::host_supply_drop_zone::{
             SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
             SUPPLY_DROP_ZONE_INTERVAL_FRAMES,
@@ -38965,20 +39209,66 @@ mod tests {
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
+        let objects_before = game_logic.get_objects().len();
 
-        // First observation schedules without dropping (C++ m_nextCreationFrame == 0).
+        // First observation schedules without flight (C++ m_nextCreationFrame == 0).
         game_logic.frame = 0;
         game_logic.update_supply_drop_zone_drops();
+        game_logic.update_deliver_payloads();
         assert!(!game_logic.honesty_supply_drop_zone_ok());
+        assert!(!game_logic.honesty_supply_drop_zone_flight_ok());
         let mid = game_logic
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
         assert_eq!(mid, cash_before, "no cash before first interval");
 
-        // Drop after 3600 frames.
+        // OCL due at 3600: queues cargo flight, no cash / crates yet.
         game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
         game_logic.update_supply_drop_zone_drops();
+        assert!(
+            game_logic.honesty_supply_drop_zone_flight_ok(),
+            "OCL must start cargo flight residual"
+        );
+        assert_eq!(game_logic.supply_drop_zone_residual_flights(), 1);
+        assert!(
+            game_logic
+                .host_deliver_payloads()
+                .honesty_inbound_ok(HostDeliverPayloadKind::SupplyDropZoneCrate),
+            "DeliverPayload cargo mission must be inbound"
+        );
+        assert!(!game_logic.honesty_supply_drop_zone_ok());
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "no crates before approach delay"
+        );
+        let after_queue = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(after_queue, cash_before, "no cash during cargo approach");
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "CargoPlaneApproach"),
+            "flight queue must emit CargoPlaneApproach audio"
+        );
+
+        // One frame before drop: still no cash/crates.
+        game_logic.frame =
+            SUPPLY_DROP_ZONE_INTERVAL_FRAMES + CARGO_PLANE_APPROACH_DELAY_FRAMES - 1;
+        game_logic.update_deliver_payloads();
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "still no crates one frame before drop"
+        );
+
+        // Approach delay complete: spawn 6 crates + BuildingPickup cash.
+        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES + CARGO_PLANE_APPROACH_DELAY_FRAMES;
+        game_logic.update_deliver_payloads();
         let after_drop = game_logic
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
@@ -38993,16 +39283,59 @@ mod tests {
             "supply drop zone residual honesty"
         );
         assert!(game_logic.honesty_supply_drop_zone_drop_ok());
+        assert!(
+            game_logic.honesty_supply_drop_cargo_deliver_payload_ok(),
+            "DeliverPayload cargo host path honesty"
+        );
+        assert!(game_logic.honesty_deliver_payload_cargo_ok());
         assert_eq!(game_logic.supply_drop_zone_residual_drops(), 1);
         assert_eq!(
             game_logic.supply_drop_zone_residual_cash_total(),
             SUPPLY_DROP_ZONE_DROP_CASH
         );
         assert_eq!(game_logic.supply_drop_zones().drops, 1);
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before + SUPPLY_DROP_PAYLOAD_COUNT as usize,
+            "must spawn residual SupplyDropZoneCrate count"
+        );
 
-        // Second interval.
+        let completed = game_logic
+            .host_deliver_payloads()
+            .completed_of_kind(HostDeliverPayloadKind::SupplyDropZoneCrate);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(
+            completed[0].spawned_payload_ids.len(),
+            SUPPLY_DROP_PAYLOAD_COUNT as usize
+        );
+        assert_eq!(completed[0].transport_template, "AmericaJetCargoPlane");
+        assert_eq!(completed[0].put_in_container, "AmericaCrateParachute");
+        for id in &completed[0].spawned_payload_ids {
+            let obj = game_logic.find_object(*id).expect("spawned crate");
+            assert_eq!(obj.team, Team::USA);
+            assert!(
+                obj.thing.template.name == SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE
+                    || obj.thing.template.name.contains("Crate")
+                    || obj.thing.template.name.contains("SupplyDrop"),
+                "spawned residual crate template, got {}",
+                obj.thing.template.name
+            );
+        }
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SupplyDropZoneDrop"),
+            "drop must queue SupplyDropZoneDrop audio"
+        );
+
+        // Second interval: queue flight then complete after approach.
         game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2;
         game_logic.update_supply_drop_zone_drops();
+        assert_eq!(game_logic.supply_drop_zone_residual_flights(), 2);
+        game_logic.frame =
+            SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2 + CARGO_PLANE_APPROACH_DELAY_FRAMES;
+        game_logic.update_deliver_payloads();
         assert_eq!(game_logic.supply_drop_zone_residual_drops(), 2);
         assert_eq!(
             game_logic.supply_drop_zone_residual_cash_total(),
@@ -39024,6 +39357,9 @@ mod tests {
             .unwrap_or(0);
         game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3;
         game_logic.update_supply_drop_zone_drops();
+        game_logic.frame =
+            SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3 + CARGO_PLANE_APPROACH_DELAY_FRAMES;
+        game_logic.update_deliver_payloads();
         let after_sl = game_logic
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
@@ -39037,6 +39373,27 @@ mod tests {
             game_logic.supply_drop_zone_supply_lines_boost_cash_total(),
             SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES - SUPPLY_DROP_ZONE_DROP_CASH
         );
+    }
+
+    /// Residual: DeliverPayload cargo path constants and under-construction skip
+    /// do not spawn crates or credit cash.
+    #[test]
+    fn deliver_payload_cargo_residual_constants_and_skip() {
+        use crate::game_logic::host_deliver_payload::{
+            drop_delay_frames_from_ms, HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
+            SUPPLY_DROP_CARGO_TRANSPORT, SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_MS,
+            SUPPLY_DROP_PAYLOAD_COUNT, SUPPLY_DROP_PUT_IN_CONTAINER,
+        };
+
+        assert_eq!(CARGO_PLANE_APPROACH_DELAY_FRAMES, 90);
+        assert_eq!(SUPPLY_DROP_PAYLOAD_COUNT, 6);
+        assert_eq!(SUPPLY_DROP_DROP_DELAY_MS, 350);
+        assert_eq!(SUPPLY_DROP_DROP_DELAY_FRAMES, 11);
+        assert_eq!(drop_delay_frames_from_ms(350), 11);
+        assert_eq!(SUPPLY_DROP_CARGO_TRANSPORT, "AmericaJetCargoPlane");
+        assert_eq!(SUPPLY_DROP_PUT_IN_CONTAINER, "AmericaCrateParachute");
+        assert!(HostDeliverPayloadKind::SupplyDropZoneCrate.spawns_payload_objects());
+        assert!(!HostDeliverPayloadKind::AmericaParadrop.spawns_payload_objects());
     }
 
     /// Residual: under-construction / neutral supply drop zone must not credit cash.
