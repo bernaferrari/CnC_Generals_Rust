@@ -11,12 +11,27 @@
 //! - No bounty for under-construction victims
 //! - No bounty for same-team / non-enemy kills
 //!
+//! Residual floating cash text (Player::doBountyForKill):
+//! - Host `+$N` at killer pos + Z **10**, yellow RGBA (255,255,0,255), key `GUI:AddCash`.
+//!
 //! Fail-closed honesty:
 //! - Not full CashBountyPower module-on-palace science gate matrix
-//! - Not floating text / InGameUI AddCash feedback
+//! - Not full InGameUI GPU draw / Unicode GameText localization
 //! - Not calcCostToBuild faction handicap matrix (uses template build_cost)
+//! - Network deferred
 
+use super::ObjectId;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
+
+/// C++ doBountyForKill floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
+pub const CASH_BOUNTY_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
+
+/// Residual GameText key honesty for bounty cash caption.
+pub const CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Residual floating cash text color (yellow, retail GameMakeColor(255,255,0,255)).
+pub const CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (255, 255, 0, 255);
 
 /// Retail residual bounty percents from GLA CashBountyPower modules.
 /// ChemicalGeneral.ini: Bounty = 5% / 10% / 20%.
@@ -69,6 +84,44 @@ pub fn compute_bounty_award(build_cost: u32, cash_bounty_percent: f32) -> u32 {
     }
 }
 
+/// Host residual floating cash text presentation for bounty awards.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCashBountyFloatingText {
+    pub text: String,
+    pub text_key: String,
+    pub position: Vec3,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub amount: u32,
+    pub spawn_frame: u32,
+    pub killer_id: ObjectId,
+    pub victim_id: ObjectId,
+}
+
+impl HostCashBountyFloatingText {
+    pub fn new(
+        killer_id: ObjectId,
+        victim_id: ObjectId,
+        position: Vec3,
+        amount: u32,
+        spawn_frame: u32,
+    ) -> Self {
+        Self {
+            text: format!("+${amount}"),
+            text_key: CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY.to_string(),
+            position: Vec3::new(
+                position.x,
+                position.y + CASH_BOUNTY_FLOATING_TEXT_Z_OFFSET,
+                position.z,
+            ),
+            color_rgba: CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA,
+            amount,
+            spawn_frame,
+            killer_id,
+            victim_id,
+        }
+    }
+}
+
 /// Host residual honesty counters for cash bounty awards.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostCashBountyRegistry {
@@ -78,6 +131,12 @@ pub struct HostCashBountyRegistry {
     pub bounty_earned_total: u32,
     /// Highest cash-bounty percent applied on a player this session.
     pub max_bounty_percent: f32,
+    /// Floating cash text residual descriptors spawned this session.
+    #[serde(default)]
+    pub floating_texts: Vec<HostCashBountyFloatingText>,
+    /// Floating cash text residual spawn count (honesty).
+    #[serde(default)]
+    pub floating_texts_total: u32,
 }
 
 impl HostCashBountyRegistry {
@@ -103,6 +162,16 @@ impl HostCashBountyRegistry {
         self.bounty_earned_total = self.bounty_earned_total.saturating_add(amount);
     }
 
+    /// Record residual bounty floating cash text presentation.
+    pub fn record_floating_text(&mut self, text: HostCashBountyFloatingText) {
+        self.floating_texts_total = self.floating_texts_total.saturating_add(1);
+        self.floating_texts.push(text);
+        if self.floating_texts.len() > 32 {
+            let drain = self.floating_texts.len() - 32;
+            self.floating_texts.drain(0..drain);
+        }
+    }
+
     /// Residual honesty: at least one bounty award completed.
     pub fn honesty_bounty_award_ok(&self) -> bool {
         self.bounty_kills > 0 && self.bounty_earned_total > 0
@@ -111,6 +180,22 @@ impl HostCashBountyRegistry {
     /// Residual honesty: cash bounty percent was configured.
     pub fn honesty_bounty_configured_ok(&self) -> bool {
         self.max_bounty_percent > 0.0
+    }
+
+    /// Residual honesty: floating cash text presentation spawned.
+    pub fn honesty_floating_text_ok(&self) -> bool {
+        self.floating_texts_total > 0
+            && self.floating_texts.iter().any(|t| {
+                t.amount > 0
+                    && t.text_key == CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY
+                    && t.color_rgba == CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA
+            })
+    }
+
+    pub fn honesty_floating_text_constants_ok() -> bool {
+        CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+            && (CASH_BOUNTY_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
+            && CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA == (255, 255, 0, 255)
     }
 
     /// Combined residual honesty (configured + awarded).
@@ -155,5 +240,23 @@ mod tests {
         assert!(reg.honesty_ok());
         assert_eq!(reg.bounty_earned_total, 120);
         assert_eq!(reg.bounty_kills, 1);
+    }
+
+    #[test]
+    fn floating_text_residual_yellow_z10() {
+        assert!(HostCashBountyRegistry::honesty_floating_text_constants_ok());
+        let mut reg = HostCashBountyRegistry::new();
+        let ft = HostCashBountyFloatingText::new(
+            ObjectId(1),
+            ObjectId(2),
+            Vec3::new(0.0, 0.0, 0.0),
+            120,
+            10,
+        );
+        assert_eq!(ft.text, "+$120");
+        assert_eq!(ft.color_rgba, (255, 255, 0, 255));
+        assert!((ft.position.y - 10.0).abs() < 0.01);
+        reg.record_floating_text(ft);
+        assert!(reg.honesty_floating_text_ok());
     }
 }
