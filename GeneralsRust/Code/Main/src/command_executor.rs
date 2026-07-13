@@ -916,6 +916,7 @@ impl<'a> CommandExecutor<'a> {
             // HelixNapalmBomb residual drops NapalmBomb blast + FirestormSmall at target.
             // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
             // Frenzy residual buffs ally attack damage in radius (FRENZY_ONE/TWO/THREE).
+            // BattlePlan* residual selects USA Strategy Center army battle plan bonuses.
             // EmergencyRepair residual SingleBurst-heals ally vehicles in radius.
             // GpsScrambler residual grants STEALTHED to ally vehicles/infantry in radius.
             // LeafletDrop residual delays then disables enemy infantry/vehicles (DISABLED_EMP).
@@ -990,6 +991,27 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                         crate::game_logic::host_frenzy::HostFrenzyLevel::One,
+                    ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::BattlePlanBombardment
+                    || *power_type == SpecialPowerType::BattlePlanHoldTheLine
+                    || *power_type == SpecialPowerType::BattlePlanSearchAndDestroy
+                {
+                    // USA Strategy Center battle-plan residual (no location required).
+                    // Fail-closed: not full pack/unpack animation / paralyze matrix.
+                    use crate::game_logic::host_strategy_center::HostBattlePlan;
+                    let plan = match power_type {
+                        SpecialPowerType::BattlePlanHoldTheLine => HostBattlePlan::HoldTheLine,
+                        SpecialPowerType::BattlePlanSearchAndDestroy => {
+                            HostBattlePlan::SearchAndDestroy
+                        }
+                        _ => HostBattlePlan::Bombardment,
+                    };
+                    if !self.game_logic.activate_battle_plan(
+                        self.current_player_id,
+                        plan,
+                        Some(unit_id),
                     ) {
                         continue;
                     }

@@ -1,3 +1,24 @@
+## Residual Host Playability — USA Strategy Center Battle Plans (2026-07-13)
+**Closed (host-testable Bombardment / HoldTheLine / SearchAndDestroy residual):**
+1. **Strategy Center residual** (`AmericaStrategyCenter` / *StrategyCenter):
+   - Select plan via residual `SpecialAbilityChangeBattlePlans` (OPTION_ONE/TWO/THREE):
+     - **Bombardment**: army WeaponBonus DAMAGE **120%** on legal members
+     - **HoldTheLine**: army armor damage scalar **0.9** + center max-health **×2**
+     - **SearchAndDestroy**: army RANGE **120%** + sight **1.2**; center stealth detect residual
+   - ValidMember residual: INFANTRY | CAN_ATTACK | VEHICLE
+   - InvalidMember residual: DOZER | STRUCTURE | AIRCRAFT | DRONE
+   - Honesty: `honesty_battle_plan_ok` / select / buffs
+2. Tests (not log-only):
+   - `strategy_center_battle_plan_residual_applies_unit_bonuses`
+   - module unit tests in `host_strategy_center.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full 5000ms army BattlePlanChangeParalyzeTime on plan change
+- Full Bombardment turret enable / recenter natural-position residual path
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+- Network battle-plan replication (network deferred)
+
 ## Residual Host Playability — Helix Minigun + Inferno BlackNapalm (2026-07-13)
 **Closed (host-testable Helix PRIMARY minigun + Inferno BlackNapalm fire-field residual):**
 1. **Helix minigun residual** (`ChinaVehicleHelix` / Nuke_/Infa_/Tank_ / TestHelix):
