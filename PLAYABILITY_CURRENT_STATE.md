@@ -1,3 +1,32 @@
+## Residual Host Playability — GLA Technical + Toxin Tractor (2026-07-13)
+**Closed (host-testable GLA Technical transport/salvage + Toxin Tractor poison residual):**
+1. **Technical residual** (`GLAVehicleTechnical` / chassis reskins / Chem_/Demo_/Slth_):
+   - `TransportContain` Slots=**5**, infantry only (passengers “garrison” the truck bed).
+   - Passengers do **not** fire (`PassengersAllowedToFire` unset in retail).
+   - Salvage weapon upgrade residual (WEAPON_SALVAGER / CRATEUPGRADE):
+     - Tier 0: `TechnicalMachineGunWeapon` (10 dmg / 150 range / 200ms)
+     - Tier 1: `TechnicalCannonWeapon` (45 dmg / 150 range / 1000ms / radius 25 splash)
+     - Tier 2: `TechnicalRPGWeapon` (50 dmg / 150 range / min 5 / 1000ms / radius 5)
+   - Honesty: `honesty_technical_ok` / weapon_upgrades / loads / unloads / fires.
+2. **Toxin Tractor residual** (`GLAVehicleToxinTruck`):
+   - PRIMARY `ToxinTruckGun` poison stream (10 dmg / radius 10 / range 100).
+   - SECONDARY `ToxinTruckSprayer` contaminate residual: SecondaryDamage **2** /
+     radius **75** + spawn MediumPoisonField DoT (2 / 80 / 30s / 500ms ticks).
+   - Death residual: SmallPoisonField (2 / 12 / 10s) via ToxinShellWeapon path.
+   - Honesty: `honesty_toxin_tractor_stream_ok` / `honesty_toxin_tractor_spray_ok` /
+     `honesty_toxin_tractor_death_field_ok` / `honesty_toxin_tractor_ok`.
+3. Tests (not log-only):
+   - `technical_residual_transport_and_salvage_weapon`
+   - `toxin_tractor_residual_stream_spray_and_death_field`
+   - module unit tests in `host_technical.rs` / `host_toxin_tractor.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SalvageCrate W3D gunner/turret subobject swap matrix (Technical/Toxin)
+- Full FireOCLAfterWeaponCooldown MinShots=4 continuous-coast timer for spray
+- Full stream projectile drawing / spigot bone / chassis reskin visual matrix
+- Marauder / Combat Cycle residuals remain open
+- Network salvage / toxin replication (network deferred)
+
 ## Residual Host Playability — GLA Rocket Buggy / Quad Cannon / SCUD (2026-07-13)
 **Closed (host-testable GLA combat vehicle residuals):**
 1. **Rocket Buggy residual** (`GLAVehicleRocketBuggy` / Chem_/Demo_/Slth_):

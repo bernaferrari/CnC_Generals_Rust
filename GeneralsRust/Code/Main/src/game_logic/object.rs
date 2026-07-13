@@ -148,6 +148,10 @@ pub struct Object {
     /// Distinct from generic Humvee transport residual for honesty counters.
     pub is_battle_bus_transport: bool,
 
+    /// Host residual: GLA Technical transport (capacity 5, infantry only, no passenger fire).
+    /// Fail-closed: not chassis reskin / salvage W3D gunner swap matrix.
+    pub is_technical_transport: bool,
+
     /// Host residual: GLA Tunnel Network structure (`TunnelContain`).
     /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
     /// Fail-closed: not full GuardTunnelNetwork AI / CaveSystem cave-in matrix.
@@ -338,6 +342,7 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
+            is_technical_transport: false,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,
@@ -418,6 +423,7 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
+            is_technical_transport: false,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,
@@ -1603,6 +1609,23 @@ impl Object {
     /// True when this structure is a GLA Tunnel Network residual entrance.
     pub fn is_tunnel_network_style_container(&self) -> bool {
         self.is_tunnel_network
+    }
+
+    /// Install residual GLA Technical transport:
+    /// C++ TransportContain Slots=5, AllowInsideKindOf=INFANTRY.
+    /// Passengers ride (bed garrison residual) but do **not** fire
+    /// (`PassengersAllowedToFire` unset in retail).
+    /// Fail-closed: not chassis reskin / W3D gunner matrix.
+    pub fn install_technical_transport(&mut self) {
+        self.is_technical_transport = true;
+        self.max_transport = crate::game_logic::host_technical::TECHNICAL_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+    }
+
+    /// True when this vehicle is a GLA Technical residual transport.
+    pub fn is_technical_style_container(&self) -> bool {
+        self.is_technical_transport
     }
 
     /// Install residual Air Force Combat Chinook transport:

@@ -99,6 +99,17 @@ pub const QUAD_CANNON_GUN_UPGRADE_ONE_AIR: &str = "QuadCannonGunUpgradeOneAir";
 pub const QUAD_CANNON_GUN_UPGRADE_TWO: &str = "QuadCannonGunUpgradeTwo";
 pub const QUAD_CANNON_GUN_UPGRADE_TWO_AIR: &str = "QuadCannonGunUpgradeTwoAir";
 
+/// Retail GLA Technical residual weapons (salvage tiers).
+pub const TECHNICAL_MACHINE_GUN: &str = "TechnicalMachineGunWeapon";
+pub const TECHNICAL_CANNON: &str = "TechnicalCannonWeapon";
+pub const TECHNICAL_RPG: &str = "TechnicalRPGWeapon";
+
+/// Retail GLA Toxin Tractor residual weapons.
+pub const TOXIN_TRUCK_GUN: &str = "ToxinTruckGun";
+pub const TOXIN_TRUCK_GUN_UPGRADED: &str = "ToxinTruckGunUpgraded";
+pub const TOXIN_TRUCK_SPRAYER: &str = "ToxinTruckSprayer";
+pub const TOXIN_TRUCK_SPRAYER_UPGRADED: &str = "ToxinTruckSprayerUpgraded";
+
 /// Retail GLA SCUD launcher residual weapons.
 pub const SCUD_GUN_EXPLOSIVE: &str = "SCUDLauncherGunExplosive";
 pub const SCUD_GUN_TOXIN: &str = "SCUDLauncherGunToxin";
@@ -229,6 +240,23 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Chem_GLAVehicleScudLauncher"
         | "Demo_GLAVehicleScudLauncher"
         | "Slth_GLAVehicleScudLauncher" => Some(SCUD_GUN_EXPLOSIVE),
+        // GLA Technical residual machine gun (salvage tiers swap residual).
+        "GLAVehicleTechnical"
+        | "GLA_Technical"
+        | "TestTechnical"
+        | "Chem_GLAVehicleTechnical"
+        | "Demo_GLAVehicleTechnical"
+        | "Slth_GLAVehicleTechnical"
+        | "GLAVehicleTechnicalChassisOne"
+        | "GLAVehicleTechnicalChassisTwo"
+        | "GLAVehicleTechnicalChassisThree" => Some(TECHNICAL_MACHINE_GUN),
+        // GLA Toxin Tractor residual poison stream primary.
+        "GLAVehicleToxinTruck"
+        | "GLA_ToxinTruck"
+        | "TestToxinTruck"
+        | "Chem_GLAVehicleToxinTruck"
+        | "Demo_GLAVehicleToxinTruck"
+        | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_GUN),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
@@ -286,6 +314,12 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name) {
                 return Some(SCUD_GUN_EXPLOSIVE);
             }
+            if crate::game_logic::host_technical::is_technical_template(template_name) {
+                return Some(TECHNICAL_MACHINE_GUN);
+            }
+            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
+                return Some(TOXIN_TRUCK_GUN);
+            }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
     }
@@ -322,6 +356,13 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Chem_GLAVehicleScudLauncher"
         | "Demo_GLAVehicleScudLauncher"
         | "Slth_GLAVehicleScudLauncher" => Some(SCUD_GUN_TOXIN),
+        // Toxin Tractor residual contaminate spray secondary.
+        "GLAVehicleToxinTruck"
+        | "GLA_ToxinTruck"
+        | "TestToxinTruck"
+        | "Chem_GLAVehicleToxinTruck"
+        | "Demo_GLAVehicleToxinTruck"
+        | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_SPRAYER),
         _ => {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 Some(NUKE_CANNON_NEUTRON_WEAPON)
@@ -331,6 +372,9 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name)
             {
                 Some(SCUD_GUN_TOXIN)
+            } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
+            {
+                Some(TOXIN_TRUCK_SPRAYER)
             } else {
                 // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
@@ -722,6 +766,70 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 1,
             weapon_speed: 200.0,
         },
+        // TechnicalMachineGunWeapon — dmg 10, range 150, Delay 200ms → 6 frames.
+        SeedWeapon {
+            name: TECHNICAL_MACHINE_GUN,
+            primary_damage: 10.0,
+            attack_range: 150.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // TechnicalCannonWeapon — dmg 45, range 150, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: TECHNICAL_CANNON,
+            primary_damage: 45.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 300.0,
+        },
+        // TechnicalRPGWeapon — dmg 50, range 150, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: TECHNICAL_RPG,
+            primary_damage: 50.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 200.0,
+        },
+        // ToxinTruckGun — poison stream dmg 10, range 100, Delay 40ms → 2 frames.
+        SeedWeapon {
+            name: TOXIN_TRUCK_GUN,
+            primary_damage: 10.0,
+            attack_range: 100.0,
+            delay_frames: 2,
+            clip_size: 30,
+            weapon_speed: 600.0,
+        },
+        // ToxinTruckGunUpgraded — anthrax stream dmg 12.5.
+        SeedWeapon {
+            name: TOXIN_TRUCK_GUN_UPGRADED,
+            primary_damage: 12.5,
+            attack_range: 100.0,
+            delay_frames: 2,
+            clip_size: 30,
+            weapon_speed: 600.0,
+        },
+        // ToxinTruckSprayer — contaminate residual (retail PrimaryDamage 0; host
+        // store needs >0 to bind — spray area dmg is SecondaryDamage 2 via residual).
+        SeedWeapon {
+            name: TOXIN_TRUCK_SPRAYER,
+            primary_damage: 0.001,
+            attack_range: 15.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
+        // ToxinTruckSprayerUpgraded — anthrax spray residual.
+        SeedWeapon {
+            name: TOXIN_TRUCK_SPRAYER_UPGRADED,
+            primary_damage: 0.001,
+            attack_range: 15.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -747,6 +855,12 @@ fn seed_known_host_weapons() -> usize {
         {
             t.minimum_attack_range = 200.0;
             t.pre_attack_delay = 15; // 500ms @ 30 FPS residual
+        }
+        if seed.name == TECHNICAL_RPG {
+            t.minimum_attack_range = 5.0;
+        }
+        if seed.name == TECHNICAL_CANNON {
+            t.primary_damage_radius = 25.0;
         }
         match with_weapon_store_mut(|store| {
             store.add_weapon_template(t);
