@@ -7,6 +7,7 @@
 
 pub mod floating_text_layout;
 pub mod fow_uniform_integration;
+pub mod game_text_residual;
 pub mod graphics_system;
 pub mod laser_segment_upload;
 pub mod minimap_renderer;
@@ -19,6 +20,10 @@ pub use floating_text_layout::{
     pack_floating_text_and_mark_ready, resolve_add_cash_caption, FloatingTextLayout,
     FloatingTextLayoutEntry, FloatingTextLayoutHonesty, FLOATING_TEXT_LAYOUT_BYTES,
     FLOATING_TEXT_LAYOUT_FLOATS, GUI_ADD_CASH_KEY,
+};
+pub use game_text_residual::{
+    exercise_host_game_text_residual, format_printf_d, measure_display_string_residual,
+    GameTextResidualExercise, GameTextResidualHonesty, GUI_ADD_CASH_RETAIL_TEMPLATE,
 };
 pub use world_anim_layout::{
     pack_world_anim_and_mark_ready, WorldAnimLayout, WorldAnimLayoutEntry, WorldAnimLayoutHonesty,

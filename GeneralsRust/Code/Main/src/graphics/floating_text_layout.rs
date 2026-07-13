@@ -5,14 +5,18 @@
 //! - Move-up offset from `PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED` (C++ default 1.0)
 //! - Timeout / vanish residual from retail DEFAULT_FLOATING_TEXT_TIMEOUT (10 frames)
 //! - GameText `GUI:AddCash` caption residual (`+$N` format parity with host text)
+//! - DisplayString monospaced measure residual (8×8 glyph extents for caption)
 //! - Honesty counters for texts / active / bytes packed
 //! - Deterministic pack order for dual-tick presentation consumers
 //!
 //! Still residual:
-//! - Actual font raster / DisplayString GPU submit
-//! - Full CSF/STR Unicode GameText table load for all locales
+//! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
+//! - Full multi-locale CSF/STR Unicode GameText table load at boot
 //! - Full vanish-rate alpha blend on live Display surface
 
+use crate::graphics::game_text_residual::{
+    honesty_display_string_measure, measure_display_string_residual,
+};
 use crate::presentation_frame::{
     PresentationFloatingText, PresentationFrame, PresentationWorldAnim,
     PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED, PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
@@ -69,6 +73,10 @@ pub struct FloatingTextLayoutEntry {
     pub caption: String,
     /// Retail GameText key residual (`GUI:AddCash`).
     pub text_key: String,
+    /// DisplayString monospaced measure residual (width px).
+    pub measure_width: u32,
+    /// DisplayString monospaced measure residual (height px).
+    pub measure_height: u32,
 }
 
 impl FloatingTextLayoutEntry {
@@ -108,6 +116,8 @@ pub struct FloatingTextLayoutHonesty {
     pub timeout_frames: u32,
     /// True when all packed entries resolve GUI:AddCash caption residual.
     pub game_text_caption_ok: bool,
+    /// True when all packed entries have honest DisplayString measure residual.
+    pub display_string_measure_ok: bool,
 }
 
 impl FloatingTextLayoutHonesty {
@@ -132,6 +142,10 @@ impl FloatingTextLayoutHonesty {
     pub fn honesty_game_text_caption_ok(&self) -> bool {
         self.game_text_caption_ok
     }
+
+    pub fn honesty_display_string_measure_ok(&self) -> bool {
+        self.display_string_measure_ok
+    }
 }
 
 /// Packed floating text layout payload ready for dual-tick UI consumers.
@@ -152,6 +166,7 @@ impl FloatingTextLayout {
             honesty: FloatingTextLayoutHonesty {
                 cpu_pack_ok: true,
                 game_text_caption_ok: true,
+                display_string_measure_ok: true,
                 move_up_speed: PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED,
                 vanish_rate: PRESENTATION_FLOATING_TEXT_VANISH_RATE,
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
@@ -183,6 +198,7 @@ impl FloatingTextLayout {
         let mut entries = Vec::with_capacity(texts.len());
         let mut active = 0u32;
         let mut caption_ok = true;
+        let mut measure_ok = true;
         for t in texts {
             let age = logic_frame.saturating_sub(t.spawn_frame);
             let timeout = PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES;
@@ -212,6 +228,10 @@ impl FloatingTextLayout {
                 // Non-AddCash keys still pack; mark caption residual incomplete.
                 caption_ok = caption_ok && !t.text_key.is_empty();
             }
+            let (measure_width, measure_height) = measure_display_string_residual(&caption);
+            if !honesty_display_string_measure(&caption, measure_width, measure_height) {
+                measure_ok = false;
+            }
             let c = t.color_rgba;
             entries.push(FloatingTextLayoutEntry {
                 position: [t.position.x, t.position.y, t.position.z],
@@ -228,6 +248,8 @@ impl FloatingTextLayout {
                 timeout_frames: timeout as f32,
                 caption,
                 text_key: t.text_key.clone(),
+                measure_width,
+                measure_height,
             });
         }
 
@@ -247,6 +269,15 @@ impl FloatingTextLayout {
                     .iter()
                     .all(|e| honesty_add_cash_caption(&e.text_key, e.amount as u32, &e.caption))
         };
+        let display_string_measure_ok = if texts_packed == 0 {
+            true
+        } else {
+            measure_ok
+                && entries.iter().all(|e| {
+                    honesty_display_string_measure(&e.caption, e.measure_width, e.measure_height)
+                        && e.measure_width > 0
+                })
+        };
         Self {
             honesty: FloatingTextLayoutHonesty {
                 texts_packed,
@@ -260,6 +291,7 @@ impl FloatingTextLayout {
                 vanish_rate: PRESENTATION_FLOATING_TEXT_VANISH_RATE,
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
                 game_text_caption_ok,
+                display_string_measure_ok,
             },
             entries,
             layout_bytes,
@@ -316,6 +348,10 @@ mod tests {
         assert!((pack.entries[0].alpha - 1.0).abs() < 0.001);
         assert_eq!(pack.entries[0].caption, "+$150");
         assert_eq!(pack.entries[0].text_key, GUI_ADD_CASH_KEY);
+        assert!(pack.honesty.honesty_display_string_measure_ok());
+        // monospaced 8×8 residual: "+$150" = 5 glyphs → 40 px wide
+        assert_eq!(pack.entries[0].measure_width, 5 * 8);
+        assert_eq!(pack.entries[0].measure_height, 8);
         assert_eq!(
             pack.layout_bytes.len(),
             FLOATING_TEXT_LAYOUT_BYTES
