@@ -32,6 +32,11 @@
 //!   pilot spawns elevated + parachuting residual sink until ground.
 //! - **AmericaParachute OpenDist residual**: freefall until fallen **100**
 //!   (`ParachuteOpenDist`) then open chute (slower sink + open audio residual).
+//! - **Low-altitude open fudge residual**: if startZ − ground < **2×OpenDist**,
+//!   fudge start height so the chute can open (C++ ParachuteContain update).
+//! - **FreeFallDamage residual**: when chute is destroyed mid-air while
+//!   significantly above terrain, rider takes **FreeFallDamagePercent 0.5**
+//!   max-health residual (DAMAGE_FALLING / DEATH_SPLATTED honesty).
 //!
 //! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
 //!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
@@ -44,7 +49,7 @@
 //!   player / host Neutral unmanned with matching `unmanned_owner_team`.
 //!
 //! Fail-closed honesty:
-//! - Not full AmericaParachute container sway / pitch-roll / DeliverPayload matrix
+//! - Not full AmericaParachute container sway / pitch-roll / DeliverPayload bone matrix
 //! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
 //!   (C++ early-return makes busy path unreachable — host matches idle-only)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
@@ -138,13 +143,26 @@ pub const EJECT_PARACHUTE_SINK_PER_FRAME: f32 = 20.0;
 pub const EJECT_PARACHUTE_FREEFALL_PER_FRAME: f32 = 40.0;
 
 /// Retail AmericaParachute `ParachuteOpenDist` — freefall distance before open.
+///
+/// Host residual uses **100** (CINE / safe air-eject span). Retail base
+/// `AmericaParachute` INI is 25; fail-closed not dual-template OpenDist matrix.
 pub const PARACHUTE_OPEN_DIST: f32 = 100.0;
+
+/// Retail ParachuteContainModuleData default FreeFallDamagePercent (0.5).
+/// AmericaParachute INI does not override → 50% max health residual on chute die.
+pub const FREE_FALL_DAMAGE_PERCENT: f32 = 0.5;
+
+/// C++ low-altitude open fudge: startZ − ground must be ≥ **2×** ParachuteOpenDist.
+pub const PARACHUTE_LOW_ALTITUDE_OPEN_MULT: f32 = 2.0;
 
 /// Residual audio when AmericaParachute residual chute opens.
 pub const PILOT_PARACHUTE_OPEN_AUDIO: &str = "ParachuteOpen";
 
 /// Residual audio when air-ejected pilot lands (host of parachute open residual).
 pub const PILOT_PARACHUTE_LAND_AUDIO: &str = "ParadropLanding";
+
+/// Residual audio honesty when FreeFallDamage residual applies (splat path).
+pub const PILOT_FREE_FALL_DAMAGE_AUDIO: &str = "BodyFallGeneric";
 
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
@@ -513,6 +531,42 @@ pub fn should_open_parachute(start_height: f32, current_height: f32) -> bool {
     (start_height - current_height) >= PARACHUTE_OPEN_DIST
 }
 
+/// C++ ParachuteContain low-altitude open fudge residual.
+///
+/// If `start_height - ground_height < 2 * ParachuteOpenDist`, return a fudged
+/// start height of `ground + 2*OpenDist` so the chute can still open. Otherwise
+/// return `start_height` unchanged.
+pub fn fudge_parachute_start_height(start_height: f32, ground_height: f32) -> f32 {
+    let min_span = PARACHUTE_LOW_ALTITUDE_OPEN_MULT * PARACHUTE_OPEN_DIST;
+    if start_height - ground_height < min_span {
+        ground_height + min_span
+    } else {
+        start_height
+    }
+}
+
+/// Whether low-altitude open fudge residual was applied.
+pub fn parachute_start_height_was_fudged(start_height: f32, ground_height: f32) -> bool {
+    let min_span = PARACHUTE_LOW_ALTITUDE_OPEN_MULT * PARACHUTE_OPEN_DIST;
+    start_height - ground_height < min_span
+}
+
+/// FreeFallDamage residual amount (max_health × FreeFallDamagePercent).
+pub fn free_fall_damage_amount(max_health: f32) -> f32 {
+    (max_health.max(0.0) * FREE_FALL_DAMAGE_PERCENT).max(0.0)
+}
+
+/// Whether FreeFallDamage residual applies (chute destroyed mid-air).
+///
+/// C++ ParachuteContain::onDie: if significantly above terrain, damage rider
+/// with DAMAGE_FALLING / DEATH_SPLATTED for FreeFallDamagePercent max health.
+pub fn should_apply_parachute_free_fall_damage(
+    is_parachuting: bool,
+    height_above_terrain: f32,
+) -> bool {
+    is_parachuting && is_significantly_above_terrain(height_above_terrain)
+}
+
 /// Advance parachute residual sink toward ground (y height axis).
 ///
 /// Returns (new_height, landed). Open-chute residual rate (legacy helper).
@@ -670,6 +724,12 @@ pub struct HostUsaPilotRegistry {
     /// AmericaParachute residual chute-open events (past OpenDist freefall).
     #[serde(default)]
     pub parachute_opens: u32,
+    /// Low-altitude open fudge residual applications.
+    #[serde(default)]
+    pub parachute_open_fudges: u32,
+    /// FreeFallDamage residual applications (chute destroyed mid-air).
+    #[serde(default)]
+    pub free_fall_damages: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -843,6 +903,24 @@ impl HostUsaPilotRegistry {
         self.parachute_opens > 0
     }
 
+    pub fn record_parachute_open_fudge(&mut self) {
+        self.parachute_open_fudges = self.parachute_open_fudges.saturating_add(1);
+    }
+
+    pub fn record_free_fall_damage(&mut self) {
+        self.free_fall_damages = self.free_fall_damages.saturating_add(1);
+    }
+
+    /// Residual honesty: low-altitude open fudge residual applied at least once.
+    pub fn honesty_parachute_open_fudge_ok(&self) -> bool {
+        self.parachute_open_fudges > 0
+    }
+
+    /// Residual honesty: FreeFallDamage residual applied at least once.
+    pub fn honesty_free_fall_damage_ok(&self) -> bool {
+        self.free_fall_damages > 0
+    }
+
     /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
         self.honesty_recrew_ok()
@@ -853,6 +931,8 @@ impl HostUsaPilotRegistry {
             || self.honesty_air_eject_ok()
             || self.honesty_parachute_land_ok()
             || self.honesty_parachute_open_ok()
+            || self.honesty_parachute_open_fudge_ok()
+            || self.honesty_free_fall_damage_ok()
             || self.honesty_find_vehicle_player_ok()
     }
 }
@@ -1167,6 +1247,18 @@ mod tests {
 
         // AmericaParachute OpenDist freefall residual.
         assert!((PARACHUTE_OPEN_DIST - 100.0).abs() < 0.001);
+        // Low-altitude open fudge residual (2×OpenDist).
+        assert!((PARACHUTE_LOW_ALTITUDE_OPEN_MULT - 2.0).abs() < 0.001);
+        assert!(parachute_start_height_was_fudged(50.0, 0.0));
+        assert!(!parachute_start_height_was_fudged(250.0, 0.0));
+        assert!((fudge_parachute_start_height(50.0, 0.0) - 200.0).abs() < 0.001);
+        assert!((fudge_parachute_start_height(250.0, 0.0) - 250.0).abs() < 0.001);
+        // FreeFallDamage residual (default 50% max health).
+        assert!((FREE_FALL_DAMAGE_PERCENT - 0.5).abs() < 0.001);
+        assert!((free_fall_damage_amount(100.0) - 50.0).abs() < 0.001);
+        assert!(should_apply_parachute_free_fall_damage(true, 600.0));
+        assert!(!should_apply_parachute_free_fall_damage(false, 600.0));
+        assert!(!should_apply_parachute_free_fall_damage(true, 10.0));
         assert!(!should_open_parachute(700.0, 650.0)); // fallen 50 < 100
         assert!(should_open_parachute(700.0, 600.0)); // fallen 100
         assert!(should_open_parachute(700.0, 500.0));

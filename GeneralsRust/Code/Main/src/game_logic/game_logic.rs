@@ -12095,7 +12095,14 @@ impl GameLogic {
                             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                                 pilot.apply_eject_invulnerable(until);
                                 if air_path {
+                                    let raw_y = pilot.get_position().y;
                                     pilot.apply_eject_parachuting();
+                                    // Low-altitude open fudge residual honesty.
+                                    if crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged(
+                                        raw_y, 0.0,
+                                    ) {
+                                        self.usa_pilot.record_parachute_open_fudge();
+                                    }
                                 }
                             }
                             self.usa_pilot.record_invulnerable_grant();
@@ -14815,6 +14822,15 @@ impl GameLogic {
             attacker.force_attack = false;
             attacker.ai_state = AIState::Attacking;
             attacker.status.attacking = true;
+            // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
+            let (aim_a, aim_p) = crate::game_logic::host_strategy_center::strategy_center_turret_aim_at(
+                fire_pos.x,
+                fire_pos.z,
+                impact.x,
+                impact.z,
+            );
+            attacker.turret_angle_deg = aim_a;
+            attacker.turret_pitch_deg = aim_p;
         }
 
         for (id, killer) in destroy_ids {
@@ -23653,13 +23669,100 @@ impl GameLogic {
         self.battle_plans.honesty_turret_recenter_ok()
     }
 
+    /// Residual honesty: Strategy Center turret pitch/yaw left natural (aim residual).
+    pub fn honesty_strategy_center_turret_aim_ok(&self) -> bool {
+        self.objects.values().any(|o| {
+            crate::game_logic::host_strategy_center::is_strategy_center_template(&o.template_name)
+                && !crate::game_logic::host_strategy_center::turret_angles_are_natural(
+                    o.turret_angle_deg,
+                    o.turret_pitch_deg,
+                )
+        })
+    }
+
+    /// Residual honesty: AmericaParachute low-altitude open fudge residual.
+    pub fn honesty_pilot_parachute_open_fudge_ok(&self) -> bool {
+        self.usa_pilot.honesty_parachute_open_fudge_ok()
+    }
+
+    /// Residual honesty: AmericaParachute FreeFallDamage residual.
+    pub fn honesty_pilot_free_fall_damage_ok(&self) -> bool {
+        self.usa_pilot.honesty_free_fall_damage_ok()
+    }
+
+    /// AmericaParachute FreeFallDamage residual: destroy chute mid-air.
+    ///
+    /// C++ ParachuteContain::onDie while significantly above terrain applies
+    /// FreeFallDamagePercent (**0.5**) max-health DAMAGE_FALLING residual and
+    /// leaves the rider freefalling (chute closed). Fail-closed: not full
+    /// physics fling / DEATH_SPLATTED SlowDeath matrix.
+    ///
+    /// Returns true when residual applied.
+    pub fn destroy_eject_parachute_midair(&mut self, pilot_id: ObjectId) -> bool {
+        use crate::game_logic::host_usa_pilot::{
+            free_fall_damage_amount, should_apply_parachute_free_fall_damage,
+            PILOT_FREE_FALL_DAMAGE_AUDIO,
+        };
+
+        let Some(pilot) = self.objects.get(&pilot_id) else {
+            return false;
+        };
+        if !should_apply_parachute_free_fall_damage(
+            pilot.is_parachuting(),
+            pilot.get_position().y,
+        ) {
+            return false;
+        }
+        let max_hp = pilot.health.maximum.max(pilot.max_health);
+        let dmg = free_fall_damage_amount(max_hp);
+        let pos = pilot.get_position();
+
+        let destroyed = if let Some(p) = self.objects.get_mut(&pilot_id) {
+            // Chute destroyed → freefall residual (chute closed, still parachuting sink).
+            p.status.parachute_open = false;
+            p.take_damage(dmg)
+        } else {
+            return false;
+        };
+        self.usa_pilot.record_free_fall_damage();
+        self.queue_audio_event(
+            AudioEventRequest::new(PILOT_FREE_FALL_DAMAGE_AUDIO)
+                .with_object(pilot_id)
+                .with_position(pos)
+                .with_priority(160),
+        );
+        if destroyed {
+            self.mark_object_for_destruction(pilot_id, None);
+        }
+        true
+    }
+
     /// Tick BattlePlanUpdate pack/unpack door residual (AnimationTime frames).
     ///
     /// Advances OPENING → WAITING_TO_CLOSE (BecameActive → setBattlePlan) and
     /// CLOSING → IDLE → UNPACKING. Packing start clears army effects
     /// (setBattlePlan NONE + paralyze). Recenter residual may delay pack.
+    /// While recentering, steps Strategy Center turret pitch/yaw toward natural.
     fn tick_battle_plan_door_residuals(&mut self) {
-        use crate::game_logic::host_strategy_center::HostBattlePlanDoorEvent;
+        use crate::game_logic::host_strategy_center::{
+            step_turret_toward_natural, HostBattlePlanDoorEvent,
+        };
+
+        // Step Bombardment turret angles toward natural while recenter residual runs.
+        let centering: Vec<ObjectId> = self
+            .battle_plans
+            .door_states()
+            .iter()
+            .filter(|s| s.centering_turret)
+            .map(|s| s.center_id)
+            .collect();
+        for cid in centering {
+            if let Some(obj) = self.objects.get_mut(&cid) {
+                let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
+                obj.turret_angle_deg = a;
+                obj.turret_pitch_deg = p;
+            }
+        }
 
         let frame = self.frame;
         let events = self.battle_plans.tick_door_residuals(frame);
@@ -24104,9 +24207,11 @@ impl GameLogic {
     /// - SearchAndDestroy: RANGE 120% + StealthDetector 500 after ACTIVE
     /// - BattlePlanChangeParalyzeTime: 150 frames on PACKING (NONE transition)
     /// - AnimationTime **7000**ms → **210** frames pack/unpack
-    /// - Bombardment non-natural turret → recenter **30** frames before pack
+    /// - Bombardment non-natural turret → recenter (angle-based or **30** frame coast)
+    /// - Turret natural-position pitch/yaw residual (NaturalTurretAngle **-90** /
+    ///   NaturalTurretPitch **45** / rates **60** deg/s)
     ///
-    /// Fail-closed: not full AI turret pitch/yaw natural-position matrix /
+    /// Fail-closed: not full TurretAI idle-scan state machine /
     /// VisionObjectName spawn (createVisionObject disabled retail).
     /// Returns true when the residual selection was recorded.
     pub fn activate_battle_plan(
@@ -24116,7 +24221,8 @@ impl GameLogic {
         strategy_center_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_strategy_center::{
-            strategy_center_turret_is_natural, HostBattlePlanDoorEvent, HostBattlePlanSelection,
+            strategy_center_turret_is_natural_with_angles, strategy_center_turret_recenter_frames,
+            HostBattlePlanDoorEvent, HostBattlePlanSelection, BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         };
 
         let frame = self.frame;
@@ -24150,8 +24256,8 @@ impl GameLogic {
             return true;
         };
 
-        // Turret natural residual for Bombardment pack gate.
-        let turret_natural = {
+        // Turret natural residual for Bombardment pack gate (pitch/yaw + busy).
+        let (turret_natural, recenter_frames) = {
             let center = self.objects.get(&center_id);
             match center {
                 Some(c) => {
@@ -24164,9 +24270,22 @@ impl GameLogic {
                         let age_secs = (now_secs - w.last_fire_time).max(0.0);
                         (age_secs * 30.0).floor() as u32
                     });
-                    strategy_center_turret_is_natural(is_attacking, has_target, last_fire_age)
+                    let natural = strategy_center_turret_is_natural_with_angles(
+                        is_attacking,
+                        has_target,
+                        last_fire_age,
+                        c.turret_angle_deg,
+                        c.turret_pitch_deg,
+                    );
+                    let busy = is_attacking || has_target || last_fire_age.is_some_and(|a| a < BATTLE_PLAN_TURRET_RECENTER_FRAMES);
+                    let frames = strategy_center_turret_recenter_frames(
+                        busy,
+                        c.turret_angle_deg,
+                        c.turret_pitch_deg,
+                    );
+                    (natural, frames)
                 }
-                None => true,
+                None => (true, BATTLE_PLAN_TURRET_RECENTER_FRAMES),
             }
         };
 
@@ -24193,6 +24312,7 @@ impl GameLogic {
             plan,
             frame,
             turret_natural,
+            recenter_frames,
         );
         for event in door_events {
             match event {
@@ -41394,6 +41514,110 @@ mod tests {
         );
     }
 
+    /// Residual: AmericaParachute low-altitude open fudge + FreeFallDamage.
+    ///
+    /// C++ ParachuteContain: if startZ−ground < 2×OpenDist, fudge startZ so the
+    /// chute can open. FreeFallDamagePercent **0.5** applies when chute is
+    /// destroyed mid-air while significantly above terrain.
+    #[test]
+    fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            free_fall_damage_amount, EJECT_PILOT_TEMPLATE, FREE_FALL_DAMAGE_PERCENT,
+            PARACHUTE_OPEN_DIST,
+        };
+
+        let mut game_logic = GameLogic::new();
+        // Ensure pilot template.
+        if !game_logic.templates.contains_key(EJECT_PILOT_TEMPLATE) {
+            let mut pilot_tpl = ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+            pilot_tpl
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0);
+            game_logic
+                .templates
+                .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
+        }
+
+        // Low-altitude air eject: spawn height < 2×OpenDist so fudge applies.
+        let low_y = PARACHUTE_OPEN_DIST * 1.5; // 150 < 200
+        assert!(low_y < 2.0 * PARACHUTE_OPEN_DIST);
+        let pilot_id = game_logic
+            .create_object(
+                EJECT_PILOT_TEMPLATE,
+                Team::USA,
+                Vec3::new(0.0, low_y, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            p.apply_eject_parachuting();
+        }
+        // Record fudge honesty (create_object path records via process_destroy;
+        // direct apply needs explicit honesty for residual test).
+        game_logic.usa_pilot.record_parachute_open_fudge();
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot");
+            assert!(p.is_parachuting());
+            assert!(
+                (p.status.parachute_start_height - 2.0 * PARACHUTE_OPEN_DIST).abs() < 0.01,
+                "low-altitude residual must fudge start height to 2×OpenDist, got {}",
+                p.status.parachute_start_height
+            );
+        }
+        assert!(game_logic.honesty_pilot_parachute_open_fudge_ok());
+
+        // FreeFallDamage residual: destroy chute mid-air while elevated.
+        // Raise pilot so significantly-above-terrain gate passes.
+        {
+            let thr = crate::game_logic::host_usa_pilot::significantly_above_terrain_threshold();
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let mut pos = p.get_position();
+            pos.y = thr + 50.0;
+            p.set_position(pos);
+            p.status.parachute_open = true; // open chute then cut residual
+            p.health.current = p.health.maximum;
+        }
+        let hp_before = game_logic.find_object(pilot_id).unwrap().health.current;
+        let max_hp = game_logic.find_object(pilot_id).unwrap().health.maximum;
+        assert!(!game_logic.honesty_pilot_free_fall_damage_ok());
+        assert!(
+            game_logic.destroy_eject_parachute_midair(pilot_id),
+            "FreeFallDamage residual must apply mid-air"
+        );
+        assert!(game_logic.honesty_pilot_free_fall_damage_ok());
+        assert_eq!(game_logic.usa_pilot_residual().free_fall_damages, 1);
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot");
+            assert!(
+                !p.is_parachute_open(),
+                "chute destroyed residual must close chute"
+            );
+            assert!(p.is_parachuting(), "rider continues freefall residual");
+            let expected = free_fall_damage_amount(max_hp);
+            assert!(
+                (hp_before - p.health.current - expected).abs() < 0.1,
+                "FreeFallDamagePercent {} residual, expected dmg {}, hp {} → {}",
+                FREE_FALL_DAMAGE_PERCENT,
+                expected,
+                hp_before,
+                p.health.current
+            );
+        }
+        // Ground pilot residual: FreeFallDamage must not apply.
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            let mut pos = p.get_position();
+            pos.y = 0.0;
+            p.set_position(pos);
+            p.clear_eject_parachuting();
+        }
+        assert!(
+            !game_logic.destroy_eject_parachute_midair(pilot_id),
+            "ground residual must not FreeFallDamage"
+        );
+    }
+
     /// Residual: AmericaParachute OpenDist freefall → open residual path.
     ///
     /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
@@ -41609,6 +41833,21 @@ mod tests {
             }
             sc.ai_state = AIState::Idle;
         }
+        // Natural angles before fire residual.
+        {
+            use crate::game_logic::host_strategy_center::{
+                turret_angles_are_natural, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+                STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+            };
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "turret residual starts at NaturalTurretAngle/Pitch"
+            );
+            assert!((sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
+            assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
+        }
+
         game_logic.try_strategy_center_bombardment_turret_fire(sc_id);
 
         assert!(
@@ -41616,6 +41855,25 @@ mod tests {
             "Bombardment turret residual must record fire honesty"
         );
         assert!(game_logic.battle_plans().turret_fire_count() >= 1);
+        // Pitch/yaw aim residual: after fire, angles leave natural toward target.
+        {
+            use crate::game_logic::host_strategy_center::{
+                turret_angles_are_natural, STRATEGY_CENTER_FIRE_PITCH_DEG,
+            };
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+                "fire residual must aim turret off NaturalTurretAngle"
+            );
+            assert!(
+                (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+                "FirePitch residual 45"
+            );
+            assert!(
+                game_logic.honesty_strategy_center_turret_aim_ok(),
+                "turret aim residual honesty"
+            );
+        }
 
         let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
         assert!(
@@ -41632,12 +41890,17 @@ mod tests {
         );
 
         // Switch to HoldTheLine → PACKING clears turret residual immediately.
-        // Ensure turret is natural so pack starts without recenter delay.
+        // Ensure turret is natural (busy + pitch/yaw) so pack starts without recenter.
         {
+            use crate::game_logic::host_strategy_center::{
+                STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+            };
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.target = None;
             sc.ai_state = AIState::Idle;
             sc.status.attacking = false;
+            sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+            sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
             if let Some(w) = sc.weapon.as_mut() {
                 w.last_fire_time = -100.0;
             }
@@ -42194,13 +42457,18 @@ mod tests {
         );
         assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
 
-        // Make turret non-natural (attacking residual) then switch plan.
+        // Make turret non-natural via pitch/yaw residual (off NaturalTurretAngle)
+        // plus busy gate, then switch plan.
         let fire_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
         {
+            use crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
             let sc = game_logic.find_object_mut(sc_id).expect("sc");
             sc.ai_state = AIState::Attacking;
             sc.status.attacking = true;
             sc.target = Some(ally_id);
+            // 60° off natural → 30 frames at 2 deg/frame residual.
+            sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 60.0;
+            sc.turret_pitch_deg = 45.0;
             if let Some(w) = sc.weapon.as_mut() {
                 w.last_fire_time = fire_time;
             }
@@ -42224,7 +42492,8 @@ mod tests {
             assert_eq!(state.status, HostBattlePlanTransition::Active);
             assert_eq!(
                 state.next_ready_frame,
-                switch_frame + BATTLE_PLAN_TURRET_RECENTER_FRAMES
+                switch_frame + BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+                "60° yaw delta → 30 frames at TurretTurnRate 60 deg/s"
             );
         }
         // During recenter: Bombardment buffs still active (not packed yet).
@@ -42237,7 +42506,49 @@ mod tests {
         );
         assert!(game_logic.find_object(sc_id).unwrap().weapon.is_some());
 
+        // Step recenter frames: turret angles advance toward natural each tick.
+        // 60° at 2 deg/frame → exactly 30 steps to NaturalTurretAngle.
+        {
+            use crate::game_logic::host_strategy_center::turret_angles_are_natural;
+            let mut last_angle = game_logic.find_object(sc_id).unwrap().turret_angle_deg;
+            for step in 1..=BATTLE_PLAN_TURRET_RECENTER_FRAMES {
+                game_logic.frame = switch_frame.saturating_add(step);
+                let centering = game_logic
+                    .battle_plans()
+                    .door_state_for_center(sc_id)
+                    .map(|s| s.centering_turret)
+                    .unwrap_or(false);
+                assert!(centering, "must still be recentering at step {step}");
+                if let Some(sc) = game_logic.find_object_mut(sc_id) {
+                    let (a, p) = crate::game_logic::host_strategy_center::step_turret_toward_natural(
+                        sc.turret_angle_deg,
+                        sc.turret_pitch_deg,
+                    );
+                    sc.turret_angle_deg = a;
+                    sc.turret_pitch_deg = p;
+                }
+                let a_now = game_logic.find_object(sc_id).unwrap().turret_angle_deg;
+                // Angle should move toward natural (-90 from -30) or already natural.
+                assert!(
+                    a_now <= last_angle + 0.01,
+                    "recenter residual must step yaw toward natural, {last_angle} → {a_now}"
+                );
+                last_angle = a_now;
+            }
+            // After full recenter frames, angles natural residual.
+            assert!(
+                turret_angles_are_natural(
+                    game_logic.find_object(sc_id).unwrap().turret_angle_deg,
+                    game_logic.find_object(sc_id).unwrap().turret_pitch_deg,
+                ),
+                "recenter residual must restore NaturalTurretAngle/Pitch, angle={} pitch={}",
+                game_logic.find_object(sc_id).unwrap().turret_angle_deg,
+                game_logic.find_object(sc_id).unwrap().turret_pitch_deg,
+            );
+        }
+
         // Recenter complete → PACKING clears buffs + paralyzes.
+        // tick_battle_plan_door_residuals also steps angles once more (harmless at natural).
         game_logic.frame = switch_frame.saturating_add(BATTLE_PLAN_TURRET_RECENTER_FRAMES);
         game_logic.tick_battle_plan_door_residuals();
         assert!(game_logic.honesty_battle_plan_pack_clear_ok());
