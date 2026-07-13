@@ -15,9 +15,12 @@
 //! - If STEALTHED && !isLocallyControlled && !DETECTED → hide floating cash text.
 //! - Cash still deposits; only the floating text presentation is gated.
 //!
+//! Residual structure geometry scatter (AutoDepositUpdate for KINDOF_STRUCTURE):
+//! - Floating cash text offset by ±0.3 × major/minor radius (deterministic residual).
+//!
 //! Fail-closed honesty:
 //! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
-//! - Not full structure geometry scatter (major/minor radius residual deferred)
+//! - Not full GeometryInfo major/minor matrix / GameClientRandomValue stream
 //! - Not full capture flow module wiring beyond residual team-change detect
 //! - Neutral / under-construction residual-skip (C++ isNeutralControlled +
 //!   construction-complete gates)
@@ -63,6 +66,42 @@ pub const OIL_DERRICK_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
 
 /// Residual floating text alpha (C++ GameMakeColor(0,0,0,230) OR'd onto player color).
 pub const OIL_DERRICK_FLOATING_TEXT_ALPHA: u8 = 230;
+
+/// C++ AutoDepositUpdate structure floating-text scatter scale
+/// (`getMajorRadius() * 0.3f` / `getMinorRadius() * 0.3f`).
+pub const OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE: f32 = 0.3;
+
+/// Default residual structure major/minor radius when GeometryInfo is unavailable
+/// (fail-closed host residual; TechOilDerrick footprint proxy).
+pub const OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS: f32 = 25.0;
+
+/// Deterministic residual structure floating-text scatter (C++ GameClientRandomValue
+/// ± width/depth for KINDOF_STRUCTURE). Returns host XZ offset.
+///
+/// Fail-closed vs full GameClientRandomValue stream / GeometryInfo matrix.
+pub fn structure_floating_text_scatter(
+    seed: u32,
+    major_radius: f32,
+    minor_radius: f32,
+) -> (f32, f32) {
+    let width = (major_radius * OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
+    let depth = (minor_radius * OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
+    if width <= 0.0 && depth <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let phase = (seed as f32 + 1.0) * 0.618_033_988_7;
+    let dx = if width > 0.0 {
+        (phase.fract() * 2.0 - 1.0) * width
+    } else {
+        0.0
+    };
+    let dz = if depth > 0.0 {
+        ((phase + 0.37).fract() * 2.0 - 1.0) * depth
+    } else {
+        0.0
+    };
+    (dx, dz)
+}
 
 /// Convert deposit timing milliseconds to logic frames (30 FPS residual).
 pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
@@ -200,6 +239,9 @@ pub struct HostOilDerrickRegistry {
     /// Floating cash text suppressed by STEALTHED local display gate residual.
     #[serde(default)]
     pub floating_texts_suppressed: u32,
+    /// Structure geometry scatter residual applications (honesty).
+    #[serde(default)]
+    pub geometry_scatter_applications: u32,
     /// Next absolute logic frame each derrick may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
     /// Derricks that have already received InitialCaptureBonus this instance life.
@@ -300,6 +342,12 @@ impl HostOilDerrickRegistry {
         self.floating_texts_suppressed = self.floating_texts_suppressed.saturating_add(1);
     }
 
+    /// Record structure geometry scatter residual application on floating text.
+    pub fn record_geometry_scatter(&mut self) {
+        self.geometry_scatter_applications =
+            self.geometry_scatter_applications.saturating_add(1);
+    }
+
     /// Award InitialCaptureBonus once when derrick first becomes non-neutral.
     /// Returns bonus amount awarded (0 if already awarded / not eligible).
     ///
@@ -381,6 +429,12 @@ impl HostOilDerrickRegistry {
     /// Residual honesty: STEALTHED local display gate suppressed at least one text.
     pub fn honesty_floating_text_stealth_gate_ok(&self) -> bool {
         self.floating_texts_suppressed > 0
+    }
+
+    /// Residual honesty: structure geometry scatter residual applied.
+    pub fn honesty_geometry_scatter_ok(&self) -> bool {
+        self.geometry_scatter_applications > 0
+            && (OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001
     }
 
     /// Combined residual honesty (any cash path completed).
@@ -498,5 +552,43 @@ mod tests {
         reg.record_floating_text_suppressed();
         assert!(reg.honesty_floating_text_stealth_gate_ok());
         assert_eq!(reg.floating_texts_suppressed, 1);
+    }
+
+    #[test]
+    fn structure_geometry_scatter_residual() {
+        assert!((OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001);
+        let (dx, dz) = structure_floating_text_scatter(0, 50.0, 40.0);
+        // ±0.3 * major/minor → within ±15 / ±12.
+        assert!(dx.abs() <= 15.0 + 0.001);
+        assert!(dz.abs() <= 12.0 + 0.001);
+        assert!(dx != 0.0 || dz != 0.0, "non-zero scatter expected for r>0");
+        let zero = structure_floating_text_scatter(1, 0.0, 0.0);
+        assert_eq!(zero, (0.0, 0.0));
+        // Deterministic for same seed.
+        let a = structure_floating_text_scatter(7, 25.0, 25.0);
+        let b = structure_floating_text_scatter(7, 25.0, 25.0);
+        assert_eq!(a, b);
+
+        let mut reg = HostOilDerrickRegistry::new();
+        let id = ObjectId(9);
+        let (sx, sz) = structure_floating_text_scatter(9, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS);
+        let base = Vec3::new(100.0, 0.0, 200.0);
+        let ft = HostAutoDepositFloatingText::new(
+            id,
+            Vec3::new(base.x + sx, base.y, base.z + sz),
+            200,
+            (255, 0, 0),
+            360,
+            false,
+        );
+        // Floating text Y still lifts by Z offset residual.
+        assert!((ft.position.y - OIL_DERRICK_FLOATING_TEXT_Z_OFFSET).abs() < 0.01);
+        assert!((ft.position.x - (100.0 + sx)).abs() < 0.01);
+        assert!((ft.position.z - (200.0 + sz)).abs() < 0.01);
+        reg.record_geometry_scatter();
+        reg.record_floating_text(ft);
+        assert!(reg.honesty_geometry_scatter_ok());
+        assert!(reg.honesty_floating_text_ok());
+        assert_eq!(reg.geometry_scatter_applications, 1);
     }
 }

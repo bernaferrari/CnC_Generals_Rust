@@ -39,8 +39,9 @@
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
 //! Xfer tables. Radiation / toxin / Spectre orbit / PUC beam residual is a
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
-//! stack / SpectreGunshipUpdate continuous-fire ROF residual (host residual)
-//! / full howitzer projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
+//! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
+//! (host residual; full howitzer projectile Object / model-condition CONTINUOUS_FIRE_*
+//! anim deferred) / ParticleUplinkCannonUpdate outer-node lasers + swath sine
 //! wave + manual driving). CarpetBomb residual is DropDelay-staggered multi-point
 //! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
@@ -156,7 +157,8 @@ impl SpectreGattlingFireStage {
 /// Retail: ContinuousFireOne=1, ContinuousFireTwo=2 on `SpectreGattlingGun`.
 /// - From Normal: consecutive > One → MEAN
 /// - From Mean: consecutive > Two → FAST
-/// - From Fast: stay FAST while consecutive holds (coast cool-down deferred)
+/// - From Fast: stay FAST while consecutive holds (coast cool-down resets via
+///   [`spectre_coast_spin_down`])
 pub fn spectre_gattling_stage_after_shot(
     stage: SpectreGattlingFireStage,
     consecutive_shots: u32,
@@ -178,6 +180,44 @@ pub fn spectre_gattling_stage_after_shot(
         }
         SpectreGattlingFireStage::Fast => SpectreGattlingFireStage::Fast,
     }
+}
+
+/// Retail ContinuousFireCoast residual for Spectre gattling / howitzer (both 2000 ms).
+///
+/// C++ FiringTracker: `m_frameToStartCooldown = possibleNextShotFrame + coast`.
+/// When `now > m_frameToStartCooldown`, coolDown() zeros consecutive and clears
+/// MEAN/FAST weapon-bonus flags.
+pub const SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES: u32 = 60;
+
+/// Next coast-until frame after a residual shot (next possible shot + coast).
+///
+/// Fail-closed: uses `current_frame + interval + coast` (not full
+/// Weapon::getPossibleNextShotFrame).
+pub fn spectre_coast_until_after_shot(current_frame: u32, interval_frames: u32) -> u32 {
+    current_frame
+        .saturating_add(interval_frames.max(1))
+        .saturating_add(SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES)
+}
+
+/// Coast elapsed: spin down consecutive + fire level residual.
+///
+/// Returns `Some((0, 0))` when cool-down applies (consecutive cleared, level base).
+/// Returns `None` while still within coast window (or coast never armed).
+pub fn spectre_coast_spin_down(
+    current_frame: u32,
+    coast_until_frame: u32,
+    fire_level: u8,
+    consecutive: u32,
+) -> Option<(u32, u8)> {
+    if coast_until_frame == 0 || current_frame <= coast_until_frame {
+        return None;
+    }
+    // Already cool and idle — nothing to clear.
+    if fire_level == 0 && consecutive == 0 {
+        return None;
+    }
+    // C++ coolDown: consecutive = 0, clear MEAN/FAST → base.
+    Some((0, 0))
 }
 
 /// Alias residual ROF multipliers used by interval helpers.
@@ -1327,12 +1367,26 @@ pub struct HostSpectreOrbitField {
     /// Consecutive howitzer shots residual (ContinuousFire One/Two ramp).
     #[serde(default)]
     pub howitzer_consecutive: u32,
-    /// Peak gattling continuous-fire level reached (0 base / 1 mean / 2 fast).
+    /// Current gattling continuous-fire level (0 base / 1 mean / 2 fast).
+    /// Cleared to base on ContinuousFireCoast cool-down residual.
     #[serde(default)]
     pub gattling_fire_level: u8,
-    /// Peak howitzer continuous-fire level reached (0 base / 1 mean / 2 fast).
+    /// Current howitzer continuous-fire level (0 base / 1 mean / 2 fast).
+    /// Cleared to base on ContinuousFireCoast cool-down residual.
     #[serde(default)]
     pub howitzer_fire_level: u8,
+    /// Absolute frame after which gattling ContinuousFireCoast cool-down applies.
+    #[serde(default)]
+    pub gattling_coast_until_frame: u32,
+    /// Absolute frame after which howitzer ContinuousFireCoast cool-down applies.
+    #[serde(default)]
+    pub howitzer_coast_until_frame: u32,
+    /// Honesty: gattling ContinuousFireCoast cool-down applications this orbit.
+    #[serde(default)]
+    pub gattling_coast_applications: u32,
+    /// Honesty: howitzer ContinuousFireCoast cool-down applications this orbit.
+    #[serde(default)]
+    pub howitzer_coast_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -2607,6 +2661,10 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_consecutive: 0,
             gattling_fire_level: 0,
             howitzer_fire_level: 0,
+            gattling_coast_until_frame: 0,
+            howitzer_coast_until_frame: 0,
+            gattling_coast_applications: 0,
+            howitzer_coast_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -2707,6 +2765,8 @@ impl HostSpecialPowerStrikeRegistry {
         objects_destroyed: u32,
         current_frame: u32,
     ) {
+        // Apply ContinuousFireCoast cool-down before arming new shots this frame.
+        self.apply_orbit_coast_cooldown(current_frame);
         if let Some(field) = self.orbit_fields.iter_mut().find(|f| f.id == field_id) {
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
@@ -2714,11 +2774,14 @@ impl HostSpecialPowerStrikeRegistry {
             // Advance whichever residual streams were due this frame.
             // Continuous-fire residual: consecutive shot counters raise ROF
             // (gattling 200%/300%, howitzer 150%/200%) after ContinuousFireOne/Two.
+            // ContinuousFireCoast residual arms spin-down deadline after each shot.
             if current_frame >= field.next_tick_frame {
                 field.howitzer_consecutive = field.howitzer_consecutive.saturating_add(1);
                 let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive);
                 field.next_tick_frame = current_frame.saturating_add(interval);
                 field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
+                field.howitzer_coast_until_frame =
+                    spectre_coast_until_after_shot(current_frame, interval);
                 if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
                     field.howitzer_fire_level = 2;
                 } else if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
@@ -2730,6 +2793,8 @@ impl HostSpecialPowerStrikeRegistry {
                 let interval = spectre_gattling_interval_frames(field.gattling_consecutive);
                 field.next_gattling_tick_frame = current_frame.saturating_add(interval);
                 field.gattling_ticks = field.gattling_ticks.saturating_add(1);
+                field.gattling_coast_until_frame =
+                    spectre_coast_until_after_shot(current_frame, interval);
                 if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
                     field.gattling_fire_level = 2;
                 } else if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
@@ -2739,6 +2804,41 @@ impl HostSpecialPowerStrikeRegistry {
             self.orbit_damage_applications_total = self
                 .orbit_damage_applications_total
                 .saturating_add(applications);
+        }
+    }
+
+    /// Apply FiringTracker ContinuousFireCoast residual to all orbit fields.
+    ///
+    /// Retail: after ContinuousFireCoast (2000 ms / 60 frames) without a shot past
+    /// the next possible fire frame, coolDown() zeros consecutive shots and clears
+    /// MEAN/FAST ROF bonuses. Host residual applies the same spin-down to both
+    /// gattling and howitzer streams independently.
+    pub fn apply_orbit_coast_cooldown(&mut self, current_frame: u32) {
+        for field in &mut self.orbit_fields {
+            if let Some((consec, level)) = spectre_coast_spin_down(
+                current_frame,
+                field.gattling_coast_until_frame,
+                field.gattling_fire_level,
+                field.gattling_consecutive,
+            ) {
+                field.gattling_consecutive = consec;
+                field.gattling_fire_level = level;
+                field.gattling_coast_until_frame = 0;
+                field.gattling_coast_applications =
+                    field.gattling_coast_applications.saturating_add(1);
+            }
+            if let Some((consec, level)) = spectre_coast_spin_down(
+                current_frame,
+                field.howitzer_coast_until_frame,
+                field.howitzer_fire_level,
+                field.howitzer_consecutive,
+            ) {
+                field.howitzer_consecutive = consec;
+                field.howitzer_fire_level = level;
+                field.howitzer_coast_until_frame = 0;
+                field.howitzer_coast_applications =
+                    field.howitzer_coast_applications.saturating_add(1);
+            }
         }
     }
 
@@ -2766,8 +2866,16 @@ impl HostSpecialPowerStrikeRegistry {
         self.orbit_fields.iter().any(|f| f.howitzer_fire_level >= 1)
     }
 
+    /// Residual honesty: ContinuousFireCoast cool-down applied at least once.
+    pub fn honesty_continuous_fire_coast_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.gattling_coast_applications > 0 || f.howitzer_coast_applications > 0
+        }) && SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES == 60
+    }
+
     /// Drop expired Spectre orbit fields.
     pub fn prune_expired_orbit(&mut self, current_frame: u32) {
+        self.apply_orbit_coast_cooldown(current_frame);
         self.orbit_fields.retain(|f| !f.is_expired(current_frame));
     }
 
@@ -4468,5 +4576,67 @@ mod tests {
             assert_eq!(f.next_tick_frame, spawn + 9 + 6);
         }
         assert!(reg.honesty_howitzer_continuous_fire_ok());
+    }
+
+    #[test]
+    fn spectre_continuous_fire_coast_cooldown_residual() {
+        // ContinuousFireCoast = 2000 ms → 60 frames @ 30 FPS.
+        assert_eq!(SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES, 60);
+        // coast_until = frame + interval + coast
+        assert_eq!(spectre_coast_until_after_shot(100, 3), 100 + 3 + 60);
+        // Within coast window → no spin-down.
+        assert!(spectre_coast_spin_down(50, 100, 2, 5).is_none());
+        // Past coast with MEAN/FAST → cool to base.
+        assert_eq!(spectre_coast_spin_down(101, 100, 2, 5), Some((0, 0)));
+        // Past coast but already base + zero consecutive → no-op.
+        assert!(spectre_coast_spin_down(101, 100, 0, 0).is_none());
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+
+        // Ramp gattling to FAST (3 consecutive shots).
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 3);
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_fire_level, 2);
+            assert_eq!(f.gattling_consecutive, 3);
+            assert!(f.gattling_coast_until_frame > spawn + 4);
+        }
+        let coast_until = reg.orbit_fields()[0].gattling_coast_until_frame;
+
+        // Jump past ContinuousFireCoast without further shots → spin-down.
+        reg.apply_orbit_coast_cooldown(coast_until + 1);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_consecutive, 0);
+            assert_eq!(f.gattling_fire_level, 0);
+            assert_eq!(f.gattling_coast_until_frame, 0);
+            assert!(f.gattling_coast_applications >= 1);
+            // Howitzer may also cool if its coast was armed earlier.
+        }
+        assert!(reg.honesty_continuous_fire_coast_ok());
+
+        // After cool-down, next shot restarts at base interval residual.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, coast_until + 1);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_consecutive, 1);
+            assert_eq!(f.gattling_fire_level, 0);
+            assert_eq!(
+                f.next_gattling_tick_frame,
+                coast_until + 1 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES
+            );
+        }
     }
 }

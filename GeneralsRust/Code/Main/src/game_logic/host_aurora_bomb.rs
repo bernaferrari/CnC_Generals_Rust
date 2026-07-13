@@ -20,8 +20,8 @@
 //! - Not full HeightDieUpdate / CreateObjectDie OCL_AuroraBombExplode gas object
 //! - Not full SlowDeath multi-stage timing / tree burn state / FX GPU
 //! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / RETURN_TO_BASE clip reload
-//! - Not full SupW_FuelBombDetonationWeapon 900/r70 matrix (FuelAir residual uses
-//!   AirF 1000/r100 host numbers for AirF + SupW collapse)
+//! - SupW_FuelBombDetonationWeapon 900/r70 residual is host-testable via
+//!   `HostAuroraBombKind::FuelAirSupW` (AirF keeps 1000/r100)
 //! - Not multiplayer shared-synced bomb projectile (network deferred)
 
 use super::ObjectId;
@@ -86,8 +86,10 @@ pub const AURORA_FUEL_AIR_DETONATE_AUDIO: &str = "DaisyCutterExplosion";
 pub enum HostAuroraBombKind {
     /// Standard AmericaJetAurora AuroraBombWeapon residual (400 dmg / r20).
     Standard,
-    /// AirF / SupW Fuel-Air Aurora residual (delayed gas detonation area damage).
+    /// Airforce General Fuel-Air residual (`AirF_AuroraBombDetonationWeapon` 1000/r100).
     FuelAir,
+    /// Superweapon General Fuel-Air residual (`SupW_FuelBombDetonationWeapon` 900/r70).
+    FuelAirSupW,
 }
 
 impl HostAuroraBombKind {
@@ -95,6 +97,7 @@ impl HostAuroraBombKind {
         match self {
             HostAuroraBombKind::Standard => "AuroraBomb",
             HostAuroraBombKind::FuelAir => "AuroraFuelAir",
+            HostAuroraBombKind::FuelAirSupW => "AuroraFuelAirSupW",
         }
     }
 
@@ -102,7 +105,9 @@ impl HostAuroraBombKind {
     pub fn impact_delay_frames(self) -> u32 {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_DIVE_DELAY_FRAMES,
-            HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES,
+            HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => {
+                AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES
+            }
         }
     }
 
@@ -111,6 +116,7 @@ impl HostAuroraBombKind {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_DAMAGE,
             HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_DAMAGE,
+            HostAuroraBombKind::FuelAirSupW => AURORA_FUEL_AIR_SUPW_DAMAGE,
         }
     }
 
@@ -119,6 +125,7 @@ impl HostAuroraBombKind {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_RADIUS,
             HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_RADIUS,
+            HostAuroraBombKind::FuelAirSupW => AURORA_FUEL_AIR_SUPW_RADIUS,
         }
     }
 
@@ -127,6 +134,7 @@ impl HostAuroraBombKind {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_RADIUS * 0.5,
             HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_RADIUS * 0.5,
+            HostAuroraBombKind::FuelAirSupW => AURORA_FUEL_AIR_SUPW_RADIUS * 0.5,
         }
     }
 
@@ -137,14 +145,27 @@ impl HostAuroraBombKind {
     pub fn impact_audio(self) -> &'static str {
         match self {
             HostAuroraBombKind::Standard => AURORA_BOMB_DETONATE_AUDIO,
-            HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_DETONATE_AUDIO,
+            HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => {
+                AURORA_FUEL_AIR_DETONATE_AUDIO
+            }
         }
     }
 
     /// Whether impact also applies retail `DaisyCutterFlameWeapon` secondary residual
     /// (AirF_AuroraBombGas / SupW_AuroraFuelAirGas SlowDeath MIDPOINT flame).
     pub fn spawns_daisy_cutter_flame(self) -> bool {
-        matches!(self, HostAuroraBombKind::FuelAir)
+        matches!(
+            self,
+            HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW
+        )
+    }
+
+    /// Whether this is any Fuel-Air residual path (AirF or SupW).
+    pub fn is_fuel_air(self) -> bool {
+        matches!(
+            self,
+            HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW
+        )
     }
 }
 
@@ -206,7 +227,11 @@ pub fn is_aurora_aircraft_template(template_name: &str) -> bool {
     if n.is_empty() {
         return false;
     }
-    if n == "testaurora" || n == "test_aurora" || n == "testaurorafuelair" {
+    if n == "testaurora"
+        || n == "test_aurora"
+        || n == "testaurorafuelair"
+        || n == "testaurorafuelairsupw"
+    {
         return true;
     }
     // Projectile / gas / detonation objects are not the plane.
@@ -228,13 +253,17 @@ pub fn is_aurora_aircraft_template(template_name: &str) -> bool {
 
 /// Classify residual bomb kind from Aurora aircraft template name.
 ///
-/// Airforce / Superweapon General Auroras use FuelAir residual path.
-/// Standard AmericaJetAurora uses AuroraBombWeapon residual.
+/// - Superweapon General → `FuelAirSupW` (`SupW_FuelBombDetonationWeapon` 900/r70)
+/// - Airforce General / generic FuelAir test → `FuelAir` (`AirF` 1000/r100)
+/// - Standard AmericaJetAurora → `Standard` (`AuroraBombWeapon` 400/r20)
 pub fn aurora_bomb_kind_for_template(template_name: &str) -> HostAuroraBombKind {
     let n = template_name.to_ascii_lowercase();
+    // SupW path first so SupW FuelAir is not collapsed into AirF numbers.
+    if n.starts_with("supw") || n.contains("supw_") || n == "testaurorafuelairsupw" {
+        return HostAuroraBombKind::FuelAirSupW;
+    }
     if n == "testaurorafuelair"
         || n.starts_with("airf")
-        || n.starts_with("supw")
         || n.contains("fuelair")
         || n.contains("fuel_air")
     {
@@ -414,7 +443,7 @@ impl HostAuroraBombRegistry {
                 }
                 let dist = distance_2d(mission.target_position, pos);
                 let primary = aurora_bomb_damage_at_distance(mission.kind, dist);
-                // DaisyCutterFlameWeapon secondary residual (FuelAir gas MIDPOINT).
+                // DaisyCutterFlameWeapon secondary residual (FuelAir / SupW gas MIDPOINT).
                 // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
                 let flame = if mission.kind.spawns_daisy_cutter_flame()
                     && dist <= AURORA_FUEL_AIR_FLAME_RADIUS
@@ -521,8 +550,8 @@ pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
     // Use small residual damage for any path that still reads weapon.damage.
     let bookkeeping_damage = match kind {
         HostAuroraBombKind::Standard => AURORA_BOMB_DAMAGE,
-        // AirF primary is intentionally tiny (2.0); detonation is residual OCL.
-        HostAuroraBombKind::FuelAir => 2.0,
+        // AirF / SupW primary is intentionally tiny (2.0); detonation is residual OCL.
+        HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => 2.0,
     };
     super::Weapon {
         damage: bookkeeping_damage,
@@ -550,6 +579,9 @@ mod tests {
         assert_eq!(AURORA_BOMB_DIVE_DELAY_FRAMES, 45);
         assert!((AURORA_FUEL_AIR_DAMAGE - 1000.0).abs() < 0.01);
         assert!((AURORA_FUEL_AIR_RADIUS - 100.0).abs() < 0.01);
+        // SupW_FuelBombDetonationWeapon residual matrix (not collapsed into AirF).
+        assert!((AURORA_FUEL_AIR_SUPW_DAMAGE - 900.0).abs() < 0.01);
+        assert!((AURORA_FUEL_AIR_SUPW_RADIUS - 70.0).abs() < 0.01);
         assert_eq!(AURORA_FUEL_AIR_GAS_DELAY_FRAMES, 30);
         assert_eq!(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, 75);
         assert!((AURORA_BOMB_ATTACK_RANGE - 300.0).abs() < 0.1);
@@ -557,7 +589,11 @@ mod tests {
         assert!((AURORA_FUEL_AIR_FLAME_DAMAGE - 5.0).abs() < 0.01);
         assert!((AURORA_FUEL_AIR_FLAME_RADIUS - 100.0).abs() < 0.1);
         assert!(HostAuroraBombKind::FuelAir.spawns_daisy_cutter_flame());
+        assert!(HostAuroraBombKind::FuelAirSupW.spawns_daisy_cutter_flame());
         assert!(!HostAuroraBombKind::Standard.spawns_daisy_cutter_flame());
+        assert!(HostAuroraBombKind::FuelAir.is_fuel_air());
+        assert!(HostAuroraBombKind::FuelAirSupW.is_fuel_air());
+        assert!(!HostAuroraBombKind::Standard.is_fuel_air());
     }
 
     #[test]
@@ -604,11 +640,15 @@ mod tests {
         );
         assert_eq!(
             aurora_bomb_kind_for_template("SupW_AmericaJetAurora"),
-            HostAuroraBombKind::FuelAir
+            HostAuroraBombKind::FuelAirSupW
         );
         assert_eq!(
             aurora_bomb_kind_for_template("TestAuroraFuelAir"),
             HostAuroraBombKind::FuelAir
+        );
+        assert_eq!(
+            aurora_bomb_kind_for_template("TestAuroraFuelAirSupW"),
+            HostAuroraBombKind::FuelAirSupW
         );
     }
 
@@ -624,6 +664,88 @@ mod tests {
         let fa = HostAuroraBombKind::FuelAir;
         assert!((aurora_bomb_damage_at_distance(fa, 0.0) - 1000.0).abs() < 0.01);
         assert_eq!(aurora_bomb_damage_at_distance(fa, 101.0), 0.0);
+
+        // SupW_FuelBombDetonationWeapon residual: 900 / r70 (not AirF 1000/r100).
+        let supw = HostAuroraBombKind::FuelAirSupW;
+        assert!((aurora_bomb_damage_at_distance(supw, 0.0) - 900.0).abs() < 0.01);
+        assert!((aurora_bomb_damage_at_distance(supw, 20.0) - 900.0).abs() < 0.01);
+        assert_eq!(aurora_bomb_damage_at_distance(supw, 71.0), 0.0);
+        let mid_supw = aurora_bomb_damage_at_distance(supw, 50.0);
+        assert!(
+            mid_supw > 0.0 && mid_supw < 900.0,
+            "SupW mid falloff expected, got {mid_supw}"
+        );
+    }
+
+    #[test]
+    fn supw_fuel_bomb_900_r70_matrix_residual_honesty() {
+        let mut reg = HostAuroraBombRegistry::new();
+        let id = reg.queue(
+            HostAuroraBombKind::FuelAirSupW,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        assert_eq!(
+            reg.get(id).unwrap().impact_frame,
+            AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES
+        );
+        // Enemy at epicenter: primary 900 + flame 5.
+        // Enemy at r80: outside SupW primary 70 but inside flame 100 → flame only.
+        // Enemy at r120: outside both.
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true),
+            (ObjectId(3), Vec3::new(80.0, 0.0, 0.0), Team::GLA, true),
+            (ObjectId(4), Vec3::new(120.0, 0.0, 0.0), Team::GLA, true),
+            (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // ally ALLIES
+        ];
+        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].kind, HostAuroraBombKind::FuelAirSupW);
+        let hits = &plans[0].hits;
+        let epic = hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(2))
+            .expect("epicenter enemy");
+        let outer_primary = hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(3))
+            .expect("r80 flame-only");
+        let ally = hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(5))
+            .expect("ally ALLIES residual");
+        assert!(
+            !hits.iter().any(|h| h.target_id == ObjectId(4)),
+            "beyond primary+flame must not hit"
+        );
+        let expected_epic = AURORA_FUEL_AIR_SUPW_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE;
+        assert!(
+            (epic.damage - expected_epic).abs() < 0.1,
+            "SupW epicenter must be 900+5, got {}",
+            epic.damage
+        );
+        assert!(
+            (ally.damage - expected_epic).abs() < 0.1,
+            "SupW ally epicenter residual"
+        );
+        // Outside SupW r70 primary but inside flame r100 → flame only.
+        assert!(
+            (outer_primary.damage - AURORA_FUEL_AIR_FLAME_DAMAGE).abs() < 0.1,
+            "r80 must be flame-only (outside SupW r70 primary), got {}",
+            outer_primary.damage
+        );
+        // Contrast: AirF at same r80 still has primary falloff (r100).
+        assert!(
+            aurora_bomb_damage_at_distance(HostAuroraBombKind::FuelAir, 80.0)
+                > AURORA_FUEL_AIR_FLAME_DAMAGE,
+            "AirF r80 still in primary radius — matrix must differ from SupW"
+        );
+        reg.record_impact_complete(id, expected_epic * 2.0, 2, 0);
+        assert!(reg.honesty_complete_ok_of_kind(HostAuroraBombKind::FuelAirSupW));
+        assert!(reg.honesty_host_path_ok());
     }
 
     #[test]
