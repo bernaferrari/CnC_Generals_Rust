@@ -10,6 +10,8 @@
 //! - Deterministic pack order for dual-tick presentation consumers
 //! - MoneyPickUp ExecuteAnimationTime **4.0s** / ZRise **15** / Fades **Yes**
 //!   + residual fade window **1.0s** after display time (WORLD_ANIM_FADE_WINDOW)
+//! - Anim2D mode residual table (ONCE / LOOP / PING_PONG + reverse variants)
+//!   matching C++ `Anim2D::tryNextFrame` frame advance residual
 //!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
@@ -40,6 +42,107 @@ pub const MONEY_PICKUP_FRAMES_BETWEEN_UPDATES: u32 = 1;
 pub const MONEY_PICKUP_ANIM_MODE_LOOP: bool = true;
 /// Retail RandomizeStartFrame residual (No).
 pub const MONEY_PICKUP_RANDOMIZE_START_FRAME: bool = false;
+
+/// C++ `Anim2DMode` residual (Anim2D.h discriminants; keep order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum ResidualAnim2DMode {
+    Invalid = 0,
+    Once = 1,
+    OnceBackwards = 2,
+    Loop = 3,
+    LoopBackwards = 4,
+    PingPong = 5,
+    PingPongBackwards = 6,
+}
+
+/// C++ `ANIM_2D_NUM_MODES` residual (keep-last sentinel; not a valid mode).
+pub const ANIM_2D_NUM_MODES: u32 = 7;
+
+/// C++ `Anim2DModeNames[]` residual (DEFINE_ANIM_2D_MODE_NAMES).
+pub const ANIM_2D_MODE_NAMES: [&str; 7] = [
+    "NONE",
+    "ONCE",
+    "ONCE_BACKWARDS",
+    "LOOP",
+    "LOOP_BACKWARDS",
+    "PING_PONG",
+    "PING_PONG_BACKWARDS",
+];
+
+/// Default template AnimationMode residual (`Anim2DTemplate` ctor → ANIM_2D_LOOP).
+pub const ANIM_2D_DEFAULT_MODE: ResidualAnim2DMode = ResidualAnim2DMode::Loop;
+
+/// MoneyPickUp retail AnimationMode residual.
+pub const MONEY_PICKUP_ANIM_MODE: ResidualAnim2DMode = ResidualAnim2DMode::Loop;
+
+impl ResidualAnim2DMode {
+    pub const fn discriminant(self) -> u32 {
+        self as u32
+    }
+
+    pub const fn name(self) -> &'static str {
+        ANIM_2D_MODE_NAMES[self as usize]
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "NONE" => Some(Self::Invalid),
+            "ONCE" => Some(Self::Once),
+            "ONCE_BACKWARDS" => Some(Self::OnceBackwards),
+            "LOOP" => Some(Self::Loop),
+            "LOOP_BACKWARDS" => Some(Self::LoopBackwards),
+            "PING_PONG" => Some(Self::PingPong),
+            "PING_PONG_BACKWARDS" => Some(Self::PingPongBackwards),
+            _ => None,
+        }
+    }
+
+    pub const fn is_loop_family(self) -> bool {
+        matches!(self, Self::Loop | Self::LoopBackwards)
+    }
+
+    pub const fn is_ping_pong_family(self) -> bool {
+        matches!(self, Self::PingPong | Self::PingPongBackwards)
+    }
+
+    pub const fn starts_backwards(self) -> bool {
+        matches!(
+            self,
+            Self::OnceBackwards | Self::LoopBackwards | Self::PingPongBackwards
+        )
+    }
+}
+
+/// Honesty: full Anim2DMode residual table (discriminants + names + defaults).
+pub fn honesty_anim2d_mode_table() -> bool {
+    ResidualAnim2DMode::Invalid.discriminant() == 0
+        && ResidualAnim2DMode::Once.discriminant() == 1
+        && ResidualAnim2DMode::OnceBackwards.discriminant() == 2
+        && ResidualAnim2DMode::Loop.discriminant() == 3
+        && ResidualAnim2DMode::LoopBackwards.discriminant() == 4
+        && ResidualAnim2DMode::PingPong.discriminant() == 5
+        && ResidualAnim2DMode::PingPongBackwards.discriminant() == 6
+        && ANIM_2D_NUM_MODES == 7
+        && ANIM_2D_MODE_NAMES.len() as u32 == ANIM_2D_NUM_MODES
+        && ResidualAnim2DMode::Invalid.name() == "NONE"
+        && ResidualAnim2DMode::Once.name() == "ONCE"
+        && ResidualAnim2DMode::OnceBackwards.name() == "ONCE_BACKWARDS"
+        && ResidualAnim2DMode::Loop.name() == "LOOP"
+        && ResidualAnim2DMode::LoopBackwards.name() == "LOOP_BACKWARDS"
+        && ResidualAnim2DMode::PingPong.name() == "PING_PONG"
+        && ResidualAnim2DMode::PingPongBackwards.name() == "PING_PONG_BACKWARDS"
+        && ANIM_2D_DEFAULT_MODE == ResidualAnim2DMode::Loop
+        && MONEY_PICKUP_ANIM_MODE == ResidualAnim2DMode::Loop
+        && MONEY_PICKUP_ANIM_MODE_LOOP
+        && ResidualAnim2DMode::from_name("LOOP") == Some(ResidualAnim2DMode::Loop)
+        && ResidualAnim2DMode::from_name("PING_PONG") == Some(ResidualAnim2DMode::PingPong)
+        && ResidualAnim2DMode::from_name("bogus").is_none()
+        && ResidualAnim2DMode::Loop.is_loop_family()
+        && ResidualAnim2DMode::PingPong.is_ping_pong_family()
+        && ResidualAnim2DMode::OnceBackwards.starts_backwards()
+        && !ResidualAnim2DMode::Once.starts_backwards()
+}
 /// Retail image sequence prefix (`SCPDollar000`..).
 pub const MONEY_PICKUP_IMAGE_PREFIX: &str = "SCPDollar";
 /// Retail ExecuteAnimationTime residual (seconds) from MoneyCrateCollide.
@@ -130,6 +233,128 @@ pub fn honesty_money_pickup_image_sequence() -> bool {
         }
     }
     !MONEY_PICKUP_RANDOMIZE_START_FRAME && MONEY_PICKUP_ANIM_MODE_LOOP
+}
+
+/// Residual Anim2D animation mode discriminants (C++ `Anim2DMode` order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Anim2DModeResidual {
+    /// ANIM_2D_ONCE — advance to max then COMPLETE.
+    Once = 1,
+    /// ANIM_2D_ONCE_BACKWARDS — decrement to min then COMPLETE.
+    OnceBackwards = 2,
+    /// ANIM_2D_LOOP — wrap max → min.
+    Loop = 3,
+    /// ANIM_2D_LOOP_BACKWARDS — wrap min → max.
+    LoopBackwards = 4,
+    /// ANIM_2D_PING_PONG — bounce with REVERSED status bit.
+    PingPong = 5,
+    /// ANIM_2D_PING_PONG_BACKWARDS — same bounce path as PingPong.
+    PingPongBackwards = 6,
+}
+
+/// Result of one residual `Anim2D::tryNextFrame` step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Anim2DFrameStep {
+    pub frame: u16,
+    /// ANIM_2D_STATUS_REVERSED residual (ping-pong direction).
+    pub reversed: bool,
+    /// ANIM_2D_STATUS_COMPLETE residual (ONCE modes at end).
+    pub complete: bool,
+}
+
+/// Host residual for C++ `Anim2D::tryNextFrame` mode switch.
+///
+/// Fail-closed: not full GameLogic frame gate / Image draw / GPU atlas sample.
+pub fn anim2d_try_next_frame(
+    mode: Anim2DModeResidual,
+    current: u16,
+    min_frame: u16,
+    max_frame: u16,
+    reversed: bool,
+) -> Anim2DFrameStep {
+    match mode {
+        Anim2DModeResidual::Once => {
+            if current < max_frame {
+                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+            } else {
+                Anim2DFrameStep { frame: current, reversed: false, complete: true }
+            }
+        }
+        Anim2DModeResidual::OnceBackwards => {
+            if current > min_frame {
+                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: false, complete: false }
+            } else {
+                Anim2DFrameStep { frame: current, reversed: false, complete: true }
+            }
+        }
+        Anim2DModeResidual::Loop => {
+            if current == max_frame {
+                Anim2DFrameStep { frame: min_frame, reversed: false, complete: false }
+            } else {
+                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+            }
+        }
+        Anim2DModeResidual::LoopBackwards => {
+            if current > min_frame {
+                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: false, complete: false }
+            } else {
+                Anim2DFrameStep { frame: max_frame, reversed: false, complete: false }
+            }
+        }
+        Anim2DModeResidual::PingPong | Anim2DModeResidual::PingPongBackwards => {
+            if reversed {
+                if current == min_frame {
+                    Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+                } else {
+                    Anim2DFrameStep { frame: current.saturating_sub(1), reversed: true, complete: false }
+                }
+            } else if current == max_frame {
+                Anim2DFrameStep { frame: current.saturating_sub(1), reversed: true, complete: false }
+            } else {
+                Anim2DFrameStep { frame: current.saturating_add(1), reversed: false, complete: false }
+            }
+        }
+    }
+}
+
+/// Honesty: Anim2D mode residual table + MoneyPickUp LOOP path.
+pub fn honesty_anim2d_mode_residual() -> bool {
+    let step = anim2d_try_next_frame(Anim2DModeResidual::Loop, 30, 0, 30, false);
+    if step.frame != 0 || step.complete || step.reversed {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::Loop, 0, 0, 30, false);
+    if step.frame != 1 {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::Once, 5, 0, 5, false);
+    if !step.complete || step.frame != 5 {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::Once, 4, 0, 5, false);
+    if step.complete || step.frame != 5 {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::OnceBackwards, 0, 0, 5, false);
+    if !step.complete || step.frame != 0 {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::LoopBackwards, 0, 0, 5, false);
+    if step.frame != 5 {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::PingPong, 5, 0, 5, false);
+    if step.frame != 4 || !step.reversed {
+        return false;
+    }
+    let step = anim2d_try_next_frame(Anim2DModeResidual::PingPong, 0, 0, 5, true);
+    if step.frame != 1 || step.reversed {
+        return false;
+    }
+    let a = anim2d_try_next_frame(Anim2DModeResidual::PingPong, 3, 0, 5, false);
+    let b = anim2d_try_next_frame(Anim2DModeResidual::PingPongBackwards, 3, 0, 5, false);
+    a == b && MONEY_PICKUP_ANIM_MODE_LOOP && !MONEY_PICKUP_RANDOMIZE_START_FRAME
 }
 
 /// One CPU-side residual world-anim layout sample.
@@ -416,4 +641,45 @@ mod tests {
         assert!((pack.entries[0].alpha - 0.5).abs() < 0.01);
     }
 
+    #[test]
+    fn anim2d_mode_residual_honesty() {
+        assert!(honesty_anim2d_mode_residual());
+        let step = anim2d_try_next_frame(Anim2DModeResidual::Loop, 30, 0, 30, false);
+        assert_eq!(step.frame, 0);
+        assert!(!step.complete);
+        let step = anim2d_try_next_frame(Anim2DModeResidual::Once, 30, 0, 30, false);
+        assert!(step.complete);
+        assert_eq!(step.frame, 30);
+        let step = anim2d_try_next_frame(Anim2DModeResidual::PingPong, 30, 0, 30, false);
+        assert_eq!(step.frame, 29);
+        assert!(step.reversed);
+        let step = anim2d_try_next_frame(Anim2DModeResidual::PingPong, 0, 0, 30, true);
+        assert_eq!(step.frame, 1);
+        assert!(!step.reversed);
+        let step = anim2d_try_next_frame(Anim2DModeResidual::LoopBackwards, 0, 0, 30, false);
+        assert_eq!(step.frame, 30);
+    }
+
+
+    #[test]
+    fn anim2d_mode_table_residual_honesty() {
+        assert!(honesty_anim2d_mode_table());
+        assert_eq!(ResidualAnim2DMode::Loop.discriminant(), 3);
+        assert_eq!(ResidualAnim2DMode::Loop.name(), "LOOP");
+        assert_eq!(MONEY_PICKUP_ANIM_MODE, ResidualAnim2DMode::Loop);
+        assert_eq!(ANIM_2D_DEFAULT_MODE, ResidualAnim2DMode::Loop);
+        assert_eq!(ANIM_2D_NUM_MODES, 7);
+        assert_eq!(ANIM_2D_MODE_NAMES[0], "NONE");
+        assert_eq!(ANIM_2D_MODE_NAMES[3], "LOOP");
+        assert_eq!(ANIM_2D_MODE_NAMES[6], "PING_PONG_BACKWARDS");
+        assert!(ResidualAnim2DMode::Loop.is_loop_family());
+        assert!(ResidualAnim2DMode::PingPong.is_ping_pong_family());
+        assert!(ResidualAnim2DMode::LoopBackwards.starts_backwards());
+        assert!(!ResidualAnim2DMode::Once.starts_backwards());
+        assert_eq!(
+            ResidualAnim2DMode::from_name("ONCE_BACKWARDS"),
+            Some(ResidualAnim2DMode::OnceBackwards)
+        );
+        assert!(ResidualAnim2DMode::from_name("unknown").is_none());
+    }
 }

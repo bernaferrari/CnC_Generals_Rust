@@ -125,6 +125,17 @@
 //! Wave 41 residual closed: complete Wave 40 honesty/application/test wiring +
 //! DisplayString getSize/word-wrap/hotkey/clip residual host-testable path +
 //! Snapshot/Xfer anti/launch residual fields.
+//! Wave 42 residual closed: ScudStormWeapon special residual (PrimaryDamage 0 /
+//! AttackRange 999999 / DamageType/DeathType / WeaponSpeed 99999 / ScatterRadius 0 /
+//! PreAttackType PER_CLIP); SpectreGattlingGun anti/fire residual (Anti* No /
+//! ProjectileObject NONE / DamageType Gattling / PrimaryDamageRadius 0 / Clip 0);
+//! DisplayString getFont/draw residual (graphics).
+//! Wave 43 residual closed: complete Wave 42 host residual + MissileAIUpdate defaults
+//! residual (IgnitionDelay 0 / UseWeaponSpeed No / DetonateOnNoFuel No / LockDistance 75 /
+//! DistanceScatterWhenJammed 75 / DetonateCallsKill No / KillSelfDelay 3);
+//! TrailRemnant ImmortalBody health-floor residual (never below 1 HP / never dead);
+//! Anim2DMode full residual table (INVALID..PING_PONG_BACKWARDS) (graphics);
+//! DisplayString draw shadow-position residual (x+xDrop / y+yDrop order honesty).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -195,6 +206,41 @@ pub const SPECTRE_GATTLING_ROF_MEAN: f32 = 2.0;
 pub const SPECTRE_GATTLING_ROF_FAST: f32 = 3.0;
 /// Residual honesty audio for gattling strafe residual.
 pub const SPECTRE_GATTLING_AUDIO: &str = "SpectreGunshipGattlingWeapon";
+/// Retail SpectreGattlingGun PrimaryDamageRadius residual (0 = intended victim only).
+pub const SPECTRE_GATTLING_PRIMARY_RADIUS: f32 = 0.0;
+/// Retail SpectreGattlingGun AttackRange residual.
+pub const SPECTRE_GATTLING_ATTACK_RANGE: f32 = 2222.0;
+/// Retail SpectreGattlingGun DamageType residual.
+pub const SPECTRE_GATTLING_DAMAGE_TYPE: &str = "Gattling";
+/// Retail SpectreGattlingGun DeathType residual.
+pub const SPECTRE_GATTLING_DEATH_TYPE: &str = "NORMAL";
+/// Retail SpectreGattlingGun WeaponSpeed residual (instant).
+pub const SPECTRE_GATTLING_WEAPON_SPEED: f32 = 999_999.0;
+/// Retail SpectreGattlingGun ProjectileObject residual (hitscan NONE).
+pub const SPECTRE_GATTLING_PROJECTILE_OBJECT: &str = "NONE";
+/// Retail SpectreGattlingGun FireFX residual.
+pub const SPECTRE_GATTLING_FIRE_FX: &str = "WeaponFX_SpectreGattlingMuzzleFlash";
+/// Retail SpectreGattlingGun VeterancyFireFX residual (HEROIC red tracers).
+pub const SPECTRE_GATTLING_VETERANCY_FIRE_FX: &str =
+    "WeaponFX_GattlingCannonMachineGunFireWithRedTracers";
+/// Retail SpectreGattlingGun RadiusDamageAffects residual.
+pub const SPECTRE_GATTLING_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
+/// Retail SpectreGattlingGun DelayBetweenShots residual (msec).
+pub const SPECTRE_GATTLING_DELAY_BETWEEN_SHOTS_MS: u32 = 100;
+/// Retail SpectreGattlingGun ClipSize residual (0 == infinite).
+pub const SPECTRE_GATTLING_CLIP_SIZE: u32 = 0;
+/// Retail SpectreGattlingGun ClipReloadTime residual (msec).
+pub const SPECTRE_GATTLING_CLIP_RELOAD_TIME_MS: u32 = 0;
+/// Retail SpectreGattlingGun AntiAirborneVehicle residual.
+pub const SPECTRE_GATTLING_ANTI_AIRBORNE_VEHICLE: bool = false;
+/// Retail SpectreGattlingGun AntiAirborneInfantry residual.
+pub const SPECTRE_GATTLING_ANTI_AIRBORNE_INFANTRY: bool = false;
+/// Retail SpectreGattlingGun AntiSmallMissile residual.
+pub const SPECTRE_GATTLING_ANTI_SMALL_MISSILE: bool = false;
+/// Retail SpectreGattlingGun AntiBallisticMissile residual.
+pub const SPECTRE_GATTLING_ANTI_BALLISTIC_MISSILE: bool = false;
+/// Retail SpectreGattlingGun AntiGround residual.
+pub const SPECTRE_GATTLING_ANTI_GROUND: bool = true;
 /// Retail VoiceRapidFire residual cue when ContinuousFire enters FAST
 /// (`FiringTracker::speedUp` PerUnitSound "VoiceRapidFire"). Host residual:
 /// honesty name for Spectre orbit when gattling/howitzer reaches FAST.
@@ -1569,6 +1615,34 @@ pub const PARTICLE_REMNANT_DELETION_UPDATE: bool = true;
 pub const PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
 /// Retail remnant weapon WeaponSpeed residual (dist/sec).
 pub const PARTICLE_REMNANT_WEAPON_SPEED: f32 = 250.0;
+/// Retail ImmortalBody health floor residual (never drop below 1 HP).
+pub const PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR: f32 = 1.0;
+/// Retail ImmortalBody never-dead residual (never mark effectively dead).
+pub const PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD: bool = true;
+
+/// Apply ImmortalBody `internalChangeHealth` residual clamp.
+///
+/// C++: `delta = max(delta, -getHealth() + 1)` then ActiveBody change — health
+/// never falls below 1 and object is never marked dead. Host residual is pure
+/// arithmetic (fail-closed vs full BodyModule / Object death flag matrix).
+#[inline]
+pub fn immortal_body_apply_health_delta(current_health: f32, delta: f32) -> f32 {
+    let floor = PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR;
+    let clamped_delta = delta.max(-current_health + floor);
+    (current_health + clamped_delta).max(floor)
+}
+
+/// Honesty: ImmortalBody health-floor residual never drops below 1 / never dead.
+#[inline]
+pub fn honesty_immortal_body_health_floor(
+    current_health: f32,
+    delta: f32,
+    result_health: f32,
+) -> bool {
+    immortal_body_apply_health_delta(current_health, delta) == result_health
+        && result_health >= PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR
+        && PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD
+}
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -1931,6 +2005,42 @@ pub const SCUD_STORM_DELAY_BETWEEN_MIN_MS: u32 = 100;
 pub const SCUD_STORM_DELAY_BETWEEN_MAX_MS: u32 = 1000;
 /// Retail ScudStormWeapon ScatterTarget table entry count residual.
 pub const SCUD_STORM_SCATTER_TARGET_COUNT: u32 = 9;
+/// Retail ScudStormWeapon PrimaryDamage residual (0 — unused / special launch weapon).
+pub const SCUD_STORM_WEAPON_PRIMARY_DAMAGE: f32 = 0.0;
+/// Retail ScudStormWeapon PrimaryDamageRadius residual (0 — unused).
+pub const SCUD_STORM_WEAPON_PRIMARY_RADIUS: f32 = 0.0;
+/// Retail ScudStormWeapon AttackRange residual (unused special).
+pub const SCUD_STORM_WEAPON_ATTACK_RANGE: f32 = 999_999.0;
+/// Retail ScudStormWeapon DamageType residual.
+pub const SCUD_STORM_WEAPON_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail ScudStormWeapon DeathType residual.
+pub const SCUD_STORM_WEAPON_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ScudStormWeapon WeaponSpeed residual (dist/sec; unused special).
+pub const SCUD_STORM_WEAPON_SPEED: f32 = 99_999.0;
+/// Retail ScudStormWeapon ScatterRadius residual (0; table uses ScatterTargetScalar).
+pub const SCUD_STORM_SCATTER_RADIUS: f32 = 0.0;
+/// Retail ScudStormWeapon PreAttackType residual.
+pub const SCUD_STORM_PRE_ATTACK_TYPE: &str = "PER_CLIP";
+/// Retail ScudStormWeapon PreAttackDelay residual (msec).
+pub const SCUD_STORM_PRE_ATTACK_DELAY_MS: u32 = 3000;
+/// Retail MissileAIUpdate IgnitionDelay residual (unset → default 0 frames).
+pub const SCUD_STORM_MISSILE_IGNITION_DELAY_FRAMES: u32 = 0;
+/// Retail MissileAIUpdate UseWeaponSpeed residual (default false).
+pub const SCUD_STORM_MISSILE_USE_WEAPON_SPEED: bool = false;
+/// Retail MissileAIUpdate DetonateOnNoFuel residual (default false).
+pub const SCUD_STORM_MISSILE_DETONATE_ON_NO_FUEL: bool = false;
+/// Retail MissileAIUpdate DistanceToTargetForLock residual (default 75).
+pub const SCUD_STORM_MISSILE_DISTANCE_FOR_LOCK: f32 = 75.0;
+/// Retail MissileAIUpdate DistanceScatterWhenJammed residual (default 75).
+pub const SCUD_STORM_MISSILE_DISTANCE_SCATTER_WHEN_JAMMED: f32 = 75.0;
+/// Retail MissileAIUpdate DetonateCallsKill residual (default false).
+pub const SCUD_STORM_MISSILE_DETONATE_CALLS_KILL: bool = false;
+/// Retail MissileAIUpdate KillSelfDelay residual (default 3 frames).
+pub const SCUD_STORM_MISSILE_KILL_SELF_DELAY_FRAMES: u32 = 3;
+/// Retail ScudStormWeapon ProjectileDetonationFX residual.
+pub const SCUD_STORM_PROJECTILE_DETONATION_FX: &str = "ScudStormMissileDetonation";
+/// Retail ScudStormWeapon RadiusDamageAffects residual (special launch weapon).
+pub const SCUD_STORM_WEAPON_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS";
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2995,6 +3105,12 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: ScudStormWeapon launch residual applications (Clip/Scatter/AutoReload).
     #[serde(default)]
     pub scud_weapon_launch_applications: u32,
+    /// Honesty: ScudStormWeapon special residual applications (unused Primary/Speed/PreAttackType).
+    #[serde(default)]
+    pub scud_weapon_special_applications: u32,
+    /// Honesty: MissileAIUpdate defaults residual applications.
+    #[serde(default)]
+    pub scud_missile_ai_defaults_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3288,6 +3404,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: SpectreHowitzerGun anti residual applications (AntiAir*/ProjectileObject/Coast).
     #[serde(default)]
     pub howitzer_gun_anti_params_applications: u32,
+    /// Honesty: SpectreGattlingGun anti/fire residual applications.
+    #[serde(default)]
+    pub gattling_gun_params_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -3876,6 +3995,9 @@ pub struct HostParticleRemnantField {
     /// Honesty: TrailRemnant FireWeaponUpdate + DeletionUpdate residual applications.
     #[serde(default)]
     pub remnant_fire_deletion_applications: u32,
+    /// Honesty: ImmortalBody health-floor residual applications.
+    #[serde(default)]
+    pub remnant_immortal_body_applications: u32,
 }
 
 impl HostParticleRemnantField {
@@ -4506,6 +4628,8 @@ impl HostSpecialPowerStrikeRegistry {
             scud_locomotor_speed_table_applications: 0,
             scud_death_damage_table_applications: 0,
             scud_weapon_launch_applications: 0,
+            scud_weapon_special_applications: 0,
+            scud_missile_ai_defaults_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4900,6 +5024,14 @@ impl HostSpecialPowerStrikeRegistry {
                     // ScudStormWeapon launch residual (Clip/Scatter/AutoReload/Collides).
                     strike.scud_weapon_launch_applications = strike
                         .scud_weapon_launch_applications
+                        .saturating_add(shells);
+                    // ScudStormWeapon special residual (unused Primary/Speed/PreAttackType).
+                    strike.scud_weapon_special_applications = strike
+                        .scud_weapon_special_applications
+                        .saturating_add(shells);
+                    // MissileAIUpdate defaults residual (IgnitionDelay / Lock / KillSelf).
+                    strike.scud_missile_ai_defaults_applications = strike
+                        .scud_missile_ai_defaults_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -5399,6 +5531,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_gun_aim_params_applications: 0,
             howitzer_gun_fire_params_applications: 0,
             howitzer_gun_anti_params_applications: 0,
+            gattling_gun_params_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5635,6 +5768,10 @@ impl HostSpecialPowerStrikeRegistry {
                 let interval = spectre_gattling_interval_frames(field.gattling_consecutive);
                 field.next_gattling_tick_frame = current_frame.saturating_add(interval);
                 field.gattling_ticks = field.gattling_ticks.saturating_add(1);
+                // SpectreGattlingGun anti/fire residual (Anti*/ProjectileObject NONE/Clip).
+                field.gattling_gun_params_applications = field
+                    .gattling_gun_params_applications
+                    .saturating_add(1);
                 field.gattling_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.gattling_fire_level;
@@ -6270,6 +6407,8 @@ impl HostSpecialPowerStrikeRegistry {
             remnant_object_params_applications: 1,
             // FireWeaponUpdate + DeletionUpdate residual armed on spawn.
             remnant_fire_deletion_applications: 1,
+            // ImmortalBody health-floor residual armed on spawn.
+            remnant_immortal_body_applications: 1,
         };
         self.remnant_fields.push(field);
         self.remnant_spawned_this_frame.push(id);
@@ -7252,6 +7391,88 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_HOWITZER_FIRE_FX.contains("GenericTankGunNoTracer")
     }
 
+    /// Residual honesty: ScudStormWeapon special residual (unused combat fields).
+    ///
+    /// Tracks PrimaryDamage **0**, PrimaryDamageRadius **0**, AttackRange **999999**,
+    /// DamageType **EXPLOSION**, DeathType **EXPLODED**, WeaponSpeed **99999**,
+    /// ScatterRadius **0**, PreAttackType **PER_CLIP**, PreAttackDelay **3000** ms.
+    /// Fail-closed: not full WeaponTemplate store / live pad launch matrix.
+    pub fn honesty_scud_weapon_special_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_weapon_special_applications > 0
+        }) && (SCUD_STORM_WEAPON_PRIMARY_DAMAGE - 0.0).abs() < 0.01
+            && (SCUD_STORM_WEAPON_PRIMARY_RADIUS - 0.0).abs() < 0.01
+            && (SCUD_STORM_WEAPON_ATTACK_RANGE - 999_999.0).abs() < 0.01
+            && SCUD_STORM_WEAPON_DAMAGE_TYPE == "EXPLOSION"
+            && SCUD_STORM_WEAPON_DEATH_TYPE == "EXPLODED"
+            && (SCUD_STORM_WEAPON_SPEED - 99_999.0).abs() < 0.01
+            && (SCUD_STORM_SCATTER_RADIUS - 0.0).abs() < 0.01
+            && SCUD_STORM_PRE_ATTACK_TYPE == "PER_CLIP"
+            && SCUD_STORM_PRE_ATTACK_DELAY_MS == 3000
+            && SCUD_STORM_PRE_ATTACK_FRAMES == 90
+            && SCUD_STORM_PRE_ATTACK_FRAMES == (SCUD_STORM_PRE_ATTACK_DELAY_MS * 30) / 1000
+            && SCUD_STORM_PROJECTILE_DETONATION_FX == "ScudStormMissileDetonation"
+            && SCUD_STORM_WEAPON_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
+            && SCUD_STORM_FIRE_FX == "WeaponFX_ScudStormMissile"
+            && SCUD_STORM_MISSILE_LAUNCH_SOUND == "ScudStormLaunch"
+            && SCUD_STORM_MISSILE_EXHAUST == "ScudMissileExhaust"
+    }
+
+    /// Residual honesty: Scud MissileAIUpdate defaults residual.
+    ///
+    /// Tracks IgnitionDelay **0**, UseWeaponSpeed **No**, DetonateOnNoFuel **No**,
+    /// DistanceToTargetForLock **75**, DistanceScatterWhenJammed **75**,
+    /// DetonateCallsKill **No**, KillSelfDelay **3** frames (C++ module defaults
+    /// not overridden in ScudStormMissile INI). Fail-closed: not full MissileAIUpdate
+    /// state machine / live fuel/jam/kill-self path.
+    pub fn honesty_scud_missile_ai_defaults_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_missile_ai_defaults_applications > 0
+        }) && SCUD_STORM_MISSILE_IGNITION_DELAY_FRAMES == 0
+            && !SCUD_STORM_MISSILE_USE_WEAPON_SPEED
+            && !SCUD_STORM_MISSILE_DETONATE_ON_NO_FUEL
+            && (SCUD_STORM_MISSILE_DISTANCE_FOR_LOCK - 75.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_DISTANCE_SCATTER_WHEN_JAMMED - 75.0).abs() < 0.01
+            && !SCUD_STORM_MISSILE_DETONATE_CALLS_KILL
+            && SCUD_STORM_MISSILE_KILL_SELF_DELAY_FRAMES == 3
+            && !SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET
+            && SCUD_STORM_MISSILE_FUEL_LIFETIME == 0
+    }
+
+    /// Residual honesty: SpectreGattlingGun anti/fire residual.
+    ///
+    /// Tracks AntiAirborne*/AntiMissile **No**, AntiGround **Yes**, ProjectileObject
+    /// **NONE**, PrimaryDamageRadius **0**, DamageType **Gattling**, DeathType
+    /// **NORMAL**, WeaponSpeed **999999**, AttackRange **2222**, ClipSize **0**,
+    /// FireFX/VeterancyFireFX residual. Fail-closed: not full WeaponTemplate
+    /// anti matrix / live hitscan aim.
+    pub fn honesty_gattling_gun_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.gattling_gun_params_applications > 0
+                && f.gattling_gun_params_applications >= f.gattling_ticks
+        }) && !SPECTRE_GATTLING_ANTI_AIRBORNE_VEHICLE
+            && !SPECTRE_GATTLING_ANTI_AIRBORNE_INFANTRY
+            && !SPECTRE_GATTLING_ANTI_SMALL_MISSILE
+            && !SPECTRE_GATTLING_ANTI_BALLISTIC_MISSILE
+            && SPECTRE_GATTLING_ANTI_GROUND
+            && SPECTRE_GATTLING_PROJECTILE_OBJECT == "NONE"
+            && (SPECTRE_GATTLING_PRIMARY_RADIUS - 0.0).abs() < 0.01
+            && (SPECTRE_GATTLING_DAMAGE - 90.0).abs() < 0.01
+            && (SPECTRE_GATTLING_ATTACK_RANGE - 2222.0).abs() < 0.01
+            && SPECTRE_GATTLING_DAMAGE_TYPE == "Gattling"
+            && SPECTRE_GATTLING_DEATH_TYPE == "NORMAL"
+            && (SPECTRE_GATTLING_WEAPON_SPEED - 999_999.0).abs() < 0.01
+            && SPECTRE_GATTLING_FIRE_FX.contains("SpectreGattlingMuzzleFlash")
+            && SPECTRE_GATTLING_VETERANCY_FIRE_FX.contains("RedTracers")
+            && SPECTRE_GATTLING_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
+            && SPECTRE_GATTLING_DELAY_BETWEEN_SHOTS_MS == 100
+            && SPECTRE_GATTLING_TICK_INTERVAL_FRAMES == 3
+            && SPECTRE_GATTLING_CLIP_SIZE == 0
+            && SPECTRE_GATTLING_CLIP_RELOAD_TIME_MS == 0
+    }
+
     /// Residual honesty: connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile.
     ///
     /// Tracks KindOf **IMMOBILE**, Segments **1**, MaxIntensityLifetime **0**,
@@ -7313,6 +7534,24 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_REMNANT_DEATH_TYPE == "BURNED"
             && PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS == "ALLIES ENEMIES NEUTRALS"
             && (PARTICLE_REMNANT_WEAPON_SPEED - 250.0).abs() < 0.01
+    }
+
+    /// Residual honesty: TrailRemnant ImmortalBody health-floor residual.
+    ///
+    /// Tracks ImmortalBody floor **1** HP (`internalChangeHealth` clamp) and
+    /// never-dead residual. Fail-closed: not full ActiveBody / Object death flag
+    /// / ThingFactory ImmortalBody module stack.
+    pub fn honesty_beam_remnant_immortal_body_ok(&self) -> bool {
+        self.remnant_fields.iter().any(|f| {
+            f.remnant_immortal_body_applications >= 1
+        }) && (PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR - 1.0).abs() < 0.01
+            && PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD
+            && PARTICLE_REMNANT_BODY == "ImmortalBody"
+            && (PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01
+            && honesty_immortal_body_health_floor(50.0, -100.0, 1.0)
+            && honesty_immortal_body_health_floor(50.0, -10.0, 40.0)
+            && honesty_immortal_body_health_floor(1.0, -5.0, 1.0)
+            && honesty_immortal_body_health_floor(10.0, 5.0, 15.0)
     }
 
     pub fn honesty_howitzer_shell_loft_flight_ok(&self) -> bool {
@@ -11583,5 +11822,159 @@ mod tests {
         assert!(reg.honesty_howitzer_gun_fire_params_ok());
     }
 
+    #[test]
+    fn scud_weapon_special_residual_honesty() {
+        assert!((SCUD_STORM_WEAPON_PRIMARY_DAMAGE - 0.0).abs() < 0.01);
+        assert!((SCUD_STORM_WEAPON_PRIMARY_RADIUS - 0.0).abs() < 0.01);
+        assert!((SCUD_STORM_WEAPON_ATTACK_RANGE - 999_999.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_WEAPON_DAMAGE_TYPE, "EXPLOSION");
+        assert_eq!(SCUD_STORM_WEAPON_DEATH_TYPE, "EXPLODED");
+        assert!((SCUD_STORM_WEAPON_SPEED - 99_999.0).abs() < 0.01);
+        assert!((SCUD_STORM_SCATTER_RADIUS - 0.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_PRE_ATTACK_TYPE, "PER_CLIP");
+        assert_eq!(SCUD_STORM_PRE_ATTACK_DELAY_MS, 3000);
+        assert_eq!(SCUD_STORM_PRE_ATTACK_FRAMES, 90);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(80.0, 0.0, 80.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_weapon_special_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(80.0, 0.0, 80.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_weapon_special_applications, 1);
+        }
+        assert!(reg.honesty_scud_weapon_special_ok());
+        assert!(reg.honesty_scud_weapon_launch_ok());
+    }
+
+    #[test]
+    fn spectre_gattling_gun_params_residual_honesty() {
+        assert!(!SPECTRE_GATTLING_ANTI_AIRBORNE_VEHICLE);
+        assert!(!SPECTRE_GATTLING_ANTI_AIRBORNE_INFANTRY);
+        assert!(!SPECTRE_GATTLING_ANTI_SMALL_MISSILE);
+        assert!(!SPECTRE_GATTLING_ANTI_BALLISTIC_MISSILE);
+        assert!(SPECTRE_GATTLING_ANTI_GROUND);
+        assert_eq!(SPECTRE_GATTLING_PROJECTILE_OBJECT, "NONE");
+        assert!((SPECTRE_GATTLING_PRIMARY_RADIUS - 0.0).abs() < 0.01);
+        assert_eq!(SPECTRE_GATTLING_DAMAGE_TYPE, "Gattling");
+        assert_eq!(SPECTRE_GATTLING_DEATH_TYPE, "NORMAL");
+        assert!((SPECTRE_GATTLING_WEAPON_SPEED - 999_999.0).abs() < 0.01);
+        assert!((SPECTRE_GATTLING_ATTACK_RANGE - 2222.0).abs() < 0.01);
+        assert!(SPECTRE_GATTLING_FIRE_FX.contains("SpectreGattlingMuzzleFlash"));
+        assert!(SPECTRE_GATTLING_VETERANCY_FIRE_FX.contains("RedTracers"));
+        assert_eq!(SPECTRE_GATTLING_CLIP_SIZE, 0);
+        assert_eq!(SPECTRE_GATTLING_CLIP_RELOAD_TIME_MS, 0);
+        assert_eq!(SPECTRE_GATTLING_DELAY_BETWEEN_SHOTS_MS, 100);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_gattling_gun_params_ok());
+        // Both howitzer + gattling are due at spawn_frame residual.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_gun_params_applications, 1);
+            assert!(f.gattling_ticks >= 1);
+        }
+        assert!(reg.honesty_gattling_gun_params_ok());
+        assert!(reg.honesty_gattling_ok());
+    }
+
+    #[test]
+    fn scud_missile_ai_defaults_residual_honesty() {
+        assert_eq!(SCUD_STORM_MISSILE_IGNITION_DELAY_FRAMES, 0);
+        assert!(!SCUD_STORM_MISSILE_USE_WEAPON_SPEED);
+        assert!(!SCUD_STORM_MISSILE_DETONATE_ON_NO_FUEL);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_FOR_LOCK - 75.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_SCATTER_WHEN_JAMMED - 75.0).abs() < 0.01);
+        assert!(!SCUD_STORM_MISSILE_DETONATE_CALLS_KILL);
+        assert_eq!(SCUD_STORM_MISSILE_KILL_SELF_DELAY_FRAMES, 3);
+        assert_eq!(SCUD_STORM_PROJECTILE_DETONATION_FX, "ScudStormMissileDetonation");
+        assert_eq!(
+            SCUD_STORM_WEAPON_RADIUS_DAMAGE_AFFECTS,
+            "ALLIES ENEMIES NEUTRALS"
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_missile_ai_defaults_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_missile_ai_defaults_applications, 1);
+        }
+        assert!(reg.honesty_scud_missile_ai_defaults_ok());
+        assert!(reg.honesty_scud_missile_ai_ok());
+        assert!(reg.honesty_scud_weapon_special_ok());
+    }
+
+    #[test]
+    fn particle_uplink_remnant_immortal_body_residual_honesty() {
+        assert!((PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR - 1.0).abs() < 0.01);
+        assert!(PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD);
+        assert_eq!(PARTICLE_REMNANT_BODY, "ImmortalBody");
+        assert!((immortal_body_apply_health_delta(50.0, -100.0) - 1.0).abs() < 0.01);
+        assert!((immortal_body_apply_health_delta(50.0, -10.0) - 40.0).abs() < 0.01);
+        assert!((immortal_body_apply_health_delta(1.0, -5.0) - 1.0).abs() < 0.01);
+        assert!((immortal_body_apply_health_delta(10.0, 5.0) - 15.0).abs() < 0.01);
+        assert!(honesty_immortal_body_health_floor(50.0, -100.0, 1.0));
+        assert!(!honesty_immortal_body_health_floor(50.0, -100.0, 0.0));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_beam_remnant_immortal_body_ok());
+        let rid = reg.spawn_remnant_field(
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(10.0, 0.0, 10.0),
+            0,
+            0,
+            0,
+        );
+        {
+            let f = reg.remnant_fields().iter().find(|r| r.id == rid).unwrap();
+            assert_eq!(f.remnant_immortal_body_applications, 1);
+        }
+        assert!(reg.honesty_beam_remnant_immortal_body_ok());
+        assert!(reg.honesty_beam_remnant_object_params_ok());
+        assert!(reg.honesty_beam_remnant_fire_deletion_ok());
+        assert!(reg.honesty_beam_remnant_ok());
+    }
 
 }

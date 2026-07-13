@@ -2935,6 +2935,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         // SpectreHowitzerGun anti residual (appended).
         xfer.xfer_marker_label("HowitzerGunAntiParamsApplications")?;
         xfer.xfer_u32(&mut self.howitzer_gun_anti_params_applications)?;
+        // SpectreGattlingGun anti/fire residual (appended).
+        xfer.xfer_marker_label("GattlingGunParamsApplications")?;
+        xfer.xfer_u32(&mut self.gattling_gun_params_applications)?;
         Ok(())
     }
 }
@@ -3259,6 +3262,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_locomotor_speed_table_applications: 0,
                 scud_death_damage_table_applications: 0,
                 scud_weapon_launch_applications: 0,
+                scud_weapon_special_applications: 0,
+                scud_missile_ai_defaults_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3376,6 +3381,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_gun_aim_params_applications: 0,
                 howitzer_gun_fire_params_applications: 0,
                 howitzer_gun_anti_params_applications: 0,
+                gattling_gun_params_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3520,6 +3526,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 parent_strike_id: 0,
                 remnant_object_params_applications: 0,
                 remnant_fire_deletion_applications: 0,
+                remnant_immortal_body_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
@@ -3563,6 +3570,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantF
         // TrailRemnant FireWeaponUpdate + DeletionUpdate residual (appended).
         xfer.xfer_marker_label("RemnantFireDeletionApplications")?;
         xfer.xfer_u32(&mut self.remnant_fire_deletion_applications)?;
+        // TrailRemnant ImmortalBody health-floor residual (appended).
+        xfer.xfer_marker_label("RemnantImmortalBodyApplications")?;
+        xfer.xfer_u32(&mut self.remnant_immortal_body_applications)?;
         Ok(())
     }
 }
