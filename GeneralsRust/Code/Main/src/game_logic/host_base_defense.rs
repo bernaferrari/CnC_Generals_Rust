@@ -60,7 +60,9 @@
 //! - **Physical SpawnBehavior slave roster + getClosestSlave residual**:
 //!   Host tracks **3** residual slave slots at SpawnPoint bone offsets (radius
 //!   **12**, 120° layout). `getClosestSlave` residual picks the alive slave
-//!   nearest the shooter in 2D; HiveStructureBody propagate damages that slot.
+//!   nearest the shooter in 2D; HiveStructureBody propagate damages that slot
+//!   via **host API** (`apply_host_hive_damage_from`) — not live skirmish
+//!   `Object::take_damage` combat (fail-closed: combat still structure HP).
 //!   Respawn revives the first dead slot. Fail-closed: not full GLAInfantryStingerSoldier
 //!   Object spawn / AI / W3D model attach.
 //!
@@ -167,7 +169,10 @@ pub const PATRIOT_LASER_SEGMENTS: u32 = 20;
 pub const PATRIOT_LASER_ARC_HEIGHT: f32 = 30.0;
 /// Retail W3DLaserDraw TilingScalar.
 pub const PATRIOT_LASER_TILING_SCALAR: f32 = 0.25;
-/// Retail W3DLaserDraw SegmentOverlapRatio default (host residual honesty).
+/// Retail W3DLaserDraw SegmentOverlapRatio default.
+///
+/// PatriotBinaryDataStream does not set SegmentOverlapRatio → **0.0**. Host sampler
+/// still applies the C++ non-end overlap formula so a non-zero override would work.
 pub const PATRIOT_LASER_SEGMENT_OVERLAP_RATIO: f32 = 0.0;
 
 /// Kind of residual assist feedback laser (AssistedTargetingUpdate::makeFeedbackLaser).
@@ -197,6 +202,10 @@ pub struct ResidualPatriotAssistLaser {
     pub scroll_offset: f32,
     /// Residual honesty: endpoint was refreshed from live parent/target at least once.
     pub endpoint_tracked: bool,
+    /// W3DLaserDraw arc mid-point residual (cos peak) for presentation consumers.
+    pub arc_mid_x: f32,
+    pub arc_mid_y: f32,
+    pub arc_mid_z: f32,
 }
 
 impl ResidualPatriotAssistLaser {
@@ -229,6 +238,19 @@ impl ResidualPatriotAssistLaser {
     pub fn segments(&self) -> u32 {
         PATRIOT_LASER_SEGMENTS
     }
+
+    /// Refresh W3DLaserDraw arc mid residual from current endpoints.
+    pub fn refresh_arc_mid(&mut self) {
+        let mid = sample_patriot_laser_arc_point(
+            (self.from_x, self.from_y, self.from_z),
+            (self.to_x, self.to_y, self.to_z),
+            0.5,
+            self.arc_height(),
+        );
+        self.arc_mid_x = mid.0;
+        self.arc_mid_y = mid.1;
+        self.arc_mid_z = mid.2;
+    }
 }
 
 /// Absolute frame when a residual assist laser expires (start + 18 frames).
@@ -251,7 +273,7 @@ pub fn make_patriot_assist_lasers(
     start_frame: u32,
 ) -> [ResidualPatriotAssistLaser; 2] {
     let expires = patriot_assist_laser_expires_frame(start_frame);
-    [
+    let mut beams = [
         ResidualPatriotAssistLaser {
             kind: PatriotAssistLaserKind::FromAssisted,
             from_id: requester_id,
@@ -265,6 +287,9 @@ pub fn make_patriot_assist_lasers(
             expires_frame: expires,
             scroll_offset: 0.0,
             endpoint_tracked: false,
+            arc_mid_x: 0.0,
+            arc_mid_y: 0.0,
+            arc_mid_z: 0.0,
         },
         ResidualPatriotAssistLaser {
             kind: PatriotAssistLaserKind::ToTarget,
@@ -279,12 +304,20 @@ pub fn make_patriot_assist_lasers(
             expires_frame: expires,
             scroll_offset: 0.0,
             endpoint_tracked: false,
+            arc_mid_x: 0.0,
+            arc_mid_y: 0.0,
+            arc_mid_z: 0.0,
         },
-    ]
+    ];
+    for beam in &mut beams {
+        beam.refresh_arc_mid();
+    }
+    beams
 }
 
 /// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
 /// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` freezes end.
+/// Also refreshes arc mid residual for presentation consumers.
 ///
 /// `lookup` returns `(x, y, z, alive)` for an ObjectId when present.
 /// Returns how many beams had an endpoint position change this frame.
@@ -326,6 +359,8 @@ where
             }
             // Dead/missing target: freeze last end (fail-closed vs punchThroughScalar).
         }
+        // Always refresh arc mid residual from current endpoints (math residual).
+        laser.refresh_arc_mid();
         if changed {
             laser.endpoint_tracked = true;
             moved = moved.saturating_add(1);
@@ -361,7 +396,7 @@ pub fn patriot_laser_arc_z_boost(t: f32, arc_height: f32) -> f32 {
 ///
 /// C++ builds Segments residual ground samples then raises Z by cos-arc.
 /// Host residual: lerp start→end XY + linear Z base, then add arc boost.
-/// Fail-closed: not ground-height skimming / SegmentOverlapRatio stretch.
+/// Fail-closed: not ground-height skimming / full Line3D GPU.
 pub fn sample_patriot_laser_arc_point(
     from: (f32, f32, f32),
     to: (f32, f32, f32),
@@ -378,6 +413,7 @@ pub fn sample_patriot_laser_arc_point(
 
 /// Sample residual arc segment endpoints for segment `i` of `segments`.
 ///
+/// C++ offsets non-end segments by `SegmentOverlapRatio` (Patriot residual **0.0**).
 /// Returns `(start, end)` world points for the residual Line3D segment.
 pub fn sample_patriot_laser_arc_segment(
     from: (f32, f32, f32),
@@ -386,10 +422,36 @@ pub fn sample_patriot_laser_arc_segment(
     segments: u32,
     arc_height: f32,
 ) -> ((f32, f32, f32), (f32, f32, f32)) {
+    sample_patriot_laser_arc_segment_with_overlap(
+        from,
+        to,
+        segment,
+        segments,
+        arc_height,
+        PATRIOT_LASER_SEGMENT_OVERLAP_RATIO,
+    )
+}
+
+/// Segment sample with explicit SegmentOverlapRatio (C++ non-end stretch).
+pub fn sample_patriot_laser_arc_segment_with_overlap(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    segment: u32,
+    segments: u32,
+    arc_height: f32,
+    overlap_ratio: f32,
+) -> ((f32, f32, f32), (f32, f32, f32)) {
     let segs = segments.max(1) as f32;
-    let i = segment.min(segments.saturating_sub(1)) as f32;
-    let t0 = i / segs;
-    let t1 = (i + 1.0) / segs;
+    let i = segment.min(segments.saturating_sub(1));
+    let mut t0 = (i as f32) / segs;
+    let mut t1 = ((i + 1) as f32) / segs;
+    // C++: if segment > 0: startSegmentRatio -= overlap; if not last: end += overlap.
+    if i > 0 {
+        t0 -= overlap_ratio;
+    }
+    if i + 1 < segments {
+        t1 += overlap_ratio;
+    }
     (
         sample_patriot_laser_arc_point(from, to, t0, arc_height),
         sample_patriot_laser_arc_point(from, to, t1, arc_height),
@@ -752,6 +814,63 @@ pub fn respawn_one_hive_slave(slaves: &mut [ResidualHiveSlave]) -> bool {
         true
     } else {
         false
+    }
+}
+
+/// Align residual roster alive flags to a desired count without inventing HP
+/// for already-alive slots.
+///
+/// - Desired > alive: revive first dead slots at full HP (preserve offsets).
+/// - Desired < alive: kill from the end (highest indices first) so first-alive
+///   residual remains the "active" mirror slot when possible.
+/// - Desired == alive: no-op (preserves independent per-slot HP).
+///
+/// Prefer roster as source of truth; call this only when an external residual
+/// path wrote `hive_slave_count` alone (tests / legacy mirrors).
+pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_count: u8) {
+    let offs = stinger_spawn_point_offsets();
+    // Ensure offsets are always residual SpawnPoint layout.
+    for i in 0..3 {
+        if slaves[i].offset_x == 0.0 && slaves[i].offset_z == 0.0 && !slaves[i].alive {
+            slaves[i].offset_x = offs[i].0;
+            slaves[i].offset_z = offs[i].1;
+        }
+    }
+    let desired = (desired_count as usize).min(3);
+    let mut alive = count_alive_hive_slaves(slaves) as usize;
+    while alive > desired {
+        // Kill last alive (end-first) to keep low-index active residual.
+        if let Some(i) = (0..3).rev().find(|&i| slaves[i].alive) {
+            slaves[i].alive = false;
+            slaves[i].hp = 0.0;
+            alive -= 1;
+        } else {
+            break;
+        }
+    }
+    while alive < desired {
+        if let Some(i) = (0..3).find(|&i| !slaves[i].alive) {
+            slaves[i].alive = true;
+            slaves[i].hp = STINGER_SOLDIER_MAX_HEALTH;
+            slaves[i].offset_x = offs[i].0;
+            slaves[i].offset_z = offs[i].1;
+            alive += 1;
+        } else {
+            break;
+        }
+    }
+}
+
+/// Zero all residual hive slave slots (empty hive / SwallowIfNoSlaves test setup).
+pub fn clear_hive_slave_roster(slaves: &mut [ResidualHiveSlave; 3]) {
+    let offs = stinger_spawn_point_offsets();
+    for i in 0..3 {
+        slaves[i] = ResidualHiveSlave {
+            hp: 0.0,
+            offset_x: offs[i].0,
+            offset_z: offs[i].1,
+            alive: false,
+        };
     }
 }
 
@@ -1883,6 +2002,9 @@ mod tests {
         assert_eq!(beams[0].segments(), 20);
         assert!((beams[0].scroll_offset - 0.0).abs() < 0.001);
         assert!(!beams[0].endpoint_tracked);
+        // Arc mid residual sampled at spawn (level beam peak = ArcHeight).
+        assert!((beams[0].arc_mid_x - 50.0).abs() < 0.01);
+        assert!((beams[0].arc_mid_z - PATRIOT_LASER_ARC_HEIGHT).abs() < 0.01);
         assert!(beams[0].is_active_at(10));
         assert!(beams[0].is_active_at(27));
         assert!(!beams[0].is_active_at(28));
@@ -1902,6 +2024,8 @@ mod tests {
         assert!((live[0].from_z - 5.0).abs() < 0.01);
         assert!((live[1].to_x - 60.0).abs() < 0.01);
         assert!(live[0].endpoint_tracked || live[1].endpoint_tracked);
+        // Arc mid residual refreshes with endpoints.
+        assert!((live[1].arc_mid_x - 80.0).abs() < 0.01); // mid of 100→60
         // ScrollRate residual advances each track step.
         assert!((live[0].scroll_offset - PATRIOT_LASER_SCROLL_RATE).abs() < 0.001);
         // Dead target freezes last end residual.

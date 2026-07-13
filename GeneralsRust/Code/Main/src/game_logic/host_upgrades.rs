@@ -753,7 +753,11 @@ pub const CAMO_NETTING_OPACITY_PULSE_PHASE_RATE: f32 = 0.2;
 
 // --- CamoNetting StealthLook / heat-vision residual (Drawable::setStealthLook) ---
 
-/// C++ StealthLookType residual (host of Drawable::m_stealthLook).
+/// C++ `StealthLookType` residual (Drawable::m_stealthLook ordinal parity).
+///
+/// Retail enum order (`Drawable.h`):
+/// 0 NONE, 1 VISIBLE_FRIENDLY, 2 DISGUISED_ENEMY, 3 VISIBLE_DETECTED,
+/// 4 VISIBLE_FRIENDLY_DETECTED, 5 INVISIBLE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum HostCamoStealthLook {
@@ -761,21 +765,24 @@ pub enum HostCamoStealthLook {
     None = 0,
     /// STEALTHLOOK_VISIBLE_FRIENDLY — stealthed, friendly sees pulse opacity.
     VisibleFriendly = 1,
-    /// STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED — friendly + detected (heat vision).
-    VisibleFriendlyDetected = 2,
+    /// STEALTHLOOK_DISGUISED_ENEMY — disguised (not full camo residual path).
+    DisguisedEnemy = 2,
     /// STEALTHLOOK_VISIBLE_DETECTED — enemy detects stealthed unit (heat vision).
     VisibleDetected = 3,
+    /// STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED — friendly + detected (heat vision).
+    VisibleFriendlyDetected = 4,
     /// STEALTHLOOK_INVISIBLE — stealthed, not detected by observer.
-    Invisible = 4,
+    Invisible = 5,
 }
 
 impl HostCamoStealthLook {
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::VisibleFriendly,
-            2 => Self::VisibleFriendlyDetected,
+            2 => Self::DisguisedEnemy,
             3 => Self::VisibleDetected,
-            4 => Self::Invisible,
+            4 => Self::VisibleFriendlyDetected,
+            5 => Self::Invisible,
             _ => Self::None,
         }
     }
@@ -1050,7 +1057,25 @@ mod camo_netting_and_gamma_tests {
         let (op_3pi_2, _) = camo_netting_pulse_opacity(3.0 * std::f32::consts::FRAC_PI_2);
         assert!((op_3pi_2 - 0.5).abs() < 0.001);
 
-        // StealthLook / heat-vision residual matrix.
+        // StealthLook / heat-vision residual matrix (C++ Drawable.h ordinals).
+        assert_eq!(HostCamoStealthLook::None.as_u8(), 0);
+        assert_eq!(HostCamoStealthLook::VisibleFriendly.as_u8(), 1);
+        assert_eq!(HostCamoStealthLook::DisguisedEnemy.as_u8(), 2);
+        assert_eq!(HostCamoStealthLook::VisibleDetected.as_u8(), 3);
+        assert_eq!(HostCamoStealthLook::VisibleFriendlyDetected.as_u8(), 4);
+        assert_eq!(HostCamoStealthLook::Invisible.as_u8(), 5);
+        assert_eq!(
+            HostCamoStealthLook::from_u8(3),
+            HostCamoStealthLook::VisibleDetected
+        );
+        assert_eq!(
+            HostCamoStealthLook::from_u8(4),
+            HostCamoStealthLook::VisibleFriendlyDetected
+        );
+        assert_eq!(
+            HostCamoStealthLook::from_u8(5),
+            HostCamoStealthLook::Invisible
+        );
         assert_eq!(
             camo_netting_stealth_look(false, false, true),
             HostCamoStealthLook::None
