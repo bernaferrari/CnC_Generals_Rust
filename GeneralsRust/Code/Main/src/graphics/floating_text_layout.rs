@@ -26,6 +26,7 @@
 //! - DisplayString getFont residual (identity font pointer residual)
 //! - DisplayString draw residual (empty early-out / default drop 1,1 /
 //!   pos+color rebuild dirty residual; fail-closed vs GPU StretchRect)
+//! - DisplayStringManager link/unlink residual (doubly-linked factory list)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -492,6 +493,104 @@ pub fn honesty_display_string_draw(
         prev_x, prev_y, prev_color, prev_drop_color, text_or_font_dirty,
     );
     sample == expected
+}
+
+/// Host residual DisplayStringManager doubly-linked list node id.
+pub type DisplayStringNodeId = u32;
+
+/// Host residual DisplayStringManager link/unlink factory list.
+///
+/// C++ `DisplayStringManager::link` inserts at head; `unLink` removes from list.
+/// Fail-closed: not full W3DDisplayStringManager GPU string pool.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DisplayStringManagerResidual {
+    /// Head of list residual (None = empty).
+    pub head: Option<DisplayStringNodeId>,
+    /// next residual per node id.
+    pub next: std::collections::HashMap<DisplayStringNodeId, Option<DisplayStringNodeId>>,
+    /// prev residual per node id.
+    pub prev: std::collections::HashMap<DisplayStringNodeId, Option<DisplayStringNodeId>>,
+}
+
+impl DisplayStringManagerResidual {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// C++ `link`: insert at head of list.
+    pub fn link(&mut self, id: DisplayStringNodeId) {
+        self.next.insert(id, self.head);
+        self.prev.insert(id, None);
+        if let Some(old_head) = self.head {
+            self.prev.insert(old_head, Some(id));
+        }
+        self.head = Some(id);
+    }
+
+    /// C++ `unLink`: remove node from doubly-linked list.
+    pub fn unlink(&mut self, id: DisplayStringNodeId) {
+        let n = self.next.get(&id).copied().flatten();
+        let p = self.prev.get(&id).copied().flatten();
+        if let Some(nx) = n {
+            self.prev.insert(nx, p);
+        }
+        if let Some(pv) = p {
+            self.next.insert(pv, n);
+        } else {
+            // was head
+            self.head = n;
+        }
+        self.next.remove(&id);
+        self.prev.remove(&id);
+    }
+
+    pub fn len(&self) -> usize {
+        self.next.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.head.is_none() && self.next.is_empty()
+    }
+}
+
+/// Honesty: DisplayStringManager link/unlink residual matches C++ head-insert list.
+pub fn honesty_display_string_manager_link() -> bool {
+    let mut m = DisplayStringManagerResidual::new();
+    if !m.is_empty() {
+        return false;
+    }
+    m.link(1);
+    if m.head != Some(1) || m.len() != 1 {
+        return false;
+    }
+    m.link(2);
+    // head-insert: 2 → 1
+    if m.head != Some(2) || m.next.get(&2).copied().flatten() != Some(1) {
+        return false;
+    }
+    if m.prev.get(&1).copied().flatten() != Some(2) {
+        return false;
+    }
+    m.link(3);
+    // 3 → 2 → 1
+    if m.head != Some(3) || m.next.get(&3).copied().flatten() != Some(2) {
+        return false;
+    }
+    m.unlink(2);
+    // 3 → 1
+    if m.next.get(&3).copied().flatten() != Some(1) || m.prev.get(&1).copied().flatten() != Some(3) {
+        return false;
+    }
+    if m.len() != 2 {
+        return false;
+    }
+    m.unlink(3);
+    // head becomes 1
+    if m.head != Some(1) {
+        return false;
+    }
+    m.unlink(1);
+    m.is_empty()
 }
 
 /// Floats per packed layout entry:
@@ -1055,6 +1154,20 @@ mod tests {
         assert_eq!(drop.shadow_y, 3);
         assert_eq!(same.shadow_x, 11); // 10+1 default drop
         assert_eq!(same.shadow_y, 21);
+    }
+
+    #[test]
+    fn display_string_manager_link_residual_honesty() {
+        assert!(honesty_display_string_manager_link());
+        let mut m = DisplayStringManagerResidual::new();
+        m.link(10);
+        m.link(20);
+        assert_eq!(m.head, Some(20));
+        assert_eq!(m.next.get(&20).copied().flatten(), Some(10));
+        m.unlink(20);
+        assert_eq!(m.head, Some(10));
+        m.unlink(10);
+        assert!(m.is_empty());
     }
 
 }

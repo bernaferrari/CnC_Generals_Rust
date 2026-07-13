@@ -17,6 +17,10 @@
 //! vs full runtime boot for every locale STR asset pack):
 //! - LanguageId residual STR path table (map.str / generals.str relatives)
 //!
+//! Host residual GameText fetch missing-label residual closed here:
+//! - C++ `GameTextManager::fetch` missing path → `MISSING: 'label'` + exists=false
+//! - Missing-string list residual de-dupes identical missing labels
+//!
 //! Still residual:
 //! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
@@ -109,6 +113,84 @@ pub fn format_printf_d(template: &str, amount: u32) -> String {
     } else {
         template.to_string()
     }
+}
+
+/// Format C++ missing-string residual: `MISSING: 'label'`.
+///
+/// C++ `GameTextManager::fetch` when LUT miss formats
+/// `UnicodeString missingString; missingString.format(L"MISSING: '%hs'", label)`.
+#[inline]
+pub fn game_text_missing_string(label: &str) -> String {
+    format!("MISSING: '{label}'")
+}
+
+/// Residual GameText fetch result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameTextFetchResidual {
+    pub text: String,
+    /// C++ `*exists` out-param residual.
+    pub exists: bool,
+    /// True when this fetch registered a new missing-string list entry.
+    pub registered_missing: bool,
+}
+
+/// Host residual for C++ `GameTextManager::fetch`.
+///
+/// Hit → (value, exists=true). Miss → (`MISSING: 'label'`, exists=false).
+/// Optional `seen_missing` de-dupes the C++ `m_noStringList` residual.
+/// Fail-closed: not full multi-locale CSF boot UI / live DisplayString draw.
+pub fn game_text_fetch_residual(
+    table: &HashMap<String, String>,
+    label: &str,
+    seen_missing: &mut Vec<String>,
+) -> GameTextFetchResidual {
+    if let Some(value) = table.get(label) {
+        return GameTextFetchResidual {
+            text: value.clone(),
+            exists: true,
+            registered_missing: false,
+        };
+    }
+    let missing = game_text_missing_string(label);
+    let registered_missing = if seen_missing.iter().any(|s| s == &missing) {
+        false
+    } else {
+        seen_missing.push(missing.clone());
+        true
+    };
+    GameTextFetchResidual {
+        text: missing,
+        exists: false,
+        registered_missing,
+    }
+}
+
+/// Honesty: fetch residual matches hit / MISSING path + de-dupe.
+pub fn honesty_game_text_fetch_missing() -> bool {
+    let mut table = HashMap::new();
+    table.insert(GUI_ADD_CASH_KEY.to_string(), GUI_ADD_CASH_RETAIL_TEMPLATE.to_string());
+    let mut seen = Vec::new();
+    let hit = game_text_fetch_residual(&table, GUI_ADD_CASH_KEY, &mut seen);
+    if !hit.exists || hit.text != GUI_ADD_CASH_RETAIL_TEMPLATE || hit.registered_missing {
+        return false;
+    }
+    if !seen.is_empty() {
+        return false;
+    }
+    let miss = game_text_fetch_residual(&table, "GUI:NoSuchLabel", &mut seen);
+    if miss.exists
+        || miss.text != "MISSING: 'GUI:NoSuchLabel'"
+        || !miss.registered_missing
+        || seen.len() != 1
+    {
+        return false;
+    }
+    let miss2 = game_text_fetch_residual(&table, "GUI:NoSuchLabel", &mut seen);
+    !miss2.exists
+        && miss2.text == "MISSING: 'GUI:NoSuchLabel'"
+        && !miss2.registered_missing
+        && seen.len() == 1
+        && game_text_missing_string("X") == "MISSING: 'X'"
 }
 
 /// Host residual DisplayString measure for ASCII captions (monospaced 8×8).
@@ -728,5 +810,24 @@ mod tests {
         let (ok, count) = exercise_multi_locale_str_residual();
         assert!(ok);
         assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn game_text_fetch_missing_residual_honesty() {
+        assert!(honesty_game_text_fetch_missing());
+        assert_eq!(game_text_missing_string("GUI:Back"), "MISSING: 'GUI:Back'");
+        let mut table = HashMap::new();
+        table.insert("GUI:Back".to_string(), "BACK".to_string());
+        let mut seen = Vec::new();
+        let hit = game_text_fetch_residual(&table, "GUI:Back", &mut seen);
+        assert!(hit.exists);
+        assert_eq!(hit.text, "BACK");
+        let miss = game_text_fetch_residual(&table, "GUI:Nope", &mut seen);
+        assert!(!miss.exists);
+        assert_eq!(miss.text, "MISSING: 'GUI:Nope'");
+        assert!(miss.registered_missing);
+        let miss2 = game_text_fetch_residual(&table, "GUI:Nope", &mut seen);
+        assert!(!miss2.registered_missing);
+        assert_eq!(seen.len(), 1);
     }
 }
