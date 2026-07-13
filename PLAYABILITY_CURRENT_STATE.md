@@ -1,3 +1,42 @@
+## Residual Host Playability — Turret Natural Pitch/Yaw + Parachute FreeFallDamage (2026-07-13)
+**Closed (host-testable Strategy Center turret natural-position angles + AmericaParachute FreeFallDamage/fudge residual):**
+1. **Turret natural-position pitch/yaw residual** (Strategy Center AIUpdateInterface Turret):
+   - NaturalTurretAngle **-90**, NaturalTurretPitch **45**, FirePitch **45**.
+   - TurretTurnRate / TurretPitchRate **60** deg/s → **2** deg/frame @ 30 FPS.
+   - StrategyCenterGun fire residual aims pitch/yaw at target (atan2 + FirePitch).
+   - `isTurretInNaturalPosition` residual: natural angles + idle/busy coast gate.
+   - Recenter residual steps angles toward natural; frame count is angle-based
+     (60° → 30 frames) with busy-coast fallback of **30** frames.
+   - Host-testable: fire leaves natural; recenter restores NaturalTurretAngle/Pitch;
+     pack deferred for non-natural; pack immediate when natural.
+   - Fail-closed: not full TurretAI idle-scan state machine / bone pitch matrix.
+2. **AmericaParachute FreeFallDamage + low-altitude open fudge residual**:
+   - FreeFallDamagePercent default **0.5** → 50% max-health residual when chute
+     is destroyed mid-air while significantly above terrain
+     (`destroy_eject_parachute_midair` residual).
+   - Low-altitude open fudge: if startZ − ground < **2×OpenDist**, fudge start
+     height to `ground + 2×OpenDist` so chute can still open (C++ ParachuteContain).
+   - Host-testable: fudge rewrites start height; FreeFallDamage closes chute + HP;
+     ground path rejects FreeFallDamage.
+   - Fail-closed: not full sway / pitch-roll / DeliverPayload bone matrix.
+3. Tests (not log-only):
+   - `eject_pilot_parachute_open_fudge_and_free_fall_damage_residual`
+   - updated `strategy_center_bombardment_turret_fire_residual` (aim angles)
+   - updated `strategy_center_delayed_set_battle_plan_and_turret_recenter_residual`
+     (angle step + restore)
+   - module unit tests in `host_strategy_center` / `host_usa_pilot`
+     (angle matrix / fudge / FreeFallDamage gates)
+
+**Still residual (fail-closed, not claimed):**
+- Full TurretAI idle-scan Min/MaxIdleScanAngle state machine / bone matrix
+- Full W3DLaserDraw / LaserUpdate client drawable for Patriot assist beams
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
+- Full CamoNetting sub-object net visual / opacity drawable matrix
+- Network turret-angle / FreeFallDamage replication (network deferred)
+
 ## Residual Host Playability — BinaryDataStream Laser + DetectionRate Sleep (2026-07-13)
 **Closed (host-testable Patriot assist laser feedback + StealthDetector DetectionRate residual):**
 1. **BinaryDataStream laser residual** (`AssistedTargetingUpdate::makeFeedbackLaser`):

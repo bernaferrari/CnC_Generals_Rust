@@ -8,6 +8,14 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_strategy_center_turret_angle() -> f32 {
+    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
+}
+
+fn default_strategy_center_turret_pitch() -> f32 {
+    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
+}
+
 /// Object type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObjectType {
@@ -353,6 +361,15 @@ pub struct Object {
     #[serde(default)]
     pub hive_slave_respawn_frame: u32,
 
+    /// Host residual: Strategy Center / TurretAI yaw (deg).
+    /// Natural for Strategy Center = **-90** (NaturalTurretAngle).
+    #[serde(default = "default_strategy_center_turret_angle")]
+    pub turret_angle_deg: f32,
+    /// Host residual: Strategy Center / TurretAI pitch (deg).
+    /// Natural for Strategy Center = **45** (NaturalTurretPitch).
+    #[serde(default = "default_strategy_center_turret_pitch")]
+    pub turret_pitch_deg: f32,
+
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
     /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
     #[serde(default)]
@@ -528,6 +545,8 @@ impl Object {
             hive_slave_count: 0,
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
+            turret_angle_deg: default_strategy_center_turret_angle(),
+            turret_pitch_deg: default_strategy_center_turret_pitch(),
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -639,6 +658,8 @@ impl Object {
             hive_slave_count: 0,
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
+            turret_angle_deg: default_strategy_center_turret_angle(),
+            turret_pitch_deg: default_strategy_center_turret_pitch(),
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -1020,12 +1041,27 @@ impl Object {
     }
 
     /// Begin air-eject parachute residual (elevated spawn + freefall → OpenDist → open).
+    ///
+    /// Applies C++ low-altitude open fudge: if height above ground < 2×OpenDist,
+    /// fudge start height so the chute can still open.
     pub fn apply_eject_parachuting(&mut self) {
+        use crate::game_logic::host_usa_pilot::fudge_parachute_start_height;
         let start_y = self.get_position().y;
+        let ground_y = 0.0; // host residual ground plane
+        let fudged = fudge_parachute_start_height(start_y, ground_y);
         self.status.parachuting = true;
         self.status.airborne_target = true;
         self.status.parachute_open = false;
-        self.status.parachute_start_height = start_y;
+        self.status.parachute_start_height = fudged;
+    }
+
+    /// Whether low-altitude open fudge residual applied for this parachute start.
+    pub fn parachute_start_was_fudged(&self) -> bool {
+        use crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged;
+        // Fudge rewrites start height; detect by comparing raw y vs stored start.
+        // After apply, start_height is fudged value; raw spawn y is current y
+        // only at apply time — host honesty uses registry counter instead.
+        parachute_start_height_was_fudged(self.get_position().y, 0.0)
     }
 
     /// Mark AmericaParachute residual chute open (after OpenDist freefall).

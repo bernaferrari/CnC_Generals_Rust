@@ -44,11 +44,16 @@
 //!
 //! - **Bombardment turret recenter residual**: when leaving Bombardment while
 //!   the gun residual is not "natural" (attacking / has target / recently
-//!   fired), host delays pack by **TurretRecenterFrames** (30) before CLOSING.
-//!   Fail-closed: not full AI turret pitch/yaw natural-position matrix.
+//!   fired / angles off natural), host delays pack by **TurretRecenterFrames**
+//!   (or angle-based frames) before CLOSING.
+//!
+//! - **Turret natural-position pitch/yaw residual** (AIUpdateInterface Turret):
+//!   NaturalTurretAngle **-90**, NaturalTurretPitch **45**, Turn/Pitch rate
+//!   **60** deg/s → **2** deg/frame, FirePitch **45**. Fire aims residual
+//!   angles at target; recenter steps toward natural each frame.
 //!
 //! Fail-closed honesty:
-//! - Not full AI turret pitch scan / natural-position angle matrix
+//! - Not full TurretAI state machine / idle-scan angle matrix / bone pitch
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -171,9 +176,31 @@ pub const BATTLE_PLAN_TRANSITION_IDLE_FRAMES: u32 = 0;
 
 /// Host residual Bombardment turret recenter wait before pack (1 second @ 30 FPS).
 ///
-/// C++ waits for `isTurretInNaturalPosition` after `recenterTurret`. Host
-/// residual uses a fixed frame gate when the gun is not idle/natural.
+/// C++ waits for `isTurretInNaturalPosition` after `recenterTurret`. Host uses
+/// angle-based frames when pitch/yaw are off natural; busy-only residual
+/// (attacking / target / recent fire with natural angles) falls back to this.
 pub const BATTLE_PLAN_TURRET_RECENTER_FRAMES: u32 = 30;
+
+// --- Strategy Center Turret natural-position pitch/yaw residual ---
+
+/// Retail NaturalTurretAngle (deg) — turret points backwards normally.
+pub const STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG: f32 = -90.0;
+/// Retail NaturalTurretPitch (deg) — half way between land and sky.
+pub const STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG: f32 = 45.0;
+/// Retail FirePitch (deg) — aim pitch when firing residual.
+pub const STRATEGY_CENTER_FIRE_PITCH_DEG: f32 = 45.0;
+/// Retail TurretTurnRate (deg/sec).
+pub const STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC: f32 = 60.0;
+/// Retail TurretPitchRate (deg/sec).
+pub const STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC: f32 = 60.0;
+/// Turn rate residual → deg per logic frame @ 30 FPS.
+pub const STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME: f32 =
+    STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC / BATTLE_PLAN_LOGIC_FPS;
+/// Pitch rate residual → deg per logic frame @ 30 FPS.
+pub const STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME: f32 =
+    STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC / BATTLE_PLAN_LOGIC_FPS;
+/// Angle equality residual epsilon (deg).
+pub const STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG: f32 = 0.05;
 
 /// Residual pack/unpack audio event names (retail *PlanPack/UnpackSoundName).
 pub const BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO: &str = "StrategyCenter_BombardmentPlanUnpackSound";
@@ -269,14 +296,121 @@ pub enum HostBattlePlanDoorEvent {
     },
 }
 
+/// Shortest signed delta from `from` to `to` in degrees (−180, 180].
+pub fn shortest_angle_delta_deg(from: f32, to: f32) -> f32 {
+    let mut d = to - from;
+    while d > 180.0 {
+        d -= 360.0;
+    }
+    while d <= -180.0 {
+        d += 360.0;
+    }
+    d
+}
+
+/// Normalize angle to (−180, 180].
+pub fn normalize_angle_deg(angle: f32) -> f32 {
+    let mut a = angle % 360.0;
+    if a > 180.0 {
+        a -= 360.0;
+    } else if a <= -180.0 {
+        a += 360.0;
+    }
+    a
+}
+
+/// Whether residual turret pitch/yaw match NaturalTurretAngle / NaturalTurretPitch.
+pub fn turret_angles_are_natural(angle_deg: f32, pitch_deg: f32) -> bool {
+    shortest_angle_delta_deg(angle_deg, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs()
+        <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG
+        && (pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs()
+            <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG
+}
+
+/// Step residual turret angles one frame toward natural (recenterTurret residual).
+pub fn step_turret_toward_natural(angle_deg: f32, pitch_deg: f32) -> (f32, f32) {
+    let da = shortest_angle_delta_deg(angle_deg, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG);
+    let step_a = da
+        .abs()
+        .min(STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME)
+        * da.signum();
+    let new_angle = if da.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
+    } else {
+        normalize_angle_deg(angle_deg + step_a)
+    };
+
+    let dp = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG - pitch_deg;
+    let step_p = dp
+        .abs()
+        .min(STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME)
+        * dp.signum();
+    let new_pitch = if dp.abs() <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
+    } else {
+        pitch_deg + step_p
+    };
+    (new_angle, new_pitch)
+}
+
+/// Frames needed to recenter residual angles at TurretTurn/PitchRate.
+pub fn turret_recenter_frames_for_angles(angle_deg: f32, pitch_deg: f32) -> u32 {
+    let da = shortest_angle_delta_deg(angle_deg, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs();
+    let dp = (pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs();
+    let fa = if da <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        0
+    } else {
+        (da / STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME).ceil() as u32
+    };
+    let fp = if dp <= STRATEGY_CENTER_TURRET_ANGLE_EPS_DEG {
+        0
+    } else {
+        (dp / STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME).ceil() as u32
+    };
+    fa.max(fp).max(1)
+}
+
+/// Residual aim angles when StrategyCenterGun fires at a world target.
+///
+/// Angle = atan2(dx, dz) degrees; pitch = FirePitch **45**.
+pub fn strategy_center_turret_aim_at(
+    center_x: f32,
+    center_z: f32,
+    target_x: f32,
+    target_z: f32,
+) -> (f32, f32) {
+    let dx = target_x - center_x;
+    let dz = target_z - center_z;
+    let angle = normalize_angle_deg(dx.atan2(dz).to_degrees());
+    (angle, STRATEGY_CENTER_FIRE_PITCH_DEG)
+}
+
 /// Whether Bombardment turret residual is in natural position for pack.
 ///
-/// C++ `isTurretInNaturalPosition` residual host gate: idle gun with no target
-/// and not recently fired. Fail-closed: not full pitch/yaw angle matrix.
+/// C++ `isTurretInNaturalPosition`: NaturalTurretAngle/Pitch equality.
+/// Host residual also treats busy gun (attacking / target / recent fire) as
+/// non-natural so pack waits for recenter (fail-closed busy coast).
 pub fn strategy_center_turret_is_natural(
     is_attacking: bool,
     has_target: bool,
     last_fire_age_frames: Option<u32>,
+) -> bool {
+    strategy_center_turret_is_natural_with_angles(
+        is_attacking,
+        has_target,
+        last_fire_age_frames,
+        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+    )
+}
+
+/// Natural-position residual with explicit pitch/yaw (C++ TurretAI angles).
+pub fn strategy_center_turret_is_natural_with_angles(
+    is_attacking: bool,
+    has_target: bool,
+    last_fire_age_frames: Option<u32>,
+    angle_deg: f32,
+    pitch_deg: f32,
 ) -> bool {
     if is_attacking || has_target {
         return false;
@@ -287,7 +421,25 @@ pub fn strategy_center_turret_is_natural(
             return false;
         }
     }
-    true
+    turret_angles_are_natural(angle_deg, pitch_deg)
+}
+
+/// Frames for recenter residual: angle-based, or busy-coast fallback.
+pub fn strategy_center_turret_recenter_frames(
+    is_busy_non_natural: bool,
+    angle_deg: f32,
+    pitch_deg: f32,
+) -> u32 {
+    if turret_angles_are_natural(angle_deg, pitch_deg) {
+        // Busy gate only (attacking/target/recent fire) — fixed coast residual.
+        if is_busy_non_natural {
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES
+        } else {
+            1
+        }
+    } else {
+        turret_recenter_frames_for_angles(angle_deg, pitch_deg)
+    }
 }
 
 /// Per-Strategy-Center pack/unpack door residual bookkeeping.
@@ -354,10 +506,13 @@ impl HostBattlePlanDoorState {
     }
 
     /// Begin Bombardment turret recenter residual (pack deferred).
-    pub fn begin_recenter(&mut self, frame: u32, desired: Option<HostBattlePlan>) {
+    ///
+    /// `frames` is angle-based or busy-coast residual (see
+    /// `strategy_center_turret_recenter_frames`).
+    pub fn begin_recenter(&mut self, frame: u32, desired: Option<HostBattlePlan>, frames: u32) {
         self.centering_turret = true;
         self.desired_plan = desired;
-        self.next_ready_frame = frame.saturating_add(BATTLE_PLAN_TURRET_RECENTER_FRAMES.max(1));
+        self.next_ready_frame = frame.saturating_add(frames.max(1));
         // Stay ACTIVE / WAITING_TO_CLOSE while recentering.
         self.status = HostBattlePlanTransition::Active;
     }
@@ -872,6 +1027,7 @@ impl HostBattlePlanRegistry {
     ///
     /// `turret_natural`: when leaving Bombardment Active, if false host starts
     /// recenter residual before pack (C++ isTurretInNaturalPosition gate).
+    /// `recenter_frames`: angle-based / busy-coast frames when non-natural.
     ///
     /// Returns residual events emitted immediately (Audio / BeganPacking / BeganRecenter).
     pub fn begin_door_residual(
@@ -881,6 +1037,7 @@ impl HostBattlePlanRegistry {
         plan: HostBattlePlan,
         frame: u32,
         turret_natural: bool,
+        recenter_frames: u32,
     ) -> Vec<HostBattlePlanDoorEvent> {
         let existing = self
             .door_states
@@ -896,7 +1053,7 @@ impl HostBattlePlanRegistry {
                 {
                     // Leaving Bombardment with non-natural turret → recenter first.
                     if state.door_plan == Some(HostBattlePlan::Bombardment) && !turret_natural {
-                        state.begin_recenter(frame, Some(plan));
+                        state.begin_recenter(frame, Some(plan), recenter_frames);
                         self.turret_recenter_count =
                             self.turret_recenter_count.saturating_add(1);
                         events.push(HostBattlePlanDoorEvent::BeganRecenter {
@@ -1188,6 +1345,32 @@ mod tests {
         assert!(!strategy_center_turret_is_natural(true, false, None));
         assert!(!strategy_center_turret_is_natural(false, true, None));
         assert!(!strategy_center_turret_is_natural(false, false, Some(5)));
+        // Pitch/yaw natural-position residual (NaturalTurretAngle -90 / Pitch 45).
+        assert!((STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG - (-90.0)).abs() < 0.001);
+        assert!((STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG - 45.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_FIRE_PITCH_DEG - 45.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME - 2.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_TURRET_PITCH_DEG_PER_FRAME - 2.0).abs() < 0.001);
+        assert!(turret_angles_are_natural(-90.0, 45.0));
+        assert!(!turret_angles_are_natural(0.0, 45.0));
+        assert!(!turret_angles_are_natural(-90.0, 0.0));
+        assert!(!strategy_center_turret_is_natural_with_angles(
+            false, false, None, 0.0, 45.0
+        ));
+        // 60° off natural → 30 frames at 2 deg/frame.
+        assert_eq!(turret_recenter_frames_for_angles(-30.0, 45.0), 30);
+        let (a1, p1) = step_turret_toward_natural(-30.0, 45.0);
+        assert!((a1 - (-32.0)).abs() < 0.001);
+        assert!((p1 - 45.0).abs() < 0.001);
+        let (aim_a, aim_p) = strategy_center_turret_aim_at(0.0, 0.0, 100.0, 0.0);
+        assert!((aim_p - 45.0).abs() < 0.001);
+        assert!(!turret_angles_are_natural(aim_a, aim_p) || aim_a.abs() < 0.001);
+        // Busy-only non-natural with natural angles → fixed 30 coast.
+        assert_eq!(
+            strategy_center_turret_recenter_frames(true, -90.0, 45.0),
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES
+        );
+        assert_eq!(strategy_center_turret_recenter_frames(false, -30.0, 45.0), 30);
     }
 
     #[test]
@@ -1220,7 +1403,14 @@ mod tests {
     fn door_residual_pack_then_unpack_switch_matrix() {
         let mut reg = HostBattlePlanRegistry::new();
         let cid = ObjectId(7);
-        let events = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0, true);
+        let events = reg.begin_door_residual(
+            cid,
+            0,
+            HostBattlePlan::Bombardment,
+            0,
+            true,
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+        );
         assert!(
             events.iter().any(|e| matches!(
                 e,
@@ -1247,8 +1437,14 @@ mod tests {
         assert_eq!(state.status, HostBattlePlanTransition::Active);
         assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
         // Switch to HoldTheLine with natural turret → PACKING door1 CLOSING.
-        let pack_events =
-            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300, true);
+        let pack_events = reg.begin_door_residual(
+            cid,
+            0,
+            HostBattlePlan::HoldTheLine,
+            300,
+            true,
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+        );
         assert!(
             pack_events
                 .iter()
@@ -1286,11 +1482,24 @@ mod tests {
     fn door_residual_bombardment_recenter_before_pack_matrix() {
         let mut reg = HostBattlePlanRegistry::new();
         let cid = ObjectId(9);
-        let _ = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0, true);
+        let _ = reg.begin_door_residual(
+            cid,
+            0,
+            HostBattlePlan::Bombardment,
+            0,
+            true,
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+        );
         let _ = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
         // Non-natural turret → recenter residual (pack deferred).
-        let events =
-            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300, false);
+        let events = reg.begin_door_residual(
+            cid,
+            0,
+            HostBattlePlan::HoldTheLine,
+            300,
+            false,
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES,
+        );
         assert!(
             events
                 .iter()
