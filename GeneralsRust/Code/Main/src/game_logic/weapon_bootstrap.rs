@@ -36,6 +36,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const RANGER_PRIMARY_WEAPON: &str = "RangerAdvancedCombatRifle";
 pub const GLA_REBEL_PRIMARY_WEAPON: &str = "GLARebelMachineGun";
 pub const REDGUARD_PRIMARY_WEAPON: &str = "RedguardMachineGun";
+pub const TANK_HUNTER_PRIMARY_WEAPON: &str = "ChinaInfantryTankHunterMissileLauncher";
 /// China Troop Crawler residual DEPLOY primary.
 pub const TROOP_CRAWLER_ASSAULT_WEAPON: &str = "TroopCrawlerAssault";
 pub const HUMVEE_PRIMARY_WEAPON: &str = "HumveeGun";
@@ -190,6 +191,12 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "China_RedGuard" | "China_Soldier" | "ChinaInfantryRedguard" => {
             Some(REDGUARD_PRIMARY_WEAPON)
         }
+        "China_TankHunter"
+        | "ChinaInfantryTankHunter"
+        | "Tank_ChinaInfantryTankHunter"
+        | "Nuke_ChinaInfantryTankHunter"
+        | "Infa_ChinaInfantryTankHunter"
+        | "TestTankHunter" => Some(TANK_HUNTER_PRIMARY_WEAPON),
         "ChinaVehicleTroopCrawler"
         | "China_TroopCrawler"
         | "Tank_ChinaVehicleTroopCrawler"
@@ -654,6 +661,15 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 999_999.0,
+        },
+        // ChinaInfantryTankHunter PRIMARY — PrimaryDamage 40, range 175, Delay 1000ms → 30 frames
+        SeedWeapon {
+            name: TANK_HUNTER_PRIMARY_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 175.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 600.0,
         },
         // AmericaVehicleHumvee PRIMARY — damage 10, range 150, delay 200ms → 6 frames
         SeedWeapon {
