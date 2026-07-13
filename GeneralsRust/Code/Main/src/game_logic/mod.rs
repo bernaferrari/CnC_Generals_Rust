@@ -626,6 +626,10 @@ pub struct ObjectStatus {
     pub selected: bool,
     pub moving: bool,
     pub attacking: bool,
+    /// C++ OBJECT_STATUS_IS_USING_ABILITY residual (SpecialAbilityUpdate prep/fire).
+    /// CamoNetting StealthForbiddenConditions USING_ABILITY residual gate.
+    #[serde(default)]
+    pub using_ability: bool,
     pub airborne_target: bool,
     /// C++ OBJECT_STATUS_STEALTHED residual.
     pub stealthed: bool,
