@@ -849,7 +849,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         // Resolve impact position for residual superweapon path
-        // (DaisyCutter/A10/Scud/PUC/NuclearMissile/AnthraxBomb).
+        // (DaisyCutter/A10/Scud/PUC/NuclearMissile/AnthraxBomb/SpectreGunship).
         let target_position: Option<Vec3> = match target {
             PowerTarget::Location(loc) => Some(*loc),
             PowerTarget::Object(id) => self
@@ -885,7 +885,8 @@ impl<'a> CommandExecutor<'a> {
 
             // Host residual: queue superweapon strike that will complete with
             // area damage (DaisyCutter / A10 / ScudStorm / ParticleCannon /
-            // NuclearMissile + radiation residual / AnthraxBomb + toxin residual).
+            // NuclearMissile + radiation residual / AnthraxBomb + toxin residual /
+            // SpectreGunship + delayed orbit damage ticks residual).
             // ClusterMines residual places a ring of land mines at target.
             // RadarScan residual temporarily reveals FOW at target (RadarVanPing).
             // SpySatellite residual temporarily reveals FOW at target (SpySatellitePing).
@@ -894,6 +895,7 @@ impl<'a> CommandExecutor<'a> {
             // Ambush residual queues GLA Rebel Ambush infantry spawn at target.
             // FireWall residual creates a line of fire damage zones toward target.
             // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
+            // Frenzy residual buffs ally attack damage in radius (FRENZY_ONE/TWO/THREE).
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             if *power_type == SpecialPowerType::CiaIntelligence {
@@ -953,6 +955,17 @@ impl<'a> CommandExecutor<'a> {
                         self.current_player_id,
                         pos,
                         Some(unit_id),
+                    ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::Frenzy {
+                    // Fail-closed residual default: FRENZY_ONE (SCIENCE_Frenzy1).
+                    // Full science tier upgrade matrix deferred.
+                    if !self.game_logic.activate_frenzy(
+                        self.current_player_id,
+                        pos,
+                        Some(unit_id),
+                        crate::game_logic::host_frenzy::HostFrenzyLevel::One,
                     ) {
                         continue;
                     }

@@ -179,6 +179,15 @@ pub struct Object {
     /// Fail-closed: not full WeaponBonusConditionFlags matrix / ROF multiplier application.
     pub weapon_bonus_enthusiastic: bool,
     pub weapon_bonus_subliminal: bool,
+
+    /// Host residual Frenzy / Rage temporary attack buff
+    /// (C++ WEAPONBONUSCONDITION_FRENZY_ONE/TWO/THREE via doTempWeaponBonus).
+    /// Fail-closed: not full WeaponBonusConditionFlags matrix / TempWeaponBonusHelper Xfer.
+    pub weapon_bonus_frenzy: bool,
+    /// Absolute host logic frame when Frenzy residual expires (0 = none).
+    pub weapon_bonus_frenzy_until_frame: u32,
+    /// Residual Frenzy tier 1..=3 (maps to FRENZY_ONE/TWO/THREE damage mult).
+    pub weapon_bonus_frenzy_level: u8,
 }
 
 /// AI behavior states
@@ -300,6 +309,9 @@ impl Object {
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_until_frame: 0,
+            weapon_bonus_frenzy_level: 0,
         }
     }
 
@@ -367,6 +379,9 @@ impl Object {
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_until_frame: 0,
+            weapon_bonus_frenzy_level: 0,
         }
     }
 
@@ -601,6 +616,52 @@ impl Object {
             self.status.disabled_emp = false;
             self.status.disabled_emp_until_frame = 0;
         }
+    }
+
+    /// Whether Frenzy / Rage temporary attack buff residual is active.
+    pub fn is_frenzy_buffed(&self) -> bool {
+        self.weapon_bonus_frenzy
+    }
+
+    /// Apply temporary Frenzy residual (C++ Object::doTempWeaponBonus FRENZY_*).
+    /// Refresh extends the timer if a later expiry is provided; keeps higher level.
+    pub fn apply_weapon_bonus_frenzy(&mut self, level: u8, until_frame: u32) {
+        let lvl = level.clamp(1, 3);
+        self.weapon_bonus_frenzy = true;
+        if lvl > self.weapon_bonus_frenzy_level {
+            self.weapon_bonus_frenzy_level = lvl;
+        } else if self.weapon_bonus_frenzy_level == 0 {
+            self.weapon_bonus_frenzy_level = lvl;
+        }
+        if until_frame > self.weapon_bonus_frenzy_until_frame {
+            self.weapon_bonus_frenzy_until_frame = until_frame;
+        }
+    }
+
+    /// Clear Frenzy residual weapon-bonus flags.
+    pub fn clear_weapon_bonus_frenzy(&mut self) {
+        self.weapon_bonus_frenzy = false;
+        self.weapon_bonus_frenzy_until_frame = 0;
+        self.weapon_bonus_frenzy_level = 0;
+    }
+
+    /// Expire Frenzy residual when the host frame passes the residual timer.
+    pub fn tick_weapon_bonus_frenzy(&mut self, current_frame: u32) {
+        if self.weapon_bonus_frenzy
+            && self.weapon_bonus_frenzy_until_frame > 0
+            && current_frame >= self.weapon_bonus_frenzy_until_frame
+        {
+            self.clear_weapon_bonus_frenzy();
+        }
+    }
+
+    /// Retail DAMAGE multiplier while Frenzy residual is active (1.0 when clear).
+    pub fn frenzy_damage_multiplier(&self) -> f32 {
+        if !self.weapon_bonus_frenzy {
+            return 1.0;
+        }
+        crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(self.weapon_bonus_frenzy_level)
+            .damage_multiplier()
     }
 
     /// C++ OBJECT_STATUS_IS_CARBOMB residual.

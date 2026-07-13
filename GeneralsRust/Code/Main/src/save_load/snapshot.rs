@@ -138,6 +138,18 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime toxin damage applications (honesty after prune).
     #[serde(default)]
     pub toxin_damage_applications_total: u32,
+    /// Next residual Spectre orbit field id (SpectreGunship).
+    #[serde(default = "default_next_orbit_id")]
+    pub next_orbit_id: u32,
+    /// Active residual Spectre orbit fields (SpectreGunship residual).
+    #[serde(default)]
+    pub orbit_fields: Vec<crate::game_logic::special_power_strikes::HostSpectreOrbitField>,
+    /// Lifetime orbit fields spawned (honesty after prune).
+    #[serde(default)]
+    pub orbit_fields_spawned_total: u32,
+    /// Lifetime orbit damage applications (honesty after prune).
+    #[serde(default)]
+    pub orbit_damage_applications_total: u32,
 }
 
 fn default_next_radiation_id() -> u32 {
@@ -145,6 +157,10 @@ fn default_next_radiation_id() -> u32 {
 }
 
 fn default_next_toxin_id() -> u32 {
+    1
+}
+
+fn default_next_orbit_id() -> u32 {
     1
 }
 
@@ -161,6 +177,10 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             toxin_fields: Vec::new(),
             toxin_fields_spawned_total: 0,
             toxin_damage_applications_total: 0,
+            next_orbit_id: 1,
+            orbit_fields: Vec::new(),
+            orbit_fields_spawned_total: 0,
+            orbit_damage_applications_total: 0,
         }
     }
 }
@@ -2603,6 +2623,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => 3,
             HostSuperweaponKind::NuclearMissile => 4,
             HostSuperweaponKind::AnthraxBomb => 5,
+            HostSuperweaponKind::SpectreGunship => 6,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -2612,6 +2633,7 @@ impl XferData for HostSuperweaponKind {
             3 => HostSuperweaponKind::ParticleCannon,
             4 => HostSuperweaponKind::NuclearMissile,
             5 => HostSuperweaponKind::AnthraxBomb,
+            6 => HostSuperweaponKind::SpectreGunship,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"
@@ -2731,6 +2753,35 @@ impl XferData for crate::game_logic::special_power_strikes::HostToxinField {
     }
 }
 
+impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitField {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostSpectreOrbitField")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SpawnFrame")?;
+        xfer.xfer_u32(&mut self.spawn_frame)?;
+        xfer.xfer_marker_label("ExpiresFrame")?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer.xfer_marker_label("NextTickFrame")?;
+        xfer.xfer_u32(&mut self.next_tick_frame)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("DamageApplications")?;
+        xfer.xfer_u32(&mut self.damage_applications)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        xfer.xfer_marker_label("ParentStrikeId")?;
+        xfer.xfer_u32(&mut self.parent_strike_id)?;
+        Ok(())
+    }
+}
+
 impl XferData for SpecialPowerStrikeRegistrySnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("SpecialPowerStrikeRegistrySnapshot")?;
@@ -2805,6 +2856,31 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         xfer.xfer_u32(&mut self.toxin_fields_spawned_total)?;
         xfer.xfer_marker_label("ToxinDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.toxin_damage_applications_total)?;
+        // SpectreGunship residual orbit fields (appended after toxin).
+        xfer.xfer_marker_label("NextOrbitId")?;
+        xfer.xfer_u32(&mut self.next_orbit_id)?;
+        xfer.xfer_marker_label("OrbitFields")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.orbit_fields,
+            crate::game_logic::special_power_strikes::HostSpectreOrbitField {
+                id: 0,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                position: Vec3::ZERO,
+                spawn_frame: 0,
+                expires_frame: 0,
+                next_tick_frame: 0,
+                total_damage_applied: 0.0,
+                damage_applications: 0,
+                objects_destroyed: 0,
+                parent_strike_id: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
+        xfer.xfer_u32(&mut self.orbit_fields_spawned_total)?;
+        xfer.xfer_marker_label("OrbitDamageApplicationsTotal")?;
+        xfer.xfer_u32(&mut self.orbit_damage_applications_total)?;
         Ok(())
     }
 }
@@ -4311,6 +4387,10 @@ impl SnapshotBuilder {
             toxin_fields: reg.toxin_fields().to_vec(),
             toxin_fields_spawned_total: reg.toxin_fields_spawned_total(),
             toxin_damage_applications_total: reg.toxin_damage_applications_total(),
+            next_orbit_id: reg.next_orbit_id(),
+            orbit_fields: reg.orbit_fields().to_vec(),
+            orbit_fields_spawned_total: reg.orbit_fields_spawned_total(),
+            orbit_damage_applications_total: reg.orbit_damage_applications_total(),
         })
     }
 
@@ -4332,6 +4412,10 @@ impl SnapshotBuilder {
                 snapshot.toxin_fields.clone(),
                 snapshot.toxin_fields_spawned_total,
                 snapshot.toxin_damage_applications_total,
+                snapshot.next_orbit_id,
+                snapshot.orbit_fields.clone(),
+                snapshot.orbit_fields_spawned_total,
+                snapshot.orbit_damage_applications_total,
             );
         Ok(())
     }

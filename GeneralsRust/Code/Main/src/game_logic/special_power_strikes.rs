@@ -1,19 +1,25 @@
 //! Host special-power / superweapon strike residual.
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile / AnthraxBomb queues a real strike that
-//! completes with area damage on host GameLogic objects. NuclearMissile also
-//! spawns a residual radiation field (`NukeRadiationFieldWeapon`) that ticks
-//! after impact. AnthraxBomb also spawns a residual toxin field
-//! (`AnthraxBombPoisonFieldWeapon` / `OCL_PoisonFieldAnthraxBomb`) that ticks
-//! after impact. Pending strikes (absolute `impact_frame`) are captured in
-//! `WorldSnapshot.special_power_strikes` so mid-flight save/load continues
-//! remaining delay and still fires impact damage.
+//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship queues a real
+//! strike that completes with area damage on host GameLogic objects.
+//! NuclearMissile also spawns a residual radiation field
+//! (`NukeRadiationFieldWeapon`) that ticks after impact. AnthraxBomb also
+//! spawns a residual toxin field (`AnthraxBombPoisonFieldWeapon` /
+//! `OCL_PoisonFieldAnthraxBomb`) that ticks after impact. SpectreGunship
+//! completes orbit insertion with no one-shot blast, then spawns a residual
+//! orbit field (`SpectreHowitzerGun` residual) that periodically damages in
+//! `AttackAreaRadius` for `OrbitTime`. Pending strikes (absolute
+//! `impact_frame`) are captured in `WorldSnapshot.special_power_strikes` so
+//! mid-flight save/load continues remaining delay and still fires impact /
+//! orbit residual damage.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
-//! Xfer tables. Radiation / toxin residual is a single host field (not full
-//! HazardousMaterialArmor / cleanup-hazard object stack / gamma upgrade path).
+//! Xfer tables. Radiation / toxin / Spectre orbit residual is a single host
+//! field (not full HazardousMaterialArmor / cleanup-hazard object stack /
+//! gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer projectile
+//! path).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -50,6 +56,20 @@ pub const ANTHRAX_TOXIN_DURATION_FRAMES: u32 = 1800;
 /// Residual ambient cue for the anthrax pool (`PoisonFieldAnthraxBomb.SoundAmbient`).
 pub const ANTHRAX_TOXIN_AUDIO: &str = "AnthraxPoolAmbientLoop";
 
+// --- Spectre Gunship orbit residual (retail SpectreHowitzerGun / OrbitTime) ---
+
+/// Retail `SpectreHowitzerGun` PrimaryDamage (orbit residual tick).
+/// Fail-closed vs full gattling-strafe + howitzer projectile + random offset.
+pub const SPECTRE_ORBIT_DAMAGE_PER_TICK: f32 = 80.0;
+/// Retail `SpectreGunshipUpdate` AttackAreaRadius / RadiusCursorRadius.
+pub const SPECTRE_ORBIT_RADIUS: f32 = 200.0;
+/// Retail HowitzerFiringRate = 300 ms → 9 frames @ 30 FPS.
+pub const SPECTRE_ORBIT_TICK_INTERVAL_FRAMES: u32 = 9;
+/// Retail OrbitTime = 15000 ms @ 30 FPS.
+pub const SPECTRE_ORBIT_DURATION_FRAMES: u32 = 450;
+/// Residual ambient cue for active Spectre orbit (`SpectreGunshipAmbientLoop`).
+pub const SPECTRE_ORBIT_AUDIO: &str = "SpectreGunshipAmbientLoop";
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -65,6 +85,8 @@ pub enum HostSuperweaponKind {
     NuclearMissile,
     /// GLA Anthrax Bomb residual host path (plane drop + toxin field).
     AnthraxBomb,
+    /// USA Spectre Gunship residual host path (delayed orbit + damage ticks).
+    SpectreGunship,
 }
 
 impl HostSuperweaponKind {
@@ -79,6 +101,7 @@ impl HostSuperweaponKind {
             SpecialPowerType::ParticleCannon => Some(HostSuperweaponKind::ParticleCannon),
             SpecialPowerType::NuclearMissile => Some(HostSuperweaponKind::NuclearMissile),
             SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
+            SpecialPowerType::SpectreGunship => Some(HostSuperweaponKind::SpectreGunship),
             _ => None,
         }
     }
@@ -92,6 +115,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => "ParticleCannon",
             HostSuperweaponKind::NuclearMissile => "NuclearMissile",
             HostSuperweaponKind::AnthraxBomb => "AnthraxBomb",
+            HostSuperweaponKind::SpectreGunship => "SpectreGunship",
         }
     }
 
@@ -111,6 +135,9 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => 180,
             // GLA Jet cargo plane drop residual (same family as DaisyCutter).
             HostSuperweaponKind::AnthraxBomb => 90,
+            // Spectre insertion residual (fail-closed vs full edge spawn +
+            // transit locomotor + GUNSHIP_STATUS_INSERTING approach).
+            HostSuperweaponKind::SpectreGunship => 90,
         }
     }
 
@@ -125,6 +152,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => 3500.0,
             // Retail AnthraxBombWeapon PrimaryDamage (impact blast only).
             HostSuperweaponKind::AnthraxBomb => 200.0,
+            // Spectre has no one-shot impact blast; damage is orbit residual only.
+            HostSuperweaponKind::SpectreGunship => 0.0,
         }
     }
 
@@ -139,6 +168,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => 210.0,
             // Retail AnthraxBombWeapon PrimaryDamageRadius.
             HostSuperweaponKind::AnthraxBomb => 100.0,
+            // Retail AttackAreaRadius / RadiusCursorRadius.
+            HostSuperweaponKind::SpectreGunship => SPECTRE_ORBIT_RADIUS,
         }
     }
 
@@ -153,6 +184,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => 60.0,
             // Flat primary blast (no secondary falloff in weapon table).
             HostSuperweaponKind::AnthraxBomb => 100.0,
+            // No impact blast falloff (orbit residual handles damage).
+            HostSuperweaponKind::SpectreGunship => 0.0,
         }
     }
 
@@ -166,6 +199,11 @@ impl HostSuperweaponKind {
         matches!(self, HostSuperweaponKind::AnthraxBomb)
     }
 
+    /// Whether impact should spawn a residual Spectre orbit damage field.
+    pub fn spawns_orbit_field(self) -> bool {
+        matches!(self, HostSuperweaponKind::SpectreGunship)
+    }
+
     /// Audio event name queued on activation (host residual).
     pub fn activate_audio(self) -> &'static str {
         match self {
@@ -175,6 +213,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => "SuperweaponParticleCannon",
             HostSuperweaponKind::NuclearMissile => "SuperweaponNuclearMissile",
             HostSuperweaponKind::AnthraxBomb => "SuperweaponAnthraxBomb",
+            HostSuperweaponKind::SpectreGunship => "SuperweaponSpectreGunship",
         }
     }
 
@@ -187,6 +226,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => "ParticleCannonImpact",
             HostSuperweaponKind::NuclearMissile => "NuclearMissileImpact",
             HostSuperweaponKind::AnthraxBomb => "AnthraxBombImpact",
+            // Orbit insertion complete residual (retail SpectreGunshipVoiceArrive).
+            HostSuperweaponKind::SpectreGunship => "SpectreGunshipVoiceArrive",
         }
     }
 }
@@ -339,6 +380,56 @@ pub struct HostToxinTickPlan {
     pub hits: Vec<HostToxinDamageHit>,
 }
 
+/// Residual Spectre orbit field spawned when gunship reaches target
+/// (`SpectreGunshipUpdate` GUNSHIP_STATUS_ORBITING / `SpectreHowitzerGun` residual).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSpectreOrbitField {
+    pub id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub spawn_frame: u32,
+    pub expires_frame: u32,
+    /// Next absolute frame at which orbit damage ticks apply.
+    pub next_tick_frame: u32,
+    /// Total residual orbit damage applied across all ticks.
+    pub total_damage_applied: f32,
+    /// Number of distinct damage applications (object×tick).
+    pub damage_applications: u32,
+    /// Objects destroyed by this residual field.
+    pub objects_destroyed: u32,
+    /// Parent SpectreGunship strike id (0 if spawned without a strike).
+    pub parent_strike_id: u32,
+}
+
+impl HostSpectreOrbitField {
+    pub fn is_expired(&self, current_frame: u32) -> bool {
+        current_frame >= self.expires_frame
+    }
+
+    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+}
+
+/// Damage application plan for a single Spectre orbit victim this tick.
+#[derive(Debug, Clone, Copy)]
+pub struct HostSpectreOrbitDamageHit {
+    pub target_id: ObjectId,
+    pub damage: f32,
+    pub field_id: u32,
+}
+
+/// Result of resolving one Spectre orbit field's damage tick.
+#[derive(Debug, Clone)]
+pub struct HostSpectreOrbitTickPlan {
+    pub field_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub hits: Vec<HostSpectreOrbitDamageHit>,
+}
+
 /// Host registry of superweapon strikes that queue and complete.
 #[derive(Debug, Clone, Default)]
 pub struct HostSpecialPowerStrikeRegistry {
@@ -366,6 +457,15 @@ pub struct HostSpecialPowerStrikeRegistry {
     toxin_fields_spawned_total: u32,
     /// Lifetime toxin damage applications (honesty after field expiry).
     toxin_damage_applications_total: u32,
+    /// Active residual Spectre orbit fields (SpectreGunship residual).
+    orbit_fields: Vec<HostSpectreOrbitField>,
+    next_orbit_id: u32,
+    /// Orbit fields spawned this frame (honesty / presentation drain).
+    orbit_spawned_this_frame: Vec<u32>,
+    /// Lifetime count of orbit fields spawned (survives prune; honesty).
+    orbit_fields_spawned_total: u32,
+    /// Lifetime orbit damage applications (honesty after field expiry).
+    orbit_damage_applications_total: u32,
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -385,6 +485,11 @@ impl HostSpecialPowerStrikeRegistry {
             toxin_spawned_this_frame: Vec::new(),
             toxin_fields_spawned_total: 0,
             toxin_damage_applications_total: 0,
+            orbit_fields: Vec::new(),
+            next_orbit_id: 1,
+            orbit_spawned_this_frame: Vec::new(),
+            orbit_fields_spawned_total: 0,
+            orbit_damage_applications_total: 0,
         }
     }
 
@@ -403,6 +508,11 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_toxin_id = 1;
         self.toxin_fields_spawned_total = 0;
         self.toxin_damage_applications_total = 0;
+        self.orbit_fields.clear();
+        self.orbit_spawned_this_frame.clear();
+        self.next_orbit_id = 1;
+        self.orbit_fields_spawned_total = 0;
+        self.orbit_damage_applications_total = 0;
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -410,6 +520,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.activated_this_frame.clear();
         self.radiation_spawned_this_frame.clear();
         self.toxin_spawned_this_frame.clear();
+        self.orbit_spawned_this_frame.clear();
     }
 
     /// Allocator cursor for next strike id (survives save/load).
@@ -445,11 +556,26 @@ impl HostSpecialPowerStrikeRegistry {
         &self.toxin_spawned_this_frame
     }
 
+    /// Allocator cursor for next Spectre orbit field id (survives save/load).
+    pub fn next_orbit_id(&self) -> u32 {
+        self.next_orbit_id
+    }
+
+    /// Active residual Spectre orbit fields (SpectreGunship).
+    pub fn orbit_fields(&self) -> &[HostSpectreOrbitField] {
+        &self.orbit_fields
+    }
+
+    pub fn orbit_spawned_this_frame(&self) -> &[u32] {
+        &self.orbit_spawned_this_frame
+    }
+
     /// Replace registry contents from a save/load snapshot.
     ///
     /// Frame-local presentation drains (`activated_this_frame` /
     /// `completed_this_frame` / `radiation_spawned_this_frame` /
-    /// `toxin_spawned_this_frame`) are cleared — they are not persistent.
+    /// `toxin_spawned_this_frame` / `orbit_spawned_this_frame`) are cleared —
+    /// they are not persistent.
     pub fn restore_from_snapshot(
         &mut self,
         next_id: u32,
@@ -458,6 +584,10 @@ impl HostSpecialPowerStrikeRegistry {
         self.restore_from_snapshot_with_residuals(
             next_id,
             strikes,
+            1,
+            Vec::new(),
+            0,
+            0,
             1,
             Vec::new(),
             0,
@@ -490,10 +620,16 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            1,
+            Vec::new(),
+            0,
+            0,
         );
     }
 
-    /// Replace registry including radiation + toxin residual fields (save/load).
+    /// Replace registry including radiation + toxin + Spectre orbit residual
+    /// fields (save/load).
+    #[allow(clippy::too_many_arguments)]
     pub fn restore_from_snapshot_with_residuals(
         &mut self,
         next_id: u32,
@@ -506,6 +642,10 @@ impl HostSpecialPowerStrikeRegistry {
         toxin_fields: impl IntoIterator<Item = HostToxinField>,
         toxin_fields_spawned_total: u32,
         toxin_damage_applications_total: u32,
+        next_orbit_id: u32,
+        orbit_fields: impl IntoIterator<Item = HostSpectreOrbitField>,
+        orbit_fields_spawned_total: u32,
+        orbit_damage_applications_total: u32,
     ) {
         self.clear();
         let mut max_id = 0_u32;
@@ -533,6 +673,15 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_toxin_id = next_toxin_id.max(max_tox.saturating_add(1)).max(1);
         self.toxin_fields_spawned_total = toxin_fields_spawned_total.max(max_tox);
         self.toxin_damage_applications_total = toxin_damage_applications_total;
+
+        let mut max_orb = 0_u32;
+        for field in orbit_fields {
+            max_orb = max_orb.max(field.id);
+            self.orbit_fields.push(field);
+        }
+        self.next_orbit_id = next_orbit_id.max(max_orb.saturating_add(1)).max(1);
+        self.orbit_fields_spawned_total = orbit_fields_spawned_total.max(max_orb);
+        self.orbit_damage_applications_total = orbit_damage_applications_total;
     }
 
     pub fn radiation_fields_spawned_total(&self) -> u32 {
@@ -549,6 +698,14 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn toxin_damage_applications_total(&self) -> u32 {
         self.toxin_damage_applications_total
+    }
+
+    pub fn orbit_fields_spawned_total(&self) -> u32 {
+        self.orbit_fields_spawned_total
+    }
+
+    pub fn orbit_damage_applications_total(&self) -> u32 {
+        self.orbit_damage_applications_total
     }
 
     pub fn strike_count(&self) -> usize {
@@ -696,6 +853,8 @@ impl HostSpecialPowerStrikeRegistry {
     /// epicenter (retail `OCL_NukeRadiationField` residual).
     /// For `AnthraxBomb`, also spawns a residual toxin field at the epicenter
     /// (retail `OCL_PoisonFieldAnthraxBomb` residual).
+    /// For `SpectreGunship`, also spawns a residual orbit field at the target
+    /// (retail `SpectreGunshipUpdate` ORBITING residual).
     pub fn record_impact_complete(
         &mut self,
         strike_id: u32,
@@ -705,6 +864,7 @@ impl HostSpecialPowerStrikeRegistry {
     ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
+        let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
                 strike.phase = HostStrikePhase::Completed;
@@ -728,6 +888,14 @@ impl HostSpecialPowerStrikeRegistry {
                         strike.impact_frame,
                     ));
                 }
+                if strike.kind.spawns_orbit_field() {
+                    spawn_orbit = Some((
+                        strike.source_object,
+                        strike.source_team,
+                        strike.target_position,
+                        strike.impact_frame,
+                    ));
+                }
             }
         }
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
@@ -735,6 +903,9 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if let Some((source, team, pos, impact_frame)) = spawn_toxin {
             self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
+        }
+        if let Some((source, team, pos, impact_frame)) = spawn_orbit {
+            self.spawn_orbit_field(source, team, pos, impact_frame, strike_id);
         }
     }
 
@@ -938,6 +1109,111 @@ impl HostSpecialPowerStrikeRegistry {
         self.toxin_fields.retain(|f| !f.is_expired(current_frame));
     }
 
+    /// Spawn a residual Spectre orbit field at `position` (orbit insertion).
+    pub fn spawn_orbit_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        let id = self.next_orbit_id;
+        self.next_orbit_id = self.next_orbit_id.saturating_add(1).max(1);
+        let field = HostSpectreOrbitField {
+            id,
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            expires_frame: spawn_frame.saturating_add(SPECTRE_ORBIT_DURATION_FRAMES),
+            // First howitzer residual tick on orbit insertion frame.
+            next_tick_frame: spawn_frame,
+            total_damage_applied: 0.0,
+            damage_applications: 0,
+            objects_destroyed: 0,
+            parent_strike_id,
+        };
+        self.orbit_fields.push(field);
+        self.orbit_spawned_this_frame.push(id);
+        self.orbit_fields_spawned_total = self.orbit_fields_spawned_total.saturating_add(1);
+        id
+    }
+
+    /// Build Spectre orbit damage plans for all fields whose tick frame has arrived.
+    ///
+    /// Retail `SpectreHowitzerGun` / `SpectreGattlingGun` hit ALLIES ENEMIES
+    /// NEUTRALS. Host residual damages living objects in AttackAreaRadius
+    /// except the source launcher object and same-team friendlies (host strike
+    /// convention for offensive superweapons). Fail-closed vs gattling strafe
+    /// pattern / howitzer projectile / random offset / portable structure
+    /// contain gunner path.
+    pub fn plan_due_orbit_ticks(
+        &self,
+        current_frame: u32,
+        object_positions: &[(ObjectId, Vec3, super::Team, bool)],
+    ) -> Vec<HostSpectreOrbitTickPlan> {
+        let mut plans = Vec::new();
+        for field in &self.orbit_fields {
+            if !field.is_due_tick(current_frame) {
+                continue;
+            }
+            let mut hits = Vec::new();
+            for &(id, pos, team, alive) in object_positions {
+                if !alive || id == field.source_object {
+                    continue;
+                }
+                // Fail-closed residual: do not damage friendlies (same team).
+                if team == field.source_team {
+                    continue;
+                }
+                let dist = horizontal_distance(pos, field.position);
+                if dist <= SPECTRE_ORBIT_RADIUS {
+                    hits.push(HostSpectreOrbitDamageHit {
+                        target_id: id,
+                        damage: SPECTRE_ORBIT_DAMAGE_PER_TICK,
+                        field_id: field.id,
+                    });
+                }
+            }
+            plans.push(HostSpectreOrbitTickPlan {
+                field_id: field.id,
+                source_object: field.source_object,
+                source_team: field.source_team,
+                position: field.position,
+                hits,
+            });
+        }
+        plans.sort_by_key(|p| p.field_id);
+        plans
+    }
+
+    /// Record Spectre orbit tick results and advance next_tick_frame.
+    pub fn record_orbit_tick_complete(
+        &mut self,
+        field_id: u32,
+        total_damage: f32,
+        applications: u32,
+        objects_destroyed: u32,
+        current_frame: u32,
+    ) {
+        if let Some(field) = self.orbit_fields.iter_mut().find(|f| f.id == field_id) {
+            field.total_damage_applied += total_damage;
+            field.damage_applications += applications;
+            field.objects_destroyed += objects_destroyed;
+            field.next_tick_frame =
+                current_frame.saturating_add(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES);
+            self.orbit_damage_applications_total = self
+                .orbit_damage_applications_total
+                .saturating_add(applications);
+        }
+    }
+
+    /// Drop expired Spectre orbit fields.
+    pub fn prune_expired_orbit(&mut self, current_frame: u32) {
+        self.orbit_fields.retain(|f| !f.is_expired(current_frame));
+    }
+
     /// Cancel pending strikes owned by a destroyed source object.
     pub fn cancel_for_source(&mut self, source: ObjectId) {
         for strike in self.strikes.values_mut() {
@@ -994,9 +1270,26 @@ impl HostSpecialPowerStrikeRegistry {
                 .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
     }
 
+    /// True if at least one residual Spectre orbit field was spawned this session.
+    pub fn honesty_orbit_ok(&self) -> bool {
+        self.orbit_fields_spawned_total > 0
+            || !self.orbit_fields.is_empty()
+            || !self.orbit_spawned_this_frame.is_empty()
+    }
+
+    /// Stronger orbit honesty: residual field applied at least one damage tick.
+    pub fn honesty_orbit_damage_ok(&self) -> bool {
+        self.orbit_damage_applications_total > 0
+            || self
+                .orbit_fields
+                .iter()
+                .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
+    }
+
     /// Combined host path honesty: a completed strike exists for `kind`.
     /// NuclearMissile also requires residual radiation field spawn.
     /// AnthraxBomb also requires residual toxin field spawn.
+    /// SpectreGunship also requires residual orbit field spawn.
     pub fn honesty_host_path_ok(&self, kind: HostSuperweaponKind) -> bool {
         if !self.honesty_complete_ok(kind) {
             return false;
@@ -1006,6 +1299,9 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if kind == HostSuperweaponKind::AnthraxBomb {
             return self.honesty_toxin_ok();
+        }
+        if kind == HostSuperweaponKind::SpectreGunship {
+            return self.honesty_orbit_ok();
         }
         true
     }
@@ -1053,6 +1349,10 @@ mod tests {
             Some(HostSuperweaponKind::AnthraxBomb)
         );
         assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::SpectreGunship),
+            Some(HostSuperweaponKind::SpectreGunship)
+        );
+        assert_eq!(
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
@@ -1091,11 +1391,88 @@ mod tests {
         assert!((kind.falloff_inner() - 100.0).abs() < 0.1);
         assert!(kind.spawns_toxin_field());
         assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_orbit_field());
         assert!(!HostSuperweaponKind::DaisyCutter.spawns_toxin_field());
         assert_eq!(ANTHRAX_TOXIN_DAMAGE_PER_TICK, 40.0);
         assert_eq!(ANTHRAX_TOXIN_RADIUS, 300.0);
         assert_eq!(ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES, 15);
         assert_eq!(ANTHRAX_TOXIN_DURATION_FRAMES, 1800);
+    }
+
+    #[test]
+    fn spectre_gunship_params_match_retail_orbit() {
+        let kind = HostSuperweaponKind::SpectreGunship;
+        assert_eq!(kind.impact_delay_frames(), 90);
+        assert!((kind.max_damage() - 0.0).abs() < 0.1);
+        assert!((kind.damage_radius() - SPECTRE_ORBIT_RADIUS).abs() < 0.1);
+        assert!(kind.spawns_orbit_field());
+        assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
+        assert!(!HostSuperweaponKind::DaisyCutter.spawns_orbit_field());
+        assert_eq!(SPECTRE_ORBIT_DAMAGE_PER_TICK, 80.0);
+        assert_eq!(SPECTRE_ORBIT_RADIUS, 200.0);
+        assert_eq!(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, 9);
+        assert_eq!(SPECTRE_ORBIT_DURATION_FRAMES, 450);
+    }
+
+    #[test]
+    fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::SpectreGunship));
+        assert_eq!(reg.get(id).unwrap().impact_frame, 90);
+
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::USA, true),
+            (ObjectId(2), Vec3::new(100.0, 0.0, 100.0), Team::GLA, true),
+            (ObjectId(3), Vec3::new(100.0, 0.0, 100.0), Team::USA, true), // friendly
+            (ObjectId(4), Vec3::new(900.0, 0.0, 900.0), Team::GLA, true),
+        ];
+
+        // Before orbit insertion: no plan, no orbit field.
+        assert!(reg.plan_due_impacts(89, &objects).is_empty());
+        assert!(reg.orbit_fields().is_empty());
+
+        let plans = reg.plan_due_impacts(90, &objects);
+        assert_eq!(plans.len(), 1);
+        // No one-shot blast residual (max_damage = 0).
+        assert!(plans[0].hits.is_empty());
+
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::SpectreGunship));
+        assert!(reg.honesty_orbit_ok());
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::SpectreGunship));
+        assert_eq!(reg.orbit_fields().len(), 1);
+        assert_eq!(reg.orbit_fields()[0].parent_strike_id, id);
+        assert!(reg.toxin_fields().is_empty());
+        assert!(reg.radiation_fields().is_empty());
+
+        // Orbit tick hits enemies in AttackAreaRadius; excludes source + friendlies.
+        let orbit_plans = reg.plan_due_orbit_ticks(90, &objects);
+        assert_eq!(orbit_plans.len(), 1);
+        assert_eq!(orbit_plans[0].hits.len(), 1);
+        assert_eq!(orbit_plans[0].hits[0].target_id, ObjectId(2));
+        assert!(
+            (orbit_plans[0].hits[0].damage - SPECTRE_ORBIT_DAMAGE_PER_TICK).abs() < 0.01
+        );
+
+        reg.record_orbit_tick_complete(orbit_plans[0].field_id, 80.0, 1, 0, 90);
+        assert!(reg.honesty_orbit_damage_ok());
+        assert_eq!(
+            reg.orbit_fields()[0].next_tick_frame,
+            90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
+        );
+
+        // Second tick after interval.
+        let later = reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects);
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].hits.len(), 1);
     }
 
     #[test]
