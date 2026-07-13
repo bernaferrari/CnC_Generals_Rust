@@ -1,3 +1,59 @@
+## Residual Host Playability — Wave 57: host_colonel_burton + host_jarmen_kell + host_hero_abilities residual (2026-07-13)
+**Closed (host-testable residual peels):**
+1. **Colonel Burton residual pack** (`host_colonel_burton`):
+   - Knife PreAttackDelay **833**ms → **25**f, PreAttackType **PER_ATTACK**,
+     DamageType **MELEE**, LeechRangeWeapon **Yes**, ClipReload **1367**ms → **41**f,
+     PrimaryDamage **10000**, AttackRange **3**, ClipSize **1**.
+   - Sniper residual: dmg **40**/range **125**/Delay **100**ms → **3**f, ClipSize **3**,
+     ClipReload **500**ms → **15**f, DamageType **SMALL_ARMS**, FireSound/FireFX names.
+   - Remote/timed charge residual peel: RemoteC4 Max **8**, TimedC4 Max **10**,
+     UnpackTime **5500**ms → **165**f, FleeRange **100**, LoseStealthOnTrigger **Yes**,
+     PreTriggerUnstealth **5000**ms → **150**f, special power / object names.
+   - StealthUpdate residual: StealthDelay **2000**ms → **60**f, InnateStealth **Yes**,
+     Forbidden **FIRING_PRIMARY**, FriendlyOpacity **50–100%**, EVA detect events.
+   - Body residual: MaxHealth **200**, Vision **150**, Shroud **500**, BuildCost **1500**.
+   - Honesty: `honesty_colonel_burton_residual_pack_ok` + layer honesty tests.
+2. **Jarmen Kell residual pack** (`host_jarmen_kell`):
+   - Sniper residual: dmg **180**/range **225**/Delay **1000**ms → **30**f,
+     DamageType **SNIPER**, radius **0**, AP Bullets **125%** → **225**.
+   - Vehicle pilot-snipe residual: `GLAJarmenKellVehiclePilotSniperRifle`
+     dmg **1**, DamageType **KILL_PILOT**, range **225**, ClipSize **1**,
+     ClipReload **30000**ms → **900**f, AutoReloadsClip **Yes**, legal target gates.
+   - StealthUpdate residual: StealthDelay **2000**ms → **60**f, InnateStealth **Yes**,
+     Forbidden **ATTACKING**, EVA detect events.
+   - Body residual: MaxHealth **200**, Vision **200**, Shroud **400**, BuildCost **1500**.
+   - Biker Delay **750**ms → **23**f honesty (fail-closed: infantry stays 1000ms).
+   - Honesty: `honesty_jarmen_kell_residual_pack_ok` + layer honesty tests.
+3. **Hero abilities residual pack** (`host_hero_abilities`):
+   - CashHack science tiers: MoneyAmount **1000**, SCIENCE_CashHack2 **2000**,
+     SCIENCE_CashHack3 **4000**, ReloadTime **240000**ms → **7200**f.
+   - Black Lotus StealCashHack EffectValue **1000** (unit special; not science-tiered).
+   - BlackMarket emergency residual: GLABlackMarket / FS_BLACK_MARKET cash-hack
+     target gates + `record_black_market_emergency_steal` honesty counter.
+   - Special ability timers from INI:
+     - Capture: Unpack **6730**/Pack **2800**/Prep **6000**ms → **202/84/180**f
+     - DisableVehicle: Unpack **2000**/Pack **1000**/Prep **2000**ms → **60/30/60**f,
+       EffectDuration **15000**ms → **450**f (INI value; prior 30s fail-closed closed)
+     - StealCash: Unpack **6730**/Pack **5800**/Prep **6000**/Reload **2000**ms
+     - Burton charges: Unpack **5500**ms → **165**f, Flee **100**, PreTrigger **5000**ms
+   - Lotus StealthUpdate: StealthDelay **2500**ms → **75**f, Forbidden **USING_ABILITY**.
+   - Honesty: `honesty_hero_abilities_residual_pack_ok` + layer honesty tests.
+4. Tests / gates (not log-only):
+   - `colonel_burton_residual_pack_honesty` / knife / stealth / charges
+   - `jarmen_kell_residual_pack_honesty` / pilot snipe / stealth
+   - `hero_abilities_residual_pack_honesty` / cash tiers / black market emergency
+   - integration: sniper/knife, snipe vehicle, steal cash, disable vehicle, plant charges
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full knife PreAttackDelay anim lock / PER_ATTACK state machine interleave
+- Full SECONDARY AutoChooseSources=NONE pilot-sniper WeaponSet chooser matrix
+- Full SpecialAbilityUpdate continuous BinaryDataStream attach / packing anim
+- Full CashHackSpecialPower victim money clamp / floating text path
+- Full StickyBombUpdate attach bones / live max-charge list UI
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 58: host_humvee + host_tomahawk + host_combat_chinook + host_battle_bus residual peels (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / host_colonel_burton / host_hero_abilities):**
 1. **Humvee residual pack** (`host_humvee`):
