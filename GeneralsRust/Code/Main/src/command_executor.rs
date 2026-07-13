@@ -1295,10 +1295,11 @@ impl<'a> CommandExecutor<'a> {
                 was_garrisoned,
                 was_overlord_bunker,
                 was_battle_bus,
+                was_technical,
                 was_combat_chinook,
                 was_transport,
             ) = if was_tunnel {
-                (false, false, false, false, false)
+                (false, false, false, false, false, false)
             } else if let Some(unit) = self.game_logic.get_object(unit_id) {
                 let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
                 let docked = matches!(unit.ai_state, AIState::Docked);
@@ -1310,6 +1311,9 @@ impl<'a> CommandExecutor<'a> {
                 let is_battle_bus = container
                     .map(|c| c.is_battle_bus_style_container())
                     .unwrap_or(false);
+                let is_technical = container
+                    .map(|c| c.is_technical_style_container())
+                    .unwrap_or(false);
                 let is_combat_chinook = container
                     .map(|c| c.is_combat_chinook_style_container())
                     .unwrap_or(false);
@@ -1317,34 +1321,38 @@ impl<'a> CommandExecutor<'a> {
                     .map(|c| c.is_kind_of(KindOf::Structure))
                     .unwrap_or(false);
                 if garrisoned {
-                    (true, false, false, false, false)
+                    (true, false, false, false, false, false)
                 } else if docked {
                     if is_overlord {
-                        (false, true, false, false, false)
+                        (false, true, false, false, false, false)
                     } else if is_battle_bus {
-                        (false, false, true, false, false)
+                        (false, false, true, false, false, false)
+                    } else if is_technical {
+                        (false, false, false, true, false, false)
                     } else if is_combat_chinook {
-                        (false, false, false, true, false)
+                        (false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, true)
+                        (false, false, false, false, false, true)
                     }
                 } else if unit.contained_by.is_some() || container_id.is_some() {
                     if is_structure {
-                        (true, false, false, false, false)
+                        (true, false, false, false, false, false)
                     } else if is_overlord {
-                        (false, true, false, false, false)
+                        (false, true, false, false, false, false)
                     } else if is_battle_bus {
-                        (false, false, true, false, false)
+                        (false, false, true, false, false, false)
+                    } else if is_technical {
+                        (false, false, false, true, false, false)
                     } else if is_combat_chinook {
-                        (false, false, false, true, false)
+                        (false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, true)
+                        (false, false, false, false, false, true)
                     }
                 } else {
-                    (false, false, false, false, false)
+                    (false, false, false, false, false, false)
                 }
             } else {
-                (false, false, false, false, false)
+                (false, false, false, false, false, false)
             };
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
@@ -1363,6 +1371,8 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.record_overlord_bunker_residual_exit();
                 } else if was_battle_bus {
                     self.game_logic.record_battle_bus_residual_unload();
+                } else if was_technical {
+                    self.game_logic.record_technical_residual_unload();
                 } else if was_combat_chinook {
                     self.game_logic.record_combat_chinook_residual_unload();
                 } else if was_transport {
