@@ -1,5 +1,34 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Propaganda / Speaker Tower (2026-07-12)
+**Closed (host-testable damaged ally near tower → HP recovers + ENTHUSIASTIC buff):**
+1. **China Speaker Tower / PropagandaTower residual** (`PropagandaTowerBehavior`):
+   - `GameLogic::update_propaganda_tower_pulse` each frame (from `update_simulation`).
+   - Heals damaged **same-team non-structure** units within residual radius 150 at
+     2% max-health/sec (4% with `Upgrade_ChinaSubliminalMessaging`).
+   - Sets `weapon_bonus_enthusiastic` (base) / `weapon_bonus_subliminal` (upgrade);
+     clears flags when unit leaves radius or tower is gone.
+   - Name residual: `speakertower` / `propagandatower` / `listeningoutpost` /
+     `tankemperor` / ends with `emperor`; excludes `propagandacenter`.
+2. Honesty counters (`host_propaganda.rs` + GameLogic):
+   - `propaganda_residual_heals` / `propaganda_residual_buffs`
+   - `honesty_propaganda_heal_ok` / `honesty_propaganda_buff_ok` / `honesty_propaganda_ok`
+3. Tests (not log-only):
+   - `propaganda_tower_residual_recovers_hp_and_sets_enthusiastic`
+   - `propaganda_tower_residual_out_of_range_then_in_range`
+   - `propaganda_tower_residual_skips_enemy_units`
+   - `propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal`
+   - `propaganda_tower_name_residual_helix_propaganda_heals`
+   - unit tests in `host_propaganda.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full sole-benefactor exclusivity / multi-tower reject matrix
+- Full ally relationship filter (uses same-team residual)
+- Full double-contain / stealthed FX suppress / POWERED underpower gate
+- Full WeaponBonusConditionFlags ROF multiplier application in combat residual
+- Full PulseFX / world-anim propaganda pulse
+- Network propaganda replication (network deferred)
+
 ## Residual Host Playability — Ambulance / Infantry Heal (2026-07-12)
 **Closed (host-testable damage → nearby ambulance / HealPad → infantry HP recovers):**
 1. **USA Ambulance AutoHeal** (`AmericaVehicleMedic` residual):

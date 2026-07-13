@@ -173,6 +173,12 @@ pub struct Object {
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
     /// Fail-closed: not full looking_mask partition maintenance.
     pub vision_spied_mask: u32,
+
+    /// Host residual weapon-bonus flags from PropagandaTowerBehavior.
+    /// C++ WEAPONBONUSCONDITION_ENTHUSIASTIC / SUBLIMINAL (rate-of-fire buff near speaker tower).
+    /// Fail-closed: not full WeaponBonusConditionFlags matrix / ROF multiplier application.
+    pub weapon_bonus_enthusiastic: bool,
+    pub weapon_bonus_subliminal: bool,
 }
 
 /// AI behavior states
@@ -292,6 +298,8 @@ impl Object {
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
             vision_spied_mask: 0,
+            weapon_bonus_enthusiastic: false,
+            weapon_bonus_subliminal: false,
         }
     }
 
@@ -357,6 +365,8 @@ impl Object {
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
             vision_spied_mask: 0,
+            weapon_bonus_enthusiastic: false,
+            weapon_bonus_subliminal: false,
         }
     }
 

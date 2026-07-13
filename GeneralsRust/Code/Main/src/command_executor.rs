@@ -1496,7 +1496,10 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
-        if let Some(player) = self.game_logic.get_player_mut(player_id) {
+        let unlocked = {
+            let Some(player) = self.game_logic.get_player_mut(player_id) else {
+                return CommandResult::InvalidCommand;
+            };
             if player.has_unlocked_science(science_name) {
                 return CommandResult::InvalidCommand;
             }
@@ -1511,6 +1514,16 @@ impl<'a> CommandExecutor<'a> {
 
             debug!("Player {} purchasing science: {}", player_id, science_name);
             player.unlock_science(science_name);
+            true
+        };
+
+        if unlocked {
+            // Cash bounty residual: SCIENCE_CashBounty* raises percent + honesty registry.
+            if let Some(pct) =
+                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
+            {
+                let _ = self.game_logic.set_player_cash_bounty(player_id, pct);
+            }
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand
