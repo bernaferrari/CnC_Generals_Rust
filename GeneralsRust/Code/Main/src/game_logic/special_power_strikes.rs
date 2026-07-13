@@ -103,6 +103,10 @@
 //! MinSpeed/Accel/TurnRate); Howitzer Armor DamageFX=None; connector KindOf
 //! IMMOBILE + MaxIntensity/Fade defaults + Tile=No; TrailRemnant KindOf
 //! ImmortalBody residual; DisplayString setFont residual (graphics).
+//! Wave 38 residual closed: Scud DeathWeapon FireOCL PoisonField + Locomotor
+//! SpeedDamaged/MinSpeed/MaxThrustAngle residual; SpectreHowitzerGun
+//! AcceptableAimDelta/AttackRange residual; DisplayString getTextLength residual;
+//! multi-locale UK LanguageId CSF path residual (graphics).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -374,6 +378,14 @@ pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MAX_THRUST_ANGLE: f32 = 90.0;
 pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_BRAKING: f32 = 0.0;
 /// Retail SpectreHowitzerShellLocomotor AllowAirborneMotiveForce residual.
 pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ALLOW_AIRBORNE: bool = true;
+/// Retail SpectreHowitzerGun AcceptableAimDelta residual (degrees).
+pub const SPECTRE_HOWITZER_ACCEPTABLE_AIM_DELTA: f32 = 180.0;
+/// Retail SpectreHowitzerGun AttackRange residual.
+pub const SPECTRE_HOWITZER_ATTACK_RANGE: f32 = 2222.0;
+/// Retail SpectreHowitzerGun ProjectileCollidesWith residual.
+pub const SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH: &str = "STRUCTURES WALLS";
+/// Retail SpectreHowitzerGun AntiGround residual.
+pub const SPECTRE_HOWITZER_ANTI_GROUND: bool = true;
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -1804,6 +1816,10 @@ pub const SCUD_STORM_MISSILE_LOCOMOTOR_NAME: &str = "SCUDStormMissileLocomotor";
 pub const SCUD_STORM_MISSILE_DESTROY_DIE: bool = true;
 /// Retail ArmorSet DamageFX residual (`None`).
 pub const SCUD_STORM_MISSILE_DAMAGE_FX: &str = "None";
+/// Retail ScudStormDamageWeapon FireOCL residual.
+pub const SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE: &str = "OCL_PoisonFieldLarge";
+/// Retail ScudStormDamageWeaponUpgraded FireOCL residual.
+pub const SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED: &str = "OCL_PoisonFieldUpgradedLarge";
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2856,6 +2872,12 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: DestroyDie + Locomotor template name + Armor DamageFX residual applications.
     #[serde(default)]
     pub scud_destroy_die_locomotor_name_applications: u32,
+    /// Honesty: DeathWeapon FireOCL PoisonField residual applications.
+    #[serde(default)]
+    pub scud_death_fire_ocl_applications: u32,
+    /// Honesty: Locomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual applications.
+    #[serde(default)]
+    pub scud_locomotor_speed_table_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3140,6 +3162,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: Armor DamageFX=None residual applications.
     #[serde(default)]
     pub howitzer_shell_damage_fx_applications: u32,
+    /// Honesty: SpectreHowitzerGun AcceptableAimDelta/AttackRange residual applications.
+    #[serde(default)]
+    pub howitzer_gun_aim_params_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -4351,6 +4376,8 @@ impl HostSpecialPowerStrikeRegistry {
             scud_body_draw_params_applications: 0,
             scud_locomotor_appearance_applications: 0,
             scud_destroy_die_locomotor_name_applications: 0,
+            scud_death_fire_ocl_applications: 0,
+            scud_locomotor_speed_table_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4729,6 +4756,14 @@ impl HostSpecialPowerStrikeRegistry {
                     // DestroyDie + Locomotor template name + Armor DamageFX residual.
                     strike.scud_destroy_die_locomotor_name_applications = strike
                         .scud_destroy_die_locomotor_name_applications
+                        .saturating_add(shells);
+                    // DeathWeapon FireOCL PoisonField residual.
+                    strike.scud_death_fire_ocl_applications = strike
+                        .scud_death_fire_ocl_applications
+                        .saturating_add(shells);
+                    // Locomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual.
+                    strike.scud_locomotor_speed_table_applications = strike
+                        .scud_locomotor_speed_table_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -5225,6 +5260,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_loft_height_die_applications: 0,
             howitzer_shell_locomotor_template_applications: 0,
             howitzer_shell_damage_fx_applications: 0,
+            howitzer_gun_aim_params_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5386,6 +5422,10 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_damage_fx_applications = field
                     .howitzer_shell_damage_fx_applications
+                    .saturating_add(1);
+                // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
+                field.howitzer_gun_aim_params_applications = field
+                    .howitzer_gun_aim_params_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -6880,6 +6920,34 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_MISSILE_DAMAGE_FX == "None"
     }
 
+    /// Residual honesty: Scud DeathWeapon FireOCL PoisonField residual.
+    ///
+    /// Tracks FireOCL **OCL_PoisonFieldLarge** (base) / **OCL_PoisonFieldUpgradedLarge**
+    /// (AnthraxBeta). Fail-closed: not full FireWeaponWhenDead OCL spawn Object.
+    pub fn honesty_scud_death_fire_ocl_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_death_fire_ocl_applications > 0
+        }) && SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE == "OCL_PoisonFieldLarge"
+            && SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED == "OCL_PoisonFieldUpgradedLarge"
+    }
+
+    /// Residual honesty: Scud Locomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual.
+    ///
+    /// Tracks SpeedDamaged **200**, MinSpeed **100**, MaxThrustAngle **45**.
+    /// Fail-closed: not full Locomotor thrust motive force matrix.
+    pub fn honesty_scud_locomotor_speed_table_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_locomotor_speed_table_applications > 0
+        }) && (SCUD_STORM_MISSILE_LOCOMOTOR_SPEED_DAMAGED - 200.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_MIN_SPEED - 100.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_MAX_THRUST_ANGLE - 45.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_SPEED - 300.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_ACCEL - 675.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE - 540.0).abs() < 0.01
+    }
+
     /// Residual honesty: SpectreHowitzerShellLocomotor template residual.
     ///
     /// Tracks Surfaces **AIR**, Appearance **THRUST**, MinSpeed **1111**, Accel
@@ -6911,6 +6979,22 @@ impl HostSpecialPowerStrikeRegistry {
             f.howitzer_shell_damage_fx_applications > 0
                 && f.howitzer_shell_damage_fx_applications >= f.howitzer_shells_spawned
         }) && SPECTRE_HOWITZER_SHELL_DAMAGE_FX == "None"
+    }
+
+    /// Residual honesty: SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
+    ///
+    /// Tracks AcceptableAimDelta **180**, AttackRange **2222**, ProjectileCollidesWith
+    /// **STRUCTURES WALLS**, AntiGround **Yes**. Fail-closed: not full WeaponTemplate
+    /// store / live turret aim matrix.
+    pub fn honesty_howitzer_gun_aim_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_gun_aim_params_applications > 0
+                && f.howitzer_gun_aim_params_applications >= f.howitzer_shells_spawned
+        }) && (SPECTRE_HOWITZER_ACCEPTABLE_AIM_DELTA - 180.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_ATTACK_RANGE - 2222.0).abs() < 0.01
+            && SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH == "STRUCTURES WALLS"
+            && SPECTRE_HOWITZER_ANTI_GROUND
+            && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
     }
 
     /// Residual honesty: connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile.
@@ -10964,5 +11048,74 @@ mod tests {
         assert!(reg.honesty_beam_remnant_object_params_ok());
         assert!(reg.honesty_beam_remnant_ok());
     }
+
+    #[test]
+    fn scud_death_fire_ocl_and_speed_table_residual_honesty() {
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE, "OCL_PoisonFieldLarge");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED,
+            "OCL_PoisonFieldUpgradedLarge"
+        );
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_SPEED_DAMAGED - 200.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_MIN_SPEED - 100.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_MAX_THRUST_ANGLE - 45.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(80.0, 0.0, 80.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_death_fire_ocl_ok());
+        assert!(!reg.honesty_scud_locomotor_speed_table_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(80.0, 0.0, 80.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_death_fire_ocl_applications, 1);
+            assert_eq!(s.scud_locomotor_speed_table_applications, 1);
+        }
+        assert!(reg.honesty_scud_death_fire_ocl_ok());
+        assert!(reg.honesty_scud_locomotor_speed_table_ok());
+        assert!(reg.honesty_scud_destroy_die_locomotor_name_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_gun_aim_params_residual_honesty() {
+        assert!((SPECTRE_HOWITZER_ACCEPTABLE_AIM_DELTA - 180.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_ATTACK_RANGE - 2222.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH, "STRUCTURES WALLS");
+        assert!(SPECTRE_HOWITZER_ANTI_GROUND);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_gun_aim_params_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_gun_aim_params_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_gun_aim_params_ok());
+        assert!(reg.honesty_howitzer_shell_locomotor_template_ok());
+    }
+
 
 }

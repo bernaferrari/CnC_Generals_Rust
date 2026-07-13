@@ -2928,6 +2928,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_locomotor_template_applications)?;
         xfer.xfer_marker_label("HowitzerShellDamageFxApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_damage_fx_applications)?;
+        xfer.xfer_marker_label("HowitzerGunAimParamsApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_gun_aim_params_applications)?;
         Ok(())
     }
 }
@@ -3248,6 +3250,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_body_draw_params_applications: 0,
                 scud_locomotor_appearance_applications: 0,
                 scud_destroy_die_locomotor_name_applications: 0,
+                scud_death_fire_ocl_applications: 0,
+                scud_locomotor_speed_table_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3362,6 +3366,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_loft_height_die_applications: 0,
                 howitzer_shell_locomotor_template_applications: 0,
                 howitzer_shell_damage_fx_applications: 0,
+                howitzer_gun_aim_params_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
