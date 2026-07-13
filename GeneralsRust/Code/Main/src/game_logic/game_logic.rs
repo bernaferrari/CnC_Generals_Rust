@@ -5166,6 +5166,8 @@ impl GameLogic {
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).
             self.tick_eject_parachute_residual(object_id);
+            // AmericaCrateParachute residual sink (cargo crate freefall → OpenDist → land).
+            self.tick_crate_parachute_residual(object_id);
             // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
             // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
             // C++ human players sleep forever — host residual: is_local → skip.
@@ -10460,11 +10462,12 @@ impl GameLogic {
     /// Advance pending DeliverPayload cargo missions with DropDelay stagger.
     ///
     /// Spawns one payload item per due frame (DoorDelay before first item, then
-    /// DropDelay between items). Registers residual MoneyCrateCollide entries.
-    /// BuildingPickup residual cash is applied on mission complete (zone bulk
-    /// residual) and/or via [`Self::update_money_crate_collides`].
+    /// DropDelay between items). Registers residual MoneyCrateCollide entries and
+    /// AmericaCrateParachute fall-physics residual (elevated spawn → OpenDist open
+    /// → sink). BuildingPickup residual cash is applied on mission complete
+    /// (zone bulk residual) and/or via [`Self::update_money_crate_collides`].
     ///
-    /// Fail-closed: not full cargo-plane Object flight / parachute container physics.
+    /// Fail-closed: not full cargo-plane Object flight / full container Object.
     pub fn update_deliver_payloads(&mut self) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
         use crate::game_logic::host_supply_drop_zone::{
@@ -10497,6 +10500,10 @@ impl GameLogic {
             if let Some(id) = spawned_id {
                 // Residual MoneyCrateCollide registration (unit + BuildingPickup).
                 self.host_money_crates.register_supply_drop_crate(id);
+                // AmericaCrateParachute residual: freefall → OpenDist → open → land.
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.apply_crate_parachuting();
+                }
             }
             self.host_deliver_payloads
                 .record_item_spawned(plan.mission_id, spawned_id);
@@ -10576,11 +10583,17 @@ impl GameLogic {
     /// residual cash are marked paid (no double-credit). Standalone residual
     /// crates (tests / future map crates) credit MoneyProvided on proximity.
     ///
-    /// Fail-closed: not full CollideModule partition pairs / Anim2D / EVA text.
+    /// Residual gates (C++ CrateCollide::isValidToExecute subset):
+    /// - ForbiddenKindOf PROJECTILE / parachuting pickers rejected
+    /// - Above-terrain crates block unit path (BuildingPickup still allowed)
+    /// - ExecuteAnimation MoneyPickUp residual presentation descriptor on collect
+    ///
+    /// Fail-closed: not full CollideModule partition pairs / Anim2D GPU / EVA text.
     pub fn update_money_crate_collides(&mut self) {
+        use crate::game_logic::host_deliver_payload::crate_is_above_terrain;
         use crate::game_logic::host_money_crate::{
-            HostMoneyCrateRegistry, MONEY_CRATE_BUILDING_PICKUP_RADIUS,
-            MONEY_CRATE_PICKUP_AUDIO, MONEY_CRATE_UNIT_PICKUP_RADIUS,
+            HostMoneyCrateRegistry, MONEY_CRATE_BUILDING_PICKUP_RADIUS, MONEY_CRATE_PICKUP_AUDIO,
+            MONEY_CRATE_UNIT_PICKUP_RADIUS,
         };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
@@ -10589,12 +10602,13 @@ impl GameLogic {
             return;
         }
 
-        // Snapshot crate positions + entry flags.
+        // Snapshot crate positions + entry flags + above-terrain residual.
         let mut crates: Vec<(
             ObjectId,
             Vec3,
             bool, // building_pickup
             bool, // residual paid
+            bool, // above_terrain
         )> = Vec::new();
         for id in crate_ids {
             // Forget destroyed crates.
@@ -10613,37 +10627,69 @@ impl GameLogic {
             if entry.building_pickup_residual_paid || entry.money_provided == 0 {
                 continue;
             }
+            let pos = obj.get_position();
+            // Host residual ground plane 0; airborne while parachuting or elevated.
+            let above = obj.is_parachuting() || crate_is_above_terrain(pos.y, 0.0);
             crates.push((
                 id,
-                obj.get_position(),
+                pos,
                 entry.building_pickup,
                 entry.building_pickup_residual_paid,
+                above,
             ));
         }
 
         // Snapshot candidate pickers.
-        let pickers: Vec<(ObjectId, Team, Vec3, bool /*structure*/, bool /*constructed*/)> = self
+        let pickers: Vec<(
+            ObjectId,
+            Team,
+            Vec3,
+            bool, /*structure*/
+            bool, /*constructed*/
+            bool, /*projectile*/
+            bool, /*parachute picker*/
+        )> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
                 if !obj.is_alive() || obj.team == Team::Neutral {
                     return None;
                 }
-                // ForbiddenKindOf residual: PROJECTILE
-                if obj.is_kind_of(KindOf::Projectile) {
-                    return None;
-                }
+                let is_projectile = obj.is_kind_of(KindOf::Projectile);
+                // C++ rejects KINDOF_PARACHUTE pickers; host residual: parachuting flag
+                // or template name containing "parachute".
+                let is_parachute_picker = obj.is_parachuting()
+                    || obj.template_name.to_ascii_lowercase().contains("parachute");
                 let is_structure = obj.is_kind_of(KindOf::Structure)
                     || obj.object_type == ObjectType::Building;
                 let constructed = obj.is_constructed() && !obj.status.under_construction;
-                Some((*id, obj.team, obj.get_position(), is_structure, constructed))
+                Some((
+                    *id,
+                    obj.team,
+                    obj.get_position(),
+                    is_structure,
+                    constructed,
+                    is_projectile,
+                    is_parachute_picker,
+                ))
             })
             .collect();
 
         let mut pickups: Vec<(ObjectId, ObjectId, Team, bool)> = Vec::new();
-        for (crate_id, crate_pos, building_pickup, _paid) in &crates {
+        let mut above_rejects = 0_u32;
+        let mut forbidden_rejects = 0_u32;
+        for (crate_id, crate_pos, building_pickup, _paid, above_terrain) in &crates {
             let mut best: Option<(ObjectId, Team, bool, f32)> = None;
-            for (picker_id, team, picker_pos, is_structure, constructed) in &pickers {
+            for (
+                picker_id,
+                team,
+                picker_pos,
+                is_structure,
+                constructed,
+                is_projectile,
+                is_parachute_picker,
+            ) in &pickers
+            {
                 if *picker_id == *crate_id {
                     continue;
                 }
@@ -10662,7 +10708,26 @@ impl GameLogic {
                         continue;
                     }
                 } else {
-                    if !HostMoneyCrateRegistry::is_legal_unit_picker(true, false, false, false) {
+                    if HostMoneyCrateRegistry::is_forbidden_kindof_picker(
+                        *is_projectile,
+                        *is_parachute_picker,
+                    ) {
+                        forbidden_rejects = forbidden_rejects.saturating_add(1);
+                        continue;
+                    }
+                    if *above_terrain {
+                        // Unit path blocked while crate airborne residual.
+                        above_rejects = above_rejects.saturating_add(1);
+                        continue;
+                    }
+                    if !HostMoneyCrateRegistry::is_legal_unit_picker(
+                        true,
+                        false,
+                        false,
+                        *is_projectile,
+                        *is_parachute_picker,
+                        *above_terrain,
+                    ) {
                         continue;
                     }
                     if dist > MONEY_CRATE_UNIT_PICKUP_RADIUS {
@@ -10676,6 +10741,20 @@ impl GameLogic {
             if let Some((picker_id, team, is_structure, _)) = best {
                 pickups.push((*crate_id, picker_id, team, is_structure));
             }
+        }
+        for _ in 0..above_rejects.min(1) {
+            // Count one honesty reject per update when any airborne unit path blocked.
+            self.host_money_crates.record_above_terrain_unit_reject();
+        }
+        if above_rejects > 1 {
+            // Extra airborne reject events (still one honesty flag is enough;
+            // keep counter proportional for observability).
+            for _ in 1..above_rejects.min(8) {
+                self.host_money_crates.record_above_terrain_unit_reject();
+            }
+        }
+        for _ in 0..forbidden_rejects.min(4) {
+            self.host_money_crates.record_forbidden_kindof_reject();
         }
 
         for (crate_id, picker_id, team, is_structure) in pickups {
@@ -10708,9 +10787,18 @@ impl GameLogic {
                     self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
             let pos = self
-                .find_object(picker_id)
+                .find_object(crate_id)
                 .map(|o| o.get_position())
+                .or_else(|| self.find_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
+            // ExecuteAnimation MoneyPickUp residual presentation descriptor.
+            let anim = HostMoneyCrateRegistry::money_pickup_anim(
+                crate_id,
+                picker_id,
+                pos,
+                self.frame,
+            );
+            self.host_money_crates.record_money_pickup_anim(anim);
             self.queue_audio_event(
                 AudioEventRequest::new(MONEY_CRATE_PICKUP_AUDIO)
                     .with_object(picker_id)
@@ -10725,6 +10813,66 @@ impl GameLogic {
                 team,
                 amount,
                 is_structure
+            );
+        }
+    }
+
+    /// AmericaCrateParachute residual: freefall → OpenDist open → sink to ground.
+    ///
+    /// Applied to residual money crates that spawned from DeliverPayload cargo
+    /// (PutInContainer AmericaCrateParachute). Fail-closed: not full container
+    /// Object / W3D bone / CrateParachuteLocomotor force matrix.
+    fn tick_crate_parachute_residual(&mut self, crate_id: ObjectId) {
+        use crate::game_logic::host_deliver_payload::{
+            should_open_crate_parachute, tick_crate_parachute_height, CRATE_PARACHUTE_LAND_AUDIO,
+            CRATE_PARACHUTE_OPEN_AUDIO,
+        };
+
+        // Only residual money crates use this path (pilot path is separate).
+        if !self.host_money_crates.contains(crate_id) {
+            return;
+        }
+        let (pos, chute_open, start_h) = match self.objects.get(&crate_id) {
+            Some(obj) if obj.is_alive() && obj.is_parachuting() => (
+                obj.get_position(),
+                obj.is_parachute_open(),
+                obj.status.parachute_start_height,
+            ),
+            _ => return,
+        };
+        let ground = 0.0_f32;
+        let mut just_opened = false;
+        let mut open = chute_open;
+        if !open && should_open_crate_parachute(start_h, pos.y) {
+            open = true;
+            just_opened = true;
+        }
+        let (new_y, landed) = tick_crate_parachute_height(pos.y, ground, open);
+        if let Some(obj) = self.objects.get_mut(&crate_id) {
+            if just_opened {
+                obj.open_eject_parachute();
+            }
+            let mut p = obj.get_position();
+            p.y = new_y;
+            obj.set_position(p);
+            if landed {
+                obj.clear_eject_parachuting();
+            }
+        }
+        if just_opened {
+            self.host_deliver_payloads.record_crate_parachute_open();
+            self.queue_audio_event(
+                AudioEventRequest::new(CRATE_PARACHUTE_OPEN_AUDIO)
+                    .with_position(Vec3::new(pos.x, new_y, pos.z))
+                    .with_priority(145),
+            );
+        }
+        if landed {
+            self.host_deliver_payloads.record_crate_parachute_land();
+            self.queue_audio_event(
+                AudioEventRequest::new(CRATE_PARACHUTE_LAND_AUDIO)
+                    .with_position(Vec3::new(pos.x, ground, pos.z))
+                    .with_priority(140),
             );
         }
     }
@@ -14418,6 +14566,22 @@ impl GameLogic {
     /// Residual MoneyCrateCollide path honesty (unit or building).
     pub fn honesty_money_crate_collide_ok(&self) -> bool {
         self.host_money_crates.honesty_money_crate_collide_ok()
+    }
+
+    /// Residual MoneyPickUp Anim2D ExecuteAnimation honesty.
+    pub fn honesty_money_pickup_anim_ok(&self) -> bool {
+        self.host_money_crates.honesty_money_pickup_anim_ok()
+    }
+
+    /// Residual above-terrain unit pickup reject honesty.
+    pub fn honesty_money_crate_above_terrain_reject_ok(&self) -> bool {
+        self.host_money_crates.honesty_above_terrain_reject_ok()
+    }
+
+    /// AmericaCrateParachute cargo fall-physics residual honesty.
+    pub fn honesty_crate_parachute_fall_physics_ok(&self) -> bool {
+        self.host_deliver_payloads
+            .honesty_crate_parachute_fall_physics_ok()
     }
 
     /// Host MoneyCrateCollide registry (observability / tests).
@@ -39580,10 +39744,49 @@ mod tests {
                 "spawned residual crate template, got {}",
                 obj.thing.template.name
             );
-            // DropOffset residual Y:-5 applied to spawn.
+            // AmericaCrateParachute residual: elevated spawn (PreferredHeight + DropOffset).
             assert!(
-                (obj.get_position().y - (-5.0)).abs() < 0.1,
-                "DropOffset Y residual, got y={}",
+                obj.is_parachuting() || obj.get_position().y <= 0.5,
+                "spawned crate must parachute or have landed, y={}",
+                obj.get_position().y
+            );
+            if obj.is_parachuting() {
+                assert!(
+                    obj.get_position().y > 50.0,
+                    "airborne crate residual drop height, got y={}",
+                    obj.get_position().y
+                );
+            }
+        }
+
+        // Tick AmericaCrateParachute residual until crates land (OpenDist + sink).
+        let payload_ids = completed[0].spawned_payload_ids.clone();
+        for _ in 0..80 {
+            for id in &payload_ids {
+                game_logic.tick_crate_parachute_residual(*id);
+            }
+            if payload_ids.iter().all(|id| {
+                game_logic
+                    .find_object(*id)
+                    .map(|o| !o.is_parachuting() && o.get_position().y <= 0.5)
+                    .unwrap_or(true)
+            }) {
+                break;
+            }
+        }
+        assert!(
+            game_logic.honesty_crate_parachute_fall_physics_ok(),
+            "AmericaCrateParachute open+land residual honesty"
+        );
+        for id in &payload_ids {
+            let obj = game_logic.find_object(*id).expect("landed crate");
+            assert!(
+                !obj.is_parachuting(),
+                "crate must clear parachuting on land"
+            );
+            assert!(
+                obj.get_position().y <= 0.5,
+                "crate must land at ground residual, y={}",
                 obj.get_position().y
             );
         }
@@ -39734,6 +39937,21 @@ mod tests {
         );
         assert!(game_logic.honesty_money_crate_unit_pickup_ok());
         assert!(game_logic.honesty_money_crate_collide_ok());
+        assert!(
+            game_logic.honesty_money_pickup_anim_ok(),
+            "MoneyPickUp ExecuteAnimation residual must record"
+        );
+        assert!(
+            game_logic
+                .host_money_crates()
+                .money_pickup_anims
+                .iter()
+                .any(|a| a.template == "MoneyPickUp"
+                    && (a.display_time_seconds - 4.0).abs() < 0.01
+                    && (a.z_rise_per_second - 15.0).abs() < 0.01
+                    && a.fades),
+            "MoneyPickUp residual presentation descriptor constants"
+        );
         assert!(!game_logic.host_money_crates().contains(crate_id));
         assert!(
             game_logic
@@ -39776,6 +39994,141 @@ mod tests {
             )
         );
         assert!(game_logic.host_money_crates().honesty_supply_lines_boost_ok());
+    }
+
+    /// Residual: airborne crate blocks unit MoneyCrateCollide; ForbiddenKindOf PROJECTILE.
+    #[test]
+    fn money_crate_above_terrain_and_forbidden_kindof_residual() {
+        use crate::game_logic::host_deliver_payload::{
+            cargo_crate_drop_height, SUPPLY_DROP_DROP_OFFSET_Y,
+        };
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("TestSupplyDropZoneCrate") {
+            let mut t = ThingTemplate::new("TestSupplyDropZoneCrate");
+            t.add_kind_of(KindOf::Resource)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1.0);
+            game_logic
+                .templates
+                .insert("TestSupplyDropZoneCrate".to_string(), t);
+        }
+        if !game_logic.templates.contains_key("TestRanger") {
+            let mut t = ThingTemplate::new("TestRanger");
+            t.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0);
+            game_logic.templates.insert("TestRanger".to_string(), t);
+        }
+        if !game_logic.templates.contains_key("TestProjectile") {
+            let mut t = ThingTemplate::new("TestProjectile");
+            t.add_kind_of(KindOf::Projectile).set_health(1.0);
+            game_logic
+                .templates
+                .insert("TestProjectile".to_string(), t);
+        }
+
+        let drop_y = cargo_crate_drop_height(SUPPLY_DROP_DROP_OFFSET_Y);
+        let crate_id = game_logic
+            .create_object(
+                "TestSupplyDropZoneCrate",
+                Team::Neutral,
+                Vec3::new(10.0, drop_y, 10.0),
+            )
+            .expect("airborne crate");
+        game_logic
+            .host_money_crates
+            .register_supply_drop_crate(crate_id);
+        if let Some(obj) = game_logic.objects.get_mut(&crate_id) {
+            obj.apply_crate_parachuting();
+        }
+        let _ranger = game_logic
+            .create_object("TestRanger", Team::USA, Vec3::new(12.0, 0.0, 10.0))
+            .expect("ranger");
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        game_logic.update_money_crate_collides();
+        let cash_air = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_air, cash_before,
+            "unit must not pick up airborne crate residual"
+        );
+        assert!(
+            game_logic.honesty_money_crate_above_terrain_reject_ok(),
+            "above-terrain unit reject residual honesty"
+        );
+        assert!(game_logic.host_money_crates().contains(crate_id));
+
+        // Land residual then unit pickup succeeds + MoneyPickUp anim.
+        for _ in 0..80 {
+            game_logic.tick_crate_parachute_residual(crate_id);
+            if game_logic
+                .find_object(crate_id)
+                .map(|o| !o.is_parachuting())
+                .unwrap_or(true)
+            {
+                break;
+            }
+        }
+        assert!(
+            game_logic
+                .find_object(crate_id)
+                .map(|o| !o.is_parachuting() && o.get_position().y <= 0.5)
+                .unwrap_or(false),
+            "crate parachute residual must land"
+        );
+        assert!(game_logic.honesty_crate_parachute_fall_physics_ok());
+        game_logic.update_money_crate_collides();
+        let cash_land = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(
+            cash_land > cash_before,
+            "landed crate unit pickup residual"
+        );
+        assert!(game_logic.honesty_money_pickup_anim_ok());
+
+        // ForbiddenKindOf PROJECTILE residual: projectile near ground crate rejected.
+        let crate2 = game_logic
+            .create_object(
+                "TestSupplyDropZoneCrate",
+                Team::Neutral,
+                Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("crate2");
+        game_logic
+            .host_money_crates
+            .register_supply_drop_crate(crate2);
+        let _proj = game_logic
+            .create_object("TestProjectile", Team::USA, Vec3::new(81.0, 0.0, 80.0))
+            .expect("projectile");
+        let cash_mid = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        game_logic.update_money_crate_collides();
+        let cash_proj = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_proj, cash_mid,
+            "PROJECTILE ForbiddenKindOf residual must not pick up crate"
+        );
+        assert!(game_logic.host_money_crates().contains(crate2));
+        assert!(
+            game_logic.host_money_crates().forbidden_kindof_rejects > 0
+                || game_logic.host_money_crates().honesty_forbidden_kindof_ok()
+        );
     }
 
     /// Residual: under-construction / neutral supply drop zone must not credit cash.
@@ -47774,7 +48127,7 @@ mod tests {
 
     /// Residual: CarpetBomb DoSpecialPower queues a delayed multi-point line
     /// strike; damage applies only after approach delay.
-    /// Fail-closed: not full B52 OCL DeliverPayload / DropVariance stagger.
+    /// Fail-closed: not full B52 OCL DeliverPayload / per-bomb DropDelay stagger.
     #[test]
     fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};

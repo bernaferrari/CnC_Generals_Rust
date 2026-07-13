@@ -16,7 +16,8 @@
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate flight path
 //!   (DropDelay stagger + delayed spawn residual closed via host_deliver_payload)
-//! - Not full AmericaCrateParachute fall-physics
+//! - AmericaCrateParachute fall-physics residual via host_deliver_payload
+//!   (OpenDist 12.5 / PreferredHeight 100; not full container Object)
 //!   (MoneyCrateCollide unit/BuildingPickup residual via host_money_crate)
 //! - Not full ControlBar OCL timer UI / sabotage timer-reset path
 //! - Under-construction / neutral / dead residual-skip (C++ OCLUpdate::shouldCreate)
