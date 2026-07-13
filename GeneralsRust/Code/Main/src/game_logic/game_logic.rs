@@ -31051,6 +31051,7 @@ impl GameLogic {
                 objects_destroyed,
                 plan.wave_shell_count,
                 plan.is_final_wave,
+                &plan.epicenters,
             );
 
             // NuclearMissile residual: radiation field ambient cue on spawn.
@@ -31069,13 +31070,13 @@ impl GameLogic {
                 );
             }
 
-            // AnthraxBomb / ScudStorm residual: toxin field ambient cue on spawn.
-            if plan.is_final_wave
-                && plan.kind.spawns_toxin_field()
+            // AnthraxBomb final / ScudStorm per-missile residual toxin ambient.
+            if plan.kind.spawns_toxin_field()
                 && !self
                     .special_power_strikes
                     .toxin_spawned_this_frame()
                     .is_empty()
+                && (plan.is_final_wave || plan.kind.spawns_scud_poison_field())
             {
                 let cue = if plan.kind.spawns_scud_poison_field() {
                     crate::game_logic::special_power_strikes::SCUD_STORM_POISON_AUDIO
@@ -50140,8 +50141,8 @@ mod tests {
     fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
         use crate::game_logic::special_power_strikes::{
-            HostSuperweaponKind, SPECTRE_ORBIT_AUDIO, SPECTRE_ORBIT_DAMAGE_PER_TICK,
-            SPECTRE_ORBIT_TICK_INTERVAL_FRAMES,
+            HostSuperweaponKind, SPECTRE_GATTLING_DAMAGE, SPECTRE_ORBIT_AUDIO,
+            SPECTRE_ORBIT_DAMAGE_PER_TICK, SPECTRE_ORBIT_TICK_INTERVAL_FRAMES,
         };
 
         let mut game_logic = GameLogic::new();
@@ -50251,10 +50252,16 @@ mod tests {
             enemy_after < health_before,
             "enemy in orbit radius must take residual howitzer tick damage (before={health_before}, after={enemy_after})"
         );
+        // First insertion tick: howitzer (80 in r25) + gattling (90 nearest).
+        let expected_first = SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE;
         assert!(
-            (health_before - enemy_after - SPECTRE_ORBIT_DAMAGE_PER_TICK).abs() < 0.1
+            (health_before - enemy_after - expected_first).abs() < 0.1
                 || enemy_after == 0.0,
-            "first tick damage should match SPECTRE_ORBIT_DAMAGE_PER_TICK residual"
+            "first tick damage should match howitzer+gattling residual (before={health_before}, after={enemy_after})"
+        );
+        assert!(
+            game_logic.special_power_strikes().honesty_gattling_ok(),
+            "Spectre gattling residual honesty"
         );
         // Far unit untouched.
         assert!(

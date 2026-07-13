@@ -2821,6 +2821,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.objects_destroyed)?;
         xfer.xfer_marker_label("ParentStrikeId")?;
         xfer.xfer_u32(&mut self.parent_strike_id)?;
+        // Gattling/howitzer residual bookkeeping (appended).
+        xfer.xfer_marker_label("NextGattlingTickFrame")?;
+        xfer.xfer_u32(&mut self.next_gattling_tick_frame)?;
+        xfer.xfer_marker_label("HowitzerTicks")?;
+        xfer.xfer_u32(&mut self.howitzer_ticks)?;
+        xfer.xfer_marker_label("GattlingTicks")?;
+        xfer.xfer_u32(&mut self.gattling_ticks)?;
         Ok(())
     }
 }
@@ -2951,10 +2958,13 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 spawn_frame: 0,
                 expires_frame: 0,
                 next_tick_frame: 0,
+                next_gattling_tick_frame: 0,
                 total_damage_applied: 0.0,
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                howitzer_ticks: 0,
+                gattling_ticks: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
