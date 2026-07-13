@@ -748,21 +748,23 @@ pub const CAMO_NETTING_STEALTH_DELAY_FRAMES: u32 = 75;
 ///
 /// Host residual of StealthUpdate::allowedToStealth for structures:
 /// - forbidden while attacking (ATTACKING / FIRING_PRIMARY residual)
+/// - forbidden while using ability (USING_ABILITY residual)
 /// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
 /// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
 ///
-/// Fail-closed: not full USING_ABILITY / opacity / OrderIdleEnemiesToAttackMe.
+/// Fail-closed: not full opacity drawable / sub-object camo net visual.
 pub fn camo_netting_structure_stealth_desired(
     innate_stealth: bool,
     is_alive: bool,
     is_attacking: bool,
+    is_using_ability: bool,
     current_frame: u32,
     stealth_allowed_frame: u32,
 ) -> Option<bool> {
     if !innate_stealth || !is_alive {
         return None;
     }
-    if is_attacking {
+    if is_attacking || is_using_ability {
         return Some(false);
     }
     if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
@@ -774,6 +776,25 @@ pub fn camo_netting_structure_stealth_desired(
 /// Absolute frame when CamoNetting residual may re-cloak after a reveal.
 pub fn camo_netting_stealth_allowed_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(CAMO_NETTING_STEALTH_DELAY_FRAMES)
+}
+
+/// Whether an idle enemy residual unit should wake and attempt to target a
+/// CamoNetting structure that just revealed (OrderIdleEnemiesToAttackMeUponReveal).
+///
+/// C++ `setWakeupIfInRange`: unit vision range ≥ distance to revealed victim.
+/// Host residual: Idle AI + can_attack units (not structures/dozers) within vision.
+pub fn camo_netting_order_idle_enemy_in_range(
+    enemy_is_alive: bool,
+    enemy_is_idle: bool,
+    enemy_can_attack: bool,
+    dist: f32,
+    enemy_vision_range: f32,
+) -> bool {
+    enemy_is_alive
+        && enemy_is_idle
+        && enemy_can_attack
+        && enemy_vision_range > 0.0
+        && dist <= enemy_vision_range
 }
 
 /// Template names that receive StealthUpgrade from CamoNetting residual.
@@ -856,29 +877,47 @@ mod camo_netting_and_gamma_tests {
 
         // Idle + delay elapsed → recloak.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, 100, 85),
+            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85),
             Some(true)
         );
         // Attacking residual forbids stealth.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, true, 100, 0),
+            camo_netting_structure_stealth_desired(true, true, true, false, 100, 0),
+            Some(false)
+        );
+        // USING_ABILITY residual forbids stealth.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, true, false, true, 100, 0),
             Some(false)
         );
         // Still inside StealthDelay after reveal.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, 50, 85),
+            camo_netting_structure_stealth_desired(true, true, false, false, 50, 85),
             Some(false)
         );
         // No CamoNetting residual (not innate).
         assert_eq!(
-            camo_netting_structure_stealth_desired(false, true, false, 100, 0),
+            camo_netting_structure_stealth_desired(false, true, false, false, 100, 0),
             None
         );
         // Dead structure.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, false, false, 100, 0),
+            camo_netting_structure_stealth_desired(true, false, false, false, 100, 0),
             None
         );
+        // OrderIdleEnemies residual range gate.
+        assert!(camo_netting_order_idle_enemy_in_range(
+            true, true, true, 100.0, 150.0
+        ));
+        assert!(!camo_netting_order_idle_enemy_in_range(
+            true, true, true, 200.0, 150.0
+        ));
+        assert!(!camo_netting_order_idle_enemy_in_range(
+            true, false, true, 50.0, 150.0
+        ));
+        assert!(!camo_netting_order_idle_enemy_in_range(
+            true, true, false, 50.0, 150.0
+        ));
     }
 
     #[test]
