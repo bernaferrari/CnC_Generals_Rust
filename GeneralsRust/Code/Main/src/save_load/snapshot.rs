@@ -3980,6 +3980,18 @@ impl SnapshotBuilder {
                     .cloned(),
             );
 
+            // Cash bounty residual: re-derive percent from unlocked sciences.
+            let mut cash_bounty_percent = 0.0_f32;
+            for sci in &unlocked_sciences {
+                if let Some(pct) =
+                    crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(sci)
+                {
+                    if pct > cash_bounty_percent {
+                        cash_bounty_percent = pct;
+                    }
+                }
+            }
+
             game_logic.add_player(Player {
                 id: snap.id,
                 team: snap.team,
@@ -3999,6 +4011,7 @@ impl SnapshotBuilder {
                 color_rgb: (200, 200, 200),
                 start_position: -1,
                 alliance_team: -1,
+                cash_bounty_percent,
             });
         }
 

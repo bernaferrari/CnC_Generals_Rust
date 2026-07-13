@@ -13,6 +13,7 @@ pub mod script_events;
 pub mod script_loader;
 pub mod special_power_strikes;
 pub mod host_upgrades;
+pub mod host_cash_bounty;
 pub mod host_mines;
 pub mod host_radar_scan;
 pub mod host_spy_satellite;
@@ -21,6 +22,7 @@ pub mod host_hero_abilities;
 pub mod host_car_bomb;
 pub mod host_repair;
 pub mod host_heal;
+pub mod host_propaganda;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
@@ -44,6 +46,11 @@ pub use special_power_strikes::{
 };
 pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
+};
+pub use host_cash_bounty::{
+    cash_bounty_percent_for_science, compute_bounty_award, HostCashBountyRegistry,
+    CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, SCIENCE_CASH_BOUNTY1,
+    SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
 };
 pub use host_mines::{
     can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
@@ -75,6 +82,11 @@ pub use host_car_bomb::{
 pub use host_heal::{
     is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
     HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
+};
+pub use host_propaganda::{
+    is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
+    HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC, HOST_PROPAGANDA_TOWER_RADIUS,
+    HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
 };
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,

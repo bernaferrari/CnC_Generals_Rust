@@ -266,6 +266,10 @@ pub struct Player {
     pub start_position: i32,
     /// Skirmish alliance team index from match config (not faction Team).
     pub alliance_team: i32,
+    /// Cash bounty percent residual (GLA SCIENCE_CashBounty).
+    /// C++ Player::m_cashBountyPercent — fraction of victim build cost awarded on kill.
+    /// 0.0 = disabled; retail tiers 0.05 / 0.10 / 0.20.
+    pub cash_bounty_percent: f32,
 }
 
 impl Player {
@@ -296,7 +300,41 @@ impl Player {
             color_rgb: (200, 200, 200),
             start_position: -1,
             alliance_team: -1,
+            cash_bounty_percent: 0.0,
         }
+    }
+
+    /// C++ Player::getCashBounty().
+    pub fn get_cash_bounty(&self) -> f32 {
+        self.cash_bounty_percent
+    }
+
+    /// C++ Player::setCashBounty — only raises if new percent is higher (CashBountyPower).
+    pub fn set_cash_bounty(&mut self, percentage: f32) {
+        if percentage > self.cash_bounty_percent {
+            self.cash_bounty_percent = percentage;
+        }
+    }
+
+    /// Force-set cash bounty percent (tests / load restore).
+    pub fn force_set_cash_bounty(&mut self, percentage: f32) {
+        self.cash_bounty_percent = percentage.max(0.0);
+    }
+
+    /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.
+    /// C++ Player::doBountyForKill residual (no floating text).
+    /// Returns cash awarded (0 when disabled or zero cost).
+    pub fn do_bounty_for_kill(&mut self, victim_build_cost: u32) -> u32 {
+        let bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(
+            victim_build_cost,
+            self.cash_bounty_percent,
+        );
+        if bounty > 0 {
+            self.resources.supplies = self.resources.supplies.saturating_add(bounty);
+            self.statistics.resources_collected =
+                self.statistics.resources_collected.saturating_add(bounty);
+        }
+        bounty
     }
 
     pub fn can_afford(&self, cost: &Resources) -> bool {
@@ -386,7 +424,14 @@ impl Player {
         if self.has_unlocked_science(science_name) {
             return false;
         }
-        self.unlocked_sciences.insert(science_name.to_string())
+        let inserted = self.unlocked_sciences.insert(science_name.to_string());
+        // Cash bounty residual: SCIENCE_CashBounty1/2/3 raise player bounty percent.
+        if let Some(pct) =
+            crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
+        {
+            self.set_cash_bounty(pct);
+        }
+        inserted
     }
 
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
@@ -538,6 +583,10 @@ pub struct GameLogic {
     /// Fail-closed: not per-template INI boost matrix / WorkerShoes / multiplayer.
     supply_lines_bonus_cash_total: u32,
 
+    /// Host cash bounty residual (GLA SCIENCE_CashBounty → kill awards cash).
+    /// Fail-closed: not full CashBountyPower palace module / floating text.
+    cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry,
+
     /// Host garrison residual honesty counters (enter / exit / fire-from-garrison).
     /// Fail-closed: not C++ GarrisonContain fire-point bones or full weapon matrix.
     garrison_residual_enters: u32,
@@ -577,6 +626,13 @@ pub struct GameLogic {
     /// heal_pad: SeekingHealing HP ticks at HealPad.
     heal_residual_ambulance_heals: u32,
     heal_residual_heal_pad_heals: u32,
+
+    /// Host China Propaganda / Speaker Tower residual honesty counters.
+    /// Fail-closed: not full PropagandaTowerBehavior sole-benefactor / upgrade FX matrix.
+    /// heals: radius %max-health heal ticks applied to same-team non-structures.
+    /// buffs: ENTHUSIASTIC / SUBLIMINAL weapon-bonus flag grants.
+    propaganda_residual_heals: u32,
+    propaganda_residual_buffs: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
@@ -1393,6 +1449,7 @@ impl GameLogic {
             host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             supply_lines_bonus_cash_total: 0,
+            cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry::new(),
             garrison_residual_enters: 0,
             garrison_residual_exits: 0,
             garrison_residual_fires: 0,
@@ -1410,6 +1467,8 @@ impl GameLogic {
             repair_residual_vehicle_heals: 0,
             heal_residual_ambulance_heals: 0,
             heal_residual_heal_pad_heals: 0,
+            propaganda_residual_heals: 0,
+            propaganda_residual_buffs: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1543,6 +1602,7 @@ impl GameLogic {
         self.host_ambushes.clear();
         self.host_upgrades.clear();
         self.supply_lines_bonus_cash_total = 0;
+        self.cash_bounty.clear();
         self.garrison_residual_enters = 0;
         self.garrison_residual_exits = 0;
         self.garrison_residual_fires = 0;
@@ -1560,6 +1620,8 @@ impl GameLogic {
         self.repair_residual_vehicle_heals = 0;
         self.heal_residual_ambulance_heals = 0;
         self.heal_residual_heal_pad_heals = 0;
+        self.propaganda_residual_heals = 0;
+        self.propaganda_residual_buffs = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -3399,6 +3461,10 @@ impl GameLogic {
         // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
         // Fail-closed vs full AutoHealBehavior sole-benefactor / vehicle matrix.
         self.update_ambulance_auto_heal(dt);
+
+        // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
+        // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
+        self.update_propaganda_tower_pulse(dt);
 
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
@@ -7074,7 +7140,13 @@ impl GameLogic {
 
     fn record_destruction(&mut self, destroyed_object: &Object, killer: Option<Team>) {
         let destroyed_is_structure = destroyed_object.is_kind_of(KindOf::Structure);
+        let victim_team = destroyed_object.team;
+        // C++ Object::scoreTheKill / Player::doBountyForKill:
+        // no bounty for under-construction, non-enemy, or same-controller kills.
+        let under_construction = destroyed_object.status.under_construction;
+        let build_cost = destroyed_object.thing.template.build_cost.supplies;
 
+        let mut bounty_awarded = 0_u32;
         if let Some(team) = killer {
             if let Some(player_id) = self.player_id_for_team(team) {
                 if let Some(player) = self.players.get_mut(&player_id) {
@@ -7083,8 +7155,19 @@ impl GameLogic {
                     } else {
                         player.record_unit_destroyed();
                     }
+
+                    // Cash bounty residual: award ceil(cost * percent) on enemy kill.
+                    let enemy_kill = team != victim_team
+                        && team != Team::Neutral
+                        && victim_team != Team::Neutral;
+                    if enemy_kill && !under_construction && player.cash_bounty_percent > 0.0 {
+                        bounty_awarded = player.do_bounty_for_kill(build_cost);
+                    }
                 }
             }
+        }
+        if bounty_awarded > 0 {
+            self.cash_bounty.record_bounty_award(bounty_awarded);
         }
 
         if let Some(player_id) = self.player_id_for_team(destroyed_object.team) {
@@ -7096,6 +7179,52 @@ impl GameLogic {
                 }
             }
         }
+    }
+
+    /// Set cash bounty percent on a player (residual / tests).
+    /// Raises percent only (C++ CashBountyPower set if higher).
+    pub fn set_player_cash_bounty(&mut self, player_id: u32, percent: f32) -> bool {
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return false;
+        };
+        player.set_cash_bounty(percent);
+        self.cash_bounty
+            .record_bounty_set(player.cash_bounty_percent);
+        true
+    }
+
+    /// Force-set cash bounty percent (tests / load restore).
+    pub fn force_set_player_cash_bounty(&mut self, player_id: u32, percent: f32) -> bool {
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return false;
+        };
+        player.force_set_cash_bounty(percent);
+        self.cash_bounty
+            .record_bounty_set(player.cash_bounty_percent);
+        true
+    }
+
+    /// Residual honesty: cash bounty was configured and at least one award paid.
+    /// Fail-closed: not full palace module / floating-text parity.
+    pub fn honesty_cash_bounty_ok(&self) -> bool {
+        self.cash_bounty.honesty_ok()
+    }
+
+    /// Residual honesty: at least one bounty cash award on kill.
+    pub fn honesty_cash_bounty_award_ok(&self) -> bool {
+        self.cash_bounty.honesty_bounty_award_ok()
+    }
+
+    /// Total residual cash credited via kill bounty (observability).
+    pub fn cash_bounty_earned_total(&self) -> u32 {
+        self.cash_bounty.bounty_earned_total
+    }
+
+    /// Host cash bounty registry (tests / honesty).
+    pub fn cash_bounty_registry(
+        &self,
+    ) -> &crate::game_logic::host_cash_bounty::HostCashBountyRegistry {
+        &self.cash_bounty
     }
 
     /// C++ parity: veterancy-level XP multiplier. In C++ each template
@@ -8992,6 +9121,198 @@ impl GameLogic {
     /// Combined host infantry heal residual honesty (ambulance radius or HealPad).
     pub fn honesty_heal_ok(&self) -> bool {
         self.honesty_ambulance_heal_ok() || self.honesty_heal_pad_ok()
+    }
+
+    /// Host propaganda tower residual heal honesty ticks.
+    pub fn propaganda_residual_heals(&self) -> u32 {
+        self.propaganda_residual_heals
+    }
+
+    /// Host propaganda tower residual buff honesty ticks.
+    pub fn propaganda_residual_buffs(&self) -> u32 {
+        self.propaganda_residual_buffs
+    }
+
+    fn record_propaganda_residual_heal(&mut self) {
+        self.propaganda_residual_heals = self.propaganda_residual_heals.saturating_add(1);
+    }
+
+    fn record_propaganda_residual_buff(&mut self) {
+        self.propaganda_residual_buffs = self.propaganda_residual_buffs.saturating_add(1);
+    }
+
+    /// Residual honesty: speaker/propaganda tower healed at least one unit.
+    pub fn honesty_propaganda_heal_ok(&self) -> bool {
+        self.propaganda_residual_heals > 0
+    }
+
+    /// Residual honesty: speaker/propaganda tower granted ENTHUSIASTIC/SUBLIMINAL buff.
+    pub fn honesty_propaganda_buff_ok(&self) -> bool {
+        self.propaganda_residual_buffs > 0
+    }
+
+    /// Combined host propaganda tower residual honesty (heal or buff).
+    pub fn honesty_propaganda_ok(&self) -> bool {
+        self.honesty_propaganda_heal_ok() || self.honesty_propaganda_buff_ok()
+    }
+
+    /// Host China Propaganda / Speaker Tower residual: heal + weapon buff in radius.
+    ///
+    /// C++ PropagandaTowerBehavior on ChinaSpeakerTower ModuleTag_06:
+    /// Radius=150, HealPercentEachSecond=2% (4% upgraded), ENTHUSIASTIC / SUBLIMINAL.
+    /// Fail-closed: continuous %max-health rate, same-team only (not full ally filter),
+    /// non-structure only, no sole-benefactor exclusivity, no PulseFX.
+    pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
+        use crate::game_logic::host_propaganda::{
+            in_propaganda_radius_2d, is_legal_propaganda_target, is_propaganda_tower,
+            propaganda_heal_amount, HOST_PROPAGANDA_TOWER_RADIUS,
+            UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+        };
+        use std::collections::{HashMap, HashSet};
+
+        if dt <= 0.0 {
+            return;
+        }
+
+        // Snapshot towers: alive, fully built residual speaker/propaganda sources.
+        let towers: Vec<(ObjectId, Team, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_propaganda_tower(&obj.template_name) {
+                    return None;
+                }
+                // C++: under construction towers do not pulse.
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                let upgraded = obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                    || self
+                        .players
+                        .values()
+                        .find(|p| p.team == obj.team)
+                        .map(|p| {
+                            p.unlocked_sciences
+                                .iter()
+                                .any(|s| s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                        })
+                        .unwrap_or(false);
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z, upgraded))
+            })
+            .collect();
+
+        if towers.is_empty() {
+            // Clear residual buffs when no towers remain.
+            for obj in self.objects.values_mut() {
+                if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
+                    obj.weapon_bonus_enthusiastic = false;
+                    obj.weapon_bonus_subliminal = false;
+                }
+            }
+            return;
+        }
+
+        // Snapshot non-structure candidates (heal if damaged; always eligible for buff).
+        let candidates: Vec<(ObjectId, Team, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.is_kind_of(KindOf::Structure) {
+                    return None;
+                }
+                if obj.status.under_construction {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z))
+            })
+            .collect();
+
+        // Coverage map: target -> any covering tower is upgraded.
+        let mut coverage: HashMap<ObjectId, bool> = HashMap::new();
+        for (tower_id, tower_team, tx, tz, upgraded) in &towers {
+            for (target_id, target_team, cx, cz) in &candidates {
+                if !is_legal_propaganda_target(
+                    false,
+                    true,
+                    *tower_team == *target_team,
+                    *tower_id == *target_id,
+                    false,
+                ) {
+                    continue;
+                }
+                if !in_propaganda_radius_2d((*tx, *tz), (*cx, *cz), HOST_PROPAGANDA_TOWER_RADIUS)
+                {
+                    continue;
+                }
+                let entry = coverage.entry(*target_id).or_insert(false);
+                *entry = *entry || *upgraded;
+            }
+        }
+
+        let mut heal_ticks: u32 = 0;
+        let mut buff_ticks: u32 = 0;
+        let covered: HashSet<ObjectId> = coverage.keys().copied().collect();
+
+        for (target_id, upgraded) in &coverage {
+            let Some(target) = self.objects.get_mut(target_id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+
+            // ENTHUSIASTIC always while covered; SUBLIMINAL when upgraded cover present.
+            let mut granted = false;
+            if !target.weapon_bonus_enthusiastic {
+                target.weapon_bonus_enthusiastic = true;
+                granted = true;
+            }
+            if *upgraded {
+                if !target.weapon_bonus_subliminal {
+                    target.weapon_bonus_subliminal = true;
+                    granted = true;
+                }
+            } else if target.weapon_bonus_subliminal {
+                target.weapon_bonus_subliminal = false;
+            }
+            if granted {
+                buff_ticks = buff_ticks.saturating_add(1);
+            }
+
+            // %max-health heal residual (upgraded rate if any covering tower upgraded).
+            // Multi-tower stack is fail-closed (not sole-benefactor exclusivity).
+            let max_hp = target.health.maximum.max(target.max_health);
+            let heal_amt = propaganda_heal_amount(max_hp, *upgraded, dt);
+            if heal_amt > 0.0 {
+                let before = target.health.current;
+                if before + 0.01 < target.health.maximum {
+                    target.heal(heal_amt);
+                    if target.health.current > before + 0.0001 {
+                        heal_ticks = heal_ticks.saturating_add(1);
+                    }
+                }
+            }
+        }
+
+        // Clear buffs on units no longer covered by any tower.
+        for (id, obj) in self.objects.iter_mut() {
+            if covered.contains(id) {
+                continue;
+            }
+            if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
+                obj.weapon_bonus_enthusiastic = false;
+                obj.weapon_bonus_subliminal = false;
+            }
+        }
+
+        for _ in 0..heal_ticks {
+            self.record_propaganda_residual_heal();
+        }
+        for _ in 0..buff_ticks {
+            self.record_propaganda_residual_buff();
+        }
     }
 
     /// Host USA Ambulance AutoHeal residual: heal damaged ally infantry in radius.
@@ -16324,6 +16645,335 @@ mod tests {
         assert!(!game_logic.honesty_ambulance_heal_ok());
     }
 
+    /// Residual E2E: damaged unit near China Speaker Tower recovers HP + gets ENTHUSIASTIC buff.
+    /// C++ ChinaSpeakerTower PropagandaTowerBehavior ModuleTag_06 (Radius=150, Heal%=2%).
+    /// Fail-closed: not sole-benefactor / PulseFX / POWERED underpower gate.
+    #[test]
+    fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaSpeakerTower");
+        tower_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(500, 0);
+        game_logic
+            .templates
+            .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+
+        let tower_id = game_logic
+            .create_object(
+                "ChinaSpeakerTower",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("speaker tower");
+        let unit_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(30.0, 0.0, 0.0))
+            .expect("unit");
+
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let _ = unit.take_damage(40.0);
+            assert!(
+                unit.health.current + 0.01 < unit.health.maximum,
+                "unit must be damaged before propaganda heal"
+            );
+            assert!(!unit.weapon_bonus_enthusiastic);
+            assert!(!unit.weapon_bonus_subliminal);
+        }
+        let before = game_logic
+            .find_object(unit_id)
+            .expect("unit")
+            .health
+            .current;
+
+        assert_eq!(game_logic.propaganda_residual_heals(), 0);
+        assert_eq!(game_logic.propaganda_residual_buffs(), 0);
+        assert!(!game_logic.honesty_propaganda_ok());
+
+        // Several logic frames of residual pulse (no command — continuous AoE).
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+
+        let unit = game_logic.find_object(unit_id).expect("unit");
+        assert!(
+            unit.health.current > before,
+            "propaganda residual must restore HP (before={before}, after={})",
+            unit.health.current
+        );
+        assert!(
+            unit.weapon_bonus_enthusiastic,
+            "in-range unit must receive ENTHUSIASTIC residual buff"
+        );
+        assert!(
+            !unit.weapon_bonus_subliminal,
+            "base tower without upgrade must not grant SUBLIMINAL"
+        );
+        assert!(
+            game_logic.propaganda_residual_heals() > 0,
+            "must record propaganda heal honesty ticks"
+        );
+        assert!(
+            game_logic.propaganda_residual_buffs() > 0,
+            "must record propaganda buff honesty ticks"
+        );
+        assert!(game_logic.honesty_propaganda_heal_ok());
+        assert!(game_logic.honesty_propaganda_buff_ok());
+        assert!(game_logic.honesty_propaganda_ok());
+
+        assert!(
+            game_logic
+                .find_object(tower_id)
+                .map(|t| t.is_alive())
+                .unwrap_or(false),
+            "tower must remain alive"
+        );
+    }
+
+    /// Residual: unit outside tower radius is not healed/buffed; walk-in recovers.
+    #[test]
+    fn propaganda_tower_residual_out_of_range_then_in_range() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaSpeakerTower");
+        tower_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(500, 0);
+        game_logic
+            .templates
+            .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+
+        let _tower_id = game_logic
+            .create_object(
+                "ChinaSpeakerTower",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("speaker tower");
+        let unit_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
+            .expect("unit");
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let _ = unit.take_damage(30.0);
+        }
+        let before = game_logic
+            .find_object(unit_id)
+            .expect("unit")
+            .health
+            .current;
+
+        // Out of residual radius (150): no heal / no buff.
+        for _ in 0..15 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        {
+            let unit = game_logic.find_object(unit_id).expect("unit");
+            assert!(
+                (unit.health.current - before).abs() < 0.01,
+                "out-of-range unit must not receive propaganda heal"
+            );
+            assert!(!unit.weapon_bonus_enthusiastic);
+        }
+        assert!(!game_logic.honesty_propaganda_ok());
+
+        // Move into radius.
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            unit.set_position(Vec3::new(40.0, 0.0, 0.0));
+        }
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        {
+            let unit = game_logic.find_object(unit_id).expect("unit");
+            assert!(
+                unit.health.current > before,
+                "in-range unit must recover HP from propaganda residual"
+            );
+            assert!(unit.weapon_bonus_enthusiastic);
+        }
+        assert!(game_logic.honesty_propaganda_ok());
+
+        // Leave radius: buff clears.
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            unit.set_position(Vec3::new(300.0, 0.0, 0.0));
+        }
+        game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = game_logic.find_object(unit_id).expect("unit");
+            assert!(
+                !unit.weapon_bonus_enthusiastic,
+                "leaving radius must clear ENTHUSIASTIC residual buff"
+            );
+            assert!(!unit.weapon_bonus_subliminal);
+        }
+    }
+
+    /// Residual: enemy units near speaker tower are not healed/buffed (same-team filter).
+    #[test]
+    fn propaganda_tower_residual_skips_enemy_units() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaSpeakerTower");
+        tower_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(500, 0);
+        game_logic
+            .templates
+            .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+
+        let _tower_id = game_logic
+            .create_object(
+                "ChinaSpeakerTower",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("speaker tower");
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let _ = enemy.take_damage(40.0);
+        }
+        let before = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            (enemy.health.current - before).abs() < 0.01,
+            "enemy unit must not be healed by China speaker tower residual"
+        );
+        assert!(!enemy.weapon_bonus_enthusiastic);
+        assert!(!game_logic.honesty_propaganda_ok());
+    }
+
+    /// Residual: Subliminal Messaging upgrade grants SUBLIMINAL buff + faster heal.
+    #[test]
+    fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaSpeakerTower");
+        tower_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(500, 0);
+        game_logic
+            .templates
+            .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+
+        let tower_id = game_logic
+            .create_object(
+                "ChinaSpeakerTower",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("speaker tower");
+        {
+            let tower = game_logic.find_object_mut(tower_id).expect("tower");
+            tower.apply_upgrade_tag(
+                crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            );
+        }
+
+        let unit_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("unit");
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let _ = unit.take_damage(40.0);
+        }
+        let before = game_logic
+            .find_object(unit_id)
+            .expect("unit")
+            .health
+            .current;
+
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+
+        let unit = game_logic.find_object(unit_id).expect("unit");
+        assert!(unit.weapon_bonus_enthusiastic);
+        assert!(
+            unit.weapon_bonus_subliminal,
+            "upgraded tower must grant SUBLIMINAL residual buff"
+        );
+        // 4% of max (80) per second * 1s = ~3.2 HP; base would be ~1.6.
+        assert!(
+            unit.health.current > before + 2.5,
+            "upgraded heal rate residual should exceed base (before={before}, after={})",
+            unit.health.current
+        );
+        assert!(game_logic.honesty_propaganda_ok());
+    }
+
+    /// Residual: HelixPropagandaTower name residual also heals nearby units.
+    /// (ChinaTankOverlordPropagandaTower is map-skip illegal; Helix name residual covers the path.)
+    #[test]
+    fn propaganda_tower_name_residual_helix_propaganda_heals() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaHelixPropagandaTower");
+        tower_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0)
+            .set_cost(0, 0);
+        game_logic
+            .templates
+            .insert("ChinaHelixPropagandaTower".to_string(), tower_tpl);
+
+        let _tower_id = game_logic
+            .create_object(
+                "ChinaHelixPropagandaTower",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("helix prop tower");
+        let unit_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
+            .expect("unit");
+        {
+            let unit = game_logic.find_object_mut(unit_id).expect("unit");
+            let _ = unit.take_damage(30.0);
+        }
+        let before = game_logic
+            .find_object(unit_id)
+            .expect("unit")
+            .health
+            .current;
+
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        let unit = game_logic.find_object(unit_id).expect("unit");
+        assert!(unit.health.current > before);
+        assert!(unit.weapon_bonus_enthusiastic);
+        assert!(game_logic.honesty_propaganda_ok());
+    }
+
     /// Residual: HealPad GetHealed recovers infantry HP and records heal-pad honesty.
     #[test]
     fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
@@ -19041,6 +19691,176 @@ mod tests {
                 "client ParticleSystemManager must hold systems after combat kill/fire"
             );
         }
+    }
+
+    /// Residual: cash bounty on kill awards cash to killer player.
+    /// C++ Player::doBountyForKill + CashBountyPower (SCIENCE_CashBounty*).
+    /// Fail-closed: not floating text / palace module matrix.
+    #[test]
+    fn cash_bounty_increases_cash_on_enemy_kill() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        // GLA SCIENCE_CashBounty3 residual = 20% of build cost.
+        assert!(
+            game_logic.force_set_player_cash_bounty(0, 0.20),
+            "must configure killer cash bounty"
+        );
+        assert!(
+            (game_logic
+                .get_player(0)
+                .expect("usa player")
+                .cash_bounty_percent
+                - 0.20)
+                .abs()
+                < 1e-6
+        );
+
+        let cash_before = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        // TestTank build_cost = 600 → 20% = 120 bounty.
+        let expected_bounty =
+            crate::game_logic::host_cash_bounty::compute_bounty_award(600, 0.20);
+        assert_eq!(expected_bounty, 120);
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 9999.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            target.health.current = 10.0;
+            target.health.maximum = 10.0;
+        }
+
+        game_logic.frame = 60;
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.find_object(target_id).is_none(),
+            "target must be removed after kill"
+        );
+
+        let cash_after = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert!(
+            cash_after > cash_before,
+            "killer cash must increase on bounty kill (before={cash_before}, after={cash_after})"
+        );
+        assert_eq!(
+            cash_after,
+            cash_before.saturating_add(expected_bounty),
+            "bounty must be ceil(build_cost * percent)"
+        );
+        assert!(
+            game_logic.honesty_cash_bounty_ok(),
+            "cash bounty residual honesty (configured + awarded)"
+        );
+        assert_eq!(
+            game_logic.cash_bounty_earned_total(),
+            expected_bounty,
+            "registry must track earned bounty total"
+        );
+    }
+
+    /// Residual: no cash bounty when percent is zero (fail-closed default).
+    #[test]
+    fn cash_bounty_zero_percent_does_not_award() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        let cash_before = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        let attacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("target");
+
+        {
+            let attacker = game_logic
+                .find_object_mut(attacker_id)
+                .expect("attacker exists");
+            attacker.attack_target(target_id);
+            attacker.weapon = Some(Weapon {
+                damage: 9999.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: 0.0,
+                ..Weapon::default()
+            });
+        }
+        {
+            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            target.health.current = 10.0;
+            target.health.maximum = 10.0;
+        }
+
+        game_logic.frame = 60;
+        game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.process_destroy_list();
+
+        let cash_after = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after, cash_before,
+            "no bounty when cash_bounty_percent is 0"
+        );
+        assert!(
+            !game_logic.honesty_cash_bounty_award_ok(),
+            "no award honesty when bounty disabled"
+        );
+    }
+
+    /// Residual: SCIENCE_CashBounty unlock raises player cash_bounty_percent.
+    #[test]
+    fn cash_bounty_science_unlock_sets_percent() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        let player = game_logic.get_player_mut(2).expect("gla player");
+        assert!((player.cash_bounty_percent - 0.0).abs() < 1e-6);
+        assert!(player.unlock_science("SCIENCE_CashBounty1"));
+        assert!((player.cash_bounty_percent - 0.05).abs() < 1e-6);
+        assert!(player.unlock_science("SCIENCE_CashBounty2"));
+        assert!((player.cash_bounty_percent - 0.10).abs() < 1e-6);
+        assert!(player.unlock_science("SCIENCE_CashBounty3"));
+        assert!((player.cash_bounty_percent - 0.20).abs() < 1e-6);
+        // Already unlocked — no change / false.
+        assert!(!player.unlock_science("SCIENCE_CashBounty3"));
+        assert!((player.cash_bounty_percent - 0.20).abs() < 1e-6);
     }
 
     #[test]
