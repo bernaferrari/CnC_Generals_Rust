@@ -7351,15 +7351,22 @@ impl GameLogic {
                         continue;
                     };
 
-                    let can_capture_buildings = self
+                    let (can_capture_buildings, is_lotus_captor) = self
                         .objects
                         .get(&object_id)
                         .map(|obj| {
-                            obj.is_hero()
-                                || (obj.is_kind_of(KindOf::Infantry)
-                                    && self.team_has_completed_capture_upgrade(obj.team))
+                            let is_lotus =
+                                crate::game_logic::host_hero_abilities::is_black_lotus_template(
+                                    &obj.template_name,
+                                );
+                            let can = crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
+                                obj.is_hero(),
+                                is_lotus,
+                            ) || (obj.is_kind_of(KindOf::Infantry)
+                                && self.team_has_completed_capture_upgrade(obj.team));
+                            (can, is_lotus || obj.is_hero())
                         })
-                        .unwrap_or(false);
+                        .unwrap_or((false, false));
                     if !can_capture_buildings {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
@@ -7407,7 +7414,13 @@ impl GameLogic {
                         continue;
                     }
 
-                    let capture_range = selection_radius + target_radius + CAPTURE_RANGE_PADDING;
+                    // Black Lotus / hero residual: StartAbilityRange 150.
+                    // Infantry residual: selection radii + small pad.
+                    let capture_range = if is_lotus_captor {
+                        crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
+                    } else {
+                        selection_radius + target_radius + CAPTURE_RANGE_PADDING
+                    };
                     if can_move && position.distance(target_position) > capture_range {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
@@ -7445,6 +7458,17 @@ impl GameLogic {
                     }
 
                     if did_capture {
+                        if is_lotus_captor {
+                            self.hero_abilities.record_building_capture();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_hero_abilities::CAPTURE_BUILDING_AUDIO,
+                                )
+                                .with_object(object_id)
+                                .with_position(position)
+                                .with_priority(160),
+                            );
+                        }
                         let msg =
                             localization::localize("hud.capture.complete", "Building captured");
                         self.queue_radar_message_for_team(team, msg);
@@ -7606,15 +7630,28 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Black Lotus cash hack: enemy structures only.
-                    if matches!(ability, PendingSpecialAbility::StealCashHack { .. })
-                        && !target_is_structure
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                    // Black Lotus cash hack: enemy cash-generator structures only.
+                    if matches!(ability, PendingSpecialAbility::StealCashHack { .. }) {
+                        let is_cash_gen = self
+                            .objects
+                            .get(&special_target_id)
+                            .map(|t| {
+                                crate::game_logic::host_hero_abilities::is_cash_hack_target(
+                                    &t.template_name,
+                                    t.is_kind_of(KindOf::SupplyCenter),
+                                    t.is_kind_of(KindOf::FSSupplyCenter),
+                                    t.is_kind_of(KindOf::FSBlackMarket),
+                                    t.is_kind_of(KindOf::FSSupplyDropzone),
+                                )
+                            })
+                            .unwrap_or(false);
+                        if !target_is_structure || !is_cash_gen {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
                         }
-                        continue;
                     }
 
                     // China Hacker DisableBuilding: enemy structures only; skip already-hacked.
@@ -7637,8 +7674,16 @@ impl GameLogic {
                         ability,
                         PendingSpecialAbility::HackerDisableBuilding { .. }
                     );
+                    // Black Lotus residual specials: StartAbilityRange 150.
+                    let black_lotus_range = matches!(
+                        ability,
+                        PendingSpecialAbility::StealCashHack { .. }
+                            | PendingSpecialAbility::DisableVehicleHack { .. }
+                    );
                     let interact_range = if hacker_disable_range {
                         crate::game_logic::host_hacker_disable::HACKER_DISABLE_START_ABILITY_RANGE
+                    } else if black_lotus_range {
+                        crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
                     } else {
                         selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING
                     };
@@ -20551,6 +20596,11 @@ impl GameLogic {
         self.hero_abilities.honesty_cash_steal_ok()
     }
 
+    /// Residual honesty: Black Lotus / hero CaptureBuilding completed at least once.
+    pub fn honesty_black_lotus_capture_ok(&self) -> bool {
+        self.hero_abilities.honesty_building_capture_ok()
+    }
+
     /// Host black market residual registry (deposits + honesty).
     pub fn black_markets(
         &self,
@@ -32082,13 +32132,30 @@ mod tests {
         assert!(!game_logic.hacker_income().is_hacking(id));
     }
 
+    /// Residual helper: ensure ChinaInfantryBlackLotus / TestBlackLotus template.
+    fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("ChinaInfantryBlackLotus") {
+            return;
+        }
+        let mut t = ThingTemplate::new("ChinaInfantryBlackLotus");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Hero)
+            .set_health(200.0)
+            .set_cost(1500, 0);
+        game_logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".to_string(), t);
+    }
+
     /// Residual: Black Lotus StealCashHack steals cash after reaching supply building.
     #[test]
     fn steal_cash_hack_command_transfers_cash_after_reach() {
         let mut game_logic = GameLogic::new();
-        ensure_test_tank_template(&mut game_logic);
+        ensure_test_black_lotus_template(&mut game_logic);
         ensure_test_structure_template(&mut game_logic);
-        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
         ensure_test_player_for_team(&mut game_logic, Team::GLA);
 
         // Seed victim cash so steal is observable on both sides.
@@ -32099,20 +32166,25 @@ mod tests {
             victim.resources.supplies = 5_000;
         }
         let attacker_cash_before = game_logic
-            .get_player_mut_by_team(Team::USA)
+            .get_player_mut_by_team(Team::China)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
 
         let lotus_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
             .expect("lotus should be created");
+        // TestBuilding is residual cash-generator template name.
         let target_id = game_logic
             .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("supply should be created");
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::StealCashHack { target_id },
-            player_id: 0,
+            player_id: 1,
             command_id: 1,
             timestamp: std::time::SystemTime::now(),
             selected_units: vec![lotus_id],
@@ -32125,12 +32197,23 @@ mod tests {
             0,
             "cash hack must not resolve at issue range"
         );
+        {
+            let lotus = game_logic
+                .find_object(lotus_id)
+                .expect("lotus should exist");
+            assert_eq!(
+                lotus.ai_state,
+                AIState::SpecialAbility,
+                "steal cash must enter SpecialAbility on issue"
+            );
+        }
 
+        // StartAbilityRange 150 residual: mid-range should still complete.
         {
             let lotus = game_logic
                 .find_object_mut(lotus_id)
                 .expect("lotus should exist");
-            lotus.set_position(Vec3::new(2.0, 0.0, 0.0));
+            lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.ai_state = AIState::SpecialAbility;
             lotus.target = Some(target_id);
         }
@@ -32140,10 +32223,14 @@ mod tests {
             game_logic.honesty_steal_cash_ok(),
             "steal cash residual honesty"
         );
+        assert_eq!(
+            game_logic.hero_abilities().cash_stolen_total,
+            crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT
+        );
         let attacker_cash_after = game_logic
             .players
             .values()
-            .find(|p| p.team == Team::USA)
+            .find(|p| p.team == Team::China)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
         assert!(
@@ -32162,15 +32249,92 @@ mod tests {
         );
     }
 
+    /// Residual polish: non-Lotus units cannot issue StealCashHack (fail-closed).
+    #[test]
+    fn steal_cash_hack_rejects_non_lotus_and_non_cash_targets() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_black_lotus_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("tank");
+        let supply_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("supply");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Non-lotus unit cannot steal.
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::StealCashHack {
+                target_id: supply_id,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        {
+            let tank = game_logic.find_object(tank_id).expect("tank");
+            assert_ne!(
+                tank.ai_state,
+                AIState::SpecialAbility,
+                "non-lotus must not enter StealCashHack"
+            );
+        }
+
+        // Lotus cannot steal from non-cash-generator barracks.
+        let lotus_id = game_logic
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("lotus");
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::StealCashHack {
+                target_id: barracks_id,
+            },
+            player_id: 1,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![lotus_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        {
+            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            assert_ne!(
+                lotus.ai_state,
+                AIState::SpecialAbility,
+                "steal cash rejects non-cash-generator structure"
+            );
+        }
+        assert!(!game_logic.honesty_steal_cash_ok());
+    }
+
     /// Residual: Black Lotus DisableVehicleHack walks to enemy vehicle → DISABLED_HACKED.
     #[test]
     fn disable_vehicle_hack_command_disables_after_reach() {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
+        ensure_test_black_lotus_template(&mut game_logic);
 
-        // Mirror snipe/hijack residual tests: USA actor vs GLA vehicle.
+        // China Lotus vs GLA vehicle residual.
         let lotus_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(190.0, 0.0, 0.0))
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                Vec3::new(190.0, 0.0, 0.0),
+            )
             .expect("lotus should be created");
         let target_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -32184,7 +32348,7 @@ mod tests {
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DisableVehicleHack { target_id },
-            player_id: 0,
+            player_id: 1,
             command_id: 1,
             timestamp: std::time::SystemTime::now(),
             selected_units: vec![lotus_id],
@@ -32213,6 +32377,7 @@ mod tests {
         );
         assert!(!game_logic.honesty_disable_vehicle_hack_ok());
 
+        // Beyond StartAbilityRange 150 — stays pending.
         game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
         assert!(
             !game_logic
@@ -32222,11 +32387,12 @@ mod tests {
             "disable hack stays pending out of range"
         );
 
+        // Within StartAbilityRange 150 residual (not melee pad).
         {
             let lotus = game_logic
                 .find_object_mut(lotus_id)
                 .expect("lotus should exist");
-            lotus.set_position(Vec3::new(2.0, 0.0, 0.0));
+            lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.ai_state = AIState::SpecialAbility;
             lotus.target = Some(target_id);
         }
@@ -32274,6 +32440,129 @@ mod tests {
             recovered.can_move(),
             "recovered vehicle can move again"
         );
+    }
+
+    /// Residual: Black Lotus CaptureBuilding without Capture research (range 150).
+    #[test]
+    fn black_lotus_capture_building_without_upgrade() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_black_lotus_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        // No Capture upgrade on China team — Lotus still captures via hero residual.
+        assert!(!game_logic.team_has_completed_capture_upgrade(Team::China));
+
+        let lotus_id = game_logic
+            .create_object(
+                "ChinaInfantryBlackLotus",
+                Team::China,
+                Vec3::new(200.0, 0.0, 0.0),
+            )
+            .expect("lotus");
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![lotus_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            assert_eq!(
+                lotus.ai_state,
+                AIState::Capturing,
+                "Black Lotus CaptureBuilding must enter Capturing without upgrade"
+            );
+            assert_eq!(lotus.target, Some(building_id));
+        }
+        assert!(!game_logic.honesty_black_lotus_capture_ok());
+
+        // Beyond StartAbilityRange 150 — still walking.
+        game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
+        assert_eq!(
+            game_logic
+                .find_object(building_id)
+                .expect("building")
+                .team,
+            Team::GLA,
+            "capture must not complete out of StartAbilityRange"
+        );
+
+        // Within residual range 150.
+        {
+            let lotus = game_logic
+                .find_object_mut(lotus_id)
+                .expect("lotus");
+            lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+            lotus.ai_state = AIState::Capturing;
+            lotus.target = Some(building_id);
+        }
+        game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
+
+        assert_eq!(
+            game_logic
+                .find_object(building_id)
+                .expect("building")
+                .team,
+            Team::China,
+            "Black Lotus residual capture must transfer ownership"
+        );
+        assert!(
+            game_logic.honesty_black_lotus_capture_ok(),
+            "capture residual honesty"
+        );
+        assert_eq!(game_logic.hero_abilities().building_captures, 1);
+        {
+            let lotus = game_logic.find_object(lotus_id).expect("lotus");
+            assert_ne!(
+                lotus.ai_state,
+                AIState::Capturing,
+                "captor leaves Capturing after complete"
+            );
+        }
+    }
+
+    /// Residual polish: non-Lotus cannot issue DisableVehicleHack (fail-closed).
+    #[test]
+    fn disable_vehicle_hack_rejects_non_lotus() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let actor_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("actor");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("target");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DisableVehicleHack { target_id },
+            player_id: 1,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![actor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let actor = game_logic.find_object(actor_id).expect("actor");
+        assert_ne!(
+            actor.ai_state,
+            AIState::SpecialAbility,
+            "non-lotus must not DisableVehicleHack"
+        );
+        assert!(!game_logic.honesty_disable_vehicle_hack_ok());
     }
 
     /// Residual E2E: enemy weapons jammed near China ECM tank residual field.
