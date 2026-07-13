@@ -7,12 +7,16 @@
 //!   sticky timed charge (reuses host_mines TimedDemoCharge residual).
 //! - Black Lotus `StealCashHack`: walk to enemy supply/cash building → steal
 //!   a fixed residual cash amount into the hero's player resources.
+//! - Black Lotus `DisableVehicleHack`: walk to enemy ground vehicle → apply
+//!   DISABLED_HACKED for EffectDuration residual (30s / 900 logic frames);
+//!   vehicle cannot move or attack until the timer expires.
 //!
 //! Fail-closed honesty:
 //! - Not full SpecialAbilityUpdate preparation timers / packing / flee-after-plant
 //! - Not full StickyBombUpdate attach bones / geometry splash / remote-detonate UI
 //! - Not full CashHackSpecialPower science upgrade money matrix
 //! - Not combat-bike rider-eject / academy sniped-vehicle stats
+//! - Not full laser attach / disable FX particle interleave / VoiceDisableVehicleComplete
 
 use super::ObjectId;
 use glam::Vec3;
@@ -25,11 +29,22 @@ pub const HERO_ABILITY_LOGIC_FPS: f32 = 30.0;
 /// default MoneyAmount residual; fail-closed vs upgrade matrix).
 pub const STEAL_CASH_DEFAULT_AMOUNT: u32 = 1000;
 
+/// C++ SpecialAbilityUpdate EffectDuration = 30000 ms for
+/// SpecialAbilityBlackLotusDisableVehicleHack (30 seconds at 30 FPS logic).
+pub const DISABLE_VEHICLE_HACK_DURATION_MS: u32 = 30_000;
+
+/// Logic-frame residual of EffectDuration (ms * 30 / 1000).
+pub const DISABLE_VEHICLE_HACK_DURATION_FRAMES: u32 =
+    (DISABLE_VEHICLE_HACK_DURATION_MS * 30) / 1000;
+
 /// Audio residual when a vehicle pilot is sniped (host-side cue name).
 pub const SNIPE_VEHICLE_AUDIO: &str = "UnitSniped";
 
 /// Audio residual when Black Lotus completes cash steal.
 pub const STEAL_CASH_AUDIO: &str = "BlackLotusStealCash";
+
+/// Audio residual when Black Lotus completes vehicle disable hack.
+pub const DISABLE_VEHICLE_HACK_AUDIO: &str = "BlackLotusDisableVehicle";
 
 /// Host residual honesty counters for hero special abilities.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -42,6 +57,8 @@ pub struct HostHeroAbilityRegistry {
     pub cash_steals: u32,
     /// Total cash transferred via residual cash-hack.
     pub cash_stolen_total: u32,
+    /// Black Lotus disable-vehicle hacks completed.
+    pub vehicle_disables: u32,
 }
 
 impl HostHeroAbilityRegistry {
@@ -66,6 +83,10 @@ impl HostHeroAbilityRegistry {
         self.cash_stolen_total = self.cash_stolen_total.saturating_add(amount);
     }
 
+    pub fn record_vehicle_disable(&mut self) {
+        self.vehicle_disables = self.vehicle_disables.saturating_add(1);
+    }
+
     /// Residual honesty: at least one snipe unmanned a vehicle.
     pub fn honesty_snipe_ok(&self) -> bool {
         self.snipe_kills > 0
@@ -81,11 +102,17 @@ impl HostHeroAbilityRegistry {
         self.cash_steals > 0 && self.cash_stolen_total > 0
     }
 
+    /// Residual honesty: at least one vehicle disable hack completed.
+    pub fn honesty_vehicle_disable_ok(&self) -> bool {
+        self.vehicle_disables > 0
+    }
+
     /// Combined hero residual path honesty (any hero ability observed).
     pub fn honesty_any_ok(&self) -> bool {
         self.honesty_snipe_ok()
             || self.honesty_timed_charge_plant_ok()
             || self.honesty_cash_steal_ok()
+            || self.honesty_vehicle_disable_ok()
     }
 }
 
@@ -132,6 +159,9 @@ mod tests {
         assert_eq!(reg.cash_stolen_total, 500);
         reg.record_timed_charge_plant();
         assert!(reg.honesty_timed_charge_plant_ok());
+        reg.record_vehicle_disable();
+        assert!(reg.honesty_vehicle_disable_ok());
+        assert_eq!(DISABLE_VEHICLE_HACK_DURATION_FRAMES, 900);
     }
 
     #[test]
