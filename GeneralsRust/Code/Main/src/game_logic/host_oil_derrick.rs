@@ -18,6 +18,15 @@
 //! Residual structure geometry scatter (AutoDepositUpdate for KINDOF_STRUCTURE):
 //! - Floating cash text offset by ±0.3 × major/minor radius (deterministic residual).
 //!
+//! Wave 64 residual pack (retail CivilianBuilding.ini honesty):
+//! - Body: MaxHealth **2000**, ShroudClearingRange **100**, Geometry BOX **23**/ **21**/ **30**
+//! - AutoDeposit: DepositTiming **12000**ms → **360**f, DepositAmount **200**,
+//!   InitialCaptureBonus **1000**, SupplyLines Boost **+20**
+//! - Floating text: GUI:AddCash, Z lift **10**, alpha **230**, scatter scale **0.3**
+//! - Flammable residual: FlameDamageLimit **20**, Expiration **2000**ms → **60**f,
+//!   AflameDuration **5000**ms → **150**f, DamageAmount **25**, DamageDelay **500**ms → **15**f
+//! - Death FX residual: WeaponFX_BombTruckDefaultBombDetonation / FX_BuildingDie
+//!
 //! Fail-closed honesty:
 //! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
 //! - Not full GeometryInfo major/minor matrix / GameClientRandomValue stream
@@ -74,6 +83,47 @@ pub const OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE: f32 = 0.3;
 /// Default residual structure major/minor radius when GeometryInfo is unavailable
 /// (fail-closed host residual; TechOilDerrick footprint proxy).
 pub const OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS: f32 = 25.0;
+
+/// Retail ActiveBody MaxHealth residual.
+pub const OIL_DERRICK_MAX_HEALTH: f32 = 2000.0;
+/// Retail ShroudClearingRange residual.
+pub const OIL_DERRICK_SHROUD_CLEARING_RANGE: f32 = 100.0;
+/// Retail GeometryMajorRadius residual.
+pub const OIL_DERRICK_GEOMETRY_MAJOR_RADIUS: f32 = 23.0;
+/// Retail GeometryMinorRadius residual.
+pub const OIL_DERRICK_GEOMETRY_MINOR_RADIUS: f32 = 21.0;
+/// Retail GeometryHeight residual.
+pub const OIL_DERRICK_GEOMETRY_HEIGHT: f32 = 30.0;
+
+/// Retail FlammableUpdate FlameDamageLimit residual.
+pub const OIL_DERRICK_FLAME_DAMAGE_LIMIT: f32 = 20.0;
+/// Retail FlameDamageExpiration residual (msec).
+pub const OIL_DERRICK_FLAME_DAMAGE_EXPIRATION_MS: u32 = 2000;
+/// FlameDamageExpiration 2000ms → 60 frames @ 30 FPS.
+pub const OIL_DERRICK_FLAME_DAMAGE_EXPIRATION_FRAMES: u32 = 60;
+/// Retail AflameDuration residual (msec).
+pub const OIL_DERRICK_AFLAME_DURATION_MS: u32 = 5000;
+/// AflameDuration 5000ms → 150 frames @ 30 FPS.
+pub const OIL_DERRICK_AFLAME_DURATION_FRAMES: u32 = 150;
+/// Retail AflameDamageAmount residual.
+pub const OIL_DERRICK_AFLAME_DAMAGE_AMOUNT: f32 = 25.0;
+/// Retail AflameDamageDelay residual (msec).
+pub const OIL_DERRICK_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
+/// AflameDamageDelay 500ms → 15 frames @ 30 FPS.
+pub const OIL_DERRICK_AFLAME_DAMAGE_DELAY_FRAMES: u32 = 15;
+
+/// Retail death FX residual (WeaponFX_BombTruckDefaultBombDetonation).
+pub const OIL_DERRICK_DEATH_FX: &str = "WeaponFX_BombTruckDefaultBombDetonation";
+/// Retail secondary death FX residual.
+pub const OIL_DERRICK_BUILDING_DIE_FX: &str = "FX_BuildingDie";
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn oil_derrick_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / OIL_DERRICK_LOGIC_FPS)).round() as u32
+}
 
 /// Residual structure floating-text scatter (C++ GameClientRandomValue
 /// ± width/depth for KINDOF_STRUCTURE). Returns host XZ offset.
@@ -438,6 +488,62 @@ impl HostOilDerrickRegistry {
     }
 }
 
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: AutoDeposit income residual.
+pub fn honesty_oil_derrick_deposit_residual_ok() -> bool {
+    OIL_DERRICK_DEPOSIT_AMOUNT == 200
+        && OIL_DERRICK_DEPOSIT_TIMING_MS == 12_000
+        && OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES
+            == oil_derrick_ms_to_frames(OIL_DERRICK_DEPOSIT_TIMING_MS)
+        && OIL_DERRICK_INITIAL_CAPTURE_BONUS == 1000
+        && OIL_DERRICK_SUPPLY_LINES_BOOST == 20
+        && OIL_DERRICK_SUPPLY_LINES_UPGRADE == "Upgrade_AmericaSupplyLines"
+        && oil_derrick_deposit_amount(false) == (200, 0)
+        && oil_derrick_deposit_amount(true) == (220, 20)
+}
+
+/// Wave 64 residual honesty: body / geometry residual.
+pub fn honesty_oil_derrick_body_residual_ok() -> bool {
+    (OIL_DERRICK_MAX_HEALTH - 2000.0).abs() < 0.01
+        && (OIL_DERRICK_SHROUD_CLEARING_RANGE - 100.0).abs() < 0.01
+        && (OIL_DERRICK_GEOMETRY_MAJOR_RADIUS - 23.0).abs() < 0.01
+        && (OIL_DERRICK_GEOMETRY_MINOR_RADIUS - 21.0).abs() < 0.01
+        && (OIL_DERRICK_GEOMETRY_HEIGHT - 30.0).abs() < 0.01
+        && is_oil_derrick_template("TechOilDerrick")
+}
+
+/// Wave 64 residual honesty: floating cash text residual constants.
+pub fn honesty_oil_derrick_floating_text_residual_ok() -> bool {
+    HostOilDerrickRegistry::honesty_floating_text_constants_ok()
+        && (OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001
+}
+
+/// Wave 64 residual honesty: flammable / death FX residual.
+pub fn honesty_oil_derrick_flammable_death_residual_ok() -> bool {
+    (OIL_DERRICK_FLAME_DAMAGE_LIMIT - 20.0).abs() < 0.01
+        && OIL_DERRICK_FLAME_DAMAGE_EXPIRATION_MS == 2000
+        && OIL_DERRICK_FLAME_DAMAGE_EXPIRATION_FRAMES
+            == oil_derrick_ms_to_frames(OIL_DERRICK_FLAME_DAMAGE_EXPIRATION_MS)
+        && OIL_DERRICK_AFLAME_DURATION_MS == 5000
+        && OIL_DERRICK_AFLAME_DURATION_FRAMES
+            == oil_derrick_ms_to_frames(OIL_DERRICK_AFLAME_DURATION_MS)
+        && (OIL_DERRICK_AFLAME_DAMAGE_AMOUNT - 25.0).abs() < 0.01
+        && OIL_DERRICK_AFLAME_DAMAGE_DELAY_MS == 500
+        && OIL_DERRICK_AFLAME_DAMAGE_DELAY_FRAMES
+            == oil_derrick_ms_to_frames(OIL_DERRICK_AFLAME_DAMAGE_DELAY_MS)
+        && OIL_DERRICK_DEATH_FX == "WeaponFX_BombTruckDefaultBombDetonation"
+        && OIL_DERRICK_BUILDING_DIE_FX == "FX_BuildingDie"
+}
+
+/// Combined Wave 64 Oil Derrick residual honesty pack.
+pub fn honesty_oil_derrick_residual_pack_ok() -> bool {
+    honesty_oil_derrick_deposit_residual_ok()
+        && honesty_oil_derrick_body_residual_ok()
+        && honesty_oil_derrick_floating_text_residual_ok()
+        && honesty_oil_derrick_flammable_death_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,5 +700,18 @@ mod tests {
         assert!(reg.honesty_geometry_scatter_ok());
         assert!(reg.honesty_floating_text_ok());
         assert_eq!(reg.geometry_scatter_applications, 1);
+    }
+
+    #[test]
+    fn oil_derrick_residual_pack_honesty() {
+        assert_eq!(oil_derrick_ms_to_frames(12_000), 360);
+        assert_eq!(oil_derrick_ms_to_frames(2000), 60);
+        assert_eq!(oil_derrick_ms_to_frames(5000), 150);
+        assert_eq!(oil_derrick_ms_to_frames(500), 15);
+        assert!(honesty_oil_derrick_deposit_residual_ok());
+        assert!(honesty_oil_derrick_body_residual_ok());
+        assert!(honesty_oil_derrick_floating_text_residual_ok());
+        assert!(honesty_oil_derrick_flammable_death_residual_ok());
+        assert!(honesty_oil_derrick_residual_pack_ok());
     }
 }

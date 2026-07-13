@@ -8,6 +8,18 @@
 //! - Structure PRIMARY `TunnelNetworkGun` residual auto-fire (dmg **15** /
 //!   range **175** / Delay **250**ms → 8 frames) via base-defense residual path
 //!
+//! Wave 64 residual pack (retail FactionBuilding.ini / Weapon.ini / GameData.ini):
+//! - Body: MaxHealth **1000**, BuildCost **800**, BuildTime **15**s → **450**f,
+//!   Vision/Shroud **200**, EnergyProduction **0**, TurretTurnRate **180**
+//! - TunnelContain: TimeForFullHeal **5000**ms → **150**f, MaxTunnelCapacity **10**
+//! - TunnelNetworkGun: dmg **15** / range **175** / Delay **250**ms → **8**f /
+//!   WeaponSpeed **600** / FireSound HumveeWeapon / FireFX WeaponFX_TechnicalGunFire
+//! - StealthDetectorUpdate: DetectionRate **500**ms → **15**f, DetectionRange **150**
+//! - SpawnBehavior residual: SpawnNumber **2**, GLAInfantryTunnelDefender OneShot
+//! - CamoNetting residual: Upgrade_GLACamoNetting, StealthDelay **2500**ms → **75**f,
+//!   Forbidden ATTACKING USING_ABILITY TAKING_DAMAGE
+//! - RebuildHole residual: GLAHoleTunnelNetwork HoleMaxHealth **500**
+//!
 //! Fail-closed honesty:
 //! - Not full GuardTunnelNetwork AI / AITNGuard nemesis path
 //! - Not full TimeForFullHeal matrix / healObjects tick
@@ -20,9 +32,14 @@ use super::{ObjectId, Team, Weapon};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Logic frames per second (host fixed step).
+pub const TUNNEL_NETWORK_LOGIC_FPS: f32 = 30.0;
+
 /// C++ `GameData.ini` `MaxTunnelCapacity = 10`.
 pub const MAX_TUNNEL_CAPACITY: usize = 10;
 
+/// Residual of TunnelContain `TimeForFullHeal = 5000` ms.
+pub const TUNNEL_FULL_HEAL_MS: u32 = 5000;
 /// Residual of TunnelContain `TimeForFullHeal = 5000` ms → frames @ 30 FPS.
 /// Fail-closed: heal tick not required for enter/exit honesty.
 pub const TUNNEL_FULL_HEAL_FRAMES: u32 = 150;
@@ -33,10 +50,69 @@ pub const TUNNEL_NETWORK_GUN: &str = "TunnelNetworkGun";
 pub const TUNNEL_NETWORK_GUN_DAMAGE: f32 = 15.0;
 /// Retail TunnelNetworkGun AttackRange.
 pub const TUNNEL_NETWORK_GUN_RANGE: f32 = 175.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TUNNEL_NETWORK_GUN_DELAY_MS: u32 = 250;
 /// Retail DelayBetweenShots 250ms → 8 frames @ 30 FPS.
 pub const TUNNEL_NETWORK_GUN_DELAY_FRAMES: u32 = 8;
+/// Retail WeaponSpeed residual (dist/sec).
+pub const TUNNEL_NETWORK_GUN_WEAPON_SPEED: f32 = 600.0;
 /// Residual fire audio (retail FireSound = HumveeWeapon).
 pub const TUNNEL_NETWORK_GUN_AUDIO: &str = "HumveeWeapon";
+/// Retail FireFX residual.
+pub const TUNNEL_NETWORK_GUN_FIRE_FX: &str = "WeaponFX_TechnicalGunFire";
+
+/// Retail StructureBody MaxHealth residual.
+pub const TUNNEL_NETWORK_MAX_HEALTH: f32 = 1000.0;
+/// Retail BuildCost residual.
+pub const TUNNEL_NETWORK_BUILD_COST: u32 = 800;
+/// Retail BuildTime residual (seconds).
+pub const TUNNEL_NETWORK_BUILD_TIME_SEC: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS.
+pub const TUNNEL_NETWORK_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail EnergyProduction residual.
+pub const TUNNEL_NETWORK_ENERGY_PRODUCTION: i32 = 0;
+/// Retail VisionRange residual.
+pub const TUNNEL_NETWORK_VISION_RANGE: f32 = 200.0;
+/// Retail ShroudClearingRange residual.
+pub const TUNNEL_NETWORK_SHROUD_CLEARING_RANGE: f32 = 200.0;
+/// Retail AIUpdateInterface TurretTurnRate residual (deg/sec).
+pub const TUNNEL_NETWORK_TURRET_TURN_RATE: f32 = 180.0;
+
+/// Retail StealthDetectorUpdate DetectionRate residual (msec).
+pub const TUNNEL_NETWORK_DETECTION_RATE_MS: u32 = 500;
+/// DetectionRate 500ms → 15 frames @ 30 FPS.
+pub const TUNNEL_NETWORK_DETECTION_RATE_FRAMES: u32 = 15;
+/// Retail StealthDetectorUpdate DetectionRange residual.
+pub const TUNNEL_NETWORK_DETECTION_RANGE: f32 = 150.0;
+
+/// Retail SpawnBehavior SpawnNumber residual.
+pub const TUNNEL_NETWORK_SPAWN_NUMBER: u32 = 2;
+/// Retail SpawnTemplateName residual.
+pub const TUNNEL_NETWORK_SPAWN_TEMPLATE: &str = "GLAInfantryTunnelDefender";
+/// Retail SpawnBehavior OneShot residual.
+pub const TUNNEL_NETWORK_SPAWN_ONE_SHOT: bool = true;
+
+/// Retail StealthUpgrade TriggeredBy residual.
+pub const TUNNEL_NETWORK_CAMO_NETTING_UPGRADE: &str = "Upgrade_GLACamoNetting";
+/// Retail StealthUpdate StealthDelay residual (msec).
+pub const TUNNEL_NETWORK_STEALTH_DELAY_MS: u32 = 2500;
+/// StealthDelay 2500ms → 75 frames @ 30 FPS.
+pub const TUNNEL_NETWORK_STEALTH_DELAY_FRAMES: u32 = 75;
+/// Retail StealthForbiddenConditions residual tokens.
+pub const TUNNEL_NETWORK_STEALTH_FORBIDDEN: &str = "ATTACKING USING_ABILITY TAKING_DAMAGE";
+
+/// Retail RebuildHoleExposeDie HoleName residual.
+pub const TUNNEL_NETWORK_HOLE_NAME: &str = "GLAHoleTunnelNetwork";
+/// Retail RebuildHoleExposeDie HoleMaxHealth residual.
+pub const TUNNEL_NETWORK_HOLE_MAX_HEALTH: f32 = 500.0;
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn tunnel_network_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / TUNNEL_NETWORK_LOGIC_FPS)).round() as u32
+}
 
 /// Host residual honesty counters + per-team shared contain state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -201,14 +277,80 @@ pub fn tunnel_network_gun_weapon() -> Weapon {
         damage: TUNNEL_NETWORK_GUN_DAMAGE,
         range: TUNNEL_NETWORK_GUN_RANGE,
         min_range: 0.0,
-        reload_time: TUNNEL_NETWORK_GUN_DELAY_FRAMES as f32 / 30.0,
+        reload_time: TUNNEL_NETWORK_GUN_DELAY_FRAMES as f32 / TUNNEL_NETWORK_LOGIC_FPS,
         last_fire_time: 0.0,
         ammo: None,
         can_target_air: false,
         can_target_ground: true,
-        projectile_speed: 600.0,
+        projectile_speed: TUNNEL_NETWORK_GUN_WEAPON_SPEED,
         pre_attack_delay: 0.0,
     }
+}
+
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: TunnelNetworkGun residual.
+pub fn honesty_tunnel_network_gun_residual_ok() -> bool {
+    TUNNEL_NETWORK_GUN == "TunnelNetworkGun"
+        && (TUNNEL_NETWORK_GUN_DAMAGE - 15.0).abs() < 0.01
+        && (TUNNEL_NETWORK_GUN_RANGE - 175.0).abs() < 0.01
+        && TUNNEL_NETWORK_GUN_DELAY_MS == 250
+        && TUNNEL_NETWORK_GUN_DELAY_FRAMES
+            == tunnel_network_ms_to_frames(TUNNEL_NETWORK_GUN_DELAY_MS)
+        && (TUNNEL_NETWORK_GUN_WEAPON_SPEED - 600.0).abs() < 0.01
+        && TUNNEL_NETWORK_GUN_AUDIO == "HumveeWeapon"
+        && TUNNEL_NETWORK_GUN_FIRE_FX == "WeaponFX_TechnicalGunFire"
+}
+
+/// Wave 64 residual honesty: TunnelContain + capacity residual.
+pub fn honesty_tunnel_network_contain_residual_ok() -> bool {
+    MAX_TUNNEL_CAPACITY == 10
+        && TUNNEL_FULL_HEAL_MS == 5000
+        && TUNNEL_FULL_HEAL_FRAMES == tunnel_network_ms_to_frames(TUNNEL_FULL_HEAL_MS)
+}
+
+/// Wave 64 residual honesty: body / build residual.
+pub fn honesty_tunnel_network_body_residual_ok() -> bool {
+    (TUNNEL_NETWORK_MAX_HEALTH - 1000.0).abs() < 0.01
+        && TUNNEL_NETWORK_BUILD_COST == 800
+        && (TUNNEL_NETWORK_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && TUNNEL_NETWORK_BUILD_TIME_FRAMES
+            == (TUNNEL_NETWORK_BUILD_TIME_SEC * TUNNEL_NETWORK_LOGIC_FPS).round() as u32
+        && TUNNEL_NETWORK_ENERGY_PRODUCTION == 0
+        && (TUNNEL_NETWORK_VISION_RANGE - 200.0).abs() < 0.01
+        && (TUNNEL_NETWORK_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && (TUNNEL_NETWORK_TURRET_TURN_RATE - 180.0).abs() < 0.01
+}
+
+/// Wave 64 residual honesty: detector + spawn residual.
+pub fn honesty_tunnel_network_detector_spawn_residual_ok() -> bool {
+    TUNNEL_NETWORK_DETECTION_RATE_MS == 500
+        && TUNNEL_NETWORK_DETECTION_RATE_FRAMES
+            == tunnel_network_ms_to_frames(TUNNEL_NETWORK_DETECTION_RATE_MS)
+        && (TUNNEL_NETWORK_DETECTION_RANGE - 150.0).abs() < 0.01
+        && TUNNEL_NETWORK_SPAWN_NUMBER == 2
+        && TUNNEL_NETWORK_SPAWN_TEMPLATE == "GLAInfantryTunnelDefender"
+        && TUNNEL_NETWORK_SPAWN_ONE_SHOT
+}
+
+/// Wave 64 residual honesty: CamoNetting + rebuild hole residual.
+pub fn honesty_tunnel_network_camo_hole_residual_ok() -> bool {
+    TUNNEL_NETWORK_CAMO_NETTING_UPGRADE == "Upgrade_GLACamoNetting"
+        && TUNNEL_NETWORK_STEALTH_DELAY_MS == 2500
+        && TUNNEL_NETWORK_STEALTH_DELAY_FRAMES
+            == tunnel_network_ms_to_frames(TUNNEL_NETWORK_STEALTH_DELAY_MS)
+        && TUNNEL_NETWORK_STEALTH_FORBIDDEN == "ATTACKING USING_ABILITY TAKING_DAMAGE"
+        && TUNNEL_NETWORK_HOLE_NAME == "GLAHoleTunnelNetwork"
+        && (TUNNEL_NETWORK_HOLE_MAX_HEALTH - 500.0).abs() < 0.01
+}
+
+/// Combined Wave 64 Tunnel Network residual honesty pack.
+pub fn honesty_tunnel_network_residual_pack_ok() -> bool {
+    honesty_tunnel_network_gun_residual_ok()
+        && honesty_tunnel_network_contain_residual_ok()
+        && honesty_tunnel_network_body_residual_ok()
+        && honesty_tunnel_network_detector_spawn_residual_ok()
+        && honesty_tunnel_network_camo_hole_residual_ok()
 }
 
 /// True when template is a GLA (or general) Tunnel Network residual structure.
@@ -308,5 +450,19 @@ mod tests {
         reg.record_exit(Team::GLA, u1, t1);
         assert!(reg.honesty_enter_exit_ok());
         assert!(!reg.honesty_cross_exit_ok());
+    }
+
+    #[test]
+    fn tunnel_network_residual_pack_honesty() {
+        assert_eq!(tunnel_network_ms_to_frames(250), 8);
+        assert_eq!(tunnel_network_ms_to_frames(500), 15);
+        assert_eq!(tunnel_network_ms_to_frames(2500), 75);
+        assert_eq!(tunnel_network_ms_to_frames(5000), 150);
+        assert!(honesty_tunnel_network_gun_residual_ok());
+        assert!(honesty_tunnel_network_contain_residual_ok());
+        assert!(honesty_tunnel_network_body_residual_ok());
+        assert!(honesty_tunnel_network_detector_spawn_residual_ok());
+        assert!(honesty_tunnel_network_camo_hole_residual_ok());
+        assert!(honesty_tunnel_network_residual_pack_ok());
     }
 }
