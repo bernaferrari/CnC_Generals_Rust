@@ -696,6 +696,10 @@ pub struct GameLogic {
     /// Fail-closed: not full OCL RepairVehicles invisible marker / RepairCloud path.
     emergency_repairs: crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry,
 
+    /// Host Cleanup Area residual — clear toxin/radiation fields + mines at location.
+    /// Fail-closed: not full CleanupHazardUpdate projectile stream / scan loop.
+    cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry,
+
     /// Host GLA GPS Scrambler residual — GrantStealth ally vehicles/infantry in radius.
     /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
     gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
@@ -1583,6 +1587,7 @@ impl GameLogic {
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
             emergency_repairs:
                 crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry::new(),
+            cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry::new(),
             gps_scramblers:
                 crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
             base_defense_residual_fires: 0,
@@ -1758,6 +1763,7 @@ impl GameLogic {
         self.ecm_residual_jams = 0;
         self.emp_pulses.clear();
         self.frenzies.clear();
+        self.cleanup_areas.clear();
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
         self.point_defense_next_ready_frame.clear();
@@ -11169,6 +11175,149 @@ impl GameLogic {
         self.emergency_repairs.honesty_host_path_ok()
     }
 
+    /// Host Cleanup Area residual registry (activate + honesty).
+    pub fn cleanup_areas(
+        &self,
+    ) -> &crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry {
+        &self.cleanup_areas
+    }
+
+    /// Residual honesty: CleanupArea activated at least once.
+    pub fn honesty_cleanup_area_activate_ok(&self) -> bool {
+        self.cleanup_areas.honesty_activate_ok()
+    }
+
+    /// Residual honesty: CleanupArea cleared at least one hazard/mine.
+    pub fn honesty_cleanup_area_clear_ok(&self) -> bool {
+        self.cleanup_areas.honesty_clear_ok()
+    }
+
+    /// Combined host path honesty for Cleanup Area residual.
+    pub fn honesty_cleanup_area_ok(&self) -> bool {
+        self.cleanup_areas.honesty_host_path_ok()
+    }
+
+    /// Activate Cleanup Area residual: clear toxin/radiation fields and mines
+    /// at `location` (retail CleanupAreaPower → CleanupHazardUpdate residual).
+    ///
+    /// Fail-closed: not full CleanupStreamProjectile / scan loop / HAZARD_CLEANUP
+    /// damage-to-object matrix / rubble pathfind clear.
+    /// Returns true when the residual activation was recorded (even if 0 clears —
+    /// empty-area order still counts as activate honesty).
+    pub fn activate_cleanup_area(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_cleanup_area::{
+            is_cleanup_area_caster, HostCleanupArea, CLEANUP_AREA_ACTIVATE_AUDIO,
+            CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
+            HOST_CLEANUP_MAX_MOVE_DISTANCE,
+        };
+
+        // Fail-closed caster gate: ambulance / dozer / worker residual only.
+        if let Some(cid) = caster_id {
+            let Some(caster) = self.objects.get(&cid) else {
+                return false;
+            };
+            if !caster.is_alive() || !is_cleanup_area_caster(&caster.template_name) {
+                return false;
+            }
+            // Optional range residual: caster must be within MaxMoveDistance of order.
+            let cpos = caster.get_position();
+            let dx = cpos.x - location.x;
+            let dz = cpos.z - location.z;
+            if dx * dx + dz * dz
+                > HOST_CLEANUP_MAX_MOVE_DISTANCE * HOST_CLEANUP_MAX_MOVE_DISTANCE
+            {
+                return false;
+            }
+        }
+
+        let frame = self.frame;
+        let radius = HOST_CLEANUP_AREA_RADIUS;
+
+        // Clear residual radiation + toxin fields in radius.
+        let radiation_cleared = self
+            .special_power_strikes
+            .clear_radiation_fields_in_radius(location, radius);
+        let toxin_cleared = self
+            .special_power_strikes
+            .clear_toxin_fields_in_radius(location, radius);
+
+        // Clear residual enemy/neutral mines in radius (safe disarm, no splash).
+        let mut mines_to_clear: Vec<ObjectId> = Vec::new();
+        for (id, obj) in &self.objects {
+            if !obj.is_alive() {
+                continue;
+            }
+            let Some(mine) = obj.mine_data.as_ref() else {
+                continue;
+            };
+            if mine.detonated {
+                continue;
+            }
+            // Never clear own/ally residual mines.
+            if let Some(cid) = caster_id {
+                if let Some(caster) = self.objects.get(&cid) {
+                    if obj.team == caster.team {
+                        continue;
+                    }
+                }
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - location.x;
+            let dz = pos.z - location.z;
+            if dx * dx + dz * dz <= radius * radius {
+                mines_to_clear.push(*id);
+            }
+        }
+
+        let mut mines_cleared = 0_u32;
+        for mine_id in mines_to_clear {
+            let clearer = caster_id.unwrap_or(ObjectId(0));
+            if self.clear_mine_internal(mine_id, clearer) {
+                mines_cleared = mines_cleared.saturating_add(1);
+            }
+        }
+
+        let entry_id = self.cleanup_areas.alloc_id();
+        self.cleanup_areas.record_activation(HostCleanupArea {
+            id: entry_id,
+            player_id,
+            location,
+            radius,
+            activate_frame: frame,
+            caster_id,
+            radiation_cleared,
+            toxin_cleared,
+            mines_cleared,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(CLEANUP_AREA_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(170),
+        );
+        if radiation_cleared > 0 || toxin_cleared > 0 {
+            self.queue_audio_event(
+                AudioEventRequest::new(CLEANUP_AREA_HAZARD_AUDIO)
+                    .with_position(location)
+                    .with_priority(150),
+            );
+        }
+        if mines_cleared > 0 {
+            self.queue_audio_event(
+                AudioEventRequest::new(CLEANUP_AREA_MINE_AUDIO)
+                    .with_position(location)
+                    .with_priority(150),
+            );
+        }
+
+        true
+    }
+
     /// Activate Emergency Repair residual: SingleBurst heal of ally vehicles in radius.
     ///
     /// Matches retail SuperweaponEmergencyRepair → RepairVehiclesInArea_InvisibleMarker:
@@ -13637,6 +13786,22 @@ impl GameLogic {
                 );
             }
 
+            // ParticleCannon residual: continuous beam annihilation cue on start.
+            if plan.kind.spawns_beam_field()
+                && !self
+                    .special_power_strikes
+                    .beam_spawned_this_frame()
+                    .is_empty()
+            {
+                use crate::game_logic::special_power_strikes::PARTICLE_BEAM_AUDIO;
+                self.queue_audio_event(
+                    AudioEventRequest::new(PARTICLE_BEAM_AUDIO)
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(150),
+                );
+            }
+
             log::info!(
                 "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
                 plan.kind.label(),
@@ -13654,6 +13819,8 @@ impl GameLogic {
         self.update_anthrax_toxin_fields();
         // SpectreGunship residual orbit damage ticks (after insertion).
         self.update_spectre_orbit_fields();
+        // ParticleCannon residual continuous beam pulses (after charge residual).
+        self.update_particle_beam_fields();
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
@@ -13807,6 +13974,58 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_orbit(frame);
+    }
+
+    /// Tick residual Particle Uplink continuous beam fields after charge residual.
+    /// Fail-closed vs full ParticleUplinkCannonUpdate outer nodes / swath sine /
+    /// manual beam driving / remnant trail objects.
+    fn update_particle_beam_fields(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_beam_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.special_power_strikes.record_beam_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.special_power_strikes.prune_expired_beam(frame);
     }
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
@@ -26629,11 +26848,15 @@ mod tests {
         );
     }
 
-    /// Residual: ParticleCannon (Particle Uplink residual) host path.
+    /// Residual: ParticleCannon continuous beam host path
+    /// (charge residual → beam field spawn → multi-pulse damage).
     #[test]
     fn particle_cannon_host_path_queues_and_completes() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        use crate::game_logic::special_power_strikes::{
+            HostSuperweaponKind, PARTICLE_BEAM_AUDIO, PARTICLE_BEAM_DAMAGE_PER_PULSE,
+            PARTICLE_BEAM_TICK_INTERVAL_FRAMES,
+        };
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
@@ -26646,8 +26869,9 @@ mod tests {
             .expect("enemy");
         {
             let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
-            enemy.health.current = 1000.0;
-            enemy.health.maximum = 1000.0;
+            // Survive first pulse so multi-pulse residual is observable.
+            enemy.health.current = 500.0;
+            enemy.health.maximum = 500.0;
             enemy.thing.template.armor = 0.0;
         }
         {
@@ -26671,12 +26895,244 @@ mod tests {
         assert!(game_logic
             .special_power_strikes()
             .honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .beam_fields()
+                .is_empty(),
+            "beam must not spawn before charge residual completes"
+        );
 
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = 119;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no beam damage before charge residual frame 120"
+        );
+
+        // Beam start: field spawn + first pulse.
         game_logic.frame = 120;
         game_logic.update_special_power_strikes();
         assert!(game_logic
             .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::ParticleCannon));
+        assert!(
+            game_logic.special_power_strikes().honesty_beam_ok(),
+            "ParticleCannon must spawn continuous beam residual"
+        );
+        assert!(game_logic
+            .special_power_strikes()
             .honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_beam_damage_ok(),
+            "first beam pulse must apply residual damage"
+        );
+
+        let after_first = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            after_first < health_before,
+            "enemy must take first continuous beam pulse (before={health_before}, after={after_first})"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == PARTICLE_BEAM_AUDIO
+                    || e.event_type == "ParticleCannonBeamStart"
+                    || e.event_type == "SuperweaponParticleCannon"),
+            "beam residual must queue activation/beam audio"
+        );
+
+        // Second pulse after tick interval.
+        game_logic.frame = 120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES;
+        game_logic.update_special_power_strikes();
+        let after_second = game_logic
+            .find_object(enemy_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            after_second < after_first,
+            "second continuous beam pulse must apply more damage (first={after_first}, second={after_second})"
+        );
+        let _ = PARTICLE_BEAM_DAMAGE_PER_PULSE;
+    }
+
+    /// Residual: CleanupArea clears toxin/radiation fields + mines at location.
+    #[test]
+    fn cleanup_area_residual_clears_hazards_and_mines() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_cleanup_area::{
+            CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
+        };
+        use crate::game_logic::special_power_strikes::{
+            HostSuperweaponKind, ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        // Residual ambulance caster template.
+        let mut amb_tpl = ThingTemplate::new("USA_Ambulance");
+        amb_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0);
+        game_logic
+            .templates
+            .insert("USA_Ambulance".to_string(), amb_tpl);
+
+        let caster_id = game_logic
+            .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ambulance");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        // Spawn anthrax toxin residual via strike, then clear with CleanupArea.
+        let anthrax_caster = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("anthrax caster");
+        let strike_id = game_logic
+            .special_power_strikes_mut()
+            .queue(
+                HostSuperweaponKind::AnthraxBomb,
+                anthrax_caster,
+                Team::GLA,
+                Vec3::new(20.0, 0.0, 0.0),
+                0,
+            );
+        // Force complete impact to spawn toxin field at (20,0,0).
+        game_logic.frame = 90;
+        game_logic
+            .special_power_strikes_mut()
+            .record_impact_complete(strike_id, 0.0, 0, 0);
+        assert_eq!(
+            game_logic.special_power_strikes().toxin_fields().len(),
+            1,
+            "setup: toxin field must exist before cleanup"
+        );
+
+        // Place enemy land mine near cleanup target.
+        let mine_id = game_logic
+            .place_land_mine(Team::GLA, Vec3::new(15.0, 0.0, 0.0), Some(anthrax_caster))
+            .expect("mine");
+        assert!(
+            game_logic
+                .find_object(mine_id)
+                .and_then(|o| o.mine_data.as_ref())
+                .is_some()
+        );
+
+        let target = Vec3::new(20.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CleanupArea,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0, // Team::USA
+            command_id: 88,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_cleanup_area_activate_ok(),
+            "CleanupArea must record activation"
+        );
+        assert!(
+            game_logic.honesty_cleanup_area_clear_ok(),
+            "CleanupArea must clear at least one residual hazard/mine"
+        );
+        assert!(
+            game_logic.honesty_cleanup_area_ok(),
+            "CleanupArea host path honesty"
+        );
+        assert!(
+            game_logic.special_power_strikes().toxin_fields().is_empty(),
+            "toxin field in radius must be cleared"
+        );
+        // Mine disarmed (detonated residual bookkeeping) and queued for destroy.
+        let mine_disarmed = game_logic
+            .find_object(mine_id)
+            .and_then(|o| o.mine_data.as_ref())
+            .map(|d| d.detonated)
+            .unwrap_or(true);
+        assert!(mine_disarmed, "enemy mine in cleanup radius must be disarmed");
+        game_logic.process_destroy_list();
+        assert!(
+            game_logic.find_object(mine_id).is_none()
+                || game_logic
+                    .find_object(mine_id)
+                    .map(|o| !o.is_alive() || o.status.destroyed)
+                    .unwrap_or(true),
+            "disarmed mine must leave destroy residual"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == CLEANUP_AREA_ACTIVATE_AUDIO),
+            "cleanup must queue detox audio"
+        );
+        assert!(
+            (game_logic.cleanup_areas().activations()[0].radius - HOST_CLEANUP_AREA_RADIUS).abs()
+                < 0.1
+        );
+        let _ = ANTHRAX_TOXIN_DAMAGE_PER_TICK;
+    }
+
+    /// Residual: CleanupArea does not queue superweapon strikes.
+    #[test]
+    fn cleanup_area_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut amb_tpl = ThingTemplate::new("USA_Ambulance");
+        amb_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0);
+        game_logic
+            .templates
+            .insert("USA_Ambulance".to_string(), amb_tpl);
+        let caster_id = game_logic
+            .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ambulance");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CleanupArea,
+                target: PowerTarget::Location(Vec3::new(10.0, 0.0, 0.0)),
+            },
+            player_id: 0,
+            command_id: 89,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().pending_count(),
+            0,
+            "CleanupArea must not enqueue superweapon residual strikes"
+        );
+        assert!(game_logic.honesty_cleanup_area_activate_ok());
     }
 
     /// Residual: NuclearMissile (China NeutronMissile) queues delayed area damage

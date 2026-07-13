@@ -9,36 +9,42 @@
 //! (`AnthraxBombPoisonFieldWeapon` / `OCL_PoisonFieldAnthraxBomb`) that ticks
 //! after impact. SpectreGunship completes orbit insertion with no one-shot
 //! blast, then spawns a residual orbit field (`SpectreHowitzerGun` residual)
-//! that periodically damages in `AttackAreaRadius` for `OrbitTime`. CarpetBomb
-//! is a delayed multi-strike line residual (`SUPERWEAPON_CarpetBomb` /
-//! `CarpetBombWeapon`): after bomber approach delay, applies explosive damage
-//! at multiple epicenters along a line through the target (fail-closed vs full
-//! B52 OCL drop path / variance / staggered DropDelay). ArtilleryBarrage is a
-//! delayed multi-shell scatter residual (`SUPERWEAPON_ArtilleryBarrage1` /
-//! `ArtilleryBarrageDamageWeapon`): after DelayDeliveryMax residual, applies
-//! explosive damage at multiple shell epicenters within WeaponErrorRadius
-//! (fail-closed vs full ChinaArtilleryCannon OCL DeliverPayload / science tiers
-//! 12/24/36 / staggered shell drops). CruiseMissile is a delayed loft-to-target
-//! residual (`SUPR_SPECIAL_CRUISE_MISSILE` / `SupW_CruiseMissile` /
+//! that periodically damages in `AttackAreaRadius` for `OrbitTime`. ParticleCannon
+//! (Particle Uplink) completes charge residual with no one-shot blast, then
+//! spawns a residual continuous beam field (`ParticleUplinkCannonUpdate`
+//! TotalFiringTime / TotalDamagePulses / DamagePerSecond residual) that pulses
+//! damage at the target for the beam dwell. CarpetBomb is a delayed multi-strike
+//! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
+//! approach delay, applies explosive damage at multiple epicenters along a line
+//! through the target (fail-closed vs full B52 OCL drop path / variance /
+//! staggered DropDelay). ArtilleryBarrage is a delayed multi-shell scatter
+//! residual (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`):
+//! after DelayDeliveryMax residual, applies explosive damage at multiple shell
+//! epicenters within WeaponErrorRadius (fail-closed vs full ChinaArtilleryCannon
+//! OCL DeliverPayload / science tiers 12/24/36 / staggered shell drops).
+//! CruiseMissile is a delayed loft-to-target residual
+//! (`SUPR_SPECIAL_CRUISE_MISSILE` / `SupW_CruiseMissile` /
 //! `SUPERWEAPON_CruiseMissile` / `MOABDetonationWeapon`): after NeutronMissile
 //! loft residual delay, applies MOAB area damage at the target (fail-closed vs
 //! full NeutronMissileUpdate door/loft path / OCL FireWeapon projectile /
 //! MOABFlameWeapon secondary). Pending strikes (absolute `impact_frame`) are
 //! captured in `WorldSnapshot.special_power_strikes` so mid-flight save/load
-//! continues remaining delay and still fires impact / orbit residual damage.
+//! continues remaining delay and still fires impact / orbit / beam residual.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
-//! Xfer tables. Radiation / toxin / Spectre orbit residual is a single host
-//! field (not full HazardousMaterialArmor / cleanup-hazard object stack /
-//! gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer projectile
-//! path). CarpetBomb residual is multi-point simultaneous blasts (not full
-//! AmericaJetB52 DeliverPayload / DropVariance / per-bomb DropDelay stagger).
-//! ArtilleryBarrage residual is multi-point simultaneous shell blasts (not full
-//! ChinaArtilleryCannon transport / random WeaponErrorRadius draw / per-shell
-//! DelayDelivery stagger / science upgrade FormationSize matrix). CruiseMissile
-//! residual is a single MOAB blast (not full loft projectile / HeightDieUpdate /
-//! door animation / MOABFlameWeapon tree-ignite).
+//! Xfer tables. Radiation / toxin / Spectre orbit / PUC beam residual is a
+//! single host field (not full HazardousMaterialArmor / cleanup-hazard object
+//! stack / gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer
+//! projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
+//! wave + manual driving). CarpetBomb residual is multi-point simultaneous
+//! blasts (not full AmericaJetB52 DeliverPayload / DropVariance / per-bomb
+//! DropDelay stagger). ArtilleryBarrage residual is multi-point simultaneous
+//! shell blasts (not full ChinaArtilleryCannon transport / random
+//! WeaponErrorRadius draw / per-shell DelayDelivery stagger / science upgrade
+//! FormationSize matrix). CruiseMissile residual is a single MOAB blast (not
+//! full loft projectile / HeightDieUpdate / door animation / MOABFlameWeapon
+//! tree-ignite).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -88,6 +94,26 @@ pub const SPECTRE_ORBIT_TICK_INTERVAL_FRAMES: u32 = 9;
 pub const SPECTRE_ORBIT_DURATION_FRAMES: u32 = 450;
 /// Residual ambient cue for active Spectre orbit (`SpectreGunshipAmbientLoop`).
 pub const SPECTRE_ORBIT_AUDIO: &str = "SpectreGunshipAmbientLoop";
+
+// --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
+
+/// Retail `ParticleUplinkCannonUpdate` TotalFiringTime = 3500 ms → 105 frames @ 30 FPS.
+pub const PARTICLE_BEAM_DURATION_FRAMES: u32 = 105;
+/// Retail TotalDamagePulses = 40.
+pub const PARTICLE_BEAM_TOTAL_PULSES: u32 = 40;
+/// Retail DamagePerSecond = 400.
+/// damagePerPulse = (TotalFiringFrames/FPS * DamagePerSecond) / TotalDamagePulses
+///                 = (105/30 * 400) / 40 = 35.
+pub const PARTICLE_BEAM_DAMAGE_PER_PULSE: f32 = 35.0;
+/// Residual pulse interval: TotalFiringTime / TotalDamagePulses → 105/40 ≈ 2.625
+/// frames. Host residual uses 3-frame fixed cadence (fail-closed vs fractional
+/// nextFactor * orbitalLifetime scheduling in C++).
+pub const PARTICLE_BEAM_TICK_INTERVAL_FRAMES: u32 = 3;
+/// Residual damage radius at target (fail-closed vs laser radius ×
+/// DamageRadiusScalar grow/shrink matrix; retail scalar 3.4 on dynamic beam).
+pub const PARTICLE_BEAM_RADIUS: f32 = 50.0;
+/// Residual ambient cue while beam is annihilating ground.
+pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSoundLoop";
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -143,7 +169,7 @@ pub enum HostSuperweaponKind {
     A10Strike,
     /// GLA SCUD Storm.
     ScudStorm,
-    /// China Particle Uplink Cannon (ParticleUprising residual host path).
+    /// China/USA Particle Uplink Cannon continuous beam residual host path.
     ParticleCannon,
     /// China Nuclear Missile / NeutronMissile residual host path.
     NuclearMissile,
@@ -205,7 +231,9 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::A10Strike => 60,
             // SCUD launch-to-impact residual.
             HostSuperweaponKind::ScudStorm => 150,
-            // Particle cannon charge residual (beam dwell deferred).
+            // Particle Uplink charge + beam-travel residual
+            // (BeginCharge+RaiseAntenna+ReadyDelay+BeamTravel subset; beam dwell
+            // is continuous residual after impact_frame — see HostParticleBeamField).
             HostSuperweaponKind::ParticleCannon => 120,
             // NeutronMissile residual flight/approach (fail-closed vs full
             // NeutronMissileUpdate loft + SpecialSpeedTime path).
@@ -231,7 +259,9 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::DaisyCutter => 2000.0,
             HostSuperweaponKind::A10Strike => 500.0,
             HostSuperweaponKind::ScudStorm => 1500.0,
-            HostSuperweaponKind::ParticleCannon => 3000.0,
+            // Continuous beam residual: no one-shot impact blast
+            // (damage via HostParticleBeamField pulses — DamagePerSecond 400).
+            HostSuperweaponKind::ParticleCannon => 0.0,
             // Retail NeutronMissileSlowDeath Blast6MaxDamage.
             HostSuperweaponKind::NuclearMissile => 3500.0,
             // Retail AnthraxBombWeapon PrimaryDamage (impact blast only).
@@ -253,7 +283,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::DaisyCutter => 170.0,
             HostSuperweaponKind::A10Strike => 100.0,
             HostSuperweaponKind::ScudStorm => 200.0,
-            HostSuperweaponKind::ParticleCannon => 50.0,
+            // Residual beam damage radius (see PARTICLE_BEAM_RADIUS).
+            HostSuperweaponKind::ParticleCannon => PARTICLE_BEAM_RADIUS,
             // Retail Blast6OuterRadius / DeliveryDecalRadius.
             HostSuperweaponKind::NuclearMissile => 210.0,
             // Retail AnthraxBombWeapon PrimaryDamageRadius.
@@ -275,7 +306,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::DaisyCutter => 100.0,
             HostSuperweaponKind::A10Strike => 40.0,
             HostSuperweaponKind::ScudStorm => 80.0,
-            HostSuperweaponKind::ParticleCannon => 25.0,
+            // Continuous beam: no one-shot falloff (pulse damage is flat in radius).
+            HostSuperweaponKind::ParticleCannon => 0.0,
             // Retail Blast6InnerRadius.
             HostSuperweaponKind::NuclearMissile => 60.0,
             // Flat primary blast (no secondary falloff in weapon table).
@@ -304,6 +336,11 @@ impl HostSuperweaponKind {
     /// Whether impact should spawn a residual Spectre orbit damage field.
     pub fn spawns_orbit_field(self) -> bool {
         matches!(self, HostSuperweaponKind::SpectreGunship)
+    }
+
+    /// Whether impact should spawn a residual Particle Uplink continuous beam field.
+    pub fn spawns_beam_field(self) -> bool {
+        matches!(self, HostSuperweaponKind::ParticleCannon)
     }
 
     /// Whether this kind applies multi-point line damage (CarpetBomb residual).
@@ -355,7 +392,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::DaisyCutter => "DaisyCutterExplosion",
             HostSuperweaponKind::A10Strike => "A10StrikeImpact",
             HostSuperweaponKind::ScudStorm => "ScudStormImpact",
-            HostSuperweaponKind::ParticleCannon => "ParticleCannonImpact",
+            // Beam contact residual (continuous pulses follow).
+            HostSuperweaponKind::ParticleCannon => "ParticleCannonBeamStart",
             HostSuperweaponKind::NuclearMissile => "NuclearMissileImpact",
             HostSuperweaponKind::AnthraxBomb => "AnthraxBombImpact",
             // Orbit insertion complete residual (retail SpectreGunshipVoiceArrive).
@@ -611,6 +649,59 @@ pub struct HostSpectreOrbitTickPlan {
     pub hits: Vec<HostSpectreOrbitDamageHit>,
 }
 
+/// Residual Particle Uplink continuous beam field spawned when charge residual
+/// completes (`ParticleUplinkCannonUpdate` STATUS_FIRING / TotalDamagePulses).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostParticleBeamField {
+    pub id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub spawn_frame: u32,
+    pub expires_frame: u32,
+    /// Next absolute frame at which beam damage pulses apply.
+    pub next_tick_frame: u32,
+    /// Pulses applied so far (retail TotalDamagePulses cap residual).
+    pub pulses_made: u32,
+    /// Total residual beam damage applied across all pulses.
+    pub total_damage_applied: f32,
+    /// Number of distinct damage applications (object×pulse).
+    pub damage_applications: u32,
+    /// Objects destroyed by this residual beam field.
+    pub objects_destroyed: u32,
+    /// Parent ParticleCannon strike id (0 if spawned without a strike).
+    pub parent_strike_id: u32,
+}
+
+impl HostParticleBeamField {
+    pub fn is_expired(&self, current_frame: u32) -> bool {
+        current_frame >= self.expires_frame
+            || self.pulses_made >= PARTICLE_BEAM_TOTAL_PULSES
+    }
+
+    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+}
+
+/// Damage application plan for a single Particle Uplink beam victim this pulse.
+#[derive(Debug, Clone, Copy)]
+pub struct HostParticleBeamDamageHit {
+    pub target_id: ObjectId,
+    pub damage: f32,
+    pub field_id: u32,
+}
+
+/// Result of resolving one Particle Uplink beam field's damage pulse.
+#[derive(Debug, Clone)]
+pub struct HostParticleBeamTickPlan {
+    pub field_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub hits: Vec<HostParticleBeamDamageHit>,
+}
+
 /// Host registry of superweapon strikes that queue and complete.
 #[derive(Debug, Clone, Default)]
 pub struct HostSpecialPowerStrikeRegistry {
@@ -647,6 +738,15 @@ pub struct HostSpecialPowerStrikeRegistry {
     orbit_fields_spawned_total: u32,
     /// Lifetime orbit damage applications (honesty after field expiry).
     orbit_damage_applications_total: u32,
+    /// Active residual Particle Uplink continuous beam fields.
+    beam_fields: Vec<HostParticleBeamField>,
+    next_beam_id: u32,
+    /// Beam fields spawned this frame (honesty / presentation drain).
+    beam_spawned_this_frame: Vec<u32>,
+    /// Lifetime count of beam fields spawned (survives prune; honesty).
+    beam_fields_spawned_total: u32,
+    /// Lifetime beam damage applications (honesty after field expiry).
+    beam_damage_applications_total: u32,
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -671,6 +771,11 @@ impl HostSpecialPowerStrikeRegistry {
             orbit_spawned_this_frame: Vec::new(),
             orbit_fields_spawned_total: 0,
             orbit_damage_applications_total: 0,
+            beam_fields: Vec::new(),
+            next_beam_id: 1,
+            beam_spawned_this_frame: Vec::new(),
+            beam_fields_spawned_total: 0,
+            beam_damage_applications_total: 0,
         }
     }
 
@@ -694,6 +799,11 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_orbit_id = 1;
         self.orbit_fields_spawned_total = 0;
         self.orbit_damage_applications_total = 0;
+        self.beam_fields.clear();
+        self.beam_spawned_this_frame.clear();
+        self.next_beam_id = 1;
+        self.beam_fields_spawned_total = 0;
+        self.beam_damage_applications_total = 0;
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -702,6 +812,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.radiation_spawned_this_frame.clear();
         self.toxin_spawned_this_frame.clear();
         self.orbit_spawned_this_frame.clear();
+        self.beam_spawned_this_frame.clear();
     }
 
     /// Allocator cursor for next strike id (survives save/load).
@@ -751,12 +862,26 @@ impl HostSpecialPowerStrikeRegistry {
         &self.orbit_spawned_this_frame
     }
 
+    /// Allocator cursor for next Particle Uplink beam field id (save/load).
+    pub fn next_beam_id(&self) -> u32 {
+        self.next_beam_id
+    }
+
+    /// Active residual Particle Uplink continuous beam fields.
+    pub fn beam_fields(&self) -> &[HostParticleBeamField] {
+        &self.beam_fields
+    }
+
+    pub fn beam_spawned_this_frame(&self) -> &[u32] {
+        &self.beam_spawned_this_frame
+    }
+
     /// Replace registry contents from a save/load snapshot.
     ///
     /// Frame-local presentation drains (`activated_this_frame` /
     /// `completed_this_frame` / `radiation_spawned_this_frame` /
-    /// `toxin_spawned_this_frame` / `orbit_spawned_this_frame`) are cleared —
-    /// they are not persistent.
+    /// `toxin_spawned_this_frame` / `orbit_spawned_this_frame` /
+    /// `beam_spawned_this_frame`) are cleared — they are not persistent.
     pub fn restore_from_snapshot(
         &mut self,
         next_id: u32,
@@ -765,6 +890,10 @@ impl HostSpecialPowerStrikeRegistry {
         self.restore_from_snapshot_with_residuals(
             next_id,
             strikes,
+            1,
+            Vec::new(),
+            0,
+            0,
             1,
             Vec::new(),
             0,
@@ -805,11 +934,15 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            1,
+            Vec::new(),
+            0,
+            0,
         );
     }
 
-    /// Replace registry including radiation + toxin + Spectre orbit residual
-    /// fields (save/load).
+    /// Replace registry including radiation + toxin + Spectre orbit + PUC beam
+    /// residual fields (save/load).
     #[allow(clippy::too_many_arguments)]
     pub fn restore_from_snapshot_with_residuals(
         &mut self,
@@ -827,6 +960,10 @@ impl HostSpecialPowerStrikeRegistry {
         orbit_fields: impl IntoIterator<Item = HostSpectreOrbitField>,
         orbit_fields_spawned_total: u32,
         orbit_damage_applications_total: u32,
+        next_beam_id: u32,
+        beam_fields: impl IntoIterator<Item = HostParticleBeamField>,
+        beam_fields_spawned_total: u32,
+        beam_damage_applications_total: u32,
     ) {
         self.clear();
         let mut max_id = 0_u32;
@@ -863,6 +1000,15 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_orbit_id = next_orbit_id.max(max_orb.saturating_add(1)).max(1);
         self.orbit_fields_spawned_total = orbit_fields_spawned_total.max(max_orb);
         self.orbit_damage_applications_total = orbit_damage_applications_total;
+
+        let mut max_beam = 0_u32;
+        for field in beam_fields {
+            max_beam = max_beam.max(field.id);
+            self.beam_fields.push(field);
+        }
+        self.next_beam_id = next_beam_id.max(max_beam.saturating_add(1)).max(1);
+        self.beam_fields_spawned_total = beam_fields_spawned_total.max(max_beam);
+        self.beam_damage_applications_total = beam_damage_applications_total;
     }
 
     pub fn radiation_fields_spawned_total(&self) -> u32 {
@@ -887,6 +1033,14 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn orbit_damage_applications_total(&self) -> u32 {
         self.orbit_damage_applications_total
+    }
+
+    pub fn beam_fields_spawned_total(&self) -> u32 {
+        self.beam_fields_spawned_total
+    }
+
+    pub fn beam_damage_applications_total(&self) -> u32 {
+        self.beam_damage_applications_total
     }
 
     pub fn strike_count(&self) -> usize {
@@ -1055,6 +1209,8 @@ impl HostSpecialPowerStrikeRegistry {
     /// (retail `OCL_PoisonFieldAnthraxBomb` residual).
     /// For `SpectreGunship`, also spawns a residual orbit field at the target
     /// (retail `SpectreGunshipUpdate` ORBITING residual).
+    /// For `ParticleCannon`, also spawns a residual continuous beam field at
+    /// the target (retail `ParticleUplinkCannonUpdate` STATUS_FIRING residual).
     pub fn record_impact_complete(
         &mut self,
         strike_id: u32,
@@ -1065,6 +1221,7 @@ impl HostSpecialPowerStrikeRegistry {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32)> = None;
+        let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
                 strike.phase = HostStrikePhase::Completed;
@@ -1096,6 +1253,14 @@ impl HostSpecialPowerStrikeRegistry {
                         strike.impact_frame,
                     ));
                 }
+                if strike.kind.spawns_beam_field() {
+                    spawn_beam = Some((
+                        strike.source_object,
+                        strike.source_team,
+                        strike.target_position,
+                        strike.impact_frame,
+                    ));
+                }
             }
         }
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
@@ -1106,6 +1271,9 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if let Some((source, team, pos, impact_frame)) = spawn_orbit {
             self.spawn_orbit_field(source, team, pos, impact_frame, strike_id);
+        }
+        if let Some((source, team, pos, impact_frame)) = spawn_beam {
+            self.spawn_beam_field(source, team, pos, impact_frame, strike_id);
         }
     }
 
@@ -1414,6 +1582,132 @@ impl HostSpecialPowerStrikeRegistry {
         self.orbit_fields.retain(|f| !f.is_expired(current_frame));
     }
 
+    /// Spawn a residual Particle Uplink continuous beam field at `position`.
+    pub fn spawn_beam_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        let id = self.next_beam_id;
+        self.next_beam_id = self.next_beam_id.saturating_add(1).max(1);
+        let field = HostParticleBeamField {
+            id,
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            expires_frame: spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES),
+            // First damage pulse on beam-start frame (retail m_nextDamagePulseFrame = now).
+            next_tick_frame: spawn_frame,
+            pulses_made: 0,
+            total_damage_applied: 0.0,
+            damage_applications: 0,
+            objects_destroyed: 0,
+            parent_strike_id,
+        };
+        self.beam_fields.push(field);
+        self.beam_spawned_this_frame.push(id);
+        self.beam_fields_spawned_total = self.beam_fields_spawned_total.saturating_add(1);
+        id
+    }
+
+    /// Build Particle Uplink beam pulse plans for all fields whose tick frame
+    /// has arrived.
+    ///
+    /// Retail damages all alive objects in beam radius (DamageRadiusScalar ×
+    /// laser radius). Host residual damages living objects in
+    /// [`PARTICLE_BEAM_RADIUS`] except the source launcher and same-team
+    /// friendlies (host strike convention). Fail-closed vs swath sine path /
+    /// manual beam driving / remnant trail objects / width grow matrix.
+    pub fn plan_due_beam_ticks(
+        &self,
+        current_frame: u32,
+        object_positions: &[(ObjectId, Vec3, super::Team, bool)],
+    ) -> Vec<HostParticleBeamTickPlan> {
+        let mut plans = Vec::new();
+        for field in &self.beam_fields {
+            if !field.is_due_tick(current_frame) {
+                continue;
+            }
+            let mut hits = Vec::new();
+            for &(id, pos, team, alive) in object_positions {
+                if !alive || id == field.source_object {
+                    continue;
+                }
+                // Fail-closed residual: do not damage friendlies (same team).
+                if team == field.source_team {
+                    continue;
+                }
+                let dist = horizontal_distance(pos, field.position);
+                if dist <= PARTICLE_BEAM_RADIUS {
+                    hits.push(HostParticleBeamDamageHit {
+                        target_id: id,
+                        damage: PARTICLE_BEAM_DAMAGE_PER_PULSE,
+                        field_id: field.id,
+                    });
+                }
+            }
+            plans.push(HostParticleBeamTickPlan {
+                field_id: field.id,
+                source_object: field.source_object,
+                source_team: field.source_team,
+                position: field.position,
+                hits,
+            });
+        }
+        plans.sort_by_key(|p| p.field_id);
+        plans
+    }
+
+    /// Record Particle Uplink beam pulse results and advance next_tick_frame.
+    pub fn record_beam_tick_complete(
+        &mut self,
+        field_id: u32,
+        total_damage: f32,
+        applications: u32,
+        objects_destroyed: u32,
+        current_frame: u32,
+    ) {
+        if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            field.total_damage_applied += total_damage;
+            field.damage_applications += applications;
+            field.objects_destroyed += objects_destroyed;
+            field.pulses_made = field.pulses_made.saturating_add(1);
+            field.next_tick_frame =
+                current_frame.saturating_add(PARTICLE_BEAM_TICK_INTERVAL_FRAMES);
+            self.beam_damage_applications_total = self
+                .beam_damage_applications_total
+                .saturating_add(applications);
+        }
+    }
+
+    /// Drop expired Particle Uplink beam fields.
+    pub fn prune_expired_beam(&mut self, current_frame: u32) {
+        self.beam_fields.retain(|f| !f.is_expired(current_frame));
+    }
+
+    /// CleanupArea residual: remove radiation fields whose epicenter is within
+    /// `radius` of `center` (AmbulanceCleanHazardWeapon / HAZARD_CLEANUP residual).
+    /// Returns number of fields cleared.
+    pub fn clear_radiation_fields_in_radius(&mut self, center: Vec3, radius: f32) -> u32 {
+        let before = self.radiation_fields.len();
+        self.radiation_fields
+            .retain(|f| horizontal_distance(f.position, center) > radius);
+        (before.saturating_sub(self.radiation_fields.len())) as u32
+    }
+
+    /// CleanupArea residual: remove toxin fields whose epicenter is within
+    /// `radius` of `center`. Returns number of fields cleared.
+    pub fn clear_toxin_fields_in_radius(&mut self, center: Vec3, radius: f32) -> u32 {
+        let before = self.toxin_fields.len();
+        self.toxin_fields
+            .retain(|f| horizontal_distance(f.position, center) > radius);
+        (before.saturating_sub(self.toxin_fields.len())) as u32
+    }
+
     /// Cancel pending strikes owned by a destroyed source object.
     pub fn cancel_for_source(&mut self, source: ObjectId) {
         for strike in self.strikes.values_mut() {
@@ -1486,10 +1780,27 @@ impl HostSpecialPowerStrikeRegistry {
                 .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
     }
 
+    /// True if at least one residual Particle Uplink beam field was spawned.
+    pub fn honesty_beam_ok(&self) -> bool {
+        self.beam_fields_spawned_total > 0
+            || !self.beam_fields.is_empty()
+            || !self.beam_spawned_this_frame.is_empty()
+    }
+
+    /// Stronger beam honesty: residual field applied at least one damage pulse.
+    pub fn honesty_beam_damage_ok(&self) -> bool {
+        self.beam_damage_applications_total > 0
+            || self
+                .beam_fields
+                .iter()
+                .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
+    }
+
     /// Combined host path honesty: a completed strike exists for `kind`.
     /// NuclearMissile also requires residual radiation field spawn.
     /// AnthraxBomb also requires residual toxin field spawn.
     /// SpectreGunship also requires residual orbit field spawn.
+    /// ParticleCannon also requires residual continuous beam field spawn.
     pub fn honesty_host_path_ok(&self, kind: HostSuperweaponKind) -> bool {
         if !self.honesty_complete_ok(kind) {
             return false;
@@ -1502,6 +1813,9 @@ impl HostSpecialPowerStrikeRegistry {
         }
         if kind == HostSuperweaponKind::SpectreGunship {
             return self.honesty_orbit_ok();
+        }
+        if kind == HostSuperweaponKind::ParticleCannon {
+            return self.honesty_beam_ok();
         }
         true
     }
@@ -1620,11 +1934,100 @@ mod tests {
         assert!(kind.spawns_orbit_field());
         assert!(!kind.spawns_radiation());
         assert!(!kind.spawns_toxin_field());
+        assert!(!kind.spawns_beam_field());
         assert!(!HostSuperweaponKind::DaisyCutter.spawns_orbit_field());
         assert_eq!(SPECTRE_ORBIT_DAMAGE_PER_TICK, 80.0);
         assert_eq!(SPECTRE_ORBIT_RADIUS, 200.0);
         assert_eq!(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, 9);
         assert_eq!(SPECTRE_ORBIT_DURATION_FRAMES, 450);
+    }
+
+    #[test]
+    fn particle_cannon_params_match_retail_continuous_beam() {
+        let kind = HostSuperweaponKind::ParticleCannon;
+        assert_eq!(kind.impact_delay_frames(), 120);
+        // Continuous beam residual: no one-shot impact blast.
+        assert!((kind.max_damage() - 0.0).abs() < 0.1);
+        assert!((kind.damage_radius() - PARTICLE_BEAM_RADIUS).abs() < 0.1);
+        assert!(kind.spawns_beam_field());
+        assert!(!kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
+        assert!(!kind.spawns_orbit_field());
+        assert!(!HostSuperweaponKind::DaisyCutter.spawns_beam_field());
+        // damagePerPulse = (105/30 * 400) / 40 = 35
+        assert!((PARTICLE_BEAM_DAMAGE_PER_PULSE - 35.0).abs() < 0.01);
+        assert_eq!(PARTICLE_BEAM_RADIUS, 50.0);
+        assert_eq!(PARTICLE_BEAM_TICK_INTERVAL_FRAMES, 3);
+        assert_eq!(PARTICLE_BEAM_DURATION_FRAMES, 105);
+        assert_eq!(PARTICLE_BEAM_TOTAL_PULSES, 40);
+    }
+
+    #[test]
+    fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let target = Vec3::new(10.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::China,
+            target,
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
+        assert_eq!(reg.get(id).unwrap().impact_frame, 120);
+        assert!(reg.beam_fields().is_empty());
+
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::China, true),
+            (ObjectId(2), Vec3::new(10.0, 0.0, 0.0), Team::GLA, true), // epicenter
+            (ObjectId(3), Vec3::new(40.0, 0.0, 0.0), Team::GLA, true), // in radius (dist 30)
+            (ObjectId(4), Vec3::new(200.0, 0.0, 0.0), Team::GLA, true), // out of radius
+            (ObjectId(5), Vec3::new(10.0, 0.0, 0.0), Team::China, true), // friendly
+        ];
+
+        // Charge residual: no impact plan before frame 120.
+        assert!(reg.plan_due_impacts(119, &objects).is_empty());
+        let impact_plans = reg.plan_due_impacts(120, &objects);
+        assert_eq!(impact_plans.len(), 1);
+        // Continuous beam: no one-shot impact hits.
+        assert!(impact_plans[0].hits.is_empty());
+
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::ParticleCannon));
+        assert!(reg.honesty_beam_ok());
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
+        assert_eq!(reg.beam_fields().len(), 1);
+        assert_eq!(reg.beam_fields()[0].parent_strike_id, id);
+
+        // First beam pulse on spawn frame.
+        let beam_plans = reg.plan_due_beam_ticks(120, &objects);
+        assert_eq!(beam_plans.len(), 1);
+        assert_eq!(beam_plans[0].hits.len(), 2); // epicenter + mid-radius enemies
+        assert!(beam_plans[0].hits.iter().all(|h| {
+            (h.damage - PARTICLE_BEAM_DAMAGE_PER_PULSE).abs() < 0.01
+                && (h.target_id == ObjectId(2) || h.target_id == ObjectId(3))
+        }));
+        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+
+        reg.record_beam_tick_complete(
+            beam_plans[0].field_id,
+            PARTICLE_BEAM_DAMAGE_PER_PULSE * 2.0,
+            2,
+            0,
+            120,
+        );
+        assert!(reg.honesty_beam_damage_ok());
+        assert_eq!(
+            reg.beam_fields()[0].next_tick_frame,
+            120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES
+        );
+        assert_eq!(reg.beam_fields()[0].pulses_made, 1);
+
+        // Not due again until interval elapses.
+        assert!(reg.plan_due_beam_ticks(120 + 1, &objects).is_empty());
+        let later = reg.plan_due_beam_ticks(120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES, &objects);
+        assert_eq!(later.len(), 1);
     }
 
     #[test]
@@ -1638,6 +2041,7 @@ mod tests {
         assert!(!kind.spawns_radiation());
         assert!(!kind.spawns_toxin_field());
         assert!(!kind.spawns_orbit_field());
+        assert!(!kind.spawns_beam_field());
         assert!(!HostSuperweaponKind::DaisyCutter.is_line_multi_strike());
         assert_eq!(CARPET_BOMB_COUNT, 15);
         assert!((CARPET_BOMB_SPACING - 25.0).abs() < 0.1);
@@ -1698,6 +2102,7 @@ mod tests {
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
+        assert!(reg.beam_fields().is_empty());
     }
 
     #[test]

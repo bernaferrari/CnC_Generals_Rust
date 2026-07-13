@@ -328,6 +328,12 @@ pub enum SpecialPowerType {
     /// Fail-closed: not full NeutronMissileUpdate loft / door animation /
     /// OCL FireWeapon projectile path / MOABFlameWeapon secondary.
     CruiseMissile,
+    /// USA Ambulance Cleanup Area residual
+    /// (`SpecialAbilityAmbulanceCleanupArea` / CleanupAreaPower).
+    /// Clears residual toxin/radiation fields and mines at a world location.
+    /// Fail-closed: not full CleanupHazardUpdate projectile stream / scan loop /
+    /// HazardousMaterialArmor object stack / rubble pathfind clear.
+    CleanupArea,
     Invalid,
 }
 

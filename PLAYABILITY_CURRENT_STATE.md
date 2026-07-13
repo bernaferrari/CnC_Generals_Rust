@@ -1,5 +1,42 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Particle Uplink Continuous Beam + Cleanup Area (2026-07-12)
+**Closed (host-testable ParticleCannon multi-pulse beam + Ambulance CleanupArea):**
+1. **Particle Uplink continuous beam residual** (`ParticleUplinkCannonUpdate` host path):
+   - `DoSpecialPower(ParticleCannon)` still queues charge residual (impact_frame
+     delay **120** frames).
+   - On complete: **no one-shot blast** (was residual 3000 flat); spawns
+     `HostParticleBeamField` at target.
+   - Beam residual: TotalFiringTime **3500 ms → 105 frames**, TotalDamagePulses
+     **40**, DamagePerSecond **400** → **35 dmg/pulse**, pulse interval **3**
+     frames, radius **50** (fail-closed vs DamageRadiusScalar grow matrix /
+     swath sine / manual beam driving).
+   - First pulse on beam-start frame; subsequent pulses until duration/pulse cap.
+   - Honesty: `honesty_beam_ok` / `honesty_beam_damage_ok` /
+     `honesty_host_path_ok(ParticleCannon)` requires beam field spawn.
+2. **Cleanup Area residual** (`CleanupAreaPower` / AmbulanceCleanHazardWeapon):
+   - `DoSpecialPower(CleanupArea)` from ambulance/medic/dozer/worker clears
+     residual **toxin + radiation fields** and **enemy/neutral mines** in radius
+     **50** (PrimaryDamageRadius residual) when caster is within
+     MaxMoveDistanceFromLocation **300**.
+   - Mine clear is safe disarm (no splash) via existing `clear_mine_internal`.
+   - Honesty: `honesty_cleanup_area_activate_ok` / `honesty_cleanup_area_clear_ok` /
+     `honesty_cleanup_area_ok`.
+3. Tests (not log-only):
+   - `particle_cannon_params_match_retail_continuous_beam`
+   - `particle_cannon_impact_spawns_beam_and_ticks_damage`
+   - `particle_cannon_host_path_queues_and_completes` (multi-pulse E2E)
+   - `cleanup_area_residual_clears_hazards_and_mines`
+   - `cleanup_area_does_not_queue_superweapon_strike`
+   - unit tests in `host_cleanup_area.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full ParticleUplinkCannonUpdate outer-node lasers / WidthGrowTime / SwathOfDeath
+  sine path / ManualDrivingSpeed / DamagePulseRemnant trail objects
+- Full CleanupHazardUpdate scan/shot/clip / CleanupStreamProjectile path
+- Full HazardousMaterialArmor CLEANUP_HAZARD KindOf object stack / rubble pathfind
+- Network Particle Uplink / CleanupArea replication (network deferred)
+
 ## Residual Host Playability — Oil Derrick + Hacker Internet Center Cash (2026-07-12)
 **Closed (host-testable TechOilDerrick AutoDeposit + China Hacker/Internet Center cash):**
 1. **Oil Derrick residual income** (`TechOilDerrick` AutoDepositUpdate residual):
@@ -609,7 +646,8 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full retail OCL aircraft spawn / flight / bomber AI for DaisyCutter and A10
-- Multi-missile SCUD barrage timing, particle-cannon continuous beam / uplink sequence
+- Multi-missile SCUD barrage timing; Particle Uplink full uplink sequence /
+  outer-node lasers / swath driving (continuous beam residual closed above)
 - SharedSyncedTimer / science / public timer UI / EVA superweapon ready lines on host path
 - Weapon.ini / SpecialPower.ini damage tables beyond residual constants
 - Network superweapon replication (network deferred)
