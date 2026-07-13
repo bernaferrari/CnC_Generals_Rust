@@ -29604,7 +29604,9 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let destroyed = target.take_damage(hit.damage);
+                    // BodyModule last_damage_source residual for cash bounty killer.
+                    let destroyed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -30913,7 +30915,7 @@ impl GameLogic {
         target_position: Vec3,
     ) -> Option<u32> {
         use crate::game_logic::special_power_strikes::{
-            ArtilleryBarrageScienceTier, HostSuperweaponKind,
+            ArtilleryBarrageScienceTier, HostSuperweaponKind, SpectreGunshipScienceTier,
         };
         let kind = HostSuperweaponKind::from_command_power(power)?;
         let source_team = self
@@ -30922,27 +30924,36 @@ impl GameLogic {
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
         let frame = self.frame;
+        let sciences: Vec<String> = self
+            .players
+            .values()
+            .filter(|p| p.team == source_team)
+            .flat_map(|p| p.unlocked_sciences.iter().cloned())
+            .collect();
         // ArtilleryBarrage FormationSize residual from unlocked SCIENCE_ArtilleryBarrage1/2/3.
         let artillery_tier = if kind == HostSuperweaponKind::ArtilleryBarrage {
-            let sciences: Vec<String> = self
-                .players
-                .values()
-                .filter(|p| p.team == source_team)
-                .flat_map(|p| p.unlocked_sciences.iter().cloned())
-                .collect();
             ArtilleryBarrageScienceTier::highest_from_sciences(
                 sciences.iter().map(|s| s.as_str()),
             )
         } else {
             ArtilleryBarrageScienceTier::Level1
         };
-        let id = self.special_power_strikes.queue_with_artillery_tier(
+        // SpectreGunship OrbitTime residual from unlocked SCIENCE_SpectreGunship1/2/3.
+        let spectre_tier = if kind == HostSuperweaponKind::SpectreGunship {
+            SpectreGunshipScienceTier::highest_from_sciences(
+                sciences.iter().map(|s| s.as_str()),
+            )
+        } else {
+            SpectreGunshipScienceTier::Level2
+        };
+        let id = self.special_power_strikes.queue_with_tiers(
             kind,
             source_object,
             source_team,
             target_position,
             frame,
             artillery_tier,
+            spectre_tier,
         );
 
         // Activation audio residual (observable request path).
@@ -31001,7 +31012,10 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let destroyed = target.take_damage(hit.damage);
+                    // BodyModule last_damage_source residual for cash bounty killer
+                    // (superweapon blast path — same residual as combat fire).
+                    let destroyed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {
@@ -31055,7 +31069,7 @@ impl GameLogic {
                 );
             }
 
-            // AnthraxBomb residual: toxin field ambient cue on spawn.
+            // AnthraxBomb / ScudStorm residual: toxin field ambient cue on spawn.
             if plan.is_final_wave
                 && plan.kind.spawns_toxin_field()
                 && !self
@@ -31063,8 +31077,13 @@ impl GameLogic {
                     .toxin_spawned_this_frame()
                     .is_empty()
             {
+                let cue = if plan.kind.spawns_scud_poison_field() {
+                    crate::game_logic::special_power_strikes::SCUD_STORM_POISON_AUDIO
+                } else {
+                    ANTHRAX_TOXIN_AUDIO
+                };
                 self.queue_audio_event(
-                    AudioEventRequest::new(ANTHRAX_TOXIN_AUDIO)
+                    AudioEventRequest::new(cue)
                         .with_object(plan.source_object)
                         .with_position(plan.target_position)
                         .with_priority(150),
@@ -31150,7 +31169,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31201,7 +31221,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31252,7 +31273,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -31304,7 +31326,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage(hit.damage);
+                    let killed =
+                        target.take_damage_from(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -49538,8 +49561,46 @@ mod tests {
             .special_power_strikes()
             .honesty_queue_ok(HostSuperweaponKind::ScudStorm));
 
-        // SCUD impact delay = 150 frames.
-        game_logic.frame = 150;
+        // First missile at PreAttackDelay = 90 frames (multi-missile residual).
+        use crate::game_logic::special_power_strikes::{
+            multi_strike_last_impact_frame, ArtilleryBarrageScienceTier, SCUD_STORM_PRE_ATTACK_FRAMES,
+        };
+        game_logic.frame = SCUD_STORM_PRE_ATTACK_FRAMES;
+        game_logic.update_special_power_strikes();
+        // Mid-storm: first wave applied, not necessarily complete.
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .pending_of_kind(HostSuperweaponKind::ScudStorm)
+                .first()
+                .map(|s| s.multi_strike_applied >= 1)
+                .unwrap_or(false)
+                || game_logic
+                    .special_power_strikes()
+                    .honesty_complete_ok(HostSuperweaponKind::ScudStorm),
+            "first ScudStorm missile residual must apply"
+        );
+
+        // Jump to last missile DelayBetweenShots residual frame.
+        let activate = game_logic
+            .special_power_strikes()
+            .pending_of_kind(HostSuperweaponKind::ScudStorm)
+            .first()
+            .map(|s| s.activate_frame)
+            .or_else(|| {
+                game_logic
+                    .special_power_strikes()
+                    .completed_of_kind(HostSuperweaponKind::ScudStorm)
+                    .first()
+                    .map(|s| s.activate_frame)
+            })
+            .unwrap_or(0);
+        let last = multi_strike_last_impact_frame(
+            HostSuperweaponKind::ScudStorm,
+            activate,
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        game_logic.frame = last;
         game_logic.update_special_power_strikes();
 
         assert!(
@@ -49554,6 +49615,16 @@ mod tests {
         assert_eq!(completed.len(), 1);
         assert!(completed[0].objects_hit >= 1);
         assert!(completed[0].total_damage_applied > 0.0);
+        assert!(
+            completed[0].multi_strike_applied >= 9,
+            "ClipSize 9 multi-missile residual must apply all missiles"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_toxin_ok(),
+            "ScudStorm must spawn LargePoisonField residual"
+        );
         assert!(
             game_logic
                 .queued_audio_events
@@ -51799,10 +51870,27 @@ mod tests {
             (game_logic.find_object(far_id).unwrap().health.current - far_before).abs() < 0.1,
             "far enemy outside radius must not take residual damage"
         );
+        // RadiusDamageAffects ALLIES residual: friendly at epicenter takes blast.
+        let friend_hp = game_logic.find_object(friend_id).map(|o| o.health.current);
         assert!(
-            (game_logic.find_object(friend_id).unwrap().health.current - friend_before).abs() < 0.1,
-            "friendly units must not take Aurora residual damage (fail-closed)"
+            friend_hp.map(|h| h < friend_before).unwrap_or(true)
+                || friend_hp == Some(0.0)
+                || game_logic
+                    .find_object(friend_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "friendly at epicenter must take Aurora residual damage (ALLIES residual), got {friend_hp:?}"
         );
+        // last_damage_source residual: victim records Aurora aircraft as killer.
+        if let Some(enemy) = game_logic.find_object(enemy_id) {
+            if !enemy.is_alive() || enemy.health.current < enemy_before {
+                assert_eq!(
+                    enemy.last_damage_source,
+                    Some(aurora_id),
+                    "Aurora blast must stamp last_damage_source for cash bounty residual"
+                );
+            }
+        }
         assert!(
             game_logic
                 .queued_audio_events

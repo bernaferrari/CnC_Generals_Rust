@@ -7,18 +7,21 @@
 //! radiation field (`NukeRadiationFieldWeapon`) that ticks after impact.
 //! AnthraxBomb also spawns a residual toxin field
 //! (`AnthraxBombPoisonFieldWeapon` / `OCL_PoisonFieldAnthraxBomb`) that ticks
-//! after impact. SpectreGunship completes orbit insertion with no one-shot
-//! blast, then spawns a residual orbit field (`SpectreHowitzerGun` residual)
-//! that periodically damages in `AttackAreaRadius` for `OrbitTime`. ParticleCannon
-//! (Particle Uplink) completes charge residual with no one-shot blast, then
-//! spawns a residual continuous beam field (`ParticleUplinkCannonUpdate`
-//! TotalFiringTime / TotalDamagePulses / DamagePerSecond residual) that pulses
-//! damage at the target for the beam dwell. CarpetBomb is a delayed multi-strike
-//! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
-//! approach delay, applies explosive damage at DropDelay-staggered epicenters
-//! along a line through the target with DropVariance residual scatter
-//! (fail-closed vs full B52 OCL DeliverPayload transport Object). ArtilleryBarrage
-//! is a delayed multi-shell scatter residual
+//! after impact. ScudStorm is a delayed multi-missile residual
+//! (`ScudStormWeapon` ClipSize 9 / ScatterTarget + `ScudStormDamageWeapon`
+//! primary/secondary blast) that also spawns residual LargePoisonField toxin
+//! ticks after each missile. SpectreGunship completes orbit insertion with no
+//! one-shot blast, then spawns a residual orbit field (`SpectreHowitzerGun`
+//! residual) that periodically damages in `AttackAreaRadius` for science-tier
+//! `OrbitTime` (L1/L2/L3). ParticleCannon (Particle Uplink) completes charge
+//! residual with no one-shot blast, then spawns a residual continuous beam field
+//! (`ParticleUplinkCannonUpdate` TotalFiringTime / TotalDamagePulses /
+//! DamagePerSecond residual) that pulses damage at the target for the beam dwell.
+//! CarpetBomb is a delayed multi-strike line residual (`SUPERWEAPON_CarpetBomb` /
+//! `CarpetBombWeapon`): after bomber approach delay, applies explosive damage at
+//! DropDelay-staggered epicenters along a line through the target with DropVariance
+//! residual scatter (fail-closed vs full B52 OCL DeliverPayload transport Object).
+//! ArtilleryBarrage is a delayed multi-shell scatter residual
 //! (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`): after
 //! DelayDeliveryMax residual, applies explosive damage at WeaponErrorRadius-
 //! scattered shell epicenters with per-shell DelayDelivery stagger (fail-closed
@@ -43,7 +46,10 @@
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
 //! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
-//! stream). CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
+//! stream). ScudStorm residual is ClipSize-9 ScatterTarget multi-missile +
+//! ScudStormDamageWeapon primary/secondary + LargePoisonField residual (not full
+//! ScudStormMissile projectile / PreAttack animation / anthrax-upgraded weapon).
+//! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
 use super::ObjectId;
@@ -246,6 +252,128 @@ pub const MOAB_FLAME_RADIUS: f32 = 100.0;
 /// Residual honesty audio / FX label for flame secondary.
 pub const MOAB_FLAME_AUDIO: &str = "FX_MOABIgnite";
 
+// --- ScudStorm multi-missile residual (retail ScudStormWeapon / ScudStormDamageWeapon) ---
+
+/// Retail `ScudStormWeapon` ClipSize (missiles per storm).
+pub const SCUD_STORM_MISSILE_COUNT: u32 = 9;
+/// Retail `ScatterTargetScalar` (scales ScatterTarget table entries).
+pub const SCUD_STORM_SCATTER_SCALAR: f32 = 120.0;
+/// Retail `ScudStormDamageWeapon` PrimaryDamage (per missile epicenter).
+pub const SCUD_STORM_PRIMARY_DAMAGE: f32 = 500.0;
+/// Retail `ScudStormDamageWeapon` PrimaryDamageRadius.
+pub const SCUD_STORM_PRIMARY_RADIUS: f32 = 50.0;
+/// Retail `ScudStormDamageWeapon` SecondaryDamage.
+pub const SCUD_STORM_SECONDARY_DAMAGE: f32 = 150.0;
+/// Retail `ScudStormDamageWeapon` SecondaryDamageRadius.
+pub const SCUD_STORM_SECONDARY_RADIUS: f32 = 200.0;
+/// Retail PreAttackDelay = 3000 ms → 90 frames @ 30 FPS (first missile due).
+pub const SCUD_STORM_PRE_ATTACK_FRAMES: u32 = 90;
+/// Retail DelayBetweenShots Min = 100 ms → 3 frames @ 30 FPS.
+pub const SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES: u32 = 3;
+/// Retail DelayBetweenShots Max = 1000 ms → 30 frames @ 30 FPS.
+pub const SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES: u32 = 30;
+/// Retail `LargePoisonFieldWeapon` PrimaryDamage (OCL_PoisonFieldLarge residual).
+pub const SCUD_STORM_POISON_DAMAGE_PER_TICK: f32 = 15.0;
+/// Retail `LargePoisonFieldWeapon` PrimaryDamageRadius.
+pub const SCUD_STORM_POISON_RADIUS: f32 = 140.0;
+/// Retail LargePoisonField DelayBetweenShots 500 ms → 15 frames.
+pub const SCUD_STORM_POISON_TICK_INTERVAL_FRAMES: u32 = 15;
+/// Retail PoisonFieldLarge LifetimeUpdate Min/MaxLifetime = 45000 ms → 1350 frames.
+pub const SCUD_STORM_POISON_DURATION_FRAMES: u32 = 1350;
+/// Residual ambient cue for ScudStorm poison pools.
+pub const SCUD_STORM_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
+
+/// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
+/// Host maps C++ X → X, C++ Y → Z.
+pub const SCUD_STORM_SCATTER_TARGETS: [(f32, f32); 9] = [
+    (0.000, 0.133),
+    (0.133, -0.200),
+    (-0.067, 0.667),
+    (0.300, 0.300),
+    (0.767, 0.000),
+    (0.500, -0.567),
+    (-0.333, -0.800),
+    (-0.600, -0.1333),
+    (-0.567, 0.433),
+];
+
+// --- Spectre science-tier OrbitTime residual ---
+
+/// Residual Spectre Gunship science tier (OrbitTime 10s / 15s / 20s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum SpectreGunshipScienceTier {
+    /// Airforce LEVEL1 OrbitTime = 10000 ms → 300 frames.
+    Level1,
+    #[default]
+    /// Default / LEVEL2 OrbitTime = 15000 ms → 450 frames.
+    Level2,
+    /// Airforce LEVEL3 OrbitTime = 20000 ms → 600 frames.
+    Level3,
+}
+
+impl SpectreGunshipScienceTier {
+    /// Retail OrbitTime residual in logic frames for this science tier.
+    pub fn orbit_duration_frames(self) -> u32 {
+        match self {
+            SpectreGunshipScienceTier::Level1 => 300,
+            SpectreGunshipScienceTier::Level2 => SPECTRE_ORBIT_DURATION_FRAMES,
+            SpectreGunshipScienceTier::Level3 => 600,
+        }
+    }
+
+    /// Map SCIENCE_SpectreGunship1/2/3 (or AirF / Solo residual) to tier.
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        if n.contains("spectregunship3") {
+            Some(SpectreGunshipScienceTier::Level3)
+        } else if n.contains("spectregunship2") {
+            Some(SpectreGunshipScienceTier::Level2)
+        } else if n.contains("spectregunship1")
+            || n.contains("spectregunshipsolo")
+            || n.contains("spectregunship")
+        {
+            Some(SpectreGunshipScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    /// Select highest unlocked Spectre science tier from a science name list.
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = SpectreGunshipScienceTier::Level2; // retail default OrbitTime 15s
+        let mut found = false;
+        for s in sciences {
+            if let Some(t) = Self::from_science_name(s) {
+                if !found {
+                    best = t;
+                    found = true;
+                } else {
+                    best = match (best, t) {
+                        (_, SpectreGunshipScienceTier::Level3)
+                        | (SpectreGunshipScienceTier::Level3, _) => {
+                            SpectreGunshipScienceTier::Level3
+                        }
+                        (_, SpectreGunshipScienceTier::Level2)
+                        | (SpectreGunshipScienceTier::Level2, _) => {
+                            SpectreGunshipScienceTier::Level2
+                        }
+                        _ => SpectreGunshipScienceTier::Level1,
+                    };
+                }
+            }
+        }
+        best
+    }
+}
+
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -315,8 +443,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::DaisyCutter => 90,
             // A-10 flight/approach residual (shorter than full aircraft OCL).
             HostSuperweaponKind::A10Strike => 60,
-            // SCUD launch-to-impact residual.
-            HostSuperweaponKind::ScudStorm => 150,
+            // SCUD PreAttackDelay residual (first missile); multi-missile stagger follows.
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_PRE_ATTACK_FRAMES,
             // Particle Uplink charge + beam-travel residual
             // (BeginCharge+RaiseAntenna+ReadyDelay+BeamTravel subset; beam dwell
             // is continuous residual after impact_frame — see HostParticleBeamField).
@@ -344,7 +472,8 @@ impl HostSuperweaponKind {
         match self {
             HostSuperweaponKind::DaisyCutter => 2000.0,
             HostSuperweaponKind::A10Strike => 500.0,
-            HostSuperweaponKind::ScudStorm => 1500.0,
+            // Retail ScudStormDamageWeapon PrimaryDamage (per missile).
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_PRIMARY_DAMAGE,
             // Continuous beam residual: no one-shot impact blast
             // (damage via HostParticleBeamField pulses — DamagePerSecond 400).
             HostSuperweaponKind::ParticleCannon => 0.0,
@@ -368,7 +497,8 @@ impl HostSuperweaponKind {
         match self {
             HostSuperweaponKind::DaisyCutter => 170.0,
             HostSuperweaponKind::A10Strike => 100.0,
-            HostSuperweaponKind::ScudStorm => 200.0,
+            // Retail ScudStormDamageWeapon SecondaryDamageRadius.
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_SECONDARY_RADIUS,
             // Residual beam damage radius (see PARTICLE_BEAM_RADIUS).
             HostSuperweaponKind::ParticleCannon => PARTICLE_BEAM_RADIUS,
             // Retail Blast6OuterRadius / DeliveryDecalRadius.
@@ -391,7 +521,8 @@ impl HostSuperweaponKind {
         match self {
             HostSuperweaponKind::DaisyCutter => 100.0,
             HostSuperweaponKind::A10Strike => 40.0,
-            HostSuperweaponKind::ScudStorm => 80.0,
+            // Retail ScudStormDamageWeapon PrimaryDamageRadius (full primary).
+            HostSuperweaponKind::ScudStorm => SCUD_STORM_PRIMARY_RADIUS,
             // Continuous beam: no one-shot falloff (pulse damage is flat in radius).
             HostSuperweaponKind::ParticleCannon => 0.0,
             // Retail Blast6InnerRadius.
@@ -414,9 +545,17 @@ impl HostSuperweaponKind {
         matches!(self, HostSuperweaponKind::NuclearMissile)
     }
 
-    /// Whether impact should spawn a residual toxin / anthrax field.
+    /// Whether impact should spawn a residual toxin / anthrax / scud poison field.
     pub fn spawns_toxin_field(self) -> bool {
-        matches!(self, HostSuperweaponKind::AnthraxBomb)
+        matches!(
+            self,
+            HostSuperweaponKind::AnthraxBomb | HostSuperweaponKind::ScudStorm
+        )
+    }
+
+    /// Whether toxin residual uses ScudStorm LargePoisonField stats (vs Anthrax bomb).
+    pub fn spawns_scud_poison_field(self) -> bool {
+        matches!(self, HostSuperweaponKind::ScudStorm)
     }
 
     /// Whether impact should spawn a residual Spectre orbit damage field.
@@ -439,9 +578,16 @@ impl HostSuperweaponKind {
         matches!(self, HostSuperweaponKind::ArtilleryBarrage)
     }
 
+    /// Whether this kind applies multi-missile ScatterTarget residual (ScudStorm).
+    pub fn is_scud_multi_strike(self) -> bool {
+        matches!(self, HostSuperweaponKind::ScudStorm)
+    }
+
     /// Whether this kind uses multi-point epicenter damage at impact.
     pub fn is_multi_strike(self) -> bool {
-        self.is_line_multi_strike() || self.is_scatter_multi_strike()
+        self.is_line_multi_strike()
+            || self.is_scatter_multi_strike()
+            || self.is_scud_multi_strike()
     }
 
     /// Whether retail `RadiusDamageAffects` includes ALLIES for the primary blast.
@@ -487,6 +633,8 @@ impl HostSuperweaponKind {
             Some(carpet_bomb_points(target))
         } else if self.is_scatter_multi_strike() {
             Some(artillery_barrage_points_for_tier(target, artillery_tier))
+        } else if self.is_scud_multi_strike() {
+            Some(scud_storm_points(target))
         } else {
             None
         }
@@ -608,6 +756,8 @@ pub fn multi_strike_last_impact_frame(
             .unwrap_or_else(|| activate_frame.saturating_add(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES))
     } else if kind.is_line_multi_strike() {
         carpet_bomb_impact_frame(activate_frame, CARPET_BOMB_COUNT.saturating_sub(1))
+    } else if kind.is_scud_multi_strike() {
+        scud_missile_impact_frame(activate_frame, SCUD_STORM_MISSILE_COUNT.saturating_sub(1))
     } else {
         activate_frame.saturating_add(kind.impact_delay_frames())
     }
@@ -699,6 +849,56 @@ pub fn artillery_barrage_points_for_tier(
     points
 }
 
+
+/// Deterministic residual DelayBetweenShots frames for ScudStorm missile index.
+///
+/// Retail: DelayBetweenShots Min:100 Max:1000 (ms). Host residual: missile 0
+/// has no inter-shot delay (PreAttack covers first); remaining missiles draw a
+/// deterministic offset in [min, max] inclusive frames.
+pub fn scud_delay_between_frames(missile_index: u32) -> u32 {
+    if missile_index == 0 {
+        return 0;
+    }
+    let min = SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES;
+    let max = SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES;
+    let phase = (missile_index as f32 * 0.618_033_988_7 + 0.21).fract();
+    min + (phase * ((max - min) as f32 + 1.0 - 1e-5)).floor() as u32
+}
+
+/// Absolute impact frame for ScudStorm missile `missile_index`.
+///
+/// Base PreAttackDelay residual + cumulative DelayBetweenShots stagger.
+pub fn scud_missile_impact_frame(activate_frame: u32, missile_index: u32) -> u32 {
+    let mut frame = activate_frame.saturating_add(SCUD_STORM_PRE_ATTACK_FRAMES);
+    for i in 1..=missile_index {
+        frame = frame.saturating_add(scud_delay_between_frames(i));
+    }
+    frame
+}
+
+/// Build residual ScudStorm missile epicenters from retail ScatterTarget table.
+///
+/// C++: targetPos += ScatterTarget[i] * ScatterTargetScalar (X/Y horizontal).
+/// Host residual: C++ X → X, C++ Y → Z. ClipSize 9 entries.
+pub fn scud_storm_points(target: Vec3) -> Vec<Vec3> {
+    let mut points = Vec::with_capacity(SCUD_STORM_MISSILE_COUNT as usize);
+    for (i, &(sx, sy)) in SCUD_STORM_SCATTER_TARGETS.iter().enumerate() {
+        if i as u32 >= SCUD_STORM_MISSILE_COUNT {
+            break;
+        }
+        points.push(Vec3::new(
+            target.x + sx * SCUD_STORM_SCATTER_SCALAR,
+            target.y,
+            target.z + sy * SCUD_STORM_SCATTER_SCALAR,
+        ));
+    }
+    // Pad if table shorter than clip (retail falls back to 0,0 for extras).
+    while (points.len() as u32) < SCUD_STORM_MISSILE_COUNT {
+        points.push(target);
+    }
+    points
+}
+
 /// Lifecycle of a queued host superweapon strike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostStrikePhase {
@@ -731,6 +931,10 @@ pub struct HostSpecialPowerStrike {
     /// Ignored for non-artillery kinds. Default Level1.
     #[serde(default)]
     pub artillery_tier: ArtilleryBarrageScienceTier,
+    /// SpectreGunship science-tier OrbitTime residual (10s / 15s / 20s).
+    /// Ignored for non-Spectre kinds. Default Level2 (retail 15s).
+    #[serde(default)]
+    pub spectre_tier: SpectreGunshipScienceTier,
     /// Multi-strike residual: how many shells/bombs have already applied damage.
     /// One-shot kinds leave this at 0 and complete in a single wave.
     #[serde(default)]
@@ -811,8 +1015,8 @@ pub struct HostRadiationTickPlan {
     pub hits: Vec<HostRadiationDamageHit>,
 }
 
-/// Residual toxin / anthrax field spawned by AnthraxBomb impact
-/// (`OCL_PoisonFieldAnthraxBomb` / `AnthraxBombPoisonFieldWeapon` residual).
+/// Residual toxin / anthrax / scud poison field spawned by AnthraxBomb or
+/// ScudStorm impact (`OCL_PoisonFieldAnthraxBomb` / `OCL_PoisonFieldLarge` residual).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostToxinField {
     pub id: u32,
@@ -829,8 +1033,27 @@ pub struct HostToxinField {
     pub damage_applications: u32,
     /// Objects destroyed by this residual field.
     pub objects_destroyed: u32,
-    /// Parent AnthraxBomb strike id (0 if spawned without a strike).
+    /// Parent strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Damage per residual tick (Anthrax 40 / Scud LargePoison 15).
+    #[serde(default = "default_toxin_damage_per_tick")]
+    pub damage_per_tick: f32,
+    /// Residual damage radius (Anthrax 300 / Scud LargePoison 140).
+    #[serde(default = "default_toxin_radius")]
+    pub radius: f32,
+    /// Tick interval frames (Anthrax / LargePoison both 15 = 500 ms).
+    #[serde(default = "default_toxin_tick_interval")]
+    pub tick_interval_frames: u32,
+}
+
+fn default_toxin_damage_per_tick() -> f32 {
+    ANTHRAX_TOXIN_DAMAGE_PER_TICK
+}
+fn default_toxin_radius() -> f32 {
+    ANTHRAX_TOXIN_RADIUS
+}
+fn default_toxin_tick_interval() -> u32 {
+    ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES
 }
 
 impl HostToxinField {
@@ -1385,9 +1608,31 @@ impl HostSpecialPowerStrikeRegistry {
         activate_frame: u32,
         artillery_tier: ArtilleryBarrageScienceTier,
     ) -> u32 {
+        self.queue_with_tiers(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            artillery_tier,
+            SpectreGunshipScienceTier::Level2,
+        )
+    }
+
+    /// Queue a superweapon strike with Artillery FormationSize + Spectre OrbitTime tiers.
+    pub fn queue_with_tiers(
+        &mut self,
+        kind: HostSuperweaponKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        artillery_tier: ArtilleryBarrageScienceTier,
+        spectre_tier: SpectreGunshipScienceTier,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
-        // First multi-strike shell/bomb due frame (DelayDelivery / DropDelay residual).
+        // First multi-strike shell/bomb/missile due frame residual.
         let impact_frame = activate_frame.saturating_add(kind.impact_delay_frames());
         let strike = HostSpecialPowerStrike {
             id,
@@ -1402,6 +1647,7 @@ impl HostSpecialPowerStrikeRegistry {
             objects_hit: 0,
             objects_destroyed: 0,
             artillery_tier,
+            spectre_tier,
             multi_strike_applied: 0,
         };
         self.strikes.insert(id, strike);
@@ -1410,7 +1656,20 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Compute falloff damage for distance from epicenter.
+    ///
+    /// ScudStorm residual uses retail primary/secondary step damage
+    /// (`ScudStormDamageWeapon`): full Primary inside PrimaryRadius, Secondary
+    /// out to SecondaryRadius (not linear falloff).
     pub fn damage_at_distance(kind: HostSuperweaponKind, distance: f32) -> f32 {
+        if kind == HostSuperweaponKind::ScudStorm {
+            if distance <= SCUD_STORM_PRIMARY_RADIUS {
+                return SCUD_STORM_PRIMARY_DAMAGE;
+            }
+            if distance <= SCUD_STORM_SECONDARY_RADIUS {
+                return SCUD_STORM_SECONDARY_DAMAGE;
+            }
+            return 0.0;
+        }
         let radius = kind.damage_radius();
         let inner = kind.falloff_inner();
         let max = kind.max_damage();
@@ -1466,6 +1725,8 @@ impl HostSpecialPowerStrikeRegistry {
                     }
                     let shell_frame = if strike.kind.is_scatter_multi_strike() {
                         artillery_shell_impact_frame(strike.activate_frame, idx)
+                    } else if strike.kind.is_scud_multi_strike() {
+                        scud_missile_impact_frame(strike.activate_frame, idx)
                     } else {
                         carpet_bomb_impact_frame(strike.activate_frame, idx)
                     };
@@ -1582,8 +1843,8 @@ impl HostSpecialPowerStrikeRegistry {
         is_final_wave: bool,
     ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
-        let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
-        let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32)> = None;
+        let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32, bool)> = None;
+        let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32, SpectreGunshipScienceTier)> = None;
         let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
@@ -1611,7 +1872,9 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.source_object,
                             strike.source_team,
                             strike.target_position,
+                            // Use current impact frame residual (final wave frame).
                             strike.impact_frame,
+                            strike.kind.spawns_scud_poison_field(),
                         ));
                     }
                     if strike.kind.spawns_orbit_field() {
@@ -1620,6 +1883,7 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.source_team,
                             strike.target_position,
                             strike.impact_frame,
+                            strike.spectre_tier,
                         ));
                     }
                     if strike.kind.spawns_beam_field() {
@@ -1636,11 +1900,22 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
         }
-        if let Some((source, team, pos, impact_frame)) = spawn_toxin {
-            self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
+        if let Some((source, team, pos, impact_frame, is_scud_poison)) = spawn_toxin {
+            if is_scud_poison {
+                self.spawn_scud_poison_field(source, team, pos, impact_frame, strike_id);
+            } else {
+                self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
+            }
         }
-        if let Some((source, team, pos, impact_frame)) = spawn_orbit {
-            self.spawn_orbit_field(source, team, pos, impact_frame, strike_id);
+        if let Some((source, team, pos, impact_frame, spectre_tier)) = spawn_orbit {
+            self.spawn_orbit_field_with_tier(
+                source,
+                team,
+                pos,
+                impact_frame,
+                strike_id,
+                spectre_tier,
+            );
         }
         if let Some((source, team, pos, impact_frame)) = spawn_beam {
             self.spawn_beam_field(source, team, pos, impact_frame, strike_id);
@@ -1748,7 +2023,7 @@ impl HostSpecialPowerStrikeRegistry {
             .retain(|f| !f.is_expired(current_frame));
     }
 
-    /// Spawn a residual toxin field at `position` (AnthraxBomb impact).
+    /// Spawn a residual toxin field at `position` (AnthraxBomb impact defaults).
     pub fn spawn_toxin_field(
         &mut self,
         source_object: ObjectId,
@@ -1756,6 +2031,54 @@ impl HostSpecialPowerStrikeRegistry {
         position: Vec3,
         spawn_frame: u32,
         parent_strike_id: u32,
+    ) -> u32 {
+        self.spawn_toxin_field_with_params(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+            ANTHRAX_TOXIN_RADIUS,
+            ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
+            ANTHRAX_TOXIN_DURATION_FRAMES,
+        )
+    }
+
+    /// Spawn residual LargePoisonField toxin (ScudStorm OCL_PoisonFieldLarge).
+    pub fn spawn_scud_poison_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        self.spawn_toxin_field_with_params(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            SCUD_STORM_POISON_DAMAGE_PER_TICK,
+            SCUD_STORM_POISON_RADIUS,
+            SCUD_STORM_POISON_TICK_INTERVAL_FRAMES,
+            SCUD_STORM_POISON_DURATION_FRAMES,
+        )
+    }
+
+    /// Spawn a residual toxin field with explicit weapon residual params.
+    pub fn spawn_toxin_field_with_params(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        damage_per_tick: f32,
+        radius: f32,
+        tick_interval_frames: u32,
+        duration_frames: u32,
     ) -> u32 {
         let id = self.next_toxin_id;
         self.next_toxin_id = self.next_toxin_id.saturating_add(1).max(1);
@@ -1765,13 +2088,16 @@ impl HostSpecialPowerStrikeRegistry {
             source_team,
             position,
             spawn_frame,
-            expires_frame: spawn_frame.saturating_add(ANTHRAX_TOXIN_DURATION_FRAMES),
+            expires_frame: spawn_frame.saturating_add(duration_frames),
             // First tick on spawn frame (retail FireWeaponUpdate residual).
             next_tick_frame: spawn_frame,
             total_damage_applied: 0.0,
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            damage_per_tick,
+            radius,
+            tick_interval_frames,
         };
         self.toxin_fields.push(field);
         self.toxin_spawned_this_frame.push(id);
@@ -1801,10 +2127,10 @@ impl HostSpecialPowerStrikeRegistry {
                     continue;
                 }
                 let dist = horizontal_distance(pos, field.position);
-                if dist <= ANTHRAX_TOXIN_RADIUS {
+                if dist <= field.radius {
                     hits.push(HostToxinDamageHit {
                         target_id: id,
-                        damage: ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                        damage: field.damage_per_tick,
                         field_id: field.id,
                     });
                 }
@@ -1835,7 +2161,7 @@ impl HostSpecialPowerStrikeRegistry {
             field.damage_applications += applications;
             field.objects_destroyed += objects_destroyed;
             field.next_tick_frame =
-                current_frame.saturating_add(ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES);
+                current_frame.saturating_add(field.tick_interval_frames.max(1));
             self.toxin_damage_applications_total = self
                 .toxin_damage_applications_total
                 .saturating_add(applications);
@@ -1848,6 +2174,7 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Spawn a residual Spectre orbit field at `position` (orbit insertion).
+    /// Uses default Level2 OrbitTime (15s) when no tier is supplied.
     pub fn spawn_orbit_field(
         &mut self,
         source_object: ObjectId,
@@ -1856,15 +2183,36 @@ impl HostSpecialPowerStrikeRegistry {
         spawn_frame: u32,
         parent_strike_id: u32,
     ) -> u32 {
+        self.spawn_orbit_field_with_tier(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            SpectreGunshipScienceTier::Level2,
+        )
+    }
+
+    /// Spawn Spectre orbit field with science-tier OrbitTime residual.
+    pub fn spawn_orbit_field_with_tier(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        spectre_tier: SpectreGunshipScienceTier,
+    ) -> u32 {
         let id = self.next_orbit_id;
         self.next_orbit_id = self.next_orbit_id.saturating_add(1).max(1);
+        let duration = spectre_tier.orbit_duration_frames();
         let field = HostSpectreOrbitField {
             id,
             source_object,
             source_team,
             position,
             spawn_frame,
-            expires_frame: spawn_frame.saturating_add(SPECTRE_ORBIT_DURATION_FRAMES),
+            expires_frame: spawn_frame.saturating_add(duration),
             // First howitzer residual tick on orbit insertion frame.
             next_tick_frame: spawn_frame,
             total_damage_applied: 0.0,
@@ -3184,4 +3532,221 @@ mod tests {
         assert_eq!(s.phase, HostStrikePhase::Queued);
         assert_eq!(loaded.next_id(), next);
     }
+    #[test]
+    fn scud_storm_multi_missile_scatter_and_poison_residual() {
+        // ClipSize 9 + ScatterTarget + primary/secondary + LargePoisonField.
+        assert_eq!(SCUD_STORM_MISSILE_COUNT, 9);
+        assert!((SCUD_STORM_SCATTER_SCALAR - 120.0).abs() < 0.1);
+        assert!((SCUD_STORM_PRIMARY_DAMAGE - 500.0).abs() < 0.1);
+        assert!((SCUD_STORM_PRIMARY_RADIUS - 50.0).abs() < 0.1);
+        assert!((SCUD_STORM_SECONDARY_DAMAGE - 150.0).abs() < 0.1);
+        assert!((SCUD_STORM_SECONDARY_RADIUS - 200.0).abs() < 0.1);
+        assert_eq!(SCUD_STORM_PRE_ATTACK_FRAMES, 90);
+        assert!((SCUD_STORM_POISON_DAMAGE_PER_TICK - 15.0).abs() < 0.1);
+        assert!((SCUD_STORM_POISON_RADIUS - 140.0).abs() < 0.1);
+        assert_eq!(SCUD_STORM_POISON_DURATION_FRAMES, 1350);
+
+        let kind = HostSuperweaponKind::ScudStorm;
+        assert!(kind.is_scud_multi_strike());
+        assert!(kind.is_multi_strike());
+        assert!(kind.spawns_toxin_field());
+        assert!(kind.spawns_scud_poison_field());
+        assert!(!HostSuperweaponKind::AnthraxBomb.spawns_scud_poison_field());
+        assert_eq!(kind.impact_delay_frames(), SCUD_STORM_PRE_ATTACK_FRAMES);
+        assert!((kind.max_damage() - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1);
+
+        // Primary/secondary step residual.
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 0.0)
+                - SCUD_STORM_PRIMARY_DAMAGE)
+                .abs()
+                < 0.1
+        );
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 50.0)
+                - SCUD_STORM_PRIMARY_DAMAGE)
+                .abs()
+                < 0.1
+        );
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 51.0)
+                - SCUD_STORM_SECONDARY_DAMAGE)
+                .abs()
+                < 0.1
+        );
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 200.0)
+                - SCUD_STORM_SECONDARY_DAMAGE)
+                .abs()
+                < 0.1
+        );
+        assert!(
+            HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 201.0).abs() < 0.1
+        );
+
+        let target = Vec3::new(100.0, 0.0, 50.0);
+        let points = scud_storm_points(target);
+        assert_eq!(points.len(), SCUD_STORM_MISSILE_COUNT as usize);
+        // First scatter entry (0, 0.133) * 120 → offset z ≈ 15.96
+        assert!((points[0].x - 100.0).abs() < 0.1);
+        assert!((points[0].z - (50.0 + 0.133 * 120.0)).abs() < 0.1);
+        // Fifth entry (0.767, 0) * 120
+        assert!((points[4].x - (100.0 + 0.767 * 120.0)).abs() < 0.1);
+        assert!((points[4].z - 50.0).abs() < 0.1);
+
+        // Stagger residual: first at PreAttack; later missiles later.
+        assert_eq!(scud_missile_impact_frame(0, 0), SCUD_STORM_PRE_ATTACK_FRAMES);
+        assert!(scud_missile_impact_frame(0, 1) > scud_missile_impact_frame(0, 0));
+        assert!(scud_missile_impact_frame(0, 8) > scud_missile_impact_frame(0, 1));
+        let last = multi_strike_last_impact_frame(
+            kind,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        assert_eq!(last, scud_missile_impact_frame(0, SCUD_STORM_MISSILE_COUNT - 1));
+
+        // Multi-wave impact + LargePoisonField on complete.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(kind, ObjectId(1), Team::GLA, target, 0);
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::GLA, true),
+            // Near first scatter epicenter (primary).
+            (
+                ObjectId(2),
+                Vec3::new(points[0].x, 0.0, points[0].z),
+                Team::USA,
+                true,
+            ),
+            // Ally at same epicenter (ALLIES residual).
+            (
+                ObjectId(3),
+                Vec3::new(points[0].x, 0.0, points[0].z),
+                Team::GLA,
+                true,
+            ),
+        ];
+
+        // Before first missile: nothing.
+        assert!(reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES - 1, &objects).is_empty());
+
+        // First missile wave.
+        let plans = reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        assert!(!plans[0].is_final_wave);
+        assert!(plans[0].wave_shell_count >= 1);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1));
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        reg.record_impact_wave(
+            id,
+            SCUD_STORM_PRIMARY_DAMAGE * 2.0,
+            2,
+            0,
+            plans[0].wave_shell_count,
+            false,
+        );
+        assert!(reg.toxin_fields().is_empty());
+
+        // Jump to last missile: complete + poison.
+        let last_plans = reg.plan_due_impacts(last, &objects);
+        assert_eq!(last_plans.len(), 1);
+        assert!(last_plans[0].is_final_wave);
+        reg.record_impact_wave(
+            id,
+            100.0,
+            1,
+            0,
+            last_plans[0].wave_shell_count,
+            true,
+        );
+        assert!(reg.honesty_complete_ok(kind));
+        assert!(reg.honesty_toxin_ok());
+        assert_eq!(reg.toxin_fields().len(), 1);
+        let field = &reg.toxin_fields()[0];
+        assert!((field.damage_per_tick - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.1);
+        assert!((field.radius - SCUD_STORM_POISON_RADIUS).abs() < 0.1);
+        assert_eq!(field.tick_interval_frames, SCUD_STORM_POISON_TICK_INTERVAL_FRAMES);
+        assert_eq!(
+            field.expires_frame,
+            field.spawn_frame + SCUD_STORM_POISON_DURATION_FRAMES
+        );
+
+        // Poison tick uses LargePoison residual damage.
+        let tox = reg.plan_due_toxin_ticks(field.spawn_frame, &objects);
+        assert_eq!(tox.len(), 1);
+        assert!(tox[0].hits.iter().any(|h| {
+            h.target_id == ObjectId(2)
+                && (h.damage - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.01
+        }));
+    }
+
+    #[test]
+    fn spectre_orbit_time_science_tier_residual() {
+        assert_eq!(SpectreGunshipScienceTier::Level1.orbit_duration_frames(), 300);
+        assert_eq!(SpectreGunshipScienceTier::Level2.orbit_duration_frames(), 450);
+        assert_eq!(SpectreGunshipScienceTier::Level3.orbit_duration_frames(), 600);
+        assert_eq!(
+            SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship3"),
+            Some(SpectreGunshipScienceTier::Level3)
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship1"),
+            Some(SpectreGunshipScienceTier::Level1)
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::highest_from_sciences([
+                "SCIENCE_SpectreGunship1",
+                "SCIENCE_SpectreGunship2",
+            ]),
+            SpectreGunshipScienceTier::Level2
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::highest_from_sciences([
+                "SCIENCE_SpectreGunship1",
+                "SCIENCE_SpectreGunship3",
+            ]),
+            SpectreGunshipScienceTier::Level3
+        );
+        // No spectre science → default Level2 (retail 15s OrbitTime).
+        assert_eq!(
+            SpectreGunshipScienceTier::highest_from_sciences(["SCIENCE_Rank3"]),
+            SpectreGunshipScienceTier::Level2
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue_with_tiers(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+            SpectreGunshipScienceTier::Level3,
+        );
+        assert_eq!(reg.get(id).unwrap().spectre_tier, SpectreGunshipScienceTier::Level3);
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert_eq!(reg.orbit_fields().len(), 1);
+        assert_eq!(
+            reg.orbit_fields()[0].expires_frame,
+            90 + SpectreGunshipScienceTier::Level3.orbit_duration_frames()
+        );
+
+        // Level1 shorter orbit residual.
+        let mut reg2 = HostSpecialPowerStrikeRegistry::new();
+        let id2 = reg2.queue_with_tiers(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+            SpectreGunshipScienceTier::Level1,
+        );
+        reg2.record_impact_complete(id2, 0.0, 0, 0);
+        assert_eq!(
+            reg2.orbit_fields()[0].expires_frame,
+            90 + SpectreGunshipScienceTier::Level1.orbit_duration_frames()
+        );
+    }
+
 }

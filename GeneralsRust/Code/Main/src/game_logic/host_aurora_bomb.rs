@@ -8,13 +8,20 @@
 //! - After dive (+ FuelAir gas) delay frames, area damage is applied at the
 //!   impact epicenter (retail AuroraBombWeapon PrimaryDamage 400 / r20, or
 //!   AirF_AuroraBombDetonationWeapon / SupW_FuelBombDetonationWeapon for FuelAir).
+//! - RadiusDamageAffects ALLIES residual: blast hits same-team units (source
+//!   aircraft Object still excluded). Retail AuroraBombWeapon /
+//!   AirF_AuroraBombDetonationWeapon list ALLIES ENEMIES NEUTRALS.
+//! - FuelAir DaisyCutterFlameWeapon secondary residual (AirF_AuroraBombGas /
+//!   SupW_AuroraFuelAirGas SlowDeath MIDPOINT — tree-ignite flame 5 / r100).
 //! - Honesty counters for activate / complete / damage gates and tests.
 //!
 //! Fail-closed honesty:
 //! - Not full AuroraBombLocomotor / MissileAIUpdate DistanceToTargetBeforeDiving
 //! - Not full HeightDieUpdate / CreateObjectDie OCL_AuroraBombExplode gas object
-//! - Not full SlowDeathBehavior gas Ignite / DaisyCutterFlameWeapon midpoint
+//! - Not full SlowDeath multi-stage timing / tree burn state / FX GPU
 //! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / RETURN_TO_BASE clip reload
+//! - Not full SupW_FuelBombDetonationWeapon 900/r70 matrix (FuelAir residual uses
+//!   AirF 1000/r100 host numbers for AirF + SupW collapse)
 //! - Not multiplayer shared-synced bomb projectile (network deferred)
 
 use super::ObjectId;
@@ -48,6 +55,14 @@ pub const AURORA_FUEL_AIR_GAS_DELAY_FRAMES: u32 = 30;
 /// Combined dive + gas detonation delay for FuelAir residual.
 pub const AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES: u32 =
     AURORA_BOMB_DIVE_DELAY_FRAMES + AURORA_FUEL_AIR_GAS_DELAY_FRAMES;
+
+// --- DaisyCutterFlameWeapon secondary residual (FuelAir gas SlowDeath MIDPOINT) ---
+/// Retail `DaisyCutterFlameWeapon` PrimaryDamage (spot of flame to light trees).
+pub const AURORA_FUEL_AIR_FLAME_DAMAGE: f32 = 5.0;
+/// Retail `DaisyCutterFlameWeapon` PrimaryDamageRadius.
+pub const AURORA_FUEL_AIR_FLAME_RADIUS: f32 = 100.0;
+/// Residual flame ignite cue (AirF_FX_AuroraBombIgnite / DaisyCutterIgnite family).
+pub const AURORA_FUEL_AIR_FLAME_AUDIO: &str = "DaisyCutterIgnite";
 
 /// Retail AuroraBombWeapon AttackRange residual.
 pub const AURORA_BOMB_ATTACK_RANGE: f32 = 300.0;
@@ -124,6 +139,12 @@ impl HostAuroraBombKind {
             HostAuroraBombKind::Standard => AURORA_BOMB_DETONATE_AUDIO,
             HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_DETONATE_AUDIO,
         }
+    }
+
+    /// Whether impact also applies retail `DaisyCutterFlameWeapon` secondary residual
+    /// (AirF_AuroraBombGas / SupW_AuroraFuelAirGas SlowDeath MIDPOINT flame).
+    pub fn spawns_daisy_cutter_flame(self) -> bool {
+        matches!(self, HostAuroraBombKind::FuelAir)
     }
 }
 
@@ -239,14 +260,12 @@ pub fn aurora_bomb_damage_at_distance(kind: HostAuroraBombKind, distance: f32) -
 
 /// Whether residual target receives Aurora bomb area damage.
 ///
-/// Fail-closed host residual: enemies only (not full RadiusDamageAffects ALLIES
-/// ENEMIES NEUTRALS NOT_SIMILAR matrix). Skip dead / same-team / self.
-pub fn is_legal_aurora_bomb_target(
-    is_alive: bool,
-    same_team: bool,
-    is_self: bool,
-) -> bool {
-    is_alive && !same_team && !is_self
+/// Retail `RadiusDamageAffects = ALLIES ENEMIES NEUTRALS` (Standard also lists
+/// NOT_SIMILAR). Host residual hits living non-self units of any team — source
+/// aircraft Object still excluded. Fail-closed: not full NOT_SIMILAR / Relationship
+/// matrix beyond team residual.
+pub fn is_legal_aurora_bomb_target(is_alive: bool, is_self: bool) -> bool {
+    is_alive && !is_self
 }
 
 /// 2D distance residual (host gameplay x/z plane).
@@ -388,14 +407,23 @@ impl HostAuroraBombRegistry {
                 continue;
             }
             let mut hits = Vec::new();
-            for &(id, pos, team, alive) in objects {
+            for &(id, pos, _team, alive) in objects {
                 let is_self = id == mission.source_object;
-                let same_team = team == mission.source_team;
-                if !is_legal_aurora_bomb_target(alive, same_team, is_self) {
+                if !is_legal_aurora_bomb_target(alive, is_self) {
                     continue;
                 }
                 let dist = distance_2d(mission.target_position, pos);
-                let dmg = aurora_bomb_damage_at_distance(mission.kind, dist);
+                let primary = aurora_bomb_damage_at_distance(mission.kind, dist);
+                // DaisyCutterFlameWeapon secondary residual (FuelAir gas MIDPOINT).
+                // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
+                let flame = if mission.kind.spawns_daisy_cutter_flame()
+                    && dist <= AURORA_FUEL_AIR_FLAME_RADIUS
+                {
+                    AURORA_FUEL_AIR_FLAME_DAMAGE
+                } else {
+                    0.0
+                };
+                let dmg = primary + flame;
                 if dmg > 0.0 {
                     hits.push(HostAuroraBombHit {
                         target_id: id,
@@ -525,6 +553,20 @@ mod tests {
         assert_eq!(AURORA_FUEL_AIR_GAS_DELAY_FRAMES, 30);
         assert_eq!(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, 75);
         assert!((AURORA_BOMB_ATTACK_RANGE - 300.0).abs() < 0.1);
+        // DaisyCutterFlameWeapon secondary residual (FuelAir gas MIDPOINT).
+        assert!((AURORA_FUEL_AIR_FLAME_DAMAGE - 5.0).abs() < 0.01);
+        assert!((AURORA_FUEL_AIR_FLAME_RADIUS - 100.0).abs() < 0.1);
+        assert!(HostAuroraBombKind::FuelAir.spawns_daisy_cutter_flame());
+        assert!(!HostAuroraBombKind::Standard.spawns_daisy_cutter_flame());
+    }
+
+    #[test]
+    fn allies_residual_and_legal_target_honesty() {
+        // Alive non-self is legal (ALLIES residual); dead / self excluded.
+        assert!(is_legal_aurora_bomb_target(true, false));
+        assert!(!is_legal_aurora_bomb_target(false, false));
+        assert!(!is_legal_aurora_bomb_target(true, true));
+        assert!(!is_legal_aurora_bomb_target(false, true));
     }
 
     #[test]
@@ -607,7 +649,7 @@ mod tests {
             (ObjectId(1), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // source — skip
             (ObjectId(2), Vec3::new(100.0, 0.0, 0.0), Team::GLA, true), // epicenter
             (ObjectId(3), Vec3::new(100.0, 0.0, 500.0), Team::GLA, true), // far
-            (ObjectId(4), Vec3::new(100.0, 0.0, 0.0), Team::USA, true), // friend — skip
+            (ObjectId(4), Vec3::new(100.0, 0.0, 0.0), Team::USA, true), // friend — ALLIES residual
         ];
 
         // Before delay: no plans.
@@ -616,15 +658,93 @@ mod tests {
 
         let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
-        assert_eq!(plans[0].hits.len(), 1, "only enemy at epicenter");
-        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
-        assert!((plans[0].hits[0].damage - 1000.0).abs() < 0.01);
+        // Enemy + friend at epicenter; source excluded; far outside primary+flame.
+        assert_eq!(plans[0].hits.len(), 2, "enemy + ally at epicenter (ALLIES residual)");
+        let enemy = plans[0]
+            .hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(2))
+            .expect("enemy hit");
+        let ally = plans[0]
+            .hits
+            .iter()
+            .find(|h| h.target_id == ObjectId(4))
+            .expect("ally hit");
+        // FuelAir primary 1000 + DaisyCutterFlame secondary 5 at epicenter.
+        let expected = AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE;
+        assert!((enemy.damage - expected).abs() < 0.01);
+        assert!((ally.damage - expected).abs() < 0.01);
+        assert!(
+            !plans[0].hits.iter().any(|h| h.target_id == ObjectId(1)),
+            "source aircraft must be excluded"
+        );
+        assert!(
+            !plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)),
+            "far unit outside primary+flame radius must not be hit"
+        );
 
-        reg.record_impact_complete(id, 1000.0, 1, 1);
+        reg.record_impact_complete(id, expected * 2.0, 2, 0);
         assert!(reg.honesty_complete_ok());
         assert!(reg.honesty_damage_ok());
         assert!(reg.honesty_host_path_ok());
         assert_eq!(reg.pending_count(), 0);
+    }
+
+    #[test]
+    fn fuel_air_flame_and_allies_residual_honesty() {
+        let mut reg = HostAuroraBombRegistry::new();
+        let _id = reg.queue(
+            HostAuroraBombKind::FuelAir,
+            ObjectId(10),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        // Ally at 80 (inside flame 100 + primary 100) vs ally at 120 (outside both).
+        let objects = vec![
+            (ObjectId(10), Vec3::new(500.0, 0.0, 0.0), Team::USA, true), // source
+            (ObjectId(11), Vec3::new(80.0, 0.0, 0.0), Team::USA, true),  // ally mid
+            (ObjectId(12), Vec3::new(120.0, 0.0, 0.0), Team::USA, true), // ally outer
+            (ObjectId(13), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true),   // enemy epicenter
+        ];
+        let plans = reg.plan_due_impacts(AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(plans.len(), 1);
+        let hits = &plans[0].hits;
+        let mid = hits.iter().find(|h| h.target_id == ObjectId(11)).expect("mid ally");
+        let epic = hits.iter().find(|h| h.target_id == ObjectId(13)).expect("epic enemy");
+        assert!(
+            !hits.iter().any(|h| h.target_id == ObjectId(12)),
+            "ally beyond primary+flame radius must not take residual damage"
+        );
+        // Mid at 80: primary falloff + full flame 5.
+        assert!(mid.damage > AURORA_FUEL_AIR_FLAME_DAMAGE);
+        assert!(mid.damage < AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE);
+        assert!(
+            (epic.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1
+        );
+
+        // Standard Aurora: no flame secondary; still hits allies.
+        let mut reg2 = HostAuroraBombRegistry::new();
+        let _ = reg2.queue(
+            HostAuroraBombKind::Standard,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        let objects2 = vec![
+            (ObjectId(1), Vec3::new(50.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // ally epicenter
+            (ObjectId(3), Vec3::new(0.0, 0.0, 0.0), Team::GLA, true),
+        ];
+        let plans2 = reg2.plan_due_impacts(AURORA_BOMB_DIVE_DELAY_FRAMES, &objects2);
+        assert_eq!(plans2[0].hits.len(), 2);
+        for h in &plans2[0].hits {
+            assert!(
+                (h.damage - AURORA_BOMB_DAMAGE).abs() < 0.01,
+                "standard Aurora has no flame secondary"
+            );
+        }
     }
 
     #[test]

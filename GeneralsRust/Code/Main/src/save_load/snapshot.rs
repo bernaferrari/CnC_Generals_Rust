@@ -2785,6 +2785,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostToxinField {
         xfer.xfer_u32(&mut self.objects_destroyed)?;
         xfer.xfer_marker_label("ParentStrikeId")?;
         xfer.xfer_u32(&mut self.parent_strike_id)?;
+        // LargePoisonField / Anthrax residual params (appended after parent id).
+        xfer.xfer_marker_label("DamagePerTick")?;
+        xfer.xfer_f32(&mut self.damage_per_tick)?;
+        xfer.xfer_marker_label("Radius")?;
+        xfer.xfer_f32(&mut self.radius)?;
+        xfer.xfer_marker_label("TickIntervalFrames")?;
+        xfer.xfer_u32(&mut self.tick_interval_frames)?;
         Ok(())
     }
 }
@@ -2871,6 +2878,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 objects_hit: 0,
                 objects_destroyed: 0,
                 artillery_tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level1,
+                spectre_tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
                 multi_strike_applied: 0,
             },
         )?;
@@ -2919,6 +2927,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                damage_per_tick: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                radius: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_RADIUS,
+                tick_interval_frames: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
             },
         )?;
         xfer.xfer_marker_label("ToxinFieldsSpawnedTotal")?;

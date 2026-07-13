@@ -1,3 +1,65 @@
+## Residual Host Playability — ScudStorm Multi-Missile + Spectre OrbitTime + Aurora ALLIES/Flame (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 11):**
+1. **ScudStorm ClipSize-9 ScatterTarget multi-missile residual** (`special_power_strikes`):
+   - Retail `ScudStormWeapon` ClipSize **9** + ScatterTarget table × ScatterTargetScalar
+     **120**; PreAttackDelay **3000** ms → **90** frames; DelayBetweenShots Min/Max
+     **100**/1000 ms → **3**/30 frames deterministic residual stagger.
+   - Per-missile blast: `ScudStormDamageWeapon` Primary **500**/r**50** + Secondary
+     **150**/r**200** (two-ring residual).
+   - Each missile impact also spawns residual LargePoisonField toxin ticks
+     (Primary **15** / r**140** / 500 ms / Lifetime **45** s).
+   - Host-testable: first missile at PreAttack frame; all 9 applied by last delay;
+     poison honesty gate.
+   - Fail-closed: not full ScudStormMissile projectile Object / PreAttack animation /
+     anthrax-upgraded poison weapon matrix / GameLogicRandomValueReal stream.
+2. **SpectreGunship science-tier OrbitTime residual**:
+   - Retail SCIENCE_SpectreGunship1/2/3 OrbitTime **10s / 15s / 20s** → **300 / 450 / 600**
+     frames; `SpectreGunshipScienceTier` + `highest_from_sciences`.
+   - Strike stores `spectre_tier`; orbit field duration uses tier residual.
+   - Queue selects highest unlocked Spectre science on source team (default L2).
+   - Fail-closed: not full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
+3. **Aurora bomb RadiusDamageAffects ALLIES residual** (`host_aurora_bomb`):
+   - Retail `AuroraBombWeapon` / `AirF_AuroraBombDetonationWeapon` list
+     `ALLIES ENEMIES NEUTRALS` (Standard also `NOT_SIMILAR`).
+   - Host residual hits living non-self units of any team; source aircraft Object
+     still excluded.
+   - Host-testable: friend at epicenter takes primary blast; source never hit.
+   - Fail-closed: not full NOT_SIMILAR / Relationship matrix.
+4. **FuelAir DaisyCutterFlameWeapon secondary residual**:
+   - Retail AirF_AuroraBombGas / SupW_AuroraFuelAirGas SlowDeath MIDPOINT
+     `DaisyCutterFlameWeapon` PrimaryDamage **5.0** / PrimaryDamageRadius **100**.
+   - Applied additively on FuelAir impact when horizontal distance ≤ flame radius.
+   - Honesty constants: `AURORA_FUEL_AIR_FLAME_DAMAGE` / `AURORA_FUEL_AIR_FLAME_RADIUS`
+     / `AURORA_FUEL_AIR_FLAME_AUDIO`; `HostAuroraBombKind::spawns_daisy_cutter_flame()`.
+   - Host-testable: FuelAir epicenter = primary + 5; Standard Aurora has no flame.
+   - Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state / FX GPU;
+     SupW 900/r70 collapse still uses AirF 1000/r100 host numbers.
+5. **last_damage_source residual on superweapon / Aurora / continuous field paths**:
+   - `update_aurora_bombs` and `update_special_power_strikes` (primary blast +
+     radiation / toxin / Spectre orbit / Particle beam ticks) now call
+     `take_damage_from(..., Some(source_object))` so CashBounty killer residual
+     prefers BodyModule last_damage_source over nearest same-team fallback.
+   - Fail-closed: not full DestructionEvent killer ObjectId on every residual
+     kill path (unit host splash residual paths still open).
+6. Tests (not log-only):
+   - `scud_storm_multi_missile_scatter_and_poison_residual`
+   - `spectre_orbit_time_science_tier_residual`
+   - updated ScudStorm host-path integration (ClipSize 9 + poison honesty)
+   - `allies_residual_and_legal_target_honesty`
+   - `fuel_air_flame_and_allies_residual_honesty`
+   - updated `queue_and_complete_delayed_dive_plan`
+   - updated `aurora_bomb_host_path_queues_and_applies_delayed_area_damage`
+   - snapshot xfer carries `spectre_tier` + toxin field damage/radius/tick params
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile / PreAttack / anthrax-upgraded LargePoison
+- Full Spectre gattling-strafe / howitzer projectile / edge-spawn flight
+- Full SlowDeath multi-stage gas object / tree burn state machine
+- Full SupW_FuelBombDetonationWeapon 900/r70 vs AirF 1000/r100 matrix
+- Full AuroraBombLocomotor / MissileAIUpdate dive path
+- Full last_damage_source on every unit-host residual splash path
+- Network ScudStorm / Spectre / Aurora / superweapon blast replication (network deferred)
+
 ## Residual Host Playability — MOABFlame Secondary + RadiusDamageAffects ALLIES (2026-07-13)
 **Closed (host-testable combat/power residual not covered by wave 10):**
 1. **MOABFlameWeapon secondary residual** (`special_power_strikes`):
