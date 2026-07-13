@@ -81,8 +81,14 @@
 //! - **VisionObjectName residual**: createVisionObject is **disabled in retail
 //!   C++** — host honesty documents the dead path (no spawn claim).
 //!
+//! - **Partition / AI vision mood range residual**: idle mood-target acquire is
+//!   gated by Strategy Center VisionRange **400** (SearchAndDestroy × **2.0**
+//!   scalar when ACTIVE). Host residual of getNextMoodTarget vision filter +
+//!   weapon range band. Fail-closed: not full PartitionManager filter stack.
+//!
 //! Fail-closed honesty:
-//! - Not full Partition filter / AI vision mood range matrix
+//! - Not full PartitionManager filter stack / AI pathfinder mood matrix
+//!   (vision range + weapon band host residual closed)
 //! - Not full W3D Turret/TurretPitch bone hierarchy GPU draw
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
@@ -872,6 +878,9 @@ pub fn strategy_center_mood_target_eligible_with_attitude(
 }
 
 /// Whether a residual enemy is legal for idle mood-target residual.
+///
+/// Uses weapon range band only (legacy host residual). Prefer
+/// `strategy_center_mood_target_enemy_legal_with_vision` for Partition vision.
 pub fn strategy_center_mood_target_enemy_legal(
     enemy_alive: bool,
     same_team: bool,
@@ -880,11 +889,60 @@ pub fn strategy_center_mood_target_enemy_legal(
     is_air: bool,
     distance: f32,
 ) -> bool {
+    strategy_center_mood_target_enemy_legal_with_vision(
+        enemy_alive,
+        same_team,
+        is_neutral,
+        under_construction,
+        is_air,
+        distance,
+        f32::MAX, // no vision gate (legacy)
+    )
+}
+
+/// Retail AmericaStrategyCenter VisionRange residual.
+pub const STRATEGY_CENTER_BASE_VISION_RANGE: f32 = 400.0;
+
+/// Effective mood-target vision residual (Partition getNextMoodTarget filter).
+///
+/// C++ AI vision uses object VisionRange; Strategy Center SearchAndDestroy
+/// BattlePlan multiplies sight by `STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR`
+/// (**2.0**). Weapon range band remains separate for fire legality.
+pub fn strategy_center_mood_vision_range(search_and_destroy_active: bool) -> f32 {
+    if search_and_destroy_active {
+        STRATEGY_CENTER_BASE_VISION_RANGE * STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR
+    } else {
+        STRATEGY_CENTER_BASE_VISION_RANGE
+    }
+}
+
+/// Whether distance is within residual mood vision range (Partition vision filter).
+pub fn strategy_center_mood_target_in_vision(distance: f32, vision_range: f32) -> bool {
+    vision_range > 0.0 && distance <= vision_range + f32::EPSILON
+}
+
+/// Mood-target enemy legal with Partition vision residual + weapon range band.
+///
+/// C++ path: getNextMoodTarget filters by vision; TurretAI then aims if legal.
+/// Host residual requires:
+/// - basic legality (alive, enemy, ground, not UC)
+/// - within vision residual (`vision_range`)
+/// - within StrategyCenterGun range band (min **100** / max **400**)
+pub fn strategy_center_mood_target_enemy_legal_with_vision(
+    enemy_alive: bool,
+    same_team: bool,
+    is_neutral: bool,
+    under_construction: bool,
+    is_air: bool,
+    distance: f32,
+    vision_range: f32,
+) -> bool {
     enemy_alive
         && !same_team
         && !is_neutral
         && !under_construction
         && !is_air
+        && strategy_center_mood_target_in_vision(distance, vision_range)
         && strategy_center_gun_in_range(distance)
 }
 
@@ -897,6 +955,18 @@ pub fn strategy_center_mood_target_should_clear(
     in_weapon_range: bool,
 ) -> bool {
     target_was_set_by_mood && (!target_alive || !in_weapon_range)
+}
+
+/// Whether a mood-set residual target should clear under vision+weapon residual.
+///
+/// Clears when dead, out of weapon band, or outside vision residual.
+pub fn strategy_center_mood_target_should_clear_with_vision(
+    target_was_set_by_mood: bool,
+    target_alive: bool,
+    in_weapon_range: bool,
+    in_vision: bool,
+) -> bool {
+    target_was_set_by_mood && (!target_alive || !in_weapon_range || !in_vision)
 }
 
 // --- Turret bone pitch/yaw drawable residual (presentation feed) ---
@@ -1937,6 +2007,32 @@ mod tests {
         // VisionObjectName createVisionObject disabled in retail C++.
         assert!(!strategy_center_vision_object_spawn_enabled_in_retail());
         assert!(!STRATEGY_CENTER_VISION_OBJECT_NAME.is_empty());
+
+        // Partition / AI vision mood range residual.
+        assert!((STRATEGY_CENTER_BASE_VISION_RANGE - 400.0).abs() < 0.001);
+        assert!((strategy_center_mood_vision_range(false) - 400.0).abs() < 0.001);
+        assert!((strategy_center_mood_vision_range(true) - 800.0).abs() < 0.001);
+        assert!(strategy_center_mood_target_in_vision(400.0, 400.0));
+        assert!(!strategy_center_mood_target_in_vision(401.0, 400.0));
+        // Within vision but outside weapon min band → illegal.
+        assert!(!strategy_center_mood_target_enemy_legal_with_vision(
+            true, false, false, false, false, 50.0, 400.0,
+        ));
+        // Within vision + weapon band → legal.
+        assert!(strategy_center_mood_target_enemy_legal_with_vision(
+            true, false, false, false, false, 200.0, 400.0,
+        ));
+        // Outside vision residual → illegal even if in weapon max band.
+        assert!(!strategy_center_mood_target_enemy_legal_with_vision(
+            true, false, false, false, false, 200.0, 100.0,
+        ));
+        // Clear with vision residual.
+        assert!(strategy_center_mood_target_should_clear_with_vision(
+            true, true, true, false
+        ));
+        assert!(!strategy_center_mood_target_should_clear_with_vision(
+            true, true, true, true
+        ));
     }
 
     #[test]

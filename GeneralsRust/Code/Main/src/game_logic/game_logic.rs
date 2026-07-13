@@ -1140,6 +1140,10 @@ pub struct GameLogic {
     camo_netting_opacity_cloak_count: u32,
     /// CamoNetting FriendlyOpacity residual: revealed (max opacity) applications.
     camo_netting_opacity_reveal_count: u32,
+    /// CamoNetting sub-object net mesh residual show applications.
+    camo_netting_sub_object_show_count: u32,
+    /// Stinger physical soldier orderSlavesToAttackTarget residual orders.
+    stinger_slave_order_attack_count: u32,
 
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
     patriot_residual_ground_fires: u32,
@@ -2176,6 +2180,8 @@ impl GameLogic {
             camo_netting_structure_residual_recloaks: 0,
             camo_netting_opacity_cloak_count: 0,
             camo_netting_opacity_reveal_count: 0,
+            camo_netting_sub_object_show_count: 0,
+            stinger_slave_order_attack_count: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
             supw_patriot_emp_residual_grants: 0,
@@ -2516,6 +2522,8 @@ impl GameLogic {
         self.camo_netting_structure_residual_recloaks = 0;
         self.camo_netting_opacity_cloak_count = 0;
         self.camo_netting_opacity_reveal_count = 0;
+        self.camo_netting_sub_object_show_count = 0;
+        self.stinger_slave_order_attack_count = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
         self.supw_patriot_emp_residual_grants = 0;
@@ -9823,11 +9831,17 @@ impl GameLogic {
             // FriendlyOpacity residual: cloaked → min.
             obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
             obj.camo_opacity_pulse_phase = 0.0;
+            // Sub-object net mesh residual: upgrade shows CamoNet presentation.
+            obj.camo_net_sub_object_shown = true;
+            obj.camo_net_sub_object_observer_visible = true; // friendly default residual
             affected = affected.saturating_add(1);
         }
         if affected > 0 {
             self.camo_netting_opacity_cloak_count = self
                 .camo_netting_opacity_cloak_count
+                .saturating_add(affected);
+            self.camo_netting_sub_object_show_count = self
+                .camo_netting_sub_object_show_count
                 .saturating_add(affected);
         }
         affected
@@ -15192,6 +15206,19 @@ impl GameLogic {
                 self.stinger_site_residual_ground_fires =
                     self.stinger_site_residual_ground_fires.saturating_add(1);
             }
+            // Physical soldier attach residual: orderSlavesToAttackTarget.
+            // Fail-closed: not full GLAInfantryStingerSoldier AI module.
+            use crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target;
+            if let Some(site) = self.objects.get_mut(&defense_id) {
+                let n = order_hive_slaves_to_attack_target(
+                    &mut site.hive_slaves,
+                    target_id.0,
+                );
+                if n > 0 {
+                    self.stinger_slave_order_attack_count =
+                        self.stinger_slave_order_attack_count.saturating_add(n);
+                }
+            }
         }
         if is_patriot {
             if slot == 1 {
@@ -16689,6 +16716,7 @@ impl GameLogic {
             || self.stinger_hive_residual_swallows > 0
             || self.stinger_hive_residual_respawns > 0
             || self.stinger_hive_residual_closest_slave_hits > 0
+            || self.stinger_slave_order_attack_count > 0
     }
 
     pub fn stinger_hive_residual_slave_hits(&self) -> u32 {
@@ -16724,6 +16752,25 @@ impl GameLogic {
             || self.camo_netting_opacity_cloak_count > 0
             || self.camo_netting_opacity_reveal_count > 0
             || self.camo_netting_heat_vision_count > 0
+            || self.camo_netting_sub_object_show_count > 0
+    }
+
+    /// Residual honesty: CamoNetting sub-object net mesh residual shown.
+    pub fn honesty_camo_netting_sub_object_ok(&self) -> bool {
+        self.camo_netting_sub_object_show_count > 0
+    }
+
+    pub fn camo_netting_sub_object_show_count(&self) -> u32 {
+        self.camo_netting_sub_object_show_count
+    }
+
+    /// Residual honesty: Stinger orderSlavesToAttackTarget residual.
+    pub fn honesty_stinger_slave_order_ok(&self) -> bool {
+        self.stinger_slave_order_attack_count > 0
+    }
+
+    pub fn stinger_slave_order_attack_count(&self) -> u32 {
+        self.stinger_slave_order_attack_count
     }
 
     /// Residual honesty: CamoNetting StealthLook heat-vision residual applied.
@@ -16833,6 +16880,37 @@ impl GameLogic {
         &self,
     ) -> &[crate::game_logic::host_base_defense::ResidualPatriotAssistLaser] {
         &self.patriot_assist_lasers
+    }
+
+    /// Presentation / shell residual: inject host assist lasers for snapshot tests.
+    ///
+    /// Production combat still owns laser spawn via AssistedTargetingUpdate residual.
+    /// This is a host-testable entry so PresentationFrame can freeze Line3D segments
+    /// without requiring a full Patriot assist combat sequence.
+    pub fn push_residual_patriot_assist_lasers_for_presentation(
+        &mut self,
+        lasers: impl IntoIterator<
+            Item = crate::game_logic::host_base_defense::ResidualPatriotAssistLaser,
+        >,
+    ) {
+        for laser in lasers {
+            match laser.kind {
+                crate::game_logic::host_base_defense::PatriotAssistLaserKind::FromAssisted => {
+                    self.patriot_assist_laser_from_assisted =
+                        self.patriot_assist_laser_from_assisted.saturating_add(1);
+                }
+                crate::game_logic::host_base_defense::PatriotAssistLaserKind::ToTarget => {
+                    self.patriot_assist_laser_to_target =
+                        self.patriot_assist_laser_to_target.saturating_add(1);
+                }
+            }
+            self.patriot_assist_lasers.push(laser);
+        }
+    }
+
+    /// Clear residual assist lasers (presentation dual-tick freeze test helper).
+    pub fn clear_residual_patriot_assist_lasers_for_presentation(&mut self) {
+        self.patriot_assist_lasers.clear();
     }
 
     /// Residual honesty: StealthDetectorUpdate DetectionRate residual scan fired.
@@ -23846,9 +23924,10 @@ impl GameLogic {
         use crate::game_logic::host_strategy_center::{
             is_strategy_center_template, strategy_center_gun_in_range,
             strategy_center_mood_target_eligible_with_attitude,
-            strategy_center_mood_target_enemy_legal, strategy_center_mood_target_should_clear,
-            strategy_center_turret_aim_at, HostAiAttitude, HostBattlePlan,
-            HostBattlePlanTransition,
+            strategy_center_mood_target_enemy_legal_with_vision,
+            strategy_center_mood_target_in_vision, strategy_center_mood_target_should_clear_with_vision,
+            strategy_center_mood_vision_range, strategy_center_turret_aim_at, HostAiAttitude,
+            HostBattlePlan, HostBattlePlanTransition,
         };
 
         // Bombardment ACTIVE centers.
@@ -23881,6 +23960,11 @@ impl GameLogic {
             let has_mood = obj.turret_mood_target;
             let attitude = HostAiAttitude::from_i8(obj.ai_attitude);
             let last_dmg = obj.last_damage_source;
+            // Partition / AI vision residual: VisionRange **400**.
+            // Bombardment ACTIVE path: S&D sight scalar does not apply (plans
+            // are mutually exclusive). Host residual still uses the vision
+            // filter helper so reduced-vision / S&D matrix stays host-testable.
+            let vision_range = strategy_center_mood_vision_range(false);
             // "Busy" for acquire: only non-mood attacking (pack recenter / explicit
             // non-mood attack). Mood-set Attacking is the hold state, not busy.
             let busy_non_mood = !has_mood
@@ -23902,18 +23986,23 @@ impl GameLogic {
                         let dz = tp.z - fire_pos.z;
                         let dist = (dx * dx + dz * dz).sqrt();
                         let is_air = t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
-                        let legal = strategy_center_mood_target_enemy_legal(
+                        let legal = strategy_center_mood_target_enemy_legal_with_vision(
                             t.is_alive(),
                             t.team == team,
                             t.team == Team::Neutral,
                             t.status.under_construction,
                             is_air,
                             dist,
+                            vision_range,
                         );
                         let in_range = strategy_center_gun_in_range(dist);
-                        clear =
-                            strategy_center_mood_target_should_clear(true, t.is_alive(), in_range)
-                                || !legal;
+                        let in_vision = strategy_center_mood_target_in_vision(dist, vision_range);
+                        clear = strategy_center_mood_target_should_clear_with_vision(
+                            true,
+                            t.is_alive(),
+                            in_range,
+                            in_vision,
+                        ) || !legal;
                         if !clear {
                             aim_xz = Some((tp.x, tp.z));
                         }
@@ -23960,6 +24049,7 @@ impl GameLogic {
 
             // Find residual mood target: Passive uses last damage source only
             // (C++ getNextMoodTarget Passive branch); else nearest legal enemy.
+            // Partition vision residual gates acquire distance.
             let mut best: Option<(ObjectId, f32, f32, f32)> = None; // id, dist, x, z
             if attitude.idle_mood_wait_for_attack() {
                 if let Some(tid) = last_dmg {
@@ -23971,13 +24061,14 @@ impl GameLogic {
                             let dist = (dx * dx + dz * dz).sqrt();
                             let is_air =
                                 other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
-                            if strategy_center_mood_target_enemy_legal(
+                            if strategy_center_mood_target_enemy_legal_with_vision(
                                 other.is_alive(),
                                 other.team == team,
                                 other.team == Team::Neutral,
                                 other.status.under_construction,
                                 is_air,
                                 dist,
+                                vision_range,
                             ) {
                                 best = Some((tid, dist, op.x, op.z));
                             }
@@ -23994,13 +24085,14 @@ impl GameLogic {
                     let dz = op.z - fire_pos.z;
                     let dist = (dx * dx + dz * dz).sqrt();
                     let is_air = other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
-                    if !strategy_center_mood_target_enemy_legal(
+                    if !strategy_center_mood_target_enemy_legal_with_vision(
                         other.is_alive(),
                         other.team == team,
                         other.team == Team::Neutral,
                         other.status.under_construction,
                         is_air,
                         dist,
+                        vision_range,
                     ) {
                         continue;
                     }
@@ -29011,6 +29103,22 @@ impl GameLogic {
                 }
                 obj.camo_stealth_look = look.as_u8();
                 obj.camo_heat_vision_opacity = hv;
+                // CamoNetting sub-object net mesh residual presentation.
+                if obj.camo_net_sub_object_shown || obj.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING) {
+                    use crate::game_logic::host_upgrades::{
+                        camo_netting_sub_object_observer_visible, camo_netting_sub_object_state,
+                    };
+                    obj.camo_net_sub_object_shown = true;
+                    let sub = camo_netting_sub_object_state(
+                        true,
+                        obj.status.stealthed,
+                        obj.status.detected,
+                        false, // enemy observer residual default
+                        obj.camo_friendly_opacity,
+                    );
+                    obj.camo_net_sub_object_observer_visible =
+                        camo_netting_sub_object_observer_visible(&sub);
+                }
             }
             self.camo_netting_heat_vision_count = self
                 .camo_netting_heat_vision_count
@@ -42668,15 +42776,19 @@ mod tests {
     /// Residual: TurretAI idle mood-target acquire + out-of-range clear.
     ///
     /// C++ friend_checkForIdleMoodTarget: Bombardment ACTIVE idle gun acquires
-    /// enemy in StrategyCenterGun range band, aims FirePitch, flags mood target.
-    /// Mood target leaving range clears so idle-scan can resume.
-    /// Fail-closed: not full Partition filter / AI vision mood range matrix.
+    /// enemy in StrategyCenterGun range band + Partition vision residual
+    /// (VisionRange **400**), aims FirePitch, flags mood target.
+    /// Mood target leaving range/vision clears so idle-scan can resume.
+    /// Fail-closed: not full PartitionManager filter stack / pathfinder mood matrix.
     #[test]
     fn strategy_center_turret_mood_target_residual() {
         use crate::game_logic::host_strategy_center::{
-            HostBattlePlan, STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_GUN_MIN_RANGE,
+            strategy_center_mood_vision_range, HostBattlePlan, STRATEGY_CENTER_BASE_VISION_RANGE,
+            STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_GUN_MIN_RANGE,
             STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
         };
+        assert!((STRATEGY_CENTER_BASE_VISION_RANGE - 400.0).abs() < 0.001);
+        assert!((strategy_center_mood_vision_range(false) - 400.0).abs() < 0.001);
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
@@ -54263,6 +54375,22 @@ mod tests {
         assert!(game_logic.honesty_stinger_site_ok());
         assert!(game_logic.stinger_site_residual_ground_fires() > 0);
         assert!(game_logic.honesty_base_defense_fire_ok());
+        // Physical soldier attach residual: orderSlavesToAttackTarget on fire.
+        assert!(
+            game_logic.honesty_stinger_slave_order_ok(),
+            "Stinger residual fire must order residual soldiers to attack target"
+        );
+        assert!(game_logic.stinger_slave_order_attack_count() >= 1);
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            assert!(
+                s.hive_slaves
+                    .iter()
+                    .filter(|sl| sl.alive)
+                    .any(|sl| sl.ai_attacking && sl.attack_target_id == enemy_id.0),
+                "alive residual slaves must carry attack order residual"
+            );
+        }
 
         // AA residual auto-fire vs aircraft at AA range.
         let air_id = game_logic
@@ -54622,6 +54750,39 @@ mod tests {
         }
         assert!(game_logic.stinger_hive_residual_slave_kills() >= 1);
         assert!(game_logic.honesty_stinger_hive_ok());
+
+        // Physical soldier attach residual: facing + order + presentation.
+        use crate::game_logic::host_base_defense::{
+            build_hive_slave_attach_presentation, order_hive_slaves_to_attack_target,
+            order_hive_slaves_to_go_idle, stinger_spawn_point_facings,
+        };
+        {
+            let s = game_logic.find_object(stinger_id).unwrap();
+            let facings = stinger_spawn_point_facings();
+            assert!(
+                (s.hive_slaves[0].facing_deg - facings[0]).abs() < 0.01,
+                "SpawnPoint facing residual must match host layout"
+            );
+            let attach =
+                build_hive_slave_attach_presentation(&s.hive_slaves, s.get_position().x, s.get_position().z);
+            assert_eq!(attach[0].template_name, STINGER_SPAWN_TEMPLATE);
+            assert!((attach[0].facing_deg - facings[0]).abs() < 0.01);
+        }
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            let n = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 1234);
+            assert!(n >= 1);
+            assert!(s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
+                sl.ai_attacking && sl.attack_target_id == 1234
+            }));
+            let n_idle = order_hive_slaves_to_go_idle(&mut s.hive_slaves);
+            assert!(n_idle >= 1);
+            assert!(s
+                .hive_slaves
+                .iter()
+                .filter(|sl| sl.alive)
+                .all(|sl| !sl.ai_attacking && sl.attack_target_id == 0));
+        }
     }
 
     /// Residual: CamoNetting structure ATTACKING/TAKING_DAMAGE reveal + StealthDelay re-cloak.
@@ -54687,12 +54848,22 @@ mod tests {
                 "CamoNetting cloak residual must set FriendlyOpacityMin, got {}",
                 o.camo_friendly_opacity
             );
+            // Sub-object net mesh residual: upgrade shows CamoNet presentation.
+            assert!(
+                o.camo_net_sub_object_shown,
+                "CamoNetting residual must show net mesh sub-object"
+            );
         }
         assert!(
             game_logic.honesty_camo_netting_friendly_opacity_ok(),
             "FriendlyOpacity residual honesty must record cloak"
         );
         assert!(game_logic.camo_netting_opacity_cloak_count() >= 2);
+        assert!(
+            game_logic.honesty_camo_netting_sub_object_ok(),
+            "CamoNetting sub-object net mesh residual honesty"
+        );
+        assert!(game_logic.camo_netting_sub_object_show_count() >= 2);
 
         // TAKING_DAMAGE residual uncloaks.
         let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
@@ -54934,6 +55105,28 @@ mod tests {
             "CamoNetting heat-vision residual honesty"
         );
         assert!(game_logic.camo_netting_heat_vision_count() >= 1);
+
+        // Sub-object residual: detected → observer-visible with heat-vision pass.
+        use crate::game_logic::host_upgrades::{
+            camo_netting_sub_object_observer_visible, camo_netting_sub_object_state,
+            CAMO_NETTING_SUB_OBJECT_MESH_NAME,
+        };
+        {
+            let t = game_logic.find_object(tunnel_id).unwrap();
+            assert!(t.camo_net_sub_object_shown);
+            let sub = camo_netting_sub_object_state(
+                true,
+                t.status.stealthed,
+                t.status.detected,
+                false,
+                t.camo_friendly_opacity,
+            );
+            assert_eq!(sub.mesh_name, CAMO_NETTING_SUB_OBJECT_MESH_NAME);
+            assert!(sub.shown);
+            assert!(sub.heat_vision_pass);
+            assert!(camo_netting_sub_object_observer_visible(&sub));
+            assert!(t.camo_net_sub_object_observer_visible);
+        }
     }
 
     /// Residual: USA Patriot AA secondary residual vs aircraft.

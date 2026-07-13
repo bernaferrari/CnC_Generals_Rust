@@ -63,28 +63,37 @@
 //!   nearest the shooter in 2D; HiveStructureBody propagate damages that slot
 //!   via **host API** (`apply_host_hive_damage_from`) — not live skirmish
 //!   `Object::take_damage` combat (fail-closed: combat still structure HP).
-//!   Respawn revives the first dead slot. Fail-closed: not full GLAInfantryStingerSoldier
-//!   Object spawn / AI / W3D model attach.
+//!   Respawn revives the first dead slot.
+//!
+//! - **Physical soldier attach residual** (SpawnPoint facing + AI order + attach):
+//!   Each residual slave stores SpawnPoint Z-rotation facing (outward from site),
+//!   AI attack order residual (`orderSlavesToAttackTarget` / `orderSlavesToGoIdle`),
+//!   and a presentation attach matrix (world XZ + facing) for drawable consumers.
+//!   Fail-closed: not full GLAInfantryStingerSoldier Object / full AI module /
+//!   W3D model bone attach GPU.
 //!
 //! - **W3DLaserDraw arc segment residual** (PatriotBinaryDataStream):
 //!   Host samples cosine arc points from start→end using retail ArcHeight **30**
 //!   / Segments **20** (C++ `doDrawModule` mid-peak cos curve).
 //!
-//! - **W3DLaserDraw texture / Line3D residual** (math path, not GPU):
+//! - **W3DLaserDraw texture / Line3D residual** (math path + presentation freeze):
 //!   Texture `EXBinaryStream32.tga`, Tile **Yes**, TilingScalar **0.25**,
 //!   InnerColor green A**180**, tileFactor = length/width×aspect×scalar,
 //!   ground-skim Z = max(z, ground+**2**). Host builds **20** Line3D segment
-//!   descriptors for presentation consumers. Fail-closed: not full WGPU
-//!   SegLineRenderer / texture upload.
+//!   descriptors; `PresentationFrame.laser_beams` freezes them; CPU
+//!   `LaserSegmentUpload` packs interleaved vertices for WGPU. Fail-closed: not
+//!   live SegLineRenderer queue write / texture sample.
 //!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
-//! - Not full W3DLaserDraw WGPU SegLineRenderer / texture upload for assist beams
-//!   (endpoint track + draw-param + arc + tile/Line3D descriptor host residual closed)
-//! - Not full SpawnBehavior physical soldier Object / AI / bone matrix
-//!   (getClosestSlave + per-slave HP/position host residual closed)
+//! - Not full W3DLaserDraw live WGPU SegLineRenderer queue write for assist beams
+//!   (endpoint track + draw-param + arc + tile/Line3D + presentation freeze + CPU
+//!   vertex pack residual closed)
+//! - Not full SpawnBehavior physical soldier Object / full AI / W3D bone GPU
+//!   (getClosestSlave + facing/order/attach presentation host residual closed)
+//! - Not full WGPU SegLineRenderer texture upload (host UV polyline residual closed)
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
 //! - Not network base-defense replication (network deferred)
@@ -589,6 +598,80 @@ pub fn build_patriot_laser_line3d_segments(
     out
 }
 
+// --- SegLineRenderer residual (CPU UV / polyline feed, not WGPU upload) ---
+
+/// Host residual of C++ `SegLineRendererClass` presentation state for Patriot
+/// BinaryDataStream assist beams.
+///
+/// Mirrors tile factor, UV offset, color, width, and polyline points that a
+/// WGPU SegLineRenderer would consume. Fail-closed: not full texture upload /
+/// GPU draw path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostSegLineRendererState {
+    /// Retail texture residual name.
+    pub texture: &'static str,
+    /// Tile residual (Yes).
+    pub tile: bool,
+    /// Aggregate tile factor residual (from first segment or length).
+    pub texture_tile_factor: f32,
+    /// Scroll / UV offset residual (ScrollRate advance).
+    pub uv_offset: f32,
+    /// Inner beam width residual.
+    pub width: f32,
+    /// InnerColor residual RGBA 0..1.
+    pub color: (f32, f32, f32, f32),
+    /// Polyline residual (segment endpoints chained).
+    pub points: Vec<(f32, f32, f32)>,
+}
+
+/// Build residual SegLineRenderer state from Line3D segment descriptors.
+///
+/// C++ SegLineRenderer receives points + Set_Texture_Tile_Factor + UV offset.
+/// Host residual flattens segment start/end into a polyline for presentation.
+pub fn build_patriot_seglinerenderer_state(
+    segments: &[HostLaserLine3DSegment],
+) -> HostSegLineRendererState {
+    let mut points = Vec::with_capacity(segments.len().saturating_add(1).max(2));
+    let mut tile = 0.0_f32;
+    let mut scroll = 0.0_f32;
+    let mut width = PATRIOT_LASER_INNER_BEAM_WIDTH;
+    if let Some(first) = segments.first() {
+        points.push(first.start);
+        tile = first.tile_factor;
+        scroll = first.scroll_offset;
+        width = first.width;
+        for seg in segments {
+            points.push(seg.end);
+            // Keep max tile factor residual across segments.
+            if seg.tile_factor > tile {
+                tile = seg.tile_factor;
+            }
+        }
+    }
+    HostSegLineRendererState {
+        texture: PATRIOT_LASER_TEXTURE,
+        tile: PATRIOT_LASER_TILE,
+        texture_tile_factor: tile,
+        uv_offset: scroll,
+        width,
+        color: PATRIOT_LASER_INNER_COLOR,
+        points,
+    }
+}
+
+/// Convenience: build SegLineRenderer residual directly from beam endpoints.
+pub fn build_patriot_seglinerenderer_from_beam(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    arc_height: f32,
+    scroll_offset: f32,
+    ground_height: f32,
+) -> HostSegLineRendererState {
+    let segs =
+        build_patriot_laser_line3d_segments(from, to, arc_height, scroll_offset, ground_height);
+    build_patriot_seglinerenderer_state(&segs)
+}
+
 // --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
 /// Retail EMPPatriotEffectSpheroid EffectRadius residual.
 pub const SUPW_PATRIOT_EMP_RADIUS: f32 = 10.0;
@@ -670,7 +753,8 @@ pub struct HostHiveDamageResult {
 
 /// Host residual physical SpawnBehavior slave slot (Stinger Site).
 ///
-/// Fail-closed: not a full Object — position offset + HP only (getClosestSlave).
+/// Fail-closed: not a full Object — position/facing/HP/AI-order residual only
+/// (getClosestSlave + attach presentation).
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ResidualHiveSlave {
     /// Residual soldier HP (MaxHealth 100).
@@ -680,6 +764,19 @@ pub struct ResidualHiveSlave {
     pub offset_z: f32,
     /// Alive residual (dead slots wait for SpawnReplaceDelay).
     pub alive: bool,
+    /// SpawnPoint bone Z-rotation residual (degrees, outward-facing ring).
+    ///
+    /// C++ `SpawnPointProductionExitUpdate` stores `Get_Z_Rotation()` per bone.
+    /// Host residual: atan2(offset_z, offset_x) so soldiers face outward.
+    #[serde(default)]
+    pub facing_deg: f32,
+    /// Residual AI attacking (C++ orderSlavesToAttackTarget residual).
+    #[serde(default)]
+    pub ai_attacking: bool,
+    /// Residual ordered attack target host ObjectId bits (`ObjectId.0`).
+    /// 0 = none.
+    #[serde(default)]
+    pub attack_target_id: u32,
 }
 
 impl Default for ResidualHiveSlave {
@@ -689,6 +786,9 @@ impl Default for ResidualHiveSlave {
             offset_x: 0.0,
             offset_z: 0.0,
             alive: false,
+            facing_deg: 0.0,
+            ai_attacking: false,
+            attack_target_id: 0,
         }
     }
 }
@@ -708,29 +808,153 @@ pub fn stinger_spawn_point_offsets() -> [(f32, f32); 3] {
     [(r, 0.0), (-half, y), (-half, -y)]
 }
 
+/// SpawnPoint bone Z-rotation residual (deg) for a ring offset.
+///
+/// C++ stores pristine bone world Z rotation; host residual faces outward
+/// from site center along the offset vector (`atan2(z, x)` → degrees).
+pub fn stinger_spawn_point_facing_deg(offset_x: f32, offset_z: f32) -> f32 {
+    offset_z.atan2(offset_x).to_degrees()
+}
+
+/// Deterministic residual SpawnPoint facings for the 3-soldier ring.
+pub fn stinger_spawn_point_facings() -> [f32; 3] {
+    let offs = stinger_spawn_point_offsets();
+    [
+        stinger_spawn_point_facing_deg(offs[0].0, offs[0].1),
+        stinger_spawn_point_facing_deg(offs[1].0, offs[1].1),
+        stinger_spawn_point_facing_deg(offs[2].0, offs[2].1),
+    ]
+}
+
 /// Build full residual slave roster for a constructed Stinger Site.
 pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
     let offs = stinger_spawn_point_offsets();
+    let facings = stinger_spawn_point_facings();
     [
         ResidualHiveSlave {
             hp: STINGER_SOLDIER_MAX_HEALTH,
             offset_x: offs[0].0,
             offset_z: offs[0].1,
             alive: true,
+            facing_deg: facings[0],
+            ai_attacking: false,
+            attack_target_id: 0,
         },
         ResidualHiveSlave {
             hp: STINGER_SOLDIER_MAX_HEALTH,
             offset_x: offs[1].0,
             offset_z: offs[1].1,
             alive: true,
+            facing_deg: facings[1],
+            ai_attacking: false,
+            attack_target_id: 0,
         },
         ResidualHiveSlave {
             hp: STINGER_SOLDIER_MAX_HEALTH,
             offset_x: offs[2].0,
             offset_z: offs[2].1,
             alive: true,
+            facing_deg: facings[2],
+            ai_attacking: false,
+            attack_target_id: 0,
         },
     ]
+}
+
+/// Host residual of C++ `SpawnBehavior::orderSlavesToAttackTarget`.
+///
+/// Sets alive residual soldiers to attacking the given host ObjectId.
+/// Returns how many residual slaves received the order.
+pub fn order_hive_slaves_to_attack_target(
+    slaves: &mut [ResidualHiveSlave],
+    target_id: u32,
+) -> u32 {
+    if target_id == 0 {
+        return 0;
+    }
+    let mut n = 0u32;
+    for s in slaves.iter_mut() {
+        if !s.alive {
+            continue;
+        }
+        s.ai_attacking = true;
+        s.attack_target_id = target_id;
+        n = n.saturating_add(1);
+    }
+    n
+}
+
+/// Host residual of C++ `SpawnBehavior::orderSlavesToGoIdle`.
+///
+/// Clears attack residual on all residual soldiers. Returns idle count.
+pub fn order_hive_slaves_to_go_idle(slaves: &mut [ResidualHiveSlave]) -> u32 {
+    let mut n = 0u32;
+    for s in slaves.iter_mut() {
+        if !s.alive {
+            continue;
+        }
+        s.ai_attacking = false;
+        s.attack_target_id = 0;
+        n = n.saturating_add(1);
+    }
+    n
+}
+
+/// Host residual presentation attach for one physical soldier slot.
+///
+/// CPU-side drawable feed (world XZ + facing). Fail-closed: not full W3D
+/// bone hierarchy / RenderObj attach GPU.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostHiveSlaveAttach {
+    /// Slot index 0..2.
+    pub slot: u8,
+    /// World residual X.
+    pub world_x: f32,
+    /// World residual Z.
+    pub world_z: f32,
+    /// SpawnPoint facing residual (deg).
+    pub facing_deg: f32,
+    /// Alive residual.
+    pub alive: bool,
+    /// Residual AI attacking.
+    pub ai_attacking: bool,
+    /// Residual attack target host ObjectId bits (0 = none).
+    pub attack_target_id: u32,
+    /// Residual soldier template honesty.
+    pub template_name: &'static str,
+}
+
+/// Build residual soldier attach presentation for all SpawnNumber slots.
+pub fn build_hive_slave_attach_presentation(
+    slaves: &[ResidualHiveSlave],
+    site_x: f32,
+    site_z: f32,
+) -> [HostHiveSlaveAttach; 3] {
+    let mut out = [HostHiveSlaveAttach {
+        slot: 0,
+        world_x: site_x,
+        world_z: site_z,
+        facing_deg: 0.0,
+        alive: false,
+        ai_attacking: false,
+        attack_target_id: 0,
+        template_name: STINGER_SPAWN_TEMPLATE,
+    }; 3];
+    for i in 0..3 {
+        let s = slaves.get(i).copied().unwrap_or_default();
+        let (wx, wz) = s.world_xz(site_x, site_z);
+        out[i] = HostHiveSlaveAttach {
+            slot: i as u8,
+            world_x: wx,
+            world_z: wz,
+            facing_deg: s.facing_deg,
+            alive: s.alive,
+            ai_attacking: s.ai_attacking,
+            attack_target_id: s.attack_target_id,
+            template_name: STINGER_SPAWN_TEMPLATE,
+        };
+    }
+    out
 }
 
 /// Initial residual slave count + HP for a constructed Stinger Site.
@@ -807,6 +1031,8 @@ pub fn resolve_hive_structure_damage(
     // Legacy path: synthesize a single active residual slot from count/hp.
     let mut slaves = [ResidualHiveSlave::default(); 3];
     let n = (slave_count as usize).min(3);
+    let offs = stinger_spawn_point_offsets();
+    let facings = stinger_spawn_point_facings();
     for i in 0..n {
         slaves[i].alive = true;
         slaves[i].hp = if i == 0 {
@@ -814,9 +1040,9 @@ pub fn resolve_hive_structure_damage(
         } else {
             STINGER_SOLDIER_MAX_HEALTH
         };
-        let offs = stinger_spawn_point_offsets();
         slaves[i].offset_x = offs[i].0;
         slaves[i].offset_z = offs[i].1;
+        slaves[i].facing_deg = facings[i];
     }
     let (new_slaves, new_struct, result) =
         resolve_hive_structure_damage_roster(&mut slaves, structure_hp, damage, class, None);
@@ -877,6 +1103,8 @@ pub fn resolve_hive_structure_damage_roster(
             if roster[i].hp <= 0.0 {
                 roster[i].alive = false;
                 roster[i].hp = 0.0;
+                roster[i].ai_attacking = false;
+                roster[i].attack_target_id = 0;
                 killed = 1;
             }
             // Write back.
@@ -935,7 +1163,9 @@ pub fn respawn_one_hive_slave(slaves: &mut [ResidualHiveSlave]) -> bool {
     if let Some(slot) = slaves.iter_mut().find(|s| !s.alive) {
         slot.alive = true;
         slot.hp = STINGER_SOLDIER_MAX_HEALTH;
-        // Keep existing offset (SpawnPoint residual).
+        // Keep existing offset / facing (SpawnPoint residual).
+        slot.ai_attacking = false;
+        slot.attack_target_id = 0;
         true
     } else {
         false
@@ -954,11 +1184,13 @@ pub fn respawn_one_hive_slave(slaves: &mut [ResidualHiveSlave]) -> bool {
 /// path wrote `hive_slave_count` alone (tests / legacy mirrors).
 pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_count: u8) {
     let offs = stinger_spawn_point_offsets();
-    // Ensure offsets are always residual SpawnPoint layout.
+    let facings = stinger_spawn_point_facings();
+    // Ensure offsets / facings are always residual SpawnPoint layout.
     for i in 0..3 {
         if slaves[i].offset_x == 0.0 && slaves[i].offset_z == 0.0 && !slaves[i].alive {
             slaves[i].offset_x = offs[i].0;
             slaves[i].offset_z = offs[i].1;
+            slaves[i].facing_deg = facings[i];
         }
     }
     let desired = (desired_count as usize).min(3);
@@ -968,6 +1200,8 @@ pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_c
         if let Some(i) = (0..3).rev().find(|&i| slaves[i].alive) {
             slaves[i].alive = false;
             slaves[i].hp = 0.0;
+            slaves[i].ai_attacking = false;
+            slaves[i].attack_target_id = 0;
             alive -= 1;
         } else {
             break;
@@ -979,6 +1213,9 @@ pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_c
             slaves[i].hp = STINGER_SOLDIER_MAX_HEALTH;
             slaves[i].offset_x = offs[i].0;
             slaves[i].offset_z = offs[i].1;
+            slaves[i].facing_deg = facings[i];
+            slaves[i].ai_attacking = false;
+            slaves[i].attack_target_id = 0;
             alive += 1;
         } else {
             break;
@@ -989,12 +1226,16 @@ pub fn align_hive_roster_to_count(slaves: &mut [ResidualHiveSlave; 3], desired_c
 /// Zero all residual hive slave slots (empty hive / SwallowIfNoSlaves test setup).
 pub fn clear_hive_slave_roster(slaves: &mut [ResidualHiveSlave; 3]) {
     let offs = stinger_spawn_point_offsets();
+    let facings = stinger_spawn_point_facings();
     for i in 0..3 {
         slaves[i] = ResidualHiveSlave {
             hp: 0.0,
             offset_x: offs[i].0,
             offset_z: offs[i].1,
             alive: false,
+            facing_deg: facings[i],
+            ai_attacking: false,
+            attack_target_id: 0,
         };
     }
 }
@@ -2402,5 +2643,75 @@ mod tests {
             lines[mid_i].start.2 > lines[0].start.2,
             "mid segment residual Z must exceed start (arc)"
         );
+
+        // SegLineRenderer residual (CPU UV / polyline feed, not WGPU).
+        let seg = build_patriot_seglinerenderer_state(&lines);
+        assert_eq!(seg.texture, PATRIOT_LASER_TEXTURE);
+        assert!(seg.tile);
+        assert!((seg.uv_offset - (-0.25)).abs() < 0.001);
+        assert!((seg.width - PATRIOT_LASER_INNER_BEAM_WIDTH).abs() < 0.001);
+        assert!((seg.color.1 - 1.0).abs() < 0.001);
+        assert!(seg.texture_tile_factor > 0.0);
+        // Polyline = first start + each segment end → Segments+1 points.
+        assert_eq!(seg.points.len(), PATRIOT_LASER_SEGMENTS as usize + 1);
+        assert!((seg.points[0].0 - 0.0).abs() < 0.5);
+        assert!((seg.points.last().unwrap().0 - 100.0).abs() < 0.5);
+        let direct = build_patriot_seglinerenderer_from_beam(
+            from,
+            to,
+            PATRIOT_LASER_ARC_HEIGHT,
+            -0.25,
+            0.0,
+        );
+        assert_eq!(direct.points.len(), seg.points.len());
+    }
+
+    #[test]
+    fn stinger_physical_soldier_attach_facing_order_residual() {
+        let roster = init_stinger_hive_slave_roster();
+        let facings = stinger_spawn_point_facings();
+        // Slot 0 at (+r, 0) faces 0°.
+        assert!((roster[0].facing_deg - 0.0).abs() < 0.01);
+        assert!((facings[0] - 0.0).abs() < 0.01);
+        // Slot 1 / 2 face outward (non-zero, distinct).
+        assert!((roster[1].facing_deg - facings[1]).abs() < 0.01);
+        assert!((roster[2].facing_deg - facings[2]).abs() < 0.01);
+        assert!((roster[1].facing_deg - roster[2].facing_deg).abs() > 1.0);
+        assert!(!roster[0].ai_attacking);
+        assert_eq!(roster[0].attack_target_id, 0);
+
+        // orderSlavesToAttackTarget residual.
+        let mut live = roster;
+        let n = order_hive_slaves_to_attack_target(&mut live, 42);
+        assert_eq!(n, 3);
+        assert!(live.iter().all(|s| s.ai_attacking && s.attack_target_id == 42));
+        // Dead slot does not receive order.
+        live[1].alive = false;
+        live[1].ai_attacking = false;
+        live[1].attack_target_id = 0;
+        let n2 = order_hive_slaves_to_attack_target(&mut live, 99);
+        assert_eq!(n2, 2);
+        assert!(!live[1].ai_attacking);
+        assert_eq!(live[0].attack_target_id, 99);
+
+        // orderSlavesToGoIdle residual.
+        let n_idle = order_hive_slaves_to_go_idle(&mut live);
+        assert_eq!(n_idle, 2);
+        assert!(live.iter().filter(|s| s.alive).all(|s| !s.ai_attacking));
+        assert!(live.iter().filter(|s| s.alive).all(|s| s.attack_target_id == 0));
+
+        // Attach presentation residual at site (10, 20).
+        live[1].alive = true;
+        live[1].hp = STINGER_SOLDIER_MAX_HEALTH;
+        order_hive_slaves_to_attack_target(&mut live, 7);
+        let attach = build_hive_slave_attach_presentation(&live, 10.0, 20.0);
+        assert_eq!(attach[0].template_name, STINGER_SPAWN_TEMPLATE);
+        assert!((attach[0].world_x - (10.0 + STINGER_SPAWN_POINT_RADIUS)).abs() < 0.01);
+        assert!((attach[0].world_z - 20.0).abs() < 0.01);
+        assert!((attach[0].facing_deg - 0.0).abs() < 0.01);
+        assert!(attach[0].alive && attach[0].ai_attacking);
+        assert_eq!(attach[0].attack_target_id, 7);
+        assert_eq!(attach[1].slot, 1);
+        assert!(attach.iter().all(|a| a.alive));
     }
 }

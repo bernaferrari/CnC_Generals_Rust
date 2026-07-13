@@ -1,3 +1,59 @@
+## Residual Host Playability — CamoNet Sub-Object + Physical Soldier Attach + Vision Mood + SegLine (2026-07-13)
+**Closed (host-testable CamoNetting sub-object + stinger soldier attach + Partition vision mood + SegLine UV residual):**
+1. **CamoNetting sub-object net mesh residual** (presentation state, not GPU):
+   - Host residual mesh name honesty `CamoNet` (`CAMO_NETTING_SUB_OBJECT_MESH_NAME`).
+   - Upgrade_GLACamoNetting apply → `camo_net_sub_object_shown` + presentation
+     descriptor (`HostCamoNetSubObject`: shown / opacity / heat_vision_pass /
+     StealthLook).
+   - Enemy-undetected Invisible StealthLook → observer-hidden residual mesh;
+     detected residual → heat-vision second-pass + observer-visible.
+   - Host-testable: upgrade shows mesh; Invisible hides; detected heat-vision pass.
+   - Fail-closed: not full W3D SubObjectsUpgrade / mesh GPU / second-pass shader.
+2. **Physical SpawnBehavior soldier attach residual** (GLAStingerSite):
+   - SpawnPoint bone Z-rotation facing residual (outward `atan2` ring layout).
+   - `orderSlavesToAttackTarget` / `orderSlavesToGoIdle` residual on roster.
+   - Live residual fire path orders alive slaves at target ObjectId.
+   - `HostHiveSlaveAttach` presentation: world XZ + facing + AI order + template
+     `GLAInfantryStingerSoldier`.
+   - Host-testable: facings on init; fire → order; attach presentation positions.
+   - Fail-closed: not full GLAInfantryStingerSoldier Object / full AI module /
+     W3D model bone attach GPU.
+3. **Partition / AI vision mood range residual** (Strategy Center Bombardment):
+   - VisionRange **400** residual filter on mood-target acquire/clear
+     (`strategy_center_mood_vision_range`; S&D × **2.0** host-testable).
+   - Acquire requires vision residual **and** StrategyCenterGun range band.
+   - Host-testable: vision constants; out-of-vision illegal; gun band still gated.
+   - Fail-closed: not full PartitionManager filter stack / pathfinder mood matrix.
+4. **SegLineRenderer UV / polyline residual** (Patriot BinaryDataStream math path):
+   - `HostSegLineRendererState`: texture `EXBinaryStream32.tga`, tile factor,
+     UV scroll offset, InnerColor, width, polyline of segment endpoints.
+   - Built from Line3D residual segments (Segments+1 points).
+   - Host-testable: polyline length; texture/tile/UV/color honesty.
+   - Fail-closed: not full WGPU SegLineRenderer texture upload / GPU draw.
+5. Tests (not log-only):
+   - `stinger_physical_soldier_attach_facing_order_residual`
+   - updated `stinger_get_closest_slave_physical_roster_residual` (facing/order/attach)
+   - updated `stinger_site_residual_dual_fire_and_ap_rockets` (order on fire)
+   - updated `camo_netting_structure_attack_and_damage_reveal_residual` (sub-object)
+   - updated `camo_netting_structure_stealth_delay_matrix` (sub-object matrix)
+   - updated `patriot_laser_arc_segment_honesty` (SegLine polyline)
+   - updated `battle_plan_constants_match_retail_residual` (vision mood)
+   - updated `strategy_center_turret_mood_target_residual` (vision residual)
+
+**Still residual (fail-closed, not claimed):**
+- Full PartitionManager filter stack / pathfinder mood matrix
+  (vision range + weapon band host residual closed 2026-07-13)
+- Full W3DLaserDraw WGPU SegLineRenderer texture upload for Patriot assist beams
+  (CPU UV polyline host residual closed 2026-07-13)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full W3D pristine bone extract / DeliverPayload cargo plane path
+- Full physical SpawnBehavior soldier Object / full AI / W3D model GPU attach
+  (facing + order + attach presentation host residual closed 2026-07-13)
+- Full CamoNetting W3D sub-object mesh GPU / heat-vision shader pass
+  (host sub-object presentation residual closed 2026-07-13)
+- Network camo-subobject / slave-order / vision-mood / SegLine replication
+  (network deferred)
+
 ## Residual Host Playability — TurretAI Sleep/Passive + PARA_COG Bones + Laser Tile/Line3D (2026-07-13)
 **Closed (host-testable mood matrix + parachute bones + laser texture residual):**
 1. **TurretAI mood matrix Sleep/Passive residual** (Strategy Center Bombardment):
@@ -11,7 +67,9 @@
      presentation consumers (`HostTurretBoneDrawable`).
    - Host-testable: Sleep blocks acquire; Passive free-acquire blocked; Passive +
      last damage retaliates + aims FirePitch; bone drawable pitch honesty.
-   - Fail-closed: not full Partition/AI vision mood range matrix / W3D Turret bones.
+   - Fail-closed: not full PartitionManager filter stack / W3D Turret bones
+     (vision mood range host residual closed 2026-07-13 — see CamoNet Sub-Object
+     + Physical Soldier Attach + Vision Mood + SegLine section).
 2. **AmericaParachute bone PARA_COG / PARA_ATTCH / PARA_MAN residual**:
    - Host pristine bone offsets from GeometryHeight **10** layout (no W3D extract).
    - `updateOffsetsFromBones` residual → rider attach + rider/para sway pivots.
@@ -39,18 +97,20 @@
    - updated `patriot_laser_arc_segment_honesty` (tile/Line3D/skim)
 
 **Still residual (fail-closed, not claimed):**
-- Full Partition filter / AI vision mood range matrix / W3D Turret bone GPU
-  (Sleep/Passive + bone drawable host residual closed 2026-07-13)
+- Full PartitionManager filter stack / pathfinder mood matrix / W3D Turret bone GPU
+  (Sleep/Passive + bone drawable + vision mood host residual closed 2026-07-13)
 - Full W3DLaserDraw WGPU SegLineRenderer / texture upload for Patriot assist beams
-  (tile factor + Line3D descriptors + ground skim host residual closed 2026-07-13)
+  (tile factor + Line3D + ground skim + SegLine UV polyline host residual closed
+  2026-07-13)
 - Full VisionObjectName spawn residual (createVisionObject disabled in retail C++
   — honesty residual closed 2026-07-13; no spawn claim)
 - Full W3D pristine bone extract / DeliverPayload cargo plane path
   (PARA_COG host offsets + calcSwayMtx residual closed 2026-07-13)
-- Full physical SpawnBehavior soldier Object / AI / W3D model attach
-  (getClosestSlave + per-slave HP/position host residual closed 2026-07-13)
-- Full CamoNetting sub-object net mesh visual / W3D heat-vision GPU pass
-  (StealthLook + second-pass opacity host residual closed 2026-07-13)
+- Full physical SpawnBehavior soldier Object / full AI / W3D model GPU attach
+  (getClosestSlave + facing/order/attach presentation host residual closed
+  2026-07-13)
+- Full CamoNetting W3D sub-object mesh GPU / heat-vision shader pass
+  (StealthLook + host sub-object presentation residual closed 2026-07-13)
 - Network mood-matrix / PARA_COG / laser-tile replication (network deferred)
 
 ## Residual Host Playability — getClosestSlave + W3DLaser Arc + TurretAI Mood-Target + Camo StealthLook (2026-07-13)
