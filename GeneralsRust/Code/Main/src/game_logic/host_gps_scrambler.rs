@@ -10,8 +10,18 @@
 //!   (existing host stealth gates). Attack still breaks stealth (STEALTH_NOT_WHILE_ATTACKING).
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 54 residual pack (retail INI honesty):
+//! - GrantStealthBehavior grow-radius pulse: StartRadius **20**, FinalRadius **100**,
+//!   RadiusGrowRate **10** / frame → **8** grow updates to final
+//! - KindOf VEHICLE | INFANTRY
+//! - SuperweaponGPSScrambler ReloadTime **240000**ms → **7200**f,
+//!   RadiusCursorRadius **100**, RequiredScience SCIENCE_GPSScrambler
+//! - Slth_SuperweaponGPSScrambler ReloadTime **180000**ms → **5400**f
+//! - OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker
+//!
 //! Fail-closed honesty:
-//! - Not full OCL GPSScrambler_InvisibleMarker grow-from-StartRadius pulse scan
+//! - Not full OCL GPSScrambler_InvisibleMarker particle (GPSMicrowaveScambler /
+//!   GPSRotisserie / gpsScrambleCloud) GPU path
 //! - Not full StealthUpdate module matrix (only units with getStealth in C++; host residual
 //!   grants to VEHICLE|INFANTRY KindOf, skips bomb-truck disguise residual by name)
 //! - Not full ally relationship filter (uses same-team residual)
@@ -30,12 +40,65 @@ pub const GPS_SCRAMBLER_LOGIC_FPS: f32 = 30.0;
 
 /// Retail SuperweaponGPSScrambler RadiusCursorRadius / GrantStealth FinalRadius.
 pub const HOST_GPS_SCRAMBLER_RADIUS: f32 = 100.0;
+/// Alias for RadiusCursorRadius residual.
+pub const GPS_SCRAMBLER_RADIUS_CURSOR: f32 = 100.0;
 
-/// Retail GrantStealthBehavior StartRadius (grow path deferred; residual uses Final).
+/// Retail GrantStealthBehavior StartRadius (grow path residual).
 pub const GPS_SCRAMBLER_START_RADIUS: f32 = 20.0;
+/// Retail GrantStealthBehavior FinalRadius residual.
+pub const GPS_SCRAMBLER_FINAL_RADIUS: f32 = 100.0;
+/// Retail GrantStealthBehavior RadiusGrowRate residual (distance per logic frame).
+pub const GPS_SCRAMBLER_RADIUS_GROW_RATE: f32 = 10.0;
+/// Grow updates to reach final: (100 - 20) / 10 = 8.
+/// C++ first update: start(20) + rate → 30 … final update clamps to 100.
+pub const GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL: u32 = 8;
+
+/// Retail SuperweaponGPSScrambler ReloadTime residual (msec).
+pub const GPS_SCRAMBLER_RELOAD_MS: u32 = 240_000;
+/// ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const GPS_SCRAMBLER_RELOAD_FRAMES: u32 = 7_200;
+/// Retail Slth_SuperweaponGPSScrambler ReloadTime residual (msec).
+pub const GPS_SCRAMBLER_SLTH_RELOAD_MS: u32 = 180_000;
+/// Slth reload 180000ms → 5400 frames @ 30 FPS.
+pub const GPS_SCRAMBLER_SLTH_RELOAD_FRAMES: u32 = 5_400;
+
+/// Retail special power / OCL / marker names.
+pub const SUPERWEAPON_GPS_SCRAMBLER: &str = "SuperweaponGPSScrambler";
+pub const SUPERWEAPON_GPS_SCRAMBLER_OCL: &str = "SUPERWEAPON_GPSScrambler";
+pub const GPS_SCRAMBLER_INVISIBLE_MARKER: &str = "GPSScrambler_InvisibleMarker";
+pub const SCIENCE_GPS_SCRAMBLER: &str = "SCIENCE_GPSScrambler";
+pub const SLTH_SUPERWEAPON_GPS_SCRAMBLER: &str = "Slth_SuperweaponGPSScrambler";
+pub const SLTH_SCIENCE_GPS_SCRAMBLER: &str = "Slth_SCIENCE_GPSScrambler";
+
+/// Retail RadiusParticleSystemName residual.
+pub const GPS_SCRAMBLER_RADIUS_PARTICLE: &str = "ParticleUplinkCannon_LaserBaseReadyToFire";
 
 /// Activate audio residual (SpecialPower.ini InitiateAtLocationSound).
 pub const GPS_SCRAMBLER_ACTIVATE_AUDIO: &str = "GPSScrambleActivate";
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn gps_scrambler_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / GPS_SCRAMBLER_LOGIC_FPS)).round() as u32
+}
+
+/// Grow-radius pulse residual: scan radius after `update_index` GrantStealth updates.
+///
+/// C++ GrantStealthBehavior::update: m_currentScanRadius starts at StartRadius,
+/// each update does `+= RadiusGrowRate` then clamps to FinalRadius.
+/// `update_index` is 0-based (first update = 0 → Start + Rate).
+pub fn gps_scrambler_scan_radius_after_updates(update_index: u32) -> f32 {
+    let r = GPS_SCRAMBLER_START_RADIUS
+        + (update_index as f32 + 1.0) * GPS_SCRAMBLER_RADIUS_GROW_RATE;
+    r.min(GPS_SCRAMBLER_FINAL_RADIUS)
+}
+
+/// Whether residual grow pulse has reached FinalRadius after `update_index` updates.
+pub fn gps_scrambler_grow_is_final(update_index: u32) -> bool {
+    gps_scrambler_scan_radius_after_updates(update_index) >= GPS_SCRAMBLER_FINAL_RADIUS - 0.001
+}
 
 /// Whether residual target can receive GPS Scrambler stealth grant.
 ///
@@ -73,6 +136,43 @@ pub fn in_gps_scrambler_radius_2d(center: (f32, f32), target: (f32, f32), radius
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius
+}
+
+/// Wave 54 residual honesty: grow-radius pulse residual.
+pub fn honesty_gps_scrambler_grow_radius_residual_ok() -> bool {
+    (GPS_SCRAMBLER_START_RADIUS - 20.0).abs() < 0.01
+        && (GPS_SCRAMBLER_FINAL_RADIUS - 100.0).abs() < 0.01
+        && (HOST_GPS_SCRAMBLER_RADIUS - 100.0).abs() < 0.01
+        && (GPS_SCRAMBLER_RADIUS_CURSOR - 100.0).abs() < 0.01
+        && (GPS_SCRAMBLER_RADIUS_GROW_RATE - 10.0).abs() < 0.01
+        && GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL == 8
+        && (gps_scrambler_scan_radius_after_updates(0) - 30.0).abs() < 0.01
+        && (gps_scrambler_scan_radius_after_updates(7) - 100.0).abs() < 0.01
+        && gps_scrambler_grow_is_final(7)
+        && !gps_scrambler_grow_is_final(6)
+        && GPS_SCRAMBLER_RADIUS_PARTICLE == "ParticleUplinkCannon_LaserBaseReadyToFire"
+}
+
+/// Wave 54 residual honesty: reload / OCL / science residual.
+pub fn honesty_gps_scrambler_reload_ocl_residual_ok() -> bool {
+    GPS_SCRAMBLER_RELOAD_MS == 240_000
+        && GPS_SCRAMBLER_RELOAD_FRAMES == gps_scrambler_ms_to_frames(GPS_SCRAMBLER_RELOAD_MS)
+        && GPS_SCRAMBLER_SLTH_RELOAD_MS == 180_000
+        && GPS_SCRAMBLER_SLTH_RELOAD_FRAMES
+            == gps_scrambler_ms_to_frames(GPS_SCRAMBLER_SLTH_RELOAD_MS)
+        && SUPERWEAPON_GPS_SCRAMBLER == "SuperweaponGPSScrambler"
+        && SUPERWEAPON_GPS_SCRAMBLER_OCL == "SUPERWEAPON_GPSScrambler"
+        && GPS_SCRAMBLER_INVISIBLE_MARKER == "GPSScrambler_InvisibleMarker"
+        && SCIENCE_GPS_SCRAMBLER == "SCIENCE_GPSScrambler"
+        && SLTH_SUPERWEAPON_GPS_SCRAMBLER == "Slth_SuperweaponGPSScrambler"
+        && SLTH_SCIENCE_GPS_SCRAMBLER == "Slth_SCIENCE_GPSScrambler"
+        && GPS_SCRAMBLER_ACTIVATE_AUDIO == "GPSScrambleActivate"
+}
+
+/// Combined Wave 54 GPS Scrambler residual honesty pack.
+pub fn honesty_gps_scrambler_residual_pack_ok() -> bool {
+    honesty_gps_scrambler_grow_radius_residual_ok()
+        && honesty_gps_scrambler_reload_ocl_residual_ok()
 }
 
 /// One active residual GPS Scrambler activation bookkeeping entry.
@@ -211,5 +311,18 @@ mod tests {
         assert!(reg.honesty_host_path_ok());
         assert_eq!(reg.activation_count(), 1);
         assert_eq!(reg.grant_count(), 3);
+    }
+
+    #[test]
+    fn gps_scrambler_residual_pack_honesty() {
+        assert!(honesty_gps_scrambler_residual_pack_ok());
+        assert_eq!(gps_scrambler_ms_to_frames(240_000), 7_200);
+        assert_eq!(gps_scrambler_ms_to_frames(180_000), 5_400);
+        // Grow sequence honesty: 30,40,...,100 over 8 updates
+        for i in 0..7 {
+            assert!(!gps_scrambler_grow_is_final(i));
+        }
+        assert!(gps_scrambler_grow_is_final(7));
+        assert!((gps_scrambler_scan_radius_after_updates(100) - 100.0).abs() < 0.01);
     }
 }
