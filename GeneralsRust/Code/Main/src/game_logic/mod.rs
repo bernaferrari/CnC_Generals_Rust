@@ -83,6 +83,8 @@ pub mod host_supply_drop_zone;
 pub mod host_tank_hunter;
 pub mod host_technical;
 pub mod host_terrorist;
+pub mod host_unit_training;
+pub mod host_demo_suicide_bomb;
 pub mod host_tomahawk;
 pub mod host_toxin_tractor;
 pub mod host_troop_crawler;
@@ -435,6 +437,18 @@ pub use host_terrorist::{
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
     SUICIDE_DYNAMITE_SECONDARY_DAMAGE, SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
+};
+pub use host_unit_training::{
+    is_unit_training_science, unit_training_level_for_template, unit_training_science_from_name,
+    HostUnitTrainingRegistry, UnitTrainingScience, SCIENCE_ARTILLERY_TRAINING,
+    SCIENCE_BATTLEMASTER_TRAINING, SCIENCE_INFA_RED_GUARD_TRAINING, SCIENCE_RED_GUARD_TRAINING,
+    SCIENCE_TECHNICAL_TRAINING,
+};
+pub use host_demo_suicide_bomb::{
+    demo_destroyed_damage_at, has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
+    is_demo_suicide_bomb_upgrade, HostDemoSuicideBombRegistry, DEMO_DESTROYED_PRIMARY_DAMAGE,
+    DEMO_DESTROYED_PRIMARY_RADIUS, DEMO_DESTROYED_SECONDARY_DAMAGE, DEMO_DESTROYED_SECONDARY_RADIUS,
+    DEMO_DESTROYED_WEAPON, UPGRADE_DEMO_SUICIDE_BOMB,
 };
 pub use host_troop_crawler::{
     is_troop_crawler_template, resolve_payload_template_name,

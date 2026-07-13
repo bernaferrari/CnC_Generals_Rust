@@ -1,3 +1,30 @@
+## Residual Host Playability — SCIENCE Unit Training + Demo SuicideBomb (2026-07-13)
+**Closed (host-testable VeterancyGainCreate science spawn + Demo_Upgrade_SuicideBomb death residual):**
+1. **SCIENCE unit-training residual** (`VeterancyGainCreate`):
+   - `SCIENCE_RedGuardTraining` → Red Guard spawn **VETERAN** (+20% HP residual)
+   - `SCIENCE_BattlemasterTraining` → Battlemaster spawn **ELITE** (+30% HP residual)
+   - `SCIENCE_ArtilleryTraining` → Inferno / Nuke Cannon spawn **VETERAN**
+   - `SCIENCE_TechnicalTraining` → Technical spawn **VETERAN**
+   - `Infa_SCIENCE_RedGuardTraining` → MiniGunner spawn **ELITE**
+   - `unlock_team_science` / production `create_object` grant honesty
+2. **Demo SuicideBomb residual** (`Demo_Upgrade_SuicideBomb`):
+   - QueueUpgrade → complete tags eligible Demo units/structures
+   - Death residual fires `Demo_DestroyedWeapon`: Primary **50**/r**60** +
+     Secondary **10**/r**70**
+   - New Demo spawns inherit tag after research
+   - Fail-closed: Terrorist SUICIDED path stays `Demo_SuicideDynamitePack` (700)
+3. Tests (not log-only):
+   - `unit_training_science_veterancy_grant_residual`
+   - `demo_suicide_bomb_structure_death_residual`
+   - module unit tests in `host_unit_training` / `host_demo_suicide_bomb`
+
+**Still residual (fail-closed, not claimed):**
+- Full PrerequisiteSciences rank tree / control-bar science visibility matrix
+- Full IsTrainable exclusive ExperienceTracker module matrix
+- Full SUICIDED → `Demo_SuicideDynamitePackPlusFire` (500 primary) non-terrorist path
+- Full CommandSetUpgrade residual for suicide-bomb command sets
+- Network unit-training / suicide-bomb replication (network deferred)
+
 ## Residual Host Playability — SCIENCE_StealthFighter Gate + Chem/Demo Death Weapons (2026-07-13)
 **Closed (host-testable Stealth Fighter science production gate + Chem/Demo death-weapon residual):**
 1. **SCIENCE_StealthFighter production gate residual**:
@@ -24,7 +51,9 @@
 **Still residual (fail-closed, not claimed):**
 - Full PrerequisiteSciences rank tree / control-bar science visibility matrix
 - Full SlowDeath SUICIDED fling / OCL poison particle bone matrix
-- Full Demo_SuicideDynamitePackPlusFire salvage fire-field matrix
+- Full Demo_SuicideDynamitePackPlusFire SUICIDED path for non-terrorist units
+  (host residual closed 2026-07-13 for Demo_DestroyedWeapon normal-death path —
+  see SCIENCE Unit Training + Demo SuicideBomb section)
 - Full DemoTrapUpdate weapon-slot mode / PreAttack scoop animation
 - Network science-gate / death-weapon replication (network deferred)
 
@@ -514,7 +543,7 @@
 - Full WeaponSet tertiary auto-choose / pre-attack anim lock for bayonet
 - Full SpecialAbilityUpdate flee-after / MaxSpecialObjects=8 list / attach bones
 - Full ScatterRadiusVsInfantry / projectile exhaust FX matrix
-- SCIENCE_RedGuardTraining elite spawn residual
+- SCIENCE_RedGuardTraining VETERAN spawn residual (host residual closed 2026-07-13 — see SCIENCE Unit Training + Demo SuicideBomb section)
 - Network horde / TNT / RPG replication (network deferred)
 
 ## Residual Host Playability — Stinger Site + Patriot AA Polish (2026-07-13)
@@ -566,7 +595,7 @@
 - Full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 - Full Fanaticism infantry-general nationalism branch
 - Full Nuclear Tanks exclusive FireWeaponWhenDead / NuclearBattleMasterLocomotor visual matrix (host residual closed 2026-07-13)
-- Full SCIENCE_BattlemasterTraining elite spawn residual
+- SCIENCE_BattlemasterTraining ELITE spawn residual (host residual closed 2026-07-13 — see SCIENCE Unit Training + Demo SuicideBomb section)
 - Network uranium / horde replication (network deferred)
 
 ## Residual Host Playability — Helix NapalmBomb + Bomb Truck HE/Bio (2026-07-13)

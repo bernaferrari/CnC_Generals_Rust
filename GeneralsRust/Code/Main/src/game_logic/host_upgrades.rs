@@ -33,6 +33,8 @@ pub const UPGRADE_AMERICA_COMPOSITE_ARMOR: &str = "Upgrade_AmericaCompositeArmor
 pub const UPGRADE_GLA_WORKER_SHOES: &str = "Upgrade_GLAWorkerShoes";
 pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
 pub const UPGRADE_GLA_REBEL_BOOBY_TRAP: &str = "Upgrade_GLAInfantryRebelBoobyTrapAttack";
+/// Demo General SuicideBomb death-weapon residual.
+pub const UPGRADE_DEMO_SUICIDE_BOMB: &str = "Demo_Upgrade_SuicideBomb";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -95,6 +97,8 @@ pub enum HostUpgradeKind {
     BoobyTrap,
     /// Chem Anthrax Gamma: toxin combat upgrade residual (stream/field DoT).
     AnthraxGamma,
+    /// Demo SuicideBomb: structure/unit death blast residual.
+    SuicideBomb,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -127,6 +131,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::Camouflage
         } else if n.contains("anthraxgamma") {
             HostUpgradeKind::AnthraxGamma
+        } else if n.contains("suicidebomb") || n.contains("demosuicidebomb") {
+            HostUpgradeKind::SuicideBomb
         } else if n.contains("compositearmor") || n.contains("compositearmour") {
             HostUpgradeKind::CompositeArmor
         } else if n.contains("workershoes") || n.contains("glaworkershoes") {
@@ -157,6 +163,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::NuclearTanks => "NuclearTanks",
             HostUpgradeKind::BoobyTrap => "BoobyTrap",
             HostUpgradeKind::AnthraxGamma => "AnthraxGamma",
+            HostUpgradeKind::SuicideBomb => "SuicideBomb",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -182,6 +189,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::NuclearTanks
             | HostUpgradeKind::BoobyTrap
             | HostUpgradeKind::AnthraxGamma
+            | HostUpgradeKind::SuicideBomb
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -816,6 +824,10 @@ mod camo_netting_and_gamma_tests {
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_GLAAnthraxGamma"),
             HostUpgradeKind::AnthraxGamma
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Demo_Upgrade_SuicideBomb"),
+            HostUpgradeKind::SuicideBomb
         );
         // Camouflage still distinct.
         assert_eq!(

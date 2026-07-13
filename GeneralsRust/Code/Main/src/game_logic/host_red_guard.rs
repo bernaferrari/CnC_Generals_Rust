@@ -17,7 +17,7 @@
 //! - Not full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 //! - Not full Fanaticism infantry-general nationalism branch
 //! - Not full WeaponSet tertiary auto-choose / pre-attack anim lock matrix
-//! - Not SCIENCE_RedGuardTraining elite spawn residual
+//! - SCIENCE_RedGuardTraining VETERAN spawn residual closed in host_unit_training
 //! - Not network horde / nationalism replication (network deferred)
 
 use super::Weapon;

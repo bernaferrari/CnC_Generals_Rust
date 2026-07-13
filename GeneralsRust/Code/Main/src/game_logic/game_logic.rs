@@ -897,6 +897,14 @@ pub struct GameLogic {
     stealth_fighter_science:
         crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
 
+    /// Host SCIENCE unit-training residual (VeterancyGainCreate StartingLevel).
+    /// Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
+    unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry,
+
+    /// Host Demo SuicideBomb residual (Demo_Upgrade_SuicideBomb death blast).
+    /// Fail-closed: not full FireWeaponWhenDead exclusive / PlusFire SUICIDED matrix.
+    demo_suicide_bomb: crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry,
+
     /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
     /// Fail-closed: not full projectile flight / AP rocket mult matrix.
     rocket_buggy_residual_fires: u32,
@@ -1999,6 +2007,9 @@ impl GameLogic {
             angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry::new(),
             stealth_fighter_science:
                 crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry::new(),
+            unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry::new(),
+            demo_suicide_bomb:
+                crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry::new(),
             rocket_buggy_residual_fires: 0,
             rocket_buggy_residual_units_hit: 0,
             rocket_buggy_residual_scatter_misses: 0,
@@ -2320,6 +2331,8 @@ impl GameLogic {
         self.aurora_bombs.clear();
         self.angry_mobs.clear();
         self.stealth_fighter_science.clear();
+        self.unit_training.clear();
+        self.demo_suicide_bomb.clear();
         self.rocket_buggy_residual_fires = 0;
         self.rocket_buggy_residual_units_hit = 0;
         self.rocket_buggy_residual_scatter_misses = 0;
@@ -9221,6 +9234,9 @@ impl GameLogic {
             HostUpgradeKind::AnthraxGamma => {
                 self.apply_anthrax_gamma_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::SuicideBomb => {
+                self.apply_demo_suicide_bomb_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -9704,6 +9720,32 @@ impl GameLogic {
             obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT);
             affected = affected.saturating_add(1);
         }
+        affected
+    }
+
+    /// Apply Demo SuicideBomb residual: tag eligible Demo units/structures.
+    fn apply_demo_suicide_bomb_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_demo_suicide_bomb::{
+            is_demo_suicide_bomb_eligible_template, UPGRADE_DEMO_SUICIDE_BOMB,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_demo_suicide_bomb_eligible_template(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
+            affected = affected.saturating_add(1);
+        }
+        self.demo_suicide_bomb.record_upgrade_complete(affected);
         affected
     }
 
@@ -11122,6 +11164,52 @@ impl GameLogic {
                 self.apply_troop_crawler_initial_payload(id, team, position);
             }
 
+            // Host residual: SCIENCE unit-training (VeterancyGainCreate StartingLevel).
+            // Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
+            {
+                use crate::game_logic::host_unit_training::unit_training_level_for_template;
+                let sciences: Vec<String> = self
+                    .players
+                    .values()
+                    .filter(|p| p.team == team)
+                    .flat_map(|p| p.unlocked_sciences.iter().cloned())
+                    .collect();
+                if let Some((kind, level)) =
+                    unit_training_level_for_template(template_name, &sciences)
+                {
+                    if let Some(obj) = self.objects.get_mut(&id) {
+                        if obj.set_min_veterancy_level(level) {
+                            self.unit_training.record_grant(kind);
+                        }
+                    }
+                }
+            }
+
+            // Host residual: Demo SuicideBomb tag if player already researched.
+            // Fail-closed: not full CommandSetUpgrade residual matrix.
+            {
+                use crate::game_logic::host_demo_suicide_bomb::{
+                    is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
+                    UPGRADE_DEMO_SUICIDE_BOMB,
+                };
+                if is_demo_suicide_bomb_eligible_template(template_name) {
+                    let has_upgrade = self.players.values().any(|p| {
+                        p.team == team
+                            && p.unlocked_sciences
+                                .iter()
+                                .any(|s| is_demo_suicide_bomb_upgrade(s))
+                    });
+                    if has_upgrade {
+                        if let Some(obj) = self.objects.get_mut(&id) {
+                            if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
+                                obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
+                                self.demo_suicide_bomb.record_tag();
+                            }
+                        }
+                    }
+                }
+            }
+
             if counts_as_unit {
                 self.record_unit_production(team);
             } else if is_structure && !starts_under_construction {
@@ -11712,6 +11800,24 @@ impl GameLogic {
                         let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
                         let _ = self.apply_nuclear_tanks_death_detonation_at(
                             event.id, obj.team, death_pos, nuke_gen,
+                        );
+                    }
+                }
+
+                // Demo SuicideBomb FireWeaponWhenDead residual: Demo_DestroyedWeapon blast.
+                // Fail-closed: not full SUICIDED PlusFire exclusive module matrix.
+                // Skip terrorists (already handled by host_terrorist SUICIDED residual).
+                {
+                    use crate::game_logic::host_demo_suicide_bomb::{
+                        has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
+                    };
+                    use crate::game_logic::host_terrorist::is_terrorist_template;
+                    if is_demo_suicide_bomb_eligible_template(&obj.template_name)
+                        && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
+                        && !is_terrorist_template(&obj.template_name)
+                    {
+                        let _ = self.apply_demo_suicide_bomb_death_at(
+                            event.id, obj.team, death_pos,
                         );
                     }
                 }
@@ -30733,6 +30839,7 @@ impl GameLogic {
     /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar UI.
     pub fn unlock_team_science(&mut self, team: Team, science_name: &str) -> bool {
         use crate::game_logic::host_stealth_fighter::is_stealth_fighter_science;
+        use crate::game_logic::host_unit_training::is_unit_training_science;
 
         let Some(player) = self.get_player_mut_by_team(team) else {
             return false;
@@ -30742,6 +30849,9 @@ impl GameLogic {
         }
         if is_stealth_fighter_science(science_name) {
             self.stealth_fighter_science.record_science_unlock();
+        }
+        if is_unit_training_science(science_name) {
+            self.unit_training.record_science_unlock();
         }
         true
     }
@@ -30781,6 +30891,105 @@ impl GameLogic {
     /// Combined residual honesty for SCIENCE_StealthFighter host path.
     pub fn honesty_stealth_fighter_science_ok(&self) -> bool {
         self.stealth_fighter_science.honesty_ok()
+    }
+
+    /// Host SCIENCE unit-training residual honesty registry.
+    pub fn unit_training(
+        &self,
+    ) -> &crate::game_logic::host_unit_training::HostUnitTrainingRegistry {
+        &self.unit_training
+    }
+
+    pub fn honesty_unit_training_unlock_ok(&self) -> bool {
+        self.unit_training.honesty_unlock_ok()
+    }
+
+    pub fn honesty_unit_training_grant_ok(&self) -> bool {
+        self.unit_training.honesty_grant_ok()
+    }
+
+    pub fn honesty_unit_training_ok(&self) -> bool {
+        self.unit_training.honesty_ok()
+    }
+
+    /// Host Demo SuicideBomb residual honesty registry.
+    pub fn demo_suicide_bomb(
+        &self,
+    ) -> &crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry {
+        &self.demo_suicide_bomb
+    }
+
+    pub fn honesty_demo_suicide_bomb_upgrade_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_upgrade_ok()
+    }
+
+    pub fn honesty_demo_suicide_bomb_death_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_death_ok()
+    }
+
+    pub fn honesty_demo_suicide_bomb_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_host_path_ok()
+    }
+
+    /// Apply residual Demo_DestroyedWeapon blast at a Demo SuicideBomb death site.
+    pub fn apply_demo_suicide_bomb_death_at(
+        &mut self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_pos: Vec3,
+    ) -> bool {
+        use crate::game_logic::host_demo_suicide_bomb::{
+            plan_demo_destroyed_hits, DEMO_SUICIDE_BOMB_AUDIO,
+        };
+
+        let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, o)| {
+                (
+                    *id,
+                    o.get_position(),
+                    o.is_alive(),
+                    o.status.under_construction,
+                )
+            })
+            .collect();
+        let hits = plan_demo_destroyed_hits(source_id, source_pos, &candidates);
+        let mut damage_dealt = 0.0f32;
+        let mut blast_hits = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        for hit in &hits {
+            if let Some(victim) = self.objects.get_mut(&hit.target_id) {
+                if !victim.is_alive() {
+                    continue;
+                }
+                damage_dealt += hit.damage.min(victim.health.current.max(0.0));
+                blast_hits = blast_hits.saturating_add(1);
+                if victim.take_damage(hit.damage) {
+                    destroy_ids.push((hit.target_id, source_team));
+                }
+            }
+        }
+        let destroyed = destroy_ids.len() as u32;
+        self.demo_suicide_bomb
+            .record_death_detonation(blast_hits, damage_dealt, destroyed);
+        self.queue_audio_event(
+            AudioEventRequest::new(DEMO_SUICIDE_BOMB_AUDIO)
+                .with_object(source_id)
+                .with_position(source_pos)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            source_pos,
+            self.frame,
+            Some(source_id),
+            None,
+        );
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+        true
     }
 
     /// Cancel a queued production item by template name (first match).
@@ -57659,5 +57868,245 @@ mod tests {
             "Demo HE trap must not spawn poison"
         );
         let _ = far; // secondary-ring placement residual (optional observability)
+    }
+
+    /// Residual: SCIENCE unit-training grants StartingLevel on spawn
+    /// (RedGuard VETERAN, Battlemaster ELITE, etc.).
+    #[test]
+    fn unit_training_science_veterancy_grant_residual() {
+        use crate::game_logic::host_unit_training::{
+            SCIENCE_BATTLEMASTER_TRAINING, SCIENCE_RED_GUARD_TRAINING,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        let mut rg_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
+        rg_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        game_logic
+            .templates
+            .insert("ChinaInfantryRedguard".to_string(), rg_tpl);
+
+        let mut bm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+        bm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(480.0);
+        game_logic
+            .templates
+            .insert("ChinaTankBattleMaster".to_string(), bm_tpl);
+
+        // Fail-closed: without science, spawn remains Rookie.
+        let rookie_id = game_logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("rookie redguard");
+        {
+            let u = game_logic.find_object(rookie_id).unwrap();
+            assert!(
+                matches!(u.experience.level, VeterancyLevel::Rookie),
+                "without training science must remain Rookie"
+            );
+        }
+
+        // Unlock Red Guard training → VETERAN on spawn.
+        assert!(game_logic.unlock_team_science(Team::China, SCIENCE_RED_GUARD_TRAINING));
+        assert!(game_logic.honesty_unit_training_unlock_ok());
+        let vet_id = game_logic
+            .create_object(
+                "ChinaInfantryRedguard",
+                Team::China,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("veteran redguard");
+        {
+            let u = game_logic.find_object(vet_id).unwrap();
+            assert!(
+                matches!(u.experience.level, VeterancyLevel::Veteran),
+                "SCIENCE_RedGuardTraining must grant VETERAN, got {:?}",
+                u.experience.level
+            );
+            // Veterancy health residual: +20% max HP.
+            assert!(
+                u.health.maximum + 0.1 >= 120.0 * 1.2,
+                "VETERAN residual must apply +20% HP (got {})",
+                u.health.maximum
+            );
+        }
+        assert!(game_logic.honesty_unit_training_grant_ok());
+
+        // Battlemaster training → ELITE.
+        assert!(game_logic.unlock_team_science(Team::China, SCIENCE_BATTLEMASTER_TRAINING));
+        let elite_id = game_logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("elite battlemaster");
+        {
+            let u = game_logic.find_object(elite_id).unwrap();
+            assert!(
+                matches!(u.experience.level, VeterancyLevel::Elite),
+                "SCIENCE_BattlemasterTraining must grant ELITE, got {:?}",
+                u.experience.level
+            );
+            assert!(
+                u.health.maximum + 0.1 >= 480.0 * 1.3,
+                "ELITE residual must apply +30% HP (got {})",
+                u.health.maximum
+            );
+        }
+        assert!(
+            game_logic.honesty_unit_training_ok(),
+            "combined unit-training honesty"
+        );
+        assert!(game_logic.unit_training().battlemaster_grants >= 1);
+        assert!(game_logic.unit_training().red_guard_grants >= 1);
+    }
+
+    /// Residual: Demo_Upgrade_SuicideBomb tags Demo units and detonates
+    /// Demo_DestroyedWeapon (50/r60) on death.
+    #[test]
+    fn demo_suicide_bomb_structure_death_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_demo_suicide_bomb::{
+            DEMO_DESTROYED_PRIMARY_DAMAGE, UPGRADE_DEMO_SUICIDE_BOMB,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(2, Team::GLA, "DemoGLA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut rebel_tpl = crate::game_logic::ThingTemplate::new("Demo_GLAInfantryRebel");
+        rebel_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        game_logic
+            .templates
+            .insert("Demo_GLAInfantryRebel".to_string(), rebel_tpl);
+
+        let mut tank_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        tank_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), tank_tpl);
+
+        let rebel_id = game_logic
+            .create_object(
+                "Demo_GLAInfantryRebel",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("demo rebel");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Research SuicideBomb residual via QueueUpgrade → complete.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_DEMO_SUICIDE_BOMB.to_string(),
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::SuicideBomb));
+        // Residual research frames = 1 → complete on next update.
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::SuicideBomb)
+                || game_logic
+                    .get_player(2)
+                    .map(|p| p.has_unlocked_upgrade(UPGRADE_DEMO_SUICIDE_BOMB))
+                    .unwrap_or(false),
+            "SuicideBomb upgrade must complete"
+        );
+        {
+            let rebel = game_logic.find_object(rebel_id).unwrap();
+            assert!(
+                rebel.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
+                "Demo Rebel must receive SuicideBomb tag"
+            );
+        }
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_upgrade_ok(),
+            "SuicideBomb upgrade honesty"
+        );
+
+        // Kill Demo Rebel → Demo_DestroyedWeapon residual damages nearby enemy.
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.health.current = 5000.0;
+            e.health.maximum = 5000.0;
+            e.thing.template.armor = 0.0;
+        }
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.mark_object_for_destruction(rebel_id, Some(Team::USA));
+        game_logic.process_destroy_list();
+
+        let hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let dmg = hp_before - hp_after;
+        assert!(
+            dmg + 0.1 >= DEMO_DESTROYED_PRIMARY_DAMAGE.min(hp_before),
+            "Demo_DestroyedWeapon residual must deal ~50 primary (got {dmg}, before={hp_before})"
+        );
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_death_ok(),
+            "SuicideBomb death honesty"
+        );
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_ok(),
+            "SuicideBomb host path honesty"
+        );
+
+        // Spawn after research still tags residual.
+        let rebel2 = game_logic
+            .create_object(
+                "Demo_GLAInfantryRebel",
+                Team::GLA,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("demo rebel2");
+        assert!(
+            game_logic
+                .find_object(rebel2)
+                .unwrap()
+                .has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
+            "new Demo spawns must inherit SuicideBomb residual"
+        );
     }
 }
