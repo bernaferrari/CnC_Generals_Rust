@@ -45,8 +45,13 @@ pub const HUMVEE_PRIMARY_WEAPON: &str = "HumveeGun";
 pub const RANGER_SECONDARY_WEAPON: &str = "RangerFlashBangGrenadeWeapon";
 pub const HUMVEE_SECONDARY_WEAPON: &str = "HumveeMissileWeapon";
 
-/// Retail base-defense primary weapons (Patriot / Gattling structure residual).
+/// Retail base-defense primary weapons (Patriot / Gattling / Stinger structure residual).
 pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
+/// Retail Patriot secondary AA residual.
+pub const PATRIOT_SECONDARY_WEAPON: &str = "PatriotMissileWeaponAir";
+/// Retail Stinger Site residual (SPAWNS_ARE_THE_WEAPONS abstraction).
+pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
+pub const STINGER_SECONDARY_WEAPON: &str = "StingerMissileWeaponAir";
 pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
 /// Retail China Gattling Cannon secondary AA residual.
 pub const GATTLING_BUILDING_SECONDARY_WEAPON: &str = "GattlingBuildingGunAir";
@@ -193,22 +198,29 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
             Some(HUMVEE_PRIMARY_WEAPON)
         }
-        "USA_Crusader"
-        | "USA_CrusaderTank"
-        | "AmericaTankCrusader"
-        | "TestCrusader" => Some(CRUSADER_TANK_GUN),
-        "USA_Paladin"
-        | "USA_PaladinTank"
-        | "AmericaTankPaladin"
-        | "TestPaladin" => Some(PALADIN_TANK_GUN),
-        "USA_Avenger"
-        | "AmericaTankAvenger"
-        | "AmericaVehicleAvenger"
-        | "TestAvenger" => Some(AVENGER_TARGET_DESIGNATOR),
-        // Base-defense structures (Patriot / Gattling residual auto-fire).
-        "USA_Patriot" | "USA_PatriotMissile" | "AmericaPatriotBattery" | "PatriotMissile" => {
-            Some(PATRIOT_PRIMARY_WEAPON)
+        "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" | "TestCrusader" => {
+            Some(CRUSADER_TANK_GUN)
         }
+        "USA_Paladin" | "USA_PaladinTank" | "AmericaTankPaladin" | "TestPaladin" => {
+            Some(PALADIN_TANK_GUN)
+        }
+        "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
+            Some(AVENGER_TARGET_DESIGNATOR)
+        }
+        // Base-defense structures (Patriot / Gattling / Stinger residual auto-fire).
+        "USA_Patriot"
+        | "USA_PatriotMissile"
+        | "AmericaPatriotBattery"
+        | "PatriotMissile"
+        | "TestPatriot" => Some(PATRIOT_PRIMARY_WEAPON),
+        "GLA_StingerSite"
+        | "GLAStingerSite"
+        | "Chem_GLAStingerSite"
+        | "Demo_GLAStingerSite"
+        | "Slth_GLAStingerSite"
+        | "GC_Slth_GLAStingerSite"
+        | "GC_Chem_GLAStingerSite"
+        | "TestStingerSite" => Some(STINGER_PRIMARY_WEAPON),
         "China_GattlingCannon"
         | "ChinaGattlingCannon"
         | "Nuke_ChinaGattlingCannon"
@@ -457,10 +469,28 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
             Some(HUMVEE_SECONDARY_WEAPON)
         }
-        "USA_Avenger"
-        | "AmericaTankAvenger"
-        | "AmericaVehicleAvenger"
-        | "TestAvenger" => Some(AVENGER_AIR_LASER),
+        "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
+            Some(AVENGER_AIR_LASER)
+        }
+        "USA_Patriot"
+        | "USA_PatriotMissile"
+        | "AmericaPatriotBattery"
+        | "PatriotMissile"
+        | "TestPatriot" => Some(PATRIOT_SECONDARY_WEAPON),
+        "GLA_StingerSite"
+        | "GLAStingerSite"
+        | "Chem_GLAStingerSite"
+        | "Demo_GLAStingerSite"
+        | "Slth_GLAStingerSite"
+        | "GC_Slth_GLAStingerSite"
+        | "GC_Chem_GLAStingerSite"
+        | "TestStingerSite" => Some(STINGER_SECONDARY_WEAPON),
+        "China_GattlingCannon"
+        | "ChinaGattlingCannon"
+        | "Nuke_ChinaGattlingCannon"
+        | "Tank_ChinaGattlingCannon"
+        | "Infa_ChinaGattlingCannon"
+        | "TestGattlingCannon" => Some(GATTLING_BUILDING_SECONDARY_WEAPON),
         "China_NukeCannon"
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
@@ -496,19 +526,27 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         _ => {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 Some(NUKE_CANNON_NEUTRON_WEAPON)
-            } else if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name)
-            {
+            } else if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name)
-            {
+            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
+                template_name,
+            ) {
                 Some(SCUD_GUN_TOXIN)
-            } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
-            {
+            } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(
+                template_name,
+            ) {
                 Some(TOXIN_TRUCK_SPRAYER)
             } else if crate::game_logic::host_base_defense::is_gattling_cannon_structure(
                 template_name,
             ) {
                 Some(GATTLING_BUILDING_SECONDARY_WEAPON)
+            } else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
+                template_name,
+            ) {
+                Some(PATRIOT_SECONDARY_WEAPON)
+            } else if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name)
+            {
+                Some(STINGER_SECONDARY_WEAPON)
             } else {
                 // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
@@ -529,9 +567,8 @@ fn try_load_weapon_ini_from_disk() -> usize {
         }
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                let n = crate::assets::ini_template_loader::register_weapons_from_ini_text(
-                    &content,
-                );
+                let n =
+                    crate::assets::ini_template_loader::register_weapons_from_ini_text(&content);
                 if n > 0 {
                     log::info!(
                         "Host WeaponStore: loaded {} weapon templates from {}",
@@ -648,14 +685,42 @@ fn seed_known_host_weapons() -> usize {
             weapon_speed: 600.0,
         },
         // AmericaPatriotBattery PRIMARY — PrimaryDamage 30, AttackRange 225,
-        // DelayBetweenShots 250ms → 8 frames @ 30 FPS.
+        // ClipReload 2000ms residual cadence → 60 frames @ 30 FPS.
         SeedWeapon {
             name: PATRIOT_PRIMARY_WEAPON,
             primary_damage: 30.0,
             attack_range: 225.0,
-            delay_frames: 8,
+            delay_frames: 60,
             clip_size: 4,
-            weapon_speed: 1.0,
+            weapon_speed: 600.0,
+        },
+        // AmericaPatriotBattery SECONDARY AA — PrimaryDamage 25, AttackRange 350.
+        SeedWeapon {
+            name: PATRIOT_SECONDARY_WEAPON,
+            primary_damage: 25.0,
+            attack_range: 350.0,
+            delay_frames: 60,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
+        // GLA Stinger Site residual (soldier PRIMARY) — PrimaryDamage 20, range 225,
+        // ClipReload 2000ms → 60 frames. SPAWNS_ARE_THE_WEAPONS structure residual.
+        SeedWeapon {
+            name: STINGER_PRIMARY_WEAPON,
+            primary_damage: 20.0,
+            attack_range: 225.0,
+            delay_frames: 60,
+            clip_size: 1,
+            weapon_speed: 750.0,
+        },
+        // GLA Stinger Site residual (soldier SECONDARY AA) — PrimaryDamage 30, range 400.
+        SeedWeapon {
+            name: STINGER_SECONDARY_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 400.0,
+            delay_frames: 60,
+            clip_size: 1,
+            weapon_speed: 600.0,
         },
         // ChinaGattlingCannon PRIMARY — PrimaryDamage 10, AttackRange 225,
         // DelayBetweenShots 250ms → 8 frames @ 30 FPS. Instant hit.
@@ -1162,9 +1227,7 @@ fn seed_known_host_weapons() -> usize {
         {
             t.primary_damage_radius = 5.0;
         }
-        if seed.name == DRAGON_TANK_FLAME_WEAPON
-            || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED
-        {
+        if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
             t.secondary_damage = if seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
                 1.25
@@ -1189,6 +1252,26 @@ fn seed_known_host_weapons() -> usize {
             t.anti_mask = WeaponAntiMask::new(0);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        // Base-defense AA secondaries: airborne only residual.
+        if seed.name == PATRIOT_SECONDARY_WEAPON
+            || seed.name == STINGER_SECONDARY_WEAPON
+            || seed.name == GATTLING_BUILDING_SECONDARY_WEAPON
+        {
+            t.anti_mask = WeaponAntiMask::new(0);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        // Stinger / Patriot primary splash residual.
+        if seed.name == STINGER_PRIMARY_WEAPON
+            || seed.name == PATRIOT_PRIMARY_WEAPON
+            || seed.name == PATRIOT_SECONDARY_WEAPON
+            || seed.name == STINGER_SECONDARY_WEAPON
+        {
+            t.primary_damage_radius = 5.0;
+        }
+        if seed.name == STINGER_SECONDARY_WEAPON {
+            t.primary_damage_radius = 10.0;
         }
         match with_weapon_store_mut(|store| {
             store.add_weapon_template(t);
@@ -1252,11 +1335,17 @@ fn seed_known_host_weapons() -> usize {
             store.add_weapon_template(t);
         }) {
             Ok(()) => {
-                log::debug!("Host WeaponStore: seeded AA weapon {}", GATTLING_TANK_GUN_AIR);
+                log::debug!(
+                    "Host WeaponStore: seeded AA weapon {}",
+                    GATTLING_TANK_GUN_AIR
+                );
                 added += 1;
             }
             Err(e) => {
-                log::warn!("Host WeaponStore: failed to seed {}: {e}", GATTLING_TANK_GUN_AIR);
+                log::warn!(
+                    "Host WeaponStore: failed to seed {}: {e}",
+                    GATTLING_TANK_GUN_AIR
+                );
             }
         }
     }
@@ -1465,11 +1554,7 @@ mod tests {
             .as_ref()
             .map(|w| w.last_fire_time)
             .unwrap_or(0.0);
-        let pri_last = atk
-            .weapon
-            .as_ref()
-            .map(|w| w.last_fire_time)
-            .unwrap_or(0.0);
+        let pri_last = atk.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         assert!(
             sec_last > 0.0,
             "secondary last_fire_time must advance on secondary shot"

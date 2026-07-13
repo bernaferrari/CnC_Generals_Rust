@@ -923,6 +923,17 @@ pub struct GameLogic {
     gattling_building_residual_ramp_fast: u32,
     gattling_building_residual_chain_gun_upgrades: u32,
 
+    /// Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA honesty.
+    /// Fail-closed: not full SpawnBehavior / HiveStructureBody soldier matrix.
+    stinger_site_residual_ground_fires: u32,
+    stinger_site_residual_aa_fires: u32,
+    stinger_site_residual_ap_rockets_upgrades: u32,
+
+    /// Host residual: USA Patriot ground/AA dual-slot honesty.
+    /// Fail-closed: not full AssistedTargetingModule assist clips.
+    patriot_residual_ground_fires: u32,
+    patriot_residual_aa_fires: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1836,6 +1847,11 @@ impl GameLogic {
             gattling_building_residual_ramp_mean: 0,
             gattling_building_residual_ramp_fast: 0,
             gattling_building_residual_chain_gun_upgrades: 0,
+            stinger_site_residual_ground_fires: 0,
+            stinger_site_residual_aa_fires: 0,
+            stinger_site_residual_ap_rockets_upgrades: 0,
+            patriot_residual_ground_fires: 0,
+            patriot_residual_aa_fires: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -2069,6 +2085,11 @@ impl GameLogic {
         self.gattling_building_residual_ramp_mean = 0;
         self.gattling_building_residual_ramp_fast = 0;
         self.gattling_building_residual_chain_gun_upgrades = 0;
+        self.stinger_site_residual_ground_fires = 0;
+        self.stinger_site_residual_aa_fires = 0;
+        self.stinger_site_residual_ap_rockets_upgrades = 0;
+        self.patriot_residual_ground_fires = 0;
+        self.patriot_residual_aa_fires = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -9091,6 +9112,27 @@ impl GameLogic {
                 object.continuous_fire_victim = 0;
             }
 
+            // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA.
+            // Fail-closed: not full SpawnBehavior / HiveStructureBody / 3 soldier matrix.
+            if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
+                use crate::game_logic::host_base_defense::{
+                    stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
+                };
+                let ap = stinger_has_ap_rockets(&object.applied_upgrades);
+                object.weapon = Some(stinger_ground_weapon(ap));
+                object.secondary_weapon = Some(stinger_air_weapon(ap));
+            }
+
+            // Host residual: USA Patriot dual ground/AA secondary.
+            // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
+            if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
+                use crate::game_logic::host_base_defense::{
+                    patriot_air_weapon, patriot_ground_weapon,
+                };
+                object.weapon = Some(patriot_ground_weapon());
+                object.secondary_weapon = Some(patriot_air_weapon());
+            }
+
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
                 object.is_detector = true;
@@ -12283,8 +12325,9 @@ impl GameLogic {
     /// Fail-closed: not full AutoAcquire LOS / turret pitch / CONTINUOUS_FIRE anim.
     fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
         use crate::game_logic::host_base_defense::{
-            is_gattling_cannon_structure, preferred_gattling_building_slot,
-            GATTLING_BUILDING_FIRE_AUDIO,
+            is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
+            is_stinger_site_structure, preferred_dual_defense_slot, GATTLING_BUILDING_FIRE_AUDIO,
+            PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -12299,7 +12342,11 @@ impl GameLogic {
         {
             return;
         }
-        let is_gattling = is_gattling_cannon_structure(&attacker.template_name);
+        let template_name = attacker.template_name.clone();
+        let is_gattling = is_gattling_cannon_structure(&template_name);
+        let is_stinger = is_stinger_site_structure(&template_name);
+        let is_patriot = is_patriot_battery_structure(&template_name);
+        let dual_slot = is_dual_slot_base_defense(&template_name);
         let team = attacker.team;
         let fire_pos = attacker.get_position();
         let ground_range = attacker.weapon.as_ref().map(|w| w.range).unwrap_or(0.0);
@@ -12308,9 +12355,9 @@ impl GameLogic {
             .as_ref()
             .map(|w| w.range)
             .unwrap_or(0.0);
-        // Scan range residual: gattling uses max(primary, secondary) so AA can acquire
-        // out to 400 while ground stays at 225.
-        let scan_range = if is_gattling {
+        // Scan range residual: dual-slot defenses use max(primary, secondary) so AA
+        // can acquire out to air range while ground stays at primary range.
+        let scan_range = if dual_slot {
             ground_range.max(air_range)
         } else {
             ground_range
@@ -12344,7 +12391,7 @@ impl GameLogic {
             }
             let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
             let dist = fire_pos.distance(obj.get_position());
-            let in_range = if is_gattling {
+            let in_range = if dual_slot {
                 if is_air {
                     dist <= air_range.max(ground_range)
                 } else {
@@ -12362,8 +12409,8 @@ impl GameLogic {
             return;
         };
 
-        let slot = if is_gattling {
-            preferred_gattling_building_slot(target_is_air)
+        let slot = if dual_slot {
+            preferred_dual_defense_slot(target_is_air)
         } else {
             0
         };
@@ -12466,6 +12513,10 @@ impl GameLogic {
         );
         let audio = if is_gattling {
             GATTLING_BUILDING_FIRE_AUDIO
+        } else if is_stinger {
+            STINGER_FIRE_AUDIO
+        } else if is_patriot {
+            PATRIOT_FIRE_AUDIO
         } else {
             "WeaponFire"
         };
@@ -12478,6 +12529,26 @@ impl GameLogic {
 
         self.base_defense_residual_fires =
             self.base_defense_residual_fires.saturating_add(1);
+
+        // Per-structure residual honesty counters.
+        if is_stinger {
+            if slot == 1 {
+                self.stinger_site_residual_aa_fires =
+                    self.stinger_site_residual_aa_fires.saturating_add(1);
+            } else {
+                self.stinger_site_residual_ground_fires =
+                    self.stinger_site_residual_ground_fires.saturating_add(1);
+            }
+        }
+        if is_patriot {
+            if slot == 1 {
+                self.patriot_residual_aa_fires =
+                    self.patriot_residual_aa_fires.saturating_add(1);
+            } else {
+                self.patriot_residual_ground_fires =
+                    self.patriot_residual_ground_fires.saturating_add(1);
+            }
+        }
     }
 
     /// Residual honesty: at least one base-defense auto-fire residual shot.
@@ -13075,6 +13146,70 @@ impl GameLogic {
 
     pub fn gattling_building_residual_ramp_fast(&self) -> u32 {
         self.gattling_building_residual_ramp_fast
+    }
+
+    /// Residual honesty: GLA Stinger Site dual ground/AA residual exercised.
+    pub fn honesty_stinger_site_ok(&self) -> bool {
+        self.stinger_site_residual_ground_fires > 0
+            || self.stinger_site_residual_aa_fires > 0
+            || self.stinger_site_residual_ap_rockets_upgrades > 0
+    }
+
+    /// Residual honesty: Stinger AA secondary residual fire.
+    pub fn honesty_stinger_site_aa_ok(&self) -> bool {
+        self.stinger_site_residual_aa_fires > 0
+    }
+
+    pub fn stinger_site_residual_ground_fires(&self) -> u32 {
+        self.stinger_site_residual_ground_fires
+    }
+
+    pub fn stinger_site_residual_aa_fires(&self) -> u32 {
+        self.stinger_site_residual_aa_fires
+    }
+
+    pub fn stinger_site_residual_ap_rockets_upgrades(&self) -> u32 {
+        self.stinger_site_residual_ap_rockets_upgrades
+    }
+
+    /// Residual honesty: USA Patriot dual ground/AA residual exercised.
+    pub fn honesty_patriot_ok(&self) -> bool {
+        self.patriot_residual_ground_fires > 0 || self.patriot_residual_aa_fires > 0
+    }
+
+    /// Residual honesty: Patriot AA secondary residual fire.
+    pub fn honesty_patriot_aa_ok(&self) -> bool {
+        self.patriot_residual_aa_fires > 0
+    }
+
+    pub fn patriot_residual_ground_fires(&self) -> u32 {
+        self.patriot_residual_ground_fires
+    }
+
+    pub fn patriot_residual_aa_fires(&self) -> u32 {
+        self.patriot_residual_aa_fires
+    }
+
+    /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
+    pub fn apply_stinger_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_base_defense::{
+            is_stinger_site_structure, stinger_air_weapon, stinger_ground_weapon,
+            UPGRADE_GLA_AP_ROCKETS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_stinger_site_structure(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+        obj.weapon = Some(stinger_ground_weapon(true));
+        obj.secondary_weapon = Some(stinger_air_weapon(true));
+        self.stinger_site_residual_ap_rockets_upgrades = self
+            .stinger_site_residual_ap_rockets_upgrades
+            .saturating_add(1);
+        true
     }
 
     /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
@@ -40175,7 +40310,8 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .add_kind_of(KindOf::FSBaseDefense)
             .set_health(600.0)
-            .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(super::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
         game_logic
             .templates
             .insert("USA_Patriot".to_string(), patriot_tpl);
@@ -40192,6 +40328,10 @@ mod tests {
             assert!(
                 p.weapon.is_some(),
                 "Patriot must bind residual primary weapon"
+            );
+            assert!(
+                p.secondary_weapon.is_some(),
+                "Patriot must bind residual AA secondary"
             );
             assert!(
                 p.can_attack(),
@@ -40222,7 +40362,7 @@ mod tests {
             .unwrap_or(0.0);
 
         // Several combat ticks (reload residual) without any AttackObject command.
-        for f in 0..40 {
+        for f in 0..80 {
             game_logic.frame = f;
             game_logic.update_combat(&[patriot_id, enemy_id], LOGIC_FRAME_TIMESTEP);
         }
@@ -40243,6 +40383,246 @@ mod tests {
             game_logic.base_defense_residual_fires() > 0,
             "expected residual fire counter > 0"
         );
+        assert!(
+            game_logic.honesty_patriot_ok(),
+            "Patriot residual honesty must record ground fire"
+        );
+        assert!(
+            game_logic.patriot_residual_ground_fires() > 0,
+            "expected Patriot ground residual fire counter > 0"
+        );
+    }
+
+    /// Residual: GLA Stinger Site dual ground/AA + AP Rockets residual.
+    #[test]
+    fn stinger_site_residual_dual_fire_and_ap_rockets() {
+        use crate::game_logic::host_base_defense::{
+            is_stinger_site_structure, STINGER_AIR_DAMAGE, STINGER_AP_ROCKETS_DAMAGE_MULT,
+            STINGER_GROUND_DAMAGE, STINGER_GROUND_RANGE, STINGER_PRIMARY_WEAPON,
+            STINGER_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut stinger_tpl = crate::game_logic::ThingTemplate::new("GLA_StingerSite");
+        stinger_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(400.0)
+            .set_primary_weapon_name(STINGER_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(STINGER_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("GLA_StingerSite".to_string(), stinger_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        let stinger_id = game_logic
+            .create_object("GLA_StingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("stinger");
+        {
+            let s = game_logic.find_object(stinger_id).expect("stinger obj");
+            assert!(is_stinger_site_structure(&s.template_name));
+            let prim = s.weapon.as_ref().expect("stinger ground residual");
+            assert!((prim.damage - STINGER_GROUND_DAMAGE).abs() < 0.01);
+            assert!((prim.range - STINGER_GROUND_RANGE).abs() < 1.0);
+            assert!(!prim.can_target_air);
+            let sec = s.secondary_weapon.as_ref().expect("stinger AA residual");
+            assert!((sec.damage - STINGER_AIR_DAMAGE).abs() < 0.01);
+            assert!(sec.can_target_air);
+            assert!(!sec.can_target_ground);
+        }
+
+        // Ground residual auto-fire.
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy tank");
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        let hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        for f in 0..80 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[stinger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            hp_after < hp_before,
+            "Stinger ground residual must damage tank (before={hp_before}, after={hp_after})"
+        );
+        assert!(game_logic.honesty_stinger_site_ok());
+        assert!(game_logic.stinger_site_residual_ground_fires() > 0);
+        assert!(game_logic.honesty_base_defense_fire_ok());
+
+        // AA residual auto-fire vs aircraft at AA range.
+        let air_id = game_logic
+            .create_object("TestAircraft", Team::USA, Vec3::new(300.0, 0.0, 0.0))
+            .expect("aircraft");
+        {
+            let a = game_logic.find_object_mut(air_id).unwrap();
+            a.status.airborne_target = true;
+        }
+        {
+            let s = game_logic.find_object_mut(stinger_id).unwrap();
+            if let Some(w) = s.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            // Drop ground target so AA scan prefers aircraft.
+            s.target = None;
+            s.ai_state = AIState::Idle;
+        }
+        // Remove ground tank from consideration by destroying it.
+        if let Some(t) = game_logic.find_object_mut(enemy_id) {
+            t.health.current = 0.0;
+        }
+        let air_hp_before = game_logic
+            .find_object(air_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        for f in 80..160 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[stinger_id, air_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let air_hp_after = game_logic
+            .find_object(air_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "Stinger AA residual must damage aircraft (before={air_hp_before}, after={air_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_stinger_site_aa_ok(),
+            "Stinger AA residual honesty"
+        );
+        assert!(game_logic.stinger_site_residual_aa_fires() > 0);
+
+        // AP Rockets residual × 1.25.
+        assert!(game_logic.apply_stinger_ap_rockets_upgrade(stinger_id));
+        {
+            let s = game_logic.find_object(stinger_id).expect("stinger after AP");
+            let prim = s.weapon.as_ref().expect("ground");
+            assert!(
+                (prim.damage - STINGER_GROUND_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01,
+                "AP Rockets ground dmg expected {}, got {}",
+                STINGER_GROUND_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT,
+                prim.damage
+            );
+            let sec = s.secondary_weapon.as_ref().expect("air");
+            assert!(
+                (sec.damage - STINGER_AIR_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01
+            );
+        }
+        assert!(game_logic.stinger_site_residual_ap_rockets_upgrades() > 0);
+    }
+
+    /// Residual: USA Patriot AA secondary residual vs aircraft.
+    #[test]
+    fn patriot_residual_aa_secondary_auto_fires() {
+        use crate::game_logic::host_base_defense::{
+            is_patriot_battery_structure, PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE,
+            PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+
+        let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+        patriot_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Patriot".to_string(), patriot_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        let patriot_id = game_logic
+            .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("patriot");
+        {
+            let p = game_logic.find_object(patriot_id).expect("patriot");
+            assert!(is_patriot_battery_structure(&p.template_name));
+            let prim = p.weapon.as_ref().expect("ground");
+            assert!((prim.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
+            let sec = p.secondary_weapon.as_ref().expect("AA");
+            assert!((sec.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01);
+            assert!((sec.range - PATRIOT_AIR_RANGE).abs() < 1.0);
+            assert!(sec.can_target_air);
+            assert!(!sec.can_target_ground);
+        }
+
+        let air_id = game_logic
+            .create_object("TestAircraft", Team::GLA, Vec3::new(250.0, 0.0, 0.0))
+            .expect("aircraft");
+        {
+            let a = game_logic.find_object_mut(air_id).unwrap();
+            a.status.airborne_target = true;
+        }
+        {
+            let p = game_logic.find_object_mut(patriot_id).unwrap();
+            if let Some(w) = p.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+
+        let air_hp_before = game_logic
+            .find_object(air_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        for f in 0..80 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let air_hp_after = game_logic
+            .find_object(air_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "Patriot AA residual must damage aircraft (before={air_hp_before}, after={air_hp_after})"
+        );
+        assert!(game_logic.honesty_patriot_aa_ok());
+        assert!(game_logic.patriot_residual_aa_fires() > 0);
+        assert!(game_logic.honesty_base_defense_fire_ok());
     }
 
     /// Residual: China Gattling Cannon auto-fires nearby enemy without AttackObject.

@@ -4,20 +4,27 @@
 //! - Base defenses (USA Patriot, China Gattling Cannon, GLA Stinger Site, and
 //!   `FSBaseDefense` structures) auto-acquire and damage nearby enemies while
 //!   Idle without a manual `AttackObject` / player attack order.
-//! - Retail weapon names: `PatriotMissileWeapon` (dmg 30, range 225) and
-//!   `GattlingBuildingGun` (dmg 10, range 225) + SECONDARY `GattlingBuildingGunAir`
-//!   (dmg 5, range 400, AA only).
+//! - Retail weapon names:
+//!   - `PatriotMissileWeapon` (dmg 30, range 225) + SECONDARY `PatriotMissileWeaponAir`
+//!     (dmg 25, range 350, AA)
+//!   - `GattlingBuildingGun` (dmg 10, range 225) + SECONDARY `GattlingBuildingGunAir`
+//!     (dmg 5, range 400, AA only)
+//!   - Stinger residual (SPAWNS_ARE_THE_WEAPONS abstraction): structure fires
+//!     `StingerMissileWeapon` (dmg 20, range 225) + SECONDARY `StingerMissileWeaponAir`
+//!     (dmg 30, range 400, AA) as the site's 3 slave soldiers would.
 //! - China Gattling Cannon continuous-fire ramp residual (`FiringTracker`):
 //!   - ContinuousFireOne=**1** / Two=**5** / Coast=**2000**ms (60 frames)
 //!   - Base Delay **250**ms (8 frames) → MEAN **4** (200% RoF) → FAST **2** (300% RoF)
 //!   - Chain Guns PLAYER_UPGRADE residual (`Upgrade_ChinaChainGuns`): damage × **1.25**
+//! - GLA AP Rockets PLAYER_UPGRADE residual (`Upgrade_GLAAPRockets`): Stinger damage × **1.25**
 //! - C++ `AIUpdateInterface` AutoAcquireEnemiesWhenIdle residual for stationary
 //!   base defenses (not full turret pitch / LOS).
 //!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
+//! - Not full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
-//! - Not full AssistedTargetingModule Patriot assist clips
+//! - Not full AssistedTargetingModule Patriot assist clips / RequestAssistRange
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
 //! - Not network base-defense replication (network deferred)
 
@@ -27,6 +34,48 @@ use std::collections::HashSet;
 
 /// Retail Patriot primary weapon template name.
 pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
+/// Retail Patriot secondary AA weapon template name.
+pub const PATRIOT_SECONDARY_WEAPON: &str = "PatriotMissileWeaponAir";
+
+/// Retail PatriotMissileWeapon PrimaryDamage.
+pub const PATRIOT_GROUND_DAMAGE: f32 = 30.0;
+/// Retail PatriotMissileWeapon AttackRange.
+pub const PATRIOT_GROUND_RANGE: f32 = 225.0;
+/// Retail PatriotMissileWeaponAir PrimaryDamage.
+pub const PATRIOT_AIR_DAMAGE: f32 = 25.0;
+/// Retail PatriotMissileWeaponAir AttackRange.
+pub const PATRIOT_AIR_RANGE: f32 = 350.0;
+/// Retail Patriot DelayBetweenShots 250ms → 8 frames @ 30 FPS (in-clip).
+pub const PATRIOT_DELAY_FRAMES: u32 = 8;
+/// Retail Patriot ClipReloadTime 2000ms → 60 frames residual between clips.
+/// Fail-closed host residual: use clip-reload as effective shot cadence.
+pub const PATRIOT_CLIP_RELOAD_FRAMES: u32 = 60;
+/// Residual fire audio for Patriot.
+pub const PATRIOT_FIRE_AUDIO: &str = "PatriotBatteryWeapon";
+
+/// Retail Stinger soldier primary (structure residual abstraction).
+pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
+/// Retail Stinger soldier secondary AA (structure residual abstraction).
+pub const STINGER_SECONDARY_WEAPON: &str = "StingerMissileWeaponAir";
+
+/// Retail StingerMissileWeapon PrimaryDamage.
+pub const STINGER_GROUND_DAMAGE: f32 = 20.0;
+/// Retail StingerMissileWeapon AttackRange.
+pub const STINGER_GROUND_RANGE: f32 = 225.0;
+/// Retail StingerMissileWeaponAir PrimaryDamage.
+pub const STINGER_AIR_DAMAGE: f32 = 30.0;
+/// Retail StingerMissileWeaponAir AttackRange.
+pub const STINGER_AIR_RANGE: f32 = 400.0;
+/// Retail ClipReloadTime 2000ms → 60 frames @ 30 FPS (ClipSize=1).
+pub const STINGER_RELOAD_FRAMES: u32 = 60;
+/// Retail SpawnBehavior SpawnNumber for residual honesty (not full spawn).
+pub const STINGER_SPAWN_NUMBER: u32 = 3;
+/// Residual fire audio for Stinger residual shots.
+pub const STINGER_FIRE_AUDIO: &str = "StingerMissileWeapon";
+/// Retail Upgrade_GLAAPRockets WeaponBonus DAMAGE 125%.
+pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
+/// AP Rockets damage multiplier residual.
+pub const STINGER_AP_ROCKETS_DAMAGE_MULT: f32 = 1.25;
 
 /// Retail China Gattling Cannon primary weapon template name.
 pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
@@ -87,6 +136,69 @@ pub fn is_base_defense_structure(
         || n.contains("firebase")
 }
 
+/// Whether template is a residual USA Patriot battery (ground + AA residual).
+///
+/// Fail-closed: name residual. Excludes projectile / weapon / debris names.
+pub fn is_patriot_battery_structure(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    // Reject pure weapon / projectile / debris names.
+    if n.contains("weapon")
+        || n.contains("projectile")
+        || n.starts_with("upgrade")
+        || n.contains("debris")
+        || n.contains("hulk")
+        || n.contains("dead")
+    {
+        return false;
+    }
+    // Known host / retail / general-variant structure names.
+    matches!(
+        n.as_str(),
+        "usa_patriot"
+            | "usa_patriotmissile"
+            | "americapatriotbattery"
+            | "patriotmissile"
+            | "testpatriot"
+    ) || (n.contains("patriot")
+        && (n.contains("battery")
+            || n.contains("system")
+            || n.starts_with("usa")
+            || n.starts_with("america")
+            || n.starts_with("lazr_")
+            || n.starts_with("airf_")
+            || n.starts_with("supw_")))
+}
+
+/// Whether template is a residual GLA Stinger Site (SPAWNS_ARE_THE_WEAPONS residual).
+///
+/// Fail-closed: name residual. Excludes soldier / weapon / hole debris.
+pub fn is_stinger_site_structure(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    if n.contains("soldier")
+        || n.contains("weapon")
+        || n.contains("missile")
+        || n.contains("projectile")
+        || n.starts_with("upgrade")
+        || n.contains("debris")
+        || n.contains("hulk")
+        || n.contains("hole")
+        || n.contains("dead")
+    {
+        return false;
+    }
+    n.contains("stingersite")
+        || n.contains("stinger_site")
+        || n == "gla_stingersite"
+        || n == "teststingersite"
+        || (n.contains("stinger") && n.contains("site"))
+}
+
 /// Whether template is a residual China Gattling Cannon structure (ramp + AA).
 ///
 /// Fail-closed: name residual. Excludes tank / Overlord / Helix payloads.
@@ -135,22 +247,123 @@ pub fn is_gattling_cannon_structure(template_name: &str) -> bool {
 
 /// Retail-ish residual weapon name for known host base-defense templates.
 pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("patriot") {
+    if is_patriot_battery_structure(template_name) {
         Some(PATRIOT_PRIMARY_WEAPON)
-    } else if n.contains("gattling") || n.contains("gatling") {
+    } else if is_gattling_cannon_structure(template_name) {
         Some(GATTLING_BUILDING_PRIMARY_WEAPON)
+    } else if is_stinger_site_structure(template_name) {
+        Some(STINGER_PRIMARY_WEAPON)
     } else {
         None
     }
 }
 
-/// Secondary AA residual weapon name for structure gattling.
+/// Secondary AA residual weapon name for dual-slot base defenses.
 pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
     if is_gattling_cannon_structure(template_name) {
         Some(GATTLING_BUILDING_SECONDARY_WEAPON)
+    } else if is_patriot_battery_structure(template_name) {
+        Some(PATRIOT_SECONDARY_WEAPON)
+    } else if is_stinger_site_structure(template_name) {
+        Some(STINGER_SECONDARY_WEAPON)
     } else {
         None
+    }
+}
+
+/// Whether this base defense uses dual ground/AA residual slots.
+pub fn is_dual_slot_base_defense(template_name: &str) -> bool {
+    is_gattling_cannon_structure(template_name)
+        || is_stinger_site_structure(template_name)
+        || is_patriot_battery_structure(template_name)
+}
+
+/// Slot residual for dual air/ground base defenses: 1 = AA secondary, 0 = ground primary.
+pub fn preferred_dual_defense_slot(target_is_air: bool) -> u8 {
+    preferred_gattling_building_slot(target_is_air)
+}
+
+/// Whether AP Rockets upgrade is active on a Stinger residual host.
+pub fn stinger_has_ap_rockets(applied_upgrades: &HashSet<String>) -> bool {
+    applied_upgrades.iter().any(|u| {
+        let l = u.to_ascii_lowercase();
+        l == UPGRADE_GLA_AP_ROCKETS.to_ascii_lowercase()
+            || l.contains("aprockets")
+            || l.contains("ap_rockets")
+    })
+}
+
+/// Apply AP Rockets residual damage mult when upgrade present.
+pub fn stinger_damage_with_ap_rockets(base_damage: f32, has_ap: bool) -> f32 {
+    if has_ap {
+        base_damage * STINGER_AP_ROCKETS_DAMAGE_MULT
+    } else {
+        base_damage
+    }
+}
+
+/// Build residual Stinger ground Weapon (soldier PRIMARY residual).
+pub fn stinger_ground_weapon(has_ap_rockets: bool) -> Weapon {
+    Weapon {
+        damage: stinger_damage_with_ap_rockets(STINGER_GROUND_DAMAGE, has_ap_rockets),
+        range: STINGER_GROUND_RANGE,
+        min_range: 0.0,
+        reload_time: delay_frames_to_reload_secs(STINGER_RELOAD_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(1),
+        can_target_air: false,
+        can_target_ground: true,
+        projectile_speed: 750.0,
+        pre_attack_delay: 0.0,
+    }
+}
+
+/// Build residual Stinger AA Weapon (soldier SECONDARY residual).
+pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
+    Weapon {
+        damage: stinger_damage_with_ap_rockets(STINGER_AIR_DAMAGE, has_ap_rockets),
+        range: STINGER_AIR_RANGE,
+        min_range: 0.0,
+        reload_time: delay_frames_to_reload_secs(STINGER_RELOAD_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(1),
+        can_target_air: true,
+        can_target_ground: false,
+        projectile_speed: 600.0,
+        pre_attack_delay: 0.0,
+    }
+}
+
+/// Build residual Patriot ground Weapon.
+pub fn patriot_ground_weapon() -> Weapon {
+    Weapon {
+        damage: PATRIOT_GROUND_DAMAGE,
+        range: PATRIOT_GROUND_RANGE,
+        min_range: 0.0,
+        // Fail-closed: effective cadence ≈ clip reload (ClipSize=4 residual not full matrix).
+        reload_time: delay_frames_to_reload_secs(PATRIOT_CLIP_RELOAD_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(4),
+        can_target_air: false,
+        can_target_ground: true,
+        projectile_speed: 600.0,
+        pre_attack_delay: 0.0,
+    }
+}
+
+/// Build residual Patriot AA Weapon.
+pub fn patriot_air_weapon() -> Weapon {
+    Weapon {
+        damage: PATRIOT_AIR_DAMAGE,
+        range: PATRIOT_AIR_RANGE,
+        min_range: 0.0,
+        reload_time: delay_frames_to_reload_secs(PATRIOT_CLIP_RELOAD_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(4),
+        can_target_air: true,
+        can_target_ground: false,
+        projectile_speed: 600.0,
+        pre_attack_delay: 0.0,
     }
 }
 
@@ -162,11 +375,7 @@ pub fn is_legal_base_defense_target(
     under_construction: bool,
     is_attackable_or_combat_kind: bool,
 ) -> bool {
-    is_alive
-        && !same_team
-        && !is_neutral
-        && !under_construction
-        && is_attackable_or_combat_kind
+    is_alive && !same_team && !is_neutral && !under_construction && is_attackable_or_combat_kind
 }
 
 /// Slot residual for structure gattling: 1 = AA secondary, 0 = ground primary.
@@ -222,7 +431,8 @@ pub fn gattling_building_air_stats(
     level: GattlingFireLevel,
     has_chain_guns: bool,
 ) -> (f32, f32, u32) {
-    let dmg = gattling_building_damage_with_chain_guns(GATTLING_BUILDING_AIR_DAMAGE, has_chain_guns);
+    let dmg =
+        gattling_building_damage_with_chain_guns(GATTLING_BUILDING_AIR_DAMAGE, has_chain_guns);
     (
         dmg,
         GATTLING_BUILDING_AIR_RANGE,
@@ -341,10 +551,26 @@ mod tests {
     #[test]
     fn base_defense_name_matrix() {
         assert!(is_base_defense_structure("USA_Patriot", true, false));
-        assert!(is_base_defense_structure("AmericaPatriotBattery", true, false));
-        assert!(is_base_defense_structure("Lazr_PatriotMissileSystem", true, false));
-        assert!(is_base_defense_structure("China_GattlingCannon", true, false));
-        assert!(is_base_defense_structure("ChinaGattlingCannon", true, false));
+        assert!(is_base_defense_structure(
+            "AmericaPatriotBattery",
+            true,
+            false
+        ));
+        assert!(is_base_defense_structure(
+            "Lazr_PatriotMissileSystem",
+            true,
+            false
+        ));
+        assert!(is_base_defense_structure(
+            "China_GattlingCannon",
+            true,
+            false
+        ));
+        assert!(is_base_defense_structure(
+            "ChinaGattlingCannon",
+            true,
+            false
+        ));
         assert!(is_base_defense_structure("GLA_StingerSite", true, false));
         assert!(is_base_defense_structure("AnyTower", true, true));
         assert!(!is_base_defense_structure("USA_Barracks", true, false));
@@ -374,7 +600,9 @@ mod tests {
         assert!(!is_gattling_cannon_structure("ChinaTankGattling"));
         assert!(!is_gattling_cannon_structure("ChinaVehicleGattlingTank"));
         // Overlord / Helix payload — not structure residual.
-        assert!(!is_gattling_cannon_structure("ChinaTankOverlordGattlingCannon"));
+        assert!(!is_gattling_cannon_structure(
+            "ChinaTankOverlordGattlingCannon"
+        ));
         assert!(!is_gattling_cannon_structure("ChinaHelixGattlingCannon"));
         // Weapons / upgrades.
         assert!(!is_gattling_cannon_structure("GattlingBuildingGun"));
@@ -390,6 +618,10 @@ mod tests {
             Some(PATRIOT_PRIMARY_WEAPON)
         );
         assert_eq!(
+            secondary_weapon_name_for_defense("USA_Patriot"),
+            Some(PATRIOT_SECONDARY_WEAPON)
+        );
+        assert_eq!(
             primary_weapon_name_for_defense("China_GattlingCannon"),
             Some(GATTLING_BUILDING_PRIMARY_WEAPON)
         );
@@ -397,19 +629,99 @@ mod tests {
             secondary_weapon_name_for_defense("China_GattlingCannon"),
             Some(GATTLING_BUILDING_SECONDARY_WEAPON)
         );
-        assert_eq!(secondary_weapon_name_for_defense("USA_Patriot"), None);
-        assert_eq!(primary_weapon_name_for_defense("GLA_StingerSite"), None);
+        assert_eq!(
+            primary_weapon_name_for_defense("GLA_StingerSite"),
+            Some(STINGER_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_defense("GLA_StingerSite"),
+            Some(STINGER_SECONDARY_WEAPON)
+        );
         assert_eq!(primary_weapon_name_for_defense("USA_Ranger"), None);
+        assert!(is_dual_slot_base_defense("USA_Patriot"));
+        assert!(is_dual_slot_base_defense("GLA_StingerSite"));
+        assert!(is_dual_slot_base_defense("China_GattlingCannon"));
+        assert!(!is_dual_slot_base_defense("USA_Barracks"));
+    }
+
+    #[test]
+    fn stinger_and_patriot_structure_name_matrix() {
+        assert!(is_stinger_site_structure("GLA_StingerSite"));
+        assert!(is_stinger_site_structure("GLAStingerSite"));
+        assert!(is_stinger_site_structure("Chem_GLAStingerSite"));
+        assert!(is_stinger_site_structure("Demo_GLAStingerSite"));
+        assert!(is_stinger_site_structure("Slth_GLAStingerSite"));
+        assert!(is_stinger_site_structure("TestStingerSite"));
+        assert!(!is_stinger_site_structure("GLAInfantryStingerSoldier"));
+        assert!(!is_stinger_site_structure("StingerMissileWeapon"));
+        assert!(!is_stinger_site_structure("GLAHoleStingerSite"));
+
+        assert!(is_patriot_battery_structure("USA_Patriot"));
+        assert!(is_patriot_battery_structure("AmericaPatriotBattery"));
+        assert!(is_patriot_battery_structure("Lazr_PatriotMissileSystem"));
+        assert!(is_patriot_battery_structure("TestPatriot"));
+        assert!(!is_patriot_battery_structure("PatriotMissileWeapon"));
+        assert!(!is_patriot_battery_structure("PatriotMissileProjectile"));
+    }
+
+    #[test]
+    fn stinger_and_patriot_weapon_stats() {
+        let ground = stinger_ground_weapon(false);
+        assert!((ground.damage - STINGER_GROUND_DAMAGE).abs() < 0.01);
+        assert!((ground.range - STINGER_GROUND_RANGE).abs() < 0.01);
+        assert!(!ground.can_target_air);
+        assert!(ground.can_target_ground);
+
+        let air = stinger_air_weapon(false);
+        assert!((air.damage - STINGER_AIR_DAMAGE).abs() < 0.01);
+        assert!((air.range - STINGER_AIR_RANGE).abs() < 0.01);
+        assert!(air.can_target_air);
+        assert!(!air.can_target_ground);
+
+        let ap = stinger_ground_weapon(true);
+        assert!((ap.damage - STINGER_GROUND_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01);
+
+        let mut tags = HashSet::new();
+        assert!(!stinger_has_ap_rockets(&tags));
+        tags.insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+        assert!(stinger_has_ap_rockets(&tags));
+
+        let pg = patriot_ground_weapon();
+        assert!((pg.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
+        assert!((pg.range - PATRIOT_GROUND_RANGE).abs() < 0.01);
+        assert!(!pg.can_target_air);
+
+        let pa = patriot_air_weapon();
+        assert!((pa.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01);
+        assert!((pa.range - PATRIOT_AIR_RANGE).abs() < 0.01);
+        assert!(pa.can_target_air);
+        assert!(!pa.can_target_ground);
+
+        assert_eq!(preferred_dual_defense_slot(false), 0);
+        assert_eq!(preferred_dual_defense_slot(true), 1);
+        assert_eq!(STINGER_SPAWN_NUMBER, 3);
     }
 
     #[test]
     fn legal_target_matrix() {
-        assert!(is_legal_base_defense_target(true, false, false, false, true));
-        assert!(!is_legal_base_defense_target(false, false, false, false, true));
-        assert!(!is_legal_base_defense_target(true, true, false, false, true));
-        assert!(!is_legal_base_defense_target(true, false, true, false, true));
-        assert!(!is_legal_base_defense_target(true, false, false, true, true));
-        assert!(!is_legal_base_defense_target(true, false, false, false, false));
+        assert!(is_legal_base_defense_target(
+            true, false, false, false, true
+        ));
+        assert!(!is_legal_base_defense_target(
+            false, false, false, false, true
+        ));
+        assert!(!is_legal_base_defense_target(
+            true, true, false, false, true
+        ));
+        assert!(!is_legal_base_defense_target(
+            true, false, true, false, true
+        ));
+        assert!(!is_legal_base_defense_target(
+            true, false, false, true, true
+        ));
+        assert!(!is_legal_base_defense_target(
+            true, false, false, false, false
+        ));
     }
 
     #[test]
@@ -422,8 +734,7 @@ mod tests {
         assert!(!f1);
 
         // Shot 2 → consecutive 2 > 1 → Mean.
-        let (l2, c2, f2) =
-            gattling_building_on_shot_fired(l1, c1, Some(10), Some(10), 8, 100);
+        let (l2, c2, f2) = gattling_building_on_shot_fired(l1, c1, Some(10), Some(10), 8, 100);
         assert_eq!(l2, GattlingFireLevel::Mean);
         assert_eq!(c2, 2);
         assert!(!f2);
@@ -432,14 +743,8 @@ mod tests {
         let mut level = l2;
         let mut consec = c2;
         for shot in 3..=6 {
-            let (nl, nc, entered) = gattling_building_on_shot_fired(
-                level,
-                consec,
-                Some(10),
-                Some(10),
-                shot * 4,
-                1000,
-            );
+            let (nl, nc, entered) =
+                gattling_building_on_shot_fired(level, consec, Some(10), Some(10), shot * 4, 1000);
             level = nl;
             consec = nc;
             if shot == 6 {
