@@ -531,13 +531,15 @@ impl Object {
     /// disabled state that prevents it from acting (attacking, producing, etc.)
     ///
     /// Note: `weapons_jammed` (ECM residual) is intentionally **not** full
-    /// disabled — C++ DISABLED_SUBDUED only blocks `canFireWeapon`; residual
-    /// keeps movement. Check `is_weapons_jammed()` / `can_attack()` for fire.
+    /// disabled — C++ DISABLED_SUBDUED on vehicles only blocks `canFireWeapon`;
+    /// residual keeps movement. Check `is_weapons_jammed()` / `can_attack()` for fire.
+    /// Structure `disabled_subdued` (Microwave residual) **is** full disable.
     pub fn is_disabled(&self) -> bool {
         self.status.disabled_underpowered
             || self.status.disabled_unmanned
             || self.status.disabled_hacked
             || self.status.disabled_emp
+            || self.status.disabled_subdued
             || self.status.under_construction
     }
 
@@ -562,6 +564,11 @@ impl Object {
         self.status.weapons_jammed
     }
 
+    /// C++ DISABLED_SUBDUED residual (Microwave building disabler on structures).
+    pub fn is_subdued_disabled(&self) -> bool {
+        self.status.disabled_subdued
+    }
+
     /// Apply / clear weapons-jam residual (ECM field coverage).
     pub fn set_weapons_jammed(&mut self, jammed: bool) {
         if jammed {
@@ -572,6 +579,30 @@ impl Object {
             self.force_attack = false;
         } else {
             self.status.weapons_jammed = false;
+        }
+    }
+
+    /// Apply / clear DISABLED_SUBDUED residual (Microwave structure cook).
+    ///
+    /// C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
+    /// Structures stop production / attack while cooked; residual continuous
+    /// while microwave keeps attacking (not full subdual accumulate/heal).
+    pub fn set_disabled_subdued(&mut self, subdued: bool) {
+        if subdued {
+            self.status.disabled_subdued = true;
+            // C++ orderAllPassengersToIdle residual: drop attack / move orders.
+            self.status.attacking = false;
+            self.force_attack = false;
+            self.target = None;
+            self.target_location = None;
+            // Structures do not move; stop any residual production-related AI.
+            if !self.is_kind_of(KindOf::Structure) {
+                self.status.moving = false;
+                self.stop_moving();
+                self.ai_state = AIState::Idle;
+            }
+        } else {
+            self.status.disabled_subdued = false;
         }
     }
 
@@ -1248,11 +1279,13 @@ impl Object {
     // Command system compatibility methods
     pub fn can_move(&self) -> bool {
         // weapons_jammed intentionally does NOT block movement (weapons-only residual).
+        // disabled_subdued blocks move (C++ DISABLED_SUBDUED full disable for non-projectile).
         self.is_mobile()
             && self.is_alive()
             && !self.status.disabled_unmanned
             && !self.status.disabled_hacked
             && !self.status.disabled_emp
+            && !self.status.disabled_subdued
             && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 

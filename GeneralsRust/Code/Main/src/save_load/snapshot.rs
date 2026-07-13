@@ -310,6 +310,9 @@ pub struct ObjectStatusSnapshot {
     /// Serde default for older snaps.
     #[serde(default)]
     pub weapons_jammed: bool,
+    /// C++ DISABLED_SUBDUED residual (Microwave structure cook). Serde default for older snaps.
+    #[serde(default)]
+    pub disabled_subdued: bool,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual. Serde default for older snaps.
     #[serde(default)]
     pub is_carbomb: bool,
@@ -349,6 +352,7 @@ impl Default for ObjectStatusSnapshot {
             disabled_emp: false,
             disabled_emp_until_frame: 0,
             weapons_jammed: false,
+            disabled_subdued: false,
             is_carbomb: false,
             hijacked: false,
             special_power_ready: true,
@@ -1476,6 +1480,9 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.disabled_emp)?;
         xfer.xfer_marker_label("DisabledEmpUntilFrame")?;
         xfer.xfer_u32(&mut self.disabled_emp_until_frame)?;
+        // Appended residual (DISABLED_SUBDUED / Microwave structure cook).
+        xfer.xfer_marker_label("DisabledSubdued")?;
+        xfer.xfer_bool(&mut self.disabled_subdued)?;
         Ok(())
     }
 }
@@ -3372,6 +3379,7 @@ impl SnapshotBuilder {
             disabled_emp: object.status.disabled_emp,
             disabled_emp_until_frame: object.status.disabled_emp_until_frame,
             weapons_jammed: object.status.weapons_jammed,
+            disabled_subdued: object.status.disabled_subdued,
             is_carbomb: object.status.is_carbomb,
             hijacked: object.status.hijacked,
             special_power_ready: object.special_power_ready,
@@ -3998,6 +4006,7 @@ impl SnapshotBuilder {
         object.status.disabled_emp = status.disabled_emp;
         object.status.disabled_emp_until_frame = status.disabled_emp_until_frame;
         object.status.weapons_jammed = status.weapons_jammed;
+        object.status.disabled_subdued = status.disabled_subdued;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
 
