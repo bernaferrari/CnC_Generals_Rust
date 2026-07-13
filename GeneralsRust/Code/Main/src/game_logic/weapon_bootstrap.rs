@@ -207,6 +207,13 @@ pub const DRAGON_TANK_FLAME_WEAPON_UPGRADED: &str = "DragonTankFlameWeaponUpgrad
 pub const GATTLING_TANK_GUN: &str = "GattlingTankGun";
 pub const GATTLING_TANK_GUN_AIR: &str = "GattlingTankGunAir";
 
+/// Retail China MiniGunner residual weapons (Infantry General).
+pub const MINIGUNNER_GUN: &str = "Infa_MiniGunnerGun";
+pub const MINIGUNNER_GUN_AIR: &str = "Infa_MiniGunnerGunAir";
+
+/// Retail GLA RPG Trooper / Tunnel Defender residual rocket.
+pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -494,6 +501,40 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "TestBattlemaster"
         | "Tank_ChinaTankBattleMaster"
         | "Nuke_ChinaTankBattleMaster" => Some(BATTLE_MASTER_TANK_GUN),
+        // China Dragon Tank residual flame.
+        "ChinaTankDragon"
+        | "China_DragonTank"
+        | "TestDragonTank"
+        | "Tank_ChinaTankDragon"
+        | "Nuke_ChinaTankDragon"
+        | "Infa_ChinaTankDragon" => Some(DRAGON_TANK_FLAME_WEAPON),
+        // China Gattling Tank residual ground gun (AA secondary separate).
+        "ChinaTankGattling"
+        | "China_GattlingTank"
+        | "TestGattlingTank"
+        | "Tank_ChinaTankGattling"
+        | "Nuke_ChinaTankGattling"
+        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN),
+        // China Infantry General MiniGunner residual ground gun.
+        "Infa_ChinaInfantryMiniGunner"
+        | "China_MiniGunner"
+        | "TestMiniGunner"
+        | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN),
+        // GLA RPG Trooper / Tunnel Defender residual rocket.
+        "GLAInfantryTunnelDefender"
+        | "GLA_RPGTrooper"
+        | "GLA_RPG"
+        | "GLA_TunnelDefender"
+        | "TestRPGTrooper"
+        | "TestRPG"
+        | "TestTunnelDefender"
+        | "Chem_GLAInfantryTunnelDefender"
+        | "Demo_GLAInfantryTunnelDefender"
+        | "Slth_GLAInfantryTunnelDefender"
+        | "GC_Slth_GLAInfantryTunnelDefender"
+        | "GC_Chem_GLAInfantryTunnelDefender" => Some(TUNNEL_DEFENDER_ROCKET_WEAPON),
+        // Generals leftover GLALightTank residual (retail PRIMARY CrusaderTankGun).
+        "GLALightTank" | "GLA_LightTank" | "TestLightTank" => Some(CRUSADER_TANK_GUN),
         // GLA Combat Cycle residual: default InitialPayload Rebel MG.
         // Empty bike is PRIMARY NONE; spawn residual binds rebel weapon.
         "GLAVehicleCombatBike"
@@ -612,6 +653,18 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
                 return Some(BATTLE_MASTER_TANK_GUN);
             }
+            if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
+                return Some(DRAGON_TANK_FLAME_WEAPON);
+            }
+            if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
+                return Some(GATTLING_TANK_GUN);
+            }
+            if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
+                return Some(MINIGUNNER_GUN);
+            }
+            if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
+                return Some(TUNNEL_DEFENDER_ROCKET_WEAPON);
+            }
             if let Some(w) =
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
             {
@@ -717,6 +770,18 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Chem_GLAVehicleToxinTruck"
         | "Demo_GLAVehicleToxinTruck"
         | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_SPRAYER),
+        // China Gattling Tank residual AA secondary.
+        "ChinaTankGattling"
+        | "China_GattlingTank"
+        | "TestGattlingTank"
+        | "Tank_ChinaTankGattling"
+        | "Nuke_ChinaTankGattling"
+        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN_AIR),
+        // China MiniGunner residual AA secondary.
+        "Infa_ChinaInfantryMiniGunner"
+        | "China_MiniGunner"
+        | "TestMiniGunner"
+        | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN_AIR),
         _ => {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 Some(NUKE_CANNON_NEUTRON_WEAPON)
@@ -755,6 +820,12 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             ) {
                 // Comanche residual SECONDARY anti-tank; rocket pods replace after upgrade.
                 Some(COMANCHE_ANTITANK_WEAPON)
+            } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+                template_name,
+            ) {
+                Some(GATTLING_TANK_GUN_AIR)
+            } else if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
+                Some(MINIGUNNER_GUN_AIR)
             } else {
                 None
             }
@@ -1649,6 +1720,24 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 999_999.0,
         },
+        // Infa_MiniGunnerGun — dmg 10, range 125, Delay 500ms → 15 frames.
+        SeedWeapon {
+            name: MINIGUNNER_GUN,
+            primary_damage: 10.0,
+            attack_range: 125.0,
+            delay_frames: 15,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // TunnelDefenderRocketWeapon — dmg 40, range 175, min 5, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: TUNNEL_DEFENDER_ROCKET_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 175.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -1713,6 +1802,12 @@ fn seed_known_host_weapons() -> usize {
             t.secondary_damage_radius = 10.0;
         }
         if seed.name == TUNNEL_DEFENDER_BIKER_ROCKET {
+            t.minimum_attack_range = 5.0;
+            t.primary_damage_radius = 5.0;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        if seed.name == TUNNEL_DEFENDER_ROCKET_WEAPON {
             t.minimum_attack_range = 5.0;
             t.primary_damage_radius = 5.0;
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
@@ -1836,6 +1931,37 @@ fn seed_known_host_weapons() -> usize {
         }
     }
 
+    // MiniGunner AA secondary: airborne only residual.
+    if !store_has(MINIGUNNER_GUN_AIR) {
+        let mut t = WeaponTemplate::new(MINIGUNNER_GUN_AIR.to_string());
+        t.primary_damage = 10.0;
+        t.attack_range = 350.0;
+        t.min_delay_between_shots = 15;
+        t.max_delay_between_shots = 15;
+        t.clip_size = 0;
+        t.weapon_speed = 999_999.0;
+        t.anti_mask = WeaponAntiMask::new(0);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        match with_weapon_store_mut(|store| {
+            store.add_weapon_template(t);
+        }) {
+            Ok(()) => {
+                log::debug!(
+                    "Host WeaponStore: seeded AA weapon {}",
+                    MINIGUNNER_GUN_AIR
+                );
+                added += 1;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Host WeaponStore: failed to seed {}: {e}",
+                    MINIGUNNER_GUN_AIR
+                );
+            }
+        }
+    }
+
     if added > 0 {
         log::info!(
             "Host WeaponStore: seeded {} known golden-unit weapons (INI data unavailable or incomplete)",
@@ -1948,6 +2074,129 @@ mod tests {
         );
         assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
         assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);
+        assert_eq!(
+            secondary_weapon_name_for_unit("China_GattlingTank"),
+            Some(GATTLING_TANK_GUN_AIR)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
+            Some(MINIGUNNER_GUN_AIR)
+        );
+    }
+
+    #[test]
+    fn primary_weapon_name_covers_china_gla_usa_residual_gaps() {
+        // Units that previously fell through to Weapon::default without explicit names.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLA_Technical"),
+            Some(TECHNICAL_MACHINE_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("China_BattleTank"),
+            Some(BATTLE_MASTER_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("China_BattlemasterTank"),
+            Some(BATTLE_MASTER_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("GLA_MarauderTank"),
+            Some(MARAUDER_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("GLA_RPGTrooper"),
+            Some(TUNNEL_DEFENDER_ROCKET_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("China_DragonTank"),
+            Some(DRAGON_TANK_FLAME_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("ChinaTankDragon"),
+            Some(DRAGON_TANK_FLAME_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("China_GattlingTank"),
+            Some(GATTLING_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
+            Some(MINIGUNNER_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("GLALightTank"),
+            Some(CRUSADER_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("USA_PaladinTank"),
+            Some(PALADIN_TANK_GUN)
+        );
+        // Non-combat residual stays fail-closed.
+        assert_eq!(primary_weapon_name_for_unit("USA_Dozer"), None);
+        assert_eq!(primary_weapon_name_for_unit("GLA_Worker"), None);
+    }
+
+    #[test]
+    fn create_object_technical_and_battlemaster_bind_residual_not_default() {
+        ensure_host_weapon_store();
+        let mut logic = crate::game_logic::GameLogic::new();
+
+        let mut technical = ThingTemplate::new("GLA_Technical");
+        technical
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        // No primary_weapon_name — residual create path + name map must bind.
+        logic
+            .templates
+            .insert("GLA_Technical".to_string(), technical);
+
+        let mut battle = ThingTemplate::new("China_BattleTank");
+        battle
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(500.0);
+        logic
+            .templates
+            .insert("China_BattleTank".to_string(), battle);
+
+        let tid = logic
+            .create_object("GLA_Technical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("create technical");
+        let tw = logic
+            .objects
+            .get(&tid)
+            .expect("technical obj")
+            .weapon
+            .as_ref()
+            .expect("technical weapon");
+        assert!(
+            (tw.damage - Weapon::default().damage).abs() > 0.01,
+            "Technical must not use Weapon::default (got {})",
+            tw.damage
+        );
+        assert!((tw.damage - 10.0).abs() < 0.01);
+        assert!((tw.range - 150.0).abs() < 0.01);
+
+        let bid = logic
+            .create_object("China_BattleTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("create battlemaster");
+        let bw = logic
+            .objects
+            .get(&bid)
+            .expect("battle obj")
+            .weapon
+            .as_ref()
+            .expect("battle weapon");
+        assert!(
+            (bw.damage - Weapon::default().damage).abs() > 0.01,
+            "Battlemaster must not use Weapon::default (got {})",
+            bw.damage
+        );
+        assert!((bw.damage - 60.0).abs() < 0.01);
+        assert!((bw.range - 150.0).abs() < 0.01);
     }
 
     /// Residual: combat must consider secondary vs structures (flashbang > rifle).
