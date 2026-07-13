@@ -31,6 +31,8 @@ pub const UPGRADE_COMANCHE_ROCKET_PODS: &str = "Upgrade_ComancheRocketPods";
 pub const UPGRADE_AMERICA_SENTRY_DRONE_GUN: &str = "Upgrade_AmericaSentryDroneGun";
 pub const UPGRADE_AMERICA_COMPOSITE_ARMOR: &str = "Upgrade_AmericaCompositeArmor";
 pub const UPGRADE_GLA_WORKER_SHOES: &str = "Upgrade_GLAWorkerShoes";
+pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
+pub const UPGRADE_GLA_REBEL_BOOBY_TRAP: &str = "Upgrade_GLAInfantryRebelBoobyTrapAttack";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -84,6 +86,10 @@ pub enum HostUpgradeKind {
     CompositeArmor,
     /// GLA WorkerShoes: speed boost + supply drop-off cash residual.
     WorkerShoes,
+    /// China Nuclear Tanks: death blast + nuclear locomotor speed residual.
+    NuclearTanks,
+    /// GLA Rebel BoobyTrap attack unlock residual.
+    BoobyTrap,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -115,6 +121,10 @@ impl HostUpgradeKind {
             HostUpgradeKind::CompositeArmor
         } else if n.contains("workershoes") || n.contains("glaworkershoes") {
             HostUpgradeKind::WorkerShoes
+        } else if n.contains("nucleartanks") || n.contains("nucleartank") {
+            HostUpgradeKind::NuclearTanks
+        } else if n.contains("boobytrap") {
+            HostUpgradeKind::BoobyTrap
         } else {
             HostUpgradeKind::Other
         }
@@ -133,6 +143,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::Camouflage => "Camouflage",
             HostUpgradeKind::CompositeArmor => "CompositeArmor",
             HostUpgradeKind::WorkerShoes => "WorkerShoes",
+            HostUpgradeKind::NuclearTanks => "NuclearTanks",
+            HostUpgradeKind::BoobyTrap => "BoobyTrap",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -154,6 +166,8 @@ impl HostUpgradeKind {
             | HostUpgradeKind::Camouflage
             | HostUpgradeKind::CompositeArmor
             | HostUpgradeKind::WorkerShoes
+            | HostUpgradeKind::NuclearTanks
+            | HostUpgradeKind::BoobyTrap
             | HostUpgradeKind::Other => 1,
         }
     }

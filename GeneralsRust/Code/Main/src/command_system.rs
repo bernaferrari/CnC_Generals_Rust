@@ -207,6 +207,10 @@ pub enum CommandType {
     DisguiseAsVehicle {
         target_id: ObjectId,
     },
+    /// GLA Rebel residual: plant BoobyTrap on structure (SpecialAbilityBoobyTrap).
+    PlantBoobyTrap {
+        target_id: ObjectId,
+    },
     SwitchWeapons,
     ToggleOvercharge,
 

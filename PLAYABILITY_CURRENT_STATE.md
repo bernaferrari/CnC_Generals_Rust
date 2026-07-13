@@ -1,3 +1,34 @@
+## Residual Host Playability — China Nuclear Tanks + GLA Rebel BoobyTrap (2026-07-13)
+**Closed (host-testable Nuclear Tanks death/speed/radiation + Rebel BoobyTrap residual):**
+1. **Nuclear Tanks residual** (`Upgrade_ChinaNuclearTanks` on Battlemaster / Overlord / Emperor):
+   - Locomotor residual speed: Battlemaster **25 → 35**, Overlord/Emperor **20 → 30**.
+   - On death: dual-radius `NuclearTankDeathWeapon` residual
+     Primary **25**/r**25** + Secondary **10**/r**75** (Nuke_ general: **110**/r**80** +
+     **70**/r**100**).
+   - Spawns residual `OCL_RadiationFieldSmall` / `SmallRadiationFieldWeapon`:
+     **5** dmg / r**15** / tick **750**ms / lifetime **2500**ms.
+   - Honesty: `honesty_nuclear_tanks_ok` / upgrade / death / radiation.
+2. **Rebel BoobyTrap residual** (`Upgrade_GLAInfantryRebelBoobyTrapAttack` +
+   `SpecialAbilityBoobyTrap` on `GLAInfantryRebel` / variants):
+   - Plant residual: walk to enemy structure within StartAbilityRange **5** →
+     mark `OBJECT_STATUS_BOOBY_TRAPPED` (host residual).
+   - Reload residual: **7500** ms (**225** frames).
+   - Detonate residual on enemy capture-trigger / structure death:
+     Primary **200** / (r**5**+geometry) + Secondary **50** / (r**15**+geometry).
+   - Allies of planter do not trigger detonation (C++ checkAndDetonateBoobyTrap).
+   - Honesty: `honesty_booby_trap_ok` / plant / detonate / upgrade.
+3. Tests (not log-only):
+   - `nuclear_tanks_residual_speed_death_and_radiation`
+   - `rebel_booby_trap_plant_and_capture_detonate_residual`
+   - module unit tests in `host_nuclear_tanks.rs` / `host_booby_trap.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full FireWeaponWhenDeadBehavior exclusive module / RequiresAllTriggers matrix
+- Full LocomotorSetUpgrade Nuclear*Locomotor pitch-roll visual matrix
+- Full SpecialObject BoobyTrap StickyBombUpdate bone attach / stealth matrix
+- Full MaxSpecialObjects=100 / UniqueSpecialObjectTargets list matrix
+- Network nuclear-tanks / booby-trap replication (network deferred)
+
 ## Residual Host Playability — China Overlord Main Gun + GLA Jarmen Kell Sniper (2026-07-13)
 **Closed (host-testable Overlord dual-radius/Uranium + Jarmen Kell sniper/AP residual):**
 1. **Overlord main gun residual** (`ChinaTankOverlord` / Nuke_/Infa_/Tank_ + Emperor):
@@ -24,7 +55,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full ClipSize=2 DelayBetweenShots 300ms dual-volley cadence for Overlord
 - Full ScatterRadiusVsInfantry / projectile shell lob / W3D turret matrix
-- Full Nuclear Tanks death weapon residual
+- Full Nuclear Tanks death weapon residual (host residual closed 2026-07-13 — see Nuclear Tanks + BoobyTrap section; full exclusive module still open)
 - Full SECONDARY AutoChooseSources=NONE pilot-sniper WeaponSet chooser matrix
 - Full StealthUpdate / Camouflage / Science prereq residual matrix for Kell
 - Network uranium / sniper / AP Bullets replication (network deferred)
@@ -174,7 +205,7 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full ClipSize=3 in-clip DelayBetweenShots + ClipReload 700ms volley matrix
-- CaptureBuilding / BoobyTrap special ability residual for Rebel
+- CaptureBuilding special ability residual for Rebel (BoobyTrap host residual closed 2026-07-13)
 - Full ScatterRadiusVsInfantry / projectile exhaust FX matrix for RPG Trooper
 - Network AP / fire replication (network deferred)
 
@@ -262,7 +293,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 - Full Fanaticism infantry-general nationalism branch
-- Full Nuclear Tanks death weapon / NuclearBattleMasterLocomotor residual
+- Full Nuclear Tanks exclusive FireWeaponWhenDead / NuclearBattleMasterLocomotor visual matrix (host residual closed 2026-07-13)
 - Full SCIENCE_BattlemasterTraining elite spawn residual
 - Network uranium / horde replication (network deferred)
 
@@ -1130,7 +1161,7 @@
 - Full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
 - Full StickyBombUpdate attach bones / geometry-based secondary splash / max-charge list
 - Full OCL ClusterMinesBomb aircraft delivery path
-- BoobyTrap install-on-building residual (related StickyBomb path)
+- Full StickyBombUpdate bone attach for BoobyTrap (host plant/detonate residual closed 2026-07-13)
 - Network mine replication (network deferred)
 
 ## Residual Host Playability — W3D Mesh Asset Resolve (2026-07-12)
