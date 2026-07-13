@@ -1,3 +1,49 @@
+## Residual Host Playability — DropDelay Stagger + MoneyCrateCollide + Campaign.ini Table (2026-07-13)
+**Closed (host-testable DeliverPayload DropDelay stagger + MoneyCrateCollide + Campaign.ini residual):**
+1. **DeliverPayload DropDelay per-item stagger residual** (`host_deliver_payload`):
+   - Retail OCL `DropDelay = 350` ms → **11** frames between items.
+   - AmericaJetCargoPlane `DoorDelay = 500` ms → **15** frames before first item.
+   - First item frame = activate + approach (**90**) + door (**15**); item *i* = first + *i*×11.
+   - Host spawns **one** payload item per due frame (C++ DeliveringState exit tick).
+   - **DropOffset** residual X:0 Y:0 Z:-5 applied (host Y-up → Y=-5).
+   - Honesty constants: MaxAttempts **4**, PreOpenDistance **0** (supply OCL),
+     DeliveryDistance **410**, Paradrop PreOpenDistance **300**.
+   - Host-testable: no crates before first item; 1 crate on first due; full 6 after stagger;
+     bulk BuildingPickup cash on **final** item only.
+   - Fail-closed: not full CreateAtEdge cargo-plane Object / flight locomotor /
+     DropVariance (supply OCL has none) / VisiblePayload bones / parachute fall physics.
+2. **MoneyCrateCollide unit + BuildingPickup residual** (`host_money_crate`):
+   - MoneyProvided **250**, SupplyLines boost **+25**, BuildingPickup **Yes**.
+   - Unit residual: non-structure non-neutral within radius **20** credits cash + destroys crate.
+   - BuildingPickup residual radius **80** (structure collect path).
+   - Supply Drop Zone bulk BuildingPickup residual still credits $1500/$1650 on mission
+     complete and marks crates paid (no unit double-credit).
+   - Host-testable: unit pickup cash + CrateMoney audio; SupplyLines boost residual.
+   - Fail-closed: not full CollideModule partition pairs / Anim2D MoneyPickUp / EVA text.
+3. **Campaign.ini residual mission table** (Main `CampaignManager`):
+   - USA campaign MD_USA01…MD_USA05 residual chain + required-mission links.
+   - CHALLENGE_0 residual map chain (GC_Chem…GC_ChinaBoss) + `usa_gen_01` alias.
+   - Honesty: `honesty_campaign_ini_table_ok()`.
+   - Fail-closed: not full Campaign.ini INI parse / GameClient manager parity /
+     end-to-end cinematic score-screen flow.
+4. Tests (not log-only):
+   - `queue_and_stagger_supply_drop_cargo` / `drop_delay_stagger_item_frames`
+   - updated `supply_drop_zone_residual_credits_cash_on_interval` (stagger timing)
+   - updated `deliver_payload_cargo_residual_constants_and_skip` (DoorDelay/MaxAttempts)
+   - `money_crate_collide_unit_pickup_residual`
+   - `campaign_ini_residual_mission_table`
+   - host_money_crate unit tests
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
+  state machine / approach geometry (constants + DoorDelay/DropDelay stagger closed)
+- Full DropVariance random scatter (supply OCL has none; other OCL kinds open)
+- Full AmericaCrateParachute container fall-physics for cargo
+- Full CollideModule partition / Anim2D / ForbiddenKindOf matrix beyond residual gates
+- Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
+- Full W3D pristine bone extract for cargo plane doors
+- Network DeliverPayload / MoneyCrate / campaign replication (network deferred)
+
 ## Residual Host Playability — DeliverPayload Cargo Plane Delayed Spawn (2026-07-13)
 **Closed (host-testable DeliverPayload cargo residual — delayed payload spawn):**
 1. **DeliverPayload cargo plane residual** (`host_deliver_payload`):
@@ -37,11 +83,13 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
-  state machine / MaxAttempts / PreOpenDistance geometry
-- Full DropDelay per-item stagger / DropVariance / VisiblePayload bone matrix
+  state machine (DropDelay stagger + DoorDelay + MaxAttempts/PreOpenDistance/DropOffset
+  constants residual closed 2026-07-13 — see DropDelay Stagger + MoneyCrateCollide section)
+- Full DropVariance / VisiblePayload bone matrix (supply OCL has no DropVariance)
 - Full AmericaCrateParachute / AmericaParachute container fall-physics for cargo
   (PARA_COG host residual already closed for eject path)
-- Full MoneyCrateCollide unit pickup matrix (BuildingPickup cash residual closed)
+- Full CollideModule partition / Anim2D MoneyPickUp (MoneyCrateCollide unit residual
+  closed 2026-07-13 — see DropDelay Stagger + MoneyCrateCollide section)
 - Full W3D pristine bone extract for cargo plane doors
 - Network DeliverPayload / cargo replication (network deferred)
 
@@ -2494,8 +2542,9 @@
 - Dense campaign script evaluation is budgeted (24/frame when ≥48 scripts), not
   full same-frame C++ parity for all 291 scripts
 - End-to-end mission objective completion / cinematic / score-screen campaign flow
-- Campaign.ini → Main `CampaignManager` mission table (GameClient manager already
-  loads INI; Main save_load manager still uses seeded definitions)
+- Full Campaign.ini INI parse into Main `CampaignManager` (seeded USA MD_USA01–05 +
+  CHALLENGE_0 residual table closed 2026-07-13 — see DropDelay Stagger + MoneyCrateCollide
+  + Campaign.ini Table section; GameClient manager already loads INI)
 
 ## Residual Host Playability — Special Power Superweapon Host Path (2026-07-12)
 **Closed (host-testable DoSpecialPower → queue → impact complete path):**

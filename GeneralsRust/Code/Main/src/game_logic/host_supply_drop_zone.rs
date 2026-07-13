@@ -15,9 +15,9 @@
 //!
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate flight path
-//!   (delayed spawn residual closed via host_deliver_payload)
-//! - Not full AmericaCrateParachute fall-physics / MoneyCrateCollide unit path
-//!   (BuildingPickup residual cash credit on drop)
+//!   (DropDelay stagger + delayed spawn residual closed via host_deliver_payload)
+//! - Not full AmericaCrateParachute fall-physics
+//!   (MoneyCrateCollide unit/BuildingPickup residual via host_money_crate)
 //! - Not full ControlBar OCL timer UI / sabotage timer-reset path
 //! - Under-construction / neutral / dead residual-skip (C++ OCLUpdate::shouldCreate)
 

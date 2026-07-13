@@ -3,19 +3,21 @@
 //! Residual slice (playability):
 //! - Models retail OCL `DeliverPayload` missions used by cargo planes
 //!   (`AmericaJetCargoPlane`) and superweapon drop lists without full aircraft
-//!   edge-spawn / locomotor flight / door animation.
-//! - After an approach delay residual, spawns payload units at the target
-//!   location in a line formation (DropOffset / DropVariance deferred).
+//!   edge-spawn / locomotor flight / door animation GPU.
+//! - After approach delay residual, spawns payload units with **DropDelay**
+//!   per-item stagger (OCL DropDelay 350 ms → 11 frames) and **DropOffset**
+//!   residual (Supply Drop Zone Z:-5).
 //! - Primary wire: `OCL_AmericaSupplyDropZoneCrateDrop` —
 //!   Transport=`AmericaJetCargoPlane`, Payload=`SupplyDropZoneCrate` × 6,
-//!   PutInContainer=`AmericaCrateParachute`, DropDelay=350 ms, DeliveryDistance=410.
+//!   PutInContainer=`AmericaCrateParachute`, DropDelay=350 ms, DeliveryDistance=410,
+//!   MaxAttempts=4, DropOffset X:0 Y:0 Z:-5.
 //! - Secondary honesty: America Paradrop cargo-plane DeliverPayload bookkeeping
 //!   (actual infantry spawn remains in `host_paradrop`).
 //!
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate state machine
-//! - Not full PreOpenDistance / DeliveryDistance approach geometry / MaxAttempts
-//! - Not full DropDelay per-item stagger (host spawns formation simultaneously)
+//! - Not full PreOpenDistance approach geometry flight path (constants retained)
+//! - Not full DropVariance random scatter (OCL supply drop has no DropVariance)
 //! - Not full AmericaCrateParachute / AmericaParachute fall-physics containers
 //! - Not full VisiblePayload bone / subobject bomb rack matrix
 //! - Not network DeliverPayload replication (network deferred)
@@ -28,7 +30,7 @@ use std::collections::HashMap;
 /// Logic frames per second (host fixed step).
 pub const DELIVER_PAYLOAD_LOGIC_FPS: f32 = 30.0;
 
-/// Residual cargo-plane approach delay before payload spawn
+/// Residual cargo-plane approach delay before delivery state
 /// (fail-closed vs full CreateAtEdge transit + DeliveryDistance approach).
 /// ~3s @ 30 FPS — matches host paradrop / DaisyCutter family residual.
 pub const CARGO_PLANE_APPROACH_DELAY_FRAMES: u32 = 90;
@@ -50,14 +52,33 @@ pub const SUPPLY_DROP_PUT_IN_CONTAINER: &str = "AmericaCrateParachute";
 /// Retail Payload count (`Payload = SupplyDropZoneCrate 6`).
 pub const SUPPLY_DROP_PAYLOAD_COUNT: u32 = 6;
 
-/// Retail DropDelay = 350 ms between items (stagger fail-closed; constant retained).
+/// Retail DropDelay = 350 ms between items (parseDurationUnsignedInt).
 pub const SUPPLY_DROP_DROP_DELAY_MS: u32 = 350;
 
 /// DropDelay → frames at 30 FPS (350 / (1000/30) ≈ 10.5 → 11).
 pub const SUPPLY_DROP_DROP_DELAY_FRAMES: u32 = 11;
 
-/// Retail DeliveryDistance residual (approach geometry deferred).
+/// Retail AmericaJetCargoPlane DeliverPayloadAIUpdate DoorDelay = 500 ms.
+/// First wait after entering DeliveringState before first item exit.
+pub const CARGO_PLANE_DOOR_DELAY_MS: u32 = 500;
+
+/// DoorDelay → frames at 30 FPS (500 / (1000/30) = 15).
+pub const CARGO_PLANE_DOOR_DELAY_FRAMES: u32 = 15;
+
+/// Retail DeliveryDistance residual (approach geometry deferred; constant honesty).
 pub const SUPPLY_DROP_DELIVERY_DISTANCE: f32 = 410.0;
+
+/// Retail MaxAttempts residual honesty (OCL = 4).
+pub const SUPPLY_DROP_MAX_ATTEMPTS: u32 = 4;
+
+/// Retail PreOpenDistance residual honesty.
+/// OCL_AmericaSupplyDropZoneCrateDrop does not set PreOpenDistance (defaults 0).
+pub const SUPPLY_DROP_PRE_OPEN_DISTANCE: f32 = 0.0;
+
+/// Retail DropOffset residual (OCL X:0 Y:0 Z:-5). Host Y-up: offset applies to Y.
+pub const SUPPLY_DROP_DROP_OFFSET_X: f32 = 0.0;
+pub const SUPPLY_DROP_DROP_OFFSET_Y: f32 = -5.0;
+pub const SUPPLY_DROP_DROP_OFFSET_Z: f32 = 0.0;
 
 /// Residual horizontal spacing between spawned crates (line formation).
 pub const SUPPLY_DROP_CRATE_SPACING: f32 = 20.0;
@@ -75,6 +96,12 @@ pub const PARADROP_CARGO_TRANSPORT: &str = "AmericaJetCargoPlane";
 
 /// Retail Paradrop PutInContainer.
 pub const PARADROP_PUT_IN_CONTAINER: &str = "AmericaParachute";
+
+/// Retail Paradrop PreOpenDistance honesty (SUPERWEAPON_Paradrop* = 300).
+pub const PARADROP_PRE_OPEN_DISTANCE: f32 = 300.0;
+
+/// Retail Paradrop MaxAttempts honesty.
+pub const PARADROP_MAX_ATTEMPTS: u32 = 4;
 
 /// Host residual DeliverPayload kind (cargo / superweapon drop family).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -95,11 +122,28 @@ impl HostDeliverPayloadKind {
         }
     }
 
-    /// Residual approach frames before payload resolve.
+    /// Residual approach frames before delivery state (plane inbound residual).
     pub fn approach_delay_frames(self) -> u32 {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_APPROACH_DELAY_FRAMES,
             HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_APPROACH_DELAY_FRAMES,
+        }
+    }
+
+    /// DoorDelay residual frames before first item (AmericaJetCargoPlane module).
+    pub fn door_delay_frames(self) -> u32 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => CARGO_PLANE_DOOR_DELAY_FRAMES,
+            HostDeliverPayloadKind::AmericaParadrop => CARGO_PLANE_DOOR_DELAY_FRAMES,
+        }
+    }
+
+    /// DropDelay residual frames between successive payload items.
+    pub fn drop_delay_frames(self) -> u32 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_DROP_DELAY_FRAMES,
+            // Paradrop infantry stagger owned by host_paradrop residual.
+            HostDeliverPayloadKind::AmericaParadrop => 0,
         }
     }
 
@@ -123,7 +167,6 @@ impl HostDeliverPayloadKind {
     pub fn payload_count(self) -> u32 {
         match self {
             HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PAYLOAD_COUNT,
-            // Infantry count / spawn owned by host_paradrop residual.
             HostDeliverPayloadKind::AmericaParadrop => 0,
         }
     }
@@ -144,12 +187,48 @@ impl HostDeliverPayloadKind {
         }
     }
 
-    /// Whether this kind should spawn residual payload objects on drop frame.
+    /// DropOffset residual applied to each spawn position (host Y-up).
+    pub fn drop_offset(self) -> Vec3 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => Vec3::new(
+                SUPPLY_DROP_DROP_OFFSET_X,
+                SUPPLY_DROP_DROP_OFFSET_Y,
+                SUPPLY_DROP_DROP_OFFSET_Z,
+            ),
+            HostDeliverPayloadKind::AmericaParadrop => Vec3::new(0.0, -10.0, 0.0),
+        }
+    }
+
+    /// MaxAttempts residual honesty.
+    pub fn max_attempts(self) -> u32 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_MAX_ATTEMPTS,
+            HostDeliverPayloadKind::AmericaParadrop => PARADROP_MAX_ATTEMPTS,
+        }
+    }
+
+    /// PreOpenDistance residual honesty.
+    pub fn pre_open_distance(self) -> f32 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_PRE_OPEN_DISTANCE,
+            HostDeliverPayloadKind::AmericaParadrop => PARADROP_PRE_OPEN_DISTANCE,
+        }
+    }
+
+    /// DeliveryDistance residual honesty.
+    pub fn delivery_distance(self) -> f32 {
+        match self {
+            HostDeliverPayloadKind::SupplyDropZoneCrate => SUPPLY_DROP_DELIVERY_DISTANCE,
+            HostDeliverPayloadKind::AmericaParadrop => 0.0,
+        }
+    }
+
+    /// Whether this kind should spawn residual payload objects on drop frames.
     pub fn spawns_payload_objects(self) -> bool {
         matches!(self, HostDeliverPayloadKind::SupplyDropZoneCrate)
     }
 
-    /// Whether BuildingPickup residual cash should credit on drop.
+    /// Whether BuildingPickup residual cash should credit on drop complete.
     pub fn credits_building_pickup_cash(self) -> bool {
         matches!(self, HostDeliverPayloadKind::SupplyDropZoneCrate)
     }
@@ -167,16 +246,39 @@ impl HostDeliverPayloadKind {
             HostDeliverPayloadKind::AmericaParadrop => "ParadropLanding",
         }
     }
+
+    /// Absolute frame when item index `i` is due (0-based).
+    ///
+    /// first_item = activate + approach + door_delay
+    /// item_i = first_item + i * drop_delay
+    pub fn item_drop_frame(self, activate_frame: u32, item_index: u32) -> u32 {
+        let first = activate_frame
+            .saturating_add(self.approach_delay_frames())
+            .saturating_add(self.door_delay_frames());
+        first.saturating_add(item_index.saturating_mul(self.drop_delay_frames()))
+    }
+
+    /// Frame when delivery is fully complete (last item due), or approach end
+    /// when payload_count is 0 (paradrop bookkeeping).
+    pub fn mission_complete_frame(self, activate_frame: u32) -> u32 {
+        let count = self.payload_count();
+        if count == 0 {
+            return activate_frame.saturating_add(self.approach_delay_frames());
+        }
+        self.item_drop_frame(activate_frame, count.saturating_sub(1))
+    }
 }
 
 /// Lifecycle of a queued host DeliverPayload mission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostDeliverPayloadPhase {
-    /// Queued after OCL / special-power; waiting for approach drop frame.
+    /// Queued after OCL / special-power; waiting for approach / door delay.
     Queued,
-    /// Payload resolved (spawned and/or cash credited).
+    /// DropDelay stagger in progress (at least one item spawned, more remaining).
+    Dropping,
+    /// Payload resolved (all items spawned and/or cash credited).
     Completed,
-    /// Cancelled (source died / invalid) before drop.
+    /// Cancelled (source died / invalid) before drop complete.
     Cancelled,
 }
 
@@ -189,7 +291,10 @@ pub struct HostDeliverPayloadMission {
     pub source_team: super::Team,
     pub target_position: Vec3,
     pub activate_frame: u32,
+    /// Frame when first payload item is due (approach + door delay).
     pub drop_frame: u32,
+    /// Frame when last payload item is due (stagger complete).
+    pub complete_frame: u32,
     pub phase: HostDeliverPayloadPhase,
     /// Transport template residual honesty (`AmericaJetCargoPlane`).
     pub transport_template: String,
@@ -199,13 +304,37 @@ pub struct HostDeliverPayloadMission {
     pub payload_template: String,
     /// Number of payload units requested at queue time.
     pub payload_count: u32,
-    /// Object ids of payload units successfully created at drop.
+    /// Number of payload items already spawned under DropDelay stagger.
+    pub items_dropped: u32,
+    /// Object ids of payload units successfully created.
     pub spawned_payload_ids: Vec<ObjectId>,
     /// BuildingPickup residual cash credited on complete (supply crates).
     pub cash_credited: u32,
+    /// MaxAttempts residual honesty.
+    pub max_attempts: u32,
+    /// PreOpenDistance residual honesty.
+    pub pre_open_distance: f32,
+    /// DeliveryDistance residual honesty.
+    pub delivery_distance: f32,
 }
 
-/// Spawn / resolve plan for one due DeliverPayload mission.
+/// Spawn plan for one due payload item (DropDelay stagger).
+#[derive(Debug, Clone)]
+pub struct HostDeliverPayloadItemPlan {
+    pub mission_id: u32,
+    pub kind: HostDeliverPayloadKind,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub target_position: Vec3,
+    pub payload_template: String,
+    /// 0-based item index within mission.
+    pub item_index: u32,
+    pub spawn_position: Vec3,
+    /// True when this item is the last residual payload for the mission.
+    pub is_final_item: bool,
+}
+
+/// Legacy multi-position plan alias (formation snapshot at first drop).
 #[derive(Debug, Clone)]
 pub struct HostDeliverPayloadDropPlan {
     pub mission_id: u32,
@@ -224,12 +353,15 @@ pub struct HostDeliverPayloadRegistry {
     missions: HashMap<u32, HostDeliverPayloadMission>,
     completed_this_frame: Vec<u32>,
     activated_this_frame: Vec<u32>,
+    items_spawned_this_frame: Vec<(u32, ObjectId)>,
     /// Total cargo flights queued (honesty).
     pub flights_queued: u32,
     /// Total payload objects spawned across all missions (honesty).
     pub payload_spawned_total: u32,
     /// Total BuildingPickup residual cash credited via cargo path (honesty).
     pub cash_credited_total: u32,
+    /// Total DropDelay stagger item events (honesty).
+    pub stagger_items_total: u32,
 }
 
 impl HostDeliverPayloadRegistry {
@@ -239,9 +371,11 @@ impl HostDeliverPayloadRegistry {
             missions: HashMap::new(),
             completed_this_frame: Vec::new(),
             activated_this_frame: Vec::new(),
+            items_spawned_this_frame: Vec::new(),
             flights_queued: 0,
             payload_spawned_total: 0,
             cash_credited_total: 0,
+            stagger_items_total: 0,
         }
     }
 
@@ -252,6 +386,7 @@ impl HostDeliverPayloadRegistry {
     pub fn clear_frame_events(&mut self) {
         self.completed_this_frame.clear();
         self.activated_this_frame.clear();
+        self.items_spawned_this_frame.clear();
     }
 
     pub fn next_id(&self) -> u32 {
@@ -268,6 +403,10 @@ impl HostDeliverPayloadRegistry {
 
     pub fn cash_credited_total(&self) -> u32 {
         self.cash_credited_total
+    }
+
+    pub fn stagger_items_total(&self) -> u32 {
+        self.stagger_items_total
     }
 
     pub fn restore_from_snapshot(
@@ -297,7 +436,12 @@ impl HostDeliverPayloadRegistry {
     pub fn pending_count(&self) -> usize {
         self.missions
             .values()
-            .filter(|m| m.phase == HostDeliverPayloadPhase::Queued)
+            .filter(|m| {
+                matches!(
+                    m.phase,
+                    HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+                )
+            })
             .count()
     }
 
@@ -321,7 +465,13 @@ impl HostDeliverPayloadRegistry {
     pub fn pending_of_kind(&self, kind: HostDeliverPayloadKind) -> Vec<&HostDeliverPayloadMission> {
         self.missions
             .values()
-            .filter(|m| m.phase == HostDeliverPayloadPhase::Queued && m.kind == kind)
+            .filter(|m| {
+                m.kind == kind
+                    && matches!(
+                        m.phase,
+                        HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+                    )
+            })
             .collect()
     }
 
@@ -343,8 +493,13 @@ impl HostDeliverPayloadRegistry {
         &self.completed_this_frame
     }
 
-    /// Line-formation drop positions around target.
-    pub fn drop_positions(center: Vec3, unit_count: u32, spacing: f32) -> Vec<Vec3> {
+    /// Line-formation drop positions around target + DropOffset residual.
+    pub fn drop_positions(
+        center: Vec3,
+        unit_count: u32,
+        spacing: f32,
+        drop_offset: Vec3,
+    ) -> Vec<Vec3> {
         if unit_count == 0 {
             return Vec::new();
         }
@@ -357,9 +512,28 @@ impl HostDeliverPayloadRegistry {
             } else {
                 0.0
             };
-            positions.push(Vec3::new(center.x + offset, center.y, center.z));
+            positions.push(Vec3::new(
+                center.x + offset + drop_offset.x,
+                center.y + drop_offset.y,
+                center.z + drop_offset.z,
+            ));
         }
         positions
+    }
+
+    /// Single item formation position for stagger residual.
+    pub fn drop_position_for_item(
+        center: Vec3,
+        unit_count: u32,
+        item_index: u32,
+        spacing: f32,
+        drop_offset: Vec3,
+    ) -> Vec3 {
+        let positions = Self::drop_positions(center, unit_count, spacing, drop_offset);
+        positions
+            .get(item_index as usize)
+            .copied()
+            .unwrap_or(center + drop_offset)
     }
 
     /// Queue a DeliverPayload cargo mission. Returns host mission id.
@@ -374,7 +548,14 @@ impl HostDeliverPayloadRegistry {
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
-        let drop_frame = activate_frame.saturating_add(kind.approach_delay_frames());
+        // Spawning kinds: first item after approach + DoorDelay.
+        // Non-spawning (Paradrop bookkeeping): complete at approach residual end.
+        let drop_frame = if kind.spawns_payload_objects() {
+            kind.item_drop_frame(activate_frame, 0)
+        } else {
+            kind.mission_complete_frame(activate_frame)
+        };
+        let complete_frame = kind.mission_complete_frame(activate_frame);
         let mission = HostDeliverPayloadMission {
             id,
             kind,
@@ -383,13 +564,18 @@ impl HostDeliverPayloadRegistry {
             target_position,
             activate_frame,
             drop_frame,
+            complete_frame,
             phase: HostDeliverPayloadPhase::Queued,
             transport_template: kind.transport_template().to_string(),
             put_in_container: kind.put_in_container().to_string(),
             payload_template: payload_template.into(),
             payload_count: kind.payload_count(),
+            items_dropped: 0,
             spawned_payload_ids: Vec::new(),
             cash_credited: 0,
+            max_attempts: kind.max_attempts(),
+            pre_open_distance: kind.pre_open_distance(),
+            delivery_distance: kind.delivery_distance(),
         };
         self.missions.insert(id, mission);
         self.activated_this_frame.push(id);
@@ -397,11 +583,69 @@ impl HostDeliverPayloadRegistry {
         id
     }
 
-    /// Build drop plans for all missions whose drop frame has arrived.
+    /// Build per-item spawn plans for DropDelay stagger residual.
+    ///
+    /// At most one item per mission per call (matches C++ one exit per DropDelay tick).
+    pub fn plan_due_item_spawns(&self, current_frame: u32) -> Vec<HostDeliverPayloadItemPlan> {
+        let mut plans = Vec::new();
+        for mission in self.missions.values() {
+            if !matches!(
+                mission.phase,
+                HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+            ) {
+                continue;
+            }
+            if !mission.kind.spawns_payload_objects() {
+                // Paradrop bookkeeping completes at complete_frame without host spawn.
+                continue;
+            }
+            let next_index = mission.items_dropped;
+            if next_index >= mission.payload_count {
+                continue;
+            }
+            let due = mission
+                .kind
+                .item_drop_frame(mission.activate_frame, next_index);
+            if current_frame < due {
+                continue;
+            }
+            let spawn_position = Self::drop_position_for_item(
+                mission.target_position,
+                mission.payload_count,
+                next_index,
+                mission.kind.payload_spacing(),
+                mission.kind.drop_offset(),
+            );
+            plans.push(HostDeliverPayloadItemPlan {
+                mission_id: mission.id,
+                kind: mission.kind,
+                source_object: mission.source_object,
+                source_team: mission.source_team,
+                target_position: mission.target_position,
+                payload_template: mission.payload_template.clone(),
+                item_index: next_index,
+                spawn_position,
+                is_final_item: next_index + 1 >= mission.payload_count,
+            });
+        }
+        plans.sort_by_key(|p| (p.mission_id, p.item_index));
+        plans
+    }
+
+    /// Legacy: full formation plan when first item is due (tests / observers).
     pub fn plan_due_drops(&self, current_frame: u32) -> Vec<HostDeliverPayloadDropPlan> {
         let mut plans = Vec::new();
         for mission in self.missions.values() {
-            if mission.phase != HostDeliverPayloadPhase::Queued || current_frame < mission.drop_frame
+            if !matches!(
+                mission.phase,
+                HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+            ) || current_frame < mission.drop_frame
+            {
+                continue;
+            }
+            // Only emit once at first drop frame while still Queued (observer snapshot).
+            if mission.phase != HostDeliverPayloadPhase::Queued
+                && mission.items_dropped > 0
             {
                 continue;
             }
@@ -410,6 +654,7 @@ impl HostDeliverPayloadRegistry {
                     mission.target_position,
                     mission.payload_count,
                     mission.kind.payload_spacing(),
+                    mission.kind.drop_offset(),
                 )
             } else {
                 Vec::new()
@@ -428,7 +673,46 @@ impl HostDeliverPayloadRegistry {
         plans
     }
 
-    /// Record drop results after GameLogic spawned units / credited cash.
+    /// Record one staggered payload item spawn.
+    ///
+    /// When final item is recorded, phase → Completed (cash may be applied later
+    /// via [`Self::record_cash_credited`] or [`Self::record_drop_complete`]).
+    pub fn record_item_spawned(&mut self, mission_id: u32, spawned_id: Option<ObjectId>) {
+        let Some(mission) = self.missions.get_mut(&mission_id) else {
+            return;
+        };
+        if !matches!(
+            mission.phase,
+            HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+        ) {
+            return;
+        }
+        if let Some(id) = spawned_id {
+            mission.spawned_payload_ids.push(id);
+            self.payload_spawned_total = self.payload_spawned_total.saturating_add(1);
+            self.items_spawned_this_frame.push((mission_id, id));
+        }
+        mission.items_dropped = mission.items_dropped.saturating_add(1);
+        self.stagger_items_total = self.stagger_items_total.saturating_add(1);
+        if mission.items_dropped < mission.payload_count {
+            mission.phase = HostDeliverPayloadPhase::Dropping;
+        } else {
+            mission.phase = HostDeliverPayloadPhase::Completed;
+            self.completed_this_frame.push(mission_id);
+        }
+    }
+
+    /// Credit BuildingPickup residual cash after mission complete.
+    pub fn record_cash_credited(&mut self, mission_id: u32, cash_credited: u32) {
+        if let Some(mission) = self.missions.get_mut(&mission_id) {
+            if cash_credited > 0 {
+                mission.cash_credited = mission.cash_credited.saturating_add(cash_credited);
+                self.cash_credited_total = self.cash_credited_total.saturating_add(cash_credited);
+            }
+        }
+    }
+
+    /// Record full drop results (legacy / paradrop bookkeeping / bulk complete).
     pub fn record_drop_complete(
         &mut self,
         mission_id: u32,
@@ -436,15 +720,39 @@ impl HostDeliverPayloadRegistry {
         cash_credited: u32,
     ) {
         if let Some(mission) = self.missions.get_mut(&mission_id) {
-            if mission.phase == HostDeliverPayloadPhase::Queued {
-                mission.phase = HostDeliverPayloadPhase::Completed;
+            if matches!(
+                mission.phase,
+                HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+            ) {
                 let spawn_count = spawned_payload_ids.len() as u32;
-                mission.spawned_payload_ids = spawned_payload_ids;
+                // If stagger already spawned some, only count newly provided ids.
+                if mission.spawned_payload_ids.is_empty() {
+                    mission.spawned_payload_ids = spawned_payload_ids;
+                    mission.items_dropped = spawn_count;
+                    self.payload_spawned_total =
+                        self.payload_spawned_total.saturating_add(spawn_count);
+                    self.stagger_items_total =
+                        self.stagger_items_total.saturating_add(spawn_count);
+                } else if !spawned_payload_ids.is_empty() {
+                    for id in spawned_payload_ids {
+                        if !mission.spawned_payload_ids.contains(&id) {
+                            mission.spawned_payload_ids.push(id);
+                            mission.items_dropped = mission.items_dropped.saturating_add(1);
+                            self.payload_spawned_total =
+                                self.payload_spawned_total.saturating_add(1);
+                            self.stagger_items_total = self.stagger_items_total.saturating_add(1);
+                        }
+                    }
+                }
                 mission.cash_credited = cash_credited;
+                mission.phase = HostDeliverPayloadPhase::Completed;
                 self.completed_this_frame.push(mission_id);
-                self.payload_spawned_total =
-                    self.payload_spawned_total.saturating_add(spawn_count);
                 self.cash_credited_total = self.cash_credited_total.saturating_add(cash_credited);
+            } else if mission.phase == HostDeliverPayloadPhase::Completed && cash_credited > 0 {
+                // Allow late cash attach after stagger complete.
+                let delta = cash_credited.saturating_sub(mission.cash_credited);
+                mission.cash_credited = cash_credited;
+                self.cash_credited_total = self.cash_credited_total.saturating_add(delta);
             }
         }
     }
@@ -452,7 +760,12 @@ impl HostDeliverPayloadRegistry {
     /// Cancel pending missions owned by a destroyed source object.
     pub fn cancel_for_source(&mut self, source: ObjectId) {
         for mission in self.missions.values_mut() {
-            if mission.source_object == source && mission.phase == HostDeliverPayloadPhase::Queued {
+            if mission.source_object == source
+                && matches!(
+                    mission.phase,
+                    HostDeliverPayloadPhase::Queued | HostDeliverPayloadPhase::Dropping
+                )
+            {
                 mission.phase = HostDeliverPayloadPhase::Cancelled;
             }
         }
@@ -460,29 +773,35 @@ impl HostDeliverPayloadRegistry {
 
     // --- Honesty flags (host residual; do not claim full retail parity) ---
 
-    /// At least one cargo flight of `kind` was queued (pending or completed).
     pub fn honesty_queue_ok(&self, kind: HostDeliverPayloadKind) -> bool {
         self.missions.values().any(|m| m.kind == kind)
     }
 
-    /// True if at least one mission of `kind` is currently pending (inbound).
     pub fn honesty_inbound_ok(&self, kind: HostDeliverPayloadKind) -> bool {
         !self.pending_of_kind(kind).is_empty()
     }
 
-    /// True if at least one mission of `kind` completed.
     pub fn honesty_complete_ok(&self, kind: HostDeliverPayloadKind) -> bool {
         !self.completed_of_kind(kind).is_empty()
     }
 
-    /// True if at least one mission of `kind` completed with payload units spawned.
     pub fn honesty_payload_spawn_ok(&self, kind: HostDeliverPayloadKind) -> bool {
         self.completed_of_kind(kind)
             .iter()
             .any(|m| !m.spawned_payload_ids.is_empty())
+            || self.missions.values().any(|m| {
+                m.kind == kind
+                    && m.phase == HostDeliverPayloadPhase::Dropping
+                    && !m.spawned_payload_ids.is_empty()
+            })
     }
 
-    /// True if at least one Supply Drop Zone cargo mission credited BuildingPickup cash.
+    /// DropDelay stagger honesty: more than one item event observed for a mission.
+    pub fn honesty_drop_delay_stagger_ok(&self) -> bool {
+        self.stagger_items_total > 1
+            || self.missions.values().any(|m| m.items_dropped > 1)
+    }
+
     pub fn honesty_building_pickup_ok(&self) -> bool {
         self.cash_credited_total > 0
             && self
@@ -491,31 +810,43 @@ impl HostDeliverPayloadRegistry {
                 .any(|m| m.cash_credited > 0)
     }
 
-    /// Combined host path for Supply Drop Zone cargo residual:
-    /// completed flight with spawned crates and BuildingPickup cash.
     pub fn honesty_supply_drop_cargo_host_path_ok(&self) -> bool {
         self.honesty_payload_spawn_ok(HostDeliverPayloadKind::SupplyDropZoneCrate)
-            && self.honesty_building_pickup_ok()
+            && (self.honesty_building_pickup_ok()
+                || self
+                    .completed_of_kind(HostDeliverPayloadKind::SupplyDropZoneCrate)
+                    .iter()
+                    .any(|m| m.spawned_payload_ids.len() as u32 >= SUPPLY_DROP_PAYLOAD_COUNT))
     }
 
-    /// Combined DeliverPayload cargo residual honesty (any completed cargo path).
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_supply_drop_cargo_host_path_ok()
             || self.honesty_complete_ok(HostDeliverPayloadKind::AmericaParadrop)
     }
 
-    /// Transport / container residual honesty constants match retail OCL names.
     pub fn honesty_transport_names_ok(kind: HostDeliverPayloadKind) -> bool {
         !kind.transport_template().is_empty() && !kind.put_in_container().is_empty()
     }
+
+    /// Approach geometry residual honesty constants (not full flight path).
+    pub fn honesty_approach_constants_ok(kind: HostDeliverPayloadKind) -> bool {
+        kind.max_attempts() > 0
+            && kind.delivery_distance() >= 0.0
+            && kind.pre_open_distance() >= 0.0
+    }
 }
 
-/// DropDelay ms → logic frames residual (30 FPS).
+/// DropDelay / DoorDelay ms → logic frames residual (30 FPS).
 pub fn drop_delay_frames_from_ms(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
     }
     ((ms as f32) / (1000.0 / DELIVER_PAYLOAD_LOGIC_FPS)).round() as u32
+}
+
+/// Residual approach band: DeliveryDistance + PreOpenDistance (C++ allowedDistance).
+pub fn residual_allowed_delivery_distance(kind: HostDeliverPayloadKind) -> f32 {
+    kind.delivery_distance() + kind.pre_open_distance()
 }
 
 #[cfg(test)]
@@ -532,15 +863,45 @@ mod tests {
         assert_eq!(SUPPLY_DROP_DROP_DELAY_MS, 350);
         assert_eq!(SUPPLY_DROP_DROP_DELAY_FRAMES, 11);
         assert_eq!(drop_delay_frames_from_ms(350), 11);
+        assert_eq!(CARGO_PLANE_DOOR_DELAY_MS, 500);
+        assert_eq!(CARGO_PLANE_DOOR_DELAY_FRAMES, 15);
+        assert_eq!(drop_delay_frames_from_ms(500), 15);
         assert!((SUPPLY_DROP_DELIVERY_DISTANCE - 410.0).abs() < 0.01);
+        assert_eq!(SUPPLY_DROP_MAX_ATTEMPTS, 4);
+        assert!((SUPPLY_DROP_PRE_OPEN_DISTANCE - 0.0).abs() < 0.01);
+        assert!((SUPPLY_DROP_DROP_OFFSET_Y - (-5.0)).abs() < 0.01);
         assert_eq!(CARGO_PLANE_APPROACH_DELAY_FRAMES, 90);
         assert!(HostDeliverPayloadRegistry::honesty_transport_names_ok(
             HostDeliverPayloadKind::SupplyDropZoneCrate
         ));
+        assert!(HostDeliverPayloadRegistry::honesty_approach_constants_ok(
+            HostDeliverPayloadKind::SupplyDropZoneCrate
+        ));
+        assert!(
+            (residual_allowed_delivery_distance(HostDeliverPayloadKind::SupplyDropZoneCrate)
+                - 410.0)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (residual_allowed_delivery_distance(HostDeliverPayloadKind::AmericaParadrop) - 300.0)
+                .abs()
+                < 0.01
+        );
     }
 
     #[test]
-    fn queue_and_complete_supply_drop_cargo() {
+    fn drop_delay_stagger_item_frames() {
+        let kind = HostDeliverPayloadKind::SupplyDropZoneCrate;
+        // activate 0 → first = 90 + 15 = 105, then +11 each
+        assert_eq!(kind.item_drop_frame(0, 0), 105);
+        assert_eq!(kind.item_drop_frame(0, 1), 116);
+        assert_eq!(kind.item_drop_frame(0, 5), 105 + 5 * 11);
+        assert_eq!(kind.mission_complete_frame(0), 105 + 5 * 11);
+    }
+
+    #[test]
+    fn queue_and_stagger_supply_drop_cargo() {
         let mut reg = HostDeliverPayloadRegistry::new();
         let id = reg.queue(
             HostDeliverPayloadKind::SupplyDropZoneCrate,
@@ -555,29 +916,50 @@ mod tests {
         assert_eq!(reg.flights_queued(), 1);
 
         let mission = reg.get(id).expect("mission");
-        assert_eq!(mission.drop_frame, 90);
+        assert_eq!(mission.drop_frame, 105);
         assert_eq!(mission.payload_count, 6);
+        assert_eq!(mission.max_attempts, 4);
         assert_eq!(mission.transport_template, SUPPLY_DROP_CARGO_TRANSPORT);
         assert_eq!(mission.put_in_container, SUPPLY_DROP_PUT_IN_CONTAINER);
 
-        assert!(reg.plan_due_drops(89).is_empty());
-        let plans = reg.plan_due_drops(90);
-        assert_eq!(plans.len(), 1);
-        assert_eq!(plans[0].spawn_positions.len(), 6);
-        let mid = plans[0].spawn_positions[2];
-        // 6 crates: offsets -50,-30,-10,10,30,50 → index 2 is -10
-        assert!((mid.x - 90.0).abs() < 0.1 || (mid.x - 100.0).abs() < 60.0);
-        assert!((mid.z - 50.0).abs() < 0.1);
+        assert!(reg.plan_due_item_spawns(104).is_empty());
+        let first = reg.plan_due_item_spawns(105);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].item_index, 0);
+        assert!(!first[0].is_final_item);
+        // DropOffset Y -5 residual
+        assert!((first[0].spawn_position.y - (-5.0)).abs() < 0.01);
 
-        let spawned: Vec<ObjectId> = (10..16).map(ObjectId).collect();
-        reg.record_drop_complete(id, spawned.clone(), 1500);
+        reg.record_item_spawned(id, Some(ObjectId(10)));
+        assert_eq!(reg.get(id).unwrap().phase, HostDeliverPayloadPhase::Dropping);
+        assert_eq!(reg.get(id).unwrap().items_dropped, 1);
+
+        // Not yet due for item 1
+        assert!(reg.plan_due_item_spawns(115).is_empty());
+        let second = reg.plan_due_item_spawns(116);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].item_index, 1);
+        reg.record_item_spawned(id, Some(ObjectId(11)));
+
+        // Finish remaining 4
+        for i in 2..6 {
+            let frame = HostDeliverPayloadKind::SupplyDropZoneCrate.item_drop_frame(0, i);
+            let plans = reg.plan_due_item_spawns(frame);
+            assert_eq!(plans.len(), 1, "item {i} at frame {frame}");
+            assert_eq!(plans[0].is_final_item, i == 5);
+            reg.record_item_spawned(id, Some(ObjectId(10 + i)));
+        }
+        assert_eq!(reg.get(id).unwrap().phase, HostDeliverPayloadPhase::Completed);
+        assert_eq!(reg.get(id).unwrap().spawned_payload_ids.len(), 6);
+        assert!(reg.honesty_drop_delay_stagger_ok());
         assert!(reg.honesty_payload_spawn_ok(HostDeliverPayloadKind::SupplyDropZoneCrate));
+
+        reg.record_cash_credited(id, 1500);
         assert!(reg.honesty_building_pickup_ok());
         assert!(reg.honesty_supply_drop_cargo_host_path_ok());
         assert!(reg.honesty_host_path_ok());
         assert_eq!(reg.payload_spawned_total(), 6);
         assert_eq!(reg.cash_credited_total(), 1500);
-        assert_eq!(reg.get(id).unwrap().spawned_payload_ids, spawned);
     }
 
     #[test]
@@ -591,21 +973,31 @@ mod tests {
             10,
             "",
         );
+        // complete_frame = 10 + 90 = 100
         let plans = reg.plan_due_drops(100);
         assert_eq!(plans.len(), 1);
         assert!(plans[0].spawn_positions.is_empty());
         reg.record_drop_complete(id, Vec::new(), 0);
         assert!(reg.honesty_complete_ok(HostDeliverPayloadKind::AmericaParadrop));
         assert!(!reg.honesty_payload_spawn_ok(HostDeliverPayloadKind::AmericaParadrop));
-        // host path ok via paradrop complete branch
         assert!(reg.honesty_host_path_ok());
+        assert_eq!(
+            reg.get(id).unwrap().pre_open_distance,
+            PARADROP_PRE_OPEN_DISTANCE
+        );
     }
 
     #[test]
-    fn drop_positions_line_formation() {
-        let positions = HostDeliverPayloadRegistry::drop_positions(Vec3::ZERO, 6, 20.0);
+    fn drop_positions_line_formation_with_offset() {
+        let positions = HostDeliverPayloadRegistry::drop_positions(
+            Vec3::ZERO,
+            6,
+            20.0,
+            Vec3::new(0.0, -5.0, 0.0),
+        );
         assert_eq!(positions.len(), 6);
         assert!((positions[0].x - (-50.0)).abs() < 0.01);
         assert!((positions[5].x - 50.0).abs() < 0.01);
+        assert!((positions[0].y - (-5.0)).abs() < 0.01);
     }
 }
