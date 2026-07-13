@@ -253,6 +253,9 @@ pub enum SpecialPowerType {
     NuclearMissile,
     /// USA America Airborne / SuperweaponParadropAmerica residual.
     Paradrop,
+    /// GLA Rebel Ambush / SuperweaponRebelAmbush residual (SPECIAL_AMBUSH).
+    /// Spawns infantry near target after fade delay — fail-closed vs full OCL.
+    Ambush,
     ParticleCannon,
     RadarScan,
     ScudStorm,

@@ -21,6 +21,7 @@ pub mod host_hero_abilities;
 pub mod host_repair;
 pub mod host_heal;
 pub mod host_paradrop;
+pub mod host_ambush;
 pub mod host_firewall;
 pub mod terrain;
 pub mod thing;
@@ -71,6 +72,10 @@ pub use host_heal::{
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
     AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
+};
+pub use host_ambush::{
+    HostAmbushKind, HostAmbushMission, HostAmbushPhase, HostAmbushRegistry,
+    AMBUSH_RESIDUAL_TEMPLATE, AMBUSH_SPAWN_RADIUS, GLA_AMBUSH1_UNIT_COUNT,
 };
 pub use host_firewall::{
     HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,

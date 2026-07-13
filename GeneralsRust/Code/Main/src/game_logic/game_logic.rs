@@ -518,6 +518,11 @@ pub struct GameLogic {
     /// Queues on DoSpecialPower and spawns infantry after approach delay — fail-closed vs full OCL plane.
     host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry,
 
+    /// Host GLA Rebel Ambush residual.
+    /// Queues on DoSpecialPower and spawns infantry near target after fade delay —
+    /// fail-closed vs full OCL CreateObject / science upgrade tiers.
+    host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
+
     /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
     host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
@@ -1370,6 +1375,7 @@ impl GameLogic {
             special_power_strikes:
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry::new(),
+            host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             supply_lines_bonus_cash_total: 0,
             garrison_residual_enters: 0,
@@ -1516,6 +1522,7 @@ impl GameLogic {
         self.combat_particles.clear();
         self.special_power_strikes.clear();
         self.host_paradrops.clear();
+        self.host_ambushes.clear();
         self.host_upgrades.clear();
         self.supply_lines_bonus_cash_total = 0;
         self.garrison_residual_enters = 0;
@@ -3358,6 +3365,10 @@ impl GameLogic {
         // Host America Paradrop residual: spawn infantry after approach delay.
         // Fail-closed vs full OCL cargo plane / parachute payload path.
         self.update_paradrops();
+
+        // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
+        // Fail-closed vs full OCL CreateObject / science upgrade tiers.
+        self.update_ambushes();
 
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
@@ -8499,6 +8510,18 @@ impl GameLogic {
         &mut self.host_paradrops
     }
 
+    /// Host GLA Rebel Ambush mission registry (queue + spawn residual).
+    pub fn host_ambushes(&self) -> &crate::game_logic::host_ambush::HostAmbushRegistry {
+        &self.host_ambushes
+    }
+
+    /// Mutable host ambush registry (tests / honesty drain).
+    pub fn host_ambushes_mut(
+        &mut self,
+    ) -> &mut crate::game_logic::host_ambush::HostAmbushRegistry {
+        &mut self.host_ambushes
+    }
+
     /// Host upgrade research registry (queue + complete residual).
     pub fn host_upgrades(
         &self,
@@ -10502,6 +10525,127 @@ impl GameLogic {
 
             log::info!(
                 "Host paradrop {} mission {} completed at {:?} (spawned={}/{})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                spawned_count,
+                plan.spawn_positions.len()
+            );
+        }
+    }
+
+    /// Queue a host residual GLA Rebel Ambush mission from DoSpecialPower.
+    /// Returns mission id when the power maps to a supported residual kind.
+    pub fn queue_ambush(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+    ) -> Option<u32> {
+        use crate::game_logic::host_ambush::{HostAmbushKind, AMBUSH_RESIDUAL_TEMPLATE};
+        let kind = HostAmbushKind::from_command_power(power)?;
+        let source_team = self
+            .objects
+            .get(&source_object)
+            .map(|o| o.team)
+            .unwrap_or(Team::Neutral);
+        let frame = self.frame;
+
+        // Prefer retail rebel template when loaded; otherwise residual TestInfantry.
+        let preferred = kind.unit_template();
+        let unit_template = if self.templates.contains_key(preferred) {
+            preferred.to_string()
+        } else {
+            self.ensure_residual_ambush_infantry_template();
+            AMBUSH_RESIDUAL_TEMPLATE.to_string()
+        };
+
+        let id = self.host_ambushes.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+            unit_template,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        Some(id)
+    }
+
+    /// Ensure residual infantry template used by GLA Ambush spawn path.
+    fn ensure_residual_ambush_infantry_template(&mut self) {
+        use crate::game_logic::host_ambush::AMBUSH_RESIDUAL_TEMPLATE;
+        if self.templates.contains_key(AMBUSH_RESIDUAL_TEMPLATE) {
+            return;
+        }
+        let mut t = ThingTemplate::new(AMBUSH_RESIDUAL_TEMPLATE);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        self.templates
+            .insert(AMBUSH_RESIDUAL_TEMPLATE.to_string(), t);
+    }
+
+    /// Advance pending host ambushes to spawn frame and create infantry near target.
+    pub fn update_ambushes(&mut self) {
+        self.host_ambushes.clear_frame_events();
+
+        let plans = self.host_ambushes.plan_due_spawns(self.frame);
+        for plan in plans {
+            if !self.templates.contains_key(&plan.unit_template) {
+                self.ensure_residual_ambush_infantry_template();
+            }
+            let template_name = if self.templates.contains_key(&plan.unit_template) {
+                plan.unit_template.clone()
+            } else {
+                crate::game_logic::host_ambush::AMBUSH_RESIDUAL_TEMPLATE.to_string()
+            };
+
+            let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
+            for pos in &plan.spawn_positions {
+                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                    spawned.push(id);
+                }
+            }
+
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.spawn_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+
+            let spawned_count = spawned.len();
+            self.host_ambushes
+                .record_spawn_complete(plan.mission_id, spawned);
+
+            log::info!(
+                "Host ambush {} mission {} completed at {:?} (spawned={}/{})",
                 plan.kind.label(),
                 plan.mission_id,
                 plan.target_position,
@@ -18768,6 +18912,143 @@ mod tests {
         assert_eq!(
             game_logic.get_objects().len(),
             objects_before + AMERICA_PARADROP_UNIT_COUNT as usize
+        );
+    }
+
+    /// Residual: GLA Rebel Ambush DoSpecialPower queues a spawn and
+    /// creates infantry near the target after fade delay.
+    /// Fail-closed: not full OCL CreateObject / science upgrade tiers.
+    #[test]
+    fn gla_ambush_host_path_queues_and_spawns_infantry() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_ambush::{
+            HostAmbushKind, HostAmbushPhase, AMBUSH_RESIDUAL_TEMPLATE, GLA_AMBUSH1_UNIT_COUNT,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(200.0, 0.0, 100.0);
+        let objects_before = game_logic.get_objects().len();
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Ambush,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 2, // Team::GLA (player 0 is USA; ownership check)
+            command_id: 3,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .host_ambushes()
+                .honesty_queue_ok(HostAmbushKind::GLARebelAmbush),
+            "Ambush must queue a pending host mission"
+        );
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert!(caster.special_power_cooldown_remaining > 0.0);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "RebelAmbushActivated"),
+            "activation must queue RebelAmbushActivated audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "no infantry before ambush fade delay"
+        );
+        assert!(!game_logic
+            .host_ambushes()
+            .honesty_complete_ok(HostAmbushKind::GLARebelAmbush));
+
+        game_logic.frame = 89;
+        game_logic.update_ambushes();
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before,
+            "still no infantry one frame before spawn"
+        );
+
+        game_logic.frame = 90;
+        game_logic.update_ambushes();
+
+        assert!(
+            game_logic
+                .host_ambushes()
+                .honesty_complete_ok(HostAmbushKind::GLARebelAmbush),
+            "Ambush must complete with spawned units"
+        );
+        assert!(
+            game_logic
+                .host_ambushes()
+                .honesty_host_path_ok(HostAmbushKind::GLARebelAmbush),
+            "host path honesty requires completed ambush with units"
+        );
+
+        let completed = game_logic
+            .host_ambushes()
+            .completed_of_kind(HostAmbushKind::GLARebelAmbush);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostAmbushPhase::Completed);
+        assert_eq!(
+            completed[0].spawned_unit_ids.len(),
+            GLA_AMBUSH1_UNIT_COUNT as usize,
+            "must spawn residual Ambush1 infantry count"
+        );
+
+        let mut near_target = 0_u32;
+        for id in &completed[0].spawned_unit_ids {
+            let obj = game_logic.find_object(*id).expect("spawned infantry");
+            assert_eq!(obj.team, Team::GLA);
+            assert!(
+                obj.thing.template.name == AMBUSH_RESIDUAL_TEMPLATE
+                    || obj.thing.template.name.contains("Infantry")
+                    || obj.thing.template.name.contains("Rebel"),
+                "spawned residual infantry template, got {}",
+                obj.thing.template.name
+            );
+            let pos = obj.get_position();
+            let dx = pos.x - target.x;
+            let dz = pos.z - target.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist <= 80.0 {
+                near_target += 1;
+            }
+        }
+        assert_eq!(
+            near_target, GLA_AMBUSH1_UNIT_COUNT,
+            "all ambush infantry must appear near target location"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "RebelAmbushSpawn"),
+            "spawn must queue RebelAmbushSpawn audio"
+        );
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before + GLA_AMBUSH1_UNIT_COUNT as usize
         );
     }
 
