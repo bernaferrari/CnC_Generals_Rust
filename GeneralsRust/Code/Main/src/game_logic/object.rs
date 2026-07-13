@@ -495,6 +495,7 @@ impl Object {
         self.status.disabled_underpowered
             || self.status.disabled_unmanned
             || self.status.disabled_hacked
+            || self.status.disabled_emp
             || self.status.under_construction
     }
 
@@ -506,6 +507,11 @@ impl Object {
     /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
     pub fn is_hacked_disabled(&self) -> bool {
         self.status.disabled_hacked
+    }
+
+    /// C++ DISABLED_EMP residual (EMPUpdate / SuperweaponEMPPulse).
+    pub fn is_emp_disabled(&self) -> bool {
+        self.status.disabled_emp
     }
 
     /// Host ECM / jammer residual: weapons cannot fire while in jam radius.
@@ -533,6 +539,8 @@ impl Object {
         self.status.disabled_unmanned = true;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
+        self.status.disabled_emp = false;
+        self.status.disabled_emp_until_frame = 0;
         self.status.attacking = false;
         self.status.moving = false;
         self.stop_moving();
@@ -567,6 +575,34 @@ impl Object {
         }
     }
 
+    /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
+    /// C++ EMPUpdate::doDisableAttack: setDisabledUntil(DISABLED_EMP, now + DisabledDuration).
+    /// Refresh extends the timer if a later expiry is provided.
+    pub fn apply_disabled_emp(&mut self, until_frame: u32) {
+        self.status.disabled_emp = true;
+        if until_frame > self.status.disabled_emp_until_frame {
+            self.status.disabled_emp_until_frame = until_frame;
+        }
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+    }
+
+    /// Expire DISABLED_EMP when the host frame passes the residual timer.
+    pub fn tick_disabled_emp(&mut self, current_frame: u32) {
+        if self.status.disabled_emp
+            && self.status.disabled_emp_until_frame > 0
+            && current_frame >= self.status.disabled_emp_until_frame
+        {
+            self.status.disabled_emp = false;
+            self.status.disabled_emp_until_frame = 0;
+        }
+    }
+
     /// C++ OBJECT_STATUS_IS_CARBOMB residual.
     pub fn is_car_bomb(&self) -> bool {
         self.status.is_carbomb
@@ -584,6 +620,8 @@ impl Object {
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
+        self.status.disabled_emp = false;
+        self.status.disabled_emp_until_frame = 0;
         self.status.hijacked = false;
         self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
         self.secondary_weapon = None;
@@ -604,6 +642,8 @@ impl Object {
         self.status.disabled_unmanned = false;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
+        self.status.disabled_emp = false;
+        self.status.disabled_emp_until_frame = 0;
         self.status.is_carbomb = false;
         self.status.attacking = false;
         self.status.moving = false;
@@ -1088,6 +1128,7 @@ impl Object {
             && self.is_alive()
             && !self.status.disabled_unmanned
             && !self.status.disabled_hacked
+            && !self.status.disabled_emp
             && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 

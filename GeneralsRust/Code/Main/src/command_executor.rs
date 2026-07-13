@@ -893,6 +893,7 @@ impl<'a> CommandExecutor<'a> {
             // Paradrop residual queues America Airborne infantry drop at target.
             // Ambush residual queues GLA Rebel Ambush infantry spawn at target.
             // FireWall residual creates a line of fire damage zones toward target.
+            // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
             //
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             if *power_type == SpecialPowerType::CiaIntelligence {
@@ -942,6 +943,14 @@ impl<'a> CommandExecutor<'a> {
                     if !self.game_logic.activate_spy_satellite(
                         self.current_player_id,
                         team,
+                        pos,
+                        Some(unit_id),
+                    ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::EmpPulse {
+                    if !self.game_logic.activate_emp_pulse(
+                        self.current_player_id,
                         pos,
                         Some(unit_id),
                     ) {

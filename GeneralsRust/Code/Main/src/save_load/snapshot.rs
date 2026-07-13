@@ -257,6 +257,12 @@ pub struct ObjectStatusSnapshot {
     /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
     #[serde(default)]
     pub disabled_hacked_until_frame: u32,
+    /// C++ DISABLED_EMP residual (EMPUpdate / SuperweaponEMPPulse). Serde default for older snaps.
+    #[serde(default)]
+    pub disabled_emp: bool,
+    /// Absolute host logic frame when DISABLED_EMP expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_emp_until_frame: u32,
     /// Host ECM tank / jammer residual: weapons cannot fire in jam radius.
     /// Serde default for older snaps.
     #[serde(default)]
@@ -297,6 +303,8 @@ impl Default for ObjectStatusSnapshot {
             disabled_unmanned: false,
             disabled_hacked: false,
             disabled_hacked_until_frame: 0,
+            disabled_emp: false,
+            disabled_emp_until_frame: 0,
             weapons_jammed: false,
             is_carbomb: false,
             hijacked: false,
@@ -1419,6 +1427,12 @@ impl XferData for ObjectStatusSnapshot {
         // this field fail-closed on xfer (serde JSON path uses #[serde(default)]).
         xfer.xfer_marker_label("WeaponsJammed")?;
         xfer.xfer_bool(&mut self.weapons_jammed)?;
+        // Appended residual (DISABLED_EMP); older binary residual saves without
+        // these fields fail-closed on xfer (serde JSON path uses #[serde(default)]).
+        xfer.xfer_marker_label("DisabledEmp")?;
+        xfer.xfer_bool(&mut self.disabled_emp)?;
+        xfer.xfer_marker_label("DisabledEmpUntilFrame")?;
+        xfer.xfer_u32(&mut self.disabled_emp_until_frame)?;
         Ok(())
     }
 }
@@ -3189,6 +3203,8 @@ impl SnapshotBuilder {
             disabled_unmanned: object.status.disabled_unmanned,
             disabled_hacked: object.status.disabled_hacked,
             disabled_hacked_until_frame: object.status.disabled_hacked_until_frame,
+            disabled_emp: object.status.disabled_emp,
+            disabled_emp_until_frame: object.status.disabled_emp_until_frame,
             weapons_jammed: object.status.weapons_jammed,
             is_carbomb: object.status.is_carbomb,
             hijacked: object.status.hijacked,
@@ -3813,6 +3829,8 @@ impl SnapshotBuilder {
         object.status.disabled_unmanned = status.disabled_unmanned;
         object.status.disabled_hacked = status.disabled_hacked;
         object.status.disabled_hacked_until_frame = status.disabled_hacked_until_frame;
+        object.status.disabled_emp = status.disabled_emp;
+        object.status.disabled_emp_until_frame = status.disabled_emp_until_frame;
         object.status.weapons_jammed = status.weapons_jammed;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
