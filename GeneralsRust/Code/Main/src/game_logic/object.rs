@@ -129,6 +129,25 @@ pub struct Object {
     /// GattlingCannon / PropagandaTower payload matrix.
     pub overlord_bunker_capacity: Option<usize>,
 
+    /// Host residual: C++ OpenContain `m_passengersAllowedToFire`.
+    /// When true, Docked infantry may residual-fire from the container origin
+    /// (GLA Battle Bus / Humvee-style fire-from-transport).
+    /// Fail-closed: not full garrison weapon-bone positions.
+    pub passengers_allowed_to_fire: bool,
+
+    /// Host residual: C++ TransportContain `m_armedRidersUpgradeWeaponSet`.
+    /// When true, bus sets `weapon_set_player_upgrade` while any armed infantry
+    /// rider is loaded (Battle Bus PLAYER_UPGRADE weapon set residual).
+    pub armed_riders_upgrade_weapon_set: bool,
+
+    /// Host residual: C++ WEAPONSET_PLAYER_UPGRADE flag on this object.
+    /// Battle Bus uses this when armed riders are present.
+    pub weapon_set_player_upgrade: bool,
+
+    /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
+    /// Distinct from generic Humvee transport residual for honesty counters.
+    pub is_battle_bus_transport: bool,
+
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
@@ -292,6 +311,10 @@ impl Object {
             occupants: Vec::new(),
             max_transport: 0,
             overlord_bunker_capacity: None,
+            passengers_allowed_to_fire: false,
+            armed_riders_upgrade_weapon_set: false,
+            weapon_set_player_upgrade: false,
+            is_battle_bus_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -362,6 +385,10 @@ impl Object {
             occupants: Vec::new(),
             max_transport: 0,
             overlord_bunker_capacity: None,
+            passengers_allowed_to_fire: false,
+            armed_riders_upgrade_weapon_set: false,
+            weapon_set_player_upgrade: false,
+            is_battle_bus_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -1368,6 +1395,22 @@ impl Object {
     /// Fail-closed: does not spawn a real portable-structure passenger object.
     pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
         self.overlord_bunker_capacity = Some(slots);
+    }
+
+    /// Install residual GLA Battle Bus transport:
+    /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY.
+    /// Fail-closed: not multi-door exit / SlowDeath undeath SECOND_LIFE.
+    pub fn install_battle_bus_transport(&mut self) {
+        self.is_battle_bus_transport = true;
+        self.max_transport = crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+    }
+
+    /// True when this vehicle is a Battle Bus residual transport.
+    pub fn is_battle_bus_style_container(&self) -> bool {
+        self.is_battle_bus_transport
     }
 
     /// Residual transport capacity (vehicles). Overlord bunker residual wins,

@@ -615,6 +615,11 @@ pub struct GameLogic {
     overlord_bunker_residual_enters: u32,
     overlord_bunker_residual_exits: u32,
 
+    /// Host GLA Battle Bus residual honesty counters
+    /// (load / unload / passenger fire / armed-riders weapon-set).
+    /// Fail-closed: not SlowDeath undeath SECOND_LIFE / multi-door exit matrix.
+    battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
+
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
     mine_residual_places: u32,
@@ -1504,6 +1509,7 @@ impl GameLogic {
             transport_residual_unloads: 0,
             overlord_bunker_residual_enters: 0,
             overlord_bunker_residual_exits: 0,
+            battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry::new(),
             mine_residual_places: 0,
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
@@ -1670,6 +1676,7 @@ impl GameLogic {
         self.transport_residual_unloads = 0;
         self.overlord_bunker_residual_enters = 0;
         self.overlord_bunker_residual_exits = 0;
+        self.battle_bus.clear();
         self.mine_residual_places = 0;
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
@@ -4351,6 +4358,8 @@ impl GameLogic {
             // (fire + chase) so CaptureBuilding / SpecialAbility / Repair / Enter
             // are not converted into weapon fire or Attacking chase.
             // Garrisoned: residual fire-from-garrison path (no chase, container origin).
+            // Docked: residual fire-from-transport when container allows passengers to fire
+            // (Battle Bus / Humvee PassengersAllowedToFire residual).
             if matches!(
                 attacker.ai_state,
                 AIState::Capturing
@@ -4363,8 +4372,11 @@ impl GameLogic {
                     | AIState::ReturningResources
                     | AIState::SeekingRepair
                     | AIState::SeekingHealing
-                    | AIState::Docked
             ) {
+                continue;
+            }
+            if attacker.ai_state == AIState::Docked {
+                self.try_transport_passenger_residual_fire(attacker_id);
                 continue;
             }
             if attacker.ai_state == AIState::Garrisoned {
@@ -5423,6 +5435,7 @@ impl GameLogic {
                         container_is_structure,
                         container_is_faction_structure,
                         container_is_overlord_bunker,
+                        container_is_battle_bus,
                         container_is_alive,
                         container_under_construction,
                         container_can_contain,
@@ -5438,6 +5451,7 @@ impl GameLogic {
                             container.is_faction_structure(),
                             container.is_overlord_style_container()
                                 && container.overlord_bunker_slot_capacity() > 0,
+                            container.is_battle_bus_style_container(),
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
@@ -5454,14 +5468,16 @@ impl GameLogic {
                         continue;
                     };
 
-                    // Residual garrison / Overlord BattleBunker: infantry/heroes only.
-                    // C++ BattleBunker TransportContain AllowInsideKindOf = INFANTRY.
+                    // Residual garrison / Overlord BattleBunker / Battle Bus:
+                    // infantry/heroes only (C++ AllowInsideKindOf = INFANTRY).
                     let unit_can_garrison_structure = self
                         .objects
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Infantry) || o.is_hero())
                         .unwrap_or(false);
-                    if (container_is_structure || container_is_overlord_bunker)
+                    if (container_is_structure
+                        || container_is_overlord_bunker
+                        || container_is_battle_bus)
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5544,9 +5560,16 @@ impl GameLogic {
                     } else if container_is_overlord_bunker {
                         // China Overlord BattleBunker residual load (redirected bunker slots).
                         self.record_overlord_bunker_residual_enter();
+                    } else if container_is_battle_bus {
+                        // GLA Battle Bus residual load (Slots=8 infantry transport).
+                        self.record_battle_bus_residual_load();
+                        self.refresh_battle_bus_armed_riders_weapon_set(container_id);
                     } else {
                         // Vehicle transport residual load (Humvee / generic transport).
                         self.record_transport_residual_load();
+                        // Humvee-style PassengersAllowedToFire still refreshes weapon set
+                        // when ArmedRidersUpgradeMyWeaponSet is set.
+                        self.refresh_battle_bus_armed_riders_weapon_set(container_id);
                     }
                 }
                 AIState::Capturing => {
@@ -6834,6 +6857,11 @@ impl GameLogic {
                 crate::game_logic::host_mines::residual_data_for_template(template_name, self.frame)
             {
                 object.mine_data = Some(mine_data);
+            }
+
+            // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
+            if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
+                object.install_battle_bus_transport();
             }
 
             self.objects.insert(id, object);
@@ -9197,6 +9225,111 @@ impl GameLogic {
         self.transport_residual_unloads = self.transport_residual_unloads.saturating_add(1);
     }
 
+    /// Residual Battle Bus honesty: successful infantry load count.
+    pub fn battle_bus_residual_loads(&self) -> u32 {
+        self.battle_bus.loads
+    }
+
+    /// Residual Battle Bus honesty: successful unload/evacuate count.
+    pub fn battle_bus_residual_unloads(&self) -> u32 {
+        self.battle_bus.unloads
+    }
+
+    /// Residual Battle Bus honesty: passenger fire-from-bus shots.
+    pub fn battle_bus_residual_passenger_fires(&self) -> u32 {
+        self.battle_bus.passenger_fires
+    }
+
+    /// Residual Battle Bus honesty: armed-riders weapon-set upgrades.
+    pub fn battle_bus_residual_weapon_set_upgrades(&self) -> u32 {
+        self.battle_bus.weapon_set_upgrades
+    }
+
+    /// Record a residual Battle Bus load (tests / host path).
+    pub fn record_battle_bus_residual_load(&mut self) {
+        self.battle_bus.record_load();
+    }
+
+    /// Record a residual Battle Bus unload/evacuate (tests / host path).
+    pub fn record_battle_bus_residual_unload(&mut self) {
+        self.battle_bus.record_unload();
+    }
+
+    /// Residual honesty: Battle Bus load → docked → unload path.
+    pub fn honesty_battle_bus_load_unload_ok(&self) -> bool {
+        self.battle_bus.honesty_load_unload_ok()
+    }
+
+    /// Residual honesty: Battle Bus passenger residual fire.
+    pub fn honesty_battle_bus_passenger_fire_ok(&self) -> bool {
+        self.battle_bus.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Battle Bus armed-riders weapon-set upgrade.
+    pub fn honesty_battle_bus_weapon_set_upgrade_ok(&self) -> bool {
+        self.battle_bus.honesty_weapon_set_upgrade_ok()
+    }
+
+    /// C++ TransportContain armed-riders weapon-set residual.
+    /// When `armed_riders_upgrade_weapon_set` and any infantry rider has a viable
+    /// ranged damage weapon, set WEAPONSET_PLAYER_UPGRADE and bind the passenger
+    /// dummy weapon. Clears the flag when no armed riders remain.
+    pub fn refresh_battle_bus_armed_riders_weapon_set(&mut self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !container.armed_riders_upgrade_weapon_set {
+            return;
+        }
+        let occupant_ids = container.contained_units();
+        let was_upgraded = container.weapon_set_player_upgrade;
+
+        let mut any_armed = false;
+        for oid in &occupant_ids {
+            if let Some(rider) = self.objects.get(oid) {
+                if crate::game_logic::host_battle_bus::rider_has_viable_weapon(
+                    rider.weapon.as_ref(),
+                    rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                ) {
+                    any_armed = true;
+                    break;
+                }
+            }
+        }
+
+        let mut newly_upgraded = false;
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.weapon_set_player_upgrade = any_armed;
+            if any_armed {
+                // Bind residual BattleBusPassengerDummyWeapon when primary is empty
+                // or still the negligible dummy (PLAYER_UPGRADE weapon set residual).
+                let need_dummy = match container.weapon.as_ref() {
+                    None => true,
+                    Some(w) => w.damage < 0.01,
+                };
+                if need_dummy {
+                    container.weapon = Some(
+                        crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon(),
+                    );
+                }
+                newly_upgraded = !was_upgraded;
+            } else if was_upgraded {
+                // Clear dummy primary when no armed riders remain.
+                if container
+                    .weapon
+                    .as_ref()
+                    .map(|w| w.damage < 0.01)
+                    .unwrap_or(false)
+                {
+                    container.weapon = None;
+                }
+            }
+        }
+        if newly_upgraded {
+            self.battle_bus.record_weapon_set_upgrade();
+        }
+    }
+
     /// Record a residual Overlord BattleBunker enter (tests / host path).
     pub fn record_overlord_bunker_residual_enter(&mut self) {
         self.overlord_bunker_residual_enters =
@@ -9653,6 +9786,97 @@ impl GameLogic {
         );
 
         (infantry_kills, vehicles_unmanned, vehicle_kills)
+    }
+
+    /// Residual fire-from-transport: docked passengers auto-engage nearest
+    /// enemy in weapon range from the **container position** when the container
+    /// has `passengers_allowed_to_fire` (Battle Bus / Humvee residual).
+    /// Fail-closed: not C++ transport weapon bone positions / multi-slot matrix.
+    fn try_transport_passenger_residual_fire(&mut self, passenger_id: ObjectId) {
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&passenger_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let container_id = attacker.container_id();
+        let Some(cid) = container_id else {
+            return;
+        };
+        let Some(container) = self.objects.get(&cid) else {
+            return;
+        };
+        // C++ OpenContain::isPassengerAllowedToFire residual.
+        if !container.passengers_allowed_to_fire {
+            return;
+        }
+        let is_battle_bus = container.is_battle_bus_style_container();
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = container.get_position();
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == passenger_id || *id == cid {
+                continue;
+            }
+            if !obj.is_alive() || obj.team == team || obj.team == Team::Neutral {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Attackable)
+                && !obj.is_kind_of(KindOf::Structure)
+                && !obj.is_kind_of(KindOf::Infantry)
+                && !obj.is_kind_of(KindOf::Vehicle)
+                && !obj.is_kind_of(KindOf::Aircraft)
+            {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(damage);
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&passenger_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        if is_battle_bus {
+            self.battle_bus.record_passenger_fire();
+        }
     }
 
     /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
@@ -16592,6 +16816,40 @@ mod tests {
         if let Some(obj) = game_logic.find_object_mut(id) {
             // Mark overlord-style residual; slots=None means no bunker installed.
             obj.overlord_bunker_capacity = Some(bunker_slots.unwrap_or(0));
+        }
+        id
+    }
+
+    /// Residual GLA Battle Bus template (TransportContain Slots=8 residual).
+    /// Fail-closed: not SlowDeath undeath / multi-door exit matrix.
+    fn ensure_test_battle_bus_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("GLAVehicleBattleBus") {
+            return;
+        }
+
+        let mut bus = ThingTemplate::new("GLAVehicleBattleBus");
+        bus.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_cost(1000, 0);
+        game_logic
+            .templates
+            .insert("GLAVehicleBattleBus".to_string(), bus);
+    }
+
+    /// Spawn residual GLA Battle Bus with C++ TransportContain residual installed.
+    fn create_test_battle_bus(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
+        ensure_test_battle_bus_template(game_logic);
+        let id = game_logic
+            .create_object("GLAVehicleBattleBus", Team::GLA, pos)
+            .expect("GLAVehicleBattleBus");
+        // create_object auto-installs Battle Bus residual via template name.
+        // Fail-closed reinstall for test honesty if auto-bind missed.
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            if !obj.is_battle_bus_style_container() {
+                obj.install_battle_bus_transport();
+            }
         }
         id
     }
@@ -26601,6 +26859,345 @@ mod tests {
         assert_eq!(game_logic.overlord_bunker_residual_enters(), 0);
         assert!(game_logic
             .find_object(overlord_id)
+            .unwrap()
+            .contained_units()
+            .is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // GLA Battle Bus residual (capacity 8 + passenger fire + armed-riders weapon set)
+    // Fail-closed: not SlowDeath undeath SECOND_LIFE / multi-door exit matrix.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Battle Bus create binds Slots=8 + passengers fire + armed-riders flags.
+    #[test]
+    fn battle_bus_residual_capacity_and_flags_installed() {
+        let mut game_logic = GameLogic::new();
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let bus = game_logic.find_object(bus_id).expect("bus");
+        assert!(bus.is_battle_bus_style_container());
+        assert!(bus.can_contain());
+        assert_eq!(
+            bus.transport_capacity(),
+            crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS
+        );
+        assert!(bus.passengers_allowed_to_fire);
+        assert!(bus.armed_riders_upgrade_weapon_set);
+        assert!(!bus.weapon_set_player_upgrade);
+    }
+
+    /// Residual: Enter Battle Bus → Docked + capacity bookkeeping + weapon-set upgrade.
+    #[test]
+    fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+        // Armed rider residual (rifle) so ArmedRidersUpgradeMyWeaponSet applies.
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.5,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bus_id,
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[infantry_id, bus_id], 1.0 / 30.0);
+
+        let bus = game_logic.find_object(bus_id).expect("bus after");
+        assert!(bus.contained_units().contains(&infantry_id));
+        assert_eq!(bus.transport_count(), 1);
+        assert!(bus.weapon_set_player_upgrade, "armed riders must upgrade weapon set");
+        assert!(
+            bus.weapon.is_some(),
+            "PLAYER_UPGRADE residual binds passenger dummy weapon"
+        );
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(infantry.ai_state, AIState::Docked);
+        assert_eq!(infantry.contained_by, Some(bus_id));
+        assert_eq!(game_logic.battle_bus_residual_loads(), 1);
+        assert_eq!(
+            game_logic.transport_residual_loads(),
+            0,
+            "Battle Bus load must not count as generic transport load"
+        );
+        assert!(
+            game_logic.honesty_battle_bus_weapon_set_upgrade_ok(),
+            "weapon-set upgrade residual honesty"
+        );
+    }
+
+    /// Residual acceptance: load 2 infantry → unload all → both free + honesty.
+    #[test]
+    fn battle_bus_residual_load_two_unload_both_free() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.weapon = Some(Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    last_fire_time: -10.0,
+                    ..Weapon::default()
+                });
+                unit.target = Some(bus_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, bus_id], 1.0 / 30.0);
+        }
+
+        let bus = game_logic.find_object(bus_id).expect("bus loaded");
+        assert!(
+            bus.contained_units().contains(&unit_a) && bus.contained_units().contains(&unit_b),
+            "both infantry must be loaded into Battle Bus residual"
+        );
+        assert_eq!(bus.transport_count(), 2);
+        assert_eq!(game_logic.battle_bus_residual_loads(), 2);
+        assert!(bus.weapon_set_player_upgrade);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            assert_eq!(unit.ai_state, AIState::Docked);
+            assert_eq!(unit.contained_by, Some(bus_id));
+            assert!(!unit.can_move());
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![bus_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let bus = game_logic.find_object(bus_id).expect("bus empty");
+        assert!(
+            bus.contained_units().is_empty(),
+            "evacuate must clear all Battle Bus residual occupants"
+        );
+        assert_eq!(bus.transport_count(), 0);
+        assert!(
+            !bus.weapon_set_player_upgrade,
+            "weapon set upgrade must clear when empty"
+        );
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+            assert!(unit.contained_by.is_none(), "contained_by must clear");
+            assert!(unit.can_move(), "unloaded unit must be free to move");
+        }
+
+        assert_eq!(game_logic.battle_bus_residual_unloads(), 2);
+        assert!(
+            game_logic.honesty_battle_bus_load_unload_ok(),
+            "load+unload residual honesty"
+        );
+        assert_eq!(
+            game_logic.transport_residual_unloads(),
+            0,
+            "Battle Bus unload must not count as generic transport unload"
+        );
+        assert_eq!(
+            game_logic.garrison_residual_exits(),
+            0,
+            "Battle Bus unload must not count as garrison exit"
+        );
+    }
+
+    /// Residual: passengers fire from bus origin at nearby enemies.
+    /// Fail-closed: fires from container origin; not C++ rider weapon bones.
+    #[test]
+    fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(1.0, 0.0, 0.0))
+            .expect("infantry");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let unit = game_logic.find_object_mut(infantry_id).unwrap();
+            unit.weapon = Some(Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            unit.target = Some(bus_id);
+            unit.contained_by = Some(bus_id);
+            unit.ai_state = AIState::Docked;
+            unit.set_position(Vec3::new(0.0, 0.0, 0.0));
+        }
+        {
+            let bus = game_logic.find_object_mut(bus_id).unwrap();
+            assert!(bus.add_occupant(infantry_id));
+        }
+        game_logic.refresh_battle_bus_armed_riders_weapon_set(bus_id);
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.update_combat(&[infantry_id, bus_id, enemy_id], 1.0 / 30.0);
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Battle Bus passenger residual fire must damage nearby enemy (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_battle_bus_passenger_fire_ok(),
+            "passenger fire residual honesty"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().ai_state,
+            AIState::Docked,
+            "firing must not eject Battle Bus passenger"
+        );
+        assert_eq!(
+            game_logic.find_object(infantry_id).unwrap().contained_by,
+            Some(bus_id)
+        );
+    }
+
+    /// Residual: full capacity (8) rejects further Enter.
+    #[test]
+    fn battle_bus_residual_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Fill all 8 residual slots.
+        let mut loaded = Vec::new();
+        for i in 0..crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS {
+            let id = game_logic
+                .create_object(
+                    "TestInfantry",
+                    Team::GLA,
+                    Vec3::new(1.0 + i as f32 * 0.1, 0.0, 0.0),
+                )
+                .expect("infantry");
+            {
+                let unit = game_logic.find_object_mut(id).unwrap();
+                unit.target = Some(bus_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[id, bus_id], 1.0 / 30.0);
+            loaded.push(id);
+        }
+        assert_eq!(
+            game_logic.find_object(bus_id).unwrap().transport_count(),
+            crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS
+        );
+
+        let extra_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
+            .expect("extra");
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bus_id,
+            },
+            player_id: 2,
+            command_id: 9,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![extra_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let extra = game_logic.find_object(extra_id).expect("extra after");
+        assert_ne!(
+            extra.ai_state,
+            AIState::Entering,
+            "full Battle Bus residual must reject Enter"
+        );
+        assert_eq!(
+            game_logic.find_object(bus_id).unwrap().transport_count(),
+            crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS
+        );
+        let _ = loaded;
+    }
+
+    /// Residual: vehicles cannot enter Battle Bus (infantry-only AllowInsideKindOf).
+    #[test]
+    fn battle_bus_residual_rejects_vehicle_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: bus_id,
+            },
+            player_id: 2,
+            command_id: 5,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert_ne!(
+            tank.ai_state,
+            AIState::Entering,
+            "vehicles must not enter Battle Bus residual"
+        );
+        assert_eq!(game_logic.battle_bus_residual_loads(), 0);
+        assert!(game_logic
+            .find_object(bus_id)
             .unwrap()
             .contained_units()
             .is_empty());
