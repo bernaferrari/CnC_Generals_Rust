@@ -21,10 +21,16 @@
 //! - C++ `GameTextManager::fetch` missing path → `MISSING: 'label'` + exists=false
 //! - Missing-string list residual de-dupes identical missing labels
 //!
+//! Host residual GameText `translateCopy` escape residual closed here:
+//! - Backslash escape table matching C++ `GameTextManager::translateCopy`
+//!   (`\\n` → newline, `\\t` tab, `\\\\` backslash, `\\'` `\\\"` `\\?`)
+//! - Honesty tests for escape table residual
+//!
 //! Still residual:
 //! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
 //! - Full Unicode word-wrap + hotkey underline on live InGameUI surface
+//! - Full Jabber/debug reverseWord residual (debug-only LanguageId path)
 
 use std::collections::HashMap;
 use std::fs;
@@ -191,6 +197,69 @@ pub fn honesty_game_text_fetch_missing() -> bool {
         && !miss2.registered_missing
         && seen.len() == 1
         && game_text_missing_string("X") == "MISSING: 'X'"
+}
+
+// ---------------------------------------------------------------------------
+// GameText translateCopy residual (GameText.cpp)
+// ---------------------------------------------------------------------------
+
+/// C++ `GameTextManager::translateCopy` residual escape table.
+///
+/// Converts STR/CSF backslash escape sequences used by retail string files:
+/// - `\\` → `\`
+/// - `\'` → `'`
+/// - `\"` → `"`
+/// - `\?` → `?`
+/// - `\t` → tab
+/// - `\n` → newline
+/// - other `\X` → `X` (default branch residual)
+///
+/// Fail-closed: not full Jabber reverseWord debug residual / multi-locale boot UI.
+pub fn translate_copy_residual(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars();
+    let mut slash = false;
+    while let Some(ch) = chars.next() {
+        if slash {
+            slash = false;
+            match ch {
+                '\\' => out.push('\\'),
+                '\'' => out.push('\''),
+                '"' => out.push('"'),
+                '?' => out.push('?'),
+                't' => out.push('\t'),
+                'n' => out.push('\n'),
+                // C++ default: *outbuf++ = *inbuf & 0x00FF
+                other => out.push(other),
+            }
+        } else if ch == '\\' {
+            slash = true;
+        } else {
+            out.push(ch);
+        }
+    }
+    // Trailing lone backslash residual: C++ would leave slash=TRUE with no char;
+    // host residual drops the trailing incomplete escape (fail-closed honesty).
+    out
+}
+
+/// Honesty: translateCopy residual escape table matches C++ slash handling subset.
+pub fn honesty_translate_copy_escape_table() -> bool {
+    translate_copy_residual(r"Hello\nWorld") == "Hello\nWorld"
+        && translate_copy_residual(r"Tab\tHere") == "Tab\tHere"
+        && translate_copy_residual(r"Back\\Slash") == "Back\\Slash"
+        && translate_copy_residual("Quote\\\"Mark") == "Quote\"Mark"
+        && translate_copy_residual(r"Apos\'s") == "Apos's"
+        && translate_copy_residual(r"Q\?M") == "Q?M"
+        // Default branch residual: unknown escape keeps the escaped char.
+        && translate_copy_residual(r"X\yZ") == "XyZ"
+        // No escapes residual is identity.
+        && translate_copy_residual("BACK") == "BACK"
+        && translate_copy_residual("$%d") == "$%d"
+        // Multi-escape residual.
+        && translate_copy_residual(r"Line1\nLine2\n") == "Line1\nLine2\n"
+        // Empty residual.
+        && translate_copy_residual("").is_empty()
 }
 
 /// Host residual DisplayString measure for ASCII captions (monospaced 8×8).
@@ -829,5 +898,27 @@ mod tests {
         let miss2 = game_text_fetch_residual(&table, "GUI:Nope", &mut seen);
         assert!(!miss2.registered_missing);
         assert_eq!(seen.len(), 1);
+    }
+
+    #[test]
+    fn translate_copy_escape_table_residual_honesty() {
+        assert!(honesty_translate_copy_escape_table());
+        assert_eq!(translate_copy_residual(r"Hello\nWorld"), "Hello\nWorld");
+        assert_eq!(translate_copy_residual(r"Tab\tX"), "Tab\tX");
+        assert_eq!(translate_copy_residual(r"A\\B"), "A\\B");
+        assert_eq!(translate_copy_residual("Q\\\"M"), "Q\"M");
+        assert_eq!(translate_copy_residual(r"A\'B"), "A'B");
+        assert_eq!(translate_copy_residual(r"\?"), "?");
+        // Default residual: keep escaped char.
+        assert_eq!(translate_copy_residual(r"\x"), "x");
+        // Identity residual.
+        assert_eq!(translate_copy_residual("BACK"), "BACK");
+        assert_eq!(translate_copy_residual("$%d"), "$%d");
+        // Multi-line residual used by CSF/STR caption paths.
+        assert_eq!(
+            translate_copy_residual(r"Line1\nLine2"),
+            "Line1\nLine2"
+        );
+        assert!(translate_copy_residual("").is_empty());
     }
 }

@@ -14,6 +14,12 @@
 //!   matching C++ `Anim2D::tryNextFrame` frame advance residual
 //! - Anim2D status bits residual (NONE/FROZEN/REVERSED/COMPLETE) + setAlpha
 //!   residual (default alpha 1.0; draw color alpha = 255 * m_alpha)
+//! - Anim2DCollection template list residual (`newTemplate` head-insert /
+//!   `findTemplate` by name) + instance register/unRegister doubly-linked list
+//! - Anim2DCollection `update` residual skips tryNextFrame when FROZEN
+//! - Anim2DCollection `init` residual path `Data/INI/Animation2D.ini`
+//! - MoneyPickUp RandomizeStartFrame = No residual
+//! - `getCurrentFrameWidth`/`Height` monospaced placeholder size residual
 //!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
@@ -422,6 +428,379 @@ pub fn honesty_anim2d_status_alpha() -> bool {
         && (anim2d_set_alpha(-0.1) - 0.0).abs() < 0.01
 }
 
+// ---------------------------------------------------------------------------
+// Anim2DCollection residual (Anim2D.cpp) — host-testable, fail-closed vs GPU
+// ---------------------------------------------------------------------------
+
+/// C++ `Anim2DCollection::init` residual INI path (`Data\INI\Animation2D.ini`).
+///
+/// Host residual normalizes separators to `/`. Fail-closed: path constant honesty
+/// only — not full INI parse of every Anim2DTemplate.
+pub const ANIM2D_COLLECTION_INI_PATH: &str = "Data/INI/Animation2D.ini";
+
+/// Host residual monospaced placeholder size for frame image atlas residual.
+///
+/// C++ `getCurrentFrameWidth/Height` returns Image natural size when the frame
+/// Image is loaded; host residual uses a fixed monospaced placeholder so
+/// width/height honesty stays deterministic without a GPU atlas.
+pub const ANIM2D_FRAME_PLACEHOLDER_WIDTH: u32 = 32;
+pub const ANIM2D_FRAME_PLACEHOLDER_HEIGHT: u32 = 32;
+
+/// Host residual Anim2DTemplate id (collection list node).
+pub type Anim2DTemplateId = u32;
+/// Host residual Anim2D instance id (collection instance list node).
+pub type Anim2DInstanceId = u32;
+
+/// Host residual Anim2DTemplate entry (name + next link only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anim2DTemplateResidual {
+    pub id: Anim2DTemplateId,
+    pub name: String,
+    /// MoneyPickUp RandomizeStartFrame residual (No for retail MoneyPickUp).
+    pub randomize_start_frame: bool,
+    pub num_frames: u16,
+}
+
+/// Host residual Anim2D instance entry for collection update residual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anim2DInstanceResidual {
+    pub id: Anim2DInstanceId,
+    pub template_id: Anim2DTemplateId,
+    pub status: u8,
+    pub current_frame: u16,
+    pub min_frame: u16,
+    pub max_frame: u16,
+    pub mode: Anim2DModeResidual,
+    /// True when instance is registered with this collection (C++ m_collectionSystem).
+    pub registered: bool,
+}
+
+/// Host residual Anim2DCollection (template head-insert list + instance list).
+///
+/// C++ `newTemplate` head-inserts; `findTemplate` linear name search;
+/// `registerAnimation` / `unRegisterAnimation` doubly-linked instance list;
+/// `update` calls tryNextFrame unless ANIM_2D_STATUS_FROZEN.
+/// Fail-closed: not full INI parse / Image atlas / GPU draw.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Anim2DCollectionResidual {
+    /// Head of template list residual (None = empty).
+    pub template_head: Option<Anim2DTemplateId>,
+    /// next residual per template id (singly linked, head-insert).
+    pub template_next: std::collections::HashMap<Anim2DTemplateId, Option<Anim2DTemplateId>>,
+    pub templates: std::collections::HashMap<Anim2DTemplateId, Anim2DTemplateResidual>,
+    /// Head of instance list residual.
+    pub instance_head: Option<Anim2DInstanceId>,
+    pub instance_next: std::collections::HashMap<Anim2DInstanceId, Option<Anim2DInstanceId>>,
+    pub instance_prev: std::collections::HashMap<Anim2DInstanceId, Option<Anim2DInstanceId>>,
+    pub instances: std::collections::HashMap<Anim2DInstanceId, Anim2DInstanceResidual>,
+    next_template_id: Anim2DTemplateId,
+    next_instance_id: Anim2DInstanceId,
+    /// True after init residual records the Animation2D.ini path constant.
+    pub init_path_recorded: bool,
+}
+
+impl Anim2DCollectionResidual {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// C++ `Anim2DCollection::init` residual: record Animation2D.ini path.
+    ///
+    /// Fail-closed: does not parse all templates from the live INI file.
+    pub fn init(&mut self) {
+        // Path constant honesty only.
+        let _ = ANIM2D_COLLECTION_INI_PATH;
+        self.init_path_recorded = true;
+    }
+
+    /// C++ `newTemplate`: allocate, assign name, head-insert into template list.
+    pub fn new_template(&mut self, name: &str) -> Anim2DTemplateId {
+        let id = self.next_template_id.saturating_add(1).max(1);
+        self.next_template_id = id;
+        let randomize = if name == "MoneyPickUp" {
+            MONEY_PICKUP_RANDOMIZE_START_FRAME
+        } else {
+            false
+        };
+        let num_frames = if name == "MoneyPickUp" {
+            MONEY_PICKUP_NUM_FRAMES
+        } else {
+            1
+        };
+        self.templates.insert(
+            id,
+            Anim2DTemplateResidual {
+                id,
+                name: name.to_string(),
+                randomize_start_frame: randomize,
+                num_frames,
+            },
+        );
+        // Head-insert.
+        self.template_next.insert(id, self.template_head);
+        self.template_head = Some(id);
+        id
+    }
+
+    /// C++ `findTemplate`: linear search template list by name.
+    pub fn find_template(&self, name: &str) -> Option<Anim2DTemplateId> {
+        let mut cur = self.template_head;
+        while let Some(id) = cur {
+            if self
+                .templates
+                .get(&id)
+                .map(|t| t.name.as_str() == name)
+                .unwrap_or(false)
+            {
+                return Some(id);
+            }
+            cur = self.template_next.get(&id).copied().flatten();
+        }
+        None
+    }
+
+    /// Allocate a residual instance bound to a template (not yet registered).
+    pub fn new_instance(
+        &mut self,
+        template_id: Anim2DTemplateId,
+        mode: Anim2DModeResidual,
+        min_frame: u16,
+        max_frame: u16,
+    ) -> Anim2DInstanceId {
+        let id = self.next_instance_id.saturating_add(1).max(1);
+        self.next_instance_id = id;
+        self.instances.insert(
+            id,
+            Anim2DInstanceResidual {
+                id,
+                template_id,
+                status: ANIM_2D_STATUS_NONE,
+                current_frame: min_frame,
+                min_frame,
+                max_frame,
+                mode,
+                registered: false,
+            },
+        );
+        id
+    }
+
+    /// C++ `registerAnimation`: head-insert into doubly-linked instance list.
+    pub fn register_animation(&mut self, id: Anim2DInstanceId) {
+        if !self.instances.contains_key(&id) {
+            return;
+        }
+        if self.instances.get(&id).map(|i| i.registered).unwrap_or(false) {
+            return;
+        }
+        self.instance_next.insert(id, self.instance_head);
+        self.instance_prev.insert(id, None);
+        if let Some(old_head) = self.instance_head {
+            self.instance_prev.insert(old_head, Some(id));
+        }
+        self.instance_head = Some(id);
+        if let Some(inst) = self.instances.get_mut(&id) {
+            inst.registered = true;
+        }
+    }
+
+    /// C++ `unRegisterAnimation`: unlink from doubly-linked instance list.
+    pub fn unregister_animation(&mut self, id: Anim2DInstanceId) {
+        if !self.instances.get(&id).map(|i| i.registered).unwrap_or(false) {
+            return;
+        }
+        let n = self.instance_next.get(&id).copied().flatten();
+        let p = self.instance_prev.get(&id).copied().flatten();
+        if let Some(nx) = n {
+            self.instance_prev.insert(nx, p);
+        }
+        if let Some(pv) = p {
+            self.instance_next.insert(pv, n);
+        } else {
+            self.instance_head = n;
+        }
+        self.instance_next.remove(&id);
+        self.instance_prev.remove(&id);
+        if let Some(inst) = self.instances.get_mut(&id) {
+            inst.registered = false;
+        }
+    }
+
+    /// C++ `Anim2DCollection::update`: tryNextFrame unless FROZEN.
+    ///
+    /// Returns number of instances that advanced (non-frozen residual steps).
+    pub fn update(&mut self) -> u32 {
+        let mut advanced = 0u32;
+        // Collect ids first (avoid borrow conflicts while mutating instances).
+        let mut ids = Vec::new();
+        let mut cur = self.instance_head;
+        while let Some(id) = cur {
+            ids.push(id);
+            cur = self.instance_next.get(&id).copied().flatten();
+        }
+        for id in ids {
+            let Some(inst) = self.instances.get(&id) else {
+                continue;
+            };
+            if anim2d_status_test(inst.status, ANIM_2D_STATUS_FROZEN) {
+                continue;
+            }
+            let reversed = anim2d_status_test(inst.status, ANIM_2D_STATUS_REVERSED);
+            let step = anim2d_try_next_frame(
+                inst.mode,
+                inst.current_frame,
+                inst.min_frame,
+                inst.max_frame,
+                reversed,
+            );
+            if let Some(inst) = self.instances.get_mut(&id) {
+                inst.current_frame = step.frame;
+                if step.reversed {
+                    inst.status = anim2d_set_status(inst.status, ANIM_2D_STATUS_REVERSED);
+                } else {
+                    inst.status = anim2d_clear_status(inst.status, ANIM_2D_STATUS_REVERSED);
+                }
+                if step.complete {
+                    inst.status = anim2d_set_status(inst.status, ANIM_2D_STATUS_COMPLETE);
+                }
+                advanced = advanced.saturating_add(1);
+            }
+        }
+        advanced
+    }
+
+    pub fn template_count(&self) -> usize {
+        self.templates.len()
+    }
+
+    pub fn instance_count(&self) -> usize {
+        self.instance_next.len()
+    }
+}
+
+/// Host residual `Anim2D::getCurrentFrameWidth` monospaced placeholder.
+///
+/// C++ returns Image natural width when frame Image is present, else 0.
+/// Host residual: valid frame index → placeholder width; out-of-range → 0.
+/// Fail-closed vs live Image atlas.
+#[inline]
+pub fn anim2d_get_current_frame_width(frame: u16, num_frames: u16) -> u32 {
+    if num_frames == 0 || frame >= num_frames {
+        0
+    } else {
+        ANIM2D_FRAME_PLACEHOLDER_WIDTH
+    }
+}
+
+/// Host residual `Anim2D::getCurrentFrameHeight` monospaced placeholder.
+#[inline]
+pub fn anim2d_get_current_frame_height(frame: u16, num_frames: u16) -> u32 {
+    if num_frames == 0 || frame >= num_frames {
+        0
+    } else {
+        ANIM2D_FRAME_PLACEHOLDER_HEIGHT
+    }
+}
+
+/// Honesty: Anim2DCollection template/instance/update/init/frame-size residual.
+pub fn honesty_anim2d_collection_residual() -> bool {
+    // init path residual.
+    if ANIM2D_COLLECTION_INI_PATH != "Data/INI/Animation2D.ini" {
+        return false;
+    }
+    let mut col = Anim2DCollectionResidual::new();
+    col.init();
+    if !col.init_path_recorded {
+        return false;
+    }
+
+    // newTemplate head-insert + findTemplate.
+    let t1 = col.new_template("FirstAnim");
+    let t2 = col.new_template("MoneyPickUp");
+    if col.template_head != Some(t2) {
+        return false;
+    }
+    if col.template_next.get(&t2).copied().flatten() != Some(t1) {
+        return false;
+    }
+    if col.find_template("MoneyPickUp") != Some(t2) {
+        return false;
+    }
+    if col.find_template("FirstAnim") != Some(t1) {
+        return false;
+    }
+    if col.find_template("Missing").is_some() {
+        return false;
+    }
+    // MoneyPickUp RandomizeStartFrame = No residual.
+    if col
+        .templates
+        .get(&t2)
+        .map(|t| t.randomize_start_frame)
+        .unwrap_or(true)
+    {
+        return false;
+    }
+    if MONEY_PICKUP_RANDOMIZE_START_FRAME {
+        return false;
+    }
+
+    // register / unregister doubly-linked instance list.
+    let i1 = col.new_instance(t2, Anim2DModeResidual::Loop, 0, 30);
+    let i2 = col.new_instance(t2, Anim2DModeResidual::Loop, 0, 30);
+    col.register_animation(i1);
+    col.register_animation(i2);
+    // head-insert: i2 → i1
+    if col.instance_head != Some(i2) {
+        return false;
+    }
+    if col.instance_next.get(&i2).copied().flatten() != Some(i1) {
+        return false;
+    }
+    if col.instance_prev.get(&i1).copied().flatten() != Some(i2) {
+        return false;
+    }
+    col.unregister_animation(i2);
+    if col.instance_head != Some(i1) {
+        return false;
+    }
+    col.unregister_animation(i1);
+    if col.instance_head.is_some() || col.instance_count() != 0 {
+        return false;
+    }
+
+    // update skips FROZEN; advances non-frozen LOOP.
+    let i3 = col.new_instance(t2, Anim2DModeResidual::Loop, 0, 30);
+    let i4 = col.new_instance(t2, Anim2DModeResidual::Loop, 0, 30);
+    col.register_animation(i3);
+    col.register_animation(i4);
+    if let Some(inst) = col.instances.get_mut(&i3) {
+        inst.status = ANIM_2D_STATUS_FROZEN;
+        inst.current_frame = 5;
+    }
+    if let Some(inst) = col.instances.get_mut(&i4) {
+        inst.current_frame = 5;
+    }
+    let advanced = col.update();
+    if advanced != 1 {
+        return false;
+    }
+    if col.instances.get(&i3).map(|i| i.current_frame) != Some(5) {
+        return false;
+    }
+    if col.instances.get(&i4).map(|i| i.current_frame) != Some(6) {
+        return false;
+    }
+
+    // getCurrentFrameWidth/Height monospaced placeholder residual.
+    anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES) == ANIM2D_FRAME_PLACEHOLDER_WIDTH
+        && anim2d_get_current_frame_height(15, MONEY_PICKUP_NUM_FRAMES)
+            == ANIM2D_FRAME_PLACEHOLDER_HEIGHT
+        && anim2d_get_current_frame_width(31, MONEY_PICKUP_NUM_FRAMES) == 0
+        && anim2d_get_current_frame_height(0, 0) == 0
+        && anim2d_get_current_frame_width(0, 1) == ANIM2D_FRAME_PLACEHOLDER_WIDTH
+}
+
 /// One CPU-side residual world-anim layout sample.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldAnimLayoutEntry {
@@ -759,5 +1138,47 @@ mod tests {
         assert_eq!(anim2d_draw_color_alpha(ANIM_2D_DEFAULT_ALPHA), 255);
         // FROZEN residual blocks tryNextFrame advances in C++.
         assert!(anim2d_status_test(ANIM_2D_STATUS_FROZEN, ANIM_2D_STATUS_FROZEN));
+    }
+
+    #[test]
+    fn anim2d_collection_residual_honesty() {
+        assert!(honesty_anim2d_collection_residual());
+        assert_eq!(ANIM2D_COLLECTION_INI_PATH, "Data/INI/Animation2D.ini");
+        assert!(!MONEY_PICKUP_RANDOMIZE_START_FRAME);
+        assert_eq!(
+            anim2d_get_current_frame_width(0, MONEY_PICKUP_NUM_FRAMES),
+            ANIM2D_FRAME_PLACEHOLDER_WIDTH
+        );
+        assert_eq!(
+            anim2d_get_current_frame_height(30, MONEY_PICKUP_NUM_FRAMES),
+            ANIM2D_FRAME_PLACEHOLDER_HEIGHT
+        );
+        assert_eq!(anim2d_get_current_frame_width(99, 31), 0);
+
+        let mut col = Anim2DCollectionResidual::new();
+        col.init();
+        assert!(col.init_path_recorded);
+        let money = col.new_template("MoneyPickUp");
+        assert_eq!(col.find_template("MoneyPickUp"), Some(money));
+        assert!(!col.templates[&money].randomize_start_frame);
+        let a = col.new_instance(money, Anim2DModeResidual::Loop, 0, 30);
+        let b = col.new_instance(money, Anim2DModeResidual::Loop, 0, 30);
+        col.register_animation(a);
+        col.register_animation(b);
+        // head-insert residual: b → a
+        assert_eq!(col.instance_head, Some(b));
+        assert_eq!(col.instance_next.get(&b).copied().flatten(), Some(a));
+        // FROZEN skips update residual.
+        col.instances.get_mut(&a).unwrap().status = ANIM_2D_STATUS_FROZEN;
+        col.instances.get_mut(&a).unwrap().current_frame = 10;
+        col.instances.get_mut(&b).unwrap().current_frame = 10;
+        let advanced = col.update();
+        assert_eq!(advanced, 1);
+        assert_eq!(col.instances[&a].current_frame, 10);
+        assert_eq!(col.instances[&b].current_frame, 11);
+        col.unregister_animation(b);
+        assert_eq!(col.instance_head, Some(a));
+        col.unregister_animation(a);
+        assert!(col.instance_head.is_none());
     }
 }
