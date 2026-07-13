@@ -5685,7 +5685,13 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 let impact = target_position;
-                                let toxin = slot == 1;
+                                let toxin = {
+                                    use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
+                                    self.objects
+                                        .get(&attacker_id)
+                                        .map(|a| scud_toxin_warhead_for_slot(&a.template_name, slot))
+                                        .unwrap_or(slot == 1)
+                                };
                                 let (hits, _destroyed_any) = self.apply_scud_area_at(
                                     impact,
                                     Some(attacker_id),
@@ -6677,8 +6683,15 @@ impl GameLogic {
                             }
                             let _ = weapon_damage;
                         } else if scud_ground {
-                            // Ground force-fire uses primary explosive residual (slot 0).
-                            let toxin = false;
+                            // Ground force-fire: stock uses primary explosive; Chem SCUD
+                            // residual uses anthrax primary (slot 0 toxin warhead).
+                            let toxin = {
+                                use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| scud_toxin_warhead_for_slot(&a.template_name, 0))
+                                    .unwrap_or(false)
+                            };
                             let (hits, _) = self.apply_scud_area_at(
                                 target_location,
                                 Some(attacker_id),
@@ -9178,6 +9191,9 @@ impl GameLogic {
                 self.apply_sentry_drone_gun_unlock_to_team(team, upgrade_name)
             }
             HostUpgradeKind::Camouflage => self.apply_camouflage_unlock_to_team(team, upgrade_name),
+            HostUpgradeKind::CamoNetting => {
+                self.apply_camo_netting_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::CompositeArmor => {
                 self.apply_composite_armor_unlock_to_team(team, upgrade_name)
             }
@@ -9188,6 +9204,9 @@ impl GameLogic {
                 self.apply_nuclear_tanks_unlock_to_team(team, upgrade_name)
             }
             HostUpgradeKind::BoobyTrap => self.apply_booby_trap_unlock_to_team(team, upgrade_name),
+            HostUpgradeKind::AnthraxGamma => {
+                self.apply_anthrax_gamma_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -9609,6 +9628,71 @@ impl GameLogic {
         }
         affected
     }
+
+    /// Grant GLA CamoNetting residual stealth to eligible GLA structures.
+    ///
+    /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamoNetting on Stealth General
+    /// buildings + Tunnel Network / Stinger Site. Host residual sets STEALTHED +
+    /// innate_stealth; structures do not uncloak on attack residual (fail-closed
+    /// vs full StealthUpdate structure attack reveal matrix).
+    fn apply_camo_netting_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::{
+            is_camo_netting_structure_template, UPGRADE_GLA_CAMO_NETTING,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            // Residual name matrix filters eligible GLA structures (not infantry).
+            if !is_camo_netting_structure_template(&obj.template_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_CAMO_NETTING);
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.detection_expires_frame = 0;
+            obj.innate_stealth = true;
+            // Structure residual: stay cloaked while idle; fail-closed attack reveal.
+            obj.stealth_breaks_on_attack = false;
+            obj.stealth_breaks_on_move = false;
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Tag toxin combat units for Anthrax Gamma residual (Chem general).
+    ///
+    /// Fail-closed: not full WeaponSet PLAYER_UPGRADE module / particle gamma FX.
+    fn apply_anthrax_gamma_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_toxin_tractor::{
+            is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+        };
+        use crate::game_logic::host_upgrades::{
+            is_anthrax_gamma_unit_template, UPGRADE_CHEM_ANTHRAX_GAMMA,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_anthrax_gamma_unit_template(&obj.template_name)
+                && !is_toxin_tractor_template(&obj.template_name)
+            {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_CHEM_ANTHRAX_GAMMA);
+            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA);
+            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
 
     /// Tag supply centers for Supply Lines residual observability.
     fn apply_supply_lines_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
@@ -11532,11 +11616,22 @@ impl GameLogic {
                 // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
                 {
                     use crate::game_logic::host_toxin_tractor::{
-                        is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_BETA,
+                        anthrax_tier_from_flags, is_chem_general_template, is_toxin_tractor_template,
+                        UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
+                        UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
                     };
                     if is_toxin_tractor_template(&obj.template_name) {
-                        let anthrax = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                        let has_gamma = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                            || obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                            || obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                        let has_beta = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
                             || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                        let anthrax = anthrax_tier_from_flags(
+                            has_gamma,
+                            has_beta,
+                            is_chem_general_template(&obj.template_name),
+                        );
                         let death_pos = obj.get_position();
                         let team = obj.team;
                         let _ = self
@@ -11566,7 +11661,15 @@ impl GameLogic {
                         let bio = obj.has_upgrade_tag(UPGRADE_BOMB_TRUCK_BIO)
                             || obj.has_upgrade_tag("Upgrade_GLABombTruckBioBomb");
                         let anthrax = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                            || obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma")
+                            || obj.has_upgrade_tag(
+                                crate::game_logic::host_toxin_tractor::UPGRADE_GLA_ANTHRAX_GAMMA,
+                            )
+                            || obj.has_upgrade_tag(
+                                crate::game_logic::host_toxin_tractor::UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                            );
                         let profile = BombTruckDetonationProfile::from_upgrades(he, bio, anthrax);
                         let _ = self.apply_bomb_truck_death_detonation_at(
                             event.id, obj.team, death_pos, profile,
@@ -15837,16 +15940,29 @@ impl GameLogic {
 
         self.scud_poison_zones.record_area_blast(hits);
 
-        // Toxin / Anthrax secondary residual: spawn MediumPoisonField DoT.
+        // Toxin / Anthrax residual: spawn MediumPoisonField DoT (Beta/Gamma tier).
         if toxin_warhead {
+            use crate::game_logic::host_toxin_tractor::{
+                anthrax_tier_from_flags, is_chem_general_template, AnthraxResidualTier,
+                UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            };
             let anthrax = source
                 .and_then(|sid| {
                     self.objects.get(&sid).map(|a| {
-                        a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                            || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                        let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                            || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                            || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                            || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                        let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                            || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                        anthrax_tier_from_flags(
+                            has_gamma,
+                            has_beta,
+                            is_chem_general_template(&a.template_name),
+                        )
                     })
                 })
-                .unwrap_or(false);
+                .unwrap_or(AnthraxResidualTier::None);
             let source_id = source.unwrap_or(ObjectId(0));
             let _ = self.scud_poison_zones.spawn_zone(
                 source_id,
@@ -20829,16 +20945,26 @@ impl GameLogic {
         source_team: Team,
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
-            is_legal_toxin_target, toxin_stream_damage, toxin_stream_damage_at,
+            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
+            toxin_stream_damage, toxin_stream_damage_at, AnthraxResidualTier,
             ToxinTractorSalvageTier, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
-            UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
 
         let (anthrax, tier) = source
             .and_then(|sid| self.objects.get(&sid))
             .map(|a| {
-                let anthrax = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                    || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                    || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                    || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
                     || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                let anthrax = anthrax_tier_from_flags(
+                    has_gamma,
+                    has_beta,
+                    is_chem_general_template(&a.template_name),
+                );
                 let tier = if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO") {
                     ToxinTractorSalvageTier::Two
                 } else if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE") {
@@ -20848,7 +20974,7 @@ impl GameLogic {
                 };
                 (anthrax, tier)
             })
-            .unwrap_or((false, ToxinTractorSalvageTier::Base));
+            .unwrap_or((AnthraxResidualTier::None, ToxinTractorSalvageTier::Base));
         let base_dmg = toxin_stream_damage(tier, anthrax);
         let impact_xz = (impact.x, impact.z);
         let mut hits = 0u32;
@@ -20916,6 +21042,9 @@ impl GameLogic {
         }
 
         self.toxin_tractor.record_stream_fire(hits);
+        if anthrax.is_gamma() {
+            self.toxin_tractor.record_gamma_stream_fire();
+        }
         self.queue_audio_event(
             AudioEventRequest::new(TOXIN_STREAM_AUDIO)
                 .with_position(impact)
@@ -20945,18 +21074,29 @@ impl GameLogic {
         source_team: Team,
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
-            is_legal_toxin_target, toxin_spray_damage, toxin_spray_damage_at, TOXIN_POISON_AUDIO,
+            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
+            toxin_spray_damage, toxin_spray_damage_at, AnthraxResidualTier, TOXIN_POISON_AUDIO,
             TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
 
         let anthrax = source
             .and_then(|sid| {
                 self.objects.get(&sid).map(|a| {
-                    a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                        || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                    let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                        || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
+                        || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                        || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
+                    let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                        || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
+                    anthrax_tier_from_flags(
+                        has_gamma,
+                        has_beta,
+                        is_chem_general_template(&a.template_name),
+                    )
                 })
             })
-            .unwrap_or(false);
+            .unwrap_or(AnthraxResidualTier::None);
         let spray_dmg = toxin_spray_damage(anthrax);
         // Spray residual originates at the tractor; impact is attack target.
         // Fail-closed residual: use impact as field center (contaminate puddle).
@@ -50041,7 +50181,7 @@ mod tests {
             team,
             death_pos,
             game_logic.get_current_frame() as u32,
-            false,
+            crate::game_logic::host_toxin_tractor::AnthraxResidualTier::None,
         );
         // Also exercise destroy-list path when object dies mid-update.
         if let Some(t) = game_logic.find_object_mut(toxin_id) {
@@ -56740,6 +56880,301 @@ mod tests {
         assert!(
             jet.is_emp_disabled() || jet.status.disabled_emp,
             "SupW EMP residual must DISABLED_EMP aircraft"
+        );
+    }
+
+    /// Residual: Chem Anthrax Gamma upgrade raises toxin tractor stream damage
+    /// (20.5) and upgraded MediumPoisonField DoT (2.5/tick). Chem templates
+    /// start at Beta baseline without research.
+    #[test]
+    fn anthrax_gamma_residual_toxin_stream_and_field() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_toxin_tractor::{
+            TOXIN_MED_FIELD_DAMAGE_UPGRADED, TOXIN_STREAM_DAMAGE_GAMMA, TOXIN_STREAM_DAMAGE_UPGRADED,
+            TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER, UPGRADE_GLA_ANTHRAX_GAMMA,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut toxin_tpl = crate::game_logic::ThingTemplate::new("Chem_GLAVehicleToxinTruck");
+        toxin_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(TOXIN_TRUCK_GUN)
+            .set_secondary_weapon_name(TOXIN_TRUCK_SPRAYER);
+        game_logic
+            .templates
+            .insert("Chem_GLAVehicleToxinTruck".to_string(), toxin_tpl);
+
+        let truck_id = game_logic
+            .create_object(
+                "Chem_GLAVehicleToxinTruck",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("chem toxin truck");
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Chem baseline stream residual (Anthrax Beta 12.5).
+        {
+            let t = game_logic.find_object_mut(truck_id).unwrap();
+            t.attack_target(enemy);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(20);
+        game_logic.update_combat(&[truck_id, enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_toxin_tractor_stream_ok(),
+            "chem baseline stream honesty"
+        );
+        let hp_after_beta = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let beta_dmg = hp_before - hp_after_beta;
+        assert!(
+            beta_dmg + 0.1 >= TOXIN_STREAM_DAMAGE_UPGRADED,
+            "Chem residual baseline must deal at least Anthrax Beta 12.5 (got {beta_dmg})"
+        );
+
+        // Research Anthrax Gamma residual via QueueUpgrade → complete.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_ANTHRAX_GAMMA.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::AnthraxGamma));
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::AnthraxGamma),
+            "AnthraxGamma complete honesty"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::AnthraxGamma),
+            "AnthraxGamma must tag toxin units"
+        );
+        let truck = game_logic.find_object(truck_id).expect("truck");
+        assert!(
+            truck.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
+                || truck.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
+                || truck.has_upgrade_tag("Upgrade_GLAAnthraxGamma"),
+            "truck must receive gamma upgrade tag"
+        );
+
+        // Gamma stream residual: 20.5.
+        {
+            let t = game_logic.find_object_mut(truck_id).unwrap();
+            t.active_weapon_slot = 0;
+            t.attack_target(enemy);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let hp_mid = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[truck_id, enemy], LOGIC_FRAME_TIMESTEP);
+        let hp_after_gamma = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let gamma_dmg = hp_mid - hp_after_gamma;
+        assert!(
+            gamma_dmg + 0.1 >= TOXIN_STREAM_DAMAGE_GAMMA,
+            "gamma stream must deal at least 20.5 (got {gamma_dmg})"
+        );
+        assert!(
+            game_logic.toxin_tractor_registry().honesty_gamma_ok(),
+            "gamma stream honesty"
+        );
+
+        // Contaminate spray residual → upgraded MediumPoisonField 2.5/tick.
+        let spray_victim = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+            .expect("spray victim");
+        {
+            let t = game_logic.find_object_mut(truck_id).unwrap();
+            t.active_weapon_slot = 1;
+            t.attack_target(spray_victim);
+            if let Some(w) = t.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+                w.damage = 0.0;
+                w.range = 15.0;
+            }
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+        game_logic.set_current_frame(60);
+        game_logic.update_combat(&[truck_id, spray_victim], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_toxin_tractor_spray_ok(),
+            "gamma spray residual honesty"
+        );
+        assert!(
+            game_logic.toxin_tractor_registry().active_count() > 0,
+            "gamma spray must spawn medium poison field"
+        );
+        let zone = &game_logic.toxin_tractor_registry().active_zones()[0];
+        assert!(
+            (zone.damage_per_tick - TOXIN_MED_FIELD_DAMAGE_UPGRADED).abs() < 0.01,
+            "gamma medium field DoT must be 2.5/tick (got {})",
+            zone.damage_per_tick
+        );
+        assert!(zone.anthrax_tier.is_gamma());
+    }
+
+    /// Residual: Upgrade_GLACamoNetting stealths eligible GLA structures
+    /// (Stealth General buildings / Tunnel Network / Stinger Site). Fail-closed:
+    /// Rebel infantry does not receive CamoNetting (Camouflage residual is separate).
+    #[test]
+    fn camo_netting_upgrade_stealths_gla_structures() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            is_camo_netting_structure_template, HostUpgradeKind, UPGRADE_GLA_CAMO_NETTING,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+
+        for name in [
+            "Slth_GLACommandCenter",
+            "GLATunnelNetwork",
+            "GLAInfantryRebel",
+        ] {
+            if !game_logic.templates.contains_key(name) {
+                let mut t = crate::game_logic::ThingTemplate::new(name);
+                if name.contains("Rebel") {
+                    t.add_kind_of(KindOf::Infantry)
+                        .add_kind_of(KindOf::Attackable)
+                        .add_kind_of(KindOf::Selectable)
+                        .set_health(100.0);
+                } else {
+                    t.add_kind_of(KindOf::Structure)
+                        .add_kind_of(KindOf::Selectable)
+                        .set_health(1000.0);
+                }
+                game_logic.templates.insert(name.to_string(), t);
+            }
+        }
+
+        assert!(is_camo_netting_structure_template("Slth_GLACommandCenter"));
+        assert!(is_camo_netting_structure_template("GLATunnelNetwork"));
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+        let cc_id = game_logic
+            .create_object(
+                "Slth_GLACommandCenter",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("slth cc");
+        let tunnel_id = game_logic
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("tunnel");
+        let rebel_id = game_logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("rebel");
+
+        for id in [cc_id, tunnel_id] {
+            let o = game_logic.find_object_mut(id).unwrap();
+            o.status.stealthed = false;
+            o.innate_stealth = false;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_CAMO_NETTING.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::CamoNetting));
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::CamoNetting),
+            "CamoNetting complete honesty"
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::CamoNetting),
+            "CamoNetting host path honesty"
+        );
+
+        let cc = game_logic.find_object(cc_id).expect("cc");
+        assert!(
+            cc.status.stealthed && cc.innate_stealth,
+            "Slth Command Center must be stealthed after CamoNetting"
+        );
+        assert!(
+            cc.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
+            "structure must receive CamoNetting tag"
+        );
+
+        let tunnel = game_logic.find_object(tunnel_id).expect("tunnel");
+        assert!(
+            tunnel.status.stealthed && tunnel.innate_stealth,
+            "Tunnel Network must be stealthed after CamoNetting"
+        );
+
+        let rebel = game_logic.find_object(rebel_id).expect("rebel");
+        assert!(
+            !rebel.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
+            "fail-closed: Rebel does not receive CamoNetting (use Camouflage residual)"
         );
     }
 }

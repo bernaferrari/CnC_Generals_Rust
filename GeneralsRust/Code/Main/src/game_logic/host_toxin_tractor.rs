@@ -3,17 +3,21 @@
 //! Residual slice (playability):
 //! - PRIMARY `ToxinTruckGun`: poison stream (dmg **10**, radius **10**, range **100**,
 //!   Delay 40ms → 2 frames residual). Anthrax Beta → dmg **12.5**.
+//!   Anthrax Gamma (`Chem_ToxinTruckGunGamma`) → dmg **20.5**.
 //! - SECONDARY `ToxinTruckSprayer` contaminate residual (special attack only):
 //!   SecondaryDamage **2** / radius **75**, range **15**. After residual spray,
 //!   spawns MediumPoisonField DoT (2 dmg / radius 80 / 30s / 500ms ticks).
+//!   Anthrax Beta/Gamma → spray **2.5** + upgraded MediumPoisonField (**2.5**/tick).
 //! - Death residual: `ToxinShellWeapon` → SmallPoisonField (2 dmg / radius 12 /
-//!   10s lifetime).
+//!   10s lifetime). Anthrax Beta/Gamma → **2.5**/tick residual.
+//! - Chem General toxin trucks start at Anthrax Beta baseline (retail upgraded
+//!   WeaponSet) until `Chem_Upgrade_GLAAnthraxGamma` is researched.
 //! - Salvage PlusOne/PlusTwo residual: primary damage bump (12.5 / 15).
 //!
 //! Fail-closed honesty:
 //! - Not full FireOCLAfterWeaponCooldown MinShots=4 continuous-coast timer matrix
 //! - Not full stream projectile drawing / spigot bone / turret pitch matrix
-//! - Not full Anthrax Gamma / Chem general poison particle matrix
+//! - Not full gamma particle bones / PlusOne-Two anthrax salvage matrix
 //! - Not network toxin replication (network deferred)
 
 use super::ObjectId;
@@ -24,16 +28,26 @@ use serde::{Deserialize, Serialize};
 pub const TOXIN_TRUCK_GUN: &str = "ToxinTruckGun";
 /// Retail primary after Anthrax Beta.
 pub const TOXIN_TRUCK_GUN_UPGRADED: &str = "ToxinTruckGunUpgraded";
+/// Retail Chem Anthrax Gamma primary stream.
+pub const TOXIN_TRUCK_GUN_GAMMA: &str = "Chem_ToxinTruckGunGamma";
 /// Retail secondary contaminate spray.
 pub const TOXIN_TRUCK_SPRAYER: &str = "ToxinTruckSprayer";
 /// Retail secondary after Anthrax Beta.
 pub const TOXIN_TRUCK_SPRAYER_UPGRADED: &str = "ToxinTruckSprayerUpgraded";
+/// Retail Chem Anthrax Gamma spray.
+pub const TOXIN_TRUCK_SPRAYER_GAMMA: &str = "Chem_ToxinTruckSprayerGamma";
 /// Retail Upgrade_GLAAnthraxBeta.
 pub const UPGRADE_GLA_ANTHRAX_BETA: &str = "Upgrade_GLAAnthraxBeta";
+/// Retail Chem_Upgrade_GLAAnthraxGamma (Chemical General).
+pub const UPGRADE_GLA_ANTHRAX_GAMMA: &str = "Chem_Upgrade_GLAAnthraxGamma";
+/// Alias residual for shorthand tests / host unlock tags.
+pub const UPGRADE_GLA_ANTHRAX_GAMMA_ALT: &str = "Upgrade_GLAAnthraxGamma";
 
 /// Base primary damage / radius / range.
 pub const TOXIN_STREAM_DAMAGE: f32 = 10.0;
 pub const TOXIN_STREAM_DAMAGE_UPGRADED: f32 = 12.5;
+/// Retail Chem_ToxinTruckGunGamma PrimaryDamage.
+pub const TOXIN_STREAM_DAMAGE_GAMMA: f32 = 20.5;
 pub const TOXIN_STREAM_RADIUS: f32 = 10.0;
 pub const TOXIN_STREAM_RANGE: f32 = 100.0;
 /// DelayBetweenShots 40ms → 2 frames @ 30 FPS (ceil).
@@ -49,6 +63,8 @@ pub const TOXIN_SPRAY_DELAY_FRAMES: u32 = 6;
 
 /// MediumPoisonField residual (spray contamination OCL).
 pub const TOXIN_MED_FIELD_DAMAGE: f32 = 2.0;
+/// Retail Chem_MediumPoisonFieldWeaponGamma / upgraded anthrax residual.
+pub const TOXIN_MED_FIELD_DAMAGE_UPGRADED: f32 = 2.5;
 pub const TOXIN_MED_FIELD_RADIUS: f32 = 80.0;
 /// DelayBetweenShots 500ms → 15 frames.
 pub const TOXIN_MED_FIELD_TICK_FRAMES: u32 = 15;
@@ -57,6 +73,8 @@ pub const TOXIN_MED_FIELD_DURATION_FRAMES: u32 = 900;
 
 /// SmallPoisonField residual (death ToxinShellWeapon OCL).
 pub const TOXIN_SMALL_FIELD_DAMAGE: f32 = 2.0;
+/// Retail Chem_SmallPoisonFieldWeaponGamma PrimaryDamage residual.
+pub const TOXIN_SMALL_FIELD_DAMAGE_UPGRADED: f32 = 2.5;
 pub const TOXIN_SMALL_FIELD_RADIUS: f32 = 12.0;
 /// Lifetime 10000ms → 300 frames.
 pub const TOXIN_SMALL_FIELD_DURATION_FRAMES: u32 = 300;
@@ -70,6 +88,27 @@ pub const TOXIN_STREAM_DAMAGE_PLUS_TWO: f32 = 15.0;
 pub const TOXIN_STREAM_AUDIO: &str = "ToxinTractorWeaponLoop";
 pub const TOXIN_SPRAY_AUDIO: &str = "ToxinTractorContaminate";
 pub const TOXIN_POISON_AUDIO: &str = "ToxicPoolAmbientLoop";
+
+/// Anthrax residual combat tier (Beta = stock upgrade; Gamma = Chem general).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AnthraxResidualTier {
+    #[default]
+    None,
+    /// Upgrade_GLAAnthraxBeta / Chem baseline upgraded weapons.
+    Beta,
+    /// Chem_Upgrade_GLAAnthraxGamma residual.
+    Gamma,
+}
+
+impl AnthraxResidualTier {
+    pub fn is_upgraded(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    pub fn is_gamma(self) -> bool {
+        matches!(self, Self::Gamma)
+    }
+}
 
 /// Salvage residual tier for toxin tractor primary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -124,26 +163,90 @@ pub fn is_toxin_tractor_template(template_name: &str) -> bool {
         || (n.contains("vehicletoxin") && (n.contains("truck") || n.contains("tractor")))
 }
 
-/// Primary stream damage residual (salvage + anthrax).
-pub fn toxin_stream_damage(tier: ToxinTractorSalvageTier, anthrax_upgraded: bool) -> f32 {
-    if anthrax_upgraded {
-        // Retail upgraded path already includes anthrax damage; salvage Plus residual
-        // fail-closed reuses upgraded base (not full PlusOne/Two anthrax matrix).
-        return TOXIN_STREAM_DAMAGE_UPGRADED;
+/// Whether template is a Chemical General residual unit (Chem_ / GC_Chem_).
+///
+/// Chem toxin trucks start with upgraded (Anthrax Beta) weapons in retail INI.
+pub fn is_chem_general_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.starts_with("chem_") || n.starts_with("gc_chem_") || n.contains("testchem")
+}
+
+/// True when upgrade name is Anthrax Gamma residual research.
+pub fn is_anthrax_gamma_upgrade_name(name: &str) -> bool {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    n.contains("anthraxgamma")
+}
+
+/// True when upgrade name is Anthrax Beta residual research.
+pub fn is_anthrax_beta_upgrade_name(name: &str) -> bool {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    n.contains("anthraxbeta") && !n.contains("anthraxgamma")
+}
+
+/// Resolve anthrax residual tier from upgrade tags + Chem template baseline.
+///
+/// Fail-closed: not full WeaponSet PLAYER_UPGRADE module matrix / science prereqs.
+pub fn anthrax_tier_from_flags(
+    has_gamma: bool,
+    has_beta: bool,
+    chem_template_baseline: bool,
+) -> AnthraxResidualTier {
+    if has_gamma {
+        AnthraxResidualTier::Gamma
+    } else if has_beta || chem_template_baseline {
+        AnthraxResidualTier::Beta
+    } else {
+        AnthraxResidualTier::None
     }
-    match tier {
-        ToxinTractorSalvageTier::Base => TOXIN_STREAM_DAMAGE,
-        ToxinTractorSalvageTier::One => TOXIN_STREAM_DAMAGE_PLUS_ONE,
-        ToxinTractorSalvageTier::Two => TOXIN_STREAM_DAMAGE_PLUS_TWO,
+}
+
+/// Primary stream damage residual (salvage + anthrax tier).
+pub fn toxin_stream_damage(tier: ToxinTractorSalvageTier, anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::Gamma => TOXIN_STREAM_DAMAGE_GAMMA,
+        AnthraxResidualTier::Beta => {
+            // Retail upgraded path already includes anthrax damage; salvage Plus residual
+            // fail-closed reuses upgraded base (not full PlusOne/Two anthrax matrix).
+            TOXIN_STREAM_DAMAGE_UPGRADED
+        }
+        AnthraxResidualTier::None => match tier {
+            ToxinTractorSalvageTier::Base => TOXIN_STREAM_DAMAGE,
+            ToxinTractorSalvageTier::One => TOXIN_STREAM_DAMAGE_PLUS_ONE,
+            ToxinTractorSalvageTier::Two => TOXIN_STREAM_DAMAGE_PLUS_TWO,
+        },
     }
 }
 
 /// Contaminate spray secondary damage residual.
-pub fn toxin_spray_damage(anthrax_upgraded: bool) -> f32 {
-    if anthrax_upgraded {
-        TOXIN_SPRAY_DAMAGE_UPGRADED
-    } else {
-        TOXIN_SPRAY_DAMAGE
+pub fn toxin_spray_damage(anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_SPRAY_DAMAGE,
+        // Chem gamma spray base is also 2.5 (Plus residual fail-closed).
+        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_SPRAY_DAMAGE_UPGRADED,
+    }
+}
+
+/// MediumPoisonField damage-per-tick residual.
+pub fn toxin_med_field_damage(anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_MED_FIELD_DAMAGE,
+        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_MED_FIELD_DAMAGE_UPGRADED,
+    }
+}
+
+/// SmallPoisonField (death) damage-per-tick residual.
+pub fn toxin_small_field_damage(anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::None => TOXIN_SMALL_FIELD_DAMAGE,
+        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => TOXIN_SMALL_FIELD_DAMAGE_UPGRADED,
     }
 }
 
@@ -203,8 +306,8 @@ pub struct HostToxinTractorPoisonZone {
     pub activate_frame: u32,
     pub expires_frame: u32,
     pub next_tick_frame: u32,
-    /// Anthrax-upgraded residual field flag.
-    pub anthrax_upgraded: bool,
+    /// Anthrax residual tier for this field (Beta/Gamma use upgraded DoT).
+    pub anthrax_tier: AnthraxResidualTier,
     /// True when spawned by death residual (small field).
     pub from_death: bool,
     pub total_damage_applied: f32,
@@ -213,6 +316,11 @@ pub struct HostToxinTractorPoisonZone {
 }
 
 impl HostToxinTractorPoisonZone {
+    /// Backward-compat residual flag (any anthrax upgrade).
+    pub fn anthrax_upgraded(&self) -> bool {
+        self.anthrax_tier.is_upgraded()
+    }
+
     pub fn is_expired(&self, current_frame: u32) -> bool {
         current_frame >= self.expires_frame
     }
@@ -260,6 +368,10 @@ pub struct HostToxinTractorRegistry {
     pub spray_units_hit: u32,
     /// Salvage tier apply count.
     pub salvage_upgrades: u32,
+    /// Anthrax Gamma residual stream fires (observable honesty).
+    pub gamma_stream_fires: u32,
+    /// Anthrax Gamma residual field spawns (spray or death).
+    pub gamma_fields_spawned: u32,
 }
 
 impl HostToxinTractorRegistry {
@@ -306,7 +418,7 @@ impl HostToxinTractorRegistry {
         source_team: super::Team,
         impact_pos: Vec3,
         activate_frame: u32,
-        anthrax_upgraded: bool,
+        anthrax: AnthraxResidualTier,
     ) -> u32 {
         let id = self.alloc_id();
         let zone = HostToxinTractorPoisonZone {
@@ -315,11 +427,11 @@ impl HostToxinTractorRegistry {
             source_team,
             position: impact_pos,
             radius: TOXIN_MED_FIELD_RADIUS,
-            damage_per_tick: TOXIN_MED_FIELD_DAMAGE,
+            damage_per_tick: toxin_med_field_damage(anthrax),
             activate_frame,
             expires_frame: activate_frame.saturating_add(TOXIN_MED_FIELD_DURATION_FRAMES),
             next_tick_frame: activate_frame,
-            anthrax_upgraded,
+            anthrax_tier: anthrax,
             from_death: false,
             total_damage_applied: 0.0,
             damage_applications: 0,
@@ -327,6 +439,9 @@ impl HostToxinTractorRegistry {
         };
         self.active.push(zone);
         self.zones_spawned = self.zones_spawned.saturating_add(1);
+        if anthrax.is_gamma() {
+            self.gamma_fields_spawned = self.gamma_fields_spawned.saturating_add(1);
+        }
         id
     }
 
@@ -337,7 +452,7 @@ impl HostToxinTractorRegistry {
         source_team: super::Team,
         death_pos: Vec3,
         activate_frame: u32,
-        anthrax_upgraded: bool,
+        anthrax: AnthraxResidualTier,
     ) -> u32 {
         let id = self.alloc_id();
         let zone = HostToxinTractorPoisonZone {
@@ -346,11 +461,11 @@ impl HostToxinTractorRegistry {
             source_team,
             position: death_pos,
             radius: TOXIN_SMALL_FIELD_RADIUS,
-            damage_per_tick: TOXIN_SMALL_FIELD_DAMAGE,
+            damage_per_tick: toxin_small_field_damage(anthrax),
             activate_frame,
             expires_frame: activate_frame.saturating_add(TOXIN_SMALL_FIELD_DURATION_FRAMES),
             next_tick_frame: activate_frame,
-            anthrax_upgraded,
+            anthrax_tier: anthrax,
             from_death: true,
             total_damage_applied: 0.0,
             damage_applications: 0,
@@ -359,7 +474,18 @@ impl HostToxinTractorRegistry {
         self.active.push(zone);
         self.zones_spawned = self.zones_spawned.saturating_add(1);
         self.death_fields_spawned = self.death_fields_spawned.saturating_add(1);
+        if anthrax.is_gamma() {
+            self.gamma_fields_spawned = self.gamma_fields_spawned.saturating_add(1);
+        }
         id
+    }
+
+    pub fn record_gamma_stream_fire(&mut self) {
+        self.gamma_stream_fires = self.gamma_stream_fires.saturating_add(1);
+    }
+
+    pub fn honesty_gamma_ok(&self) -> bool {
+        self.gamma_stream_fires > 0 || self.gamma_fields_spawned > 0
     }
 
     pub fn plan_due_ticks(
@@ -479,11 +605,32 @@ mod tests {
 
     #[test]
     fn stream_and_spray_stats() {
-        assert!((toxin_stream_damage(ToxinTractorSalvageTier::Base, false) - 10.0).abs() < 0.01);
-        assert!((toxin_stream_damage(ToxinTractorSalvageTier::Base, true) - 12.5).abs() < 0.01);
-        assert!((toxin_stream_damage(ToxinTractorSalvageTier::Two, false) - 15.0).abs() < 0.01);
-        assert!((toxin_spray_damage(false) - 2.0).abs() < 0.01);
-        assert!((toxin_spray_damage(true) - 2.5).abs() < 0.01);
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::None) - 10.0)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Beta) - 12.5)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma)
+                - 20.5)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::None) - 15.0)
+                .abs()
+                < 0.01
+        );
+        assert!((toxin_spray_damage(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
+        assert!((toxin_spray_damage(AnthraxResidualTier::Beta) - 2.5).abs() < 0.01);
+        assert!((toxin_spray_damage(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
+        assert!((toxin_med_field_damage(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
+        assert!((toxin_med_field_damage(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
         assert!((toxin_stream_damage_at(5.0, 10.0) - 10.0).abs() < 0.01);
         assert!((toxin_stream_damage_at(15.0, 10.0)).abs() < 0.01);
         assert!((toxin_spray_damage_at(50.0, 2.0) - 2.0).abs() < 0.01);
@@ -491,11 +638,34 @@ mod tests {
         assert!(should_apply_toxin_spray(true, 1));
         assert!(!should_apply_toxin_spray(true, 0));
         assert!(should_apply_toxin_stream(true, 0));
+        assert!(is_chem_general_template("Chem_GLAVehicleToxinTruck"));
+        assert!(is_anthrax_gamma_upgrade_name("Chem_Upgrade_GLAAnthraxGamma"));
+        assert!(is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxGamma"));
+        assert!(!is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxBeta"));
+        assert_eq!(
+            anthrax_tier_from_flags(false, false, true),
+            AnthraxResidualTier::Beta
+        );
+        assert_eq!(
+            anthrax_tier_from_flags(true, true, true),
+            AnthraxResidualTier::Gamma
+        );
     }
 
     #[test]
     fn registry_spawn_and_honesty() {
         let mut reg = HostToxinTractorRegistry::new();
+        let id = reg.spawn_medium_field(
+            ObjectId(1),
+            Team::GLA,
+            Vec3::ZERO,
+            0,
+            AnthraxResidualTier::Gamma,
+        );
+        assert_eq!(id, 0);
+        assert!((reg.active_zones()[0].damage_per_tick - 2.5).abs() < 0.01);
+        assert!(reg.active_zones()[0].anthrax_upgraded());
+        assert!(reg.honesty_gamma_ok());
         reg.record_stream_fire(1);
         assert!(reg.honesty_stream_ok());
         let _ = reg.spawn_medium_field(
@@ -503,13 +673,20 @@ mod tests {
             Team::GLA,
             Vec3::ZERO,
             0,
-            false,
+            AnthraxResidualTier::None,
         );
         reg.record_spray_fire(2);
         assert!(reg.honesty_spray_ok());
-        let _ = reg.spawn_death_field(ObjectId(1), Team::GLA, Vec3::ZERO, 0, false);
+        let _ = reg.spawn_death_field(
+            ObjectId(1),
+            Team::GLA,
+            Vec3::ZERO,
+            0,
+            AnthraxResidualTier::None,
+        );
         assert!(reg.honesty_death_field_ok());
         assert!(reg.honesty_host_path_ok());
-        assert_eq!(reg.active_count(), 2);
+        // gamma medium + base medium + death field
+        assert_eq!(reg.active_count(), 3);
     }
 }
