@@ -2837,6 +2837,15 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u8(&mut self.gattling_fire_level)?;
         xfer.xfer_marker_label("HowitzerFireLevel")?;
         xfer.xfer_u8(&mut self.howitzer_fire_level)?;
+        // ContinuousFireCoast residual bookkeeping (appended).
+        xfer.xfer_marker_label("GattlingCoastUntilFrame")?;
+        xfer.xfer_u32(&mut self.gattling_coast_until_frame)?;
+        xfer.xfer_marker_label("HowitzerCoastUntilFrame")?;
+        xfer.xfer_u32(&mut self.howitzer_coast_until_frame)?;
+        xfer.xfer_marker_label("GattlingCoastApplications")?;
+        xfer.xfer_u32(&mut self.gattling_coast_applications)?;
+        xfer.xfer_marker_label("HowitzerCoastApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_coast_applications)?;
         Ok(())
     }
 }
@@ -2979,6 +2988,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_consecutive: 0,
                 gattling_fire_level: 0,
                 howitzer_fire_level: 0,
+                gattling_coast_until_frame: 0,
+                howitzer_coast_until_frame: 0,
+                gattling_coast_applications: 0,
+                howitzer_coast_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;

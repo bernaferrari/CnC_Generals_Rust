@@ -571,6 +571,9 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                         crate::game_logic::host_aurora_bomb::HostAuroraBombKind::FuelAir => {
                             AIRF_AURORA_BOMB_PRIMARY_WEAPON
                         }
+                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::FuelAirSupW => {
+                            SUPW_AURORA_FUEL_BOMB_WEAPON
+                        }
                         crate::game_logic::host_aurora_bomb::HostAuroraBombKind::Standard => {
                             AURORA_BOMB_PRIMARY_WEAPON
                         }
