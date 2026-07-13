@@ -12,6 +12,8 @@
 //! - ShaderClass::_PresetAdditiveShader residual name honesty
 //! - SegLineRenderer TILED_TEXTURE_MAP residual when Tile=Yes
 //! - UV_Offset_Rate residual (0, ScrollRate) V-scroll component
+//! - Soft-edge RGB innerAlpha premultiply residual in multi-beam layer pack
+//!   (C++ W3DLaserDraw: `red = inner + scale*(outer-inner)*innerAlpha`)
 //!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
@@ -165,11 +167,15 @@ pub struct MultiBeamLayerResidual {
     pub scroll_uv: f32,
 }
 
-/// Retail W3DLaserDraw multi-beam soft-edge width/color lerp residual.
+/// Retail W3DLaserDraw multi-beam soft-edge width/color residual with innerAlpha premul.
 ///
-/// C++: `scale = i / (numBeams - 1)`;
-/// `width = inner + scale * (outer - inner)`;
-/// color/alpha lerp similarly. Fail-closed vs full additive GPU cylinders.
+/// C++ (`W3DLaserDraw` constructor):
+/// - `scale = i / (numBeams - 1)`
+/// - `width = inner + scale * (outer - inner)`
+/// - multi-beam RGB: `inner + scale * (outer - inner) * innerAlpha`
+/// - multi-beam alpha: `innerAlpha + scale * (outerAlpha - innerAlpha)`
+/// - single beam RGB: `inner * innerAlpha` (full premultiply)
+/// Fail-closed vs full additive GPU cylinders / live texture atlas sample.
 pub fn multi_beam_layer_residuals(
     num_beams: u32,
     inner_width: f32,
@@ -183,17 +189,29 @@ pub fn multi_beam_layer_residuals(
 ) -> Vec<MultiBeamLayerResidual> {
     let n = num_beams.max(1);
     let mut layers = Vec::with_capacity(n as usize);
+    let ia = inner_color.3;
     for i in 0..n {
         let (scale, width, color) = if n == 1 {
-            (0.0, inner_width * width_scalar, inner_color)
+            // C++ numBeams==1: red/green/blue = inner * innerAlpha.
+            (
+                0.0,
+                inner_width * width_scalar,
+                (
+                    inner_color.0 * ia,
+                    inner_color.1 * ia,
+                    inner_color.2 * ia,
+                    ia,
+                ),
+            )
         } else {
             let scale = i as f32 / (n as f32 - 1.0);
             let width =
                 (inner_width + scale * (outer_width - inner_width)) * width_scalar;
+            // C++ channel-delta × innerAlpha on RGB; alpha lerps without extra premul.
             let color = (
-                inner_color.0 + scale * (outer_color.0 - inner_color.0),
-                inner_color.1 + scale * (outer_color.1 - inner_color.1),
-                inner_color.2 + scale * (outer_color.2 - inner_color.2),
+                inner_color.0 + scale * (outer_color.0 - inner_color.0) * ia,
+                inner_color.1 + scale * (outer_color.1 - inner_color.1) * ia,
+                inner_color.2 + scale * (outer_color.2 - inner_color.2) * ia,
                 inner_color.3 + scale * (outer_color.3 - inner_color.3),
             );
             (scale, width, color)
@@ -216,19 +234,41 @@ pub fn multi_beam_layer_residuals(
     layers
 }
 
-/// Honesty: OrbitalLaser multi-beam soft-edge residual params.
+/// Honesty: OrbitalLaser multi-beam soft-edge residual params (premul RGB).
 pub fn honesty_orbital_multi_beam_layers(layers: &[MultiBeamLayerResidual]) -> bool {
     if layers.len() != ORBITAL_LASER_NUM_BEAMS as usize {
         return false;
     }
     let inner = layers.first().unwrap();
     let outer = layers.last().unwrap();
+    let ia = ORBITAL_LASER_INNER_COLOR.3;
+    // Outer red premul residual: ir + (or - ir) * ia = 1 + (0 - 1) * ia = 1 - ia.
+    let expected_outer_r = ORBITAL_LASER_INNER_COLOR.0
+        + (ORBITAL_LASER_OUTER_COLOR.0 - ORBITAL_LASER_INNER_COLOR.0) * ia;
     (inner.width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01
         && (outer.width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01
         && (inner.scale - 0.0).abs() < 0.001
         && (outer.scale - 1.0).abs() < 0.001
         && (inner.color.0 - ORBITAL_LASER_INNER_COLOR.0).abs() < 0.01
         && (outer.color.2 - ORBITAL_LASER_OUTER_COLOR.2).abs() < 0.01
+        && (outer.color.0 - expected_outer_r).abs() < 0.01
+        && honesty_soft_edge_premul_pack_ok(layers)
+}
+
+/// Honesty: multi-beam pack RGB uses C++ innerAlpha premultiply residual.
+pub fn honesty_soft_edge_premul_pack_ok(layers: &[MultiBeamLayerResidual]) -> bool {
+    if layers.is_empty() {
+        return false;
+    }
+    let ia = ORBITAL_LASER_INNER_COLOR.3;
+    let outer = layers.last().unwrap();
+    let expected_outer_r = ORBITAL_LASER_INNER_COLOR.0
+        + (ORBITAL_LASER_OUTER_COLOR.0 - ORBITAL_LASER_INNER_COLOR.0) * ia;
+    // Premul outer red is greater than linear outer red (0.0) when ia < 1.
+    let linear_outer_r = ORBITAL_LASER_OUTER_COLOR.0;
+    (outer.color.0 - expected_outer_r).abs() < 0.01
+        && outer.color.0 > linear_outer_r - 0.001
+        && (ia - 250.0 / 255.0).abs() < 0.001
 }
 
 /// Packed laser segment payload ready for WGPU buffer write.
@@ -632,6 +672,43 @@ mod tests {
         assert!(pack.honesty.honesty_additive_tiled_ok());
         assert!((pack.honesty.uv_offset_v - ORBITAL_LASER_SCROLL_RATE * 1.0).abs() < 0.01);
         assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
+    }
+
+    #[test]
+    fn orbital_soft_edge_premul_pack_residual_honesty() {
+        let ia = ORBITAL_LASER_INNER_COLOR.3;
+        let layers = multi_beam_layer_residuals(
+            ORBITAL_LASER_NUM_BEAMS,
+            ORBITAL_LASER_INNER_BEAM_WIDTH,
+            ORBITAL_LASER_OUTER_BEAM_WIDTH,
+            ORBITAL_LASER_INNER_COLOR,
+            ORBITAL_LASER_OUTER_COLOR,
+            200.0,
+            ORBITAL_LASER_TILING_SCALAR,
+            ORBITAL_LASER_SCROLL_RATE,
+            1.0,
+        );
+        let outer = layers.last().unwrap();
+        let expected_r = 1.0 - ia; // ir=1, or=0 → 1 + (0-1)*ia
+        assert!((outer.color.0 - expected_r).abs() < 0.01);
+        assert!(outer.color.0 > 0.0); // premul > linear outer red (0)
+        assert!(honesty_soft_edge_premul_pack_ok(&layers));
+        assert!(honesty_orbital_multi_beam_layers(&layers));
+        // Single-beam full premultiply residual: RGB = inner * innerAlpha.
+        let single = multi_beam_layer_residuals(
+            1,
+            ORBITAL_LASER_INNER_BEAM_WIDTH,
+            ORBITAL_LASER_OUTER_BEAM_WIDTH,
+            ORBITAL_LASER_INNER_COLOR,
+            ORBITAL_LASER_OUTER_COLOR,
+            100.0,
+            ORBITAL_LASER_TILING_SCALAR,
+            0.0,
+            1.0,
+        );
+        assert_eq!(single.len(), 1);
+        assert!((single[0].color.0 - ia).abs() < 0.01);
+        assert!((single[0].color.3 - ia).abs() < 0.01);
     }
 
 }

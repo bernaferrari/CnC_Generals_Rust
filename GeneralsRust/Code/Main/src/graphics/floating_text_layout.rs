@@ -12,6 +12,7 @@
 //! Host residual also closed (fail-closed vs live Display):
 //! - DisplayString color residual normalize u8 RGBA → f32 (0..1)
 //! - Retail green/yellow cash caption color honesty samples
+//! - DisplayString setText residual (notifyTextChanged when text differs)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -72,6 +73,21 @@ pub fn normalize_display_string_color(rgba: (u8, u8, u8, u8)) -> [f32; 4] {
 pub fn honesty_display_string_color(packed: [f32; 4], rgba: (u8, u8, u8, u8)) -> bool {
     let expected = normalize_display_string_color(rgba);
     (0..4).all(|i| (packed[i] - expected[i]).abs() < 0.001)
+}
+
+/// DisplayString `setText` residual: whether text change notifies residual dirty.
+///
+/// C++ `DisplayString::setText`: if `text == m_textString` return early; else
+/// copy and `notifyTextChanged()`. Host residual returns true when text differs
+/// (changed) and false when equal (no-op). Fail-closed vs live font re-raster.
+#[inline]
+pub fn display_string_set_text_changed(previous: &str, new_text: &str) -> bool {
+    previous != new_text
+}
+
+/// Honesty: setText residual matches C++ early-out vs notifyTextChanged path.
+pub fn honesty_display_string_set_text(previous: &str, new_text: &str, changed: bool) -> bool {
+    display_string_set_text_changed(previous, new_text) == changed
 }
 
 /// Floats per packed layout entry:
@@ -424,6 +440,18 @@ mod tests {
         assert!(honesty_display_string_color(yellow, FLOATING_TEXT_COLOR_YELLOW_U8));
         assert_eq!(FLOATING_TEXT_COLOR_GREEN_U8, (0, 255, 0, 255));
         assert_eq!(FLOATING_TEXT_COLOR_YELLOW_U8, (255, 255, 0, 255));
+    }
+
+    #[test]
+    fn display_string_set_text_residual_honesty() {
+        // Equal text → no change residual (C++ early return).
+        assert!(!display_string_set_text_changed("+$150", "+$150"));
+        assert!(honesty_display_string_set_text("+$150", "+$150", false));
+        // Different text → notifyTextChanged residual.
+        assert!(display_string_set_text_changed("+$150", "+$200"));
+        assert!(honesty_display_string_set_text("+$150", "+$200", true));
+        assert!(display_string_set_text_changed("", "+$0"));
+        assert!(!display_string_set_text_changed("", ""));
     }
 
 }
