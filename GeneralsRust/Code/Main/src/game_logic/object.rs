@@ -278,6 +278,25 @@ pub struct Object {
     /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
     #[serde(default)]
     pub is_troop_crawler_transport: bool,
+
+    /// Host residual: Overlord / Helix portable GattlingCannon addon installed
+    /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
+    /// secondary + passenger ground gattling residual on primary fire.
+    /// Fail-closed: not full portable-structure passenger object spawn.
+    #[serde(default)]
+    pub has_overlord_gattling_addon: bool,
+
+    /// Host residual: Overlord / Helix portable PropagandaTower addon installed
+    /// (`Upgrade_ChinaOverlordPropagandaTower` / Helix equivalent). Emperor tanks
+    /// spawn with this true (innate PropagandaTowerBehavior AffectsSelf).
+    /// Fail-closed: not full portable tower object / PulseFX.
+    #[serde(default)]
+    pub has_overlord_propaganda_addon: bool,
+
+    /// Host residual: HelixContain transport (Slots=5, infantry/vehicle/portable).
+    /// Fail-closed: not multi-exit / napalm bomb special ability matrix.
+    #[serde(default)]
+    pub is_helix_transport: bool,
 }
 
 /// AI behavior states
@@ -423,6 +442,9 @@ impl Object {
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
             is_troop_crawler_transport: false,
+            has_overlord_gattling_addon: false,
+            has_overlord_propaganda_addon: false,
+            is_helix_transport: false,
         }
     }
 
@@ -514,6 +536,9 @@ impl Object {
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
             is_troop_crawler_transport: false,
+            has_overlord_gattling_addon: false,
+            has_overlord_propaganda_addon: false,
+            is_helix_transport: false,
         }
     }
 
@@ -1695,8 +1720,79 @@ impl Object {
     /// Install residual BattleBunker capacity (C++ OCL_OverlordBattleBunker →
     /// ChinaTankOverlordBattleBunker TransportContain Slots=5).
     /// Fail-closed: does not spawn a real portable-structure passenger object.
+    /// Conflicts residual: clears gattling/propaganda addons (exclusive payload).
     pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
         self.overlord_bunker_capacity = Some(slots);
+        // Exclusive ConflictsWith residual (not Emperor innate propaganda).
+        let emperor = crate::game_logic::host_overlord_addons::is_emperor_template(
+            &self.template_name,
+        );
+        self.has_overlord_gattling_addon = false;
+        if !emperor {
+            self.has_overlord_propaganda_addon = false;
+        }
+    }
+
+    /// Install residual portable GattlingCannon addon
+    /// (C++ OCL_OverlordGattlingCannon / OCL_HelixGattlingCannon).
+    /// Equips AA secondary + passenger ground residual on primary fires.
+    /// Fail-closed: not full portable-structure passenger object.
+    pub fn install_overlord_gattling_addon(&mut self) {
+        use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
+        use crate::game_logic::host_overlord_addons::{
+            is_emperor_template, overlord_gattling_air_weapon,
+        };
+        // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
+        let emperor = is_emperor_template(&self.template_name);
+        if !emperor {
+            self.has_overlord_propaganda_addon = false;
+            // Keep overlord-style marker but zero bunker slots.
+            if self.overlord_bunker_capacity.is_some() {
+                self.overlord_bunker_capacity = Some(0);
+            }
+        }
+        self.has_overlord_gattling_addon = true;
+        self.weapon_set_player_upgrade = true;
+        let chain = has_chain_guns_upgrade(&self.applied_upgrades);
+        self.secondary_weapon = Some(overlord_gattling_air_weapon(0, chain));
+        self.continuous_fire_consecutive = 0;
+        self.continuous_fire_level = 0;
+        self.continuous_fire_coast_until_frame = 0;
+        self.continuous_fire_victim = 0;
+    }
+
+    /// Install residual portable PropagandaTower addon
+    /// (C++ OCL_OverlordPropagandaTower / OCL_HelixPropagandaTower).
+    /// Fail-closed: not full portable tower object / PulseFX.
+    pub fn install_overlord_propaganda_addon(&mut self) {
+        // Exclusive ConflictsWith residual vs gattling / bunker.
+        self.has_overlord_gattling_addon = false;
+        if self.overlord_bunker_capacity.is_some() {
+            self.overlord_bunker_capacity = Some(0);
+        }
+        self.has_overlord_propaganda_addon = true;
+    }
+
+    /// Install residual HelixContain transport (Slots=5).
+    pub fn install_helix_transport(&mut self) {
+        self.is_helix_transport = true;
+        self.max_transport =
+            crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
+        // Helix can hold infantry / vehicle / portable structure residual.
+        // Fail-closed: allow_inside matrix simplified to transport capacity.
+    }
+
+    /// True when portable gattling residual is active on this host.
+    pub fn has_overlord_gattling_residual(&self) -> bool {
+        self.has_overlord_gattling_addon
+    }
+
+    /// True when portable / innate propaganda residual is active on this host.
+    pub fn has_overlord_propaganda_residual(&self) -> bool {
+        self.has_overlord_propaganda_addon
+            || crate::game_logic::host_overlord_addons::is_emperor_template(
+                &self.template_name,
+            )
     }
 
     /// Install residual GLA Battle Bus transport:

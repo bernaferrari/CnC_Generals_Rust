@@ -1,3 +1,42 @@
+## Residual Host Playability — Overlord/Helix Addons + Nuke Cannon Primary (2026-07-13)
+**Closed (host-testable China Overlord/Helix/Emperor addons + Nuke Cannon primary residual):**
+1. **Overlord gattling / propaganda tower addons residual**
+   (`ChinaTankOverlord` / general variants; Helix / Emperor hosts):
+   - `Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent installs residual
+     portable gattling: SECONDARY AA `GattlingBuildingGunAir` (5 / 400 / 250ms)
+     + passenger ground residual `GattlingBuildingGun` (10) on PRIMARY fires.
+   - `Upgrade_ChinaOverlordPropagandaTower` / Helix equivalent enables propaganda
+     pulse on the host (Radius **150**, heal **1%**/s base, **2%**/s upgraded).
+   - ConflictsWith residual: exclusive gattling / propaganda / bunker install
+     (Emperor keeps innate propaganda when gattling is installed).
+   - Honesty: `honesty_overlord_gattling_ok` / propaganda install + heal.
+2. **Emperor tank residual** (`Tank_ChinaTankEmperor`):
+   - Innate `PropagandaTowerBehavior` residual on spawn (AffectsSelf heal rates 1%/2%).
+   - Optional gattling upgrade residual (same portable path).
+3. **Helix residual** (`ChinaVehicleHelix`):
+   - `HelixContain` Slots=**5** transport residual on spawn.
+   - Same gattling / propaganda / bunker addon residual install path.
+4. **Nuke Cannon primary residual** (`ChinaVehicleNukeCannon`):
+   - PRIMARY `NukeCannonGun` area residual: PrimaryDamage **400** / radius **50**
+     + SecondaryDamage **20** / radius **60**, range **350**, delay **300** frames.
+   - Impact spawns residual `MediumRadiationField` DoT (15 / 50 / 750ms ticks / 30s).
+   - Neutron secondary remains existing host residual (unchanged).
+   - Honesty: `honesty_nuke_cannon_primary_ok` / radiation / host_path.
+5. Tests (not log-only):
+   - `overlord_gattling_addon_residual_install_and_fire`
+   - `overlord_propaganda_addon_residual_heals_allies`
+   - `emperor_innate_propaganda_and_helix_transport_residual`
+   - `nuke_cannon_primary_residual_area_and_radiation`
+   - module unit tests in `host_overlord_addons.rs` / `host_nuke_cannon.rs`
+6. golden_skirmish lib tests: PASS (full vertical slice + retail map + synthetic).
+
+**Still residual (fail-closed, not claimed):**
+- Full OCL portable-structure passenger object + DamageModule share matrix
+- Full W3DOverlord*Draw / W3DDependencyModelDraw bone attach / CONTINUOUS_FIRE_* anim
+- Full Helix NapalmBomb special ability + BlackNapalm weapon-set residual
+- Full NukeCannon DeployStyleAIUpdate unpack / projectile lob / ScatterRadiusVsInfantry
+- Network addon / radiation replication (network deferred)
+
 ## Residual Host Playability — China Troop Crawler (2026-07-13)
 **Closed (host-testable China Troop Crawler transport + detector + assault deploy residual):**
 1. **Troop Crawler residual** (`ChinaVehicleTroopCrawler` / Tank_/Nuke_ variants):
@@ -44,8 +83,9 @@
 **Still residual (fail-closed, not claimed):**
 - Full flamethrower ProjectileStream / garrison-clear AllowAttackGarrisonedBldgs matrix
 - Full FiringTracker model-condition CONTINUOUS_FIRE_* animation / VoiceRapidFire full matrix
-- Listening Outpost residual (stealth detect + transport + armed-riders dummy)
-- Overlord/Helix gattling payload / building Gattling continuous-fire ramp (structure uses base-defense residual without full ramp)
+- Listening Outpost residual (closed 2026-07-13 — detect+transport)
+- Overlord/Helix gattling payload residual (closed 2026-07-13 — portable addon path)
+- Building Gattling continuous-fire ramp (structure uses base-defense residual without full ramp)
 - Network flame / continuous-fire replication (network deferred)
 
 ## Residual Host Playability — GLA Marauder + Combat Cycle (2026-07-13)

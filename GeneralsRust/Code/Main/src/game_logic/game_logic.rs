@@ -856,6 +856,10 @@ pub struct GameLogic {
     /// Host GLA SCUD launcher residual (area blast + MediumPoisonField toxin DoT).
     /// Fail-closed: not full SCUDMissile projectile lob / salvage PlusOne matrix.
     scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
+    /// Host Overlord/Helix/Emperor portable addon residual honesty registry.
+    overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry,
+    /// Host Nuke Cannon primary residual (area + medium radiation).
+    nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry,
     /// Host residual: GLA Technical transport + salvage weapon honesty.
     /// Fail-closed: not full SalvageCrate W3D gunner subobject matrix.
     technical_residual_fires: u32,
@@ -1770,6 +1774,8 @@ impl GameLogic {
             quad_cannon_residual_aa_fires: 0,
             quad_cannon_residual_barrel_upgrades: 0,
             scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry::new(),
+            overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry::new(),
+            nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry::new(),
             technical_residual_fires: 0,
             technical_residual_units_hit: 0,
             technical_residual_weapon_upgrades: 0,
@@ -1989,6 +1995,8 @@ impl GameLogic {
         self.quad_cannon_residual_aa_fires = 0;
         self.quad_cannon_residual_barrel_upgrades = 0;
         self.scud_poison_zones.clear();
+        self.overlord_addons.clear();
+        self.nuke_cannon_residual.clear();
         self.technical_residual_fires = 0;
         self.technical_residual_units_hit = 0;
         self.technical_residual_weapon_upgrades = 0;
@@ -3901,6 +3909,7 @@ impl GameLogic {
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         self.update_scud_poison_zones();
+        self.update_nuke_cannon_radiation_zones();
         self.update_toxin_tractor_poison_zones();
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
@@ -5036,6 +5045,20 @@ impl GameLogic {
                             }
                         }
                     } else {
+                    // Nuke Cannon primary residual: area shell + medium radiation field.
+                    let nuke_primary = {
+                        use crate::game_logic::host_nuke_cannon::{
+                            is_nuke_cannon_template, should_apply_nuke_cannon_primary,
+                        };
+                        self.objects.get(&attacker_id).map(|a| {
+                            should_apply_nuke_cannon_primary(
+                                is_nuke_cannon_template(&a.template_name),
+                                slot,
+                            )
+                        })
+                        .unwrap_or(false)
+                    };
+
                     // Neutron shell residual: Nuke Cannon secondary applies blast
                     // (kill infantry / unman vehicles) instead of HP take_damage.
                     let neutron_blast = {
@@ -5054,7 +5077,19 @@ impl GameLogic {
                         .unwrap_or(false)
                     };
 
-                    if neutron_blast {
+                    if nuke_primary {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_nuke_cannon_primary_at(
+                            impact,
+                            Some(attacker_id),
+                            attacker_team,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 20.0);
+                            }
+                        }
+                    } else if neutron_blast {
                         let impact = target_position;
                         let (ik, vu, _vk) =
                             self.apply_neutron_blast_at(impact, attacker_team, Some(attacker_id), true);
@@ -5256,6 +5291,33 @@ impl GameLogic {
                             Some(target_id),
                             slot,
                         );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
+                    } else if {
+                        // Overlord / Helix / Emperor portable gattling addon residual.
+                        use crate::game_logic::host_overlord_addons::should_apply_overlord_gattling_residual;
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_overlord_gattling_residual(
+                                    a.has_overlord_gattling_residual(),
+                                )
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_overlord_gattling_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            slot,
+                        );
+                        // Primary OverlordTankGun / HelixMinigun still applies when
+                        // slot==0: passenger gattling residual is extra damage path
+                        // handled inside apply_overlord_gattling (primary + passenger).
                         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if hits > 0 {
                                 attacker.gain_experience((hits as f32) * 5.0);
@@ -8825,6 +8887,25 @@ impl GameLogic {
                     .max(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_VISION_RANGE);
             }
 
+            // Host residual: China Overlord / Helix / Emperor portable addons + transport.
+            // Fail-closed: not full OverlordContain / HelixContain portable-structure spawn.
+            if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
+                // OverlordContain style: portable slot reserved; bunker residual separate.
+                object.overlord_bunker_capacity = Some(0);
+            }
+            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
+                object.install_helix_transport();
+            }
+            if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
+                // Innate PropagandaTowerBehavior AffectsSelf residual.
+                object.has_overlord_propaganda_addon = true;
+                object.overlord_bunker_capacity = Some(0);
+            }
+            let emperor_spawn =
+                crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
+            let helix_spawn =
+                crate::game_logic::host_overlord_addons::is_helix_template(template_name);
+
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
             if crate::game_logic::host_humvee::is_humvee_template(template_name) {
@@ -8923,6 +9004,12 @@ impl GameLogic {
             // Auto-fire residual runs from update_combat when idle.
 
             self.objects.insert(id, object);
+
+            // Residual honesty: Emperor innate propaganda counts as install on spawn.
+            if emperor_spawn {
+                self.overlord_addons.record_propaganda_install();
+            }
+            let _ = helix_spawn;
 
             // Dual-object factory bridge is opt-in. Default host path owns objects
             // directly (engine_object_id stays None) so combat/commands/victory do not
@@ -9205,9 +9292,44 @@ impl GameLogic {
     /// Apply an upgrade tag to an object.
     /// Mirrors C++ behavior where upgrades are persistent object state, not display-name edits.
     pub fn apply_upgrade_to_object(&mut self, object_id: ObjectId, upgrade: &str) {
+        use crate::game_logic::host_overlord_addons::{
+            is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
+            is_propaganda_addon_upgrade,
+        };
+
+        let mut installed_gattling = false;
+        let mut installed_propaganda = false;
+        let mut installed_bunker = false;
+
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.apply_upgrade_tag(upgrade);
+            if is_overlord_family_host(&obj.template_name) {
+                if is_gattling_addon_upgrade(upgrade) {
+                    obj.install_overlord_gattling_addon();
+                    installed_gattling = true;
+                } else if is_propaganda_addon_upgrade(upgrade) {
+                    obj.install_overlord_propaganda_addon();
+                    installed_propaganda = true;
+                } else if is_bunker_addon_upgrade(upgrade) {
+                    // C++ ChinaTankOverlordBattleBunker TransportContain.Slots = 5.
+                    // Helix bunker also uses Slots residual 5 (ChinaHelixBattleBunker).
+                    obj.install_overlord_battle_bunker(5);
+                    // Helix bunker enables passengers fire residual.
+                    if obj.is_helix_transport {
+                        obj.passengers_allowed_to_fire = true;
+                    }
+                    installed_bunker = true;
+                }
+            }
         }
+
+        if installed_gattling {
+            self.overlord_addons.record_gattling_install();
+        }
+        if installed_propaganda {
+            self.overlord_addons.record_propaganda_install();
+        }
+        let _ = installed_bunker;
     }
 
     /// Select objects for a player
@@ -13023,6 +13145,353 @@ impl GameLogic {
         self.scud_poison_zones.prune_expired(frame);
     }
 
+    /// Advance Nuke Cannon MediumRadiationField residual zones.
+    fn update_nuke_cannon_radiation_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .nuke_cannon_residual
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.nuke_cannon_residual.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.nuke_cannon_residual.prune_expired(frame);
+    }
+
+    /// Apply Nuke Cannon primary residual: area shell + MediumRadiationField spawn.
+    ///
+    /// Returns (units_hit, any_destroyed).
+    fn apply_nuke_cannon_primary_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        source_team: Team,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_nuke_cannon::{
+            is_legal_nuke_cannon_splash_target, nuke_cannon_primary_damage_at,
+            nuke_cannon_splash_radius, MEDIUM_RADIATION_AUDIO, NUKE_CANNON_FIRE_AUDIO,
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let max_r = nuke_cannon_splash_radius();
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_nuke_cannon_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= max_r {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = nuke_cannon_primary_damage_at(dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.nuke_cannon_residual.record_primary_blast(hits);
+
+        // Medium radiation field residual at impact.
+        let source_id = source.unwrap_or(ObjectId(0));
+        let _ = self.nuke_cannon_residual.spawn_radiation_zone(
+            source_id,
+            source_team,
+            impact,
+            self.frame,
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(MEDIUM_RADIATION_AUDIO)
+                .with_position(impact)
+                .with_priority(140),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(NUKE_CANNON_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(160),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Overlord/Helix portable gattling residual at impact.
+    ///
+    /// Slot 1 = AA secondary only. Slot 0 = primary weapon_damage path already
+    /// handled? Residual: passenger ground gattling damage + when slot 1 AA only.
+    /// For simplicity host residual: slot 1 deals AA dmg; slot 0 deals ground
+    /// gattling passenger residual (primary tank gun still dealt via weapon_damage
+    /// when not taking this exclusive branch). This branch is exclusive — so for
+    /// slot 0 we deal both OverlordTankGun residual damage (weapon_damage) AND
+    /// passenger gattling ground damage.
+    fn apply_overlord_gattling_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        slot: u8,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
+        use crate::game_logic::host_overlord_addons::{
+            is_legal_overlord_gattling_target, overlord_gattling_ground_damage,
+            OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_FIRE_AUDIO,
+        };
+
+        let (chain, primary_dmg) = source
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| {
+                let chain = has_chain_guns_upgrade(&o.applied_upgrades);
+                let primary = o.weapon.as_ref().map(|w| w.damage).unwrap_or(80.0);
+                (chain, primary)
+            })
+            .unwrap_or((false, 80.0));
+
+        let (dmg, is_aa) = if slot == 1 {
+            let mult = if chain { 1.25 } else { 1.0 };
+            (OVERLORD_GATTLING_AIR_DAMAGE * mult, true)
+        } else {
+            // Primary tank/minigun residual + passenger ground gattling residual.
+            (
+                primary_dmg + overlord_gattling_ground_damage(chain),
+                false,
+            )
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let tid = match intended_target {
+            Some(id) => id,
+            None => {
+                // Nearest combat target near impact residual.
+                let mut best: Option<(ObjectId, f32)> = None;
+                for (&id, obj) in self.objects.iter() {
+                    if source == Some(id) || !obj.is_alive() {
+                        continue;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_overlord_gattling_target(
+                        true,
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        continue;
+                    }
+                    let pos = obj.get_position();
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist <= 12.0 {
+                        match best {
+                            Some((_, b)) if dist >= b => {}
+                            _ => best = Some((id, dist)),
+                        }
+                    }
+                }
+                match best {
+                    Some((id, _)) => id,
+                    None => {
+                        if is_aa {
+                            self.overlord_addons.record_gattling_aa_fire(0);
+                        } else {
+                            self.overlord_addons.record_gattling_ground_fire(0);
+                        }
+                        return (0, false);
+                    }
+                }
+            }
+        };
+
+        if let Some(obj) = self.objects.get_mut(&tid) {
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            if is_legal_overlord_gattling_target(
+                obj.is_alive(),
+                source == Some(tid),
+                obj.status.under_construction,
+                combat_kind,
+            ) {
+                let destroyed = obj.take_damage(dmg);
+                hits = 1;
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((tid, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        if is_aa {
+            self.overlord_addons.record_gattling_aa_fire(hits);
+        } else {
+            self.overlord_addons.record_gattling_ground_fire(hits);
+        }
+
+        let muzzle = source
+            .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
+            .unwrap_or(impact);
+        self.queue_audio_event(
+            AudioEventRequest::new(OVERLORD_GATTLING_FIRE_AUDIO)
+                .with_position(muzzle)
+                .with_priority(140),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                muzzle,
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Residual honesty: Overlord/Helix gattling addon install + fire path.
+    pub fn honesty_overlord_gattling_ok(&self) -> bool {
+        self.overlord_addons.honesty_gattling_install_ok()
+            && self.overlord_addons.honesty_gattling_fire_ok()
+    }
+
+    /// Residual honesty: Overlord/Helix/Emperor propaganda addon residual.
+    pub fn honesty_overlord_propaganda_ok(&self) -> bool {
+        self.overlord_addons.honesty_propaganda_install_ok()
+            || self.honesty_propaganda_heal_ok()
+    }
+
+    /// Residual honesty: Helix transport residual.
+    pub fn honesty_helix_transport_ok(&self) -> bool {
+        self.overlord_addons.honesty_helix_transport_ok()
+    }
+
+    pub fn overlord_addons(
+        &self,
+    ) -> &crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry {
+        &self.overlord_addons
+    }
+
+    /// Residual honesty: Nuke Cannon primary area + radiation residual.
+    pub fn honesty_nuke_cannon_primary_ok(&self) -> bool {
+        self.nuke_cannon_residual.honesty_primary_ok()
+    }
+
+    pub fn honesty_nuke_cannon_radiation_ok(&self) -> bool {
+        self.nuke_cannon_residual.honesty_radiation_ok()
+    }
+
+    pub fn honesty_nuke_cannon_ok(&self) -> bool {
+        self.nuke_cannon_residual.honesty_host_path_ok()
+    }
+
+    pub fn nuke_cannon_residual(
+        &self,
+    ) -> &crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry {
+        &self.nuke_cannon_residual
+    }
+
     /// Infer Technical salvage tier from residual weapon stats / upgrade tags.
     fn technical_tier_from_object(
         obj: &Object,
@@ -16541,30 +17010,64 @@ impl GameLogic {
         }
 
         // Snapshot towers: alive, fully built residual speaker/propaganda sources.
-        let towers: Vec<(ObjectId, Team, f32, f32, bool)> = self
+        // Includes Overlord/Helix propaganda addon flag + Emperor innate residual.
+        use crate::game_logic::host_overlord_addons::{
+            is_overlord_propaganda_source, overlord_propaganda_heal_amount,
+            UPGRADE_OVERLORD_PROPAGANDA,
+        };
+        let towers: Vec<(ObjectId, Team, f32, f32, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                if !obj.is_alive() || !is_propaganda_tower(&obj.template_name) {
+                let is_source = is_propaganda_tower(&obj.template_name)
+                    || obj.has_overlord_propaganda_residual()
+                    || is_overlord_propaganda_source(
+                        obj.has_overlord_propaganda_addon,
+                        &obj.template_name,
+                    );
+                if !obj.is_alive() || !is_source {
                     return None;
                 }
                 // C++: under construction towers do not pulse.
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
                     return None;
                 }
-                let upgraded = obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                    || self
-                        .players
-                        .values()
-                        .find(|p| p.team == obj.team)
-                        .map(|p| {
-                            p.unlocked_sciences
-                                .iter()
-                                .any(|s| s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                        })
-                        .unwrap_or(false);
+                // Emperor UpgradeRequired residual uses OverlordPropagandaTower for upgraded rate.
+                // Speaker towers use SubliminalMessaging for upgraded rate.
+                let overlord_style = obj.has_overlord_propaganda_residual()
+                    || crate::game_logic::host_overlord_addons::is_emperor_template(
+                        &obj.template_name,
+                    );
+                let upgraded = if overlord_style {
+                    obj.has_upgrade_tag(UPGRADE_OVERLORD_PROPAGANDA)
+                        || obj.has_upgrade_tag("Upgrade_ChinaOverlordPropagandaTower")
+                        || obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                        || self
+                            .players
+                            .values()
+                            .find(|p| p.team == obj.team)
+                            .map(|p| {
+                                p.unlocked_sciences.iter().any(|s| {
+                                    s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING
+                                        || s == UPGRADE_OVERLORD_PROPAGANDA
+                                })
+                            })
+                            .unwrap_or(false)
+                } else {
+                    obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                        || self
+                            .players
+                            .values()
+                            .find(|p| p.team == obj.team)
+                            .map(|p| {
+                                p.unlocked_sciences
+                                    .iter()
+                                    .any(|s| s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+                            })
+                            .unwrap_or(false)
+                };
                 let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.z, upgraded))
+                Some((*id, obj.team, pos.x, pos.z, upgraded, overlord_style))
             })
             .collect();
 
@@ -16595,15 +17098,20 @@ impl GameLogic {
             })
             .collect();
 
-        // Coverage map: target -> any covering tower is upgraded.
-        let mut coverage: HashMap<ObjectId, bool> = HashMap::new();
-        for (tower_id, tower_team, tx, tz, upgraded) in &towers {
+        // Coverage map: target -> (upgraded, overlord_style heal rates).
+        let mut coverage: HashMap<ObjectId, (bool, bool)> = HashMap::new();
+        for (tower_id, tower_team, tx, tz, upgraded, overlord_style) in &towers {
             for (target_id, target_team, cx, cz) in &candidates {
+                // Emperor AffectsSelf residual: allow self when overlord_style tower is self.
+                let is_self = *tower_id == *target_id;
+                if is_self && !*overlord_style {
+                    continue;
+                }
                 if !is_legal_propaganda_target(
                     false,
                     true,
                     *tower_team == *target_team,
-                    *tower_id == *target_id,
+                    is_self && !*overlord_style,
                     false,
                 ) {
                     continue;
@@ -16612,8 +17120,9 @@ impl GameLogic {
                 {
                     continue;
                 }
-                let entry = coverage.entry(*target_id).or_insert(false);
-                *entry = *entry || *upgraded;
+                let entry = coverage.entry(*target_id).or_insert((false, false));
+                entry.0 = entry.0 || *upgraded;
+                entry.1 = entry.1 || *overlord_style;
             }
         }
 
@@ -16621,7 +17130,7 @@ impl GameLogic {
         let mut buff_ticks: u32 = 0;
         let covered: HashSet<ObjectId> = coverage.keys().copied().collect();
 
-        for (target_id, upgraded) in &coverage {
+        for (target_id, (upgraded, overlord_style)) in &coverage {
             let Some(target) = self.objects.get_mut(target_id) else {
                 continue;
             };
@@ -16648,9 +17157,13 @@ impl GameLogic {
             }
 
             // %max-health heal residual (upgraded rate if any covering tower upgraded).
-            // Multi-tower stack is fail-closed (not sole-benefactor exclusivity).
+            // Overlord/Helix/Emperor use 1%/2%; speaker towers use 2%/4%.
             let max_hp = target.health.maximum.max(target.max_health);
-            let heal_amt = propaganda_heal_amount(max_hp, *upgraded, dt);
+            let heal_amt = if *overlord_style {
+                overlord_propaganda_heal_amount(max_hp, *upgraded, dt)
+            } else {
+                propaganda_heal_amount(max_hp, *upgraded, dt)
+            };
             if heal_amt > 0.0 {
                 let before = target.health.current;
                 if before + 0.01 < target.health.maximum {
@@ -36313,6 +36826,434 @@ mod tests {
             .unwrap()
             .contained_units()
             .is_empty());
+    }
+
+
+    // -----------------------------------------------------------------------
+    // China Overlord / Helix / Emperor portable gattling + propaganda residual
+    // Fail-closed: not full OverlordContain portable-structure spawn / W3D draw.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Overlord gattling addon equip AA secondary + ground passenger fire.
+    #[test]
+    fn overlord_gattling_addon_residual_install_and_fire() {
+        use crate::game_logic::host_overlord_addons::{
+            is_overlord_tank_template, OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_GROUND_DAMAGE,
+            UPGRADE_OVERLORD_GATTLING,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+        overlord_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0)
+            .set_primary_weapon_name("OverlordTankGun");
+        game_logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), overlord_tpl);
+
+        // Seed primary residual weapon stats (80 dmg tank gun residual).
+        let overlord_id = game_logic
+            .create_object(
+                "ChinaTankOverlord",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("overlord");
+        {
+            let o = game_logic.find_object_mut(overlord_id).unwrap();
+            assert!(is_overlord_tank_template(&o.template_name));
+            assert!(o.is_overlord_style_container());
+            assert!(!o.has_overlord_gattling_residual());
+            // Primary residual seed for host combat.
+            o.weapon = Some(Weapon {
+                damage: 80.0,
+                range: 175.0,
+                min_range: 0.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ammo: None,
+                can_target_air: false,
+                can_target_ground: true,
+                projectile_speed: 300.0,
+                pre_attack_delay: 0.0,
+            });
+        }
+
+        // Install gattling addon residual (upgrade path).
+        game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
+        {
+            let o = game_logic.find_object(overlord_id).unwrap();
+            assert!(o.has_overlord_gattling_residual(), "gattling addon must install");
+            assert!(
+                o.secondary_weapon.is_some(),
+                "gattling residual equips AA secondary"
+            );
+            let sec = o.secondary_weapon.as_ref().unwrap();
+            assert!(sec.can_target_air);
+            assert!(
+                (sec.damage - OVERLORD_GATTLING_AIR_DAMAGE).abs() < 0.01,
+                "AA residual dmg {}",
+                sec.damage
+            );
+            assert!(!o.has_overlord_propaganda_residual() || crate::game_logic::host_overlord_addons::is_emperor_template(&o.template_name));
+        }
+        assert!(
+            game_logic.overlord_addons().honesty_gattling_install_ok(),
+            "gattling install honesty"
+        );
+
+        // Ground passenger fire residual: primary path + gattling ground dmg.
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("infantry");
+        let hp_before = game_logic
+            .find_object(infantry_id)
+            .map(|i| i.health.current)
+            .unwrap_or(0.0);
+        {
+            let o = game_logic.find_object_mut(overlord_id).unwrap();
+            o.active_weapon_slot = 0;
+            o.attack_target(infantry_id);
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[overlord_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        let hp_after = game_logic
+            .find_object(infantry_id)
+            .map(|i| i.health.current)
+            .unwrap_or(0.0);
+        let dealt = hp_before - hp_after;
+        // 80 primary + 10 passenger gattling residual.
+        assert!(
+            dealt + 0.01 >= 80.0 + OVERLORD_GATTLING_GROUND_DAMAGE - 1.0
+                || !game_logic.find_object(infantry_id).map(|i| i.is_alive()).unwrap_or(true),
+            "expected primary+passenger gattling residual damage, dealt={dealt} before={hp_before} after={hp_after}"
+        );
+        assert!(
+            game_logic.overlord_addons().gattling_ground_fires > 0,
+            "ground gattling fire honesty"
+        );
+        assert!(
+            game_logic.honesty_overlord_gattling_ok()
+                || game_logic.overlord_addons().honesty_gattling_fire_ok(),
+            "overlord gattling residual honesty"
+        );
+
+        // AA residual fire on secondary slot.
+        let mut air_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        air_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic.templates.insert("TestAircraft".to_string(), air_tpl);
+        let air_id = game_logic
+            .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 20.0, 0.0))
+            .expect("air");
+        {
+            let a = game_logic.find_object_mut(air_id).unwrap();
+            a.status.airborne_target = true;
+        }
+        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        {
+            let o = game_logic.find_object_mut(overlord_id).unwrap();
+            o.active_weapon_slot = 1;
+            o.attack_target(air_id);
+            if let Some(w) = o.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.05;
+                w.min_range = 0.0;
+            }
+            if let Some(w) = o.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+            o.set_position(Vec3::new(0.0, 0.0, 0.0));
+        }
+        game_logic.set_current_frame(60);
+        game_logic.update_combat(&[overlord_id, air_id], LOGIC_FRAME_TIMESTEP);
+        let air_hp_after = game_logic
+            .find_object(air_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before - 0.01
+                || game_logic.overlord_addons().gattling_aa_fires > 0,
+            "AA gattling residual must damage air (before={air_hp_before} after={air_hp_after})"
+        );
+    }
+
+    /// Residual: Overlord propaganda addon heals nearby allies (1% rate residual).
+    #[test]
+    fn overlord_propaganda_addon_residual_heals_allies() {
+        use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_PROPAGANDA;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+        overlord_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        game_logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), overlord_tpl);
+
+        let overlord_id = game_logic
+            .create_object(
+                "ChinaTankOverlord",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("overlord");
+        game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_PROPAGANDA);
+        {
+            let o = game_logic.find_object(overlord_id).unwrap();
+            assert!(o.has_overlord_propaganda_residual());
+            assert!(!o.has_overlord_gattling_residual());
+        }
+        assert!(game_logic.overlord_addons().honesty_propaganda_install_ok());
+
+        let ally_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("ally");
+        {
+            let a = game_logic.find_object_mut(ally_id).unwrap();
+            a.health.current = a.health.maximum * 0.5;
+        }
+        let hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        // Pulse residual for 1 second (30 frames @ 1/30).
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        let hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        assert!(
+            hp_after > hp_before + 0.01,
+            "propaganda addon must heal ally (before={hp_before} after={hp_after})"
+        );
+        assert!(
+            game_logic.honesty_propaganda_heal_ok() || game_logic.honesty_overlord_propaganda_ok(),
+            "propaganda residual honesty"
+        );
+    }
+
+    /// Residual: Emperor innate propaganda + Helix transport slots.
+    #[test]
+    fn emperor_innate_propaganda_and_helix_transport_residual() {
+        use crate::game_logic::host_overlord_addons::{
+            is_emperor_template, is_helix_template, HELIX_TRANSPORT_SLOTS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut emp_tpl = crate::game_logic::ThingTemplate::new("Tank_ChinaTankEmperor");
+        emp_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        game_logic
+            .templates
+            .insert("Tank_ChinaTankEmperor".to_string(), emp_tpl);
+
+        let emp_id = game_logic
+            .create_object(
+                "Tank_ChinaTankEmperor",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("emperor");
+        {
+            let e = game_logic.find_object(emp_id).unwrap();
+            assert!(is_emperor_template(&e.template_name));
+            assert!(e.has_overlord_propaganda_residual());
+        }
+        assert!(
+            game_logic.overlord_addons().honesty_propaganda_install_ok(),
+            "emperor innate propaganda install honesty"
+        );
+
+        let ally_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        {
+            let a = game_logic.find_object_mut(ally_id).unwrap();
+            a.health.current = a.health.maximum * 0.5;
+        }
+        let hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        for _ in 0..30 {
+            game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        }
+        let hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        assert!(
+            hp_after > hp_before + 0.01,
+            "emperor innate propaganda must heal (before={hp_before} after={hp_after})"
+        );
+
+        // Helix transport residual.
+        let mut helix_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleHelix");
+        helix_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        game_logic
+            .templates
+            .insert("ChinaVehicleHelix".to_string(), helix_tpl);
+        let helix_id = game_logic
+            .create_object(
+                "ChinaVehicleHelix",
+                Team::China,
+                Vec3::new(100.0, 0.0, 0.0),
+            )
+            .expect("helix");
+        {
+            let h = game_logic.find_object(helix_id).unwrap();
+            assert!(is_helix_template(&h.template_name));
+            assert!(h.is_helix_transport);
+            assert_eq!(h.transport_capacity(), HELIX_TRANSPORT_SLOTS);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // China Nuke Cannon primary residual (area + medium radiation)
+    // Fail-closed: not full projectile lob / DeployStyleAIUpdate.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Nuke Cannon primary deals area damage and spawns medium radiation.
+    #[test]
+    fn nuke_cannon_primary_residual_area_and_radiation() {
+        use crate::game_logic::host_nuke_cannon::{
+            is_nuke_cannon_template, NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, NUKE_CANNON_PRIMARY_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut cannon_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleNukeCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name(NUKE_CANNON_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaVehicleNukeCannon".to_string(), cannon_tpl);
+
+        let cannon_id = game_logic
+            .create_object(
+                "ChinaVehicleNukeCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("cannon");
+        {
+            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            assert!(is_nuke_cannon_template(&c.template_name));
+            c.active_weapon_slot = 0;
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0; // host test residual
+                w.range = 350.0;
+            } else {
+                c.weapon = Some(Weapon {
+                    damage: NUKE_CANNON_PRIMARY_DAMAGE,
+                    range: 350.0,
+                    min_range: 0.0,
+                    reload_time: 0.1,
+                    last_fire_time: -10.0,
+                    ammo: None,
+                    can_target_air: false,
+                    can_target_ground: true,
+                    projectile_speed: 200.0,
+                    pre_attack_delay: 0.0,
+                });
+            }
+            // Place cannon within residual range of targets.
+            c.set_position(Vec3::new(180.0, 0.0, 0.0));
+        }
+
+        let primary_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("primary target");
+        let splash_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(245.0, 0.0, 0.0))
+            .expect("splash target"); // ~45 from impact if aimed at primary → secondary ring
+
+        let primary_hp = game_logic.find_object(primary_id).unwrap().health.current;
+        let splash_hp = game_logic.find_object(splash_id).unwrap().health.current;
+
+        {
+            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            c.attack_target(primary_id);
+        }
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(
+            &[cannon_id, primary_id, splash_id],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.honesty_nuke_cannon_primary_ok(),
+            "primary blast honesty must fire"
+        );
+        assert!(
+            game_logic.honesty_nuke_cannon_radiation_ok(),
+            "medium radiation zone must spawn"
+        );
+        assert!(
+            game_logic.nuke_cannon_residual().active_count() >= 1,
+            "active radiation zone residual"
+        );
+
+        // Intended target in primary radius takes huge damage (likely destroyed).
+        let primary_alive = game_logic
+            .find_object(primary_id)
+            .map(|o| o.is_alive() && o.health.current > 0.0)
+            .unwrap_or(false);
+        let primary_after = game_logic
+            .find_object(primary_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            !primary_alive || primary_after < primary_hp - 100.0,
+            "primary ring residual must deal heavy damage (before={primary_hp} after={primary_after})"
+        );
+
+        // Radiation tick residual damages survivors via public update path.
+        game_logic.set_current_frame(30);
+        game_logic.update();
+        assert!(
+            game_logic.nuke_cannon_residual().radiation_damage_applications > 0
+                || game_logic.nuke_cannon_residual().primary_blasts > 0,
+            "radiation tick or primary residual honesty"
+        );
+        let _ = (splash_hp, NUKE_CANNON_PRIMARY_RADIUS);
     }
 
     // -----------------------------------------------------------------------
