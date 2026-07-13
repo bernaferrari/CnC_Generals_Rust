@@ -1,3 +1,51 @@
+## Residual Host Playability — Wave 47: DeliverPayload DropVariance + VisiblePayload A10 Rack + Crate Geometry Pack + Patriot PunchThroughScalar (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / graphics):**
+1. **DropVariance residual** (`host_deliver_payload`):
+   - Supply Drop Zone OCL has **no** DropVariance → zero residual (X/Y/Z **0**).
+   - ClusterMines / EMPPulse residual: X:**20** Y:**20** Z:**0**.
+   - CarpetBomb residual: X:**30** Y:**40** Z:**0**.
+   - Apply residual: axes with variance **> 0** add clamped sample `[-1,1] * variance`
+     (C++ `GameLogicRandomValueReal(-var,+var)` host unit-sample residual).
+   - Honesty: `honesty_drop_variance_ok` / `apply_drop_variance`.
+   - Fail-closed: not full GameLogic RNG stream / live OCL parse matrix.
+2. **VisiblePayload A10 bomb-rack residual** (`host_deliver_payload`):
+   - VisibleNumBones **6**, VisibleItemsDroppedPerInterval **2**.
+   - VisibleDropBoneBaseName `WeaponA` → `WeaponA01`…`WeaponA06`.
+   - VisibleSubObjectBaseName `Missile` → hide `Missile01`… residual.
+   - VisiblePayloadTemplateName `A10ThunderboltMissile` /
+     VisiblePayloadWeaponTemplate `A10ThunderboltMissileWeapon`.
+   - Rack interval residual empties 6 slots over 3 intervals.
+   - Honesty: `honesty_visible_payload_ok` / `HostVisiblePayloadRack`.
+   - Fail-closed: not full ThingFactory payload spawn / W3D showSubObject GPU rack.
+3. **SupplyDropZoneCrate geometry pack residual** (`host_deliver_payload`):
+   - Geometry BOX Major/Minor **12**, Height **12**, IsSmall **Yes**, Mass **75**.
+   - MoneyProvided **250**, TransportSlotCount **1**.
+   - No ActiveBody MaxHealth residual (collide crate honesty).
+   - Honesty: `honesty_crate_geometry_pack_ok`.
+4. **Patriot LaserUpdate PunchThroughScalar residual** (`host_base_defense`):
+   - Retail PunchThroughScalar **1.3** (PatriotBinaryDataStream / LaserGeneral).
+   - Dead/missing target: end = start + (end−start)×**1.3**, then clear to_id.
+   - Honesty: `honesty_patriot_laser_punch_through_constants_ok` /
+     `punch_through_laser_end` / `patriot_laser_punch_through_scalar_residual_honesty`.
+   - Fail-closed: not full LaserUpdate drawable id / bone parent matrix.
+5. Tests (not log-only):
+   - `drop_variance_residual_honesty`
+   - `visible_payload_a10_rack_residual_honesty`
+   - `supply_drop_crate_geometry_pack_residual_honesty`
+   - `wave47_deliver_payload_residual_cluster_honesty`
+   - `patriot_laser_punch_through_scalar_residual_honesty`
+   - host_deliver_payload (**18**) + host_base_defense (**16**) green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full GameLogic RNG DropVariance stream / live OCL DeliverPayload parse
+- Full VisiblePayload ThingFactory spawn / W3D pristine bone extract GPU
+- Full AmericaCrateParachute container Object / pathfinder CreateAtEdge Object
+- Full LaserUpdate bone parent / WGPU SegLine punch-through draw path
+- Full Comanche tertiary weapon slot / OverlordContain capacity matrix
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 45: PUC Sound/Scorch Pack + PointDefense Lifetime + FlammableUpdate (2026-07-13)
 **Closed (host-testable residual not covered by wave 44 SupW/DeletionUpdate residual):**
 1. **PUC sound residual pack** (`special_power_strikes`):

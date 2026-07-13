@@ -31,12 +31,31 @@
 //!   re-approach (MaxAttempts **4**, DIST_FUDGE **2.2**).
 //! - isOffMap / HeadOffMap / RecoverFromOffMap residual (turn-radius hide delay).
 //!
+//! Residual DropVariance scatter (C++ `DeliverPayloadAIUpdate` drop pos):
+//! - Supply drop OCL has **no** DropVariance → zero residual honesty (X/Y/Z **0**).
+//! - ClusterMines / EMPPulse residual: X:**20** Y:**20** Z:**0**.
+//! - CarpetBomb residual: X:**30** Y:**40** Z:**0**.
+//! - Apply residual: when axis variance **> 0**, add `sample ∈ [-1,1] * variance`
+//!   (fail-closed vs full `GameLogicRandomValueReal` stream).
+//!
+//! Residual VisiblePayload bomb-rack bookkeeping (A10 Thunderbolt OCL):
+//! - VisibleNumBones **6**, VisibleItemsDroppedPerInterval **2**.
+//! - VisibleDropBoneBaseName `WeaponA` → `WeaponA01`…`WeaponA06` residual.
+//! - VisibleSubObjectBaseName `Missile` → hide `Missile01`… residual.
+//! - VisiblePayloadTemplateName `A10ThunderboltMissile` /
+//!   VisiblePayloadWeaponTemplate `A10ThunderboltMissileWeapon`.
+//!
+//! Residual SupplyDropZoneCrate geometry pack (payload object honesty):
+//! - Geometry BOX Major/Minor **12**, Height **12**, IsSmall **Yes**, Mass **75**.
+//! - MoneyProvided **250** residual (BuildingPickup path owned by host_money_crate).
+//! - No ActiveBody MaxHealth residual (crate collide object; no body floor).
+//!
 //! Fail-closed honesty:
 //! - Not full CreateAtEdge cargo-plane Object / full pathfinder locomotor matrix
 //! - Not full AI state-machine command ignore / ultra-accurate locomotor flags
-//! - Not full DropVariance random scatter (OCL supply drop has no DropVariance)
+//! - Not full GameLogic RNG stream for DropVariance (host unit-sample residual closed)
 //! - Not full AmericaCrateParachute container Object / W3D pristine bone extract GPU
-//! - Not full VisiblePayload bone / subobject bomb rack matrix
+//! - Not full VisiblePayload ThingFactory spawn / W3D showSubObject GPU bomb rack
 //! - Not network DeliverPayload replication (network deferred)
 
 use super::ObjectId;
@@ -210,9 +229,213 @@ pub const CRATE_RIDER_GEOMETRY_HEIGHT: f32 = 12.0;
 pub const CRATE_PARA_PITCH_RATE_MAX_DEG: f32 = 60.0;
 pub const CRATE_PARA_ROLL_RATE_MAX_DEG: f32 = 60.0;
 
+// --- DropVariance residual (DeliverPayloadData::m_dropVariance) ---
+
+/// Retail OCL_AmericaSupplyDropZoneCrateDrop has no DropVariance → zero residual.
+pub const SUPPLY_DROP_DROP_VARIANCE: (f32, f32, f32) = (0.0, 0.0, 0.0);
+
+/// Retail SUPERWEAPON_ClusterMines / SUPERWEAPON_EMPPulse DropVariance.
+pub const CLUSTER_MINES_DROP_VARIANCE: (f32, f32, f32) = (20.0, 20.0, 0.0);
+
+/// Retail SUPERWEAPON_CarpetBomb / ChinaCarpetBomb DropVariance.
+pub const CARPET_BOMB_DROP_VARIANCE: (f32, f32, f32) = (30.0, 40.0, 0.0);
+
+// --- VisiblePayload A10 Thunderbolt residual (SUPERWEAPON_A10ThunderboltMissileStrike*) ---
+
+/// Retail VisibleItemsDroppedPerInterval residual.
+pub const A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL: u32 = 2;
+
+/// Retail VisibleDropBoneBaseName residual (`WeaponA` → WeaponA01…).
+pub const A10_VISIBLE_DROP_BONE_BASE: &str = "WeaponA";
+
+/// Retail VisibleSubObjectBaseName residual (`Missile` → Missile01…).
+pub const A10_VISIBLE_SUBOBJECT_BASE: &str = "Missile";
+
+/// Retail VisibleNumBones residual (rack capacity).
+pub const A10_VISIBLE_NUM_BONES: u32 = 6;
+
+/// Retail VisiblePayloadTemplateName residual.
+pub const A10_VISIBLE_PAYLOAD_TEMPLATE: &str = "A10ThunderboltMissile";
+
+/// Retail VisiblePayloadWeaponTemplate residual.
+pub const A10_VISIBLE_PAYLOAD_WEAPON: &str = "A10ThunderboltMissileWeapon";
+
+// --- SupplyDropZoneCrate geometry / physics residual pack ---
+
+/// Retail SupplyDropZoneCrate GeometryMajorRadius residual.
+pub const CRATE_RIDER_GEOMETRY_MAJOR_RADIUS: f32 = 12.0;
+
+/// Retail SupplyDropZoneCrate GeometryMinorRadius residual.
+pub const CRATE_RIDER_GEOMETRY_MINOR_RADIUS: f32 = 12.0;
+
+/// Retail SupplyDropZoneCrate GeometryIsSmall residual.
+pub const CRATE_RIDER_GEOMETRY_IS_SMALL: bool = true;
+
+/// Retail SupplyDropZoneCrate PhysicsBehavior Mass residual.
+pub const CRATE_RIDER_MASS: f32 = 75.0;
+
+/// Retail SupplyDropZoneCrate MoneyCrateCollide MoneyProvided residual.
+pub const CRATE_RIDER_MONEY_PROVIDED: u32 = 250;
+
+/// Retail SupplyDropZoneCrate TransportSlotCount residual.
+pub const CRATE_RIDER_TRANSPORT_SLOT_COUNT: u32 = 1;
+
+/// SupplyDropZoneCrate has no ActiveBody MaxHealth residual (collide crate).
+pub const CRATE_RIDER_HAS_ACTIVE_BODY_MAX_HEALTH: bool = false;
+
 /// Host residual spawn height for cargo crate (plane PreferredHeight + DropOffset Y).
 pub fn cargo_crate_drop_height(drop_offset_y: f32) -> f32 {
     CARGO_PLANE_PREFERRED_HEIGHT + drop_offset_y
+}
+
+/// C++ DeliverPayload drop-position DropVariance residual.
+///
+/// For each axis with variance **> 0**, adds `sample * variance` where
+/// `sample` is clamped to **[-1, 1]** (stand-in for
+/// `GameLogicRandomValueReal(-var, +var)`). Zero variance axes are unchanged
+/// (Supply Drop Zone OCL residual honesty).
+pub fn apply_drop_variance_residual(
+    pos: Vec3,
+    variance: (f32, f32, f32),
+    sample_x: f32,
+    sample_y: f32,
+    sample_z: f32,
+) -> Vec3 {
+    let sx = sample_x.clamp(-1.0, 1.0);
+    let sy = sample_y.clamp(-1.0, 1.0);
+    let sz = sample_z.clamp(-1.0, 1.0);
+    let mut out = pos;
+    if variance.0 > 0.0 {
+        out.x += sx * variance.0;
+    }
+    if variance.1 > 0.0 {
+        out.y += sy * variance.1;
+    }
+    if variance.2 > 0.0 {
+        out.z += sz * variance.2;
+    }
+    out
+}
+
+/// C++ `AsciiString::format("%s%02d", base, index1)` residual for VisiblePayload bones.
+///
+/// Index is **1-based** (first delivered item → `WeaponA01` / `Missile01`).
+pub fn visible_payload_indexed_name(base: &str, index_1based: u32) -> String {
+    format!("{base}{index_1based:02}")
+}
+
+/// One residual VisiblePayload drop event (hide subobject + spawn template honesty).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostVisiblePayloadDropEvent {
+    /// 0-based delivered index before this drop (C++ getVisibleItemsDelivered).
+    pub delivered_index: u32,
+    /// 1-based rack slot (delivered_index + 1).
+    pub slot_1based: u32,
+    /// Residual drop bone name (`WeaponA01`…).
+    pub drop_bone_name: String,
+    /// Residual subobject name to hide (`Missile01`…).
+    pub subobject_name: String,
+    /// Residual payload template spawned at bone.
+    pub payload_template: String,
+    /// Residual weapon template attached to payload.
+    pub weapon_template: String,
+}
+
+/// Host residual VisiblePayload bomb-rack bookkeeping (A10 / ArtilleryBarrage family).
+///
+/// Fail-closed vs full Drawable showSubObject / pristine bone extract / ThingFactory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostVisiblePayloadRack {
+    pub drop_bone_base: String,
+    pub subobject_base: String,
+    pub num_bones: u32,
+    pub items_per_interval: u32,
+    pub payload_template: String,
+    pub weapon_template: String,
+    /// C++ `m_visibleItemsDelivered` residual.
+    pub items_delivered: u32,
+}
+
+impl HostVisiblePayloadRack {
+    /// Retail SUPERWEAPON_A10ThunderboltMissileStrike* VisiblePayload residual.
+    pub fn a10_thunderbolt() -> Self {
+        Self {
+            drop_bone_base: A10_VISIBLE_DROP_BONE_BASE.to_string(),
+            subobject_base: A10_VISIBLE_SUBOBJECT_BASE.to_string(),
+            num_bones: A10_VISIBLE_NUM_BONES,
+            items_per_interval: A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL,
+            payload_template: A10_VISIBLE_PAYLOAD_TEMPLATE.to_string(),
+            weapon_template: A10_VISIBLE_PAYLOAD_WEAPON.to_string(),
+            items_delivered: 0,
+        }
+    }
+
+    /// Whether residual rack still has undropped visible slots.
+    pub fn can_drop_more(&self) -> bool {
+        self.items_delivered < self.num_bones
+    }
+
+    /// Drop up to `items_per_interval` residual rack items (one delivery tick).
+    ///
+    /// Mirrors C++ DeliveringState VisiblePayload loop: hide subobject, spawn
+    /// payload template honesty, advance delivered count.
+    pub fn drop_interval(&mut self) -> Vec<HostVisiblePayloadDropEvent> {
+        let mut events = Vec::new();
+        let mut remaining = self.items_per_interval;
+        while remaining > 0 && self.can_drop_more() {
+            let slot = self.items_delivered + 1;
+            events.push(HostVisiblePayloadDropEvent {
+                delivered_index: self.items_delivered,
+                slot_1based: slot,
+                drop_bone_name: visible_payload_indexed_name(&self.drop_bone_base, slot),
+                subobject_name: visible_payload_indexed_name(&self.subobject_base, slot),
+                payload_template: self.payload_template.clone(),
+                weapon_template: self.weapon_template.clone(),
+            });
+            self.items_delivered = self.items_delivered.saturating_add(1);
+            remaining = remaining.saturating_sub(1);
+        }
+        events
+    }
+
+    /// Residual honesty: retail A10 constants match INI.
+    pub fn honesty_a10_constants_ok(&self) -> bool {
+        self.drop_bone_base == A10_VISIBLE_DROP_BONE_BASE
+            && self.subobject_base == A10_VISIBLE_SUBOBJECT_BASE
+            && self.num_bones == A10_VISIBLE_NUM_BONES
+            && self.items_per_interval == A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL
+            && self.payload_template == A10_VISIBLE_PAYLOAD_TEMPLATE
+            && self.weapon_template == A10_VISIBLE_PAYLOAD_WEAPON
+    }
+}
+
+/// SupplyDropZoneCrate geometry / physics residual pack honesty.
+pub fn honesty_supply_drop_crate_geometry_pack_ok() -> bool {
+    (CRATE_RIDER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+        && (CRATE_RIDER_GEOMETRY_MAJOR_RADIUS - 12.0).abs() < 0.01
+        && (CRATE_RIDER_GEOMETRY_MINOR_RADIUS - 12.0).abs() < 0.01
+        && CRATE_RIDER_GEOMETRY_IS_SMALL
+        && (CRATE_RIDER_MASS - 75.0).abs() < 0.01
+        && CRATE_RIDER_MONEY_PROVIDED == 250
+        && CRATE_RIDER_TRANSPORT_SLOT_COUNT == 1
+        && !CRATE_RIDER_HAS_ACTIVE_BODY_MAX_HEALTH
+}
+
+/// DropVariance residual constants honesty (supply zero + ClusterMines + CarpetBomb).
+pub fn honesty_drop_variance_constants_ok() -> bool {
+    SUPPLY_DROP_DROP_VARIANCE == (0.0, 0.0, 0.0)
+        && CLUSTER_MINES_DROP_VARIANCE == (20.0, 20.0, 0.0)
+        && CARPET_BOMB_DROP_VARIANCE == (30.0, 40.0, 0.0)
+}
+
+/// VisiblePayload A10 residual constants honesty.
+pub fn honesty_visible_payload_a10_constants_ok() -> bool {
+    A10_VISIBLE_ITEMS_DROPPED_PER_INTERVAL == 2
+        && A10_VISIBLE_DROP_BONE_BASE == "WeaponA"
+        && A10_VISIBLE_SUBOBJECT_BASE == "Missile"
+        && A10_VISIBLE_NUM_BONES == 6
+        && A10_VISIBLE_PAYLOAD_TEMPLATE == "A10ThunderboltMissile"
+        && A10_VISIBLE_PAYLOAD_WEAPON == "A10ThunderboltMissileWeapon"
 }
 
 /// C++ TerrainLogic::findClosestEdgePoint residual on host XZ horizontal plane.
@@ -1229,6 +1452,12 @@ pub struct HostDeliverPayloadRegistry {
     pub off_map_recover_events: u32,
     /// HeadOffMap residual entries (honesty).
     pub head_off_map_events: u32,
+    /// DropVariance residual apply events (honesty; includes zero-variance supply path).
+    pub drop_variance_applies: u32,
+    /// VisiblePayload residual rack drop events (honesty).
+    pub visible_payload_drops: u32,
+    /// VisiblePayload residual intervals completed (honesty).
+    pub visible_payload_intervals: u32,
 }
 
 impl HostDeliverPayloadRegistry {
@@ -1253,6 +1482,9 @@ impl HostDeliverPayloadRegistry {
             reapproach_events: 0,
             off_map_recover_events: 0,
             head_off_map_events: 0,
+            drop_variance_applies: 0,
+            visible_payload_drops: 0,
+            visible_payload_intervals: 0,
         }
     }
 
@@ -1934,6 +2166,59 @@ impl HostDeliverPayloadRegistry {
                 || self.honesty_off_map_recover_ok()
                 || self.honesty_head_off_map_ok())
     }
+
+    /// Apply DropVariance residual to a drop position and record honesty.
+    ///
+    /// Supply Drop Zone uses zero variance (identity). ClusterMines / CarpetBomb
+    /// OCL residual samples axes with variance **> 0**.
+    pub fn apply_drop_variance(
+        &mut self,
+        pos: Vec3,
+        variance: (f32, f32, f32),
+        sample_x: f32,
+        sample_y: f32,
+        sample_z: f32,
+    ) -> Vec3 {
+        self.drop_variance_applies = self.drop_variance_applies.saturating_add(1);
+        apply_drop_variance_residual(pos, variance, sample_x, sample_y, sample_z)
+    }
+
+    /// Run one VisiblePayload residual drop interval on a rack and record honesty.
+    pub fn record_visible_payload_interval(
+        &mut self,
+        rack: &mut HostVisiblePayloadRack,
+    ) -> Vec<HostVisiblePayloadDropEvent> {
+        let events = rack.drop_interval();
+        if !events.is_empty() {
+            self.visible_payload_intervals = self.visible_payload_intervals.saturating_add(1);
+            self.visible_payload_drops = self
+                .visible_payload_drops
+                .saturating_add(events.len() as u32);
+        }
+        events
+    }
+
+    /// DropVariance residual path honesty (constants + at least one apply).
+    pub fn honesty_drop_variance_ok(&self) -> bool {
+        honesty_drop_variance_constants_ok() && self.drop_variance_applies > 0
+    }
+
+    /// VisiblePayload residual path honesty (A10 constants + rack drops).
+    pub fn honesty_visible_payload_ok(&self) -> bool {
+        honesty_visible_payload_a10_constants_ok() && self.visible_payload_drops > 0
+    }
+
+    /// SupplyDropZoneCrate geometry pack residual honesty.
+    pub fn honesty_crate_geometry_pack_ok() -> bool {
+        honesty_supply_drop_crate_geometry_pack_ok()
+    }
+
+    /// Wave 47 residual cluster honesty (DropVariance + VisiblePayload + geometry pack).
+    pub fn honesty_wave47_deliver_payload_residual_ok(&self) -> bool {
+        self.honesty_drop_variance_ok()
+            && self.honesty_visible_payload_ok()
+            && Self::honesty_crate_geometry_pack_ok()
+    }
 }
 
 /// DropDelay / DoorDelay ms → logic frames residual (30 FPS).
@@ -2414,5 +2699,146 @@ mod tests {
             500.0,
         );
         assert!(exit.x > 500.0);
+    }
+
+    #[test]
+    fn drop_variance_residual_honesty() {
+        assert!(honesty_drop_variance_constants_ok());
+        // Supply drop OCL: zero variance is identity regardless of samples.
+        let base = Vec3::new(100.0, 50.0, 200.0);
+        let zeroed = apply_drop_variance_residual(base, SUPPLY_DROP_DROP_VARIANCE, 1.0, -1.0, 0.5);
+        assert!((zeroed.x - base.x).abs() < 0.001);
+        assert!((zeroed.y - base.y).abs() < 0.001);
+        assert!((zeroed.z - base.z).abs() < 0.001);
+        // ClusterMines X:20 Y:20 Z:0 with unit samples ±1.
+        let cm = apply_drop_variance_residual(
+            Vec3::ZERO,
+            CLUSTER_MINES_DROP_VARIANCE,
+            1.0,
+            -1.0,
+            1.0,
+        );
+        assert!((cm.x - 20.0).abs() < 0.001);
+        assert!((cm.y - (-20.0)).abs() < 0.001);
+        assert!((cm.z - 0.0).abs() < 0.001, "Z variance 0 must not scatter");
+        // CarpetBomb X:30 Y:40 Z:0 mid samples.
+        let cb = apply_drop_variance_residual(
+            Vec3::new(10.0, 10.0, 10.0),
+            CARPET_BOMB_DROP_VARIANCE,
+            0.5,
+            0.25,
+            -1.0,
+        );
+        assert!((cb.x - (10.0 + 15.0)).abs() < 0.001);
+        assert!((cb.y - (10.0 + 10.0)).abs() < 0.001);
+        assert!((cb.z - 10.0).abs() < 0.001);
+        // Sample clamp residual.
+        let clamped =
+            apply_drop_variance_residual(Vec3::ZERO, CLUSTER_MINES_DROP_VARIANCE, 2.0, -3.0, 0.0);
+        assert!((clamped.x - 20.0).abs() < 0.001);
+        assert!((clamped.y - (-20.0)).abs() < 0.001);
+
+        let mut reg = HostDeliverPayloadRegistry::new();
+        assert!(!reg.honesty_drop_variance_ok());
+        let applied = reg.apply_drop_variance(
+            Vec3::new(0.0, 0.0, 0.0),
+            SUPPLY_DROP_DROP_VARIANCE,
+            0.5,
+            0.5,
+            0.5,
+        );
+        assert_eq!(applied, Vec3::ZERO);
+        assert_eq!(reg.drop_variance_applies, 1);
+        let _ = reg.apply_drop_variance(
+            Vec3::ZERO,
+            CARPET_BOMB_DROP_VARIANCE,
+            -1.0,
+            1.0,
+            0.0,
+        );
+        assert!(reg.honesty_drop_variance_ok());
+    }
+
+    #[test]
+    fn visible_payload_a10_rack_residual_honesty() {
+        assert!(honesty_visible_payload_a10_constants_ok());
+        assert_eq!(
+            visible_payload_indexed_name(A10_VISIBLE_DROP_BONE_BASE, 1),
+            "WeaponA01"
+        );
+        assert_eq!(
+            visible_payload_indexed_name(A10_VISIBLE_SUBOBJECT_BASE, 6),
+            "Missile06"
+        );
+        let mut rack = HostVisiblePayloadRack::a10_thunderbolt();
+        assert!(rack.honesty_a10_constants_ok());
+        assert!(rack.can_drop_more());
+        assert_eq!(rack.num_bones, 6);
+        assert_eq!(rack.items_per_interval, 2);
+
+        let mut reg = HostDeliverPayloadRegistry::new();
+        assert!(!reg.honesty_visible_payload_ok());
+        // Interval 1: slots 1-2.
+        let e1 = reg.record_visible_payload_interval(&mut rack);
+        assert_eq!(e1.len(), 2);
+        assert_eq!(e1[0].drop_bone_name, "WeaponA01");
+        assert_eq!(e1[0].subobject_name, "Missile01");
+        assert_eq!(e1[0].payload_template, A10_VISIBLE_PAYLOAD_TEMPLATE);
+        assert_eq!(e1[0].weapon_template, A10_VISIBLE_PAYLOAD_WEAPON);
+        assert_eq!(e1[1].drop_bone_name, "WeaponA02");
+        assert_eq!(e1[1].subobject_name, "Missile02");
+        assert_eq!(rack.items_delivered, 2);
+        // Interval 2-3 empty the rack (6 bones / 2 per interval).
+        let e2 = reg.record_visible_payload_interval(&mut rack);
+        assert_eq!(e2.len(), 2);
+        assert_eq!(e2[0].drop_bone_name, "WeaponA03");
+        let e3 = reg.record_visible_payload_interval(&mut rack);
+        assert_eq!(e3.len(), 2);
+        assert_eq!(e3[1].drop_bone_name, "WeaponA06");
+        assert_eq!(e3[1].subobject_name, "Missile06");
+        assert!(!rack.can_drop_more());
+        let empty = reg.record_visible_payload_interval(&mut rack);
+        assert!(empty.is_empty());
+        assert_eq!(reg.visible_payload_drops, 6);
+        assert_eq!(reg.visible_payload_intervals, 3);
+        assert!(reg.honesty_visible_payload_ok());
+    }
+
+    #[test]
+    fn supply_drop_crate_geometry_pack_residual_honesty() {
+        assert!(honesty_supply_drop_crate_geometry_pack_ok());
+        assert!(HostDeliverPayloadRegistry::honesty_crate_geometry_pack_ok());
+        assert!((CRATE_RIDER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01);
+        assert!((CRATE_RIDER_GEOMETRY_MAJOR_RADIUS - 12.0).abs() < 0.01);
+        assert!((CRATE_RIDER_GEOMETRY_MINOR_RADIUS - 12.0).abs() < 0.01);
+        assert!(CRATE_RIDER_GEOMETRY_IS_SMALL);
+        assert!((CRATE_RIDER_MASS - 75.0).abs() < 0.01);
+        assert_eq!(CRATE_RIDER_MONEY_PROVIDED, 250);
+        assert_eq!(CRATE_RIDER_TRANSPORT_SLOT_COUNT, 1);
+        // Crate has no ActiveBody MaxHealth residual (MoneyCrateCollide object).
+        assert!(!CRATE_RIDER_HAS_ACTIVE_BODY_MAX_HEALTH);
+        // Rider hang residual: crate height 12 vs parachute GeometryHeight 10.
+        assert!((CRATE_RIDER_GEOMETRY_HEIGHT - 12.0).abs() < 0.01);
+        assert!((CRATE_PARA_GEOMETRY_HEIGHT - 10.0).abs() < 0.01);
+        assert!((CRATE_RIDER_GEOMETRY_HEIGHT - CRATE_PARA_GEOMETRY_HEIGHT).abs() > 0.01);
+    }
+
+    #[test]
+    fn wave47_deliver_payload_residual_cluster_honesty() {
+        let mut reg = HostDeliverPayloadRegistry::new();
+        assert!(!reg.honesty_wave47_deliver_payload_residual_ok());
+        let _ = reg.apply_drop_variance(
+            Vec3::new(1.0, 2.0, 3.0),
+            CLUSTER_MINES_DROP_VARIANCE,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let mut rack = HostVisiblePayloadRack::a10_thunderbolt();
+        let _ = reg.record_visible_payload_interval(&mut rack);
+        assert!(reg.honesty_drop_variance_ok());
+        assert!(reg.honesty_visible_payload_ok());
+        assert!(HostDeliverPayloadRegistry::honesty_crate_geometry_pack_ok());
+        assert!(reg.honesty_wave47_deliver_payload_residual_ok());
     }
 }
