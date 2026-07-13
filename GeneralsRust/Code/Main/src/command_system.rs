@@ -278,10 +278,20 @@ pub enum SpecialPowerType {
     /// Delayed plane-drop blast + residual toxin field ticks.
     /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
     AnthraxBomb,
+    /// USA Spectre Gunship residual (SPECIAL_SPECTRE_GUNSHIP / SuperweaponSpectreGunship).
+    /// Delayed orbit insertion at target + periodic howitzer residual damage ticks
+    /// in AttackAreaRadius for OrbitTime.
+    /// Fail-closed: not full SpectreGunshipUpdate OCL aircraft / gattling strafe /
+    /// howitzer projectile / decal / contain gunner path.
+    SpectreGunship,
     /// China EMP Pulse residual (SPECIAL_EMP_PULSE / SuperweaponEMPPulse).
     /// Temporarily disables vehicles/structures in radius (DISABLED_EMP).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
     EmpPulse,
+    /// China Frenzy ("Rage") residual (SPECIAL_FRENZY / SuperweaponFrenzy).
+    /// Temporary ally attack buff in radius (WEAPONBONUSCONDITION_FRENZY_*).
+    /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
+    Frenzy,
     Invalid,
 }
 
