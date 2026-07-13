@@ -141,6 +141,14 @@ pub const MARAUDER_TANK_GUN_UPGRADE_TWO: &str = "MarauderTankGunUpgradeTwo";
 /// Retail China Battlemaster primary residual weapon.
 pub const BATTLE_MASTER_TANK_GUN: &str = "BattleMasterTankGun";
 
+/// Retail GLA Scorpion residual weapons (gun + rocket secondary).
+pub const SCORPION_TANK_GUN: &str = "ScorpionTankGun";
+pub const SCORPION_TANK_GUN_PLUS_ONE: &str = "ScorpionTankGunPlusOne";
+pub const SCORPION_MISSILE_WEAPON: &str = "ScorpionMissileWeapon";
+
+/// Retail America Tomahawk residual weapon.
+pub const TOMAHAWK_MISSILE_WEAPON: &str = "TomahawkMissileWeapon";
+
 /// Retail GLA Combat Cycle rider residual weapons.
 pub const REBEL_BIKER_MG: &str = "GLARebelBikerMachineGun";
 pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon";
@@ -350,6 +358,20 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Chem_GLAVehicleToxinTruck"
         | "Demo_GLAVehicleToxinTruck"
         | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_GUN),
+        // GLA Scorpion residual tank gun (salvage + rocket residual).
+        "GLATankScorpion"
+        | "GLA_Scorpion"
+        | "GLA_ScorpionTank"
+        | "TestScorpion"
+        | "Chem_GLATankScorpion"
+        | "Demo_GLATankScorpion"
+        | "Slth_GLATankScorpion" => Some(SCORPION_TANK_GUN),
+        // America Tomahawk residual missile.
+        "AmericaVehicleTomahawk"
+        | "USA_Tomahawk"
+        | "USA_TomahawkLauncher"
+        | "TestTomahawk"
+        | "SupW_AmericaVehicleTomahawk" => Some(TOMAHAWK_MISSILE_WEAPON),
         // GLA Marauder residual tank gun (salvage tiers swap fire-rate residual).
         "GLATankMarauder"
         | "GLA_MarauderTank"
@@ -446,6 +468,12 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
                 return Some(TOXIN_TRUCK_GUN);
+            }
+            if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
+                return Some(SCORPION_TANK_GUN);
+            }
+            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
+                return Some(TOMAHAWK_MISSILE_WEAPON);
             }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
@@ -1155,6 +1183,42 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 400.0,
         },
+        // ScorpionTankGun — dmg 20, range 150, Delay 1000ms → 30 frames.
+        SeedWeapon {
+            name: SCORPION_TANK_GUN,
+            primary_damage: 20.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 400.0,
+        },
+        // ScorpionTankGunPlusOne — salvage dmg 25.
+        SeedWeapon {
+            name: SCORPION_TANK_GUN_PLUS_ONE,
+            primary_damage: 25.0,
+            attack_range: 150.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 400.0,
+        },
+        // ScorpionMissileWeapon — dmg 100, range 150, ClipReload 15000ms → 450 frames.
+        SeedWeapon {
+            name: SCORPION_MISSILE_WEAPON,
+            primary_damage: 100.0,
+            attack_range: 150.0,
+            delay_frames: 450,
+            clip_size: 1,
+            weapon_speed: 600.0,
+        },
+        // TomahawkMissileWeapon — dmg 150, range 350, ClipReload 7000ms → 210 frames.
+        SeedWeapon {
+            name: TOMAHAWK_MISSILE_WEAPON,
+            primary_damage: 150.0,
+            attack_range: 350.0,
+            delay_frames: 210,
+            clip_size: 1,
+            weapon_speed: 200.0,
+        },
         // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
         SeedWeapon {
             name: MARAUDER_TANK_GUN_UPGRADE_ONE,
@@ -1299,8 +1363,23 @@ fn seed_known_host_weapons() -> usize {
             || seed.name == MARAUDER_TANK_GUN_UPGRADE_ONE
             || seed.name == MARAUDER_TANK_GUN_UPGRADE_TWO
             || seed.name == BATTLE_MASTER_TANK_GUN
+            || seed.name == SCORPION_TANK_GUN
+            || seed.name == SCORPION_TANK_GUN_PLUS_ONE
         {
             t.primary_damage_radius = 5.0;
+        }
+        if seed.name == SCORPION_MISSILE_WEAPON {
+            t.primary_damage_radius = 5.0;
+            t.secondary_damage = 80.0;
+            t.secondary_damage_radius = 25.0;
+            t.minimum_attack_range = 40.0;
+        }
+        if seed.name == TOMAHAWK_MISSILE_WEAPON {
+            t.primary_damage_radius = 10.0;
+            t.secondary_damage = 50.0;
+            t.secondary_damage_radius = 25.0;
+            t.minimum_attack_range = 100.0;
+            t.pre_attack_delay = 8; // 250ms @ 30 FPS residual
         }
         if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
