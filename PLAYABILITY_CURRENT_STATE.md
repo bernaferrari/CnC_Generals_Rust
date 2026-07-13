@@ -1,3 +1,55 @@
+## Residual Host Playability — Once-at-Queue OCL + Scud PreferredHeight Spring + NumBeams Scroll + Helpers RNG Unify (2026-07-13)
+**Closed (host-testable combat residual not covered by wave 26–27 OuterBeam/loft/RNG residual):**
+1. **Once-at-queue multi-strike OCL residual** (`special_power_strikes`):
+   - ArtilleryBarrage / CarpetBomb / ScudStorm store epicenters + absolute shell
+     frames on the strike at queue time (pure ADC draws matching retail
+     once-at-create GameLogic stream residual).
+   - `plan_due_impacts` prefers stored `ocl_points` / `ocl_shell_frames` (falls
+     back to re-query for older empty snapshots).
+   - Honesty: `honesty_once_at_queue_ocl_ok`.
+   - Fail-closed: not live mid-sim global stream mutation / full ChinaArtilleryCannon
+     / AmericaJetB52 transport Object.
+2. **ScudStormMissile PreferredHeight spring residual** (`special_power_strikes` /
+   `Locomotor::locoUpdate_moveTowards`):
+   - Spawn height residual = PreferredHeight **240**.
+   - Spring residual: `new = current + (preferred - current) * damping(0.7)`.
+   - Loft phase residual: Loft → Turn (DistanceBeforeTurning **500**) → Dive
+     (DistanceBeforeDiving **200**) → HeightDie (TargetHeight **15**).
+   - Per-missile wave counters + peak phase / last spring height honesty.
+   - Honesty: `honesty_scud_preferred_height_spring_ok`.
+   - Fail-closed: not full ThingFactory Object / live MissileAIUpdate physics.
+3. **OuterBeam multi-beam NumBeams + ScrollRate residual** (`special_power_strikes` /
+   `W3DLaserDraw`):
+   - NumBeams **12** + TilingScalar **0.15** armed at STATUS_FIRING.
+   - ScrollRate **-1.75** UV residual sampled each `sample_width_honesty`
+     (`ScrollRate * elapsed_seconds`).
+   - Honesty: `honesty_beam_num_beams_scroll_ok`.
+   - Fail-closed: not full GPU multi-beam soft edge / texture atlas submit.
+4. **GameLogic helpers RNG unified with Common stream** (`helpers.rs` /
+   `common/random_value.rs`):
+   - Removed parallel `GAME_LOGIC_SEED` / `GAME_CLIENT_SEED` in GameLogic helpers.
+   - Helpers `get_game_logic_random_value(_real)` / `game_client_random_value(_real)`
+     bridge to Common ADC stream.
+   - `set_game_logic_random_seed` / CRC read-write Common 6-word seed state.
+5. Snapshot/Xfer: NumBeams/Scroll residual fields appended on `HostParticleBeamField`.
+6. Tests (not log-only):
+   - `once_at_queue_multi_strike_ocl_residual_honesty`
+   - `scud_preferred_height_spring_residual_honesty`
+   - `particle_uplink_num_beams_scroll_residual_honesty`
+   - all `special_power_strikes::` (**43**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual tracks NumBeams + ScrollRate UV; combat still r50)
+- Full CSF/STR Unicode GameText table load for all locales
+- Full Anim2DCollection GPU / DisplayString font raster draw
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — RNG Streams + Presentation Caption/WorldAnim (2026-07-13)
 **Closed (host-testable presentation/RNG residual not covered by wave 24–25 combat residual):**
 1. **GameLogic/GameClient RandomValue ADC stream residual** (`host_rng_residual`):

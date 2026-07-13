@@ -3044,6 +3044,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.orbital_laser_draw_params_armed)?;
         xfer.xfer_marker_label("ConnectorOuterBeamWidthArmed")?;
         xfer.xfer_u32(&mut self.connector_outer_beam_width_armed)?;
+        // Multi-beam NumBeams + ScrollRate residual (appended).
+        xfer.xfer_marker_label("NumBeamsArmed")?;
+        xfer.xfer_u32(&mut self.num_beams_armed)?;
+        xfer.xfer_marker_label("TilingScalarArmed")?;
+        xfer.xfer_u32(&mut self.tiling_scalar_armed)?;
+        xfer.xfer_marker_label("LastScrollUv")?;
+        xfer.xfer_f32(&mut self.last_scroll_uv)?;
+        xfer.xfer_marker_label("PeakAbsScrollUv")?;
+        xfer.xfer_f32(&mut self.peak_abs_scroll_uv)?;
+        xfer.xfer_marker_label("ScrollUvSamples")?;
+        xfer.xfer_u32(&mut self.scroll_uv_samples)?;
         Ok(())
     }
 }
@@ -3095,6 +3106,13 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_exhaust_applications: 0,
                 scud_height_die_applications: 0,
                 scud_special_power_completion_applications: 0,
+                ocl_points: Vec::new(),
+                ocl_shell_frames: Vec::new(),
+                ocl_once_at_queue_armed: 0,
+                scud_spawn_height_applications: 0,
+                scud_preferred_height_spring_applications: 0,
+                scud_loft_phase_peak: crate::game_logic::special_power_strikes::ScudMissileLoftPhase::Loft,
+                scud_last_spring_height: 0.0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3266,6 +3284,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 last_retail_damage_radius: 0.0,
                 orbital_laser_draw_params_armed: 0,
                 connector_outer_beam_width_armed: 0,
+                num_beams_armed: 0,
+                tiling_scalar_armed: 0,
+                last_scroll_uv: 0.0,
+                peak_abs_scroll_uv: 0.0,
+                scroll_uv_samples: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
