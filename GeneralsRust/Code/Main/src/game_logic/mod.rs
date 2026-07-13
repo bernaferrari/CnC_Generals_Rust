@@ -18,6 +18,7 @@ pub mod host_radar_scan;
 pub mod host_spy_satellite;
 pub mod host_cia_intelligence;
 pub mod host_hero_abilities;
+pub mod host_car_bomb;
 pub mod host_repair;
 pub mod host_heal;
 pub mod host_paradrop;
@@ -64,6 +65,11 @@ pub use host_cia_intelligence::{
 };
 pub use host_hero_abilities::{
     HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
+};
+pub use host_car_bomb::{
+    car_bomb_damage_at_distance, suicide_car_bomb_weapon, HostCarBombRegistry,
+    CAR_BOMB_CONVERT_AUDIO, CAR_BOMB_DETONATE_AUDIO, HIJACK_AUDIO, SUICIDE_CAR_BOMB_ATTACK_RANGE,
+    SUICIDE_CAR_BOMB_DAMAGE, SUICIDE_CAR_BOMB_RADIUS,
 };
 pub use host_heal::{
     is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
@@ -231,6 +237,13 @@ pub struct ObjectStatus {
     /// Vehicle stays alive but cannot act; team is typically Neutral.
     #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ OBJECT_STATUS_IS_CARBOMB residual (ConvertToCarBombCrateCollide).
+    /// Vehicle uses SuicideCarBomb weapon set residual and detonates on attack fire.
+    #[serde(default)]
+    pub is_carbomb: bool,
+    /// C++ OBJECT_STATUS_HIJACKED residual (ConvertToHijackedVehicleCrateCollide).
+    #[serde(default)]
+    pub hijacked: bool,
 }
 
 /// Basic geometry information for objects

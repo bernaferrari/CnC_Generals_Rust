@@ -112,8 +112,10 @@ pub enum AICommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingSpecialAbility {
+    /// GLA Hijacker residual: transfer vehicle team + HIJACKED; hijacker consumed.
     Hijack { target_id: ObjectId },
     Sabotage { target_id: ObjectId },
+    /// GLA Terrorist ConvertToCarBomb residual: vehicle → IS_CARBOMB (not instant kill).
     CarBomb { target_id: ObjectId },
     /// Jarmen Kell residual: DAMAGE_KILLPILOT → unmanned Neutral vehicle.
     SnipeVehicle { target_id: ObjectId },
@@ -510,8 +512,9 @@ pub struct GameLogic {
     combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
-    /// NuclearMissile). Queues on DoSpecialPower and completes with area damage —
-    /// NuclearMissile also spawns residual radiation. Fail-closed vs full retail.
+    /// NuclearMissile / AnthraxBomb). Queues on DoSpecialPower and completes with area damage —
+    /// NuclearMissile also spawns residual radiation; AnthraxBomb also spawns residual toxin.
+    /// Fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
     /// Host America Paradrop / Airborne residual.
@@ -582,6 +585,10 @@ pub struct GameLogic {
     /// Host hero special-ability residual (snipe / timed C4 / cash hack).
     /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
     hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
+
+    /// Host GLA Hijack / ConvertToCarBomb residual.
+    /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
+    car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
     /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
@@ -1398,6 +1405,7 @@ impl GameLogic {
             cia_intelligence:
                 crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
+            car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
@@ -1543,6 +1551,7 @@ impl GameLogic {
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
+        self.car_bomb.clear();
         self.fire_walls.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
@@ -3358,8 +3367,9 @@ impl GameLogic {
         update_special_powers();
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
-        // ParticleCannon / NuclearMissile strikes (area damage + nuke radiation).
-        // Fail-closed vs full OCL aircraft / NeutronMissileUpdate.
+        // ParticleCannon / NuclearMissile / AnthraxBomb strikes (area damage +
+        // nuke radiation / anthrax toxin). Fail-closed vs full OCL aircraft /
+        // NeutronMissileUpdate / PoisonField stack.
         self.update_special_power_strikes();
 
         // Host America Paradrop residual: spawn infantry after approach delay.
@@ -4242,6 +4252,18 @@ impl GameLogic {
                 }
 
                 if let Some(slot) = selected_slot {
+                    // GLA car-bomb residual: firing the SuicideCarBomb weapon detonates
+                    // at self (DamageDealtAtSelfPosition) and destroys the car bomb.
+                    let is_carbomb = self
+                        .objects
+                        .get(&attacker_id)
+                        .map(|a| a.status.is_carbomb)
+                        .unwrap_or(false);
+                    if is_carbomb {
+                        let _ = self.detonate_car_bomb(attacker_id);
+                        continue;
+                    }
+
                     let mut weapon_damage = self
                         .objects
                         .get(&attacker_id)
@@ -5345,6 +5367,7 @@ impl GameLogic {
                         target_is_vehicle,
                         target_is_structure,
                         target_is_airborne,
+                        target_is_carbomb,
                     )) = self.objects.get(&special_target_id).map(|target| {
                         (
                             target.get_position(),
@@ -5354,6 +5377,7 @@ impl GameLogic {
                             target.is_kind_of(KindOf::Vehicle),
                             target.is_kind_of(KindOf::Structure),
                             target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                            target.status.is_carbomb,
                         )
                     })
                     else {
@@ -5381,7 +5405,18 @@ impl GameLogic {
                         ability,
                         PendingSpecialAbility::SnipeVehicle { .. }
                             | PendingSpecialAbility::Hijack { .. }
+                            | PendingSpecialAbility::CarBomb { .. }
                     ) && (!target_is_vehicle || target_is_airborne)
+                    {
+                        self.pending_special_abilities.remove(&object_id);
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
+                    // ConvertToCarBomb: cannot re-convert an existing car bomb.
+                    if matches!(ability, PendingSpecialAbility::CarBomb { .. }) && target_is_carbomb
                     {
                         self.pending_special_abilities.remove(&object_id);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5435,12 +5470,22 @@ impl GameLogic {
 
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
+                            // C++ ConvertToHijackedVehicleCrateCollide residual:
+                            // transfer team + OBJECT_STATUS_HIJACKED; hijacker consumed
+                            // (fail-closed vs hide-in-vehicle HijackerUpdate path).
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                // Recrew residual: clear unmanned if present.
-                                target.status.disabled_unmanned = false;
+                                target.apply_hijacked();
                                 target.set_team(team);
                             }
-                            // Hijacker is consumed by the ability.
+                            self.car_bomb.record_hijack();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_car_bomb::HIJACK_AUDIO,
+                                )
+                                .with_object(special_target_id)
+                                .with_position(target_position)
+                                .with_priority(170),
+                            );
                             if let Some(hijacker) = self.objects.get_mut(&object_id) {
                                 hijacker.status.destroyed = true;
                             }
@@ -5534,15 +5579,28 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::CarBomb { .. } => {
-                            let destroyed = self
-                                .objects
-                                .get_mut(&special_target_id)
-                                .map(|target| target.take_damage(target.max_health))
-                                .unwrap_or(false);
-                            if destroyed {
-                                self.mark_object_for_destruction(special_target_id, Some(team));
+                            // C++ ConvertToCarBombCrateCollide residual:
+                            // vehicle defects to converter team, gains IS_CARBOMB +
+                            // SuicideCarBomb weapon residual. Converter is consumed.
+                            // Detonation happens later when the car bomb attacks.
+                            if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                target.apply_convert_to_car_bomb();
+                                target.set_team(team);
                             }
-                            // CarBomb is a suicide ability — mark the bomber immediately.
+                            self.car_bomb.record_conversion();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_car_bomb::CAR_BOMB_CONVERT_AUDIO,
+                                )
+                                .with_object(special_target_id)
+                                .with_position(target_position)
+                                .with_priority(170),
+                            );
+                            let msg = localization::localize(
+                                "hud.carbomb.converted",
+                                "Vehicle converted to car bomb",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
                             if let Some(bomber) = self.objects.get_mut(&object_id) {
                                 bomber.status.destroyed = true;
                             }
@@ -8950,6 +9008,120 @@ impl GameLogic {
         self.hero_abilities.honesty_any_ok()
     }
 
+    // -----------------------------------------------------------------------
+    // GLA Hijack / ConvertToCarBomb residual
+    // Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet CARBOMB matrix.
+    // -----------------------------------------------------------------------
+
+    /// Host car-bomb / hijack residual registry (honesty counters).
+    pub fn car_bomb_residual(
+        &self,
+    ) -> &crate::game_logic::host_car_bomb::HostCarBombRegistry {
+        &self.car_bomb
+    }
+
+    /// Residual honesty: at least one hijack transferred a vehicle.
+    pub fn honesty_hijack_ok(&self) -> bool {
+        self.car_bomb.honesty_hijack_ok()
+    }
+
+    /// Residual honesty: at least one ConvertToCarBomb conversion.
+    pub fn honesty_carbomb_convert_ok(&self) -> bool {
+        self.car_bomb.honesty_convert_ok()
+    }
+
+    /// Residual honesty: at least one car-bomb detonation with observable damage.
+    pub fn honesty_carbomb_detonate_ok(&self) -> bool {
+        self.car_bomb.honesty_detonate_ok()
+    }
+
+    /// Combined residual honesty: any hijack / convert / detonate path observed.
+    pub fn honesty_carbomb_ok(&self) -> bool {
+        self.car_bomb.honesty_any_ok()
+    }
+
+    /// Detonate a residual car bomb (SuicideCarBomb self-position AOE).
+    /// Returns true if detonation resolved. Destroys the car bomb and damages
+    /// nearby units/structures for observable splash residual.
+    /// Fail-closed: not full secondary-radius NOT_SIMILAR ally filter / DeathType matrix.
+    pub fn detonate_car_bomb(&mut self, car_id: ObjectId) -> bool {
+        use crate::game_logic::host_car_bomb::{
+            car_bomb_damage_at_distance, CAR_BOMB_DETONATE_AUDIO, SUICIDE_CAR_BOMB_SECONDARY_RADIUS,
+        };
+
+        let Some(car) = self.objects.get(&car_id) else {
+            return false;
+        };
+        if !car.is_alive() || !car.status.is_carbomb {
+            return false;
+        }
+
+        let car_team = car.team;
+        let car_pos = car.get_position();
+
+        let mut damage_dealt = 0.0f32;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for vid in victim_ids {
+            if vid == car_id {
+                continue;
+            }
+            let Some(victim) = self.objects.get(&vid) else {
+                continue;
+            };
+            if !victim.is_alive() {
+                continue;
+            }
+            // SuicideCarBomb RadiusDamageAffects SELF ALLIES ENEMIES NEUTRALS NOT_SIMILAR:
+            // residual hits all living non-self units in secondary radius (fail-closed
+            // vs NOT_SIMILAR same-template ally skip).
+            let vpos = victim.get_position();
+            let dist = {
+                let dx = vpos.x - car_pos.x;
+                let dz = vpos.z - car_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if dist > SUICIDE_CAR_BOMB_SECONDARY_RADIUS {
+                continue;
+            }
+            let dmg = car_bomb_damage_at_distance(dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(victim) = self.objects.get_mut(&vid) {
+                damage_dealt += dmg.min(victim.health.current.max(0.0));
+                if victim.take_damage(dmg) {
+                    destroy_ids.push((vid, car_team));
+                }
+            }
+        }
+
+        self.car_bomb.record_detonation(damage_dealt);
+        self.queue_audio_event(
+            AudioEventRequest::new(CAR_BOMB_DETONATE_AUDIO)
+                .with_object(car_id)
+                .with_position(car_pos)
+                .with_priority(190),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            car_pos,
+            self.frame,
+            Some(car_id),
+            None,
+        );
+
+        if let Some(car) = self.objects.get_mut(&car_id) {
+            car.status.destroyed = true;
+            car.status.is_carbomb = false;
+        }
+        self.mark_object_for_destruction(car_id, Some(car_team));
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+        true
+    }
+
     /// Transfer residual cash from `from_team` to `to_team` (Black Lotus cash hack).
     /// Returns amount actually stolen (capped by victim supplies).
     /// Fail-closed: not full science upgrade money matrix / EVA / floating text.
@@ -10270,8 +10442,9 @@ impl GameLogic {
 
     /// Advance pending host superweapon strikes to impact and apply area damage.
     /// NuclearMissile residual also ticks radiation fields after impact.
+    /// AnthraxBomb residual also ticks toxin fields after impact.
     pub fn update_special_power_strikes(&mut self) {
-        use crate::game_logic::special_power_strikes::NUKE_RADIATION_AUDIO;
+        use crate::game_logic::special_power_strikes::{ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO};
 
         self.special_power_strikes.clear_frame_events();
 
@@ -10347,6 +10520,21 @@ impl GameLogic {
                 );
             }
 
+            // AnthraxBomb residual: toxin field ambient cue on spawn.
+            if plan.kind.spawns_toxin_field()
+                && !self
+                    .special_power_strikes
+                    .toxin_spawned_this_frame()
+                    .is_empty()
+            {
+                self.queue_audio_event(
+                    AudioEventRequest::new(ANTHRAX_TOXIN_AUDIO)
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(150),
+                );
+            }
+
             log::info!(
                 "Host superweapon {} strike {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
                 plan.kind.label(),
@@ -10360,6 +10548,8 @@ impl GameLogic {
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
         self.update_nuclear_radiation_fields();
+        // AnthraxBomb residual toxin field ticks (after impact blasts).
+        self.update_anthrax_toxin_fields();
     }
 
     /// Tick residual radiation fields spawned by NuclearMissile impacts.
@@ -10411,6 +10601,57 @@ impl GameLogic {
         }
 
         self.special_power_strikes.prune_expired_radiation(frame);
+    }
+
+    /// Tick residual toxin fields spawned by AnthraxBomb impacts.
+    /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard / gamma objects.
+    fn update_anthrax_toxin_fields(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .special_power_strikes
+            .plan_due_toxin_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.special_power_strikes.record_toxin_tick_complete(
+                plan.field_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.special_power_strikes.prune_expired_toxin(frame);
     }
 
     /// Queue a host residual America Paradrop / Airborne mission from DoSpecialPower.
@@ -16467,6 +16708,14 @@ mod tests {
             .expect("target should exist");
         assert_eq!(target.team, Team::USA);
         assert_eq!(target.team_color, Team::USA.get_color());
+        assert!(
+            target.status.hijacked,
+            "hijack residual must set OBJECT_STATUS_HIJACKED"
+        );
+        assert!(
+            game_logic.honesty_hijack_ok(),
+            "hijack residual honesty"
+        );
 
         let hijacker = game_logic
             .find_object(hijacker_id)
@@ -16870,8 +17119,10 @@ mod tests {
         );
     }
 
+    /// Residual: ConvertToCarbomb walks to vehicle → IS_CARBOMB + team defect;
+    /// converter consumed. Does NOT detonate/kill the vehicle on contact.
     #[test]
-    fn carbomb_command_applies_only_after_unit_reaches_target() {
+    fn carbomb_command_converts_vehicle_after_reach() {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
 
@@ -16900,24 +17151,23 @@ mod tests {
 
         let target_after_command = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
         assert_eq!(
-            target_after_command, initial_health,
+            target_after_command.health.current, initial_health,
             "carbomb should not apply immediately on command issue"
         );
+        assert!(!target_after_command.status.is_carbomb);
+        assert_eq!(target_after_command.team, Team::GLA);
 
         game_logic.update_ai(&[bomber_id, target_id], 1.0 / 60.0);
         let target_after_far_update = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
         assert_eq!(
-            target_after_far_update, initial_health,
+            target_after_far_update.health.current, initial_health,
             "carbomb should be pending while bomber is out of range"
         );
+        assert!(!target_after_far_update.status.is_carbomb);
 
         {
             let bomber = game_logic
@@ -16931,12 +17181,27 @@ mod tests {
 
         let target_after_contact = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+            .expect("target should exist");
+        assert_eq!(
+            target_after_contact.health.current, initial_health,
+            "ConvertToCarBomb must not damage vehicle HP on conversion"
+        );
         assert!(
-            target_after_contact < initial_health,
-            "carbomb should damage target once bomber reaches it"
+            target_after_contact.status.is_carbomb,
+            "vehicle must gain IS_CARBOMB"
+        );
+        assert_eq!(
+            target_after_contact.team,
+            Team::USA,
+            "converted car bomb defects to converter team"
+        );
+        assert!(
+            target_after_contact.weapon.is_some(),
+            "car bomb residual binds SuicideCarBomb weapon"
+        );
+        assert!(
+            game_logic.honesty_carbomb_convert_ok(),
+            "carbomb convert residual honesty"
         );
 
         let bomber = game_logic
@@ -16944,10 +17209,11 @@ mod tests {
             .expect("bomber should exist");
         assert!(
             bomber.status.destroyed,
-            "carbomb unit should be destroyed when the attack resolves"
+            "converter infantry is consumed on conversion"
         );
     }
 
+    /// Residual: ConvertToCarbomb allows neutral civilian vehicles.
     #[test]
     fn carbomb_command_allows_neutral_targets() {
         let mut game_logic = GameLogic::new();
@@ -16996,18 +17262,86 @@ mod tests {
 
         let target_after_contact = game_logic
             .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
-        assert!(
-            target_after_contact < initial_health,
-            "carbomb should resolve against neutral targets"
+            .expect("target should exist");
+        assert_eq!(
+            target_after_contact.health.current, initial_health,
+            "neutral convert must not damage vehicle"
         );
+        assert!(
+            target_after_contact.status.is_carbomb,
+            "neutral vehicle becomes car bomb"
+        );
+        assert_eq!(target_after_contact.team, Team::USA);
 
         let bomber = game_logic
             .find_object(bomber_id)
             .expect("bomber should exist");
         assert!(bomber.status.destroyed);
+    }
+
+    /// Residual: car bomb vehicle attacks structure → suicide detonation AOE damage.
+    #[test]
+    fn carbomb_attack_structure_detonates_with_observable_damage() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        let car_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("car should be created");
+        let structure_id = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("structure should be created");
+
+        {
+            let car = game_logic
+                .find_object_mut(car_id)
+                .expect("car should exist");
+            car.apply_convert_to_car_bomb();
+            car.set_team(Team::GLA);
+            // Ensure weapon is ready to fire immediately.
+            if let Some(w) = car.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 0.0;
+            }
+            car.attack_target(structure_id);
+        }
+        game_logic.car_bomb.record_conversion();
+
+        let structure_hp_before = game_logic
+            .find_object(structure_id)
+            .expect("structure should exist")
+            .health
+            .current;
+        assert!(structure_hp_before > 0.0);
+
+        // SuicideCarBomb AttackRange = 5; structure at 3 is in range.
+        game_logic.frame = 30;
+        game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
+
+        let structure_after = game_logic
+            .find_object(structure_id)
+            .expect("structure should exist");
+        assert!(
+            structure_after.health.current < structure_hp_before
+                || structure_after.status.destroyed
+                || !structure_after.is_alive(),
+            "car bomb detonation must damage structure (before={structure_hp_before}, after={})",
+            structure_after.health.current
+        );
+        assert!(
+            game_logic.honesty_carbomb_detonate_ok(),
+            "carbomb detonate residual honesty (damage={})",
+            game_logic.car_bomb_residual().detonation_damage_dealt
+        );
+
+        let car = game_logic
+            .find_object(car_id)
+            .expect("car should exist");
+        assert!(
+            car.status.destroyed || !car.is_alive(),
+            "car bomb destroys itself on detonation"
+        );
     }
 
     #[test]
@@ -19375,6 +19709,214 @@ mod tests {
         let completed = game_logic
             .special_power_strikes()
             .completed_of_kind(HostSuperweaponKind::NuclearMissile);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].objects_hit >= 1);
+        assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
+    /// Residual: AnthraxBomb (GLA SPECIAL_ANTHRAX_BOMB) queues delayed area damage
+    /// and spawns residual toxin field after impact.
+    /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
+    #[test]
+    fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{
+            HostSuperweaponKind, ANTHRAX_TOXIN_AUDIO, ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        // Survivor for toxin residual: outside blast radius (100) but inside toxin
+        // radius (300). Blast is flat 200 within 100; place at 150.
+        let tox_victim_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(150.0, 0.0, 0.0))
+            .expect("tox victim");
+        let far_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(800.0, 0.0, 0.0))
+            .expect("far enemy");
+
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            // Blast = 200; keep HP so we can also observe toxin if still alive.
+            enemy.health.current = 100.0;
+            enemy.health.maximum = 100.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        {
+            let v = game_logic.find_object_mut(tox_victim_id).expect("tox victim");
+            v.health.current = 500.0;
+            v.health.maximum = 500.0;
+            v.thing.template.armor = 0.0;
+        }
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 500.0;
+            far.health.maximum = 500.0;
+            far.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        let target = Vec3::new(40.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::AnthraxBomb,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 2, // Team::GLA
+            command_id: 51,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::AnthraxBomb),
+            "AnthraxBomb must queue a pending host strike"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponAnthraxBomb"),
+            "activation must queue SuperweaponAnthraxBomb audio"
+        );
+        assert!(
+            game_logic.special_power_strikes().toxin_fields().is_empty(),
+            "toxin must not spawn before impact"
+        );
+
+        // Before impact delay: no damage.
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let tox_before = game_logic.find_object(tox_victim_id).unwrap().health.current;
+        game_logic.frame = 89;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no blast damage before impact frame 90"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
+
+        // At impact: blast + toxin field spawn + first toxin tick.
+        game_logic.frame = 90;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::AnthraxBomb),
+            "AnthraxBomb must complete on impact frame"
+        );
+        assert!(
+            game_logic.special_power_strikes().honesty_toxin_ok(),
+            "AnthraxBomb must spawn residual toxin"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::AnthraxBomb),
+            "host path honesty requires complete blast + toxin spawn"
+        );
+
+        let enemy_after = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        assert!(
+            enemy_after.is_none()
+                || enemy_after == Some(0.0)
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true)
+                || enemy_after.map(|h| h < health_before).unwrap_or(false),
+            "enemy at epicenter must take AnthraxBomb residual blast damage"
+        );
+
+        // Toxin victim outside blast radius took toxin tick only.
+        let tox_after = game_logic
+            .find_object(tox_victim_id)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tox_after < tox_before,
+            "mid-radius victim must take toxin residual damage (before={tox_before}, after={tox_after})"
+        );
+        // Far unit untouched.
+        assert!(
+            game_logic
+                .find_object(far_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside blast/toxin radius must be untouched"
+        );
+
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "AnthraxBombImpact"),
+            "impact must queue AnthraxBombImpact audio"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == ANTHRAX_TOXIN_AUDIO),
+            "impact must queue anthrax ambient residual"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "impact must register DeathExplosion particle residual"
+        );
+
+        // Second toxin tick after interval: more residual damage if still alive.
+        let tox_mid = game_logic
+            .find_object(tox_victim_id)
+            .map(|o| o.health.current);
+        if let Some(mid_hp) = tox_mid {
+            game_logic.frame = 90 + 15;
+            game_logic.update_special_power_strikes();
+            let tox_later = game_logic
+                .find_object(tox_victim_id)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            assert!(
+                tox_later < mid_hp - ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
+                    || tox_later == 0.0
+                    || game_logic.find_object(tox_victim_id).is_none(),
+                "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later})"
+            );
+            assert!(
+                game_logic
+                    .special_power_strikes()
+                    .honesty_toxin_damage_ok(),
+                "toxin damage honesty after tick"
+            );
+        }
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::AnthraxBomb);
         assert_eq!(completed.len(), 1);
         assert!(completed[0].objects_hit >= 1);
         assert!(completed[0].total_damage_applied > 0.0);
