@@ -9,10 +9,18 @@
 //! - Radius residual 100 (RadiusCursorRadius / AutoHealBehavior Radius).
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 52 residual pack (retail System.ini / Science.ini / SpecialPower.ini):
+//! - SCIENCE_EmergencyRepair1/2/3 science tier gate residual
+//! - OCL RepairVehiclesInArea_InvisibleMarker_Level1/2/3 templates
+//! - HealingAmount 100/200/300 + Radius 100 + KindOf=VEHICLE + SingleBurst
+//! - Superweapon reload 240000 ms residual
+//! - DeletionUpdate Min/MaxLifetime = 0 (immediate one-pulse)
+//! - ParticleSysBone RepairCloud residual name
+//!
 //! Fail-closed honesty:
 //! - Not full OCL RepairVehicles invisible marker / RepairCloud particle path
 //! - Not full ally relationship filter (uses same-team residual)
-//! - Not full science tier upgrade matrix (default Level 1; optional level param)
+//! - Not full player science ownership matrix beyond residual name tier gate
 //! - Not KindOf aircraft-as-vehicle edge cases beyond residual Vehicle KindOf
 //! - Not network EmergencyRepair replication (network deferred)
 
@@ -36,6 +44,49 @@ pub const EMERGENCY_REPAIR_LEVEL3_HEAL: f32 = 300.0;
 
 /// Activate audio residual (SpecialPower.ini InitiateAtLocationSound).
 pub const EMERGENCY_REPAIR_ACTIVATE_AUDIO: &str = "EmergencyRepairActivate";
+
+/// Retail SuperweaponEmergencyRepair ReloadTime residual (msec).
+pub const EMERGENCY_REPAIR_RELOAD_TIME_MS: u32 = 240_000;
+/// ReloadTime 240000 ms → 7200 frames @ 30 FPS.
+pub const EMERGENCY_REPAIR_RELOAD_TIME_FRAMES: u32 = 7_200;
+
+/// Retail science tier residual names (Science.ini).
+pub const SCIENCE_EMERGENCY_REPAIR1: &str = "SCIENCE_EmergencyRepair1";
+pub const SCIENCE_EMERGENCY_REPAIR2: &str = "SCIENCE_EmergencyRepair2";
+pub const SCIENCE_EMERGENCY_REPAIR3: &str = "SCIENCE_EmergencyRepair3";
+
+/// Retail SpecialPower template residual.
+pub const SUPERWEAPON_EMERGENCY_REPAIR: &str = "SuperweaponEmergencyRepair";
+
+/// Retail OCL / System.ini invisible-marker templates.
+pub const EMERGENCY_REPAIR_MARKER_LEVEL1: &str = "RepairVehiclesInArea_InvisibleMarker_Level1";
+pub const EMERGENCY_REPAIR_MARKER_LEVEL2: &str = "RepairVehiclesInArea_InvisibleMarker_Level2";
+pub const EMERGENCY_REPAIR_MARKER_LEVEL3: &str = "RepairVehiclesInArea_InvisibleMarker_Level3";
+
+/// Retail ParticleSysBone residual on RepairVehicles marker draw.
+pub const EMERGENCY_REPAIR_CLOUD_PARTICLE: &str = "RepairCloud";
+
+/// Retail AutoHealBehavior KindOf residual name.
+pub const EMERGENCY_REPAIR_AFFECT_KINDOF: &str = "VEHICLE";
+/// Retail AutoHealBehavior SingleBurst residual.
+pub const EMERGENCY_REPAIR_SINGLE_BURST: bool = true;
+/// Retail AutoHealBehavior StartsActive residual.
+pub const EMERGENCY_REPAIR_STARTS_ACTIVE: bool = true;
+/// Retail AutoHealBehavior HealingDelay residual (msec; effectively sleep forever).
+pub const EMERGENCY_REPAIR_HEALING_DELAY_MS: u32 = 1;
+
+/// Retail DeletionUpdate Min/MaxLifetime residual (msec = 0 → immediate one-pulse).
+pub const EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_MS: u32 = 0;
+/// DeletionUpdate lifetime residual frames (0 msec → 0 frames).
+pub const EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_FRAMES: u32 = 0;
+
+/// Convert msec residual → logic frames @ 30 FPS (C++ parseDurationUnsignedInt ceil).
+pub fn emergency_repair_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * (EMERGENCY_REPAIR_LOGIC_FPS / 1000.0)).ceil() as u32
+}
 
 /// Residual Emergency Repair science tier → HealingAmount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -62,12 +113,50 @@ impl HostEmergencyRepairLevel {
         self as u8
     }
 
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            HostEmergencyRepairLevel::One => SCIENCE_EMERGENCY_REPAIR1,
+            HostEmergencyRepairLevel::Two => SCIENCE_EMERGENCY_REPAIR2,
+            HostEmergencyRepairLevel::Three => SCIENCE_EMERGENCY_REPAIR3,
+        }
+    }
+
+    /// Retail OCL / System.ini invisible-marker template for this tier.
+    pub fn marker_template(self) -> &'static str {
+        match self {
+            HostEmergencyRepairLevel::One => EMERGENCY_REPAIR_MARKER_LEVEL1,
+            HostEmergencyRepairLevel::Two => EMERGENCY_REPAIR_MARKER_LEVEL2,
+            HostEmergencyRepairLevel::Three => EMERGENCY_REPAIR_MARKER_LEVEL3,
+        }
+    }
+
     /// Retail AutoHealBehavior HealingAmount for this tier.
     pub fn heal_amount(self) -> f32 {
         match self {
             HostEmergencyRepairLevel::One => EMERGENCY_REPAIR_LEVEL1_HEAL,
             HostEmergencyRepairLevel::Two => EMERGENCY_REPAIR_LEVEL2_HEAL,
             HostEmergencyRepairLevel::Three => EMERGENCY_REPAIR_LEVEL3_HEAL,
+        }
+    }
+
+    /// Residual radius (all levels share RadiusCursorRadius / AutoHeal Radius = 100).
+    pub fn radius(self) -> f32 {
+        HOST_EMERGENCY_REPAIR_RADIUS
+    }
+}
+
+/// Map science residual name → Emergency Repair level (fail-closed: unknown → One).
+pub fn emergency_repair_level_from_science(science: &str) -> HostEmergencyRepairLevel {
+    match science {
+        SCIENCE_EMERGENCY_REPAIR2 | "Early_SCIENCE_EmergencyRepair2" => {
+            HostEmergencyRepairLevel::Two
+        }
+        SCIENCE_EMERGENCY_REPAIR3 | "Early_SCIENCE_EmergencyRepair3" => {
+            HostEmergencyRepairLevel::Three
+        }
+        SCIENCE_EMERGENCY_REPAIR1 | "Early_SCIENCE_EmergencyRepair1" | _ => {
+            HostEmergencyRepairLevel::One
         }
     }
 }
@@ -95,6 +184,32 @@ pub fn in_emergency_repair_radius_2d(center: (f32, f32), target: (f32, f32), rad
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius
+}
+
+/// Wave 52 residual honesty: science tier / amount / radius / marker lifetime pack.
+pub fn honesty_emergency_repair_residual_ok() -> bool {
+    (HOST_EMERGENCY_REPAIR_RADIUS - 100.0).abs() < 0.01
+        && (HostEmergencyRepairLevel::One.heal_amount() - 100.0).abs() < 0.01
+        && (HostEmergencyRepairLevel::Two.heal_amount() - 200.0).abs() < 0.01
+        && (HostEmergencyRepairLevel::Three.heal_amount() - 300.0).abs() < 0.01
+        && HostEmergencyRepairLevel::One.science_name() == SCIENCE_EMERGENCY_REPAIR1
+        && HostEmergencyRepairLevel::Two.science_name() == SCIENCE_EMERGENCY_REPAIR2
+        && HostEmergencyRepairLevel::Three.science_name() == SCIENCE_EMERGENCY_REPAIR3
+        && HostEmergencyRepairLevel::One.marker_template() == EMERGENCY_REPAIR_MARKER_LEVEL1
+        && HostEmergencyRepairLevel::Two.marker_template() == EMERGENCY_REPAIR_MARKER_LEVEL2
+        && HostEmergencyRepairLevel::Three.marker_template() == EMERGENCY_REPAIR_MARKER_LEVEL3
+        && EMERGENCY_REPAIR_RELOAD_TIME_MS == 240_000
+        && EMERGENCY_REPAIR_RELOAD_TIME_FRAMES
+            == emergency_repair_ms_to_frames(EMERGENCY_REPAIR_RELOAD_TIME_MS)
+        && EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_MS == 0
+        && EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_FRAMES == 0
+        && EMERGENCY_REPAIR_AFFECT_KINDOF == "VEHICLE"
+        && EMERGENCY_REPAIR_SINGLE_BURST
+        && EMERGENCY_REPAIR_STARTS_ACTIVE
+        && EMERGENCY_REPAIR_HEALING_DELAY_MS == 1
+        && EMERGENCY_REPAIR_CLOUD_PARTICLE == "RepairCloud"
+        && SUPERWEAPON_EMERGENCY_REPAIR == "SuperweaponEmergencyRepair"
+        && !EMERGENCY_REPAIR_ACTIVATE_AUDIO.is_empty()
 }
 
 /// One active residual Emergency Repair activation bookkeeping entry.
@@ -198,6 +313,55 @@ mod tests {
         assert!((HostEmergencyRepairLevel::Two.heal_amount() - 200.0).abs() < 0.01);
         assert!((HostEmergencyRepairLevel::Three.heal_amount() - 300.0).abs() < 0.01);
         assert!(!EMERGENCY_REPAIR_ACTIVATE_AUDIO.is_empty());
+    }
+
+    #[test]
+    fn emergency_repair_residual_pack_honesty() {
+        assert!(honesty_emergency_repair_residual_ok());
+        // Science tier gate residual.
+        assert_eq!(SCIENCE_EMERGENCY_REPAIR1, "SCIENCE_EmergencyRepair1");
+        assert_eq!(SCIENCE_EMERGENCY_REPAIR2, "SCIENCE_EmergencyRepair2");
+        assert_eq!(SCIENCE_EMERGENCY_REPAIR3, "SCIENCE_EmergencyRepair3");
+        assert_eq!(
+            emergency_repair_level_from_science(SCIENCE_EMERGENCY_REPAIR1),
+            HostEmergencyRepairLevel::One
+        );
+        assert_eq!(
+            emergency_repair_level_from_science(SCIENCE_EMERGENCY_REPAIR2),
+            HostEmergencyRepairLevel::Two
+        );
+        assert_eq!(
+            emergency_repair_level_from_science(SCIENCE_EMERGENCY_REPAIR3),
+            HostEmergencyRepairLevel::Three
+        );
+        assert_eq!(
+            emergency_repair_level_from_science("Early_SCIENCE_EmergencyRepair3"),
+            HostEmergencyRepairLevel::Three
+        );
+        // Amount residual per level.
+        assert_eq!(EMERGENCY_REPAIR_LEVEL1_HEAL, 100.0);
+        assert_eq!(EMERGENCY_REPAIR_LEVEL2_HEAL, 200.0);
+        assert_eq!(EMERGENCY_REPAIR_LEVEL3_HEAL, 300.0);
+        // Superweapon reload residual duration.
+        assert_eq!(EMERGENCY_REPAIR_RELOAD_TIME_MS, 240_000);
+        assert_eq!(EMERGENCY_REPAIR_RELOAD_TIME_FRAMES, 7_200);
+        assert_eq!(emergency_repair_ms_to_frames(240_000), 7_200);
+        // Marker lifetime residual (immediate pulse).
+        assert_eq!(EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_MS, 0);
+        assert_eq!(EMERGENCY_REPAIR_MARKER_DELETION_LIFETIME_FRAMES, 0);
+        // OCL + particle + KindOf residual.
+        assert_eq!(
+            EMERGENCY_REPAIR_MARKER_LEVEL1,
+            "RepairVehiclesInArea_InvisibleMarker_Level1"
+        );
+        assert_eq!(EMERGENCY_REPAIR_CLOUD_PARTICLE, "RepairCloud");
+        assert_eq!(EMERGENCY_REPAIR_AFFECT_KINDOF, "VEHICLE");
+        assert!(EMERGENCY_REPAIR_SINGLE_BURST);
+        assert_eq!(
+            HostEmergencyRepairLevel::Two.marker_template(),
+            EMERGENCY_REPAIR_MARKER_LEVEL2
+        );
+        assert!((HostEmergencyRepairLevel::Three.radius() - 100.0).abs() < 0.01);
     }
 
     #[test]

@@ -8,11 +8,21 @@
 //!   temporary damage multiplier (110% / 120% / 130%) for BonusDuration.
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 52 residual pack (retail System.ini / GameData.ini / Science.ini):
+//! - Frenzy_InvisibleMarker Level1/2/3 OCL template names
+//! - BonusDuration 10000/20000/30000 ms → 300/600/900 frames
+//! - BonusRange / RadiusCursorRadius 200 (all levels)
+//! - WeaponBonus FRENZY_ONE/TWO/THREE DAMAGE 110%/120%/130%
+//! - Science SCIENCE_Frenzy1/2/3 tier gate residual
+//! - RequiredAffectKindOf=CAN_ATTACK / ForbiddenAffectKindOf=STRUCTURE
+//! - DeletionUpdate Min/MaxLifetime = 1 msec → 1 frame (one pulse)
+//! - ParticleSysBone FrenzyCloud residual name
+//!
 //! Fail-closed honesty:
-//! - Not full OCL Frenzy_InvisibleMarker spawn / DeletionUpdate lifetime object
-//! - Not full KindOf multi-mask (CAN_ATTACK / STRUCTURE) beyond residual filters
+//! - Not full OCL Frenzy_InvisibleMarker spawn / live DeletionUpdate object
+//! - Not full KindOf multi-mask engine beyond residual Required/Forbidden filters
 //! - Not full ally relationship filter (uses same-team residual)
-//! - Not full science tier upgrade matrix (default Level 1; optional level param)
+//! - Not full player science ownership matrix beyond residual name tier gate
 //! - Not full FrenzyCloud particle / red TINT_STATUS_FRENZY drawable path
 //! - Not network Frenzy replication (network deferred)
 //!
@@ -30,12 +40,25 @@ pub const FRENZY_LOGIC_FPS: f32 = 30.0;
 /// Also matches Frenzy_InvisibleMarker WeaponBonusUpdate BonusRange = 200.
 pub const HOST_FRENZY_RADIUS: f32 = 200.0;
 
+/// Per-level BonusRange residual (System.ini — all levels use 200).
+pub const FRENZY_LEVEL1_RADIUS: f32 = 200.0;
+pub const FRENZY_LEVEL2_RADIUS: f32 = 200.0;
+pub const FRENZY_LEVEL3_RADIUS: f32 = 200.0;
+
 /// Retail Frenzy_InvisibleMarker_Level1 BonusDuration = 10000 ms → 300 frames.
 pub const FRENZY_LEVEL1_DURATION_MS: u32 = 10_000;
 /// Retail Frenzy_InvisibleMarker_Level2 BonusDuration = 20000 ms → 600 frames.
 pub const FRENZY_LEVEL2_DURATION_MS: u32 = 20_000;
 /// Retail Frenzy_InvisibleMarker_Level3 BonusDuration = 30000 ms → 900 frames.
 pub const FRENZY_LEVEL3_DURATION_MS: u32 = 30_000;
+
+/// Retail BonusDuration residual frames (parseDurationUnsignedInt ceil).
+pub const FRENZY_LEVEL1_DURATION_FRAMES: u32 = 300;
+pub const FRENZY_LEVEL2_DURATION_FRAMES: u32 = 600;
+pub const FRENZY_LEVEL3_DURATION_FRAMES: u32 = 900;
+
+/// Retail WeaponBonusUpdate BonusDelay residual msec (long; marker dies first).
+pub const FRENZY_BONUS_DELAY_MS: u32 = 100_000;
 
 /// Retail GameData.ini WeaponBonus FRENZY_ONE DAMAGE 110%.
 pub const FRENZY_LEVEL1_DAMAGE_MULT: f32 = 1.10;
@@ -46,6 +69,58 @@ pub const FRENZY_LEVEL3_DAMAGE_MULT: f32 = 1.30;
 
 /// Activate audio residual (SpecialPower.ini InitiateAtLocationSound = FrenzyActivate).
 pub const FRENZY_ACTIVATE_AUDIO: &str = "FrenzyActivate";
+
+/// Retail SuperweaponFrenzy ReloadTime residual (msec).
+pub const FRENZY_RELOAD_TIME_MS: u32 = 240_000;
+/// ReloadTime 240000 ms → 7200 frames @ 30 FPS.
+pub const FRENZY_RELOAD_TIME_FRAMES: u32 = 7_200;
+
+/// Retail OCL / System.ini Frenzy invisible-marker templates.
+pub const FRENZY_MARKER_LEVEL1: &str = "Frenzy_InvisibleMarker_Level1";
+pub const FRENZY_MARKER_LEVEL2: &str = "Frenzy_InvisibleMarker_Level2";
+pub const FRENZY_MARKER_LEVEL3: &str = "Frenzy_InvisibleMarker_Level3";
+
+/// Retail SpecialPower template residual.
+pub const SUPERWEAPON_FRENZY: &str = "SuperweaponFrenzy";
+
+/// Retail science tier residual names (Science.ini).
+pub const SCIENCE_FRENZY1: &str = "SCIENCE_Frenzy1";
+pub const SCIENCE_FRENZY2: &str = "SCIENCE_Frenzy2";
+pub const SCIENCE_FRENZY3: &str = "SCIENCE_Frenzy3";
+
+/// Retail ParticleSysBone residual on Frenzy_InvisibleMarker draw.
+pub const FRENZY_CLOUD_PARTICLE: &str = "FrenzyCloud";
+
+/// Retail WeaponBonusUpdate RequiredAffectKindOf residual name.
+pub const FRENZY_REQUIRED_AFFECT_KINDOF: &str = "CAN_ATTACK";
+/// Retail WeaponBonusUpdate ForbiddenAffectKindOf residual name.
+pub const FRENZY_FORBIDDEN_AFFECT_KINDOF: &str = "STRUCTURE";
+
+/// Retail BonusConditionType residual names (GameData / WeaponBonusUpdate).
+pub const FRENZY_CONDITION_ONE: &str = "FRENZY_ONE";
+pub const FRENZY_CONDITION_TWO: &str = "FRENZY_TWO";
+pub const FRENZY_CONDITION_THREE: &str = "FRENZY_THREE";
+
+/// C++ `WeaponBonusConditionType` residual discriminants (ALLOW_DEMORALIZE off:
+/// DEMORALIZED_OBSOLETE still occupies slot 7).
+/// WEAPONBONUSCONDITION_FRENZY_ONE / TWO / THREE.
+pub const WEAPON_BONUS_FRENZY_ONE: u8 = 24;
+pub const WEAPON_BONUS_FRENZY_TWO: u8 = 25;
+pub const WEAPON_BONUS_FRENZY_THREE: u8 = 26;
+
+/// Retail DeletionUpdate MinLifetime residual (msec INI = 1 → ceil frames = 1).
+/// Marker is a one-pulse object ("one pulse" comment in System.ini).
+pub const FRENZY_MARKER_DELETION_LIFETIME_MS: u32 = 1;
+/// DeletionUpdate lifetime residual frames (ceil(1 * 30/1000) = 1).
+pub const FRENZY_MARKER_DELETION_LIFETIME_FRAMES: u32 = 1;
+
+/// Convert msec residual → logic frames @ 30 FPS (C++ parseDurationUnsignedInt ceil).
+pub fn frenzy_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * (FRENZY_LOGIC_FPS / 1000.0)).ceil() as u32
+}
 
 /// Residual Frenzy science tier → FRENZY_ONE / TWO / THREE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,6 +147,51 @@ impl HostFrenzyLevel {
         self as u8
     }
 
+    /// Retail science residual name for this tier.
+    pub fn science_name(self) -> &'static str {
+        match self {
+            HostFrenzyLevel::One => SCIENCE_FRENZY1,
+            HostFrenzyLevel::Two => SCIENCE_FRENZY2,
+            HostFrenzyLevel::Three => SCIENCE_FRENZY3,
+        }
+    }
+
+    /// Retail OCL / System.ini invisible-marker template for this tier.
+    pub fn marker_template(self) -> &'static str {
+        match self {
+            HostFrenzyLevel::One => FRENZY_MARKER_LEVEL1,
+            HostFrenzyLevel::Two => FRENZY_MARKER_LEVEL2,
+            HostFrenzyLevel::Three => FRENZY_MARKER_LEVEL3,
+        }
+    }
+
+    /// Retail BonusConditionType residual name.
+    pub fn condition_name(self) -> &'static str {
+        match self {
+            HostFrenzyLevel::One => FRENZY_CONDITION_ONE,
+            HostFrenzyLevel::Two => FRENZY_CONDITION_TWO,
+            HostFrenzyLevel::Three => FRENZY_CONDITION_THREE,
+        }
+    }
+
+    /// C++ WeaponBonusConditionType residual discriminant.
+    pub fn weapon_bonus_discriminant(self) -> u8 {
+        match self {
+            HostFrenzyLevel::One => WEAPON_BONUS_FRENZY_ONE,
+            HostFrenzyLevel::Two => WEAPON_BONUS_FRENZY_TWO,
+            HostFrenzyLevel::Three => WEAPON_BONUS_FRENZY_THREE,
+        }
+    }
+
+    /// Retail BonusRange residual (all levels 200).
+    pub fn radius(self) -> f32 {
+        match self {
+            HostFrenzyLevel::One => FRENZY_LEVEL1_RADIUS,
+            HostFrenzyLevel::Two => FRENZY_LEVEL2_RADIUS,
+            HostFrenzyLevel::Three => FRENZY_LEVEL3_RADIUS,
+        }
+    }
+
     /// Retail BonusDuration in logic frames.
     pub fn duration_frames(self) -> u32 {
         let ms = match self {
@@ -79,7 +199,16 @@ impl HostFrenzyLevel {
             HostFrenzyLevel::Two => FRENZY_LEVEL2_DURATION_MS,
             HostFrenzyLevel::Three => FRENZY_LEVEL3_DURATION_MS,
         };
-        (ms * 30) / 1000
+        frenzy_ms_to_frames(ms)
+    }
+
+    /// Retail BonusDuration residual msec.
+    pub fn duration_ms(self) -> u32 {
+        match self {
+            HostFrenzyLevel::One => FRENZY_LEVEL1_DURATION_MS,
+            HostFrenzyLevel::Two => FRENZY_LEVEL2_DURATION_MS,
+            HostFrenzyLevel::Three => FRENZY_LEVEL3_DURATION_MS,
+        }
     }
 
     /// Retail DAMAGE weapon-bonus multiplier.
@@ -89,6 +218,15 @@ impl HostFrenzyLevel {
             HostFrenzyLevel::Two => FRENZY_LEVEL2_DAMAGE_MULT,
             HostFrenzyLevel::Three => FRENZY_LEVEL3_DAMAGE_MULT,
         }
+    }
+}
+
+/// Map science residual name → Frenzy level (fail-closed: unknown → One).
+pub fn frenzy_level_from_science(science: &str) -> HostFrenzyLevel {
+    match science {
+        SCIENCE_FRENZY2 | "Early_SCIENCE_Frenzy2" => HostFrenzyLevel::Two,
+        SCIENCE_FRENZY3 | "Early_SCIENCE_Frenzy3" => HostFrenzyLevel::Three,
+        SCIENCE_FRENZY1 | "Early_SCIENCE_Frenzy1" | _ => HostFrenzyLevel::One,
     }
 }
 
@@ -114,6 +252,53 @@ pub fn in_frenzy_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) 
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius
+}
+
+/// Wave 52 residual honesty: Frenzy Level1/2/3 damage / duration / radius /
+/// science / marker lifetime / KindOf / FrenzyCloud pack.
+pub fn honesty_frenzy_residual_ok() -> bool {
+    (HOST_FRENZY_RADIUS - 200.0).abs() < 0.01
+        && (FRENZY_LEVEL1_RADIUS - 200.0).abs() < 0.01
+        && (FRENZY_LEVEL2_RADIUS - 200.0).abs() < 0.01
+        && (FRENZY_LEVEL3_RADIUS - 200.0).abs() < 0.01
+        && FRENZY_LEVEL1_DURATION_MS == 10_000
+        && FRENZY_LEVEL2_DURATION_MS == 20_000
+        && FRENZY_LEVEL3_DURATION_MS == 30_000
+        && FRENZY_LEVEL1_DURATION_FRAMES == frenzy_ms_to_frames(FRENZY_LEVEL1_DURATION_MS)
+        && FRENZY_LEVEL2_DURATION_FRAMES == frenzy_ms_to_frames(FRENZY_LEVEL2_DURATION_MS)
+        && FRENZY_LEVEL3_DURATION_FRAMES == frenzy_ms_to_frames(FRENZY_LEVEL3_DURATION_MS)
+        && HostFrenzyLevel::One.duration_frames() == 300
+        && HostFrenzyLevel::Two.duration_frames() == 600
+        && HostFrenzyLevel::Three.duration_frames() == 900
+        && (HostFrenzyLevel::One.damage_multiplier() - 1.10).abs() < 0.001
+        && (HostFrenzyLevel::Two.damage_multiplier() - 1.20).abs() < 0.001
+        && (HostFrenzyLevel::Three.damage_multiplier() - 1.30).abs() < 0.001
+        && (HostFrenzyLevel::One.radius() - 200.0).abs() < 0.01
+        && (HostFrenzyLevel::Two.radius() - 200.0).abs() < 0.01
+        && (HostFrenzyLevel::Three.radius() - 200.0).abs() < 0.01
+        && HostFrenzyLevel::One.science_name() == SCIENCE_FRENZY1
+        && HostFrenzyLevel::Two.science_name() == SCIENCE_FRENZY2
+        && HostFrenzyLevel::Three.science_name() == SCIENCE_FRENZY3
+        && HostFrenzyLevel::One.marker_template() == FRENZY_MARKER_LEVEL1
+        && HostFrenzyLevel::Two.marker_template() == FRENZY_MARKER_LEVEL2
+        && HostFrenzyLevel::Three.marker_template() == FRENZY_MARKER_LEVEL3
+        && HostFrenzyLevel::One.condition_name() == FRENZY_CONDITION_ONE
+        && HostFrenzyLevel::Two.condition_name() == FRENZY_CONDITION_TWO
+        && HostFrenzyLevel::Three.condition_name() == FRENZY_CONDITION_THREE
+        && HostFrenzyLevel::One.weapon_bonus_discriminant() == WEAPON_BONUS_FRENZY_ONE
+        && HostFrenzyLevel::Two.weapon_bonus_discriminant() == WEAPON_BONUS_FRENZY_TWO
+        && HostFrenzyLevel::Three.weapon_bonus_discriminant() == WEAPON_BONUS_FRENZY_THREE
+        && FRENZY_REQUIRED_AFFECT_KINDOF == "CAN_ATTACK"
+        && FRENZY_FORBIDDEN_AFFECT_KINDOF == "STRUCTURE"
+        && FRENZY_CLOUD_PARTICLE == "FrenzyCloud"
+        && FRENZY_MARKER_DELETION_LIFETIME_MS == 1
+        && FRENZY_MARKER_DELETION_LIFETIME_FRAMES
+            == frenzy_ms_to_frames(FRENZY_MARKER_DELETION_LIFETIME_MS)
+        && FRENZY_BONUS_DELAY_MS == 100_000
+        && FRENZY_RELOAD_TIME_MS == 240_000
+        && FRENZY_RELOAD_TIME_FRAMES == frenzy_ms_to_frames(FRENZY_RELOAD_TIME_MS)
+        && SUPERWEAPON_FRENZY == "SuperweaponFrenzy"
+        && !FRENZY_ACTIVATE_AUDIO.is_empty()
 }
 
 /// One active residual Frenzy activation bookkeeping entry (honesty / debug).
@@ -215,6 +400,51 @@ mod tests {
     }
 
     #[test]
+    fn frenzy_residual_pack_honesty() {
+        assert!(honesty_frenzy_residual_ok());
+        // Damage mult residual honesty 110/120/130%.
+        assert_eq!(FRENZY_LEVEL1_DAMAGE_MULT, 1.10);
+        assert_eq!(FRENZY_LEVEL2_DAMAGE_MULT, 1.20);
+        assert_eq!(FRENZY_LEVEL3_DAMAGE_MULT, 1.30);
+        // BonusDuration residual per level.
+        assert_eq!(FRENZY_LEVEL1_DURATION_MS, 10_000);
+        assert_eq!(FRENZY_LEVEL2_DURATION_MS, 20_000);
+        assert_eq!(FRENZY_LEVEL3_DURATION_MS, 30_000);
+        assert_eq!(FRENZY_LEVEL1_DURATION_FRAMES, 300);
+        assert_eq!(FRENZY_LEVEL2_DURATION_FRAMES, 600);
+        assert_eq!(FRENZY_LEVEL3_DURATION_FRAMES, 900);
+        // Radius residual per level (all 200).
+        assert_eq!(FRENZY_LEVEL1_RADIUS, 200.0);
+        assert_eq!(FRENZY_LEVEL2_RADIUS, 200.0);
+        assert_eq!(FRENZY_LEVEL3_RADIUS, 200.0);
+        // Science tier gate residual.
+        assert_eq!(SCIENCE_FRENZY1, "SCIENCE_Frenzy1");
+        assert_eq!(SCIENCE_FRENZY2, "SCIENCE_Frenzy2");
+        assert_eq!(SCIENCE_FRENZY3, "SCIENCE_Frenzy3");
+        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY1), HostFrenzyLevel::One);
+        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY2), HostFrenzyLevel::Two);
+        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY3), HostFrenzyLevel::Three);
+        assert_eq!(
+            frenzy_level_from_science("Early_SCIENCE_Frenzy2"),
+            HostFrenzyLevel::Two
+        );
+        // Marker DeletionUpdate lifetime residual.
+        assert_eq!(FRENZY_MARKER_DELETION_LIFETIME_MS, 1);
+        assert_eq!(FRENZY_MARKER_DELETION_LIFETIME_FRAMES, 1);
+        assert_eq!(frenzy_ms_to_frames(1), 1);
+        // KindOf multi-mask residual names.
+        assert_eq!(FRENZY_REQUIRED_AFFECT_KINDOF, "CAN_ATTACK");
+        assert_eq!(FRENZY_FORBIDDEN_AFFECT_KINDOF, "STRUCTURE");
+        // OCL + FrenzyCloud residual.
+        assert_eq!(FRENZY_MARKER_LEVEL1, "Frenzy_InvisibleMarker_Level1");
+        assert_eq!(FRENZY_CLOUD_PARTICLE, "FrenzyCloud");
+        // Discriminants residual.
+        assert_eq!(WEAPON_BONUS_FRENZY_ONE, 24);
+        assert_eq!(WEAPON_BONUS_FRENZY_TWO, 25);
+        assert_eq!(WEAPON_BONUS_FRENZY_THREE, 26);
+    }
+
+    #[test]
     fn legal_frenzy_target_matrix() {
         // structure, alive, same_team, can_attack, under_construction
         assert!(is_legal_frenzy_target(false, true, true, true, false));
@@ -233,6 +463,8 @@ mod tests {
         assert_eq!(HostFrenzyLevel::from_u8(2), HostFrenzyLevel::Two);
         assert_eq!(HostFrenzyLevel::from_u8(3), HostFrenzyLevel::Three);
         assert_eq!(HostFrenzyLevel::from_u8(99), HostFrenzyLevel::One); // fail-closed
+        assert_eq!(HostFrenzyLevel::One.marker_template(), FRENZY_MARKER_LEVEL1);
+        assert_eq!(HostFrenzyLevel::Two.science_name(), SCIENCE_FRENZY2);
     }
 
     #[test]

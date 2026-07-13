@@ -1,3 +1,96 @@
+## Residual Host Playability — Wave 52: Frenzy / Propaganda / Repair residual packs (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / graphics):**
+1. **Frenzy residual pack** (`host_frenzy`):
+   - Damage multipliers residual **110% / 120% / 130%** (FRENZY_ONE/TWO/THREE).
+   - BonusDuration residual **10000 / 20000 / 30000** ms → **300 / 600 / 900** frames.
+   - BonusRange / RadiusCursorRadius residual **200** per level.
+   - Science tier gate residual `SCIENCE_Frenzy1/2/3` + Early_* map.
+   - OCL `Frenzy_InvisibleMarker_Level1/2/3` + ParticleSysBone **FrenzyCloud**.
+   - RequiredAffectKindOf **CAN_ATTACK** / ForbiddenAffectKindOf **STRUCTURE**.
+   - Marker DeletionUpdate Min/MaxLifetime **1** msec → **1** frame (one pulse).
+   - WeaponBonusCondition discriminants FRENZY_ONE/TWO/THREE = **24/25/26**.
+   - Superweapon ReloadTime **240000** ms → **7200** frames.
+   - Honesty: `honesty_frenzy_residual_ok` / `frenzy_residual_pack_honesty`.
+   - Fail-closed: not full OCL marker spawn / FrenzyCloud particle / TINT_STATUS_FRENZY.
+2. **Propaganda residual pack** (`host_propaganda`):
+   - Radius **150**, DelayBetweenUpdates **2000** ms → **60** frames.
+   - HealPercentEachSecond **2%** / Upgraded **4%** residual honesty.
+   - ENTHUSIASTIC / SUBLIMINAL residual discriminants **8 / 15** + ROF **125%**.
+   - Sole-benefactor residual map (first-tower-wins; multi-tower reject).
+   - UpgradeRequired = `Upgrade_ChinaSubliminalMessaging` residual.
+   - PulseFX residual names FX_PropagandaTowerPropagandaPulse / SubliminalPulse.
+   - Honesty: `honesty_propaganda_residual_ok` / `propaganda_residual_pack_honesty` /
+     `sole_benefactor_first_tower_wins_residual_honesty`.
+   - Fail-closed: not full ObjectTracker influence / PulseFX world-anim / POWERED gate.
+3. **Repair residual pack** (`host_repair` + `host_emergency_repair`):
+   - Dozer RepairHealthPercentPerSecond **2%** residual (`dozer_repair_hp_per_sec`).
+   - RepairDockUpdate TimeForFullHeal **5000** ms → **150** f (`repair_dock_hp_per_sec`).
+   - NumberApproachPositions **5**; TechRepairPad template residual name.
+   - Emergency Repair science SCIENCE_EmergencyRepair1/2/3 + amounts **100/200/300**.
+   - Emergency Repair ReloadTime **240000** ms; marker DeletionUpdate lifetime **0**.
+   - OCL RepairVehiclesInArea_InvisibleMarker_Level* + RepairCloud + KindOf=VEHICLE.
+   - Honesty: `honesty_repair_residual_ok` / `honesty_emergency_repair_residual_ok` /
+     `repair_residual_pack_honesty` / `emergency_repair_residual_pack_honesty`.
+   - Fail-closed: not full multi-dozer reject / dock bones / OCL marker spawn.
+4. Tests (not log-only):
+   - `frenzy_residual_pack_honesty` (lib frenzy)
+   - `propaganda_residual_pack_honesty` + sole-benefactor (lib propaganda)
+   - `repair_residual_pack_honesty` + `emergency_repair_residual_pack_honesty` (lib repair)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full Frenzy OCL InvisibleMarker spawn / FrenzyCloud particle / drawable tint
+- Full PropagandaTowerBehavior ObjectTracker multi-tower / PulseFX world-anim
+- Full DozerAIUpdate percent heal wired into GameLogic update path (constants ready)
+- Full RepairDockUpdate dock bones / TimeForFullHeal wired runtime path
+- Full Emergency Repair OCL marker object + RepairCloud particle
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 51: host_mines + host_emp_pulse residual peels (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / graphics / host_frenzy / host_propaganda / host_heal):**
+1. **Mines residual pack** (`host_mines`):
+   - DemoTrapUpdate: DefaultProximityMode **Yes**, TriggerDetonationRange **40**,
+     DetonateWhenKilled **Yes**, AutoDetonationWithFriendsInvolved **Yes**,
+     DestructionDelay **1000**ms → **30**f.
+   - Chem/Demo dual-ring honesty: Standard secondary **400**/r**50**, Chem **250**/r**25** +
+     **100**/r**50**, Demo **700**/r**25** + **500**/r**50**.
+   - DozerMineDisarmingWeapon: AttackRange **5**, PreAttack **1200**ms → **36**f,
+     ClipReload **4000**ms → **120**f, ContinueAttackRange **100**.
+   - WorkerMineDisarmingWeapon: PreAttack/Delay **1000**ms → **30**f.
+   - Burton MaxSpecialObjects: RemoteC4 **8**, TimedC4 **10**, Unique targets **Yes**,
+     UnpackTime **5500**ms → **165**f, FleeRange **100**.
+   - SUPERWEAPON_ClusterMines OCL: DropVariance **20/20/0**, DeliveryDistance **140**,
+     Decal/Cursor **100**, DistanceAroundObject **80**, NumVirtualMines **8**,
+     ClusterMinesBomb → ChinaClusterMine, Reload **240000**ms → **7200**f.
+   - Honesty: `honesty_mines_residual_pack_ok` + per-layer honesty tests.
+   - Fail-closed: not full MinefieldBehavior regen / SmartBorder OCL aircraft path.
+2. **EMP Pulse residual pack** (`host_emp_pulse`):
+   - SuperweaponEMPPulse RadiusCursor **200**, Reload **360000**ms → **10800**f,
+     DisabledDuration **30000**ms → **900**f.
+   - OCL: ChinaJetCargoPlane / EMPPulseBomb / EMPPulseEffectSpheroid,
+     DropVariance **20/20/0**, DeliveryDistance **150**, DecalRadius **200**.
+   - EMPUpdate spheroid: Lifetime **3000**ms → **90**f, StartFade **300**ms → **9**f,
+     StartScale **0.01**, TargetScaleMin/Max **3.0**/**4.0**,
+     StartColor **R32 G64 B255**, EndColor black, EMPSparks FX.
+   - EMP_HARDENED name residual markers expanded (cargo plane / B52 / B3 / A10 /
+     Spectre / carpet bomber / napalm MIG / SUPW Patriot).
+   - Activate honesty counters retained (`record_activation` path).
+   - Honesty: `honesty_emp_pulse_residual_pack_ok` + spheroid/OCL/hardened tests.
+   - Fail-closed: not full cargo plane flight / spheroid GPU scale-tint / EMPSparks volume.
+3. Tests (not log-only):
+   - `mines_residual_pack_honesty` / demo trap / mine clear / burton max / cluster OCL
+   - `emp_pulse_residual_pack_honesty` / spheroid / OCL / hardened / activate counters
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full DemoTrapUpdate PreAttack scoop / weapon-lock UI matrix
+- Full GenerateMinefieldBehavior SmartBorder / virtual-mine regen slots
+- Full EMPPulseEffectSpheroid drawable scale/tint GPU + EMPSparks particle volume
+- Full OCL ChinaJetCargoPlane flight path / HeightDie bomb delivery
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 49: Sentry/PointDefense/Overlord residual packs (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics):**
 1. **SentryDrone residual pack** (`host_sentry_drone`):
@@ -5759,6 +5852,15 @@ Coverage note from this sweep:
 
 ### 2026-03-02 Terrain Roads Parity Improvement
 - `GameClient/src/terrain/roads.rs` no longer forces road normals to world-up.
+- Road geometry now computes tangent-based right/normal frames for:
+  - road surface mesh,
+  - edge strips,
+  - marking strips.
+- This improves sloped-road lighting parity and avoids degenerate-normal artifacts on steep segments.
+
+### 2026-03-02 Remaining Limitation (Terrain Lane)
+- Additional terrain-texture parity and higher-fidelity water shading (foam/shoreline material response depth) remain open.
+ forces road normals to world-up.
 - Road geometry now computes tangent-based right/normal frames for:
   - road surface mesh,
   - edge strips,
