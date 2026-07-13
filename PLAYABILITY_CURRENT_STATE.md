@@ -1,3 +1,96 @@
+## Residual Host Playability — PUC WidthGrow Damage Radius + Scorch/Reveal (2026-07-13)
+**Closed (host-testable combat/presentation residual not covered by wave 18 remnant/model-condition):**
+1. **Particle Uplink WidthGrow damage-radius residual** (`special_power_strikes` /
+   `ParticleUplinkCannonUpdate` / `LaserUpdate`):
+   - Retail `WidthGrowTime` = **2000** ms → **60** frames; laser
+     `m_currentWidthScalar` ramps 0→1 from orbital birth.
+   - Host residual: `particle_width_scalar` / `particle_beam_damage_radius`
+     scale [`PARTICLE_BEAM_RADIUS`] (50) by width scalar per pulse.
+   - Early pulses: radius 0 at spawn (miss off-epicenter); half-grow radius 25;
+     full-grow radius 50.
+   - Honesty: `peak_width_scalar` / `last_damage_radius` /
+     `honesty_beam_width_grow_ok`.
+   - Fail-closed: not full OuterBeamWidth GPU laser matrix / decay shrink after
+     TotalFiringTime / outer-node connector lasers / manual beam driving.
+2. **TotalScorchMarks + GroundHitFX + RevealRange residual**
+   (`ParticleUplinkCannonUpdate` STATUS_FIRING):
+   - Retail TotalScorchMarks **20**, ScorchMarkScalar **2.4**, RevealRange **50**,
+     GroundHitFX `FX_ParticleUplinkCannon_BeamHitsGround`.
+   - Host residual: nextFactor scorch schedule over TotalFiringTime; scorch
+     epicenters walk SwathOfDeath via pulse-index residual; GroundHitFX +
+     reveal honesty counters per mark.
+   - GameLogic: doShroudReveal + undoShroudReveal same-frame pulse (retail
+     gratuitous vision) via ShroudManager when players exist for source team.
+   - Honesty: `honesty_beam_scorch_ok` / `honesty_beam_reveal_ok`.
+   - Fail-closed: not full TheGameClient::addScorch GPU decals / full FOW grid
+     cell matrix without shroud init.
+3. **Manual driving speed honesty constants** (ManualDrivingSpeed **20** /
+   ManualFastDrivingSpeed **40** residual labels; full retarget matrix deferred).
+4. Snapshot/Xfer: WidthGrow + scorch residual fields appended on
+   `HostParticleBeamField`.
+5. Tests (not log-only):
+   - `particle_uplink_width_grow_damage_radius_residual_honesty`
+   - `particle_uplink_scorch_reveal_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam`
+   - updated `particle_cannon_impact_spawns_beam_and_ticks_damage` (WidthGrow)
+   - all `special_power_strikes::` (**33**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / full W3D CONTINUOUS_FIRE anim draw
+- Full PUC outer-node lasers / connector lasers / manual beam retarget matrix
+- Full WidthGrow decay shrink after TotalFiringTime / OuterBeamWidth GPU laser
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Full Anim2DCollection GPU / world-anim draw path
+- Network combat/power residual replication (network deferred)
+
+## Residual Host Playability — PUC WidthGrow + Scorch/Reveal Residual (2026-07-13)
+**Closed (host-testable combat/power residual not covered by wave 18 remnant / CONTINUOUS_FIRE):**
+1. **Particle Uplink WidthGrow damage-radius residual** (`special_power_strikes` /
+   `LaserUpdate::m_currentWidthScalar`):
+   - Retail WidthGrowTime **2000** ms → **60** frames; laser width scalar ramps
+     0→1 over grow window (same value used for shrink/decay).
+   - Host residual: `particle_width_scalar` / `particle_beam_damage_radius` scale
+     damage radius from 0 → [`PARTICLE_BEAM_RADIUS`] (50) over grow.
+   - Honesty: `peak_width_scalar` / `last_damage_radius` /
+     `honesty_beam_width_grow_ok`.
+   - Host-testable: unit at dist 30 misses half-grow (r25) and hits full grow (r50).
+   - Fail-closed: not full OuterBeamWidth (26) × DamageRadiusScalar GPU laser
+     matrix / manual beam driving / outer-node lasers.
+2. **Particle Uplink TotalScorchMarks + RevealRange residual**
+   (`ParticleUplinkCannonUpdate` STATUS_FIRING):
+   - Retail TotalScorchMarks **20**, ScorchMarkScalar **2.4**, RevealRange **50**,
+     GroundHitFX `FX_ParticleUplinkCannon_BeamHitsGround`.
+   - Fractional nextFactor scorch schedule (same pattern as damage pulses).
+   - Scorch epicenters walk SwathOfDeath via pulse-equivalent index.
+   - GameLogic wires do_shroud_reveal + undo_shroud_reveal pulse at each scorch
+     (retail instant gratuitous vision).
+   - Honesty: `scorch_marks_made` / `reveal_applications` /
+     `ground_hit_fx_applications` / `honesty_beam_scorch_ok` /
+     `honesty_beam_reveal_ok`.
+   - ManualDrivingSpeed **20** / Fast **40** / DoubleClick **15**f honesty constants
+     retained (full player retarget matrix fail-closed).
+3. Tests (not log-only):
+   - `particle_uplink_width_grow_damage_radius_residual_honesty`
+   - `particle_uplink_scorch_reveal_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam`
+   - updated `particle_cannon_impact_spawns_beam_and_ticks_damage` (WidthGrow)
+   - all `special_power_strikes::` (**33**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / full W3D CONTINUOUS_FIRE anim draw
+- Full PUC outer-node lasers / full manual beam driving matrix
+- Full OuterBeamWidth × scalar GPU laser radius (host residual caps at r50)
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — InGameUI Floating Text Freeze + MoneyPickUp Anim2D Presentation (2026-07-13)
 **Closed (host-testable presentation residual not covered by laser SegLine / ControlBar dual-tick):**
 1. **PresentationFrame floating text freeze residual** (`presentation_frame`):

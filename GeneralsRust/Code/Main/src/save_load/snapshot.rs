@@ -2913,6 +2913,23 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_f32(&mut self.max_swath_offset)?;
         xfer.xfer_marker_label("SwathApplications")?;
         xfer.xfer_u32(&mut self.swath_applications)?;
+        // WidthGrow + TotalScorchMarks / RevealRange residual (appended).
+        xfer.xfer_marker_label("NextScorchFrame")?;
+        xfer.xfer_u32(&mut self.next_scorch_frame)?;
+        xfer.xfer_marker_label("ScorchMarksMade")?;
+        xfer.xfer_u32(&mut self.scorch_marks_made)?;
+        xfer.xfer_marker_label("RevealApplications")?;
+        xfer.xfer_u32(&mut self.reveal_applications)?;
+        xfer.xfer_marker_label("GroundHitFxApplications")?;
+        xfer.xfer_u32(&mut self.ground_hit_fx_applications)?;
+        xfer.xfer_marker_label("PeakWidthScalar")?;
+        xfer.xfer_f32(&mut self.peak_width_scalar)?;
+        xfer.xfer_marker_label("LastDamageRadius")?;
+        xfer.xfer_f32(&mut self.last_damage_radius)?;
+        xfer.xfer_marker_label("LastScorchPosition")?;
+        self.last_scorch_position.xfer(xfer)?;
+        xfer.xfer_marker_label("LastScorchRadius")?;
+        xfer.xfer_f32(&mut self.last_scorch_radius)?;
         Ok(())
     }
 }
@@ -3061,6 +3078,14 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 last_swath_position: Vec3::ZERO,
                 max_swath_offset: 0.0,
                 swath_applications: 0,
+                next_scorch_frame: 0,
+                scorch_marks_made: 0,
+                reveal_applications: 0,
+                ground_hit_fx_applications: 0,
+                peak_width_scalar: 0.0,
+                last_damage_radius: 0.0,
+                last_scorch_position: Vec3::ZERO,
+                last_scorch_radius: 0.0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
