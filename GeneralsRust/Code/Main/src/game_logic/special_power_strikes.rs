@@ -121,6 +121,10 @@ pub const SPECTRE_GATTLING_ROF_MEAN: f32 = 2.0;
 pub const SPECTRE_GATTLING_ROF_FAST: f32 = 3.0;
 /// Residual honesty audio for gattling strafe residual.
 pub const SPECTRE_GATTLING_AUDIO: &str = "SpectreGunshipGattlingWeapon";
+/// Retail VoiceRapidFire residual cue when ContinuousFire enters FAST
+/// (`FiringTracker::speedUp` PerUnitSound "VoiceRapidFire"). Host residual:
+/// honesty name for Spectre orbit when gattling/howitzer reaches FAST.
+pub const SPECTRE_VOICE_RAPID_FIRE_AUDIO: &str = "SpectreGunshipVoiceRapidFire";
 
 /// Residual Spectre gattling ContinuousFire stage (FiringTracker MEAN/FAST).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -242,15 +246,72 @@ pub const PARTICLE_BEAM_TOTAL_PULSES: u32 = 40;
 /// damagePerPulse = (TotalFiringFrames/FPS * DamagePerSecond) / TotalDamagePulses
 ///                 = (105/30 * 400) / 40 = 35.
 pub const PARTICLE_BEAM_DAMAGE_PER_PULSE: f32 = 35.0;
-/// Residual pulse interval: TotalFiringTime / TotalDamagePulses → 105/40 ≈ 2.625
-/// frames. Host residual uses 3-frame fixed cadence (fail-closed vs fractional
-/// nextFactor * orbitalLifetime scheduling in C++).
+/// Residual pulse interval floor: TotalFiringTime / TotalDamagePulses → 105/40
+/// ≈ 2.625 frames. Host residual prefers fractional nextFactor scheduling
+/// ([`particle_next_pulse_frame`]); this constant remains the minimum gap honesty.
 pub const PARTICLE_BEAM_TICK_INTERVAL_FRAMES: u32 = 3;
 /// Residual damage radius at target (fail-closed vs laser radius ×
 /// DamageRadiusScalar grow/shrink matrix; retail scalar 3.4 on dynamic beam).
 pub const PARTICLE_BEAM_RADIUS: f32 = 50.0;
+/// Retail `ParticleUplinkCannonUpdate` DamageRadiusScalar = 3.4 (honesty residual).
+/// Host damage radius is a fixed residual radius; scalar documents retail ratio.
+pub const PARTICLE_DAMAGE_RADIUS_SCALAR: f32 = 3.4;
+/// Retail SwathOfDeathDistance — beam epicenter walks this total distance over
+/// TotalFiringTime (S-curve residual).
+pub const PARTICLE_SWATH_OF_DEATH_DISTANCE: f32 = 200.0;
+/// Retail SwathOfDeathAmplitude — lateral sine amplitude of swath residual.
+pub const PARTICLE_SWATH_OF_DEATH_AMPLITUDE: f32 = 50.0;
 /// Residual ambient cue while beam is annihilating ground.
 pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSoundLoop";
+
+/// Next absolute frame for the next Particle Uplink damage pulse (fractional residual).
+///
+/// C++ after each pulse: `nextFactor = damagePulsesMade / totalDamagePulses`,
+/// `m_nextDamagePulseFrame = orbitalBirth + nextFactor * orbitalLifetime`.
+/// Host residual uses the same nextFactor schedule (fail-closed vs full laser
+/// grow/shrink PossibleNextShot timing).
+pub fn particle_next_pulse_frame(spawn_frame: u32, pulses_made: u32) -> u32 {
+    if PARTICLE_BEAM_TOTAL_PULSES == 0 {
+        return spawn_frame.saturating_add(PARTICLE_BEAM_TICK_INTERVAL_FRAMES);
+    }
+    let factor = (pulses_made as f32) / (PARTICLE_BEAM_TOTAL_PULSES as f32);
+    let offset = (factor * (PARTICLE_BEAM_DURATION_FRAMES as f32)).floor() as u32;
+    let next = spawn_frame.saturating_add(offset);
+    // Ensure strictly forward progress of at least 1 frame when pulses remain.
+    next.max(spawn_frame.saturating_add(1))
+}
+
+/// Residual SwathOfDeath epicenter offset for a damage pulse.
+///
+/// C++ ParticleUplinkCannonUpdate (non-manual mode):
+/// `factor = (now - orbitalBirth) / orbitalLifetime`,
+/// `radians = factor * TWO_PI - PI`,
+/// `cxDistance = factor * SwathOfDeathDistance - SwathOfDeathDistance/2`,
+/// `cxHeight = sin(radians) * SwathOfDeathAmplitude`,
+/// then rotate onto building→target axis.
+///
+/// Host residual uses pulse index as time factor and applies offset in host
+/// x/z plane relative to the click epicenter (fail-closed vs full building
+/// orientation rotation matrix / terrain Z).
+pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
+    let factor = if PARTICLE_BEAM_TOTAL_PULSES == 0 {
+        0.0
+    } else {
+        (pulses_made_before_this_pulse as f32) / (PARTICLE_BEAM_TOTAL_PULSES as f32)
+    };
+    let factor = factor.clamp(0.0, 1.0);
+    let radians = (factor * std::f32::consts::TAU) - std::f32::consts::PI;
+    let cx_distance =
+        (factor * PARTICLE_SWATH_OF_DEATH_DISTANCE) - (PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5);
+    let cx_height = radians.sin() * PARTICLE_SWATH_OF_DEATH_AMPLITUDE;
+    // Host gameplay plane: C++ x → host x, C++ y → host z.
+    Vec3::new(cx_distance, 0.0, cx_height)
+}
+
+/// Absolute residual damage epicenter for a pulse at field spawn position.
+pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) -> Vec3 {
+    base + particle_swath_offset(pulses_made_before_this_pulse)
+}
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -1387,6 +1448,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: howitzer ContinuousFireCoast cool-down applications this orbit.
     #[serde(default)]
     pub howitzer_coast_applications: u32,
+    /// Honesty: VoiceRapidFire residual cues when entering FAST (gattling or howitzer).
+    #[serde(default)]
+    pub rapid_fire_voice_cues: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -1481,6 +1545,7 @@ pub struct HostParticleBeamField {
     pub id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Click / initial target epicenter residual (swath walks around this).
     pub position: Vec3,
     pub spawn_frame: u32,
     pub expires_frame: u32,
@@ -1496,6 +1561,15 @@ pub struct HostParticleBeamField {
     pub objects_destroyed: u32,
     /// Parent ParticleCannon strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Last residual SwathOfDeath epicenter used for a damage pulse.
+    #[serde(default)]
+    pub last_swath_position: Vec3,
+    /// Max |swath offset| seen this beam (honesty for SwathOfDeath residual).
+    #[serde(default)]
+    pub max_swath_offset: f32,
+    /// Honesty: number of pulses that used a non-zero swath offset.
+    #[serde(default)]
+    pub swath_applications: u32,
 }
 
 impl HostParticleBeamField {
@@ -2665,6 +2739,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_coast_until_frame: 0,
             gattling_coast_applications: 0,
             howitzer_coast_applications: 0,
+            rapid_fire_voice_cues: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -2782,10 +2857,15 @@ impl HostSpecialPowerStrikeRegistry {
                 field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
                 field.howitzer_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
+                let prev_level = field.howitzer_fire_level;
                 if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
                     field.howitzer_fire_level = 2;
                 } else if field.howitzer_consecutive > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
                     field.howitzer_fire_level = field.howitzer_fire_level.max(1);
+                }
+                // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
+                if prev_level < 2 && field.howitzer_fire_level == 2 {
+                    field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
                 }
             }
             if current_frame >= field.next_gattling_tick_frame {
@@ -2795,10 +2875,15 @@ impl HostSpecialPowerStrikeRegistry {
                 field.gattling_ticks = field.gattling_ticks.saturating_add(1);
                 field.gattling_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
+                let prev_level = field.gattling_fire_level;
                 if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
                     field.gattling_fire_level = 2;
                 } else if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
                     field.gattling_fire_level = field.gattling_fire_level.max(1);
+                }
+                // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
+                if prev_level < 2 && field.gattling_fire_level == 2 {
+                    field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
                 }
             }
             self.orbit_damage_applications_total = self
@@ -2873,6 +2958,12 @@ impl HostSpecialPowerStrikeRegistry {
         }) && SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES == 60
     }
 
+    /// Residual honesty: VoiceRapidFire cue when ContinuousFire entered FAST.
+    pub fn honesty_voice_rapid_fire_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.rapid_fire_voice_cues > 0)
+            && SPECTRE_VOICE_RAPID_FIRE_AUDIO.contains("Rapid")
+    }
+
     /// Drop expired Spectre orbit fields.
     pub fn prune_expired_orbit(&mut self, current_frame: u32) {
         self.apply_orbit_coast_cooldown(current_frame);
@@ -2904,6 +2995,9 @@ impl HostSpecialPowerStrikeRegistry {
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            last_swath_position: position,
+            max_swath_offset: 0.0,
+            swath_applications: 0,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -2915,10 +3009,11 @@ impl HostSpecialPowerStrikeRegistry {
     /// has arrived.
     ///
     /// Retail damages all alive objects in beam radius (DamageRadiusScalar ×
-    /// laser radius). Host residual damages living objects in
-    /// [`PARTICLE_BEAM_RADIUS`] except the source launcher and same-team
-    /// friendlies (host strike convention). Fail-closed vs swath sine path /
-    /// manual beam driving / remnant trail objects / width grow matrix.
+    /// laser radius) at the SwathOfDeath epicenter. Host residual damages living
+    /// objects in [`PARTICLE_BEAM_RADIUS`] around the residual swath epicenter,
+    /// excluding the source launcher and same-team friendlies (host strike
+    /// convention). Fail-closed vs full building→target rotation matrix /
+    /// manual beam driving / remnant trail objects / laser width grow matrix.
     pub fn plan_due_beam_ticks(
         &self,
         current_frame: u32,
@@ -2929,6 +3024,8 @@ impl HostSpecialPowerStrikeRegistry {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
+            // SwathOfDeath residual: walk S-curve around click epicenter.
+            let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == field.source_object {
@@ -2938,7 +3035,7 @@ impl HostSpecialPowerStrikeRegistry {
                 if team == field.source_team {
                     continue;
                 }
-                let dist = horizontal_distance(pos, field.position);
+                let dist = horizontal_distance(pos, epicenter);
                 if dist <= PARTICLE_BEAM_RADIUS {
                     hits.push(HostParticleBeamDamageHit {
                         target_id: id,
@@ -2951,7 +3048,7 @@ impl HostSpecialPowerStrikeRegistry {
                 field_id: field.id,
                 source_object: field.source_object,
                 source_team: field.source_team,
-                position: field.position,
+                position: epicenter,
                 hits,
             });
         }
@@ -2969,12 +3066,26 @@ impl HostSpecialPowerStrikeRegistry {
         current_frame: u32,
     ) {
         if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            // Swath residual honesty for the pulse that just applied.
+            let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
+            let offset = particle_swath_offset(field.pulses_made);
+            let offset_len = (offset.x * offset.x + offset.z * offset.z).sqrt();
+            field.last_swath_position = epicenter;
+            if offset_len > field.max_swath_offset {
+                field.max_swath_offset = offset_len;
+            }
+            if offset_len > 0.01 {
+                field.swath_applications = field.swath_applications.saturating_add(1);
+            }
+
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
             field.objects_destroyed += objects_destroyed;
             field.pulses_made = field.pulses_made.saturating_add(1);
-            field.next_tick_frame =
-                current_frame.saturating_add(PARTICLE_BEAM_TICK_INTERVAL_FRAMES);
+            // Fractional nextFactor scheduling residual (C++ orbital lifetime).
+            // Also never schedule in the past relative to current_frame.
+            let scheduled = particle_next_pulse_frame(field.spawn_frame, field.pulses_made);
+            field.next_tick_frame = scheduled.max(current_frame.saturating_add(1));
             self.beam_damage_applications_total = self
                 .beam_damage_applications_total
                 .saturating_add(applications);
@@ -3091,6 +3202,15 @@ impl HostSpecialPowerStrikeRegistry {
                 .beam_fields
                 .iter()
                 .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
+    }
+
+    /// Residual honesty: SwathOfDeath epicenter walked off the click point.
+    pub fn honesty_beam_swath_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| f.swath_applications > 0)
+            || self
+                .beam_fields
+                .iter()
+                .any(|f| f.max_swath_offset > 0.01)
     }
 
     /// Combined host path honesty: a completed strike exists for `kind`.
@@ -3257,12 +3377,30 @@ mod tests {
         assert_eq!(PARTICLE_BEAM_TICK_INTERVAL_FRAMES, 3);
         assert_eq!(PARTICLE_BEAM_DURATION_FRAMES, 105);
         assert_eq!(PARTICLE_BEAM_TOTAL_PULSES, 40);
+        // SwathOfDeath + DamageRadiusScalar retail residual.
+        assert!((PARTICLE_SWATH_OF_DEATH_DISTANCE - 200.0).abs() < 0.1);
+        assert!((PARTICLE_SWATH_OF_DEATH_AMPLITUDE - 50.0).abs() < 0.1);
+        assert!((PARTICLE_DAMAGE_RADIUS_SCALAR - 3.4).abs() < 0.01);
+        // First pulse (factor 0): cx = -distance/2.
+        let o0 = particle_swath_offset(0);
+        assert!((o0.x + PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5).abs() < 0.1);
+        assert!(o0.z.abs() < 0.01);
+        // Mid pulse (factor 0.5): at click epicenter offset.
+        let mid_idx = PARTICLE_BEAM_TOTAL_PULSES / 2;
+        let o_mid = particle_swath_offset(mid_idx);
+        assert!(o_mid.x.abs() < 1.0, "mid swath along-axis near 0, got {}", o_mid.x);
+        // Fractional nextFactor schedule residual.
+        assert_eq!(particle_next_pulse_frame(100, 0), 101); // strict forward when 0
+        assert_eq!(
+            particle_next_pulse_frame(100, 20),
+            100 + (0.5 * PARTICLE_BEAM_DURATION_FRAMES as f32).floor() as u32
+        );
     }
 
     #[test]
     fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         let mut reg = HostSpecialPowerStrikeRegistry::new();
-        let target = Vec3::new(10.0, 0.0, 0.0);
+        let target = Vec3::new(100.0, 0.0, 0.0);
         let id = reg.queue(
             HostSuperweaponKind::ParticleCannon,
             ObjectId(1),
@@ -3274,12 +3412,15 @@ mod tests {
         assert_eq!(reg.get(id).unwrap().impact_frame, 120);
         assert!(reg.beam_fields().is_empty());
 
+        // First pulse swath epicenter = target + (-100, 0, 0) = (0, 0, 0).
+        let swath0 = particle_swath_epicenter(target, 0);
+        assert!((swath0.x - 0.0).abs() < 0.1);
         let objects = vec![
-            (ObjectId(1), Vec3::ZERO, Team::China, true),
-            (ObjectId(2), Vec3::new(10.0, 0.0, 0.0), Team::GLA, true), // epicenter
-            (ObjectId(3), Vec3::new(40.0, 0.0, 0.0), Team::GLA, true), // in radius (dist 30)
-            (ObjectId(4), Vec3::new(200.0, 0.0, 0.0), Team::GLA, true), // out of radius
-            (ObjectId(5), Vec3::new(10.0, 0.0, 0.0), Team::China, true), // friendly
+            (ObjectId(1), Vec3::new(-500.0, 0.0, 0.0), Team::China, true),
+            (ObjectId(2), swath0, Team::GLA, true), // first-pulse swath epicenter
+            (ObjectId(3), Vec3::new(30.0, 0.0, 0.0), Team::GLA, true), // in radius of swath0
+            (ObjectId(4), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true), // far
+            (ObjectId(5), swath0, Team::China, true), // friendly
         ];
 
         // Charge residual: no impact plan before frame 120.
@@ -3296,10 +3437,14 @@ mod tests {
         assert_eq!(reg.beam_fields().len(), 1);
         assert_eq!(reg.beam_fields()[0].parent_strike_id, id);
 
-        // First beam pulse on spawn frame.
+        // First beam pulse on spawn frame — uses SwathOfDeath epicenter.
         let beam_plans = reg.plan_due_beam_ticks(120, &objects);
         assert_eq!(beam_plans.len(), 1);
-        assert_eq!(beam_plans[0].hits.len(), 2); // epicenter + mid-radius enemies
+        assert!(
+            (beam_plans[0].position.x - swath0.x).abs() < 0.1,
+            "first pulse must use swath epicenter"
+        );
+        assert_eq!(beam_plans[0].hits.len(), 2); // swath epicenter + mid-radius enemies
         assert!(beam_plans[0].hits.iter().all(|h| {
             (h.damage - PARTICLE_BEAM_DAMAGE_PER_PULSE).abs() < 0.01
                 && (h.target_id == ObjectId(2) || h.target_id == ObjectId(3))
@@ -3315,16 +3460,82 @@ mod tests {
             120,
         );
         assert!(reg.honesty_beam_damage_ok());
-        assert_eq!(
-            reg.beam_fields()[0].next_tick_frame,
-            120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES
-        );
+        assert!(reg.honesty_beam_swath_ok());
+        assert!(reg.beam_fields()[0].swath_applications >= 1);
+        assert!(reg.beam_fields()[0].max_swath_offset > 50.0);
+        // Fractional nextFactor: pulses_made=1 → factor 1/40 * 105 = 2.625 → floor 2.
+        let expected_next = particle_next_pulse_frame(120, 1).max(121);
+        assert_eq!(reg.beam_fields()[0].next_tick_frame, expected_next);
         assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 
-        // Not due again until interval elapses.
-        assert!(reg.plan_due_beam_ticks(120 + 1, &objects).is_empty());
-        let later = reg.plan_due_beam_ticks(120 + PARTICLE_BEAM_TICK_INTERVAL_FRAMES, &objects);
+        // Not due again until scheduled frame.
+        assert!(reg.plan_due_beam_ticks(expected_next.saturating_sub(1), &objects).is_empty());
+        let later = reg.plan_due_beam_ticks(expected_next, &objects);
         assert_eq!(later.len(), 1);
+    }
+
+    #[test]
+    fn particle_uplink_swath_of_death_residual_honesty() {
+        // Swath walks from -distance/2 to +distance/2 with sine lateral amplitude.
+        let o_start = particle_swath_offset(0);
+        let o_end = particle_swath_offset(PARTICLE_BEAM_TOTAL_PULSES);
+        assert!((o_start.x + 100.0).abs() < 0.1);
+        assert!((o_end.x - 100.0).abs() < 0.1);
+        // Lateral amplitude peaks near quarter / three-quarter factor.
+        let o_q = particle_swath_offset(PARTICLE_BEAM_TOTAL_PULSES / 4);
+        assert!(
+            o_q.z.abs() > 40.0,
+            "quarter-swath lateral amplitude expected near 50, got {}",
+            o_q.z
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::China,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+
+        // Enemy parked at click epicenter: first pulse swath is at x=-100 → miss;
+        // mid pulse swath returns near origin → hit.
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
+            (ObjectId(2), Vec3::ZERO, Team::GLA, true),
+        ];
+        let first = reg.plan_due_beam_ticks(spawn, &objects);
+        assert_eq!(first.len(), 1);
+        assert!(
+            first[0].hits.is_empty(),
+            "click-epicenter unit must miss first swath pulse at x=-100"
+        );
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+
+        // Advance pulses to mid (factor ≈ 0.5).
+        let mut frame = reg.beam_fields()[0].next_tick_frame;
+        while reg.beam_fields()[0].pulses_made < PARTICLE_BEAM_TOTAL_PULSES / 2 {
+            let plans = reg.plan_due_beam_ticks(frame, &objects);
+            if plans.is_empty() {
+                frame = frame.saturating_add(1);
+                continue;
+            }
+            let hits = plans[0].hits.len() as u32;
+            let dmg = PARTICLE_BEAM_DAMAGE_PER_PULSE * hits as f32;
+            reg.record_beam_tick_complete(field_id, dmg, hits, 0, frame);
+            frame = reg.beam_fields()[0].next_tick_frame;
+        }
+        // Mid swath should have hit click-epicenter unit at least once.
+        assert!(
+            reg.beam_fields()[0].damage_applications > 0,
+            "mid swath residual must damage unit at click epicenter"
+        );
+        assert!(reg.honesty_beam_swath_ok());
+        assert!(reg.beam_fields()[0].max_swath_offset > 50.0);
     }
 
     #[test]
@@ -4559,13 +4770,16 @@ mod tests {
         }
         assert!(reg.honesty_gattling_continuous_fire_ok());
 
-        // Third gattling tick → FAST.
+        // Third gattling tick → FAST + VoiceRapidFire residual cue.
         reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
         {
             let f = &reg.orbit_fields()[0];
             assert_eq!(f.gattling_consecutive, 3);
             assert_eq!(f.gattling_fire_level, 2);
+            assert!(f.rapid_fire_voice_cues >= 1);
         }
+        assert!(reg.honesty_voice_rapid_fire_ok());
+        assert_eq!(SPECTRE_VOICE_RAPID_FIRE_AUDIO, "SpectreGunshipVoiceRapidFire");
 
         // Advance howitzer to MEAN at spawn+9.
         reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 9);
