@@ -56,11 +56,16 @@
 //!   MinIdleScanInterval **500**ms → **15** frames, MaxIdleScanInterval
 //!   **1000**ms → **30** frames, MinIdleScanAngle **0**, MaxIdleScanAngle
 //!   **60** deg off NaturalTurretAngle. Idle residual schedules scan, rotates
-//!   toward natural ± offset, then reschedules. Deterministic host residual
+//!   toward natural ± offset. Deterministic host residual
 //!   (alternate min/max interval + signed mid/max offset by scan index).
 //!
+//! - **TurretAI HoldTurret + idle-recenter residual**: after idle-scan completes,
+//!   HOLD for RecenterTime (default **2** logic seconds → **60** frames; Strategy
+//!   Center does not override RecenterTime) then RECENTER to natural pitch/yaw
+//!   before scheduling the next idle scan (C++ IDLESCAN → HOLD → RECENTER → IDLE).
+//!
 //! Fail-closed honesty:
-//! - Not full TurretAI state machine / bone pitch matrix / mood-target scan
+//! - Not full TurretAI mood-target scan / bone pitch matrix
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -219,6 +224,22 @@ pub const STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES: u32 = 30;
 pub const STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG: f32 = 0.0;
 /// Retail MaxIdleScanAngle (deg off natural).
 pub const STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG: f32 = 60.0;
+
+/// Default TurretAI RecenterTime residual (C++ `2 * LOGICFRAMES_PER_SECOND`).
+///
+/// Strategy Center Turret block does not set RecenterTime, so HoldTurret waits
+/// **60** frames after idle-scan (or fire exit to HOLD) before RECENTER.
+pub const STRATEGY_CENTER_RECENTER_TIME_FRAMES: u32 = 60;
+
+/// Absolute frame when a HoldTurret residual started at `frame` should end.
+pub fn hold_turret_until_frame(frame: u32) -> u32 {
+    frame.saturating_add(STRATEGY_CENTER_RECENTER_TIME_FRAMES)
+}
+
+/// Whether HoldTurret residual has elapsed (`frame >= hold_until`).
+pub fn hold_turret_elapsed(frame: u32, hold_until_frame: u32) -> bool {
+    hold_until_frame > 0 && frame >= hold_until_frame
+}
 
 /// Deterministic residual idle-scan interval for scan index `n`.
 ///
@@ -988,6 +1009,18 @@ pub struct HostBattlePlanRegistry {
     /// TurretAI idle-scan residual completions (angles reached desired).
     #[serde(default)]
     pub turret_idle_scan_complete_count: u32,
+    /// TurretAI HoldTurret residual starts (after idle-scan complete).
+    #[serde(default)]
+    pub turret_hold_start_count: u32,
+    /// TurretAI HoldTurret residual completions (elapsed → idle recenter).
+    #[serde(default)]
+    pub turret_hold_complete_count: u32,
+    /// TurretAI idle-recenter residual starts (after Hold → RECENTER).
+    #[serde(default)]
+    pub turret_idle_recenter_start_count: u32,
+    /// TurretAI idle-recenter residual completions (angles back to natural).
+    #[serde(default)]
+    pub turret_idle_recenter_complete_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -1064,6 +1097,22 @@ impl HostBattlePlanRegistry {
         self.turret_idle_scan_complete_count
     }
 
+    pub fn turret_hold_start_count(&self) -> u32 {
+        self.turret_hold_start_count
+    }
+
+    pub fn turret_hold_complete_count(&self) -> u32 {
+        self.turret_hold_complete_count
+    }
+
+    pub fn turret_idle_recenter_start_count(&self) -> u32 {
+        self.turret_idle_recenter_start_count
+    }
+
+    pub fn turret_idle_recenter_complete_count(&self) -> u32 {
+        self.turret_idle_recenter_complete_count
+    }
+
     pub fn record_turret_fire(&mut self, units_hit: u32) {
         self.turret_fire_count = self.turret_fire_count.saturating_add(1);
         self.turret_units_hit = self.turret_units_hit.saturating_add(units_hit);
@@ -1078,9 +1127,37 @@ impl HostBattlePlanRegistry {
             self.turret_idle_scan_complete_count.saturating_add(1);
     }
 
+    pub fn record_turret_hold_start(&mut self) {
+        self.turret_hold_start_count = self.turret_hold_start_count.saturating_add(1);
+    }
+
+    pub fn record_turret_hold_complete(&mut self) {
+        self.turret_hold_complete_count = self.turret_hold_complete_count.saturating_add(1);
+    }
+
+    pub fn record_turret_idle_recenter_start(&mut self) {
+        self.turret_idle_recenter_start_count =
+            self.turret_idle_recenter_start_count.saturating_add(1);
+    }
+
+    pub fn record_turret_idle_recenter_complete(&mut self) {
+        self.turret_idle_recenter_complete_count =
+            self.turret_idle_recenter_complete_count.saturating_add(1);
+    }
+
     /// Residual honesty: TurretAI idle-scan residual started at least once.
     pub fn honesty_turret_idle_scan_ok(&self) -> bool {
         self.turret_idle_scan_start_count > 0
+    }
+
+    /// Residual honesty: TurretAI HoldTurret residual started at least once.
+    pub fn honesty_turret_hold_ok(&self) -> bool {
+        self.turret_hold_start_count > 0
+    }
+
+    /// Residual honesty: TurretAI idle-recenter residual completed at least once.
+    pub fn honesty_turret_idle_recenter_ok(&self) -> bool {
+        self.turret_idle_recenter_complete_count > 0
     }
 
     pub fn record_stealth_detector_enable(&mut self) {
@@ -1498,6 +1575,13 @@ mod tests {
         assert!((sp - 45.0).abs() < 0.001);
         assert!(turret_angles_at(-60.0, 45.0, -60.0, 45.0));
         assert!(!turret_angles_at(-90.0, 45.0, -60.0, 45.0));
+        // HoldTurret residual: default RecenterTime 60 frames.
+        assert_eq!(STRATEGY_CENTER_RECENTER_TIME_FRAMES, 60);
+        assert_eq!(hold_turret_until_frame(10), 70);
+        assert!(!hold_turret_elapsed(69, 70));
+        assert!(hold_turret_elapsed(70, 70));
+        assert!(hold_turret_elapsed(71, 70));
+        assert!(!hold_turret_elapsed(100, 0));
     }
 
     #[test]

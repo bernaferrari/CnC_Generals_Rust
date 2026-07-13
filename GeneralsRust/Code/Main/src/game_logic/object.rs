@@ -382,6 +382,23 @@ pub struct Object {
     /// TurretAI idle-scan residual: deterministic scan index (interval/offset seed).
     #[serde(default)]
     pub turret_idle_scan_index: u32,
+    /// TurretAI HoldTurret residual: true while holding after idle-scan complete.
+    #[serde(default)]
+    pub turret_holding: bool,
+    /// TurretAI HoldTurret residual: absolute frame when hold ends (0 = none).
+    #[serde(default)]
+    pub turret_hold_until_frame: u32,
+    /// TurretAI idle-recenter residual: true while recentering after Hold (not pack).
+    #[serde(default)]
+    pub turret_idle_recentering: bool,
+
+    /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
+    /// Fail-closed: not full drawable sub-object camo net visual.
+    #[serde(default = "default_one_f32")]
+    pub camo_friendly_opacity: f32,
+    /// StealthUpdate pulse phase residual (radians) while cloaked.
+    #[serde(default)]
+    pub camo_opacity_pulse_phase: f32,
 
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
     /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
@@ -564,6 +581,11 @@ impl Object {
             turret_idle_scanning: false,
             turret_idle_scan_desired_angle_deg: 0.0,
             turret_idle_scan_index: 0,
+            turret_holding: false,
+            turret_hold_until_frame: 0,
+            turret_idle_recentering: false,
+            camo_friendly_opacity: 1.0,
+            camo_opacity_pulse_phase: 0.0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -681,6 +703,11 @@ impl Object {
             turret_idle_scanning: false,
             turret_idle_scan_desired_angle_deg: 0.0,
             turret_idle_scan_index: 0,
+            turret_holding: false,
+            turret_hold_until_frame: 0,
+            turret_idle_recentering: false,
+            camo_friendly_opacity: 1.0,
+            camo_opacity_pulse_phase: 0.0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -1561,6 +1588,11 @@ impl Object {
         // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
         if was_stealthed && self.stealth_delay_frames > 0 {
             self.stealth_delay_pending = true;
+        }
+        // CamoNetting FriendlyOpacity residual: revealed → max opacity.
+        if was_stealthed && self.stealth_breaks_on_damage {
+            self.camo_friendly_opacity = 1.0;
+            self.camo_opacity_pulse_phase = 0.0;
         }
     }
 

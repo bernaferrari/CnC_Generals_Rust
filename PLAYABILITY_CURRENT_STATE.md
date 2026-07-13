@@ -1,3 +1,40 @@
+## Residual Host Playability — TurretAI HoldTurret/Idle-Recenter + CamoNetting FriendlyOpacity (2026-07-13)
+**Closed (host-testable Strategy Center TurretAI HoldTurret + idle-recenter + CamoNetting FriendlyOpacity residual):**
+1. **TurretAI HoldTurret + idle-recenter residual** (Strategy Center Turret):
+   - After idle-scan complete: HOLD for RecenterTime default
+     **2×LOGICFRAMES_PER_SECOND → 60** frames (Strategy Center does not override).
+   - Angles freeze at scan desired during Hold; busy cancels hold.
+   - Hold complete → RECENTER residual steps pitch/yaw to NaturalTurretAngle
+     **-90** / NaturalTurretPitch **45** at Turn/PitchRate **2** deg/frame.
+   - Idle-recenter complete schedules next idle-scan (C++ IDLESCAN → HOLD →
+     RECENTER → IDLE residual chain).
+   - Host-testable: hold freeze; elapse → recenter; natural + reschedule; busy cancel.
+   - Fail-closed: not full TurretAI mood-target / bone pitch matrix.
+2. **CamoNetting FriendlyOpacity residual** (StealthUpdate on CamoNetting structures):
+   - FriendlyOpacityMin **50%** / Max **100%** residual on cloaked / revealed.
+   - Upgrade apply + re-cloak set min; attack/damage reveal sets max.
+   - Cloaked pulse residual: `min + (max-min)×(0.5+0.5·sin(phase))`,
+     phase rate **0.2** (C++ setEffectiveOpacity sin path mapped to min..max).
+   - Host-testable: cloak min; damage reveal max; re-cloak + pulse in range.
+   - Fail-closed: not full W3D heat-vision / sub-object camo net visual matrix.
+3. Tests (not log-only):
+   - `strategy_center_turret_hold_and_idle_recenter_residual`
+   - updated `strategy_center_turret_idle_scan_residual` (Hold after complete)
+   - updated `camo_netting_structure_attack_and_damage_reveal_residual`
+     (FriendlyOpacity min/max/pulse)
+   - module unit tests in `host_strategy_center` / `host_upgrades`
+     (RecenterTime / Hold elapsed / FriendlyOpacity / pulse matrix)
+
+**Still residual (fail-closed, not claimed):**
+- Full TurretAI mood-target / bone pitch matrix
+- Full W3DLaserDraw / LaserUpdate client drawable for Patriot assist beams
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
+- Full CamoNetting sub-object net visual / W3D heat-vision drawable matrix
+- Network HoldTurret / camo-opacity replication (network deferred)
+
 ## Residual Host Playability — TurretAI Idle-Scan + CamoNetting USING_ABILITY/OrderIdle (2026-07-13)
 **Closed (host-testable Strategy Center TurretAI idle-scan + CamoNetting USING_ABILITY / OrderIdleEnemies residual):**
 1. **TurretAI idle-scan residual** (Strategy Center AIUpdateInterface Turret):
@@ -7,10 +44,10 @@
    - Bombardment ACTIVE schedules first scan after Min interval; idle gun
      rotates toward NaturalTurretAngle ± deterministic mid offset (**±30**),
      pitch holds NaturalTurretPitch **45**.
-   - Complete reschedules next interval (alternate min/max by scan index).
+   - Complete enters HoldTurret residual (see HoldTurret/Idle-Recenter section).
    - Busy (attacking / target / recenter / fire) cancels mid-scan residual.
-   - Host-testable: schedule; step off natural; complete + reschedule; busy cancel.
-   - Fail-closed: not full TurretAI mood-target / HoldTurret / bone pitch matrix.
+   - Host-testable: schedule; step off natural; complete → hold; busy cancel.
+   - Fail-closed: not full TurretAI mood-target / bone pitch matrix.
 2. **CamoNetting USING_ABILITY + OrderIdleEnemies residual**:
    - StealthForbiddenConditions residual now includes **USING_ABILITY**
      (`OBJECT_STATUS_IS_USING_ABILITY` / SpecialAbility AI residual).
@@ -18,7 +55,7 @@
      reveal, idle enemy units within their vision range wake and AttemptToTarget
      (host residual: set target + Attacking).
    - Host-testable: using_ability uncloaks; idle enemy orders on reveal.
-   - Fail-closed: not full opacity drawable / sub-object camo net visual.
+   - Fail-closed: not full sub-object camo net visual (FriendlyOpacity host residual closed 2026-07-13).
 3. Tests (not log-only):
    - `strategy_center_turret_idle_scan_residual`
    - updated `camo_netting_structure_attack_and_damage_reveal_residual`
@@ -27,13 +64,15 @@
      (idle-scan matrix / USING_ABILITY / OrderIdle range gates)
 
 **Still residual (fail-closed, not claimed):**
-- Full TurretAI HoldTurret / mood-target / bone pitch matrix
+- Full TurretAI mood-target / bone pitch matrix
+  (HoldTurret + idle-recenter host residual closed 2026-07-13 — see HoldTurret section)
 - Full W3DLaserDraw / LaserUpdate client drawable for Patriot assist beams
 - Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
 - Full AmericaParachute sway / pitch-roll / DeliverPayload residual
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
 - Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
-- Full CamoNetting sub-object net visual / opacity drawable matrix
+- Full CamoNetting sub-object net visual / W3D heat-vision drawable matrix
+  (FriendlyOpacity host residual closed 2026-07-13 — see HoldTurret + FriendlyOpacity section)
 - Network idle-scan / camo-order-idle replication (network deferred)
 
 ## Residual Host Playability — Turret Natural Pitch/Yaw + Parachute FreeFallDamage (2026-07-13)
