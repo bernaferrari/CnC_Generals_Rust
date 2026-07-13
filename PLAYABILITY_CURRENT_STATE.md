@@ -1,3 +1,29 @@
+## Residual Host Playability — Pilot Base-Center + AutoFindHealing (2026-07-13)
+**Closed (host-testable PilotFindVehicle base-center fallback + AutoFindHealingUpdate residual):**
+1. **Base-center fallback residual** (`PilotFindVehicleUpdate::m_didMoveToBase`):
+   - When AI idle pilot scan finds **no** recrewable vehicle, residual issues one
+     Move toward team CommandCenter (`getAiBaseCenter` host residual).
+   - Latches `pilot_did_move_to_base` (no repeat); clears on successful vehicle Enter.
+   - Fail-closed: CommandCenter-only (not any-structure fallback); not full CollideModule.
+2. **AutoFindHealingUpdate residual** (`AmericaInfantryPilot` ModuleTag_06):
+   - AI-only idle injured pilot auto-scan (C++ human early-return; host `is_local` gate).
+   - ScanRate **1000**ms → **30** frames; ScanRange **300**; NeverHeal **0.85**.
+   - Nearest HealPad residual → SeekingHealing → existing HealPad HP ticks.
+   - Fail-closed: AlwaysHeal busy-interrupt path not claimed; pilot-template residual only.
+3. Tests (not log-only):
+   - `pilot_find_vehicle_base_center_fallback_residual`
+   - `pilot_auto_find_healing_hospital_path_residual`
+   - module unit tests in `host_usa_pilot` (base-center / auto-heal gates / honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+- Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+- Full PilotFindVehicleUpdate CollideModule wouldLikeToCollideWith matrix
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt / non-pilot infantry matrix
+- Network base-center / auto-heal replication (network deferred)
+
 ## Residual Host Playability — Eject VeterancyLevels Gate + PilotFindVehicle (2026-07-13)
 **Closed (host-testable EjectPilotDie VeterancyLevels + PilotFindVehicleUpdate residual):**
 1. **VeterancyLevels residual** (`EjectPilotDie` / DieMux `VeterancyLevels = ALL -REGULAR`):
@@ -9,7 +35,8 @@
    - AI-only idle pilot auto-scan (C++ human → sleep forever; host `is_local` gate).
    - ScanRate **1000**ms → **30** frames; ScanRange **300**; MinHealth **0.5**.
    - Nearest recrewable unmanned vehicle meeting MinHealth → Enter → recrew path.
-   - Fail-closed: not full base-center fallback / VeterancyCrate same-team exp matrix.
+   - Fail-closed: not full base-center fallback / VeterancyCrate same-team exp matrix
+     (base-center host residual closed 2026-07-13 — see Pilot Base-Center + AutoFindHealing).
 3. Tests (not log-only):
    - `eject_pilot_veterancy_levels_all_minus_regular_residual`
    - `pilot_find_vehicle_ai_auto_scan_min_health_residual`
@@ -21,7 +48,10 @@
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
 - Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
 - Full PilotFindVehicleUpdate base-center fallback / CollideModule matrix
+  (base-center host residual closed 2026-07-13 — see Pilot Base-Center + AutoFindHealing;
+  CollideModule still open)
 - Full AutoFindHealingUpdate hospital path residual
+  (host residual closed 2026-07-13 — see Pilot Base-Center + AutoFindHealing)
 - Network eject-vet-gate / pilot-find-vehicle replication (network deferred)
 
 ## Residual Host Playability — Bombardment Turret + Eject InvulnerableTime (2026-07-13)
