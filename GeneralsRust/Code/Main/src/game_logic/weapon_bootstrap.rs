@@ -84,6 +84,9 @@ pub const PATHFINDER_SNIPER_WEAPON: &str = "USAPathfinderSniperRifle";
 /// Retail Hellfire drone residual weapon.
 pub const HELLFIRE_MISSILE_WEAPON: &str = "HellfireMissileWeapon";
 
+/// Host GLA Angry Mob residual aggregate fire weapon (nexus residual).
+pub const ANGRY_MOB_RESIDUAL_WEAPON: &str = "GLAAngryMobResidualWeapon";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -231,6 +234,10 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             // Sentry without gun upgrade has no residual primary (fail-closed).
             if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
                 return None;
+            }
+            // Angry Mob nexus residual aggregate fire weapon (AI range residual).
+            if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
+                return Some(ANGRY_MOB_RESIDUAL_WEAPON);
             }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
@@ -563,6 +570,16 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 90,
             clip_size: 1,
             weapon_speed: 600.0,
+        },
+        // GLA Angry Mob residual aggregate fire — PrimaryDamage 20 (5 members × 4),
+        // AttackRange 100, Delay 250ms → 8 frames. update_angry_mobs deals real residual.
+        SeedWeapon {
+            name: ANGRY_MOB_RESIDUAL_WEAPON,
+            primary_damage: 20.0,
+            attack_range: 100.0,
+            delay_frames: 8,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
         },
     ];
 
