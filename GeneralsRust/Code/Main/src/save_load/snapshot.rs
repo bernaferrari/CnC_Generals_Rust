@@ -2776,6 +2776,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostRadiationField {
         xfer.xfer_u32(&mut self.objects_destroyed)?;
         xfer.xfer_marker_label("ParentStrikeId")?;
         xfer.xfer_u32(&mut self.parent_strike_id)?;
+        // Wave 56: radiation residual pack honesty counters (appended).
+        xfer.xfer_marker_label("RadiationResidualPackArmed")?;
+        xfer.xfer_u32(&mut self.radiation_residual_pack_armed)?;
+        xfer.xfer_marker_label("RadiationSuspendFxApplications")?;
+        xfer.xfer_u32(&mut self.radiation_suspend_fx_applications)?;
+        xfer.xfer_marker_label("RadiationFireFxApplications")?;
+        xfer.xfer_u32(&mut self.radiation_fire_fx_applications)?;
         Ok(())
     }
 }
@@ -2812,6 +2819,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostToxinField {
         xfer.xfer_f32(&mut self.radius)?;
         xfer.xfer_marker_label("TickIntervalFrames")?;
         xfer.xfer_u32(&mut self.tick_interval_frames)?;
+        // Wave 56: toxin residual pack honesty counters (appended).
+        xfer.xfer_marker_label("ToxinResidualPackArmed")?;
+        xfer.xfer_u32(&mut self.toxin_residual_pack_armed)?;
+        xfer.xfer_marker_label("ToxinFireFxApplications")?;
+        xfer.xfer_u32(&mut self.toxin_fire_fx_applications)?;
+        xfer.xfer_marker_label("ToxinDamageTypeApplications")?;
+        xfer.xfer_u32(&mut self.toxin_damage_type_applications)?;
         Ok(())
     }
 }
@@ -3285,6 +3299,30 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_weapon_launch_applications: 0,
                 scud_weapon_special_applications: 0,
                 scud_missile_ai_defaults_applications: 0,
+                carpet_tier: crate::game_logic::special_power_strikes::CarpetBombFactionTier::America,
+                carpet_residual_pack_armed: 0,
+                carpet_preferred_height_applications: 0,
+                carpet_drop_delay_applications: 0,
+                carpet_drop_variance_applications: 0,
+                carpet_bomb_count_applications: 0,
+                carpet_fire_fx_applications: 0,
+                carpet_delivery_distance_applications: 0,
+                artillery_residual_pack_armed: 0,
+                artillery_cannon_transport_applications: 0,
+                artillery_formation_size_applications: 0,
+                artillery_delay_delivery_applications: 0,
+                artillery_weapon_error_radius_applications: 0,
+                artillery_preferred_height_applications: 0,
+                artillery_fire_fx_applications: 0,
+                cruise_residual_pack_armed: 0,
+                cruise_loft_applications: 0,
+                cruise_height_die_applications: 0,
+                cruise_projectile_applications: 0,
+                cruise_moab_weapon_applications: 0,
+                cruise_moab_flame_applications: 0,
+                cruise_moab_fire_fx_applications: 0,
+                nuke_radiation_residual_pack_applications: 0,
+                anthrax_toxin_residual_pack_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3307,6 +3345,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                radiation_residual_pack_armed: 0,
+                radiation_suspend_fx_applications: 0,
+                radiation_fire_fx_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("RadiationFieldsSpawnedTotal")?;
@@ -3332,6 +3373,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                toxin_residual_pack_armed: 0,
+                toxin_fire_fx_applications: 0,
+                toxin_damage_type_applications: 0,
                 damage_per_tick: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DAMAGE_PER_TICK,
                 radius: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_RADIUS,
                 tick_interval_frames: crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
