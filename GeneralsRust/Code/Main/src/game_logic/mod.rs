@@ -23,6 +23,8 @@ pub mod host_car_bomb;
 pub mod host_repair;
 pub mod host_heal;
 pub mod host_propaganda;
+pub mod host_base_defense;
+pub mod host_ecm_jam;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
@@ -88,6 +90,13 @@ pub use host_propaganda::{
     HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC, HOST_PROPAGANDA_TOWER_RADIUS,
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
 };
+pub use host_base_defense::{
+    is_base_defense_structure, is_legal_base_defense_target, primary_weapon_name_for_defense,
+    GATTLING_BUILDING_PRIMARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+};
+pub use host_ecm_jam::{
+    is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS,
+};
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
     AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
@@ -122,7 +131,9 @@ pub use locomotor_bootstrap::{
 };
 pub use weapon_bootstrap::{
     ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
-    GLA_REBEL_PRIMARY_WEAPON, HUMVEE_PRIMARY_WEAPON, HUMVEE_SECONDARY_WEAPON, RANGER_PRIMARY_WEAPON,
+    GATTLING_BUILDING_PRIMARY_WEAPON as HOST_GATTLING_BUILDING_PRIMARY_WEAPON,
+    GLA_REBEL_PRIMARY_WEAPON, HUMVEE_PRIMARY_WEAPON, HUMVEE_SECONDARY_WEAPON,
+    PATRIOT_PRIMARY_WEAPON as HOST_PATRIOT_PRIMARY_WEAPON, RANGER_PRIMARY_WEAPON,
     RANGER_SECONDARY_WEAPON, REDGUARD_PRIMARY_WEAPON,
 };
 
@@ -257,6 +268,11 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
     #[serde(default)]
     pub disabled_hacked_until_frame: u32,
+    /// Host ECM tank / jammer residual: weapons cannot fire while inside jam radius.
+    /// C++ DISABLED_SUBDUED cannot-fire residual (Microwave/ECM vehicle disabler).
+    /// Fail-closed: continuous aura (not full subdual damage accumulate/heal).
+    #[serde(default)]
+    pub weapons_jammed: bool,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual (ConvertToCarBombCrateCollide).
     /// Vehicle uses SuicideCarBomb weapon set residual and detonates on attack fire.
     #[serde(default)]
