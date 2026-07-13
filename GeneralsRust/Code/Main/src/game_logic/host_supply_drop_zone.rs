@@ -1,17 +1,23 @@
-//! Host America Supply Drop Zone residual cash (OCLUpdate).
+//! Host America Supply Drop Zone residual cash + cargo DeliverPayload schedule.
 //!
 //! Residual slice (playability):
-//! - Constructed `AmericaSupplyDropZone` / `*SupplyDropZone*` buildings credit cash
-//!   on a fixed interval matching retail FactionBuilding.ini OCLUpdate delays.
+//! - Constructed `AmericaSupplyDropZone` / `*SupplyDropZone*` buildings schedule
+//!   cargo DeliverPayload missions on a fixed interval matching retail
+//!   FactionBuilding.ini OCLUpdate delays.
 //! - MinDelay/MaxDelay residual **120000 ms → 3600 frames** at 30 FPS logic.
 //! - OCL_AmericaSupplyDropZoneCrateDrop residual: **6 × SupplyDropZoneCrate**
 //!   at MoneyProvided **250** each → base drop cash **$1500**.
 //! - Optional SupplyLines residual: +25 per crate (**$1650** total) when the
 //!   controlling player has Upgrade_AmericaSupplyLines.
+//! - Host path (via `host_deliver_payload`): when OCL interval is due, queue a
+//!   cargo-plane residual flight; after approach delay, spawn crate payloads at
+//!   the zone and credit BuildingPickup residual cash (not full aircraft flight).
 //!
 //! Fail-closed honesty:
-//! - Not full cargo-plane DeliverPayload / CreateAtEdge path / parachute crates
-//! - Not full OCL ObjectCreationList spawn / MoneyCrateCollide pickup matrix
+//! - Not full CreateAtEdge cargo-plane Object / DeliverPayloadAIUpdate flight path
+//!   (delayed spawn residual closed via host_deliver_payload)
+//! - Not full AmericaCrateParachute fall-physics / MoneyCrateCollide unit path
+//!   (BuildingPickup residual cash credit on drop)
 //! - Not full ControlBar OCL timer UI / sabotage timer-reset path
 //! - Under-construction / neutral / dead residual-skip (C++ OCLUpdate::shouldCreate)
 
@@ -67,11 +73,18 @@ pub fn drop_cash_amount(has_supply_lines: bool) -> u32 {
 }
 
 /// True when a template is a residual America Supply Drop Zone structure.
+///
+/// Fail-closed: does **not** match crate / cargo / parachute payload names
+/// (`SupplyDropZoneCrate`, `TestSupplyDropZoneCrate`) — only the structure.
 pub fn is_supply_drop_zone_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
+    // Exclude cargo payload / crate residuals (substring would false-positive).
+    if n.contains("crate") || n.contains("cargo") || n.contains("parachute") {
+        return false;
+    }
     n.contains("supplydropzone")
         || n.contains("supply_drop_zone")
-        || n.contains("dropzone") && n.contains("supply")
+        || (n.contains("dropzone") && n.contains("supply"))
         || n == "testsupplydropzone"
 }
 
@@ -95,13 +108,15 @@ pub fn is_legal_supply_drop_zone_income_source(
 /// Host residual honesty + per-zone drop schedule.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostSupplyDropZoneRegistry {
-    /// Number of successful residual drops.
+    /// Number of successful residual cash drops (BuildingPickup residual).
     pub drops: u32,
+    /// Number of cargo flights started (OCL create residual).
+    pub flights_started: u32,
     /// Total cash credited via residual supply drop zone path.
     pub cash_total: u32,
     /// Portion of cash_total from SupplyLines crate boost residual.
     pub supply_lines_boost_cash_total: u32,
-    /// Next absolute logic frame each zone may drop.
+    /// Next absolute logic frame each zone may start a cargo flight.
     next_drop_frame: HashMap<ObjectId, u32>,
 }
 
@@ -116,6 +131,10 @@ impl HostSupplyDropZoneRegistry {
 
     pub fn drops(&self) -> u32 {
         self.drops
+    }
+
+    pub fn flights_started(&self) -> u32 {
+        self.flights_started
     }
 
     pub fn cash_total(&self) -> u32 {
@@ -137,11 +156,46 @@ impl HostSupplyDropZoneRegistry {
         })
     }
 
-    /// When due, schedule next interval and record a drop of `amount`.
-    /// Returns deposited amount (0 if not yet due).
+    /// When OCL interval is due, schedule next interval and record a cargo flight
+    /// start (CreateAtEdge residual). Returns true when a flight should queue.
+    ///
+    /// Cash is credited later via [`Self::record_payload_cash`] when the
+    /// DeliverPayload residual completes (BuildingPickup residual).
+    pub fn try_start_flight(&mut self, zone_id: ObjectId, current_frame: u32) -> bool {
+        let next = self.ensure_scheduled(zone_id, current_frame);
+        if current_frame < next {
+            return false;
+        }
+        self.next_drop_frame.insert(
+            zone_id,
+            current_frame.saturating_add(SUPPLY_DROP_ZONE_INTERVAL_FRAMES.max(1)),
+        );
+        self.flights_started = self.flights_started.saturating_add(1);
+        true
+    }
+
+    /// Record BuildingPickup residual cash after cargo payload lands.
     ///
     /// `supply_lines_boost` is the optional Upgrade_AmericaSupplyLines portion
     /// of `amount` (observability only; amount already includes it).
+    pub fn record_payload_cash(&mut self, amount: u32, supply_lines_boost: u32) {
+        if amount == 0 {
+            return;
+        }
+        self.drops = self.drops.saturating_add(1);
+        self.cash_total = self.cash_total.saturating_add(amount);
+        self.supply_lines_boost_cash_total = self
+            .supply_lines_boost_cash_total
+            .saturating_add(supply_lines_boost.min(amount));
+    }
+
+    /// When due, schedule next interval and immediately record a drop of `amount`.
+    ///
+    /// Convenience for registry unit tests / legacy immediate-cash path.
+    /// Live GameLogic prefers [`Self::try_start_flight`] + delayed
+    /// [`Self::record_payload_cash`] via host_deliver_payload.
+    ///
+    /// Returns deposited amount (0 if not yet due).
     pub fn try_drop(
         &mut self,
         zone_id: ObjectId,
@@ -152,19 +206,10 @@ impl HostSupplyDropZoneRegistry {
         if amount == 0 {
             return 0;
         }
-        let next = self.ensure_scheduled(zone_id, current_frame);
-        if current_frame < next {
+        if !self.try_start_flight(zone_id, current_frame) {
             return 0;
         }
-        self.next_drop_frame.insert(
-            zone_id,
-            current_frame.saturating_add(SUPPLY_DROP_ZONE_INTERVAL_FRAMES.max(1)),
-        );
-        self.drops = self.drops.saturating_add(1);
-        self.cash_total = self.cash_total.saturating_add(amount);
-        self.supply_lines_boost_cash_total = self
-            .supply_lines_boost_cash_total
-            .saturating_add(supply_lines_boost.min(amount));
+        self.record_payload_cash(amount, supply_lines_boost);
         amount
     }
 
@@ -178,7 +223,12 @@ impl HostSupplyDropZoneRegistry {
         self.next_drop_frame.keys().copied().collect()
     }
 
-    /// Residual honesty: at least one drop completed.
+    /// Residual honesty: at least one cargo flight started (OCL create residual).
+    pub fn honesty_flight_ok(&self) -> bool {
+        self.flights_started > 0
+    }
+
+    /// Residual honesty: at least one drop completed with cash.
     pub fn honesty_drop_ok(&self) -> bool {
         self.drops > 0 && self.cash_total > 0
     }
@@ -188,7 +238,7 @@ impl HostSupplyDropZoneRegistry {
         self.supply_lines_boost_cash_total > 0
     }
 
-    /// Combined residual honesty alias (drop path completed).
+    /// Combined residual honesty alias (drop path completed with cash).
     pub fn honesty_ok(&self) -> bool {
         self.honesty_drop_ok()
     }
@@ -210,6 +260,10 @@ mod tests {
         assert!(!is_supply_drop_zone_template("GLABlackMarket"));
         assert!(!is_supply_drop_zone_template("TechOilDerrick"));
         assert!(!is_supply_drop_zone_template("AmericaCommandCenter"));
+        // Payload crates must not match structure residual (false-positive guard).
+        assert!(!is_supply_drop_zone_template("SupplyDropZoneCrate"));
+        assert!(!is_supply_drop_zone_template("TestSupplyDropZoneCrate"));
+        assert!(!is_supply_drop_zone_template("AmericaCrateParachute"));
     }
 
     #[test]
@@ -250,7 +304,9 @@ mod tests {
             1500
         );
         assert!(reg.honesty_ok());
+        assert!(reg.honesty_flight_ok());
         assert_eq!(reg.drops(), 2);
+        assert_eq!(reg.flights_started(), 2);
         assert_eq!(reg.cash_total(), 3000);
     }
 
@@ -264,5 +320,20 @@ mod tests {
         assert_eq!(reg.try_drop(id, 3600, amount, boost), 1650);
         assert_eq!(reg.supply_lines_boost_cash_total(), 150);
         assert!(reg.honesty_supply_lines_boost_ok());
+    }
+
+    #[test]
+    fn start_flight_then_payload_cash_delayed() {
+        let mut reg = HostSupplyDropZoneRegistry::new();
+        let id = ObjectId(3);
+        assert!(!reg.try_start_flight(id, 0));
+        assert!(reg.try_start_flight(id, 3600));
+        assert_eq!(reg.flights_started(), 1);
+        assert_eq!(reg.drops(), 0);
+        assert!(!reg.honesty_drop_ok());
+        reg.record_payload_cash(SUPPLY_DROP_ZONE_DROP_CASH, 0);
+        assert_eq!(reg.drops(), 1);
+        assert_eq!(reg.cash_total(), 1500);
+        assert!(reg.honesty_ok());
     }
 }
