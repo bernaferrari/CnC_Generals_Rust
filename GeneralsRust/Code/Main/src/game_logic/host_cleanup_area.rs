@@ -12,6 +12,11 @@
 //!   when caster is a clearer; ambulance also clears mines in ordered area).
 //! - Caster residual: ambulance / medic / dozer / worker name gates.
 //!
+//! Wave 55 residual pack (retail Weapon.ini / AmericaVehicle CleanupHazardUpdate):
+//! - CleanupHazardUpdate ScanRate **1000**ms → **30**f, ScanRange **100**,
+//!   WeaponSlot PRIMARY, AmbulanceCleanHazardWeapon dmg **100** / radius **50**,
+//!   Delay **40**ms → **2**f, ClipSize **30**, ClipReload **40**ms, AttackRange **100**
+//!
 //! Fail-closed honesty:
 //! - Not full CleanupHazardUpdate scan/shot/clip / CleanupStreamProjectile path
 //! - Not full HazardousMaterialArmor object stack / CLEANUP_HAZARD KindOf matrix
@@ -35,6 +40,43 @@ pub const HOST_CLEANUP_AREA_RADIUS: f32 = 50.0;
 /// deferred to auto-path residual elsewhere.
 pub const HOST_CLEANUP_SCAN_RANGE: f32 = 100.0;
 
+/// Retail CleanupHazardUpdate ScanRate residual (msec).
+pub const HOST_CLEANUP_SCAN_RATE_MS: u32 = 1_000;
+/// ScanRate 1000ms → 30 frames @ 30 FPS.
+pub const HOST_CLEANUP_SCAN_RATE_FRAMES: u32 = 30;
+
+/// Retail CleanupHazardUpdate WeaponSlot residual.
+pub const HOST_CLEANUP_WEAPON_SLOT: &str = "PRIMARY";
+
+/// Retail AmbulanceCleanHazardWeapon PrimaryDamage residual.
+pub const HOST_CLEANUP_WEAPON_DAMAGE: f32 = 100.0;
+/// Retail AttackRange residual (= ScanRange when equal — move if scan exceeds).
+pub const HOST_CLEANUP_WEAPON_ATTACK_RANGE: f32 = 100.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const HOST_CLEANUP_WEAPON_DELAY_MS: u32 = 40;
+/// Delay 40ms → 2 frames @ 30 FPS (ceil).
+pub const HOST_CLEANUP_WEAPON_DELAY_FRAMES: u32 = 2;
+/// Retail ClipSize residual.
+pub const HOST_CLEANUP_WEAPON_CLIP_SIZE: u32 = 30;
+/// Retail ClipReloadTime residual (msec).
+pub const HOST_CLEANUP_WEAPON_CLIP_RELOAD_MS: u32 = 40;
+/// ClipReload 40ms → 2 frames.
+pub const HOST_CLEANUP_WEAPON_CLIP_RELOAD_FRAMES: u32 = 2;
+/// Retail WeaponSpeed residual (dist/sec).
+pub const HOST_CLEANUP_WEAPON_SPEED: f32 = 600.0;
+/// Retail DamageType residual.
+pub const HOST_CLEANUP_DAMAGE_TYPE: &str = "HAZARD_CLEANUP";
+/// Retail weapon template residual.
+pub const HOST_CLEANUP_WEAPON_NAME: &str = "AmbulanceCleanHazardWeapon";
+/// Retail projectile residual.
+pub const HOST_CLEANUP_PROJECTILE: &str = "CleanupStreamProjectile";
+/// Retail projectile stream residual.
+pub const HOST_CLEANUP_PROJECTILE_STREAM: &str = "CleanupHazardProjectileStream";
+/// Retail FireFX residual.
+pub const HOST_CLEANUP_FIRE_FX: &str = "WeaponFX_CleanupFireWeapon";
+/// Retail ProjectileDetonationFX residual.
+pub const HOST_CLEANUP_DETONATION_FX: &str = "WeaponFX_CleanupToxinDetonation";
+
 /// Retail CleanupAreaPower MaxMoveDistanceFromLocation residual (= 300).
 /// Host residual: caster may order clear if within this distance of target
 /// (or target itself is the order point for remote residual).
@@ -48,6 +90,22 @@ pub const CLEANUP_AREA_HAZARD_AUDIO: &str = "CleanupHazardDetox";
 
 /// Mine-clear audio residual (shared with dozer mine clear).
 pub const CLEANUP_AREA_MINE_AUDIO: &str = "MineCleared";
+
+/// Convert msec residual → logic frames @ 30 FPS (ceil).
+pub fn cleanup_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * CLEANUP_AREA_LOGIC_FPS / 1000.0).ceil() as u32
+}
+
+/// Whether scan residual should move toward hazard (scan exceeds attack range).
+///
+/// Retail comment: "If this range exceeds the AmbulanceCleanHazardWeapon
+/// AttackRange, it'll move!"
+pub fn cleanup_scan_requires_move(scan_range: f32, attack_range: f32) -> bool {
+    scan_range > attack_range
+}
 
 /// Whether template can issue CleanupArea residual (ambulance detox or dozer clear).
 pub fn is_cleanup_area_caster(template_name: &str) -> bool {
@@ -180,6 +238,40 @@ impl HostCleanupAreaRegistry {
     }
 }
 
+/// Wave 55 CleanupHazardUpdate scan residual honesty.
+pub fn honesty_cleanup_hazard_scan_residual_ok() -> bool {
+    HOST_CLEANUP_SCAN_RATE_MS == 1_000
+        && HOST_CLEANUP_SCAN_RATE_FRAMES == cleanup_ms_to_frames(HOST_CLEANUP_SCAN_RATE_MS)
+        && HOST_CLEANUP_SCAN_RATE_FRAMES == 30
+        && (HOST_CLEANUP_SCAN_RANGE - 100.0).abs() < 0.01
+        && HOST_CLEANUP_WEAPON_SLOT == "PRIMARY"
+        && (HOST_CLEANUP_WEAPON_DAMAGE - 100.0).abs() < 0.01
+        && (HOST_CLEANUP_AREA_RADIUS - 50.0).abs() < 0.01
+        && (HOST_CLEANUP_WEAPON_ATTACK_RANGE - 100.0).abs() < 0.01
+        && HOST_CLEANUP_WEAPON_DELAY_MS == 40
+        && HOST_CLEANUP_WEAPON_DELAY_FRAMES
+            == cleanup_ms_to_frames(HOST_CLEANUP_WEAPON_DELAY_MS)
+        && HOST_CLEANUP_WEAPON_CLIP_SIZE == 30
+        && HOST_CLEANUP_WEAPON_CLIP_RELOAD_MS == 40
+        && HOST_CLEANUP_WEAPON_CLIP_RELOAD_FRAMES
+            == cleanup_ms_to_frames(HOST_CLEANUP_WEAPON_CLIP_RELOAD_MS)
+        && (HOST_CLEANUP_WEAPON_SPEED - 600.0).abs() < 0.01
+        && HOST_CLEANUP_DAMAGE_TYPE == "HAZARD_CLEANUP"
+        && HOST_CLEANUP_WEAPON_NAME == "AmbulanceCleanHazardWeapon"
+        && HOST_CLEANUP_PROJECTILE == "CleanupStreamProjectile"
+        && HOST_CLEANUP_PROJECTILE_STREAM == "CleanupHazardProjectileStream"
+        && HOST_CLEANUP_FIRE_FX == "WeaponFX_CleanupFireWeapon"
+        && HOST_CLEANUP_DETONATION_FX == "WeaponFX_CleanupToxinDetonation"
+        && (HOST_CLEANUP_MAX_MOVE_DISTANCE - 300.0).abs() < 0.01
+        // Retail ambulance ScanRange == AttackRange → no forced move residual.
+        && !cleanup_scan_requires_move(HOST_CLEANUP_SCAN_RANGE, HOST_CLEANUP_WEAPON_ATTACK_RANGE)
+}
+
+/// Combined Wave 55 cleanup residual honesty pack.
+pub fn honesty_cleanup_area_residual_pack_ok() -> bool {
+    honesty_cleanup_hazard_scan_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +282,14 @@ mod tests {
         assert!((HOST_CLEANUP_SCAN_RANGE - 100.0).abs() < 0.01);
         assert!((HOST_CLEANUP_MAX_MOVE_DISTANCE - 300.0).abs() < 0.01);
         assert!(!CLEANUP_AREA_ACTIVATE_AUDIO.is_empty());
+    }
+
+    #[test]
+    fn cleanup_hazard_scan_residual_pack_honesty() {
+        assert!(honesty_cleanup_hazard_scan_residual_ok());
+        assert!(honesty_cleanup_area_residual_pack_ok());
+        assert_eq!(cleanup_ms_to_frames(1000), 30);
+        assert_eq!(cleanup_ms_to_frames(40), 2);
     }
 
     #[test]
