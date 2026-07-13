@@ -1,17 +1,19 @@
 //! Host special-power / superweapon strike residual.
 //!
 //! Residual slice: host `DoSpecialPower` for DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile queues a real strike that completes with
-//! area damage on host GameLogic objects. NuclearMissile also spawns a
-//! residual radiation field (`NukeRadiationFieldWeapon`) that ticks after
-//! impact. Pending strikes (absolute `impact_frame`) are captured in
+//! ParticleCannon / NuclearMissile / AnthraxBomb queues a real strike that
+//! completes with area damage on host GameLogic objects. NuclearMissile also
+//! spawns a residual radiation field (`NukeRadiationFieldWeapon`) that ticks
+//! after impact. AnthraxBomb also spawns a residual toxin field
+//! (`AnthraxBombPoisonFieldWeapon` / `OCL_PoisonFieldAnthraxBomb`) that ticks
+//! after impact. Pending strikes (absolute `impact_frame`) are captured in
 //! `WorldSnapshot.special_power_strikes` so mid-flight save/load continues
 //! remaining delay and still fires impact damage.
 //!
 //! Fail-closed: not full retail OCL / NeutronMissileUpdate flight / multi-blast
 //! SlowDeath wave / multiplayer superweapon parity or C++ SpecialPowerModule
-//! Xfer tables. Radiation residual is a single host field (not full
-//! HazardousMaterialArmor / cleanup-hazard object stack).
+//! Xfer tables. Radiation / toxin residual is a single host field (not full
+//! HazardousMaterialArmor / cleanup-hazard object stack / gamma upgrade path).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -35,6 +37,19 @@ pub const NUKE_RADIATION_DURATION_FRAMES: u32 = 900;
 /// Residual ambient cue for the radiation pool.
 pub const NUKE_RADIATION_AUDIO: &str = "RadiationPoolAmbientLoop";
 
+// --- Anthrax toxin residual (retail AnthraxBombPoisonFieldWeapon / LifetimeUpdate) ---
+
+/// Retail `AnthraxBombPoisonFieldWeapon` PrimaryDamage.
+pub const ANTHRAX_TOXIN_DAMAGE_PER_TICK: f32 = 40.0;
+/// Retail `AnthraxBombPoisonFieldWeapon` PrimaryDamageRadius.
+pub const ANTHRAX_TOXIN_RADIUS: f32 = 300.0;
+/// Retail DelayBetweenShots = 500 ms → 15 frames @ 30 FPS.
+pub const ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES: u32 = 15;
+/// Retail PoisonFieldAnthraxBomb LifetimeUpdate Min/MaxLifetime = 60000 ms @ 30 FPS.
+pub const ANTHRAX_TOXIN_DURATION_FRAMES: u32 = 1800;
+/// Residual ambient cue for the anthrax pool (`PoisonFieldAnthraxBomb.SoundAmbient`).
+pub const ANTHRAX_TOXIN_AUDIO: &str = "AnthraxPoolAmbientLoop";
+
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -48,6 +63,8 @@ pub enum HostSuperweaponKind {
     ParticleCannon,
     /// China Nuclear Missile / NeutronMissile residual host path.
     NuclearMissile,
+    /// GLA Anthrax Bomb residual host path (plane drop + toxin field).
+    AnthraxBomb,
 }
 
 impl HostSuperweaponKind {
@@ -61,6 +78,7 @@ impl HostSuperweaponKind {
             SpecialPowerType::ScudStorm => Some(HostSuperweaponKind::ScudStorm),
             SpecialPowerType::ParticleCannon => Some(HostSuperweaponKind::ParticleCannon),
             SpecialPowerType::NuclearMissile => Some(HostSuperweaponKind::NuclearMissile),
+            SpecialPowerType::AnthraxBomb => Some(HostSuperweaponKind::AnthraxBomb),
             _ => None,
         }
     }
@@ -73,6 +91,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ScudStorm => "ScudStorm",
             HostSuperweaponKind::ParticleCannon => "ParticleCannon",
             HostSuperweaponKind::NuclearMissile => "NuclearMissile",
+            HostSuperweaponKind::AnthraxBomb => "AnthraxBomb",
         }
     }
 
@@ -90,6 +109,8 @@ impl HostSuperweaponKind {
             // NeutronMissile residual flight/approach (fail-closed vs full
             // NeutronMissileUpdate loft + SpecialSpeedTime path).
             HostSuperweaponKind::NuclearMissile => 180,
+            // GLA Jet cargo plane drop residual (same family as DaisyCutter).
+            HostSuperweaponKind::AnthraxBomb => 90,
         }
     }
 
@@ -102,6 +123,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => 3000.0,
             // Retail NeutronMissileSlowDeath Blast6MaxDamage.
             HostSuperweaponKind::NuclearMissile => 3500.0,
+            // Retail AnthraxBombWeapon PrimaryDamage (impact blast only).
+            HostSuperweaponKind::AnthraxBomb => 200.0,
         }
     }
 
@@ -114,6 +137,8 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => 50.0,
             // Retail Blast6OuterRadius / DeliveryDecalRadius.
             HostSuperweaponKind::NuclearMissile => 210.0,
+            // Retail AnthraxBombWeapon PrimaryDamageRadius.
+            HostSuperweaponKind::AnthraxBomb => 100.0,
         }
     }
 
@@ -126,12 +151,19 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ParticleCannon => 25.0,
             // Retail Blast6InnerRadius.
             HostSuperweaponKind::NuclearMissile => 60.0,
+            // Flat primary blast (no secondary falloff in weapon table).
+            HostSuperweaponKind::AnthraxBomb => 100.0,
         }
     }
 
     /// Whether impact should spawn a residual radiation field.
     pub fn spawns_radiation(self) -> bool {
         matches!(self, HostSuperweaponKind::NuclearMissile)
+    }
+
+    /// Whether impact should spawn a residual toxin / anthrax field.
+    pub fn spawns_toxin_field(self) -> bool {
+        matches!(self, HostSuperweaponKind::AnthraxBomb)
     }
 
     /// Audio event name queued on activation (host residual).
@@ -142,6 +174,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ScudStorm => "SuperweaponScudStorm",
             HostSuperweaponKind::ParticleCannon => "SuperweaponParticleCannon",
             HostSuperweaponKind::NuclearMissile => "SuperweaponNuclearMissile",
+            HostSuperweaponKind::AnthraxBomb => "SuperweaponAnthraxBomb",
         }
     }
 
@@ -153,6 +186,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::ScudStorm => "ScudStormImpact",
             HostSuperweaponKind::ParticleCannon => "ParticleCannonImpact",
             HostSuperweaponKind::NuclearMissile => "NuclearMissileImpact",
+            HostSuperweaponKind::AnthraxBomb => "AnthraxBombImpact",
         }
     }
 }
@@ -255,6 +289,56 @@ pub struct HostRadiationTickPlan {
     pub hits: Vec<HostRadiationDamageHit>,
 }
 
+/// Residual toxin / anthrax field spawned by AnthraxBomb impact
+/// (`OCL_PoisonFieldAnthraxBomb` / `AnthraxBombPoisonFieldWeapon` residual).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostToxinField {
+    pub id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub spawn_frame: u32,
+    pub expires_frame: u32,
+    /// Next absolute frame at which toxin damage ticks apply.
+    pub next_tick_frame: u32,
+    /// Total residual toxin damage applied across all ticks.
+    pub total_damage_applied: f32,
+    /// Number of distinct damage applications (object×tick).
+    pub damage_applications: u32,
+    /// Objects destroyed by this residual field.
+    pub objects_destroyed: u32,
+    /// Parent AnthraxBomb strike id (0 if spawned without a strike).
+    pub parent_strike_id: u32,
+}
+
+impl HostToxinField {
+    pub fn is_expired(&self, current_frame: u32) -> bool {
+        current_frame >= self.expires_frame
+    }
+
+    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+}
+
+/// Damage application plan for a single toxin victim this tick.
+#[derive(Debug, Clone, Copy)]
+pub struct HostToxinDamageHit {
+    pub target_id: ObjectId,
+    pub damage: f32,
+    pub field_id: u32,
+}
+
+/// Result of resolving one toxin field's damage tick.
+#[derive(Debug, Clone)]
+pub struct HostToxinTickPlan {
+    pub field_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub hits: Vec<HostToxinDamageHit>,
+}
+
 /// Host registry of superweapon strikes that queue and complete.
 #[derive(Debug, Clone, Default)]
 pub struct HostSpecialPowerStrikeRegistry {
@@ -273,6 +357,15 @@ pub struct HostSpecialPowerStrikeRegistry {
     radiation_fields_spawned_total: u32,
     /// Lifetime radiation damage applications (honesty after field expiry).
     radiation_damage_applications_total: u32,
+    /// Active residual toxin fields (AnthraxBomb impact residual).
+    toxin_fields: Vec<HostToxinField>,
+    next_toxin_id: u32,
+    /// Toxin fields spawned this frame (honesty / presentation drain).
+    toxin_spawned_this_frame: Vec<u32>,
+    /// Lifetime count of toxin fields spawned (survives prune; honesty).
+    toxin_fields_spawned_total: u32,
+    /// Lifetime toxin damage applications (honesty after field expiry).
+    toxin_damage_applications_total: u32,
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -287,6 +380,11 @@ impl HostSpecialPowerStrikeRegistry {
             radiation_spawned_this_frame: Vec::new(),
             radiation_fields_spawned_total: 0,
             radiation_damage_applications_total: 0,
+            toxin_fields: Vec::new(),
+            next_toxin_id: 1,
+            toxin_spawned_this_frame: Vec::new(),
+            toxin_fields_spawned_total: 0,
+            toxin_damage_applications_total: 0,
         }
     }
 
@@ -300,12 +398,18 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_radiation_id = 1;
         self.radiation_fields_spawned_total = 0;
         self.radiation_damage_applications_total = 0;
+        self.toxin_fields.clear();
+        self.toxin_spawned_this_frame.clear();
+        self.next_toxin_id = 1;
+        self.toxin_fields_spawned_total = 0;
+        self.toxin_damage_applications_total = 0;
     }
 
     pub fn clear_frame_events(&mut self) {
         self.completed_this_frame.clear();
         self.activated_this_frame.clear();
         self.radiation_spawned_this_frame.clear();
+        self.toxin_spawned_this_frame.clear();
     }
 
     /// Allocator cursor for next strike id (survives save/load).
@@ -327,17 +431,42 @@ impl HostSpecialPowerStrikeRegistry {
         &self.radiation_spawned_this_frame
     }
 
+    /// Allocator cursor for next toxin field id (survives save/load).
+    pub fn next_toxin_id(&self) -> u32 {
+        self.next_toxin_id
+    }
+
+    /// Active residual toxin fields (AnthraxBomb).
+    pub fn toxin_fields(&self) -> &[HostToxinField] {
+        &self.toxin_fields
+    }
+
+    pub fn toxin_spawned_this_frame(&self) -> &[u32] {
+        &self.toxin_spawned_this_frame
+    }
+
     /// Replace registry contents from a save/load snapshot.
     ///
     /// Frame-local presentation drains (`activated_this_frame` /
-    /// `completed_this_frame` / `radiation_spawned_this_frame`) are cleared —
-    /// they are not persistent.
+    /// `completed_this_frame` / `radiation_spawned_this_frame` /
+    /// `toxin_spawned_this_frame`) are cleared — they are not persistent.
     pub fn restore_from_snapshot(
         &mut self,
         next_id: u32,
         strikes: impl IntoIterator<Item = HostSpecialPowerStrike>,
     ) {
-        self.restore_from_snapshot_with_radiation(next_id, strikes, 1, Vec::new(), 0, 0);
+        self.restore_from_snapshot_with_residuals(
+            next_id,
+            strikes,
+            1,
+            Vec::new(),
+            0,
+            0,
+            1,
+            Vec::new(),
+            0,
+            0,
+        );
     }
 
     /// Replace registry including residual radiation fields (save/load).
@@ -349,6 +478,34 @@ impl HostSpecialPowerStrikeRegistry {
         radiation_fields: impl IntoIterator<Item = HostRadiationField>,
         radiation_fields_spawned_total: u32,
         radiation_damage_applications_total: u32,
+    ) {
+        self.restore_from_snapshot_with_residuals(
+            next_id,
+            strikes,
+            next_radiation_id,
+            radiation_fields,
+            radiation_fields_spawned_total,
+            radiation_damage_applications_total,
+            1,
+            Vec::new(),
+            0,
+            0,
+        );
+    }
+
+    /// Replace registry including radiation + toxin residual fields (save/load).
+    pub fn restore_from_snapshot_with_residuals(
+        &mut self,
+        next_id: u32,
+        strikes: impl IntoIterator<Item = HostSpecialPowerStrike>,
+        next_radiation_id: u32,
+        radiation_fields: impl IntoIterator<Item = HostRadiationField>,
+        radiation_fields_spawned_total: u32,
+        radiation_damage_applications_total: u32,
+        next_toxin_id: u32,
+        toxin_fields: impl IntoIterator<Item = HostToxinField>,
+        toxin_fields_spawned_total: u32,
+        toxin_damage_applications_total: u32,
     ) {
         self.clear();
         let mut max_id = 0_u32;
@@ -367,6 +524,15 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_radiation_id = next_radiation_id.max(max_rad.saturating_add(1)).max(1);
         self.radiation_fields_spawned_total = radiation_fields_spawned_total.max(max_rad);
         self.radiation_damage_applications_total = radiation_damage_applications_total;
+
+        let mut max_tox = 0_u32;
+        for field in toxin_fields {
+            max_tox = max_tox.max(field.id);
+            self.toxin_fields.push(field);
+        }
+        self.next_toxin_id = next_toxin_id.max(max_tox.saturating_add(1)).max(1);
+        self.toxin_fields_spawned_total = toxin_fields_spawned_total.max(max_tox);
+        self.toxin_damage_applications_total = toxin_damage_applications_total;
     }
 
     pub fn radiation_fields_spawned_total(&self) -> u32 {
@@ -375,6 +541,14 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn radiation_damage_applications_total(&self) -> u32 {
         self.radiation_damage_applications_total
+    }
+
+    pub fn toxin_fields_spawned_total(&self) -> u32 {
+        self.toxin_fields_spawned_total
+    }
+
+    pub fn toxin_damage_applications_total(&self) -> u32 {
+        self.toxin_damage_applications_total
     }
 
     pub fn strike_count(&self) -> usize {
@@ -520,6 +694,8 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// For `NuclearMissile`, also spawns a residual radiation field at the
     /// epicenter (retail `OCL_NukeRadiationField` residual).
+    /// For `AnthraxBomb`, also spawns a residual toxin field at the epicenter
+    /// (retail `OCL_PoisonFieldAnthraxBomb` residual).
     pub fn record_impact_complete(
         &mut self,
         strike_id: u32,
@@ -528,6 +704,7 @@ impl HostSpecialPowerStrikeRegistry {
         objects_destroyed: u32,
     ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
+        let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
                 strike.phase = HostStrikePhase::Completed;
@@ -543,10 +720,21 @@ impl HostSpecialPowerStrikeRegistry {
                         strike.impact_frame,
                     ));
                 }
+                if strike.kind.spawns_toxin_field() {
+                    spawn_toxin = Some((
+                        strike.source_object,
+                        strike.source_team,
+                        strike.target_position,
+                        strike.impact_frame,
+                    ));
+                }
             }
         }
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
+        }
+        if let Some((source, team, pos, impact_frame)) = spawn_toxin {
+            self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);
         }
     }
 
@@ -651,6 +839,105 @@ impl HostSpecialPowerStrikeRegistry {
             .retain(|f| !f.is_expired(current_frame));
     }
 
+    /// Spawn a residual toxin field at `position` (AnthraxBomb impact).
+    pub fn spawn_toxin_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        let id = self.next_toxin_id;
+        self.next_toxin_id = self.next_toxin_id.saturating_add(1).max(1);
+        let field = HostToxinField {
+            id,
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            expires_frame: spawn_frame.saturating_add(ANTHRAX_TOXIN_DURATION_FRAMES),
+            // First tick on spawn frame (retail FireWeaponUpdate residual).
+            next_tick_frame: spawn_frame,
+            total_damage_applied: 0.0,
+            damage_applications: 0,
+            objects_destroyed: 0,
+            parent_strike_id,
+        };
+        self.toxin_fields.push(field);
+        self.toxin_spawned_this_frame.push(id);
+        self.toxin_fields_spawned_total = self.toxin_fields_spawned_total.saturating_add(1);
+        id
+    }
+
+    /// Build toxin damage plans for all fields whose tick frame has arrived.
+    ///
+    /// Retail `AnthraxBombPoisonFieldWeapon` hits ALLIES ENEMIES NEUTRALS
+    /// NOT_AIRBORNE. Host residual damages all living objects in radius except
+    /// the source launcher object. Fail-closed vs airborne filter / armor
+    /// matrix / cleanup-hazard stacking / gamma upgrade.
+    pub fn plan_due_toxin_ticks(
+        &self,
+        current_frame: u32,
+        object_positions: &[(ObjectId, Vec3, super::Team, bool)],
+    ) -> Vec<HostToxinTickPlan> {
+        let mut plans = Vec::new();
+        for field in &self.toxin_fields {
+            if !field.is_due_tick(current_frame) {
+                continue;
+            }
+            let mut hits = Vec::new();
+            for &(id, pos, _team, alive) in object_positions {
+                if !alive || id == field.source_object {
+                    continue;
+                }
+                let dist = horizontal_distance(pos, field.position);
+                if dist <= ANTHRAX_TOXIN_RADIUS {
+                    hits.push(HostToxinDamageHit {
+                        target_id: id,
+                        damage: ANTHRAX_TOXIN_DAMAGE_PER_TICK,
+                        field_id: field.id,
+                    });
+                }
+            }
+            plans.push(HostToxinTickPlan {
+                field_id: field.id,
+                source_object: field.source_object,
+                source_team: field.source_team,
+                position: field.position,
+                hits,
+            });
+        }
+        plans.sort_by_key(|p| p.field_id);
+        plans
+    }
+
+    /// Record toxin tick results and advance next_tick_frame.
+    pub fn record_toxin_tick_complete(
+        &mut self,
+        field_id: u32,
+        total_damage: f32,
+        applications: u32,
+        objects_destroyed: u32,
+        current_frame: u32,
+    ) {
+        if let Some(field) = self.toxin_fields.iter_mut().find(|f| f.id == field_id) {
+            field.total_damage_applied += total_damage;
+            field.damage_applications += applications;
+            field.objects_destroyed += objects_destroyed;
+            field.next_tick_frame =
+                current_frame.saturating_add(ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES);
+            self.toxin_damage_applications_total = self
+                .toxin_damage_applications_total
+                .saturating_add(applications);
+        }
+    }
+
+    /// Drop expired toxin fields.
+    pub fn prune_expired_toxin(&mut self, current_frame: u32) {
+        self.toxin_fields.retain(|f| !f.is_expired(current_frame));
+    }
+
     /// Cancel pending strikes owned by a destroyed source object.
     pub fn cancel_for_source(&mut self, source: ObjectId) {
         for strike in self.strikes.values_mut() {
@@ -691,14 +978,34 @@ impl HostSpecialPowerStrikeRegistry {
                 .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
     }
 
+    /// True if at least one residual toxin field was spawned this session.
+    pub fn honesty_toxin_ok(&self) -> bool {
+        self.toxin_fields_spawned_total > 0
+            || !self.toxin_fields.is_empty()
+            || !self.toxin_spawned_this_frame.is_empty()
+    }
+
+    /// Stronger toxin honesty: residual field applied at least one damage tick.
+    pub fn honesty_toxin_damage_ok(&self) -> bool {
+        self.toxin_damage_applications_total > 0
+            || self
+                .toxin_fields
+                .iter()
+                .any(|f| f.damage_applications > 0 || f.total_damage_applied > 0.0)
+    }
+
     /// Combined host path honesty: a completed strike exists for `kind`.
     /// NuclearMissile also requires residual radiation field spawn.
+    /// AnthraxBomb also requires residual toxin field spawn.
     pub fn honesty_host_path_ok(&self, kind: HostSuperweaponKind) -> bool {
         if !self.honesty_complete_ok(kind) {
             return false;
         }
         if kind == HostSuperweaponKind::NuclearMissile {
             return self.honesty_radiation_ok();
+        }
+        if kind == HostSuperweaponKind::AnthraxBomb {
+            return self.honesty_toxin_ok();
         }
         true
     }
@@ -742,6 +1049,10 @@ mod tests {
             Some(HostSuperweaponKind::NuclearMissile)
         );
         assert_eq!(
+            HostSuperweaponKind::from_command_power(&SpecialPowerType::AnthraxBomb),
+            Some(HostSuperweaponKind::AnthraxBomb)
+        );
+        assert_eq!(
             HostSuperweaponKind::from_command_power(&SpecialPowerType::RadarScan),
             None
         );
@@ -763,7 +1074,80 @@ mod tests {
         assert!((kind.damage_radius() - 210.0).abs() < 0.1);
         assert!((kind.falloff_inner() - 60.0).abs() < 0.1);
         assert!(kind.spawns_radiation());
+        assert!(!kind.spawns_toxin_field());
         assert!(!HostSuperweaponKind::DaisyCutter.spawns_radiation());
+    }
+
+    #[test]
+    fn anthrax_bomb_params_match_retail_weapon() {
+        let kind = HostSuperweaponKind::AnthraxBomb;
+        assert_eq!(kind.impact_delay_frames(), 90);
+        assert!((kind.max_damage() - 200.0).abs() < 0.1);
+        assert!((kind.damage_radius() - 100.0).abs() < 0.1);
+        assert!((kind.falloff_inner() - 100.0).abs() < 0.1);
+        assert!(kind.spawns_toxin_field());
+        assert!(!kind.spawns_radiation());
+        assert!(!HostSuperweaponKind::DaisyCutter.spawns_toxin_field());
+        assert_eq!(ANTHRAX_TOXIN_DAMAGE_PER_TICK, 40.0);
+        assert_eq!(ANTHRAX_TOXIN_RADIUS, 300.0);
+        assert_eq!(ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES, 15);
+        assert_eq!(ANTHRAX_TOXIN_DURATION_FRAMES, 1800);
+    }
+
+    #[test]
+    fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::AnthraxBomb,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(reg.honesty_queue_ok(HostSuperweaponKind::AnthraxBomb));
+        assert_eq!(reg.get(id).unwrap().impact_frame, 90);
+
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::GLA, true),
+            (ObjectId(2), Vec3::new(100.0, 0.0, 100.0), Team::USA, true),
+            (ObjectId(3), Vec3::new(100.0, 0.0, 100.0), Team::GLA, true), // friendly at epicenter
+            (ObjectId(4), Vec3::new(900.0, 0.0, 900.0), Team::USA, true),
+        ];
+
+        // Before impact: no plan, no toxin.
+        assert!(reg.plan_due_impacts(89, &objects).is_empty());
+        assert!(reg.toxin_fields().is_empty());
+
+        let plans = reg.plan_due_impacts(90, &objects);
+        assert_eq!(plans.len(), 1);
+        // Blast residual excludes same-team friendlies (host strike convention).
+        assert_eq!(plans[0].hits.len(), 1);
+        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
+        assert!((plans[0].hits[0].damage - 200.0).abs() < 0.1);
+
+        reg.record_impact_complete(id, 200.0, 1, 0);
+        assert!(reg.honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
+        assert!(reg.honesty_toxin_ok());
+        assert!(reg.honesty_host_path_ok(HostSuperweaponKind::AnthraxBomb));
+        assert_eq!(reg.toxin_fields().len(), 1);
+        assert_eq!(reg.toxin_fields()[0].parent_strike_id, id);
+        assert!(reg.radiation_fields().is_empty());
+
+        // Toxin tick hits all teams in radius (retail ALLIES ENEMIES NEUTRALS).
+        let tox_plans = reg.plan_due_toxin_ticks(90, &objects);
+        assert_eq!(tox_plans.len(), 1);
+        // source (1) excluded; epicenter USA (2) + GLA friendly (3) hit; far (4) not.
+        assert_eq!(tox_plans[0].hits.len(), 2);
+        assert!(tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01));
+        assert!(tox_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3)));
+
+        reg.record_toxin_tick_complete(tox_plans[0].field_id, 80.0, 2, 0, 90);
+        assert!(reg.honesty_toxin_damage_ok());
+        assert_eq!(reg.toxin_fields()[0].next_tick_frame, 90 + 15);
     }
 
     #[test]

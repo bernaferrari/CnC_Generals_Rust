@@ -270,6 +270,10 @@ pub enum SpecialPowerType {
     /// China Dragon Tank FireWall / Firestorm residual (FIRE_WEAPON secondary path).
     /// Creates a line of fire damage zones toward the target location.
     FireWall,
+    /// GLA Anthrax Bomb residual (SPECIAL_ANTHRAX_BOMB / SuperweaponAnthraxBomb).
+    /// Delayed plane-drop blast + residual toxin field ticks.
+    /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
+    AnthraxBomb,
     Invalid,
 }
 
