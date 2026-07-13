@@ -49,6 +49,8 @@ pub mod host_battle_bus;
 pub mod host_cleanup_area;
 pub mod host_comanche_rocket_pods;
 pub mod host_sentry_drone;
+pub mod host_pathfinder;
+pub mod host_slave_drones;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -235,6 +237,15 @@ pub use host_comanche_rocket_pods::{
 pub use host_sentry_drone::{
     is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,
     SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+};
+pub use host_pathfinder::{
+    is_pathfinder_template, pathfinder_detection_range, pathfinder_spawn_is_detector,
+    PATHFINDER_DETECTION_RANGE, PATHFINDER_SNIPER_WEAPON,
+};
+pub use host_slave_drones::{
+    is_hellfire_drone_template, is_scout_drone_template, is_slave_drone_master_template,
+    scout_detection_range, scout_spawn_is_detector, SlaveDroneKind, HELLFIRE_MISSILE_WEAPON,
+    SCOUT_DETECTION_RANGE, UPGRADE_AMERICA_HELLFIRE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

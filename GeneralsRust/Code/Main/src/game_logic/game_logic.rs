@@ -738,6 +738,18 @@ pub struct GameLogic {
     sentry_drone_residual_auto_fires: u32,
     sentry_drone_residual_detects: u32,
 
+    /// Host Pathfinder residual honesty (innate stealth detector + sniper).
+    /// Fail-closed: not full StealthUpdate pulse / SCIENCE_Pathfinder gate.
+    pathfinder_residual_detects: u32,
+    pathfinder_residual_sniper_fires: u32,
+
+    /// Host Scout / Hellfire slave-drone residual honesty.
+    /// Fail-closed: not full SlavedUpdate wander / ObjectCreationUpgrade matrix.
+    scout_drone_residual_detects: u32,
+    scout_drone_residual_attaches: u32,
+    hellfire_drone_residual_auto_fires: u32,
+    hellfire_drone_residual_attaches: u32,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -1625,6 +1637,12 @@ impl GameLogic {
             comanche_rocket_pod_residual_units_hit: 0,
             sentry_drone_residual_auto_fires: 0,
             sentry_drone_residual_detects: 0,
+            pathfinder_residual_detects: 0,
+            pathfinder_residual_sniper_fires: 0,
+            scout_drone_residual_detects: 0,
+            scout_drone_residual_attaches: 0,
+            hellfire_drone_residual_auto_fires: 0,
+            hellfire_drone_residual_attaches: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1806,6 +1824,12 @@ impl GameLogic {
         self.comanche_rocket_pod_residual_units_hit = 0;
         self.sentry_drone_residual_auto_fires = 0;
         self.sentry_drone_residual_detects = 0;
+        self.pathfinder_residual_detects = 0;
+        self.pathfinder_residual_sniper_fires = 0;
+        self.scout_drone_residual_detects = 0;
+        self.scout_drone_residual_attaches = 0;
+        self.hellfire_drone_residual_auto_fires = 0;
+        self.hellfire_drone_residual_attaches = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -4573,6 +4597,31 @@ impl GameLogic {
                     continue;
                 }
             }
+            // Hellfire Drone residual: AutoAcquireEnemiesWhenIdle fires at nearest enemy.
+            // Fail-closed: not full SlavedUpdate wander / master attack bonus matrix.
+            {
+                use crate::game_logic::host_slave_drones::{
+                    hellfire_auto_fire_eligible, is_hellfire_drone_template,
+                };
+                let is_hf = is_hellfire_drone_template(&attacker.template_name);
+                let idle_ok = matches!(
+                    attacker.ai_state,
+                    AIState::Idle | AIState::Attacking | AIState::Patrolling
+                );
+                let hf_auto_ok = hellfire_auto_fire_eligible(
+                    is_hf,
+                    attacker.weapon.is_some(),
+                    attacker.is_alive(),
+                    attacker.can_attack(),
+                    idle_ok,
+                ) && !self.skirmish_ai_auto_engage_paused(attacker.team)
+                    && attacker.target.is_none()
+                    && attacker.target_location.is_none();
+                if hf_auto_ok {
+                    self.try_hellfire_drone_residual_fire(attacker_id);
+                    continue;
+                }
+            }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
             // Any slot ready on reload timer? If all reloading, skip (no chase).
@@ -5038,6 +5087,21 @@ impl GameLogic {
             }
 
             if let Some(slot) = fired_slot {
+                // Pathfinder residual sniper honesty (any successful fire from residual).
+                if self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| {
+                        crate::game_logic::host_pathfinder::is_pathfinder_template(
+                            &a.template_name,
+                        )
+                    })
+                    .unwrap_or(false)
+                {
+                    self.pathfinder_residual_sniper_fires =
+                        self.pathfinder_residual_sniper_fires.saturating_add(1);
+                }
+
                 // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
                 let muzzle_pos = self
                     .objects
@@ -7837,6 +7901,41 @@ impl GameLogic {
                     object.weapon = None;
                 }
             }
+
+            // Host residual: America Pathfinder StealthDetectorUpdate + InnateStealth.
+            // DetectionRange unset → VisionRange 200; stays stealthed while attacking;
+            // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
+            if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
+                object.is_detector = true;
+                if let Some(range) =
+                    crate::game_logic::host_pathfinder::pathfinder_detection_range(template_name)
+                {
+                    object.detection_range = range;
+                }
+                object.status.stealthed = true;
+                object.innate_stealth = true;
+                object.stealth_breaks_on_attack = false;
+                object.stealth_breaks_on_move = true;
+            }
+
+            // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
+            if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
+                object.is_detector = true;
+                if let Some(range) =
+                    crate::game_logic::host_slave_drones::scout_detection_range(template_name)
+                {
+                    object.detection_range = range;
+                }
+                // Sensor drone: strip kind-based default gun if no explicit primary.
+                // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
+                if !sentry_had_explicit_primary {
+                    object.weapon = None;
+                }
+            }
+
+            // Host residual: America Hellfire Drone AutoAcquire + HellfireMissileWeapon.
+            // Weapon bound via weapon_bootstrap primary; no extra strip.
+            // Auto-fire residual runs from update_combat when idle.
 
             self.objects.insert(id, object);
 
@@ -10773,6 +10872,41 @@ impl GameLogic {
         self.sentry_drone_residual_detects
     }
 
+    /// Residual honesty: Pathfinder detector residual revealed at least one unit.
+    pub fn honesty_pathfinder_detect_ok(&self) -> bool {
+        self.pathfinder_residual_detects > 0
+    }
+
+    /// Residual honesty counter: Pathfinder detector residual reveals.
+    pub fn pathfinder_residual_detects(&self) -> u32 {
+        self.pathfinder_residual_detects
+    }
+
+    /// Residual honesty: Pathfinder sniper residual fired at least once.
+    pub fn honesty_pathfinder_sniper_ok(&self) -> bool {
+        self.pathfinder_residual_sniper_fires > 0
+    }
+
+    /// Residual honesty: Scout drone detector residual revealed at least one unit.
+    pub fn honesty_scout_drone_detect_ok(&self) -> bool {
+        self.scout_drone_residual_detects > 0
+    }
+
+    /// Residual honesty: Scout drone attach residual succeeded.
+    pub fn honesty_scout_drone_attach_ok(&self) -> bool {
+        self.scout_drone_residual_attaches > 0
+    }
+
+    /// Residual honesty: Hellfire drone auto-fire residual shot.
+    pub fn honesty_hellfire_drone_auto_fire_ok(&self) -> bool {
+        self.hellfire_drone_residual_auto_fires > 0
+    }
+
+    /// Residual honesty: Hellfire drone attach residual succeeded.
+    pub fn honesty_hellfire_drone_attach_ok(&self) -> bool {
+        self.hellfire_drone_residual_attaches > 0
+    }
+
     /// Apply ComancheRocketPodWeapon area residual at impact.
     ///
     /// Returns (units_hit, any_destroyed).
@@ -10989,6 +11123,188 @@ impl GameLogic {
 
         self.sentry_drone_residual_auto_fires =
             self.sentry_drone_residual_auto_fires.saturating_add(1);
+    }
+
+    /// Residual Hellfire Drone auto-fire: acquires nearest enemy in weapon range
+    /// and deals damage without a manual AttackObject order.
+    /// Fail-closed: not full SlavedUpdate / LOS / projectile flight matrix.
+    fn try_hellfire_drone_residual_fire(&mut self, hellfire_id: ObjectId) {
+        use crate::game_logic::host_slave_drones::{
+            is_legal_hellfire_auto_fire_target, HELLFIRE_FIRE_AUDIO,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&hellfire_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() || !attacker.can_attack() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = attacker.get_position();
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == hellfire_id {
+                continue;
+            }
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            let stealthed_hidden =
+                obj.is_effectively_stealthed() && obj.team != team;
+            if !is_legal_hellfire_auto_fire_target(
+                obj.is_alive(),
+                obj.team == team,
+                obj.team == Team::Neutral,
+                obj.status.under_construction,
+                combat_kind,
+                stealthed_hidden,
+            ) {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(damage);
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            attacker.target = Some(target_id);
+            attacker.target_location = None;
+            attacker.force_attack = false;
+            attacker.ai_state = AIState::Attacking;
+            attacker.status.attacking = true;
+            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                attacker.break_stealth();
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+                attacker.stop_attack();
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        let muzzle_pos = self
+            .objects
+            .get(&hellfire_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            impact_pos,
+            self.frame,
+            hellfire_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(HELLFIRE_FIRE_AUDIO)
+                .with_object(hellfire_id)
+                .with_position(muzzle_pos)
+                .with_priority(160),
+        );
+
+        self.hellfire_drone_residual_auto_fires =
+            self.hellfire_drone_residual_auto_fires.saturating_add(1);
+    }
+
+    /// Residual: attach Scout or Hellfire drone to a master vehicle (Humvee residual).
+    ///
+    /// Spawns the drone near the master, tags the master with the object-upgrade
+    /// residual name, and records attach honesty.
+    /// Fail-closed: not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate.
+    pub fn residual_attach_slave_drone(
+        &mut self,
+        master_id: ObjectId,
+        kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_slave_drones::{
+            drone_spawn_offset_from_master, is_slave_drone_master_template, SlaveDroneKind,
+        };
+
+        let (team, master_pos, master_name) = {
+            let master = self.objects.get(&master_id)?;
+            if !master.is_alive() || master.status.under_construction {
+                return None;
+            }
+            if !is_slave_drone_master_template(&master.template_name) {
+                return None;
+            }
+            (master.team, master.get_position(), master.template_name.clone())
+        };
+        let _ = master_name;
+
+        // Ensure drone templates exist with residual kinds.
+        let drone_tpl_name = kind.template_name();
+        if !self.templates.contains_key(drone_tpl_name) {
+            let mut tpl = crate::game_logic::ThingTemplate::new(drone_tpl_name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(100.0);
+            if matches!(kind, SlaveDroneKind::Hellfire) {
+                tpl.set_primary_weapon_name(
+                    crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
+                );
+            }
+            // Scout: no primary.
+            self.templates.insert(drone_tpl_name.to_string(), tpl);
+        }
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+
+        let (ox, oz) = drone_spawn_offset_from_master(kind);
+        let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
+        let drone_id = self.create_object(drone_tpl_name, team, spawn_pos)?;
+
+        if let Some(master) = self.objects.get_mut(&master_id) {
+            master.apply_upgrade_tag(kind.upgrade_name());
+        }
+
+        match kind {
+            SlaveDroneKind::Scout => {
+                self.scout_drone_residual_attaches =
+                    self.scout_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Hellfire => {
+                self.hellfire_drone_residual_attaches =
+                    self.hellfire_drone_residual_attaches.saturating_add(1);
+            }
+        }
+
+        Some(drone_id)
     }
 
     /// Residual honesty: bunker-buster blast + garrison kill or bunker damage.
@@ -14102,9 +14418,52 @@ impl GameLogic {
             }
         }
 
+        // Pathfinder residual: StealthForbiddenConditions = MOVING.
+        // Uncloak while Moving/AttackMoving; re-cloak immediately when stopped
+        // (StealthDelay = 0, InnateStealth = Yes). Fire does not break stealth.
+        {
+            use crate::game_logic::host_pathfinder::{
+                is_pathfinder_template, pathfinder_stealth_desired,
+            };
+            let pf_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| is_pathfinder_template(&o.template_name))
+                .map(|(id, _)| *id)
+                .collect();
+            for pid in pf_ids {
+                let Some(obj) = self.objects.get_mut(&pid) else {
+                    continue;
+                };
+                let moving = matches!(
+                    obj.ai_state,
+                    AIState::Moving | AIState::AttackMoving
+                ) || obj.status.moving;
+                if let Some(desired) = pathfinder_stealth_desired(
+                    true,
+                    obj.innate_stealth,
+                    obj.stealth_breaks_on_move,
+                    obj.is_alive(),
+                    moving,
+                ) {
+                    if desired && !obj.status.stealthed {
+                        obj.status.stealthed = true;
+                    } else if !desired && obj.status.stealthed {
+                        obj.break_stealth();
+                    }
+                }
+            }
+        }
+
         // Collect active detectors (alive, not under construction).
-        // Track whether any detector is a Sentry residual for honesty counters.
-        let detectors: Vec<(Team, Vec3, f32, bool)> = self
+        // Track residual detector kind for honesty counters.
+        #[derive(Clone, Copy)]
+        struct DetFlags {
+            is_sentry: bool,
+            is_pathfinder: bool,
+            is_scout: bool,
+        }
+        let detectors: Vec<(Team, Vec3, f32, DetFlags)> = self
             .objects
             .values()
             .filter(|o| {
@@ -14114,15 +14473,22 @@ impl GameLogic {
                     && !o.status.destroyed
             })
             .map(|o| {
-                let is_sentry =
-                    crate::game_logic::host_sentry_drone::is_sentry_drone_template(
+                let flags = DetFlags {
+                    is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
                         &o.template_name,
-                    );
+                    ),
+                    is_pathfinder: crate::game_logic::host_pathfinder::is_pathfinder_template(
+                        &o.template_name,
+                    ),
+                    is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
+                        &o.template_name,
+                    ),
+                };
                 (
                     o.team,
                     o.get_position(),
                     o.effective_detection_range(),
-                    is_sentry,
+                    flags,
                 )
             })
             .filter(|(_, _, range, _)| *range > 0.0)
@@ -14152,10 +14518,20 @@ impl GameLogic {
             };
 
             let mut detected_by_sentry = false;
-            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range, is_sentry)| {
+            let mut detected_by_pathfinder = false;
+            let mut detected_by_scout = false;
+            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range, flags)| {
                 let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
-                if in_range && *is_sentry {
-                    detected_by_sentry = true;
+                if in_range {
+                    if flags.is_sentry {
+                        detected_by_sentry = true;
+                    }
+                    if flags.is_pathfinder {
+                        detected_by_pathfinder = true;
+                    }
+                    if flags.is_scout {
+                        detected_by_scout = true;
+                    }
                 }
                 in_range
             });
@@ -14164,10 +14540,20 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&sid) {
                     obj.mark_detected(expires);
                 }
-                // Honesty: first residual reveal by a Sentry detector this tick.
-                if detected_by_sentry && !already_detected {
-                    self.sentry_drone_residual_detects =
-                        self.sentry_drone_residual_detects.saturating_add(1);
+                // Honesty: first residual reveal by residual detector kinds this tick.
+                if !already_detected {
+                    if detected_by_sentry {
+                        self.sentry_drone_residual_detects =
+                            self.sentry_drone_residual_detects.saturating_add(1);
+                    }
+                    if detected_by_pathfinder {
+                        self.pathfinder_residual_detects =
+                            self.pathfinder_residual_detects.saturating_add(1);
+                    }
+                    if detected_by_scout {
+                        self.scout_drone_residual_detects =
+                            self.scout_drone_residual_detects.saturating_add(1);
+                    }
                 }
             }
         }
@@ -34422,5 +34808,307 @@ mod tests {
             !game_logic.honesty_sentry_drone_auto_fire_ok(),
             "fail-closed: ordinary tank must not use Sentry auto-fire residual"
         );
+    }
+
+    /// Residual: Pathfinder spawns as detector + innate stealth; detects enemies;
+    /// stays stealthed while firing; uncloaks while moving; re-cloaks when stopped.
+    #[test]
+    fn pathfinder_residual_detect_stealth_and_sniper() {
+        use crate::game_logic::host_pathfinder::{
+            is_pathfinder_template, PATHFINDER_DETECTION_RANGE, PATHFINDER_SNIPER_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut pf_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryPathfinder");
+        pf_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(PATHFINDER_SNIPER_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPathfinder".to_string(), pf_tpl);
+
+        let pf_id = game_logic
+            .create_object(
+                "AmericaInfantryPathfinder",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pathfinder");
+        {
+            let p = game_logic.find_object(pf_id).expect("pf");
+            assert!(is_pathfinder_template(&p.template_name));
+            assert!(p.is_detector, "pathfinder must spawn as detector residual");
+            assert!(
+                (p.detection_range - PATHFINDER_DETECTION_RANGE).abs() < 0.1,
+                "pathfinder detection range residual 200, got {}",
+                p.detection_range
+            );
+            assert!(p.status.stealthed, "pathfinder innate stealth on spawn");
+            assert!(p.innate_stealth);
+            assert!(p.stealth_breaks_on_move);
+            assert!(!p.stealth_breaks_on_attack, "stays stealthed while attacking");
+            assert!(p.weapon.is_some(), "pathfinder sniper residual equipped");
+            let w = p.weapon.as_ref().unwrap();
+            assert!((w.damage - 100.0).abs() < 0.1, "sniper dmg 100, got {}", w.damage);
+            assert!((w.range - 300.0).abs() < 0.1, "sniper range 300, got {}", w.range);
+        }
+
+        // Detect stealthed enemy within 200.
+        let stealth_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("stealthed enemy");
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+        game_logic.frame = 1;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(stealth_id).expect("enemy");
+            assert!(
+                e.status.detected,
+                "pathfinder detector residual must reveal stealthed enemy"
+            );
+        }
+        assert!(
+            game_logic.honesty_pathfinder_detect_ok(),
+            "pathfinder detect honesty residual must fire"
+        );
+
+        // Fire while stealthed: must remain stealthed (stealth_breaks_on_attack = false).
+        {
+            let p = game_logic.find_object_mut(pf_id).unwrap();
+            p.ai_state = AIState::Attacking;
+            p.target = Some(stealth_id);
+            p.status.stealthed = true;
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+            }
+        }
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = false; // targetable
+            e.set_position(Vec3::new(40.0, 0.0, 0.0));
+        }
+        let enemy_hp_before = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[pf_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_pathfinder_sniper_ok(),
+            "pathfinder sniper residual honesty must fire"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "pathfinder sniper must damage enemy"
+        );
+        {
+            let p = game_logic.find_object(pf_id).expect("pf after fire");
+            assert!(
+                p.status.stealthed,
+                "pathfinder must remain stealthed while attacking residual"
+            );
+        }
+
+        // Move uncloaks; stop re-cloaks.
+        {
+            let p = game_logic.find_object_mut(pf_id).unwrap();
+            p.ai_state = AIState::Moving;
+            p.status.moving = true;
+            p.status.stealthed = true;
+        }
+        game_logic.update_stealth_and_detection();
+        {
+            let p = game_logic.find_object(pf_id).unwrap();
+            assert!(
+                !p.status.stealthed,
+                "pathfinder must uncloak while moving residual"
+            );
+        }
+        {
+            let p = game_logic.find_object_mut(pf_id).unwrap();
+            p.ai_state = AIState::Idle;
+            p.status.moving = false;
+        }
+        game_logic.update_stealth_and_detection();
+        {
+            let p = game_logic.find_object(pf_id).unwrap();
+            assert!(
+                p.status.stealthed,
+                "pathfinder must re-cloak when stopped residual"
+            );
+        }
+    }
+
+    /// Residual: Scout drone detect + Hellfire drone attach/auto-fire.
+    #[test]
+    fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
+        use crate::game_logic::host_slave_drones::{
+            is_hellfire_drone_template, is_scout_drone_template, SlaveDroneKind,
+            HELLFIRE_MISSILE_WEAPON, SCOUT_DETECTION_RANGE, UPGRADE_AMERICA_HELLFIRE_DRONE,
+            UPGRADE_AMERICA_SCOUT_DRONE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        // Humvee master residual carrier.
+        let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let master_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+
+        // Attach Scout residual.
+        let scout_id = game_logic
+            .residual_attach_slave_drone(master_id, SlaveDroneKind::Scout)
+            .expect("scout attach");
+        {
+            let s = game_logic.find_object(scout_id).expect("scout");
+            assert!(is_scout_drone_template(&s.template_name));
+            assert!(s.is_detector, "scout must spawn as detector residual");
+            assert!(
+                (s.detection_range - SCOUT_DETECTION_RANGE).abs() < 0.1,
+                "scout detection range residual 150, got {}",
+                s.detection_range
+            );
+            assert!(s.weapon.is_none(), "scout sensor drone has no gun residual");
+        }
+        {
+            let m = game_logic.find_object(master_id).unwrap();
+            assert!(
+                m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE),
+                "master must receive scout upgrade tag residual"
+            );
+        }
+        assert!(game_logic.honesty_scout_drone_attach_ok());
+
+        // Scout detects stealthed enemy.
+        let stealth_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("stealthed");
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+        // Place scout at origin (already); enemy at 30 within 150.
+        game_logic.frame = 2;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(stealth_id).unwrap();
+            assert!(
+                e.status.detected,
+                "scout detector residual must reveal stealthed enemy"
+            );
+        }
+        assert!(game_logic.honesty_scout_drone_detect_ok());
+
+        // Attach Hellfire residual to same master (fail-closed: no ConflictsWith skip).
+        let hf_id = game_logic
+            .residual_attach_slave_drone(master_id, SlaveDroneKind::Hellfire)
+            .expect("hellfire attach");
+        {
+            let h = game_logic.find_object(hf_id).expect("hellfire");
+            assert!(is_hellfire_drone_template(&h.template_name));
+            assert!(h.weapon.is_some(), "hellfire must equip missile residual");
+            let w = h.weapon.as_ref().unwrap();
+            assert!((w.damage - 40.0).abs() < 0.1, "hellfire dmg 40, got {}", w.damage);
+            assert!((w.range - 150.0).abs() < 0.1, "hellfire range 150, got {}", w.range);
+            let _ = HELLFIRE_MISSILE_WEAPON;
+        }
+        {
+            let m = game_logic.find_object(master_id).unwrap();
+            assert!(m.has_upgrade_tag(UPGRADE_AMERICA_HELLFIRE_DRONE));
+        }
+        assert!(game_logic.honesty_hellfire_drone_attach_ok());
+
+        // Hellfire auto-fire residual damages nearby enemy.
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = false;
+            e.set_position(Vec3::new(40.0, 0.0, 0.0));
+        }
+        {
+            let h = game_logic.find_object_mut(hf_id).unwrap();
+            h.ai_state = AIState::Idle;
+            h.target = None;
+            h.target_location = None;
+            h.set_position(Vec3::new(0.0, 0.0, 0.0));
+            if let Some(w) = h.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[hf_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_hellfire_drone_auto_fire_ok(),
+            "hellfire auto-fire residual honesty must fire"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "hellfire residual must damage enemy (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+    }
+
+    /// Fail-closed: non-master cannot residual-attach slave drones.
+    #[test]
+    fn slave_drone_residual_rejects_non_master_attach() {
+        use crate::game_logic::host_slave_drones::SlaveDroneKind;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let ranger_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        assert!(
+            game_logic
+                .residual_attach_slave_drone(ranger_id, SlaveDroneKind::Scout)
+                .is_none(),
+            "fail-closed: infantry cannot attach scout residual"
+        );
+        assert!(!game_logic.honesty_scout_drone_attach_ok());
     }
 }
