@@ -58,12 +58,27 @@
 //! - **PilotFindVehicle PartitionFilterPlayer residual**: same controlling
 //!   player / host Neutral unmanned with matching `unmanned_owner_team`.
 //!
+//! Wave 61 residual pack (retail AmericaInfantry.ini / OCL / AmericaParachute honesty):
+//! - Pilot body: MaxHealth **100**, VisionRange **150**, ShroudClearingRange **300**,
+//!   StartingLevel **VETERAN**, TransportSlotCount **1**, Mass **5**
+//! - Ejection OCL residual: InvulnerableTime **2000**ms → **60**f, InheritsVeterancy,
+//!   Ground force Min/Max **2/3** pitch **50–60**, Air force Min/Max **10/12** pitch **50–60**,
+//!   PutInContainer **AmericaParachute**, DeathTypes **ALL -CRUSHED -SPLATTED**,
+//!   ExemptStatus **HIJACKED**, VeterancyLevels **ALL -REGULAR**
+//! - Parachute residual: retail AmericaParachute OpenDist **25**, host air-eject span **100**
+//!   (CINE), FreeFallDamage **50%**, Pitch/RollRateMax **60** deg/s, LowAltitudeDamping **0.2**,
+//!   GeometryHeight **10** / MajorRadius **15**, open audio **ParachuteOpen**
+//! - Return-to-base residual: PilotFindVehicle base-center fallback (`m_didMoveToBase`),
+//!   ScanRate **1000**ms → **30**f, ScanRange **300**, MinHealth **0.5**;
+//!   AutoFindHealing ScanRate **1000**ms, NeverHeal **0.85**, AlwaysHeal **0.25**
+//!
 //! Fail-closed honesty:
 //! - Not full W3D pristine bone extract / DeliverPayload cargo plane path
 //!   (PARA_COG host offset + calcSwayMtx residual closed 2026-07-13)
 //! - AutoFindHealingUpdate AlwaysHeal busy-interrupt path is **dead code in retail
 //!   C++** (`return UPDATE_SLEEP_NONE` before AlwaysHeal check) — host residual
 //!   intentionally matches idle-only (AlwaysHeal constant retained for honesty).
+//! - Not full dual-template ParachuteOpenDist matrix (retail 25 vs CINE 100)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not full same-map PartitionFilterSameMapStatus matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
@@ -169,6 +184,54 @@ pub const EJECT_PARACHUTE_FREEFALL_PER_FRAME: f32 = 40.0;
 /// Host residual uses **100** (CINE / safe air-eject span). Retail base
 /// `AmericaParachute` INI is 25; fail-closed not dual-template OpenDist matrix.
 pub const PARACHUTE_OPEN_DIST: f32 = 100.0;
+
+/// Retail base `AmericaParachute` ParachuteOpenDist residual (honesty dual-track).
+pub const PARACHUTE_OPEN_DIST_RETAIL_BASE: f32 = 25.0;
+
+/// CINE / host air-eject ParachuteOpenDist residual (matches PARACHUTE_OPEN_DIST).
+pub const PARACHUTE_OPEN_DIST_CINE: f32 = 100.0;
+
+// --- Wave 61 pilot body residual (AmericaInfantryPilot) ---
+
+/// Retail AmericaInfantryPilot MaxHealth residual.
+pub const PILOT_MAX_HEALTH: f32 = 100.0;
+/// Retail AmericaInfantryPilot VisionRange residual.
+pub const PILOT_VISION_RANGE: f32 = 150.0;
+/// Retail AmericaInfantryPilot ShroudClearingRange residual.
+pub const PILOT_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail TransportSlotCount residual.
+pub const PILOT_TRANSPORT_SLOT_COUNT: u32 = 1;
+/// Retail PhysicsBehavior Mass residual.
+pub const PILOT_PHYSICS_MASS: f32 = 5.0;
+/// Retail VeterancyGainCreate StartingLevel residual name.
+pub const PILOT_STARTING_LEVEL: &str = "VETERAN";
+
+// --- Wave 61 OCL_EjectPilot force residual ---
+
+/// OCL_EjectPilotOnGround MinForceMagnitude residual.
+pub const EJECT_GROUND_MIN_FORCE_MAG: f32 = 2.0;
+/// OCL_EjectPilotOnGround MaxForceMagnitude residual.
+pub const EJECT_GROUND_MAX_FORCE_MAG: f32 = 3.0;
+/// OCL_EjectPilotViaParachute MinForceMagnitude residual.
+pub const EJECT_AIR_MIN_FORCE_MAG: f32 = 10.0;
+/// OCL_EjectPilotViaParachute MaxForceMagnitude residual.
+pub const EJECT_AIR_MAX_FORCE_MAG: f32 = 12.0;
+/// OCL eject MinForcePitch residual (deg).
+pub const EJECT_FORCE_MIN_PITCH_DEG: f32 = 50.0;
+/// OCL eject MaxForcePitch residual (deg).
+pub const EJECT_FORCE_MAX_PITCH_DEG: f32 = 60.0;
+/// OCL PutInContainer residual for air path.
+pub const EJECT_AIR_PUT_IN_CONTAINER: &str = "AmericaParachute";
+/// OCL InheritsVeterancy residual.
+pub const EJECT_INHERITS_VETERANCY: bool = true;
+/// OCL RequiresLivePlayer residual.
+pub const EJECT_REQUIRES_LIVE_PLAYER: bool = true;
+/// Retail EjectPilotDie DeathTypes residual tokens.
+pub const EJECT_DEATH_TYPES: &str = "ALL -CRUSHED -SPLATTED";
+/// Retail EjectPilotDie ExemptStatus residual.
+pub const EJECT_EXEMPT_STATUS: &str = "HIJACKED";
+/// Retail EjectPilotDie VeterancyLevels residual.
+pub const EJECT_VETERANCY_LEVELS: &str = "ALL -REGULAR";
 
 /// Retail ParachuteContainModuleData default FreeFallDamagePercent (0.5).
 /// AmericaParachute INI does not override → 50% max health residual on chute die.
@@ -1191,6 +1254,93 @@ impl HostUsaPilotRegistry {
     }
 }
 
+// --- Wave 61 residual honesty packs (retail INI constants) ---
+
+/// Wave 61 residual honesty: pilot body / StartingLevel residual.
+pub fn honesty_usa_pilot_body_residual_ok() -> bool {
+    (PILOT_MAX_HEALTH - 100.0).abs() < 0.01
+        && (PILOT_VISION_RANGE - 150.0).abs() < 0.01
+        && (PILOT_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && PILOT_TRANSPORT_SLOT_COUNT == 1
+        && (PILOT_PHYSICS_MASS - 5.0).abs() < 0.01
+        && PILOT_STARTING_LEVEL == "VETERAN"
+        && pilot_default_veterancy() == VeterancyLevel::Veteran
+        && EJECT_PILOT_TEMPLATE == "AmericaInfantryPilot"
+        && is_pilot_template(EJECT_PILOT_TEMPLATE)
+}
+
+/// Wave 61 residual honesty: EjectPilotDie + OCL_EjectPilot residual.
+pub fn honesty_usa_pilot_ejection_residual_ok() -> bool {
+    EJECT_PILOT_INVULNERABLE_MS == 2000
+        && EJECT_PILOT_INVULNERABLE_FRAMES
+            == eject_pilot_invulnerable_frames_from_ms(EJECT_PILOT_INVULNERABLE_MS)
+        && EJECT_PILOT_INVULNERABLE_FRAMES == 60
+        && (EJECT_GROUND_MIN_FORCE_MAG - 2.0).abs() < 0.01
+        && (EJECT_GROUND_MAX_FORCE_MAG - 3.0).abs() < 0.01
+        && (EJECT_AIR_MIN_FORCE_MAG - 10.0).abs() < 0.01
+        && (EJECT_AIR_MAX_FORCE_MAG - 12.0).abs() < 0.01
+        && (EJECT_FORCE_MIN_PITCH_DEG - 50.0).abs() < 0.01
+        && (EJECT_FORCE_MAX_PITCH_DEG - 60.0).abs() < 0.01
+        && EJECT_AIR_PUT_IN_CONTAINER == "AmericaParachute"
+        && EJECT_INHERITS_VETERANCY
+        && EJECT_REQUIRES_LIVE_PLAYER
+        && EJECT_DEATH_TYPES.contains("-CRUSHED")
+        && EJECT_DEATH_TYPES.contains("-SPLATTED")
+        && EJECT_EXEMPT_STATUS == "HIJACKED"
+        && EJECT_VETERANCY_LEVELS.contains("-REGULAR")
+        && is_eject_pilot_eligible_template("AmericaVehicleHumvee")
+        && !is_eject_pilot_eligible_template("AmericaInfantryPilot")
+}
+
+/// Wave 61 residual honesty: AmericaParachute residual matrix.
+pub fn honesty_usa_pilot_parachute_residual_ok() -> bool {
+    (PARACHUTE_OPEN_DIST_RETAIL_BASE - 25.0).abs() < 0.01
+        && (PARACHUTE_OPEN_DIST_CINE - 100.0).abs() < 0.01
+        && (PARACHUTE_OPEN_DIST - PARACHUTE_OPEN_DIST_CINE).abs() < 0.01
+        && (FREE_FALL_DAMAGE_PERCENT - 0.5).abs() < 0.001
+        && (PARACHUTE_LOW_ALTITUDE_OPEN_MULT - 2.0).abs() < 0.01
+        && (PARACHUTE_PITCH_RATE_MAX_DEG_PER_SEC - 60.0).abs() < 0.01
+        && (PARACHUTE_ROLL_RATE_MAX_DEG_PER_SEC - 60.0).abs() < 0.01
+        && (PARACHUTE_PITCH_STIFFNESS - 0.02).abs() < 0.001
+        && (PARACHUTE_ROLL_STIFFNESS - 0.02).abs() < 0.001
+        && (PARACHUTE_PITCH_DAMPING - 0.01).abs() < 0.001
+        && (PARACHUTE_ROLL_DAMPING - 0.01).abs() < 0.001
+        && (PARACHUTE_LOW_ALTITUDE_DAMPING - 0.2).abs() < 0.001
+        && (PARACHUTE_ALTITUDE_DAMP_START - 20.0).abs() < 0.01
+        && (PARACHUTE_GEOMETRY_HEIGHT - 10.0).abs() < 0.01
+        && (PARACHUTE_GEOMETRY_MAJOR_RADIUS - 15.0).abs() < 0.01
+        && PILOT_PARACHUTE_OPEN_AUDIO == "ParachuteOpen"
+        && (EJECT_PARACHUTE_SINK_PER_FRAME - 20.0).abs() < 0.01
+        && (EJECT_PARACHUTE_FREEFALL_PER_FRAME - 40.0).abs() < 0.01
+        && (significantly_above_terrain_threshold() - 576.0).abs() < 0.1
+}
+
+/// Wave 61 residual honesty: PilotFindVehicle base-center / return-to-base residual.
+pub fn honesty_usa_pilot_return_to_base_residual_ok() -> bool {
+    PILOT_FIND_VEHICLE_SCAN_RATE_MS == 1000
+        && PILOT_FIND_VEHICLE_SCAN_FRAMES == 30
+        && (PILOT_FIND_VEHICLE_SCAN_RANGE - 300.0).abs() < 0.01
+        && (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.5).abs() < 0.01
+        && AUTO_FIND_HEALING_SCAN_RATE_MS == 1000
+        && AUTO_FIND_HEALING_SCAN_FRAMES == 30
+        && (AUTO_FIND_HEALING_SCAN_RANGE - 300.0).abs() < 0.01
+        && (AUTO_FIND_HEALING_NEVER_HEAL - 0.85).abs() < 0.01
+        && (AUTO_FIND_HEALING_ALWAYS_HEAL - 0.25).abs() < 0.01
+        && !auto_find_healing_always_heal_busy_interrupt_live()
+        && should_pilot_base_center_fallback(false, false, true)
+        && !should_pilot_base_center_fallback(true, false, true)
+        && !should_pilot_base_center_fallback(false, true, true)
+        && !should_pilot_base_center_fallback(false, false, false)
+}
+
+/// Combined Wave 61 USA Pilot residual honesty pack.
+pub fn honesty_usa_pilot_residual_pack_ok() -> bool {
+    honesty_usa_pilot_body_residual_ok()
+        && honesty_usa_pilot_ejection_residual_ok()
+        && honesty_usa_pilot_parachute_residual_ok()
+        && honesty_usa_pilot_return_to_base_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1712,5 +1862,20 @@ mod tests {
         assert!(reg.honesty_invulnerable_block_ok());
         assert_eq!(reg.invulnerable_grants, 1);
         assert_eq!(reg.invulnerable_blocks, 1);
+    }
+
+    #[test]
+    fn usa_pilot_residual_pack_honesty_wave61() {
+        assert!(honesty_usa_pilot_body_residual_ok());
+        assert!(honesty_usa_pilot_ejection_residual_ok());
+        assert!(honesty_usa_pilot_parachute_residual_ok());
+        assert!(honesty_usa_pilot_return_to_base_residual_ok());
+        assert!(honesty_usa_pilot_residual_pack_ok());
+        assert_eq!(eject_pilot_invulnerable_frames_from_ms(2000), 60);
+        assert!((PARACHUTE_OPEN_DIST_RETAIL_BASE - 25.0).abs() < 0.01);
+        assert!((PARACHUTE_OPEN_DIST - 100.0).abs() < 0.01);
+        assert!((PILOT_MAX_HEALTH - 100.0).abs() < 0.01);
+        assert!((PILOT_VISION_RANGE - 150.0).abs() < 0.01);
+        assert!((PILOT_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01);
     }
 }
