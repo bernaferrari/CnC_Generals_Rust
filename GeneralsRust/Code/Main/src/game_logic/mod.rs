@@ -38,10 +38,12 @@ pub mod host_leaflet_drop;
 pub mod host_sneak_attack;
 pub mod host_point_defense;
 pub mod host_neutron_shell;
+pub mod host_bunker_buster;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
 pub mod host_inferno_cannon;
+pub mod host_aurora_bomb;
 pub mod host_battle_bus;
 pub mod host_cleanup_area;
 pub mod terrain;
@@ -180,6 +182,12 @@ pub use host_neutron_shell::{
     HOST_NEUTRON_BLAST_RADIUS, NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
     UPGRADE_CHINA_NEUTRON_SHELLS,
 };
+pub use host_bunker_buster::{
+    bunker_buster_structure_damage, is_bunker_buster_carrier, is_bunker_structure_name,
+    is_kill_garrisoned_clearer, kill_garrisoned_count, should_apply_bunker_buster,
+    should_apply_kill_garrisoned, HostBunkerBusterRegistry, BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT,
+    STEALTH_JET_MISSILE_WEAPON, UPGRADE_AMERICA_BUNKER_BUSTERS,
+};
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
     AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
@@ -192,6 +200,13 @@ pub use host_firewall::{
     HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,
     FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_RADIUS,
     FIREWALL_TICK_INTERVAL_FRAMES,
+};
+pub use host_aurora_bomb::{
+    aurora_bomb_damage_at_distance, aurora_bomb_kind_for_template, aurora_bomb_weapon,
+    is_aurora_aircraft_template, HostAuroraBombKind, HostAuroraBombMission, HostAuroraBombPhase,
+    HostAuroraBombRegistry, AURORA_BOMB_ATTACK_RANGE, AURORA_BOMB_DAMAGE, AURORA_BOMB_DIVE_DELAY_FRAMES,
+    AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_RADIUS, AURORA_FUEL_AIR_DAMAGE,
+    AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, AURORA_FUEL_AIR_RADIUS,
 };
 pub use host_inferno_cannon::{
     is_inferno_cannon_template, HostInfernoFireZone, HostInfernoFireZoneRegistry,

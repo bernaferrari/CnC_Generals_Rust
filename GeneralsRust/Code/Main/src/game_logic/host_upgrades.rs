@@ -25,6 +25,7 @@ pub const UPGRADE_AMERICA_FLASHBANG: &str = "Upgrade_AmericaRangerFlashBangGrena
 pub const UPGRADE_AMERICA_TOW: &str = "Upgrade_AmericaTOWMissile";
 pub const UPGRADE_AMERICA_SUPPLY_LINES: &str = "Upgrade_AmericaSupplyLines";
 pub const UPGRADE_CHINA_NEUTRON_SHELLS: &str = "Upgrade_ChinaNeutronShells";
+pub const UPGRADE_AMERICA_BUNKER_BUSTERS: &str = "Upgrade_AmericaBunkerBusters";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -66,6 +67,8 @@ pub enum HostUpgradeKind {
     SupplyLines,
     /// China Neutron Shells: equips Nuke Cannon SECONDARY neutron blast weapon.
     NeutronShells,
+    /// America Bunker Busters: tags Stealth Fighters for residual bunker bust.
+    BunkerBusters,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -84,6 +87,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::SupplyLines
         } else if n.contains("neutronshells") || n.contains("neutronshell") {
             HostUpgradeKind::NeutronShells
+        } else if n.contains("bunkerbuster") || n.contains("bunkerbusters") {
+            HostUpgradeKind::BunkerBusters
         } else {
             HostUpgradeKind::Other
         }
@@ -96,6 +101,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::TowMissile => "TowMissile",
             HostUpgradeKind::SupplyLines => "SupplyLines",
             HostUpgradeKind::NeutronShells => "NeutronShells",
+            HostUpgradeKind::BunkerBusters => "BunkerBusters",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -111,6 +117,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::TowMissile
             | HostUpgradeKind::SupplyLines
             | HostUpgradeKind::NeutronShells
+            | HostUpgradeKind::BunkerBusters
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -393,6 +400,11 @@ pub fn is_neutron_shell_unit_template(name: &str) -> bool {
     crate::game_logic::host_neutron_shell::is_nuke_cannon_template(name)
 }
 
+/// Template names that receive Bunker Busters upgrade tag when research completes.
+pub fn is_bunker_buster_unit_template(name: &str) -> bool {
+    crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(name)
+}
+
 /// Template names that receive Capture upgrade tag (observability residual).
 pub fn is_capture_capable_infantry_template(name: &str) -> bool {
     if name.to_ascii_lowercase().contains("worker")
@@ -462,6 +474,10 @@ mod tests {
         assert_eq!(
             HostUpgradeKind::from_name(UPGRADE_CHINA_NEUTRON_SHELLS),
             HostUpgradeKind::NeutronShells
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name(UPGRADE_AMERICA_BUNKER_BUSTERS),
+            HostUpgradeKind::BunkerBusters
         );
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),

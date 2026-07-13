@@ -720,6 +720,10 @@ pub struct GameLogic {
     neutron_shell_residual_infantry_kills: u32,
     neutron_shell_residual_vehicles_unmanned: u32,
 
+    /// Host Bunker Buster residual (Stealth Fighter + Upgrade_AmericaBunkerBusters).
+    /// Fail-closed: not full BunkerBusterBehavior crash FX / seismic / shockwave path.
+    bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -767,6 +771,10 @@ pub struct GameLogic {
     /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
     /// Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
     inferno_fire_zones: crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
+
+    /// Host America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage).
+    /// Fail-closed: not full AuroraBombLocomotor / HeightDieUpdate / gas OCL path.
+    aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
 
     /// Game paused state
     is_paused: bool,
@@ -1596,6 +1604,8 @@ impl GameLogic {
             neutron_shell_residual_blasts: 0,
             neutron_shell_residual_infantry_kills: 0,
             neutron_shell_residual_vehicles_unmanned: 0,
+            bunker_buster:
+                crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry::new(),
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1611,6 +1621,7 @@ impl GameLogic {
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
+            aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1770,6 +1781,7 @@ impl GameLogic {
         self.neutron_shell_residual_blasts = 0;
         self.neutron_shell_residual_infantry_kills = 0;
         self.neutron_shell_residual_vehicles_unmanned = 0;
+        self.bunker_buster.clear();
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -1781,6 +1793,7 @@ impl GameLogic {
         self.car_bomb.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
+        self.aurora_bombs.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3664,6 +3677,11 @@ impl GameLogic {
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         self.update_inferno_fire_zones();
 
+        // Host America Aurora dive bomb residual: delayed area damage at target.
+        // Fail-closed vs full AuroraBombLocomotor / FuelAir gas OCL path.
+        self.update_aurora_bombs();
+
+
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
@@ -4600,6 +4618,38 @@ impl GameLogic {
 
                     fired_slot = Some(slot);
 
+                    // Aurora dive bomb residual: queue delayed area damage at target.
+                    // Fail-closed: not full AuroraBomb projectile / FuelAir gas OCL path.
+                    // Instant single-target take_damage is skipped; AOE applies after delay.
+                    // Keep fired_slot so last_fire_time / particles / audio still run.
+                    let aurora_queued = {
+                        use crate::game_logic::host_aurora_bomb::{
+                            aurora_bomb_kind_for_template, is_aurora_aircraft_template,
+                        };
+                        let aurora = self.objects.get(&attacker_id).and_then(|a| {
+                            if is_aurora_aircraft_template(&a.template_name) {
+                                Some(aurora_bomb_kind_for_template(&a.template_name))
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(kind) = aurora {
+                            let impact = target_position;
+                            let _ = self.queue_aurora_bomb(
+                                kind,
+                                attacker_id,
+                                attacker_team,
+                                impact,
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                    if aurora_queued {
+                        // Shot consumed; delayed dive residual pending (no instant HP damage).
+                    } else {
                     // Neutron shell residual: Nuke Cannon secondary applies blast
                     // (kill infantry / unman vehicles) instead of HP take_damage.
                     let neutron_blast = {
@@ -4630,23 +4680,88 @@ impl GameLogic {
                                 attacker.gain_experience(xp);
                             }
                         }
-                    } else if let Some(target) = self.objects.get_mut(&target_id) {
-                        let destroyed = target.take_damage(weapon_damage);
-                        if destroyed {
-                            // C++ parity: XP is based on victim's ExperienceValue.
-                            let kill_xp = target.thing.template.experience_value
-                                * Self::veterancy_xp_multiplier(target.experience.level);
-                            self.mark_object_for_destruction(target_id, Some(attacker_team));
+                    } else {
+                        // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
+                        // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
+                        let (bunker_buster_hit, kill_garrisoned_hit) = {
+                            use crate::game_logic::host_bunker_buster::{
+                                is_bunker_buster_carrier, is_kill_garrisoned_clearer,
+                                should_apply_bunker_buster, should_apply_kill_garrisoned,
+                                UPGRADE_AMERICA_BUNKER_BUSTERS,
+                            };
+                            let target_is_structure = self
+                                .objects
+                                .get(&target_id)
+                                .map(|t| t.is_kind_of(KindOf::Structure))
+                                .unwrap_or(false);
+                            self.objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    let has_upgrade = a
+                                        .has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS)
+                                        || a.has_upgrade_tag("Upgrade_AmericaBunkerBusters");
+                                    let carrier = is_bunker_buster_carrier(&a.template_name);
+                                    let clearer = is_kill_garrisoned_clearer(&a.template_name);
+                                    (
+                                        should_apply_bunker_buster(
+                                            has_upgrade,
+                                            carrier,
+                                            target_is_structure,
+                                        ),
+                                        should_apply_kill_garrisoned(clearer, target_is_structure),
+                                    )
+                                })
+                                .unwrap_or((false, false))
+                        };
+
+                        if bunker_buster_hit {
+                            let (kills, structure_dmg, destroyed) = self
+                                .apply_bunker_buster_to_target(
+                                    target_id,
+                                    attacker_team,
+                                    weapon_damage,
+                                );
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                attacker.gain_experience(kill_xp);
-                                attacker.stop_attack();
+                                let xp = (kills as f32) * 15.0 + structure_dmg * 0.05;
+                                if xp > 0.0 {
+                                    attacker.gain_experience(xp);
+                                }
+                                if destroyed {
+                                    attacker.stop_attack();
+                                }
+                            }
+                        } else if kill_garrisoned_hit {
+                            let kills = self.apply_kill_garrisoned_to_target(
+                                target_id,
+                                attacker_team,
+                                weapon_damage,
+                            );
+                            if kills > 0 {
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    attacker.gain_experience((kills as f32) * 15.0);
+                                }
+                            }
+                        } else if let Some(target) = self.objects.get_mut(&target_id) {
+                            let destroyed = target.take_damage(weapon_damage);
+                            if destroyed {
+                                // C++ parity: XP is based on victim's ExperienceValue.
+                                let kill_xp = target.thing.template.experience_value
+                                    * Self::veterancy_xp_multiplier(target.experience.level);
+                                self.mark_object_for_destruction(target_id, Some(attacker_team));
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    attacker.gain_experience(kill_xp);
+                                    attacker.stop_attack();
+                                }
                             }
                         }
                     }
 
+                    } // end !aurora_queued
+
                     // Inferno Cannon residual: shell impact spawns FireFieldSmall DoT zone.
                     // Fail-closed: not full InfernoTankShell projectile / OCL object spawn.
-                    {
+                    // Skipped for Aurora (delayed dive residual already queued).
+                    if !aurora_queued {
                         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
                         let is_inferno = self
                             .objects
@@ -4725,40 +4840,68 @@ impl GameLogic {
                     }
 
                     fired_slot = Some(0);
-                    if let Some(ground_target_id) =
-                        self.find_ground_attack_victim(attacker_id, target_location)
-                    {
-                        if let Some(target) = self.objects.get_mut(&ground_target_id) {
-                            let destroyed = target.take_damage(weapon_damage);
-                            if destroyed {
-                                let kill_xp = target.thing.template.experience_value
-                                    * Self::veterancy_xp_multiplier(target.experience.level);
-                                self.mark_object_for_destruction(
-                                    ground_target_id,
-                                    Some(attacker_team),
-                                );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.gain_experience(kill_xp);
-                                }
-                            }
-                        }
-                    }
 
-                    // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
-                    {
-                        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-                        let is_inferno = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| is_inferno_cannon_template(&a.template_name))
-                            .unwrap_or(false);
-                        if is_inferno {
-                            let _ = self.spawn_inferno_fire_zone(
+                    // Aurora dive bomb residual on force-attack-ground.
+                    let aurora_ground_queued = {
+                        use crate::game_logic::host_aurora_bomb::{
+                            aurora_bomb_kind_for_template, is_aurora_aircraft_template,
+                        };
+                        let aurora = self.objects.get(&attacker_id).and_then(|a| {
+                            if is_aurora_aircraft_template(&a.template_name) {
+                                Some(aurora_bomb_kind_for_template(&a.template_name))
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(kind) = aurora {
+                            let _ = self.queue_aurora_bomb(
+                                kind,
                                 attacker_id,
                                 attacker_team,
                                 target_location,
-                                false,
                             );
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                    if !aurora_ground_queued {
+                        if let Some(ground_target_id) =
+                            self.find_ground_attack_victim(attacker_id, target_location)
+                        {
+                            if let Some(target) = self.objects.get_mut(&ground_target_id) {
+                                let destroyed = target.take_damage(weapon_damage);
+                                if destroyed {
+                                    let kill_xp = target.thing.template.experience_value
+                                        * Self::veterancy_xp_multiplier(target.experience.level);
+                                    self.mark_object_for_destruction(
+                                        ground_target_id,
+                                        Some(attacker_team),
+                                    );
+                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                        attacker.gain_experience(kill_xp);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
+                        {
+                            use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+                            let is_inferno = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| is_inferno_cannon_template(&a.template_name))
+                                .unwrap_or(false);
+                            if is_inferno {
+                                let _ = self.spawn_inferno_fire_zone(
+                                    attacker_id,
+                                    attacker_team,
+                                    target_location,
+                                    false,
+                                );
+                            }
                         }
                     }
                 }
@@ -6493,6 +6636,9 @@ impl GameLogic {
             HostUpgradeKind::NeutronShells => {
                 self.apply_neutron_shells_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::BunkerBusters => {
+                self.apply_bunker_busters_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -6604,6 +6750,41 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Tag team Stealth Fighters with Bunker Busters residual upgrade.
+    ///
+    /// C++ BunkerBusterBehavior checks player upgrade on missile detonation;
+    /// host residual tags carriers so combat can apply garrison kill + bunker mult.
+    fn apply_bunker_busters_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_bunker_buster::{
+            is_bunker_buster_carrier, UPGRADE_AMERICA_BUNKER_BUSTERS,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, STEALTH_JET_MISSILE_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+        let primary = ThingTemplate::weapon_from_store(STEALTH_JET_MISSILE_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_bunker_buster_carrier(&obj.template_name) {
+                continue;
+            }
+            if let Some(ref w) = primary {
+                // Ensure residual anti-structure missile stats when store available.
+                if obj.weapon.is_none() {
+                    obj.weapon = Some(w.clone());
+                }
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS);
             affected = affected.saturating_add(1);
         }
         affected
@@ -10331,6 +10512,186 @@ impl GameLogic {
         self.neutron_shell_residual_vehicles_unmanned
     }
 
+    /// Residual honesty: bunker-buster blast + garrison kill or bunker damage.
+    pub fn honesty_bunker_buster_ok(&self) -> bool {
+        self.bunker_buster.honesty_host_path_ok()
+    }
+
+    /// Residual honesty: at least one garrison occupant killed by bunker residual.
+    pub fn honesty_bunker_buster_garrison_kill_ok(&self) -> bool {
+        self.bunker_buster.honesty_garrison_kill_ok()
+    }
+
+    /// Residual honesty: amplified bunker structure damage residual applied.
+    pub fn honesty_bunker_buster_damage_ok(&self) -> bool {
+        self.bunker_buster.honesty_bunker_damage_ok()
+    }
+
+    /// Residual honesty: KILL_GARRISONED microwave-style clearer residual.
+    pub fn honesty_kill_garrisoned_ok(&self) -> bool {
+        self.bunker_buster.honesty_kill_garrisoned_ok()
+    }
+
+    /// Host bunker-buster residual registry (tests / HUD honesty).
+    pub fn bunker_buster_residual(
+        &self,
+    ) -> &crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry {
+        &self.bunker_buster
+    }
+
+    /// Apply BunkerBuster residual to a structure target:
+    /// kill all garrisoned occupants + amplified structure damage vs bunkers.
+    ///
+    /// Returns (occupants_killed, structure_damage_applied, structure_destroyed).
+    /// Fail-closed: not full BunkerBusterBehavior FX / seismic / temp shockwave weapon.
+    fn apply_bunker_buster_to_target(
+        &mut self,
+        target_id: ObjectId,
+        attacker_team: Team,
+        base_weapon_damage: f32,
+    ) -> (u32, f32, bool) {
+        use crate::game_logic::host_bunker_buster::{
+            bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
+            BUNKER_BUSTER_OCCUPANT_DAMAGE,
+        };
+
+        let (occupants, is_bunker, target_pos) = {
+            let Some(target) = self.objects.get(&target_id) else {
+                return (0, 0.0, false);
+            };
+            let occ = target.contained_units();
+            let bunker = is_bunker_structure_name(&target.template_name)
+                || target
+                    .building_data
+                    .as_ref()
+                    .map(|b| {
+                        matches!(
+                            b.building_type,
+                            crate::game_logic::buildings::BuildingType::Bunker
+                        ) || b.max_garrison > 0
+                    })
+                    .unwrap_or(false);
+            (occ, bunker, target.get_position())
+        };
+        let had_occupants = !occupants.is_empty();
+        let mut kills = 0u32;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+
+        // Remove occupants from container bookkeeping first.
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            for &occ_id in &occupants {
+                target.remove_occupant(occ_id);
+            }
+        }
+
+        for occ_id in occupants {
+            let Some(occ) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            occ.contained_by = None;
+            occ.ai_state = AIState::Idle;
+            // Residual occupant damage (BunkerBusterAntiTunnel ~400) — lethal for infantry.
+            let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
+            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            } else {
+                let _ = occ.take_damage(999_999.0);
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+
+        let structure_dmg =
+            bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
+        let mut destroyed = false;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(structure_dmg);
+            if destroyed {
+                self.mark_object_for_destruction(target_id, Some(attacker_team));
+            }
+        }
+
+        self.bunker_buster.record_bunker_buster_blast(
+            kills,
+            structure_dmg,
+            is_bunker && structure_dmg > base_weapon_damage + 0.01,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(BUNKER_BUSTER_AUDIO)
+                .with_position(target_pos)
+                .with_priority(160),
+        );
+
+        (kills, structure_dmg, destroyed)
+    }
+
+    /// Apply KILL_GARRISONED residual: kill `floor(damage)` garrisoned occupants.
+    /// Fail-closed: no structure HP damage (C++ ActiveBody KillGarrisoned path).
+    fn apply_kill_garrisoned_to_target(
+        &mut self,
+        target_id: ObjectId,
+        attacker_team: Team,
+        damage_amount: f32,
+    ) -> u32 {
+        use crate::game_logic::host_bunker_buster::{
+            kill_garrisoned_count, BUNKER_BUSTER_OCCUPANT_DAMAGE,
+        };
+
+        let occupants = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.contained_units())
+            .unwrap_or_default();
+        let kill_n = kill_garrisoned_count(damage_amount, occupants.len());
+        if kill_n == 0 {
+            return 0;
+        }
+
+        let to_kill: Vec<ObjectId> = occupants.into_iter().take(kill_n).collect();
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            for &occ_id in &to_kill {
+                target.remove_occupant(occ_id);
+            }
+        }
+
+        let mut kills = 0u32;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        for occ_id in to_kill {
+            let Some(occ) = self.objects.get_mut(&occ_id) else {
+                continue;
+            };
+            if !occ.is_alive() {
+                continue;
+            }
+            occ.contained_by = None;
+            occ.ai_state = AIState::Idle;
+            let _ = occ.take_damage(BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0));
+            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            } else {
+                let _ = occ.take_damage(999_999.0);
+                kills = kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(attacker_team));
+        }
+
+        self.bunker_buster.record_kill_garrisoned(kills);
+        kills
+    }
+
     /// Apply NeutronBlast residual at world impact: kill infantry + unman vehicles
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     ///
@@ -12938,6 +13299,159 @@ impl GameLogic {
 
         self.inferno_fire_zones.prune_expired(frame);
     }
+
+
+    // -----------------------------------------------------------------------
+    // America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage)
+    // Fail-closed: not full AuroraBombLocomotor / HeightDieUpdate / gas OCL path.
+    // -----------------------------------------------------------------------
+
+    /// Host Aurora dive-bomb residual registry (queue + honesty).
+    pub fn aurora_bombs(
+        &self,
+    ) -> &crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry {
+        &self.aurora_bombs
+    }
+
+    /// Residual honesty: at least one Aurora bomb dive activated/queued.
+    pub fn honesty_aurora_bomb_activate_ok(&self) -> bool {
+        self.aurora_bombs.honesty_activate_ok()
+    }
+
+    /// Residual honesty: at least one delayed Aurora detonation completed.
+    pub fn honesty_aurora_bomb_complete_ok(&self) -> bool {
+        self.aurora_bombs.honesty_complete_ok()
+    }
+
+    /// Residual honesty: Aurora blast damage applied.
+    pub fn honesty_aurora_bomb_damage_ok(&self) -> bool {
+        self.aurora_bombs.honesty_damage_ok()
+    }
+
+    /// Combined host path honesty for Aurora dive bomb residual.
+    pub fn honesty_aurora_bomb_ok(&self) -> bool {
+        self.aurora_bombs.honesty_host_path_ok()
+    }
+
+    /// Queue a residual Aurora dive bomb at target. Returns mission id.
+    ///
+    /// Retail path: AuroraBombWeapon → AuroraBomb projectile dive, or
+    /// AirF/SupW FuelAir bomb → gas → detonation weapon.
+    /// Host residual collapses projectile/gas into delayed area damage.
+    pub fn queue_aurora_bomb(
+        &mut self,
+        kind: crate::game_logic::host_aurora_bomb::HostAuroraBombKind,
+        source_object: ObjectId,
+        source_team: Team,
+        target_position: Vec3,
+    ) -> u32 {
+        use crate::game_logic::host_aurora_bomb::{
+            AURORA_BOMB_LAUNCH_AUDIO,
+        };
+
+        let frame = self.frame;
+        let id = self.aurora_bombs.queue(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            frame,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(kind.activate_audio())
+                .with_object(source_object)
+                .with_position(target_position)
+                .with_priority(170),
+        );
+        // Launch residual particle (not full FX_AuroraBombLaunch).
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            self.objects
+                .get(&source_object)
+                .map(|o| o.get_position())
+                .unwrap_or(target_position),
+            frame,
+            Some(source_object),
+            None,
+        );
+        let _ = AURORA_BOMB_LAUNCH_AUDIO; // name residual documented via activate_audio
+        id
+    }
+
+    /// Advance pending Aurora dive bombs to impact and apply area damage.
+    pub fn update_aurora_bombs(&mut self) {
+        self.aurora_bombs.clear_frame_events();
+
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .aurora_bombs
+            .plan_due_impacts(self.frame, &object_positions);
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut objects_hit = 0_u32;
+            let mut objects_destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let destroyed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    objects_hit += 1;
+                    if destroyed {
+                        objects_destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            // Impact feedback residual: explosion particle + audio at epicenter.
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::DeathExplosion,
+                plan.target_position,
+                self.frame,
+                Some(plan.source_object),
+                None,
+            );
+            self.queue_audio_event(
+                AudioEventRequest::new(plan.kind.impact_audio())
+                    .with_object(plan.source_object)
+                    .with_position(plan.target_position)
+                    .with_priority(200),
+            );
+
+            self.aurora_bombs.record_impact_complete(
+                plan.mission_id,
+                total_damage,
+                objects_hit,
+                objects_destroyed,
+            );
+
+            log::info!(
+                "Host Aurora {} bomb {} completed at {:?} (dmg={:.1}, hit={}, killed={})",
+                plan.kind.label(),
+                plan.mission_id,
+                plan.target_position,
+                total_damage,
+                objects_hit,
+                objects_destroyed
+            );
+        }
+    }
+
 
     /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
     ///
@@ -28637,6 +29151,259 @@ mod tests {
         assert!(game_logic.inferno_fire_zones().expirations >= 1);
     }
 
+
+    /// Residual: AmericaJetAurora attack queues delayed dive bomb; area damage
+    /// applies only after dive delay. FuelAir (AirF) residual uses longer gas delay.
+    /// Fail-closed: not full AuroraBombLocomotor / HeightDieUpdate / gas OCL path.
+    #[test]
+    fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
+        use crate::game_logic::host_aurora_bomb::{
+            is_aurora_aircraft_template, HostAuroraBombKind, AURORA_BOMB_DAMAGE,
+            AURORA_BOMB_DIVE_DELAY_FRAMES, AURORA_BOMB_PRIMARY_WEAPON,
+            AURORA_FUEL_AIR_DAMAGE, AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        // Standard Aurora aircraft residual template.
+        let mut aurora_tpl = crate::game_logic::ThingTemplate::new("AmericaJetAurora");
+        aurora_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(80.0)
+            .set_primary_weapon_name(AURORA_BOMB_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaJetAurora".to_string(), aurora_tpl);
+
+        // FuelAir Aurora residual template.
+        let mut fuel_tpl = crate::game_logic::ThingTemplate::new("AirF_AmericaJetAurora");
+        fuel_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(80.0)
+            .set_primary_weapon_name("AirF_AuroraBombWeapon");
+        game_logic
+            .templates
+            .insert("AirF_AmericaJetAurora".to_string(), fuel_tpl);
+
+        let target = Vec3::new(100.0, 0.0, 0.0);
+
+        let aurora_id = game_logic
+            .create_object("AmericaJetAurora", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("aurora");
+        {
+            let a = game_logic.find_object(aurora_id).expect("aurora obj");
+            assert!(
+                is_aurora_aircraft_template(&a.template_name),
+                "template residual must identify Aurora aircraft"
+            );
+            assert!(a.weapon.is_some(), "Aurora must bind residual primary weapon");
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, target)
+            .expect("enemy");
+        let near_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(110.0, 0.0, 0.0))
+            .expect("near");
+        let far_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
+            .expect("far");
+        let friend_id = game_logic
+            .create_object("TestTank", Team::USA, target)
+            .expect("friend");
+
+        for id in [enemy_id, near_id, far_id, friend_id] {
+            let obj = game_logic.find_object_mut(id).expect("obj");
+            obj.health.current = 500.0;
+            obj.health.maximum = 500.0;
+            obj.thing.template.armor = 0.0;
+        }
+
+        {
+            let a = game_logic.find_object_mut(aurora_id).expect("aurora");
+            a.attack_target(enemy_id);
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+                w.ammo = Some(1);
+            }
+        }
+
+        let enemy_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let near_before = game_logic.find_object(near_id).unwrap().health.current;
+        let far_before = game_logic.find_object(far_id).unwrap().health.current;
+        let friend_before = game_logic.find_object(friend_id).unwrap().health.current;
+
+        game_logic.set_current_frame(10);
+        game_logic.update_combat(&[aurora_id, enemy_id, near_id, far_id, friend_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_aurora_bomb_activate_ok(),
+            "Aurora attack must queue residual dive bomb"
+        );
+        assert!(
+            game_logic.aurora_bombs().pending_count() >= 1,
+            "must have pending dive bomb mission"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "AuroraBombLaunch"),
+            "activation must queue AuroraBombLaunch audio"
+        );
+
+        // Before dive delay: no damage.
+        game_logic.frame = 10 + AURORA_BOMB_DIVE_DELAY_FRAMES - 1;
+        game_logic.update_aurora_bombs();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            enemy_before,
+            "no damage before Aurora dive impact frame"
+        );
+        assert!(!game_logic.honesty_aurora_bomb_complete_ok());
+
+        // At impact: standard AuroraBombWeapon residual area damage.
+        game_logic.frame = 10 + AURORA_BOMB_DIVE_DELAY_FRAMES;
+        game_logic.update_aurora_bombs();
+
+        assert!(
+            game_logic.honesty_aurora_bomb_complete_ok(),
+            "Aurora bomb must complete on impact frame"
+        );
+        assert!(
+            game_logic.honesty_aurora_bomb_damage_ok(),
+            "Aurora bomb must deal residual damage"
+        );
+        assert!(
+            game_logic.honesty_aurora_bomb_ok(),
+            "combined Aurora host path honesty"
+        );
+
+        let enemy_hp = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let near_hp = game_logic.find_object(near_id).map(|o| o.health.current);
+        // Epicenter residual = AURORA_BOMB_DAMAGE (400).
+        assert!(
+            enemy_hp.map(|h| h < enemy_before).unwrap_or(true)
+                || enemy_hp == Some(0.0)
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy at epicenter must take Aurora residual damage (~{AURORA_BOMB_DAMAGE}), got {enemy_hp:?}"
+        );
+        assert!(
+            near_hp.map(|h| h < near_before).unwrap_or(true)
+                || near_hp == Some(0.0)
+                || game_logic
+                    .find_object(near_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy inside Aurora radius must take residual damage, got {near_hp:?}"
+        );
+        assert!(
+            (game_logic.find_object(far_id).unwrap().health.current - far_before).abs() < 0.1,
+            "far enemy outside radius must not take residual damage"
+        );
+        assert!(
+            (game_logic.find_object(friend_id).unwrap().health.current - friend_before).abs() < 0.1,
+            "friendly units must not take Aurora residual damage (fail-closed)"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "AuroraBombDetonate"),
+            "impact must queue AuroraBombDetonate audio"
+        );
+
+        // --- FuelAir residual: longer delay + larger damage ---
+        let fuel_id = game_logic
+            .create_object(
+                "AirF_AmericaJetAurora",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 50.0),
+            )
+            .expect("fuel aurora");
+        let fuel_enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("fuel enemy");
+        {
+            let e = game_logic.find_object_mut(fuel_enemy).expect("e");
+            e.health.current = 1500.0;
+            e.health.maximum = 1500.0;
+            e.thing.template.armor = 0.0;
+        }
+        {
+            let a = game_logic.find_object_mut(fuel_id).expect("fuel");
+            a.attack_target(fuel_enemy);
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+                w.ammo = Some(1);
+            }
+        }
+
+        game_logic.set_current_frame(1000);
+        game_logic.update_combat(&[fuel_id, fuel_enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic
+                .aurora_bombs()
+                .pending_of_kind(HostAuroraBombKind::FuelAir)
+                .len()
+                >= 1,
+            "FuelAir Aurora must queue FuelAir residual mission"
+        );
+
+        let fuel_before = game_logic.find_object(fuel_enemy).unwrap().health.current;
+        game_logic.frame = 1000 + AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES - 1;
+        game_logic.update_aurora_bombs();
+        assert_eq!(
+            game_logic.find_object(fuel_enemy).unwrap().health.current,
+            fuel_before,
+            "no FuelAir damage before gas detonation frame"
+        );
+
+        game_logic.frame = 1000 + AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES;
+        game_logic.update_aurora_bombs();
+        let fuel_after = game_logic.find_object(fuel_enemy).map(|o| o.health.current);
+        assert!(
+            fuel_after.map(|h| h < fuel_before).unwrap_or(true)
+                || fuel_after == Some(0.0)
+                || game_logic
+                    .find_object(fuel_enemy)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy must take FuelAir residual damage (~{AURORA_FUEL_AIR_DAMAGE}), got {fuel_after:?}"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "DaisyCutterExplosion"),
+            "FuelAir impact must queue DaisyCutterExplosion audio residual"
+        );
+        assert!(
+            game_logic
+                .aurora_bombs()
+                .honesty_complete_ok_of_kind(HostAuroraBombKind::FuelAir),
+            "FuelAir kind complete honesty"
+        );
+    }
+
+
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
     /// Fail-closed: not full science tree / SpecialAbility module parity.
     #[test]
@@ -31789,5 +32556,348 @@ mod tests {
             0,
             "primary fire must not increment neutron blast counter"
         );
+    }
+
+    /// Residual: Upgrade_AmericaBunkerBusters tags Stealth Fighter + combat kills
+    /// garrisoned occupants and amplifies bunker structure damage.
+    #[test]
+    fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_bunker_buster::{
+            is_bunker_buster_carrier, UPGRADE_AMERICA_BUNKER_BUSTERS,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, STEALTH_JET_MISSILE_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut fighter_tpl = crate::game_logic::ThingTemplate::new("AmericaJetStealthFighter");
+        fighter_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(STEALTH_JET_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaJetStealthFighter".to_string(), fighter_tpl);
+
+        let airfield_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("producer");
+
+        let fighter_id = game_logic
+            .create_object(
+                "AmericaJetStealthFighter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("stealth fighter");
+        {
+            let f = game_logic.find_object(fighter_id).expect("fighter");
+            assert!(is_bunker_buster_carrier(&f.template_name));
+            assert!(
+                !f.has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS),
+                "pre-upgrade fighter must lack bunker-buster tag"
+            );
+        }
+
+        // Enemy bunker with two garrisoned infantry.
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("bunker");
+        let inf_a = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(81.0, 0.0, 0.0))
+            .expect("inf_a");
+        let inf_b = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(82.0, 0.0, 0.0))
+            .expect("inf_b");
+        {
+            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            assert!(bunker.add_occupant(inf_a));
+            assert!(bunker.add_occupant(inf_b));
+        }
+        for id in [inf_a, inf_b] {
+            let u = game_logic.find_object_mut(id).unwrap();
+            u.contained_by = Some(bunker_id);
+            u.ai_state = AIState::Garrisoned;
+            u.set_position(Vec3::new(80.0, 0.0, 0.0));
+        }
+
+        let bunker_hp_before = game_logic
+            .find_object(bunker_id)
+            .map(|b| b.health.current)
+            .unwrap_or(0.0);
+
+        // Research bunker busters.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_BUNKER_BUSTERS.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![airfield_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::BunkerBusters),
+            "bunker busters upgrade must queue residual"
+        );
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::BunkerBusters),
+            "bunker busters upgrade must complete residual"
+        );
+        {
+            let f = game_logic.find_object(fighter_id).expect("fighter");
+            assert!(
+                f.has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS),
+                "stealth fighter must receive bunker-buster upgrade tag"
+            );
+        }
+
+        // Fire residual missile at bunker.
+        {
+            let f = game_logic.find_object_mut(fighter_id).unwrap();
+            f.attack_target(bunker_id);
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+                w.damage = 100.0; // StealthJetMissile residual
+            }
+            f.set_position(Vec3::new(50.0, 0.0, 0.0));
+        }
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[fighter_id, bunker_id, inf_a, inf_b], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_bunker_buster_ok(),
+            "bunker-buster residual honesty host path"
+        );
+        assert!(
+            game_logic.honesty_bunker_buster_garrison_kill_ok(),
+            "bunker-buster residual must kill garrisoned occupants"
+        );
+        assert!(
+            game_logic.honesty_bunker_buster_damage_ok(),
+            "bunker-buster residual must amplify bunker structure damage"
+        );
+        assert!(
+            game_logic.bunker_buster_residual().occupants_killed >= 2,
+            "both garrisoned infantry must die, got {}",
+            game_logic.bunker_buster_residual().occupants_killed
+        );
+
+        // Occupants dead residual.
+        for id in [inf_a, inf_b] {
+            if let Some(u) = game_logic.find_object(id) {
+                assert!(
+                    !u.is_alive() || u.health.current <= 0.0 || u.status.destroyed,
+                    "garrisoned occupant {id:?} must die to bunker buster"
+                );
+            }
+        }
+        // Bunker emptied + more damage than base 100.
+        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        assert_eq!(
+            bunker.contained_units().len(),
+            0,
+            "bunker must be emptied of garrison"
+        );
+        let bunker_hp_after = bunker.health.current;
+        let dealt = bunker_hp_before - bunker_hp_after;
+        assert!(
+            dealt > 100.0,
+            "bunker must take amplified residual damage >100 (dealt={dealt}, before={bunker_hp_before}, after={bunker_hp_after})"
+        );
+    }
+
+    /// Fail-closed: Stealth Fighter without Upgrade_AmericaBunkerBusters does not
+    /// force-kill garrison (normal HP damage only).
+    #[test]
+    fn bunker_buster_residual_without_upgrade_does_not_bust() {
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, STEALTH_JET_MISSILE_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let mut fighter_tpl = crate::game_logic::ThingTemplate::new("TestStealthFighter");
+        fighter_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(STEALTH_JET_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("TestStealthFighter".to_string(), fighter_tpl);
+
+        let fighter_id = game_logic
+            .create_object("TestStealthFighter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("fighter");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("bunker");
+        let inf_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(51.0, 0.0, 0.0))
+            .expect("inf");
+        {
+            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            assert!(bunker.add_occupant(inf_id));
+        }
+        {
+            let u = game_logic.find_object_mut(inf_id).unwrap();
+            u.contained_by = Some(bunker_id);
+            u.ai_state = AIState::Garrisoned;
+        }
+        {
+            let f = game_logic.find_object_mut(fighter_id).unwrap();
+            f.attack_target(bunker_id);
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+
+        game_logic.set_current_frame(20);
+        game_logic.update_combat(&[fighter_id, bunker_id, inf_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            !game_logic.honesty_bunker_buster_ok(),
+            "fail-closed: no upgrade ⇒ no bunker-buster residual"
+        );
+        assert_eq!(
+            game_logic.bunker_buster_residual().blasts,
+            0,
+            "without upgrade blasts must stay 0"
+        );
+        // Infantry may still be alive inside (normal structure HP damage only).
+        let bunker = game_logic.find_object(bunker_id).expect("bunker");
+        assert!(
+            bunker.contained_units().contains(&inf_id)
+                || game_logic
+                    .find_object(inf_id)
+                    .map(|u| u.is_alive())
+                    .unwrap_or(false),
+            "without bunker-buster upgrade garrison should not be force-cleared"
+        );
+    }
+
+    /// Residual KILL_GARRISONED (MicrowaveTankBuildingClearer): kill floor(damage)
+    /// garrisoned occupants without requiring bunker-buster upgrade.
+    #[test]
+    fn kill_garrisoned_residual_microwave_clears_occupants() {
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, MICROWAVE_BUILDING_CLEARER_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let mut micro_tpl = crate::game_logic::ThingTemplate::new("TestMicrowave");
+        micro_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(MICROWAVE_BUILDING_CLEARER_WEAPON);
+        game_logic
+            .templates
+            .insert("TestMicrowave".to_string(), micro_tpl);
+
+        let micro_id = game_logic
+            .create_object("TestMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("microwave");
+        let bunker_id = game_logic
+            .create_object("TestBunker", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("bunker");
+        let inf_a = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(41.0, 0.0, 0.0))
+            .expect("inf_a");
+        let inf_b = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(42.0, 0.0, 0.0))
+            .expect("inf_b");
+        {
+            let bunker = game_logic.find_object_mut(bunker_id).unwrap();
+            assert!(bunker.add_occupant(inf_a));
+            assert!(bunker.add_occupant(inf_b));
+        }
+        for id in [inf_a, inf_b] {
+            let u = game_logic.find_object_mut(id).unwrap();
+            u.contained_by = Some(bunker_id);
+            u.ai_state = AIState::Garrisoned;
+        }
+
+        let bunker_hp_before = game_logic
+            .find_object(bunker_id)
+            .map(|b| b.health.current)
+            .unwrap_or(0.0);
+
+        {
+            let m = game_logic.find_object_mut(micro_id).unwrap();
+            m.attack_target(bunker_id);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+                w.damage = 1.0; // KILL_GARRISONED amount = 1 occupant
+            }
+        }
+
+        game_logic.set_current_frame(20);
+        game_logic.update_combat(&[micro_id, bunker_id, inf_a, inf_b], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_kill_garrisoned_ok(),
+            "KILL_GARRISONED residual honesty"
+        );
+        assert_eq!(
+            game_logic.bunker_buster_residual().occupants_killed,
+            1,
+            "damage=1 must kill exactly one garrisoned unit"
+        );
+
+        // Structure HP preserved (C++ KillGarrisoned does not apply body HP).
+        let bunker_hp_after = game_logic
+            .find_object(bunker_id)
+            .map(|b| b.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (bunker_hp_after - bunker_hp_before).abs() < 0.01,
+            "KILL_GARRISONED residual must not damage bunker HP (before={bunker_hp_before}, after={bunker_hp_after})"
+        );
+        let remaining = game_logic
+            .find_object(bunker_id)
+            .map(|b| b.contained_units().len())
+            .unwrap_or(0);
+        assert_eq!(remaining, 1, "one occupant must remain after single clear");
     }
 }
