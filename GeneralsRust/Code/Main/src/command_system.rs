@@ -189,6 +189,10 @@ pub enum CommandType {
     /// Colonel Burton residual: detonate all remote demo charges planted by
     /// the selected unit(s) (SPECIAL_REMOTE_CHARGES no-target path).
     DetonateRemoteDemoCharges,
+    /// Demo General residual: intentional SUICIDED detonation
+    /// (`Demo_Command_TertiarySuicide` FIRE_WEAPON tertiary after
+    /// `Demo_Upgrade_SuicideBomb` CommandSetUpgrade residual).
+    DemoTertiarySuicide,
     /// Black Lotus residual: steal cash from enemy supply/cash building.
     StealCashHack {
         target_id: ObjectId,

@@ -902,7 +902,7 @@ pub struct GameLogic {
     unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry,
 
     /// Host Demo SuicideBomb residual (Demo_Upgrade_SuicideBomb death blast).
-    /// Fail-closed: not full FireWeaponWhenDead exclusive / PlusFire SUICIDED matrix.
+    /// Fail-closed: not full FireWeaponWhenDead exclusive / SlowDeath fling matrix.
     demo_suicide_bomb: crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry,
 
     /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
@@ -9723,13 +9723,16 @@ impl GameLogic {
         affected
     }
 
-    /// Apply Demo SuicideBomb residual: tag eligible Demo units/structures.
+    /// Apply Demo SuicideBomb residual: tag eligible Demo units/structures +
+    /// CommandSetUpgrade residual override for TertiarySuicide.
     fn apply_demo_suicide_bomb_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_demo_suicide_bomb::{
-            is_demo_suicide_bomb_eligible_template, UPGRADE_DEMO_SUICIDE_BOMB,
+            demo_command_set_upgrade_for_template, is_demo_suicide_bomb_eligible_template,
+            UPGRADE_DEMO_SUICIDE_BOMB,
         };
 
         let mut affected = 0u32;
+        let mut command_sets = 0u32;
         for obj in self.objects.values_mut() {
             if obj.team != team || !obj.is_alive() {
                 continue;
@@ -9739,13 +9742,27 @@ impl GameLogic {
             }
             if obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) || obj.has_upgrade_tag(upgrade_name)
             {
+                // Still ensure CommandSetUpgrade residual is applied if missing.
+                if obj.command_set_override.is_none() {
+                    if let Some(cs) = demo_command_set_upgrade_for_template(&obj.template_name) {
+                        obj.command_set_override = Some(cs);
+                        command_sets = command_sets.saturating_add(1);
+                    }
+                }
                 continue;
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
+            if let Some(cs) = demo_command_set_upgrade_for_template(&obj.template_name) {
+                obj.command_set_override = Some(cs);
+                command_sets = command_sets.saturating_add(1);
+            }
             affected = affected.saturating_add(1);
         }
         self.demo_suicide_bomb.record_upgrade_complete(affected);
+        if command_sets > 0 {
+            self.demo_suicide_bomb.record_command_set_upgrade(command_sets);
+        }
         affected
     }
 
@@ -11185,12 +11202,11 @@ impl GameLogic {
                 }
             }
 
-            // Host residual: Demo SuicideBomb tag if player already researched.
-            // Fail-closed: not full CommandSetUpgrade residual matrix.
+            // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
             {
                 use crate::game_logic::host_demo_suicide_bomb::{
-                    is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
-                    UPGRADE_DEMO_SUICIDE_BOMB,
+                    demo_command_set_upgrade_for_template, is_demo_suicide_bomb_eligible_template,
+                    is_demo_suicide_bomb_upgrade, UPGRADE_DEMO_SUICIDE_BOMB,
                 };
                 if is_demo_suicide_bomb_eligible_template(template_name) {
                     let has_upgrade = self.players.values().any(|p| {
@@ -11204,6 +11220,14 @@ impl GameLogic {
                             if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
                                 obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
                                 self.demo_suicide_bomb.record_tag();
+                            }
+                            if obj.command_set_override.is_none() {
+                                if let Some(cs) =
+                                    demo_command_set_upgrade_for_template(&obj.template_name)
+                                {
+                                    obj.command_set_override = Some(cs);
+                                    self.demo_suicide_bomb.record_command_set_upgrade(1);
+                                }
                             }
                         }
                     }
@@ -11805,14 +11829,15 @@ impl GameLogic {
                 }
 
                 // Demo SuicideBomb FireWeaponWhenDead residual: Demo_DestroyedWeapon blast.
-                // Fail-closed: not full SUICIDED PlusFire exclusive module matrix.
+                // Skip intentional SUICIDED path (PlusFire already applied via TertiarySuicide).
                 // Skip terrorists (already handled by host_terrorist SUICIDED residual).
                 {
                     use crate::game_logic::host_demo_suicide_bomb::{
                         has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
                     };
                     use crate::game_logic::host_terrorist::is_terrorist_template;
-                    if is_demo_suicide_bomb_eligible_template(&obj.template_name)
+                    if !obj.demo_suicided_detonating
+                        && is_demo_suicide_bomb_eligible_template(&obj.template_name)
                         && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
                         && !is_terrorist_template(&obj.template_name)
                     {
@@ -30990,6 +31015,119 @@ impl GameLogic {
             self.mark_object_for_destruction(vid, Some(killer));
         }
         true
+    }
+
+    /// Apply residual Demo_SuicideDynamitePackPlusFire blast (SUICIDED residual).
+    pub fn apply_demo_plus_fire_death_at(
+        &mut self,
+        source_id: ObjectId,
+        source_team: Team,
+        source_pos: Vec3,
+    ) -> bool {
+        use crate::game_logic::host_demo_suicide_bomb::{
+            plan_demo_plus_fire_hits, DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE,
+        };
+
+        let _ = DEMO_SUICIDE_DYNAMITE_PLUS_FIRE; // honesty weapon name residual
+        let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, o)| {
+                (
+                    *id,
+                    o.get_position(),
+                    o.is_alive(),
+                    o.status.under_construction,
+                )
+            })
+            .collect();
+        let hits = plan_demo_plus_fire_hits(source_id, source_pos, &candidates);
+        let mut damage_dealt = 0.0f32;
+        let mut blast_hits = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+        for hit in &hits {
+            if let Some(victim) = self.objects.get_mut(&hit.target_id) {
+                if !victim.is_alive() {
+                    continue;
+                }
+                damage_dealt += hit.damage.min(victim.health.current.max(0.0));
+                blast_hits = blast_hits.saturating_add(1);
+                if victim.take_damage(hit.damage) {
+                    destroy_ids.push((hit.target_id, source_team));
+                }
+            }
+        }
+        let destroyed = destroy_ids.len() as u32;
+        self.demo_suicide_bomb
+            .record_suicided_detonation(blast_hits, damage_dealt, destroyed);
+        self.queue_audio_event(
+            AudioEventRequest::new(DEMO_SUICIDE_BOMB_AUDIO)
+                .with_object(source_id)
+                .with_position(source_pos)
+                .with_priority(190),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            source_pos,
+            self.frame,
+            Some(source_id),
+            None,
+        );
+        for (vid, killer) in destroy_ids {
+            self.mark_object_for_destruction(vid, Some(killer));
+        }
+        true
+    }
+
+    /// Issue Demo_Command_TertiarySuicide residual (intentional SUICIDED PlusFire).
+    ///
+    /// Fail-closed: requires SuicideBomb upgrade + CommandSetUpgrade residual.
+    /// Terrorists keep host_terrorist path (not TertiarySuicide).
+    pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> bool {
+        use crate::game_logic::host_demo_suicide_bomb::{
+            can_issue_demo_tertiary_suicide, command_set_enables_tertiary_suicide,
+        };
+        use crate::game_logic::host_terrorist::is_terrorist_template;
+
+        let Some(obj) = self.objects.get(&unit_id) else {
+            self.demo_suicide_bomb.record_tertiary_suicide_denied();
+            return false;
+        };
+        let is_terrorist = is_terrorist_template(&obj.template_name);
+        let can = can_issue_demo_tertiary_suicide(
+            &obj.template_name,
+            &obj.applied_upgrades,
+            obj.is_alive(),
+            is_terrorist,
+        ) && command_set_enables_tertiary_suicide(obj.command_set_override.as_deref());
+        if !can {
+            self.demo_suicide_bomb.record_tertiary_suicide_denied();
+            return false;
+        }
+
+        let source_team = obj.team;
+        let source_pos = obj.get_position();
+        // Mark before blast so destroy path skips DestroyedWeapon double-fire.
+        if let Some(obj) = self.objects.get_mut(&unit_id) {
+            obj.demo_suicided_detonating = true;
+            obj.status.destroyed = true;
+        }
+        self.demo_suicide_bomb.record_tertiary_suicide_issued();
+        let _ = self.apply_demo_plus_fire_death_at(unit_id, source_team, source_pos);
+        self.mark_object_for_destruction(unit_id, Some(source_team));
+        true
+    }
+
+    pub fn honesty_demo_suicide_bomb_command_set_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_command_set_ok()
+    }
+
+    pub fn honesty_demo_suicide_bomb_suicided_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_suicided_ok()
+    }
+
+    pub fn honesty_demo_suicide_bomb_plus_fire_ok(&self) -> bool {
+        self.demo_suicide_bomb.honesty_plus_fire_path_ok()
     }
 
     /// Cancel a queued production item by template name (first match).
@@ -58107,6 +58245,173 @@ mod tests {
                 .unwrap()
                 .has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
             "new Demo spawns must inherit SuicideBomb residual"
+        );
+        assert!(
+            game_logic
+                .find_object(rebel2)
+                .unwrap()
+                .command_set_override
+                .as_deref()
+                == Some("Demo_GLAInfantryRebelCommandSetUpgrade"),
+            "spawn must receive CommandSetUpgrade residual"
+        );
+    }
+
+    /// Residual: Demo CommandSetUpgrade enables TertiarySuicide → PlusFire (500).
+    /// Fail-closed without SuicideBomb upgrade.
+    #[test]
+    fn demo_tertiary_suicide_plus_fire_command_set_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_demo_suicide_bomb::{
+            DEMO_PLUS_FIRE_PRIMARY_DAMAGE, UPGRADE_DEMO_SUICIDE_BOMB,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(2, Team::GLA, "DemoGLA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut rebel_tpl = crate::game_logic::ThingTemplate::new("Demo_GLAInfantryRebel");
+        rebel_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        game_logic
+            .templates
+            .insert("Demo_GLAInfantryRebel".to_string(), rebel_tpl);
+
+        let mut tank_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        tank_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(5000.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), tank_tpl);
+
+        let rebel_id = game_logic
+            .create_object(
+                "Demo_GLAInfantryRebel",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("demo rebel");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-50.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Fail-closed: TertiarySuicide denied before upgrade.
+        assert!(
+            !game_logic.issue_demo_tertiary_suicide(rebel_id),
+            "TertiarySuicide must fail-closed without SuicideBomb"
+        );
+        assert!(game_logic.demo_suicide_bomb().tertiary_suicides_denied >= 1);
+
+        // Research SuicideBomb → CommandSetUpgrade residual.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_DEMO_SUICIDE_BOMB.to_string(),
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::SuicideBomb)
+                || game_logic
+                    .get_player(2)
+                    .map(|p| p.has_unlocked_upgrade(UPGRADE_DEMO_SUICIDE_BOMB))
+                    .unwrap_or(false),
+            "SuicideBomb upgrade must complete"
+        );
+        {
+            let rebel = game_logic.find_object(rebel_id).unwrap();
+            assert!(
+                rebel.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB),
+                "rebel must be tagged"
+            );
+            assert!(
+                rebel
+                    .command_set_override
+                    .as_ref()
+                    .map(|s| s.contains("CommandSetUpgrade"))
+                    .unwrap_or(false),
+                "CommandSetUpgrade residual must apply: {:?}",
+                rebel.command_set_override
+            );
+        }
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_command_set_ok(),
+            "CommandSetUpgrade honesty"
+        );
+
+        // Issue TertiarySuicide via command residual.
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.health.current = 5000.0;
+            e.health.maximum = 5000.0;
+            e.thing.template.armor = 0.0;
+        }
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DemoTertiarySuicide,
+            player_id: 2,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![rebel_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.process_destroy_list();
+
+        let rebel_alive = game_logic
+            .find_object(rebel_id)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(!rebel_alive, "TertiarySuicide must consume the unit");
+
+        let hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let dmg = hp_before - hp_after;
+        assert!(
+            dmg + 0.1 >= DEMO_PLUS_FIRE_PRIMARY_DAMAGE.min(hp_before),
+            "PlusFire residual must deal ~500 primary (got {dmg}, before={hp_before})"
+        );
+        // DestroyedWeapon (50) must NOT also fire on top of PlusFire.
+        assert!(
+            dmg < DEMO_PLUS_FIRE_PRIMARY_DAMAGE + 60.0,
+            "must not double-apply DestroyedWeapon after PlusFire (got {dmg})"
+        );
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_suicided_ok(),
+            "suicided PlusFire honesty"
+        );
+        assert!(
+            game_logic.honesty_demo_suicide_bomb_plus_fire_ok(),
+            "PlusFire + CommandSetUpgrade host path honesty"
+        );
+        assert_eq!(
+            game_logic.demo_suicide_bomb().death_detonations, 0,
+            "normal DestroyedWeapon path must not fire on SUICIDED residual"
+        );
+        assert!(
+            game_logic.demo_suicide_bomb().suicided_detonations >= 1,
+            "PlusFire detonation counter"
         );
     }
 }
