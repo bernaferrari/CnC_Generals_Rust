@@ -12,10 +12,11 @@
 //! - Stream separation honesty (logic vs client vs audio).
 //!
 //! Fail-closed:
-//! - Not every GameLogic consumer (AI/weapon/locomotor) rewired onto a single
-//!   shared Main-crate stream (GameLogic crate still owns a parallel helper seed).
-//! - Not full mid-sim multi-strike once-at-queue storage of every OCL draw
-//!   (pure index-seeded residual keeps plan_due re-query stable).
+//! - GameLogic crate helpers RNG draws now share the Common ADC stream
+//!   (wave 29 residual: helpers bridge to `game_engine::common::random_value`).
+//! - Multi-strike once-at-queue OCL residual is closed in `special_power_strikes`
+//!   (stores pure ADC draws on the strike at queue); live mid-sim global stream
+//!   mutation of those draws remains fail-closed.
 //! - Network residual deferred.
 
 use game_engine::common::random_value::{
