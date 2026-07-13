@@ -560,10 +560,11 @@ pub struct GameLogic {
     combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
-    /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb). Queues on DoSpecialPower
-    /// and completes with area damage — NuclearMissile also spawns residual radiation;
-    /// AnthraxBomb also spawns residual toxin; SpectreGunship spawns residual orbit damage
-    /// ticks; CarpetBomb applies delayed multi-point line damage.
+    /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb / ArtilleryBarrage).
+    /// Queues on DoSpecialPower and completes with area damage — NuclearMissile also
+    /// spawns residual radiation; AnthraxBomb also spawns residual toxin; SpectreGunship
+    /// spawns residual orbit damage ticks; CarpetBomb applies delayed multi-point line
+    /// damage; ArtilleryBarrage applies delayed multi-shell scatter damage.
     /// Fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
@@ -12758,6 +12759,7 @@ impl GameLogic {
     /// AnthraxBomb residual also ticks toxin fields after impact.
     /// SpectreGunship residual also ticks orbit fields after orbit insertion.
     /// CarpetBomb residual applies multi-point line damage after approach delay.
+    /// ArtilleryBarrage residual applies multi-shell scatter damage after delay.
     pub fn update_special_power_strikes(&mut self) {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
@@ -24215,6 +24217,210 @@ mod tests {
         assert!(
             completed[0].objects_hit >= 2,
             "multi-strike must hit both line enemies, hit={}",
+            completed[0].objects_hit
+        );
+        assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
+    /// Residual: ArtilleryBarrage DoSpecialPower queues a delayed multi-shell
+    /// scatter strike; damage applies only after DelayDeliveryMax residual.
+    /// Fail-closed: not full ChinaArtilleryCannon OCL DeliverPayload /
+    /// science-tier FormationSize / random WeaponErrorRadius draw.
+    #[test]
+    fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{
+            HostStrikePhase, HostSuperweaponKind, ARTILLERY_BARRAGE_DAMAGE,
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, ARTILLERY_BARRAGE_RING_RADIUS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let target = Vec3::new(100.0, 0.0, 0.0);
+        // First ring shell is at angle 0 → +X from target.
+        let outer_shell = Vec3::new(100.0 + ARTILLERY_BARRAGE_RING_RADIUS, 0.0, 0.0);
+
+        // player_id 0 maps to Team::USA for ownership validation residual.
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_center_id = game_logic
+            .create_object("TestTank", Team::GLA, target)
+            .expect("enemy center");
+        let enemy_outer_id = game_logic
+            .create_object("TestTank", Team::GLA, outer_shell)
+            .expect("enemy outer shell");
+        let far_enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
+            .expect("far enemy");
+        let friend_id = game_logic
+            .create_object("TestTank", Team::USA, target)
+            .expect("friend");
+
+        for id in [enemy_center_id, enemy_outer_id, far_enemy_id, friend_id] {
+            let obj = game_logic.find_object_mut(id).expect("obj");
+            obj.health.current = 500.0;
+            obj.health.maximum = 500.0;
+            obj.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::Artillery,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 4,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::ArtilleryBarrage),
+            "ArtilleryBarrage must queue a pending host strike"
+        );
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponArtilleryBarrage"),
+            "activation must queue SuperweaponArtilleryBarrage audio"
+        );
+
+        // Before impact delay: no damage.
+        let health_before_center = game_logic
+            .find_object(enemy_center_id)
+            .unwrap()
+            .health
+            .current;
+        let health_before_outer = game_logic
+            .find_object(enemy_outer_id)
+            .unwrap()
+            .health
+            .current;
+        game_logic.frame = ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 1;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic
+                .find_object(enemy_center_id)
+                .unwrap()
+                .health
+                .current,
+            health_before_center,
+            "no damage before artillery impact frame"
+        );
+        assert_eq!(
+            game_logic
+                .find_object(enemy_outer_id)
+                .unwrap()
+                .health
+                .current,
+            health_before_outer,
+            "no outer-shell damage before impact frame"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
+
+        // At impact: multi-shell scatter damage + complete honesty.
+        game_logic.frame = ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage),
+            "ArtilleryBarrage must complete on impact frame"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::ArtilleryBarrage),
+            "host path honesty requires completed artillery barrage strike"
+        );
+
+        let center_hp = game_logic
+            .find_object(enemy_center_id)
+            .map(|o| o.health.current);
+        let outer_hp = game_logic
+            .find_object(enemy_outer_id)
+            .map(|o| o.health.current);
+        // Epicenter residual damage = ARTILLERY_BARRAGE_DAMAGE (105) per shell hit.
+        assert!(
+            center_hp.is_none()
+                || center_hp.map(|h| h < health_before_center - ARTILLERY_BARRAGE_DAMAGE + 1.0)
+                    == Some(true)
+                || center_hp == Some(0.0)
+                || game_logic
+                    .find_object(enemy_center_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy at center shell must take artillery residual damage, got {center_hp:?}"
+        );
+        assert!(
+            outer_hp.is_none()
+                || outer_hp.map(|h| h < health_before_outer - ARTILLERY_BARRAGE_DAMAGE + 1.0)
+                    == Some(true)
+                || outer_hp == Some(0.0)
+                || game_logic
+                    .find_object(enemy_outer_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy on outer shell epicenter must take multi-shell residual damage, got {outer_hp:?}"
+        );
+        assert!(
+            game_logic
+                .find_object(friend_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "friendly units must not take ArtilleryBarrage residual damage"
+        );
+        assert!(
+            game_logic
+                .find_object(far_enemy_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside shell scatter must be untouched"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "FX_ArtilleryBarrage"),
+            "impact must queue FX_ArtilleryBarrage audio"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "impact must register DeathExplosion particle residual"
+        );
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::ArtilleryBarrage);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostStrikePhase::Completed);
+        assert!(
+            completed[0].objects_hit >= 2,
+            "multi-shell must hit both scatter enemies, hit={}",
             completed[0].objects_hit
         );
         assert!(completed[0].total_damage_applied > 0.0);

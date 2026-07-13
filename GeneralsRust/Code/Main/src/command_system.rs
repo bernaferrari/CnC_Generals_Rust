@@ -245,6 +245,11 @@ pub enum DropTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SpecialPowerType {
     Airstrike,
+    /// China Artillery Barrage residual (SPECIAL_ARTILLERY_BARRAGE /
+    /// SuperweaponArtilleryBarrage family). Delayed multi-shell scatter area
+    /// damage (`ArtilleryBarrageDamageWeapon` residual within WeaponErrorRadius).
+    /// Fail-closed: not full ChinaArtilleryCannon OCL DeliverPayload /
+    /// random scatter draw / science-tier FormationSize 12/24/36 path.
     Artillery,
     /// Carpet Bomb residual (SPECIAL_CARPET_BOMB / SuperweaponCarpetBomb family).
     /// Delayed bomber approach then multi-point line/area explosive damage
