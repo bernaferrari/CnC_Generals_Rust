@@ -23,12 +23,23 @@
 //!   (PrimaryDamage **200** / r**25**, range **400**, min **100**,
 //!   Delay **7000**ms → 210 frames). C++ `enableTurret(true)` residual path.
 //!
+//! - **StealthDetectorUpdate residual** (Strategy Center ModuleTag_16):
+//!   DetectionRange **500**, DetectionRate **500**ms → **15** frames,
+//!   InitiallyDisabled **Yes**. Enabled only while SearchAndDestroy is active
+//!   (`setSDEnabled(true)` residual). VisionObjectName createVisionObject is
+//!   disabled in retail C++ (ShroudRevealToAllRange path) — fail-closed.
+//!
+//! - **Pack/unpack door model-condition residual**: retail AnimationTime
+//!   **7000**ms → **210** frames for all three plans; TransitionIdleTime **0**.
+//!   Host tracks door residual OPENING → WAITING_TO_CLOSE → CLOSING per plan
+//!   (DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy).
+//!   Fail-closed: army setBattlePlan buffs still apply immediately (not full
+//!   delayed ACTIVE-after-unpack ordering / turret recenter before pack).
+//!
 //! Fail-closed honesty:
-//! - Not full BattlePlanUpdate pack/unpack animation / door model-condition matrix
-//! - Not full pack→NONE→unpack transition ordering (host paralyzes on activate)
+//! - Not full pack→NONE→unpack delayed setBattlePlan ordering (buffs immediate)
 //! - Not full turret recenter natural-position / pitch scan matrix
-//! - Not full StealthDetectorUpdate enable/disable module stack beyond residual flag
-//! - Not full vision object (VisionObjectName) spawn residual
+//! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
 
@@ -85,6 +96,198 @@ pub const STRATEGY_CENTER_GUN_DELAY_FRAMES: u32 = 210;
 pub const STRATEGY_CENTER_GUN_PROJECTILE_SPEED: f32 = 150.0;
 /// Residual fire audio (retail FireSound).
 pub const STRATEGY_CENTER_GUN_FIRE_AUDIO: &str = "StrategyCenter_ArtilleryRound";
+
+// --- StealthDetectorUpdate residual (Strategy Center ModuleTag_16) ---
+
+/// Retail StealthDetectorUpdate DetectionRange for Strategy Center.
+pub const STRATEGY_CENTER_STEALTH_DETECTION_RANGE: f32 = 500.0;
+
+/// Retail StealthDetectorUpdate DetectionRate (ms).
+pub const STRATEGY_CENTER_STEALTH_DETECTION_RATE_MS: u32 = 500;
+
+/// DetectionRate → frames at 30 FPS (500 / (1000/30) = 15).
+pub const STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES: u32 = 15;
+
+/// Retail StrategyCenterSearchAndDestroyDetectsStealth.
+pub const STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH: bool = true;
+
+// --- Pack/unpack door animation residual (BattlePlanUpdate) ---
+
+/// Retail BombardmentPlanAnimationTime / HoldTheLine / SearchAndDestroy (ms).
+pub const BATTLE_PLAN_ANIMATION_TIME_MS: u32 = 7000;
+
+/// AnimationTime → frames at 30 FPS (7000 / (1000/30) = 210).
+pub const BATTLE_PLAN_ANIMATION_FRAMES: u32 = 210;
+
+/// Retail TransitionIdleTime (ms → frames; retail = 0).
+pub const BATTLE_PLAN_TRANSITION_IDLE_FRAMES: u32 = 0;
+
+/// Residual pack/unpack audio event names (retail *PlanPack/UnpackSoundName).
+pub const BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO: &str = "StrategyCenter_BombardmentPlanUnpackSound";
+pub const BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO: &str = "StrategyCenter_BombardmentPlanPackSound";
+pub const BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO: &str = "StrategyCenter_HoldTheLinePlanUnpack";
+pub const BATTLE_PLAN_HOLD_THE_LINE_PACK_AUDIO: &str = "StrategyCenter_HoldTheLinePlanPack";
+pub const BATTLE_PLAN_SEARCH_AND_DESTROY_UNPACK_AUDIO: &str =
+    "StrategyCenter_SearchAndDestroyPlanUnpack";
+pub const BATTLE_PLAN_SEARCH_AND_DESTROY_PACK_AUDIO: &str =
+    "StrategyCenter_SearchAndDestroyPlanPack";
+pub const BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO: &str =
+    "StrategyCenter_SearchAndDestroyPlanIdleLoop";
+
+/// C++ TransitionStatus residual for BattlePlanUpdate door matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum HostBattlePlanTransition {
+    /// TRANSITIONSTATUS_IDLE — no plan / between pack and unpack.
+    #[default]
+    Idle = 0,
+    /// TRANSITIONSTATUS_UNPACKING — door OPENING residual (AnimationTime frames).
+    Unpacking = 1,
+    /// TRANSITIONSTATUS_ACTIVE — door WAITING_TO_CLOSE residual.
+    Active = 2,
+    /// TRANSITIONSTATUS_PACKING — door CLOSING residual (AnimationTime frames).
+    Packing = 3,
+}
+
+/// C++ MODELCONDITION_DOOR_* residual for Strategy Center battle-plan doors.
+///
+/// DOOR_1 = Bombardment, DOOR_2 = HoldTheLine, DOOR_3 = SearchAndDestroy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum HostBattlePlanDoor {
+    #[default]
+    None = 0,
+    Door1Opening,
+    Door1WaitingToClose,
+    Door1Closing,
+    Door2Opening,
+    Door2WaitingToClose,
+    Door2Closing,
+    Door3Opening,
+    Door3WaitingToClose,
+    Door3Closing,
+}
+
+/// Absolute frame when pack/unpack animation residual completes.
+pub fn battle_plan_animation_ready_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES.max(1))
+}
+
+/// Convert AnimationTime ms → logic frames (30 FPS residual).
+pub fn battle_plan_animation_frames_from_ms(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / BATTLE_PLAN_LOGIC_FPS)).round() as u32
+}
+
+/// Whether residual StealthDetectorUpdate should be enabled for a plan.
+pub fn strategy_center_stealth_detector_enabled_for_plan(plan: HostBattlePlan) -> bool {
+    STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH
+        && matches!(plan, HostBattlePlan::SearchAndDestroy)
+}
+
+/// Host residual StealthDetector enable: DetectionRange when S&D enables module.
+pub fn strategy_center_stealth_detection_range_when_enabled() -> f32 {
+    STRATEGY_CENTER_STEALTH_DETECTION_RANGE
+}
+
+/// Per-Strategy-Center pack/unpack door residual bookkeeping.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostBattlePlanDoorState {
+    pub center_id: ObjectId,
+    pub player_id: u32,
+    pub status: HostBattlePlanTransition,
+    /// Plan whose door residual is currently animating / active.
+    pub door_plan: Option<HostBattlePlan>,
+    pub door: HostBattlePlanDoor,
+    /// Frame when current OPENING/CLOSING residual completes.
+    pub next_ready_frame: u32,
+    /// Desired plan waiting after pack residual (plan switch residual).
+    pub desired_plan: Option<HostBattlePlan>,
+}
+
+impl HostBattlePlanDoorState {
+    pub fn new(center_id: ObjectId, player_id: u32) -> Self {
+        Self {
+            center_id,
+            player_id,
+            status: HostBattlePlanTransition::Idle,
+            door_plan: None,
+            door: HostBattlePlanDoor::None,
+            next_ready_frame: 0,
+            desired_plan: None,
+        }
+    }
+
+    /// Begin UNPACKING residual for `plan` at `frame` (door OPENING).
+    pub fn begin_unpack(&mut self, plan: HostBattlePlan, frame: u32) {
+        self.status = HostBattlePlanTransition::Unpacking;
+        self.door_plan = Some(plan);
+        self.door = plan.door_opening();
+        self.next_ready_frame = battle_plan_animation_ready_frame(frame);
+        self.desired_plan = Some(plan);
+    }
+
+    /// Begin PACKING residual for current door plan at `frame` (door CLOSING).
+    pub fn begin_pack(&mut self, frame: u32, desired: Option<HostBattlePlan>) {
+        if let Some(plan) = self.door_plan {
+            self.status = HostBattlePlanTransition::Packing;
+            self.door = plan.door_closing();
+            self.next_ready_frame = battle_plan_animation_ready_frame(frame);
+            self.desired_plan = desired;
+        } else {
+            // No prior door residual — go idle then unpack desired.
+            self.status = HostBattlePlanTransition::Idle;
+            self.door = HostBattlePlanDoor::None;
+            self.next_ready_frame = frame.saturating_add(BATTLE_PLAN_TRANSITION_IDLE_FRAMES);
+            self.desired_plan = desired;
+        }
+    }
+
+    /// Advance door residual when `frame >= next_ready_frame`.
+    ///
+    /// Returns optional pack/unpack audio event name when a transition fires.
+    pub fn tick(&mut self, frame: u32) -> Option<&'static str> {
+        if frame < self.next_ready_frame {
+            return None;
+        }
+        match self.status {
+            HostBattlePlanTransition::Unpacking => {
+                // OPENING complete → ACTIVE / WAITING_TO_CLOSE.
+                if let Some(plan) = self.door_plan {
+                    self.status = HostBattlePlanTransition::Active;
+                    self.door = plan.door_waiting();
+                    self.next_ready_frame = frame; // stay active until pack
+                    return None;
+                }
+                None
+            }
+            HostBattlePlanTransition::Packing => {
+                // CLOSING complete → IDLE (TransitionIdleTime = 0).
+                self.status = HostBattlePlanTransition::Idle;
+                self.door = HostBattlePlanDoor::None;
+                self.door_plan = None;
+                self.next_ready_frame =
+                    frame.saturating_add(BATTLE_PLAN_TRANSITION_IDLE_FRAMES);
+                // Immediately start unpack of desired if present (idle time 0).
+                if let Some(desired) = self.desired_plan {
+                    let audio = desired.unpack_audio();
+                    self.begin_unpack(desired, frame);
+                    return Some(audio);
+                }
+                None
+            }
+            HostBattlePlanTransition::Idle => {
+                if let Some(desired) = self.desired_plan {
+                    let audio = desired.unpack_audio();
+                    self.begin_unpack(desired, frame);
+                    return Some(audio);
+                }
+                None
+            }
+            HostBattlePlanTransition::Active => None,
+        }
+    }
+}
 
 /// Reload time seconds residual for delay frames @ 30 FPS.
 pub fn strategy_center_gun_reload_secs() -> f32 {
@@ -217,6 +420,51 @@ impl HostBattlePlan {
             HostBattlePlan::SearchAndDestroy => BATTLE_PLAN_SEARCH_AND_DESTROY_AUDIO,
         }
     }
+
+    /// Door OPENING residual for this plan.
+    pub fn door_opening(self) -> HostBattlePlanDoor {
+        match self {
+            HostBattlePlan::Bombardment => HostBattlePlanDoor::Door1Opening,
+            HostBattlePlan::HoldTheLine => HostBattlePlanDoor::Door2Opening,
+            HostBattlePlan::SearchAndDestroy => HostBattlePlanDoor::Door3Opening,
+        }
+    }
+
+    /// Door WAITING_TO_CLOSE residual for this plan (ACTIVE).
+    pub fn door_waiting(self) -> HostBattlePlanDoor {
+        match self {
+            HostBattlePlan::Bombardment => HostBattlePlanDoor::Door1WaitingToClose,
+            HostBattlePlan::HoldTheLine => HostBattlePlanDoor::Door2WaitingToClose,
+            HostBattlePlan::SearchAndDestroy => HostBattlePlanDoor::Door3WaitingToClose,
+        }
+    }
+
+    /// Door CLOSING residual for this plan (PACKING).
+    pub fn door_closing(self) -> HostBattlePlanDoor {
+        match self {
+            HostBattlePlan::Bombardment => HostBattlePlanDoor::Door1Closing,
+            HostBattlePlan::HoldTheLine => HostBattlePlanDoor::Door2Closing,
+            HostBattlePlan::SearchAndDestroy => HostBattlePlanDoor::Door3Closing,
+        }
+    }
+
+    /// Residual unpack audio for this plan.
+    pub fn unpack_audio(self) -> &'static str {
+        match self {
+            HostBattlePlan::Bombardment => BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO,
+            HostBattlePlan::HoldTheLine => BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO,
+            HostBattlePlan::SearchAndDestroy => BATTLE_PLAN_SEARCH_AND_DESTROY_UNPACK_AUDIO,
+        }
+    }
+
+    /// Residual pack audio for this plan.
+    pub fn pack_audio(self) -> &'static str {
+        match self {
+            HostBattlePlan::Bombardment => BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO,
+            HostBattlePlan::HoldTheLine => BATTLE_PLAN_HOLD_THE_LINE_PACK_AUDIO,
+            HostBattlePlan::SearchAndDestroy => BATTLE_PLAN_SEARCH_AND_DESTROY_PACK_AUDIO,
+        }
+    }
 }
 
 /// Whether template is a residual USA Strategy Center building.
@@ -314,6 +562,9 @@ pub struct HostBattlePlanRegistry {
     active_by_player: Vec<(u32, HostBattlePlan)>,
     /// Recent selections (bookkeeping; unit flags live on objects).
     selections: Vec<HostBattlePlanSelection>,
+    /// Per-center pack/unpack door residual states.
+    #[serde(default)]
+    door_states: Vec<HostBattlePlanDoorState>,
     /// Total plan selections (honesty).
     pub selection_count: u32,
     /// Total army member residual grants.
@@ -329,6 +580,18 @@ pub struct HostBattlePlanRegistry {
     /// Units hit by StrategyCenterGun residual splash/intended.
     #[serde(default)]
     pub turret_units_hit: u32,
+    /// StealthDetectorUpdate residual enables (SearchAndDestroy setSDEnabled).
+    #[serde(default)]
+    pub stealth_detector_enable_count: u32,
+    /// StealthDetectorUpdate residual disables.
+    #[serde(default)]
+    pub stealth_detector_disable_count: u32,
+    /// Pack/unpack door residual transitions started (OPENING or CLOSING).
+    #[serde(default)]
+    pub door_transition_count: u32,
+    /// Door residual reached WAITING_TO_CLOSE (unpack complete residual).
+    #[serde(default)]
+    pub door_active_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -338,6 +601,11 @@ impl HostBattlePlanRegistry {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// Drop door residual for a destroyed Strategy Center.
+    pub fn clear_door_for_center(&mut self, center_id: ObjectId) {
+        self.door_states.retain(|s| s.center_id != center_id);
     }
 
     pub fn selection_count(&self) -> u32 {
@@ -364,13 +632,116 @@ impl HostBattlePlanRegistry {
         self.turret_units_hit
     }
 
+    pub fn stealth_detector_enable_count(&self) -> u32 {
+        self.stealth_detector_enable_count
+    }
+
+    pub fn stealth_detector_disable_count(&self) -> u32 {
+        self.stealth_detector_disable_count
+    }
+
+    pub fn door_transition_count(&self) -> u32 {
+        self.door_transition_count
+    }
+
+    pub fn door_active_count(&self) -> u32 {
+        self.door_active_count
+    }
+
     pub fn record_turret_fire(&mut self, units_hit: u32) {
         self.turret_fire_count = self.turret_fire_count.saturating_add(1);
         self.turret_units_hit = self.turret_units_hit.saturating_add(units_hit);
     }
 
+    pub fn record_stealth_detector_enable(&mut self) {
+        self.stealth_detector_enable_count = self.stealth_detector_enable_count.saturating_add(1);
+    }
+
+    pub fn record_stealth_detector_disable(&mut self) {
+        self.stealth_detector_disable_count =
+            self.stealth_detector_disable_count.saturating_add(1);
+    }
+
     pub fn selections(&self) -> &[HostBattlePlanSelection] {
         &self.selections
+    }
+
+    pub fn door_states(&self) -> &[HostBattlePlanDoorState] {
+        &self.door_states
+    }
+
+    /// Door residual state for a Strategy Center object id.
+    pub fn door_state_for_center(&self, center_id: ObjectId) -> Option<&HostBattlePlanDoorState> {
+        self.door_states.iter().find(|s| s.center_id == center_id)
+    }
+
+    /// Start pack/unpack door residual for a plan selection on a center.
+    ///
+    /// First select → UNPACKING (OPENING). Plan switch from Active → PACKING then
+    /// UNPACKING of desired (TransitionIdleTime 0 residual).
+    pub fn begin_door_residual(
+        &mut self,
+        center_id: ObjectId,
+        player_id: u32,
+        plan: HostBattlePlan,
+        frame: u32,
+    ) -> Option<&'static str> {
+        let existing = self
+            .door_states
+            .iter()
+            .position(|s| s.center_id == center_id);
+        let audio;
+        match existing {
+            Some(idx) => {
+                let state = &mut self.door_states[idx];
+                if state.status == HostBattlePlanTransition::Active
+                    && state.door_plan.is_some()
+                    && state.door_plan != Some(plan)
+                {
+                    // Pack current door residual, then unpack desired after 210 frames.
+                    let pack_audio = state.door_plan.map(|p| p.pack_audio());
+                    state.begin_pack(frame, Some(plan));
+                    self.door_transition_count = self.door_transition_count.saturating_add(1);
+                    audio = pack_audio;
+                } else if state.status == HostBattlePlanTransition::Active
+                    && state.door_plan == Some(plan)
+                {
+                    // Same plan re-select residual: no door change.
+                    audio = None;
+                } else {
+                    // Idle / mid-transition fail-closed: begin unpack of plan.
+                    state.begin_unpack(plan, frame);
+                    self.door_transition_count = self.door_transition_count.saturating_add(1);
+                    audio = Some(plan.unpack_audio());
+                }
+            }
+            None => {
+                let mut state = HostBattlePlanDoorState::new(center_id, player_id);
+                state.begin_unpack(plan, frame);
+                self.door_states.push(state);
+                self.door_transition_count = self.door_transition_count.saturating_add(1);
+                audio = Some(plan.unpack_audio());
+            }
+        }
+        audio
+    }
+
+    /// Tick all door residuals; returns unpack audio events to play.
+    pub fn tick_door_residuals(&mut self, frame: u32) -> Vec<(ObjectId, &'static str)> {
+        let mut events = Vec::new();
+        for state in &mut self.door_states {
+            let before = state.status;
+            if let Some(audio) = state.tick(frame) {
+                events.push((state.center_id, audio));
+                self.door_transition_count = self.door_transition_count.saturating_add(1);
+            }
+            if before == HostBattlePlanTransition::Unpacking
+                && state.status == HostBattlePlanTransition::Active
+            {
+                self.door_active_count = self.door_active_count.saturating_add(1);
+            }
+        }
+        events
     }
 
     pub fn active_plan_for_player(&self, player_id: u32) -> Option<HostBattlePlan> {
@@ -439,6 +810,21 @@ impl HostBattlePlanRegistry {
         self.turret_fire_count > 0
     }
 
+    /// Residual honesty: StealthDetectorUpdate enabled at least once (S&D residual).
+    pub fn honesty_stealth_detector_ok(&self) -> bool {
+        self.stealth_detector_enable_count > 0
+    }
+
+    /// Residual honesty: pack/unpack door residual started at least once.
+    pub fn honesty_door_residual_ok(&self) -> bool {
+        self.door_transition_count > 0
+    }
+
+    /// Residual honesty: door residual reached ACTIVE / WAITING_TO_CLOSE.
+    pub fn honesty_door_active_ok(&self) -> bool {
+        self.door_active_count > 0
+    }
+
     /// Combined host path: selected and applied at least one army buff.
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_select_ok() && self.honesty_buff_ok()
@@ -479,6 +865,97 @@ mod tests {
         assert!(!BATTLE_PLAN_BOMBARDMENT_AUDIO.is_empty());
         assert!(!BATTLE_PLAN_HOLD_THE_LINE_AUDIO.is_empty());
         assert!(!BATTLE_PLAN_SEARCH_AND_DESTROY_AUDIO.is_empty());
+        // StealthDetectorUpdate residual (Strategy Center ModuleTag_16).
+        assert!((STRATEGY_CENTER_STEALTH_DETECTION_RANGE - 500.0).abs() < 0.001);
+        assert_eq!(STRATEGY_CENTER_STEALTH_DETECTION_RATE_MS, 500);
+        assert_eq!(STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES, 15);
+        assert!(STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH);
+        assert!(strategy_center_stealth_detector_enabled_for_plan(
+            HostBattlePlan::SearchAndDestroy
+        ));
+        assert!(!strategy_center_stealth_detector_enabled_for_plan(
+            HostBattlePlan::Bombardment
+        ));
+        assert!(!strategy_center_stealth_detector_enabled_for_plan(
+            HostBattlePlan::HoldTheLine
+        ));
+        assert!(
+            (strategy_center_stealth_detection_range_when_enabled() - 500.0).abs() < 0.001
+        );
+        // Pack/unpack door animation residual (AnimationTime 7000ms → 210 frames).
+        assert_eq!(BATTLE_PLAN_ANIMATION_TIME_MS, 7000);
+        assert_eq!(BATTLE_PLAN_ANIMATION_FRAMES, 210);
+        assert_eq!(BATTLE_PLAN_TRANSITION_IDLE_FRAMES, 0);
+        assert_eq!(battle_plan_animation_frames_from_ms(7000), 210);
+        assert_eq!(battle_plan_animation_ready_frame(10), 220);
+        assert_eq!(
+            HostBattlePlan::Bombardment.door_opening(),
+            HostBattlePlanDoor::Door1Opening
+        );
+        assert_eq!(
+            HostBattlePlan::HoldTheLine.door_waiting(),
+            HostBattlePlanDoor::Door2WaitingToClose
+        );
+        assert_eq!(
+            HostBattlePlan::SearchAndDestroy.door_closing(),
+            HostBattlePlanDoor::Door3Closing
+        );
+    }
+
+    #[test]
+    fn door_residual_unpack_then_active_matrix() {
+        let mut state = HostBattlePlanDoorState::new(ObjectId(1), 0);
+        state.begin_unpack(HostBattlePlan::Bombardment, 0);
+        assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+        assert_eq!(state.door, HostBattlePlanDoor::Door1Opening);
+        assert_eq!(state.next_ready_frame, BATTLE_PLAN_ANIMATION_FRAMES);
+        // Mid-animation: no transition.
+        assert!(state.tick(100).is_none());
+        assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+        // Animation complete → ACTIVE / WAITING_TO_CLOSE.
+        assert!(state.tick(BATTLE_PLAN_ANIMATION_FRAMES).is_none());
+        assert_eq!(state.status, HostBattlePlanTransition::Active);
+        assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
+    }
+
+    #[test]
+    fn door_residual_pack_then_unpack_switch_matrix() {
+        let mut reg = HostBattlePlanRegistry::new();
+        let cid = ObjectId(7);
+        let audio = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0);
+        assert_eq!(audio, Some(BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO));
+        assert!(reg.honesty_door_residual_ok());
+        // Complete unpack residual.
+        let _ = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
+        assert!(reg.honesty_door_active_ok());
+        let state = reg.door_state_for_center(cid).unwrap();
+        assert_eq!(state.status, HostBattlePlanTransition::Active);
+        assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
+        // Switch to HoldTheLine → PACKING door1 CLOSING.
+        let pack_audio =
+            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300);
+        assert_eq!(pack_audio, Some(BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO));
+        let state = reg.door_state_for_center(cid).unwrap();
+        assert_eq!(state.status, HostBattlePlanTransition::Packing);
+        assert_eq!(state.door, HostBattlePlanDoor::Door1Closing);
+        // Pack complete → idle → unpack HoldTheLine (TransitionIdleTime 0).
+        let events = reg.tick_door_residuals(300 + BATTLE_PLAN_ANIMATION_FRAMES);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].1, BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO);
+        let state = reg.door_state_for_center(cid).unwrap();
+        assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+        assert_eq!(state.door, HostBattlePlanDoor::Door2Opening);
+    }
+
+    #[test]
+    fn stealth_detector_honesty_counters() {
+        let mut reg = HostBattlePlanRegistry::new();
+        assert!(!reg.honesty_stealth_detector_ok());
+        reg.record_stealth_detector_enable();
+        assert!(reg.honesty_stealth_detector_ok());
+        assert_eq!(reg.stealth_detector_enable_count(), 1);
+        reg.record_stealth_detector_disable();
+        assert_eq!(reg.stealth_detector_disable_count(), 1);
     }
 
     #[test]
