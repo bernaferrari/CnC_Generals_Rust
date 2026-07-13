@@ -3,6 +3,90 @@ pub mod buildings;
 pub mod combat;
 pub mod combat_particles;
 pub mod game_logic;
+pub mod host_ambush;
+pub mod host_angry_mob;
+pub mod host_aurora_bomb;
+pub mod host_avenger;
+pub mod host_base_defense;
+pub mod host_battle_bus;
+pub mod host_battlemaster;
+pub mod host_black_market;
+pub mod host_bomb_truck_detonate;
+pub mod host_bomb_truck_disguise;
+pub mod host_booby_trap;
+pub mod host_bunker_buster;
+pub mod host_car_bomb;
+pub mod host_cash_bounty;
+pub mod host_cia_intelligence;
+pub mod host_cleanup_area;
+pub mod host_colonel_burton;
+pub mod host_comanche_rocket_pods;
+pub mod host_combat_chinook;
+pub mod host_combat_cycle;
+pub mod host_dragon_tank;
+pub mod host_ecm_jam;
+pub mod host_emergency_repair;
+pub mod host_emp_pulse;
+pub mod host_firewall;
+pub mod host_frenzy;
+pub mod host_gattling_tank;
+pub mod host_gla_rebel;
+pub mod host_gla_worker;
+pub mod host_gps_scrambler;
+pub mod host_hacker_disable;
+pub mod host_hacker_income;
+pub mod host_heal;
+pub mod host_helix_minigun;
+pub mod host_helix_napalm;
+pub mod host_hero_abilities;
+pub mod host_humvee;
+pub mod host_inferno_cannon;
+pub mod host_jarmen_kell;
+pub mod host_leaflet_drop;
+pub mod host_listening_outpost;
+pub mod host_marauder;
+pub mod host_microwave;
+pub mod host_mines;
+pub mod host_minigunner;
+pub mod host_missile_defender;
+pub mod host_neutron_shell;
+pub mod host_nuclear_tanks;
+pub mod host_nuke_cannon;
+pub mod host_oil_derrick;
+pub mod host_overlord_addons;
+pub mod host_overlord_gun;
+pub mod host_paradrop;
+pub mod host_pathfinder;
+pub mod host_point_defense;
+pub mod host_propaganda;
+pub mod host_quad_cannon;
+pub mod host_radar;
+pub mod host_radar_scan;
+pub mod host_ranger;
+pub mod host_raptor;
+pub mod host_red_guard;
+pub mod host_repair;
+pub mod host_rocket_buggy;
+pub mod host_rpg_trooper;
+pub mod host_scorpion;
+pub mod host_scud_launcher;
+pub mod host_sentry_drone;
+pub mod host_slave_drones;
+pub mod host_sneak_attack;
+pub mod host_spy_satellite;
+pub mod host_stealth_fighter;
+pub mod host_supply_drop_zone;
+pub mod host_tank_hunter;
+pub mod host_technical;
+pub mod host_terrorist;
+pub mod host_tomahawk;
+pub mod host_toxin_tractor;
+pub mod host_troop_crawler;
+pub mod host_tunnel_network;
+pub mod host_upgrades;
+pub mod host_usa_pilot;
+pub mod host_usa_tanks;
+pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
 pub mod partition_manager;
@@ -12,187 +96,38 @@ pub mod resources;
 pub mod script_events;
 pub mod script_loader;
 pub mod special_power_strikes;
-pub mod host_upgrades;
-pub mod host_cash_bounty;
-pub mod host_black_market;
-pub mod host_oil_derrick;
-pub mod host_hacker_income;
-pub mod host_hacker_disable;
-pub mod host_ranger;
-pub mod host_supply_drop_zone;
-pub mod host_mines;
-pub mod host_radar;
-pub mod host_radar_scan;
-pub mod host_spy_satellite;
-pub mod host_cia_intelligence;
-pub mod host_hero_abilities;
-pub mod host_car_bomb;
-pub mod host_bomb_truck_disguise;
-pub mod host_bomb_truck_detonate;
-pub mod host_helix_napalm;
-pub mod host_repair;
-pub mod host_heal;
-pub mod host_propaganda;
-pub mod host_base_defense;
-pub mod host_ecm_jam;
-pub mod host_emp_pulse;
-pub mod host_frenzy;
-pub mod host_emergency_repair;
-pub mod host_gps_scrambler;
-pub mod host_leaflet_drop;
-pub mod host_sneak_attack;
-pub mod host_point_defense;
-pub mod host_avenger;
-pub mod host_usa_tanks;
-pub mod host_tomahawk;
-pub mod host_raptor;
-pub mod host_humvee;
-pub mod host_microwave;
-pub mod host_neutron_shell;
-pub mod host_bunker_buster;
-pub mod host_paradrop;
-pub mod host_ambush;
-pub mod host_firewall;
-pub mod host_inferno_cannon;
-pub mod host_aurora_bomb;
-pub mod host_battle_bus;
-pub mod host_tunnel_network;
-pub mod host_combat_chinook;
-pub mod host_cleanup_area;
-pub mod host_comanche_rocket_pods;
-pub mod host_stealth_fighter;
-pub mod host_sentry_drone;
-pub mod host_pathfinder;
-pub mod host_slave_drones;
-pub mod host_angry_mob;
-pub mod host_rocket_buggy;
-pub mod host_quad_cannon;
-pub mod host_scud_launcher;
-pub mod host_technical;
-pub mod host_toxin_tractor;
-pub mod host_marauder;
-pub mod host_scorpion;
-pub mod host_battlemaster;
-pub mod host_red_guard;
-pub mod host_tank_hunter;
-pub mod host_gla_rebel;
-pub mod host_rpg_trooper;
-pub mod host_terrorist;
-pub mod host_missile_defender;
-pub mod host_minigunner;
-pub mod host_colonel_burton;
-pub mod host_jarmen_kell;
-pub mod host_usa_pilot;
-pub mod host_gla_worker;
-pub mod host_combat_cycle;
-pub mod host_dragon_tank;
-pub mod host_gattling_tank;
-pub mod host_listening_outpost;
-pub mod host_troop_crawler;
-pub mod host_overlord_addons;
-pub mod host_overlord_gun;
-pub mod host_nuclear_tanks;
-pub mod host_booby_trap;
-pub mod host_nuke_cannon;
 pub mod terrain;
 pub mod thing;
 pub mod units;
 pub mod victory;
 pub mod victory_conditions;
-pub mod locomotor_bootstrap;
 pub mod weapon_bootstrap;
 
 pub use buildings::*;
 pub use combat::*;
-pub use combat_particles::{
-    CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry,
+pub use combat_particles::{CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry};
+pub use game_logic::*;
+pub use host_ambush::{
+    HostAmbushKind, HostAmbushMission, HostAmbushPhase, HostAmbushRegistry,
+    AMBUSH_RESIDUAL_TEMPLATE, AMBUSH_SPAWN_RADIUS, GLA_AMBUSH1_UNIT_COUNT,
 };
-pub use special_power_strikes::{
-    HostRadiationField, HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase,
-    HostSuperweaponKind, NUKE_RADIATION_DAMAGE_PER_TICK, NUKE_RADIATION_DURATION_FRAMES,
-    NUKE_RADIATION_RADIUS, NUKE_RADIATION_TICK_INTERVAL_FRAMES,
+pub use host_angry_mob::{
+    angry_mob_damage_for_tick, is_angry_mob_nexus_template, is_legal_angry_mob_damage_target,
+    HostAngryMobRegistry, HostAngryMobState, ANGRY_MOB_ATTACK_RANGE,
+    ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
+    ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES,
+    UPGRADE_GLA_ARM_THE_MOB,
 };
-pub use host_upgrades::{
-    HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
+pub use host_aurora_bomb::{
+    aurora_bomb_damage_at_distance, aurora_bomb_kind_for_template, aurora_bomb_weapon,
+    is_aurora_aircraft_template, HostAuroraBombKind, HostAuroraBombMission, HostAuroraBombPhase,
+    HostAuroraBombRegistry, AURORA_BOMB_ATTACK_RANGE, AURORA_BOMB_DAMAGE,
+    AURORA_BOMB_DIVE_DELAY_FRAMES, AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_RADIUS,
+    AURORA_FUEL_AIR_DAMAGE, AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, AURORA_FUEL_AIR_RADIUS,
 };
-pub use host_cash_bounty::{
-    cash_bounty_percent_for_science, compute_bounty_award, HostCashBountyRegistry,
-    CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, SCIENCE_CASH_BOUNTY1,
-    SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
-};
-pub use host_black_market::{
-    deposit_interval_frames_from_ms, is_black_market_structure, is_black_market_template,
-    is_legal_black_market_income_source, HostBlackMarketRegistry, BLACK_MARKET_DEPOSIT_AMOUNT,
-    BLACK_MARKET_DEPOSIT_AUDIO, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
-    BLACK_MARKET_DEPOSIT_TIMING_MS,
-};
-pub use host_oil_derrick::{
-    is_legal_oil_derrick_income_source, is_oil_derrick_structure, is_oil_derrick_template,
-    HostOilDerrickRegistry, OIL_DERRICK_DEPOSIT_AMOUNT, OIL_DERRICK_DEPOSIT_AUDIO,
-    OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
-    OIL_DERRICK_INITIAL_CAPTURE_BONUS, OIL_DERRICK_CAPTURE_BONUS_AUDIO,
-};
-pub use host_hacker_income::{
-    cash_amount_for_level, cash_interval_frames, is_hacker_template, is_internet_center_template,
-    is_legal_hacker_income_source, HostHackerIncomeRegistry, HACKER_CASH_INTERVAL_FAST_FRAMES,
-    HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_PING_AUDIO, HACKER_CASH_REGULAR,
-    HACKER_XP_PER_CASH_UPDATE,
-};
-pub use host_supply_drop_zone::{
-    drop_cash_amount, drop_interval_frames_from_ms, is_legal_supply_drop_zone_income_source,
-    is_supply_drop_zone_structure, is_supply_drop_zone_template, HostSupplyDropZoneRegistry,
-    SUPPLY_DROP_ZONE_CRATE_COUNT, SUPPLY_DROP_ZONE_DELAY_MS, SUPPLY_DROP_ZONE_DROP_AUDIO,
-    SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
-    SUPPLY_DROP_ZONE_INTERVAL_FRAMES, SUPPLY_DROP_ZONE_MONEY_PER_CRATE,
-    SUPPLY_DROP_ZONE_SUPPLY_LINES_BOOST_PER_CRATE,
-};
-pub use host_mines::{
-    can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
-    HostMineDetonationPlan, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
-    MINE_CLEARED_AUDIO,
-};
-pub use host_radar::{
-    is_legal_radar_provider, is_radar_command_center_template, is_radar_provider_template,
-    is_radar_van_template, HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
-};
-pub use host_radar_scan::{
-    HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
-    RADAR_SCAN_RADIUS,
-};
-pub use host_spy_satellite::{
-    HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
-    SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
-};
-pub use host_cia_intelligence::{
-    HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,
-    CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
-    CIA_INTELLIGENCE_DURATION_FRAMES,
-};
-pub use host_hero_abilities::{
-    HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_AUDIO, DISABLE_VEHICLE_HACK_DURATION_FRAMES,
-    STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
-};
-pub use host_car_bomb::{
-    car_bomb_damage_at_distance, suicide_car_bomb_weapon, HostCarBombRegistry,
-    CAR_BOMB_CONVERT_AUDIO, CAR_BOMB_DETONATE_AUDIO, HIJACK_AUDIO, SUICIDE_CAR_BOMB_ATTACK_RANGE,
-    SUICIDE_CAR_BOMB_DAMAGE, SUICIDE_CAR_BOMB_RADIUS,
-};
-pub use host_usa_pilot::{
-    is_pilot_template, is_recrewable_unmanned_vehicle, should_recrew_on_enter, HostUsaPilotRegistry,
-    PILOT_RECREW_AUDIO,
-};
-pub use host_gla_worker::{
-    is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
-    HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
-};
-pub use host_heal::{
-    is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
-    HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
-};
-pub use host_propaganda::{
-    is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
-    HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC, HOST_PROPAGANDA_TOWER_RADIUS,
-    HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+pub use host_avenger::{
+    is_avenger_template, HostAvengerRegistry, AVENGER_AIR_LASER, AVENGER_TARGET_DESIGNATOR,
+    FAERIE_FIRE_ROF_MULTIPLIER,
 };
 pub use host_base_defense::{
     gattling_building_air_weapon, gattling_building_ground_weapon, is_base_defense_structure,
@@ -205,56 +140,26 @@ pub use host_base_defense::{
     GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
     PATRIOT_SECONDARY_WEAPON, STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
 };
-pub use host_ecm_jam::{
-    is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS,
+pub use host_battle_bus::{
+    battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
+    HostBattleBusRegistry, BATTLE_BUS_TRANSPORT_SLOTS,
 };
-pub use host_emp_pulse::{
-    is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,
-    EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+pub use host_battlemaster::{
+    battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
+    is_battlemaster_template, should_apply_battlemaster_residual, BATTLE_MASTER_DAMAGE,
+    BATTLE_MASTER_RANGE, BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
 };
-pub use host_frenzy::{
-    is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry,
-    FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS,
+pub use host_black_market::{
+    deposit_interval_frames_from_ms, is_black_market_structure, is_black_market_template,
+    is_legal_black_market_income_source, HostBlackMarketRegistry, BLACK_MARKET_DEPOSIT_AMOUNT,
+    BLACK_MARKET_DEPOSIT_AUDIO, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+    BLACK_MARKET_DEPOSIT_TIMING_MS,
 };
-pub use host_emergency_repair::{
-    is_legal_emergency_repair_target, HostEmergencyRepair, HostEmergencyRepairLevel,
-    HostEmergencyRepairRegistry, EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
-};
-pub use host_gps_scrambler::{
-    is_legal_gps_scrambler_target, HostGpsScrambler, HostGpsScramblerRegistry,
-    GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
-};
-pub use host_leaflet_drop::{
-    is_legal_leaflet_disable_target, HostLeafletDropKind, HostLeafletDropMission,
-    HostLeafletDropPhase, HostLeafletDropRegistry, HOST_LEAFLET_RADIUS,
-    LEAFLET_DELAY_FRAMES, LEAFLET_DISABLED_DURATION_FRAMES,
-};
-pub use host_sneak_attack::{
-    is_legal_sneak_shockwave_target, HostSneakAttackKind, HostSneakAttackMission,
-    HostSneakAttackPhase, HostSneakAttackRegistry, GLA_SNEAK_TUNNEL_TEMPLATE,
-    HOST_SNEAK_ATTACK_RADIUS, SNEAK_ATTACK_RESIDUAL_TEMPLATE, SNEAK_ATTACK_SHOCKWAVE_DAMAGE,
-    SNEAK_ATTACK_SHOCKWAVE_RADIUS, SNEAK_ATTACK_SPAWN_DELAY_FRAMES,
-};
-pub use host_point_defense::{
-    is_missile_name_residual, is_point_defense_carrier, is_primary_intercept_target,
-    pdl_delay_frames, pdl_damage, pdl_fire_range, pdl_scan_range, AVENGER_PDL_FIRE_RANGE,
-    PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO,
-};
-pub use host_avenger::{
-    is_avenger_template, HostAvengerRegistry, AVENGER_AIR_LASER, AVENGER_TARGET_DESIGNATOR,
-    FAERIE_FIRE_ROF_MULTIPLIER,
-};
-pub use host_usa_tanks::{
-    is_composite_armor_unit_template, is_crusader_template, is_paladin_template,
-    CRUSADER_TANK_GUN, PALADIN_TANK_GUN, UPGRADE_AMERICA_COMPOSITE_ARMOR,
-};
-pub use host_humvee::{
-    is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS,
-};
-pub use host_neutron_shell::{
-    is_nuke_cannon_template, neutron_effect_for_target, should_apply_neutron_blast, NeutronEffect,
-    HOST_NEUTRON_BLAST_RADIUS, NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
-    UPGRADE_CHINA_NEUTRON_SHELLS,
+pub use host_bomb_truck_detonate::{
+    bomb_truck_blast_damage_at, is_bomb_truck_template as is_bomb_truck_detonate_template,
+    BombTruckDetonationProfile, HostBombTruckDetonateRegistry, BOMB_TRUCK_DEFAULT_PRIMARY_DAMAGE,
+    BOMB_TRUCK_DEFAULT_PRIMARY_RADIUS, BOMB_TRUCK_HE_PRIMARY_DAMAGE, BOMB_TRUCK_HE_PRIMARY_RADIUS,
+    UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
 };
 pub use host_bunker_buster::{
     bunker_buster_structure_damage, is_bunker_buster_carrier, is_bunker_structure_name,
@@ -262,44 +167,20 @@ pub use host_bunker_buster::{
     should_apply_kill_garrisoned, HostBunkerBusterRegistry, BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT,
     STEALTH_JET_MISSILE_WEAPON, UPGRADE_AMERICA_BUNKER_BUSTERS,
 };
-pub use host_paradrop::{
-    HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
-    AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
+pub use host_car_bomb::{
+    car_bomb_damage_at_distance, suicide_car_bomb_weapon, HostCarBombRegistry,
+    CAR_BOMB_CONVERT_AUDIO, CAR_BOMB_DETONATE_AUDIO, HIJACK_AUDIO, SUICIDE_CAR_BOMB_ATTACK_RANGE,
+    SUICIDE_CAR_BOMB_DAMAGE, SUICIDE_CAR_BOMB_RADIUS,
 };
-pub use host_ambush::{
-    HostAmbushKind, HostAmbushMission, HostAmbushPhase, HostAmbushRegistry,
-    AMBUSH_RESIDUAL_TEMPLATE, AMBUSH_SPAWN_RADIUS, GLA_AMBUSH1_UNIT_COUNT,
+pub use host_cash_bounty::{
+    cash_bounty_percent_for_science, compute_bounty_award, HostCashBountyRegistry,
+    CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, SCIENCE_CASH_BOUNTY1,
+    SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
 };
-pub use host_firewall::{
-    HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,
-    FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_RADIUS,
-    FIREWALL_TICK_INTERVAL_FRAMES,
-};
-pub use host_aurora_bomb::{
-    aurora_bomb_damage_at_distance, aurora_bomb_kind_for_template, aurora_bomb_weapon,
-    is_aurora_aircraft_template, HostAuroraBombKind, HostAuroraBombMission, HostAuroraBombPhase,
-    HostAuroraBombRegistry, AURORA_BOMB_ATTACK_RANGE, AURORA_BOMB_DAMAGE, AURORA_BOMB_DIVE_DELAY_FRAMES,
-    AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_RADIUS, AURORA_FUEL_AIR_DAMAGE,
-    AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES, AURORA_FUEL_AIR_RADIUS,
-};
-pub use host_inferno_cannon::{
-    is_inferno_cannon_template, HostInfernoFireZone, HostInfernoFireZoneRegistry,
-    INFERNO_CANNON_FIRE_AUDIO, INFERNO_CANNON_PRIMARY_WEAPON, INFERNO_CANNON_SHELL_DAMAGE,
-    INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_RADIUS,
-    INFERNO_FIRE_TICK_INTERVAL_FRAMES,
-};
-pub use host_battle_bus::{
-    battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
-    HostBattleBusRegistry, BATTLE_BUS_TRANSPORT_SLOTS,
-};
-pub use host_tunnel_network::{
-    is_tunnel_network_template, unit_can_use_tunnel, HostTunnelNetworkRegistry,
-    MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES,
-};
-pub use host_combat_chinook::{
-    combat_chinook_rider_has_viable_weapon, is_combat_chinook_template,
-    is_passenger_dummy_weapon, listening_outpost_upgraded_dummy_weapon,
-    HostCombatChinookRegistry, COMBAT_CHINOOK_TRANSPORT_SLOTS,
+pub use host_cia_intelligence::{
+    HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,
+    CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
+    CIA_INTELLIGENCE_DURATION_FRAMES,
 };
 pub use host_cleanup_area::{
     in_cleanup_radius_2d, is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaRegistry,
@@ -316,72 +197,10 @@ pub use host_comanche_rocket_pods::{
     COMANCHE_ROCKET_POD_WEAPON, ROCKET_POD_ATTACK_RANGE, ROCKET_POD_PRIMARY_DAMAGE,
     ROCKET_POD_SECONDARY_DAMAGE, ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS,
 };
-pub use host_stealth_fighter::{
-    is_stealth_fighter_template, player_may_produce_stealth_aircraft,
-    requires_stealth_fighter_science, should_apply_stealth_fighter_residual,
-    stealth_fighter_damage_at, stealth_fighter_weapon, HostStealthFighterRegistry,
-    AMERICA_JET_STEALTH_FIGHTER, SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_DAMAGE,
-    STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_PRIMARY_RADIUS, STEALTH_FIGHTER_RANGE,
-    STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON, USA_STEALTH_FIGHTER,
-};
-pub use host_sentry_drone::{
-    is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,
-    SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
-};
-pub use host_pathfinder::{
-    is_pathfinder_template, pathfinder_detection_range, pathfinder_spawn_is_detector,
-    PATHFINDER_DETECTION_RANGE, PATHFINDER_SNIPER_WEAPON,
-};
-pub use host_slave_drones::{
-    is_hellfire_drone_template, is_scout_drone_template, is_slave_drone_master_template,
-    scout_detection_range, scout_spawn_is_detector, SlaveDroneKind, HELLFIRE_MISSILE_WEAPON,
-    SCOUT_DETECTION_RANGE, UPGRADE_AMERICA_HELLFIRE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
-};
-pub use host_angry_mob::{
-    angry_mob_damage_for_tick, is_angry_mob_nexus_template, is_legal_angry_mob_damage_target,
-    HostAngryMobRegistry, HostAngryMobState, ANGRY_MOB_ATTACK_RANGE,
-    ANGRY_MOB_DAMAGE_PER_MEMBER_TICK, ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS,
-    ANGRY_MOB_MAX_MEMBERS, ANGRY_MOB_RESIDUAL_WEAPON, ANGRY_MOB_TICK_INTERVAL_FRAMES,
-    UPGRADE_GLA_ARM_THE_MOB,
-};
-pub use host_marauder::{
-    is_marauder_template, marauder_weapon_for_tier, marauder_weapon_name_for_tier,
-    marauder_weapon_stats, should_apply_marauder_residual, MarauderWeaponTier, MARAUDER_DAMAGE,
-    MARAUDER_RANGE, MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE, MARAUDER_TANK_GUN_UPGRADE_TWO,
-};
-pub use host_battlemaster::{
-    battlemaster_weapon, has_nationalism_upgrade, has_uranium_shells_upgrade,
-    is_battlemaster_template, should_apply_battlemaster_residual, BATTLE_MASTER_DAMAGE,
-    BATTLE_MASTER_RANGE, BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
-};
-pub use host_red_guard::{
-    is_red_guard_template, red_guard_weapon, should_apply_bayonet_residual,
-    should_apply_red_guard_residual, REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE,
-};
-pub use host_tank_hunter::{
-    is_tank_hunter_template, should_apply_tank_hunter_residual, tank_hunter_weapon,
-    TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
-};
-pub use host_gla_rebel::{
-    is_gla_rebel_template, rebel_weapon, should_apply_rebel_residual, REBEL_DAMAGE,
-    REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS,
-};
-pub use host_rpg_trooper::{
-    is_rpg_trooper_template, rpg_trooper_weapon, should_apply_rpg_trooper_residual,
-    RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
-    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS,
-};
-pub use host_terrorist::{
-    is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
-    terrorist_suicide_weapon, SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
-    SUICIDE_DYNAMITE_PRIMARY_RADIUS, SUICIDE_DYNAMITE_SECONDARY_DAMAGE,
-    SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
-};
-pub use host_missile_defender::{
-    is_missile_defender_template, missile_defender_laser_guided_weapon,
-    missile_defender_primary_weapon, should_apply_missile_defender_residual,
-    MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_GUIDED_WEAPON, MISSILE_DEFENDER_MISSILE_WEAPON,
-    MISSILE_DEFENDER_PRIMARY_RANGE,
+pub use host_combat_chinook::{
+    combat_chinook_rider_has_viable_weapon, is_combat_chinook_template, is_passenger_dummy_weapon,
+    listening_outpost_upgraded_dummy_weapon, HostCombatChinookRegistry,
+    COMBAT_CHINOOK_TRANSPORT_SLOTS,
 };
 pub use host_combat_cycle::{
     combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,
@@ -395,36 +214,55 @@ pub use host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
 };
+pub use host_ecm_jam::{is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS};
+pub use host_emergency_repair::{
+    is_legal_emergency_repair_target, HostEmergencyRepair, HostEmergencyRepairLevel,
+    HostEmergencyRepairRegistry, EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
+};
+pub use host_emp_pulse::{
+    is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,
+    EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+};
+pub use host_firewall::{
+    HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,
+    FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_RADIUS,
+    FIREWALL_TICK_INTERVAL_FRAMES,
+};
+pub use host_frenzy::{
+    is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry, FRENZY_ACTIVATE_AUDIO,
+    HOST_FRENZY_RADIUS,
+};
 pub use host_gattling_tank::{
     gattling_air_weapon, gattling_delay_frames_for_level, gattling_ground_weapon,
     gattling_on_shot_fired, has_chain_guns_upgrade, is_gattling_tank_template,
-    preferred_gattling_slot, GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES,
-    GATTLING_GROUND_DAMAGE, GATTLING_GROUND_RANGE, GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
-    UPGRADE_CHINA_CHAIN_GUNS,
+    preferred_gattling_slot, GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES, GATTLING_GROUND_DAMAGE,
+    GATTLING_GROUND_RANGE, GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR, UPGRADE_CHINA_CHAIN_GUNS,
 };
-pub use host_listening_outpost::{
-    is_listening_outpost_template, listening_outpost_detection_range,
-    listening_outpost_spawn_is_detector, HostListeningOutpostRegistry,
-    LISTENING_OUTPOST_DETECTION_RANGE, LISTENING_OUTPOST_TRANSPORT_SLOTS,
+pub use host_gla_rebel::{
+    is_gla_rebel_template, rebel_weapon, should_apply_rebel_residual, REBEL_DAMAGE,
+    REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS,
 };
-pub use host_troop_crawler::{
-    is_troop_crawler_template, resolve_payload_template_name, should_apply_troop_crawler_assault_deploy,
-    troop_crawler_assault_weapon, troop_crawler_detection_range, troop_crawler_spawn_is_detector,
-    HostTroopCrawlerRegistry, TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON,
-    TROOP_CRAWLER_DETECTION_RANGE, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
-    TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
+pub use host_gla_worker::{
+    is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
+    HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
 };
-pub use host_overlord_addons::{
-    is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,
-    overlord_gattling_air_weapon, should_apply_overlord_gattling_residual,
-    HostOverlordAddonRegistry, HELIX_TRANSPORT_SLOTS, OVERLORD_GATTLING_AIR_DAMAGE,
-    OVERLORD_GATTLING_GROUND_DAMAGE, OVERLORD_PROPAGANDA_RADIUS, UPGRADE_HELIX_GATTLING,
-    UPGRADE_HELIX_PROPAGANDA, UPGRADE_OVERLORD_GATTLING, UPGRADE_OVERLORD_PROPAGANDA,
+pub use host_gps_scrambler::{
+    is_legal_gps_scrambler_target, HostGpsScrambler, HostGpsScramblerRegistry,
+    GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
 };
-pub use host_nuke_cannon::{
-    is_nuke_cannon_template as is_nuke_cannon_primary_template, nuke_cannon_primary_damage_at,
-    should_apply_nuke_cannon_primary, HostNukeCannonRegistry, MEDIUM_RADIATION_DAMAGE_PER_TICK,
-    MEDIUM_RADIATION_RADIUS, NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS,
+pub use host_hacker_income::{
+    cash_amount_for_level, cash_interval_frames, is_hacker_template, is_internet_center_template,
+    is_legal_hacker_income_source, HostHackerIncomeRegistry, HACKER_CASH_INTERVAL_FAST_FRAMES,
+    HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_PING_AUDIO, HACKER_CASH_REGULAR,
+    HACKER_XP_PER_CASH_UPDATE,
+};
+pub use host_heal::{
+    is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
+    HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
+};
+pub use host_helix_minigun::{
+    helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
+    HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DELAY_FRAMES, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
 };
 pub use host_helix_napalm::{
     helix_napalm_blast_damage_at, helix_napalm_unlocked, is_helix_napalm_caster,
@@ -433,13 +271,175 @@ pub use host_helix_napalm::{
     HELIX_NAPALM_PRIMARY_RADIUS, HELIX_NAPALM_SECONDARY_DAMAGE, HELIX_NAPALM_SECONDARY_RADIUS,
     UPGRADE_HELIX_NAPALM_BOMB,
 };
-pub use host_bomb_truck_detonate::{
-    bomb_truck_blast_damage_at, is_bomb_truck_template as is_bomb_truck_detonate_template,
-    BombTruckDetonationProfile, HostBombTruckDetonateRegistry, BOMB_TRUCK_DEFAULT_PRIMARY_DAMAGE,
-    BOMB_TRUCK_DEFAULT_PRIMARY_RADIUS, BOMB_TRUCK_HE_PRIMARY_DAMAGE, BOMB_TRUCK_HE_PRIMARY_RADIUS,
-    UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
+pub use host_hero_abilities::{
+    HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_AUDIO, DISABLE_VEHICLE_HACK_DURATION_FRAMES,
+    SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO, STEAL_CASH_DEFAULT_AMOUNT,
 };
-pub use game_logic::*;
+pub use host_humvee::{is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS};
+pub use host_inferno_cannon::{
+    has_black_napalm_upgrade as has_inferno_black_napalm_upgrade, is_inferno_cannon_template,
+    HostInfernoFireZone, HostInfernoFireZoneRegistry, INFERNO_CANNON_FIRE_AUDIO,
+    INFERNO_CANNON_PRIMARY_WEAPON, INFERNO_CANNON_SHELL_DAMAGE, INFERNO_CANNON_UPGRADED_WEAPON,
+    INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
+    INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_RADIUS, INFERNO_FIRE_TICK_INTERVAL_FRAMES,
+};
+pub use host_leaflet_drop::{
+    is_legal_leaflet_disable_target, HostLeafletDropKind, HostLeafletDropMission,
+    HostLeafletDropPhase, HostLeafletDropRegistry, HOST_LEAFLET_RADIUS, LEAFLET_DELAY_FRAMES,
+    LEAFLET_DISABLED_DURATION_FRAMES,
+};
+pub use host_listening_outpost::{
+    is_listening_outpost_template, listening_outpost_detection_range,
+    listening_outpost_spawn_is_detector, HostListeningOutpostRegistry,
+    LISTENING_OUTPOST_DETECTION_RANGE, LISTENING_OUTPOST_TRANSPORT_SLOTS,
+};
+pub use host_marauder::{
+    is_marauder_template, marauder_weapon_for_tier, marauder_weapon_name_for_tier,
+    marauder_weapon_stats, should_apply_marauder_residual, MarauderWeaponTier, MARAUDER_DAMAGE,
+    MARAUDER_RANGE, MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE,
+    MARAUDER_TANK_GUN_UPGRADE_TWO,
+};
+pub use host_mines::{
+    can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason,
+    HostMineDetonationPlan, HostMineKind, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+    MINE_CLEARED_AUDIO,
+};
+pub use host_missile_defender::{
+    is_missile_defender_template, missile_defender_laser_guided_weapon,
+    missile_defender_primary_weapon, should_apply_missile_defender_residual,
+    MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_GUIDED_WEAPON, MISSILE_DEFENDER_MISSILE_WEAPON,
+    MISSILE_DEFENDER_PRIMARY_RANGE,
+};
+pub use host_neutron_shell::{
+    is_nuke_cannon_template, neutron_effect_for_target, should_apply_neutron_blast, NeutronEffect,
+    HOST_NEUTRON_BLAST_RADIUS, NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
+    UPGRADE_CHINA_NEUTRON_SHELLS,
+};
+pub use host_nuke_cannon::{
+    is_nuke_cannon_template as is_nuke_cannon_primary_template, nuke_cannon_primary_damage_at,
+    should_apply_nuke_cannon_primary, HostNukeCannonRegistry, MEDIUM_RADIATION_DAMAGE_PER_TICK,
+    MEDIUM_RADIATION_RADIUS, NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS,
+};
+pub use host_oil_derrick::{
+    is_legal_oil_derrick_income_source, is_oil_derrick_structure, is_oil_derrick_template,
+    HostOilDerrickRegistry, OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AMOUNT,
+    OIL_DERRICK_DEPOSIT_AUDIO, OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, OIL_DERRICK_DEPOSIT_TIMING_MS,
+    OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+};
+pub use host_overlord_addons::{
+    is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,
+    overlord_gattling_air_weapon, should_apply_overlord_gattling_residual,
+    HostOverlordAddonRegistry, HELIX_TRANSPORT_SLOTS, OVERLORD_GATTLING_AIR_DAMAGE,
+    OVERLORD_GATTLING_GROUND_DAMAGE, OVERLORD_PROPAGANDA_RADIUS, UPGRADE_HELIX_GATTLING,
+    UPGRADE_HELIX_PROPAGANDA, UPGRADE_OVERLORD_GATTLING, UPGRADE_OVERLORD_PROPAGANDA,
+};
+pub use host_paradrop::{
+    HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
+    AMERICA_PARADROP_UNIT_COUNT, PARADROP_DROP_SPACING, PARADROP_RESIDUAL_TEMPLATE,
+};
+pub use host_pathfinder::{
+    is_pathfinder_template, pathfinder_detection_range, pathfinder_spawn_is_detector,
+    PATHFINDER_DETECTION_RANGE, PATHFINDER_SNIPER_WEAPON,
+};
+pub use host_point_defense::{
+    is_missile_name_residual, is_point_defense_carrier, is_primary_intercept_target, pdl_damage,
+    pdl_delay_frames, pdl_fire_range, pdl_scan_range, AVENGER_PDL_FIRE_RANGE,
+    PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO,
+};
+pub use host_propaganda::{
+    is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
+    HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC, HOST_PROPAGANDA_TOWER_RADIUS,
+    HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+};
+pub use host_radar::{
+    is_legal_radar_provider, is_radar_command_center_template, is_radar_provider_template,
+    is_radar_van_template, HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
+};
+pub use host_radar_scan::{
+    HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
+    RADAR_SCAN_RADIUS,
+};
+pub use host_red_guard::{
+    is_red_guard_template, red_guard_weapon, should_apply_bayonet_residual,
+    should_apply_red_guard_residual, REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE,
+};
+pub use host_rpg_trooper::{
+    is_rpg_trooper_template, rpg_trooper_weapon, should_apply_rpg_trooper_residual,
+    RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
+    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS,
+};
+pub use host_sentry_drone::{
+    is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,
+    SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+};
+pub use host_slave_drones::{
+    is_hellfire_drone_template, is_scout_drone_template, is_slave_drone_master_template,
+    scout_detection_range, scout_spawn_is_detector, SlaveDroneKind, HELLFIRE_MISSILE_WEAPON,
+    SCOUT_DETECTION_RANGE, UPGRADE_AMERICA_HELLFIRE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
+};
+pub use host_sneak_attack::{
+    is_legal_sneak_shockwave_target, HostSneakAttackKind, HostSneakAttackMission,
+    HostSneakAttackPhase, HostSneakAttackRegistry, GLA_SNEAK_TUNNEL_TEMPLATE,
+    HOST_SNEAK_ATTACK_RADIUS, SNEAK_ATTACK_RESIDUAL_TEMPLATE, SNEAK_ATTACK_SHOCKWAVE_DAMAGE,
+    SNEAK_ATTACK_SHOCKWAVE_RADIUS, SNEAK_ATTACK_SPAWN_DELAY_FRAMES,
+};
+pub use host_spy_satellite::{
+    HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
+    SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+};
+pub use host_stealth_fighter::{
+    is_stealth_fighter_template, player_may_produce_stealth_aircraft,
+    requires_stealth_fighter_science, should_apply_stealth_fighter_residual,
+    stealth_fighter_damage_at, stealth_fighter_weapon, HostStealthFighterRegistry,
+    AMERICA_JET_STEALTH_FIGHTER, SCIENCE_STEALTH_FIGHTER, STEALTH_FIGHTER_DAMAGE,
+    STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_PRIMARY_RADIUS, STEALTH_FIGHTER_RANGE,
+    STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON, USA_STEALTH_FIGHTER,
+};
+pub use host_supply_drop_zone::{
+    drop_cash_amount, drop_interval_frames_from_ms, is_legal_supply_drop_zone_income_source,
+    is_supply_drop_zone_structure, is_supply_drop_zone_template, HostSupplyDropZoneRegistry,
+    SUPPLY_DROP_ZONE_CRATE_COUNT, SUPPLY_DROP_ZONE_DELAY_MS, SUPPLY_DROP_ZONE_DROP_AUDIO,
+    SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
+    SUPPLY_DROP_ZONE_INTERVAL_FRAMES, SUPPLY_DROP_ZONE_MONEY_PER_CRATE,
+    SUPPLY_DROP_ZONE_SUPPLY_LINES_BOOST_PER_CRATE,
+};
+pub use host_tank_hunter::{
+    is_tank_hunter_template, should_apply_tank_hunter_residual, tank_hunter_weapon,
+    TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
+};
+pub use host_terrorist::{
+    is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
+    terrorist_suicide_weapon, SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
+    SUICIDE_DYNAMITE_PRIMARY_RADIUS, SUICIDE_DYNAMITE_SECONDARY_DAMAGE,
+    SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
+};
+pub use host_troop_crawler::{
+    is_troop_crawler_template, resolve_payload_template_name,
+    should_apply_troop_crawler_assault_deploy, troop_crawler_assault_weapon,
+    troop_crawler_detection_range, troop_crawler_spawn_is_detector, HostTroopCrawlerRegistry,
+    TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON, TROOP_CRAWLER_DETECTION_RANGE,
+    TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
+};
+pub use host_tunnel_network::{
+    is_tunnel_network_template, unit_can_use_tunnel, HostTunnelNetworkRegistry,
+    MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES,
+};
+pub use host_upgrades::{
+    HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
+};
+pub use host_usa_pilot::{
+    is_pilot_template, is_recrewable_unmanned_vehicle, should_recrew_on_enter,
+    HostUsaPilotRegistry, PILOT_RECREW_AUDIO,
+};
+pub use host_usa_tanks::{
+    is_composite_armor_unit_template, is_crusader_template, is_paladin_template, CRUSADER_TANK_GUN,
+    PALADIN_TANK_GUN, UPGRADE_AMERICA_COMPOSITE_ARMOR,
+};
+pub use locomotor_bootstrap::{
+    ensure_host_locomotor_store, locomotor_name_for_unit, resolve_host_movement,
+    BASIC_HUMAN_LOCOMOTOR, BATTLE_MASTER_LOCOMOTOR, CRUSADER_LOCOMOTOR, HUMVEE_LOCOMOTOR,
+    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR,
+};
 pub use mission_scripts::*;
 pub use object::*;
 pub use partition_manager::*;
@@ -448,16 +448,16 @@ pub use radar_notifications::*;
 pub use resources::*;
 pub use script_events::*;
 pub use script_loader::*;
+pub use special_power_strikes::{
+    HostRadiationField, HostSpecialPowerStrike, HostSpecialPowerStrikeRegistry, HostStrikePhase,
+    HostSuperweaponKind, NUKE_RADIATION_DAMAGE_PER_TICK, NUKE_RADIATION_DURATION_FRAMES,
+    NUKE_RADIATION_RADIUS, NUKE_RADIATION_TICK_INTERVAL_FRAMES,
+};
 pub use terrain::*;
 pub use thing::*;
 pub use units::*;
 pub use victory::*;
 pub use victory_conditions::*;
-pub use locomotor_bootstrap::{
-    ensure_host_locomotor_store, locomotor_name_for_unit, resolve_host_movement,
-    BASIC_HUMAN_LOCOMOTOR, BATTLE_MASTER_LOCOMOTOR, CRUSADER_LOCOMOTOR, HUMVEE_LOCOMOTOR,
-    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR,
-};
 pub use weapon_bootstrap::{
     ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
     GATTLING_BUILDING_PRIMARY_WEAPON as HOST_GATTLING_BUILDING_PRIMARY_WEAPON,

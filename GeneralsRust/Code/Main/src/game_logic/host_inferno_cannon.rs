@@ -1,4 +1,4 @@
-//! Host China Inferno Cannon residual fire zone (FireFieldSmall).
+//! Host China Inferno Cannon residual fire zone (FireFieldSmall / upgraded).
 //!
 //! Residual slice (playability):
 //! - Inferno Cannon attack impact spawns a residual fire damage zone at the
@@ -6,13 +6,16 @@
 //!   SmallFireFieldCreationWeapon → OCL_FireFieldSmall → FireFieldSmall).
 //! - Zones tick FLAME damage on DelayBetweenShots residual interval for a
 //!   DeletionUpdate lifetime residual so units take fire DoT after the shell.
+//! - BlackNapalm PLAYER_UPGRADE residual (`Upgrade_ChinaBlackNapalm`):
+//!   WeaponSet → `InfernoCannonGunUpgraded` → FireFieldUpgradedSmall with
+//!   `SmallFireFieldWeaponUpgraded` (**7.5** dmg / r**30**, same lifetime/tick).
 //! - Honesty counters/flags for residual gates and tests.
 //!
 //! Fail-closed honesty:
 //! - Not full InfernoTankShell DumbProjectileBehavior bezier lob path
 //! - Not full FireWeaponWhenDeadBehavior / OCL_FireFieldSmall object spawn
-//! - Not BlackNapalm / InfernoCannonGunUpgraded FireFieldUpgradedSmall path
 //! - Not HistoricBonus FirestormSmallCreationWeapon multi-shell matrix
+//! - Not upgraded particle bone attach (InfernoCannonFireUpgraded) matrix
 //! - Not multiplayer shared-synced fire field / particle bone attach parity
 
 use super::ObjectId;
@@ -30,6 +33,9 @@ pub const INFERNO_FIRE_TICK_INTERVAL_FRAMES: u32 = 8;
 
 /// Retail SmallFireFieldWeapon PrimaryDamage.
 pub const INFERNO_FIRE_DAMAGE_PER_TICK: f32 = 5.0;
+
+/// Retail SmallFireFieldWeaponUpgraded PrimaryDamage (BlackNapalm residual).
+pub const INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED: f32 = 7.5;
 
 /// Retail SmallFireFieldWeapon PrimaryDamageRadius.
 pub const INFERNO_FIRE_RADIUS: f32 = 30.0;
@@ -52,7 +58,7 @@ pub const INFERNO_CANNON_SHELL_RADIUS: f32 = 15.0;
 /// Retail primary weapon template name.
 pub const INFERNO_CANNON_PRIMARY_WEAPON: &str = "InfernoCannonGun";
 
-/// Retail upgraded primary (BlackNapalm) — not fully modeled; name residual only.
+/// Retail upgraded primary (BlackNapalm WeaponSet PLAYER_UPGRADE).
 pub const INFERNO_CANNON_UPGRADED_WEAPON: &str = "InfernoCannonGunUpgraded";
 
 /// Fire / detonation audio residual.
@@ -79,6 +85,14 @@ pub fn is_inferno_cannon_template(template_name: &str) -> bool {
         return false;
     }
     n.contains("infernocannon") || n.contains("inferno_cannon") || n.contains("vehicleinferno")
+}
+
+/// Whether BlackNapalm upgrade is active on residual Inferno (tag present).
+pub fn has_black_napalm_upgrade(applied_upgrades: &std::collections::HashSet<String>) -> bool {
+    applied_upgrades.iter().any(|u| {
+        let n = u.to_ascii_lowercase();
+        n == "upgrade_chinablacknapalm" || n.contains("blacknapalm")
+    })
 }
 
 /// One active residual Inferno fire damage zone (FireFieldSmall residual).
@@ -191,7 +205,7 @@ impl HostInfernoFireZoneRegistry {
         let id = self.alloc_id();
         let (damage, radius) = if upgraded {
             // Retail SmallFireFieldWeaponUpgraded: 7.5 dmg / 30 radius.
-            (7.5_f32, INFERNO_FIRE_RADIUS)
+            (INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED, INFERNO_FIRE_RADIUS)
         } else {
             (INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_RADIUS)
         };
@@ -270,8 +284,7 @@ impl HostInfernoFireZoneRegistry {
             zone.total_damage_applied += damage_applied;
             zone.damage_applications = zone.damage_applications.saturating_add(applications);
             zone.objects_destroyed = zone.objects_destroyed.saturating_add(destroyed);
-            zone.next_tick_frame =
-                current_frame.saturating_add(INFERNO_FIRE_TICK_INTERVAL_FRAMES);
+            zone.next_tick_frame = current_frame.saturating_add(INFERNO_FIRE_TICK_INTERVAL_FRAMES);
         }
         self.total_damage_applied += damage_applied;
         self.damage_applications = self.damage_applications.saturating_add(applications);
@@ -390,17 +403,22 @@ mod tests {
     #[test]
     fn upgraded_zone_deals_higher_damage() {
         let mut reg = HostInfernoFireZoneRegistry::new();
-        reg.spawn_zone(
-            ObjectId(1),
-            Team::China,
-            Vec3::new(0.0, 0.0, 0.0),
-            0,
-            true,
+        reg.spawn_zone(ObjectId(1), Team::China, Vec3::new(0.0, 0.0, 0.0), 0, true);
+        assert!(
+            (reg.active_zones()[0].damage_per_tick - INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED).abs()
+                < 0.01
         );
-        assert!((reg.active_zones()[0].damage_per_tick - 7.5).abs() < 0.01);
         let objects = vec![(ObjectId(2), Vec3::ZERO, Team::USA, true)];
         let plans = reg.plan_due_ticks(0, &objects);
         assert_eq!(plans[0].hits.len(), 1);
-        assert!((plans[0].hits[0].damage - 7.5).abs() < 0.01);
+        assert!((plans[0].hits[0].damage - INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED).abs() < 0.01);
+    }
+
+    #[test]
+    fn black_napalm_tag_helper() {
+        let mut tags = std::collections::HashSet::new();
+        assert!(!has_black_napalm_upgrade(&tags));
+        tags.insert("Upgrade_ChinaBlackNapalm".to_string());
+        assert!(has_black_napalm_upgrade(&tags));
     }
 }

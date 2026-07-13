@@ -15,7 +15,7 @@
 //! - Not full ClipSize=2 DelayBetweenShots 300ms dual-volley cadence matrix
 //! - Not full ScatterRadiusVsInfantry / projectile shell lob / W3D bone matrix
 //! - Not full Nuclear Tanks death weapon residual
-//! - Not HelixMinigun residual (Helix uses separate residual path)
+//! - HelixMinigun residual closed 2026-07-13 (host_helix_minigun path; not re-opened here)
 //! - Not network uranium / dual-radius replication (network deferred)
 
 use super::Weapon;

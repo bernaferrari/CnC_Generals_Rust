@@ -1,3 +1,31 @@
+## Residual Host Playability — Helix Minigun + Inferno BlackNapalm (2026-07-13)
+**Closed (host-testable Helix PRIMARY minigun + Inferno BlackNapalm fire-field residual):**
+1. **Helix minigun residual** (`ChinaVehicleHelix` / Nuke_/Infa_/Tank_ / TestHelix):
+   - PRIMARY `HelixMinigunWeapon` residual: PrimaryDamage **6** / radius **0**
+     (intended-only), range **115**, Delay **100**ms (3 frames).
+   - AntiAirborneInfantry residual honesty (`can_target_air`); AntiAirborneVehicle = No.
+   - Minigun retained with portable gattling/propaganda/bunker addons (retail keeps
+     HelixMinigun always — gattling addon remains separate residual path).
+   - Honesty: `honesty_helix_minigun_ok` / fires / units_hit.
+2. **Inferno BlackNapalm residual** (`Upgrade_ChinaBlackNapalm` on Inferno Cannon):
+   - WeaponSet PLAYER_UPGRADE residual → FireFieldUpgradedSmall on shell impact.
+   - Upgraded fire DoT: **7.5** / r**30** / tick **250**ms / lifetime **2500**ms
+     (`SmallFireFieldWeaponUpgraded`; base FireFieldSmall remains **5**).
+   - Shell impact PrimaryDamage **30** / r**15** / range **300** unchanged.
+   - Honesty: `honesty_inferno_black_napalm_ok` / upgrades / upgraded zones;
+     existing `honesty_inferno_cannon_ok` still green.
+3. Tests (not log-only):
+   - `helix_minigun_residual_intended_only`
+   - `inferno_black_napalm_upgraded_fire_field_residual`
+   - module unit tests in `host_helix_minigun.rs` / `host_inferno_cannon.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full ChinookAIUpdate rotor wash / AutoAcquire idle / COMANCHE_VULCAN Stinger-site matrix
+- Full Helix portable gattling dual-stream simultaneous fire with minigun matrix
+- Full HistoricBonus FirestormSmallCreationWeapon multi-shell Inferno matrix
+- Full InfernoTankShell DumbProjectileBehavior bezier lob / upgraded particle bones
+- Network Helix minigun / Inferno BlackNapalm replication (network deferred)
+
 ## Residual Host Playability — USA Stealth Fighter Combat + Comanche Cannon/AT (2026-07-13)
 **Closed (host-testable Stealth Fighter missiles + Comanche 20mm/anti-tank residual):**
 1. **Stealth Fighter residual** (`AmericaJetStealthFighter` / USA_ / SupW_/Lazr_ + AirF_):
