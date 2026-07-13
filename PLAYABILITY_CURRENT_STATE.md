@@ -1,3 +1,34 @@
+## Residual Host Playability — Delayed setBattlePlan ACTIVE + Turret Recenter (2026-07-13)
+**Closed (host-testable BattlePlanUpdate delayed ACTIVE setBattlePlan + Bombardment recenter residual):**
+1. **Delayed ACTIVE-after-unpack setBattlePlan residual** (`BattlePlanUpdate::setStatus`):
+   - Plan select only starts door residual (UNPACKING OPENING); army buffs,
+     building bonuses, StealthDetector enable, StrategyCenterGun equip apply
+     **only** when door reaches ACTIVE / WAITING_TO_CLOSE (`setBattlePlan(plan)`).
+   - Plan switch → PACKING / CLOSING → `setBattlePlan(NONE)` clears army/building
+     residual + BattlePlanChangeParalyze (150 frames) on legal members.
+   - Pack complete (TransitionIdleTime **0**) → unpack new plan → ACTIVE apply.
+   - Host-testable: mid-unpack no army buffs; ACTIVE grants; pack clears before
+     new ACTIVE; turret/stealth only while ACTIVE.
+   - Fail-closed: not full AI turret pitch/yaw angle matrix / VisionObjectName.
+2. **Bombardment turret recenter residual** (`recenterTurret` / `isTurretInNaturalPosition`):
+   - Leaving Bombardment while gun residual is non-natural (attacking / has target /
+     fired within **30** frames) delays pack by **TurretRecenterFrames = 30**.
+   - During recenter door stays ACTIVE (buffs still applied); then PACKING clears.
+   - Natural idle gun packs immediately.
+   - Fail-closed: not full pitch scan / natural-position angle matrix.
+3. Tests (not log-only):
+   - `strategy_center_delayed_set_battle_plan_and_turret_recenter_residual`
+   - updated door / buff / paralyze / turret / stealth residual tests
+   - module unit tests in `host_strategy_center` (BecameActive / BeganPacking /
+     recenter matrix / natural gate)
+
+**Still residual (fail-closed, not claimed):**
+- Full AI turret pitch/yaw natural-position angle matrix (recenter frame gate closed)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Network delayed-battle-plan / recenter replication (network deferred)
+
 ## Residual Host Playability — StealthDetector Enable + BattlePlan Door Animation (2026-07-13)
 **Closed (host-testable Strategy Center StealthDetectorUpdate + pack/unpack door residual):**
 1. **StealthDetectorUpdate residual** (`AmericaStrategyCenter` ModuleTag_16):
@@ -14,9 +45,9 @@
    - DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy.
    - Select → OPENING residual; after 210 frames → WAITING_TO_CLOSE (ACTIVE).
    - Plan switch → CLOSING residual → IDLE → new OPENING (TransitionIdleTime 0).
-   - Pack/unpack audio residual queued; army setBattlePlan buffs still immediate.
-   - Fail-closed: not full delayed ACTIVE-after-unpack setBattlePlan ordering /
-     Bombardment turret natural-position recenter before pack.
+   - Pack/unpack audio residual queued.
+   - Delayed setBattlePlan ordering closed 2026-07-13 (see Delayed setBattlePlan
+     ACTIVE + Turret Recenter section).
 3. Tests (not log-only):
    - `strategy_center_stealth_detector_enable_residual`
    - `strategy_center_battle_plan_door_animation_residual`
@@ -25,8 +56,10 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full BattlePlanUpdate delayed ACTIVE-after-unpack setBattlePlan ordering
-  (door residual closed 2026-07-13 — army buffs still immediate host residual)
+  (host residual closed 2026-07-13 — see Delayed setBattlePlan ACTIVE + Turret Recenter)
 - Full Bombardment turret natural-position recenter / pitch scan matrix
+  (recenter host residual closed 2026-07-13 — see Delayed setBattlePlan ACTIVE +
+  Turret Recenter; full pitch/yaw angle matrix still open)
 - Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
 - Full AmericaParachute sway / pitch-roll / DeliverPayload residual
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
@@ -55,8 +88,11 @@
 **Still residual (fail-closed, not claimed):**
 - Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
   (host residual closed 2026-07-13 — see StealthDetector Enable + BattlePlan Door Animation;
-  delayed setBattlePlan ordering still open)
+  delayed setBattlePlan ordering closed 2026-07-13 — see Delayed setBattlePlan ACTIVE +
+  Turret Recenter)
 - Full Bombardment turret natural-position recenter / pitch scan matrix
+  (recenter host residual closed 2026-07-13 — see Delayed setBattlePlan ACTIVE +
+  Turret Recenter; full pitch/yaw still open)
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
   (StealthDetector enable host residual closed 2026-07-13 — see StealthDetector + Door section;
   VisionObjectName still open / createVisionObject disabled in retail C++)

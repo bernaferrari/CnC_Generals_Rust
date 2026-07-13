@@ -33,12 +33,20 @@
 //!   **7000**ms → **210** frames for all three plans; TransitionIdleTime **0**.
 //!   Host tracks door residual OPENING → WAITING_TO_CLOSE → CLOSING per plan
 //!   (DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy).
-//!   Fail-closed: army setBattlePlan buffs still apply immediately (not full
-//!   delayed ACTIVE-after-unpack ordering / turret recenter before pack).
+//!
+//! - **Delayed ACTIVE-after-unpack setBattlePlan residual**: army buffs,
+//!   building bonuses, StealthDetector enable, and Bombardment turret equip
+//!   apply only when door residual reaches ACTIVE (WAITING_TO_CLOSE). Plan
+//!   switch begins PACKING → `setBattlePlan(NONE)` clears effects + paralyzes
+//!   troops; new plan applies after pack+unpack completes.
+//!
+//! - **Bombardment turret recenter residual**: when leaving Bombardment while
+//!   the gun residual is not "natural" (attacking / has target / recently
+//!   fired), host delays pack by **TurretRecenterFrames** (30) before CLOSING.
+//!   Fail-closed: not full AI turret pitch/yaw natural-position matrix.
 //!
 //! Fail-closed honesty:
-//! - Not full pack→NONE→unpack delayed setBattlePlan ordering (buffs immediate)
-//! - Not full turret recenter natural-position / pitch scan matrix
+//! - Not full AI turret pitch scan / natural-position angle matrix
 //! - Not full VisionObjectName spawn residual (createVisionObject disabled retail)
 //! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
@@ -122,6 +130,12 @@ pub const BATTLE_PLAN_ANIMATION_FRAMES: u32 = 210;
 /// Retail TransitionIdleTime (ms → frames; retail = 0).
 pub const BATTLE_PLAN_TRANSITION_IDLE_FRAMES: u32 = 0;
 
+/// Host residual Bombardment turret recenter wait before pack (1 second @ 30 FPS).
+///
+/// C++ waits for `isTurretInNaturalPosition` after `recenterTurret`. Host
+/// residual uses a fixed frame gate when the gun is not idle/natural.
+pub const BATTLE_PLAN_TURRET_RECENTER_FRAMES: u32 = 30;
+
 /// Residual pack/unpack audio event names (retail *PlanPack/UnpackSoundName).
 pub const BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO: &str = "StrategyCenter_BombardmentPlanUnpackSound";
 pub const BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO: &str = "StrategyCenter_BombardmentPlanPackSound";
@@ -190,6 +204,53 @@ pub fn strategy_center_stealth_detection_range_when_enabled() -> f32 {
     STRATEGY_CENTER_STEALTH_DETECTION_RANGE
 }
 
+/// Door residual lifecycle event for delayed setBattlePlan / audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostBattlePlanDoorEvent {
+    /// TRANSITIONSTATUS_ACTIVE — apply setBattlePlan(plan) residual.
+    BecameActive {
+        center_id: ObjectId,
+        player_id: u32,
+        plan: HostBattlePlan,
+    },
+    /// TRANSITIONSTATUS_PACKING — apply setBattlePlan(NONE) + paralyze residual.
+    BeganPacking {
+        center_id: ObjectId,
+        player_id: u32,
+    },
+    /// Pack/unpack audio residual to queue.
+    Audio {
+        center_id: ObjectId,
+        event: &'static str,
+    },
+    /// Bombardment turret recenter residual started (pack deferred).
+    BeganRecenter {
+        center_id: ObjectId,
+        player_id: u32,
+    },
+}
+
+/// Whether Bombardment turret residual is in natural position for pack.
+///
+/// C++ `isTurretInNaturalPosition` residual host gate: idle gun with no target
+/// and not recently fired. Fail-closed: not full pitch/yaw angle matrix.
+pub fn strategy_center_turret_is_natural(
+    is_attacking: bool,
+    has_target: bool,
+    last_fire_age_frames: Option<u32>,
+) -> bool {
+    if is_attacking || has_target {
+        return false;
+    }
+    // Recently fired residual: within recenter window frames.
+    if let Some(age) = last_fire_age_frames {
+        if age < BATTLE_PLAN_TURRET_RECENTER_FRAMES {
+            return false;
+        }
+    }
+    true
+}
+
 /// Per-Strategy-Center pack/unpack door residual bookkeeping.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostBattlePlanDoorState {
@@ -199,10 +260,13 @@ pub struct HostBattlePlanDoorState {
     /// Plan whose door residual is currently animating / active.
     pub door_plan: Option<HostBattlePlan>,
     pub door: HostBattlePlanDoor,
-    /// Frame when current OPENING/CLOSING residual completes.
+    /// Frame when current OPENING/CLOSING/recenter residual completes.
     pub next_ready_frame: u32,
     /// Desired plan waiting after pack residual (plan switch residual).
     pub desired_plan: Option<HostBattlePlan>,
+    /// Bombardment turret recenter residual in progress before pack.
+    #[serde(default)]
+    pub centering_turret: bool,
 }
 
 impl HostBattlePlanDoorState {
@@ -215,6 +279,7 @@ impl HostBattlePlanDoorState {
             door: HostBattlePlanDoor::None,
             next_ready_frame: 0,
             desired_plan: None,
+            centering_turret: false,
         }
     }
 
@@ -225,41 +290,61 @@ impl HostBattlePlanDoorState {
         self.door = plan.door_opening();
         self.next_ready_frame = battle_plan_animation_ready_frame(frame);
         self.desired_plan = Some(plan);
+        self.centering_turret = false;
     }
 
     /// Begin PACKING residual for current door plan at `frame` (door CLOSING).
-    pub fn begin_pack(&mut self, frame: u32, desired: Option<HostBattlePlan>) {
+    ///
+    /// Returns true when packing actually started (caller should emit BeganPacking).
+    pub fn begin_pack(&mut self, frame: u32, desired: Option<HostBattlePlan>) -> bool {
+        self.centering_turret = false;
         if let Some(plan) = self.door_plan {
             self.status = HostBattlePlanTransition::Packing;
             self.door = plan.door_closing();
             self.next_ready_frame = battle_plan_animation_ready_frame(frame);
             self.desired_plan = desired;
+            true
         } else {
             // No prior door residual — go idle then unpack desired.
             self.status = HostBattlePlanTransition::Idle;
             self.door = HostBattlePlanDoor::None;
             self.next_ready_frame = frame.saturating_add(BATTLE_PLAN_TRANSITION_IDLE_FRAMES);
             self.desired_plan = desired;
+            false
         }
+    }
+
+    /// Begin Bombardment turret recenter residual (pack deferred).
+    pub fn begin_recenter(&mut self, frame: u32, desired: Option<HostBattlePlan>) {
+        self.centering_turret = true;
+        self.desired_plan = desired;
+        self.next_ready_frame = frame.saturating_add(BATTLE_PLAN_TURRET_RECENTER_FRAMES.max(1));
+        // Stay ACTIVE / WAITING_TO_CLOSE while recentering.
+        self.status = HostBattlePlanTransition::Active;
     }
 
     /// Advance door residual when `frame >= next_ready_frame`.
     ///
-    /// Returns optional pack/unpack audio event name when a transition fires.
-    pub fn tick(&mut self, frame: u32) -> Option<&'static str> {
+    /// Returns residual events (BecameActive / BeganPacking / Audio).
+    pub fn tick(&mut self, frame: u32) -> Vec<HostBattlePlanDoorEvent> {
         if frame < self.next_ready_frame {
-            return None;
+            return Vec::new();
         }
+        let mut events = Vec::new();
         match self.status {
             HostBattlePlanTransition::Unpacking => {
-                // OPENING complete → ACTIVE / WAITING_TO_CLOSE.
+                // OPENING complete → ACTIVE / WAITING_TO_CLOSE + setBattlePlan(plan).
                 if let Some(plan) = self.door_plan {
                     self.status = HostBattlePlanTransition::Active;
                     self.door = plan.door_waiting();
                     self.next_ready_frame = frame; // stay active until pack
-                    return None;
+                    self.centering_turret = false;
+                    events.push(HostBattlePlanDoorEvent::BecameActive {
+                        center_id: self.center_id,
+                        player_id: self.player_id,
+                        plan,
+                    });
                 }
-                None
             }
             HostBattlePlanTransition::Packing => {
                 // CLOSING complete → IDLE (TransitionIdleTime = 0).
@@ -272,20 +357,43 @@ impl HostBattlePlanDoorState {
                 if let Some(desired) = self.desired_plan {
                     let audio = desired.unpack_audio();
                     self.begin_unpack(desired, frame);
-                    return Some(audio);
+                    events.push(HostBattlePlanDoorEvent::Audio {
+                        center_id: self.center_id,
+                        event: audio,
+                    });
                 }
-                None
             }
             HostBattlePlanTransition::Idle => {
                 if let Some(desired) = self.desired_plan {
                     let audio = desired.unpack_audio();
                     self.begin_unpack(desired, frame);
-                    return Some(audio);
+                    events.push(HostBattlePlanDoorEvent::Audio {
+                        center_id: self.center_id,
+                        event: audio,
+                    });
                 }
-                None
             }
-            HostBattlePlanTransition::Active => None,
+            HostBattlePlanTransition::Active => {
+                // Recenter complete → begin PACKING residual.
+                if self.centering_turret {
+                    let desired = self.desired_plan;
+                    let pack_audio = self.door_plan.map(|p| p.pack_audio());
+                    if self.begin_pack(frame, desired) {
+                        events.push(HostBattlePlanDoorEvent::BeganPacking {
+                            center_id: self.center_id,
+                            player_id: self.player_id,
+                        });
+                        if let Some(event) = pack_audio {
+                            events.push(HostBattlePlanDoorEvent::Audio {
+                                center_id: self.center_id,
+                                event,
+                            });
+                        }
+                    }
+                }
+            }
         }
+        events
     }
 }
 
@@ -592,6 +700,15 @@ pub struct HostBattlePlanRegistry {
     /// Door residual reached WAITING_TO_CLOSE (unpack complete residual).
     #[serde(default)]
     pub door_active_count: u32,
+    /// Delayed setBattlePlan apply residuals (BecameActive → army/building buffs).
+    #[serde(default)]
+    pub delayed_active_apply_count: u32,
+    /// setBattlePlan(NONE) clear residuals (BeganPacking).
+    #[serde(default)]
+    pub pack_clear_count: u32,
+    /// Bombardment turret recenter residual starts before pack.
+    #[serde(default)]
+    pub turret_recenter_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -648,6 +765,18 @@ impl HostBattlePlanRegistry {
         self.door_active_count
     }
 
+    pub fn delayed_active_apply_count(&self) -> u32 {
+        self.delayed_active_apply_count
+    }
+
+    pub fn pack_clear_count(&self) -> u32 {
+        self.pack_clear_count
+    }
+
+    pub fn turret_recenter_count(&self) -> u32 {
+        self.turret_recenter_count
+    }
+
     pub fn record_turret_fire(&mut self, units_hit: u32) {
         self.turret_fire_count = self.turret_fire_count.saturating_add(1);
         self.turret_units_hit = self.turret_units_hit.saturating_add(units_hit);
@@ -660,6 +789,27 @@ impl HostBattlePlanRegistry {
     pub fn record_stealth_detector_disable(&mut self) {
         self.stealth_detector_disable_count =
             self.stealth_detector_disable_count.saturating_add(1);
+    }
+
+    pub fn record_delayed_active_apply(&mut self) {
+        self.delayed_active_apply_count = self.delayed_active_apply_count.saturating_add(1);
+    }
+
+    pub fn record_pack_clear(&mut self) {
+        self.pack_clear_count = self.pack_clear_count.saturating_add(1);
+    }
+
+    pub fn record_turret_recenter(&mut self) {
+        self.turret_recenter_count = self.turret_recenter_count.saturating_add(1);
+    }
+
+    /// Record army buff / building / paralyze honesty after delayed ACTIVE apply.
+    pub fn record_effect_application(&mut self, buffs: u32, building_bonus: bool, paralyzed: u32) {
+        self.buff_count = self.buff_count.saturating_add(buffs);
+        if building_bonus {
+            self.building_bonus_count = self.building_bonus_count.saturating_add(1);
+        }
+        self.paralyze_count = self.paralyze_count.saturating_add(paralyzed);
     }
 
     pub fn selections(&self) -> &[HostBattlePlanSelection] {
@@ -677,20 +827,27 @@ impl HostBattlePlanRegistry {
 
     /// Start pack/unpack door residual for a plan selection on a center.
     ///
-    /// First select → UNPACKING (OPENING). Plan switch from Active → PACKING then
-    /// UNPACKING of desired (TransitionIdleTime 0 residual).
+    /// First select → UNPACKING (OPENING). Plan switch from Active → PACKING
+    /// (or recenter then PACKING for Bombardment) then UNPACKING of desired
+    /// (TransitionIdleTime 0 residual).
+    ///
+    /// `turret_natural`: when leaving Bombardment Active, if false host starts
+    /// recenter residual before pack (C++ isTurretInNaturalPosition gate).
+    ///
+    /// Returns residual events emitted immediately (Audio / BeganPacking / BeganRecenter).
     pub fn begin_door_residual(
         &mut self,
         center_id: ObjectId,
         player_id: u32,
         plan: HostBattlePlan,
         frame: u32,
-    ) -> Option<&'static str> {
+        turret_natural: bool,
+    ) -> Vec<HostBattlePlanDoorEvent> {
         let existing = self
             .door_states
             .iter()
             .position(|s| s.center_id == center_id);
-        let audio;
+        let mut events = Vec::new();
         match existing {
             Some(idx) => {
                 let state = &mut self.door_states[idx];
@@ -698,21 +855,45 @@ impl HostBattlePlanRegistry {
                     && state.door_plan.is_some()
                     && state.door_plan != Some(plan)
                 {
-                    // Pack current door residual, then unpack desired after 210 frames.
-                    let pack_audio = state.door_plan.map(|p| p.pack_audio());
-                    state.begin_pack(frame, Some(plan));
-                    self.door_transition_count = self.door_transition_count.saturating_add(1);
-                    audio = pack_audio;
+                    // Leaving Bombardment with non-natural turret → recenter first.
+                    if state.door_plan == Some(HostBattlePlan::Bombardment) && !turret_natural {
+                        state.begin_recenter(frame, Some(plan));
+                        self.turret_recenter_count =
+                            self.turret_recenter_count.saturating_add(1);
+                        events.push(HostBattlePlanDoorEvent::BeganRecenter {
+                            center_id,
+                            player_id,
+                        });
+                    } else {
+                        // Pack current door residual, then unpack desired after 210 frames.
+                        let pack_audio = state.door_plan.map(|p| p.pack_audio());
+                        if state.begin_pack(frame, Some(plan)) {
+                            self.door_transition_count =
+                                self.door_transition_count.saturating_add(1);
+                            events.push(HostBattlePlanDoorEvent::BeganPacking {
+                                center_id,
+                                player_id,
+                            });
+                            if let Some(event) = pack_audio {
+                                events.push(HostBattlePlanDoorEvent::Audio { center_id, event });
+                            }
+                        }
+                    }
                 } else if state.status == HostBattlePlanTransition::Active
                     && state.door_plan == Some(plan)
                 {
                     // Same plan re-select residual: no door change.
-                    audio = None;
+                } else if state.centering_turret {
+                    // Mid-recenter: update desired plan residual only.
+                    state.desired_plan = Some(plan);
                 } else {
                     // Idle / mid-transition fail-closed: begin unpack of plan.
                     state.begin_unpack(plan, frame);
                     self.door_transition_count = self.door_transition_count.saturating_add(1);
-                    audio = Some(plan.unpack_audio());
+                    events.push(HostBattlePlanDoorEvent::Audio {
+                        center_id,
+                        event: plan.unpack_audio(),
+                    });
                 }
             }
             None => {
@@ -720,26 +901,50 @@ impl HostBattlePlanRegistry {
                 state.begin_unpack(plan, frame);
                 self.door_states.push(state);
                 self.door_transition_count = self.door_transition_count.saturating_add(1);
-                audio = Some(plan.unpack_audio());
+                events.push(HostBattlePlanDoorEvent::Audio {
+                    center_id,
+                    event: plan.unpack_audio(),
+                });
             }
         }
-        audio
+        events
     }
 
-    /// Tick all door residuals; returns unpack audio events to play.
-    pub fn tick_door_residuals(&mut self, frame: u32) -> Vec<(ObjectId, &'static str)> {
+    /// Tick all door residuals; returns lifecycle events (apply/clear/audio).
+    pub fn tick_door_residuals(&mut self, frame: u32) -> Vec<HostBattlePlanDoorEvent> {
         let mut events = Vec::new();
         for state in &mut self.door_states {
             let before = state.status;
-            if let Some(audio) = state.tick(frame) {
-                events.push((state.center_id, audio));
-                self.door_transition_count = self.door_transition_count.saturating_add(1);
+            let tick_events = state.tick(frame);
+            for ev in &tick_events {
+                match ev {
+                    HostBattlePlanDoorEvent::Audio { .. } => {
+                        self.door_transition_count =
+                            self.door_transition_count.saturating_add(1);
+                    }
+                    HostBattlePlanDoorEvent::BecameActive { .. } => {
+                        self.door_active_count = self.door_active_count.saturating_add(1);
+                    }
+                    HostBattlePlanDoorEvent::BeganPacking { .. } => {
+                        self.door_transition_count =
+                            self.door_transition_count.saturating_add(1);
+                    }
+                    HostBattlePlanDoorEvent::BeganRecenter { .. } => {
+                        self.turret_recenter_count =
+                            self.turret_recenter_count.saturating_add(1);
+                    }
+                }
             }
+            // Also count Unpacking→Active if BecameActive was emitted.
             if before == HostBattlePlanTransition::Unpacking
                 && state.status == HostBattlePlanTransition::Active
+                && !tick_events
+                    .iter()
+                    .any(|e| matches!(e, HostBattlePlanDoorEvent::BecameActive { .. }))
             {
                 self.door_active_count = self.door_active_count.saturating_add(1);
             }
+            events.extend(tick_events);
         }
         events
     }
@@ -773,15 +978,25 @@ impl HostBattlePlanRegistry {
         id
     }
 
-    /// Record a successful residual battle-plan selection.
-    pub fn record_selection(&mut self, selection: HostBattlePlanSelection) {
+    /// Record a residual battle-plan selection intent.
+    ///
+    /// Delayed ACTIVE residual: pass buffs/building/paralyzed = 0 here; call
+    /// `record_effect_application` + `set_active_plan` when door becomes ACTIVE.
+    /// Immediate residual (no center): pass applied counts and set_active=true.
+    pub fn record_selection(
+        &mut self,
+        selection: HostBattlePlanSelection,
+        set_active: bool,
+    ) {
         self.selection_count = self.selection_count.saturating_add(1);
         self.buff_count = self.buff_count.saturating_add(selection.buffs);
         if selection.building_bonus {
             self.building_bonus_count = self.building_bonus_count.saturating_add(1);
         }
         self.paralyze_count = self.paralyze_count.saturating_add(selection.paralyzed);
-        self.set_active_plan(selection.player_id, selection.plan);
+        if set_active {
+            self.set_active_plan(selection.player_id, selection.plan);
+        }
         self.selections.push(selection);
         // Keep bookkeeping bounded (residual, not full history Xfer).
         if self.selections.len() > 32 {
@@ -823,6 +1038,21 @@ impl HostBattlePlanRegistry {
     /// Residual honesty: door residual reached ACTIVE / WAITING_TO_CLOSE.
     pub fn honesty_door_active_ok(&self) -> bool {
         self.door_active_count > 0
+    }
+
+    /// Residual honesty: delayed setBattlePlan applied at least once after unpack.
+    pub fn honesty_delayed_active_apply_ok(&self) -> bool {
+        self.delayed_active_apply_count > 0
+    }
+
+    /// Residual honesty: setBattlePlan(NONE) pack-clear residual fired at least once.
+    pub fn honesty_pack_clear_ok(&self) -> bool {
+        self.pack_clear_count > 0
+    }
+
+    /// Residual honesty: Bombardment turret recenter residual started at least once.
+    pub fn honesty_turret_recenter_ok(&self) -> bool {
+        self.turret_recenter_count > 0
     }
 
     /// Combined host path: selected and applied at least one army buff.
@@ -886,6 +1116,7 @@ mod tests {
         assert_eq!(BATTLE_PLAN_ANIMATION_TIME_MS, 7000);
         assert_eq!(BATTLE_PLAN_ANIMATION_FRAMES, 210);
         assert_eq!(BATTLE_PLAN_TRANSITION_IDLE_FRAMES, 0);
+        assert_eq!(BATTLE_PLAN_TURRET_RECENTER_FRAMES, 30);
         assert_eq!(battle_plan_animation_frames_from_ms(7000), 210);
         assert_eq!(battle_plan_animation_ready_frame(10), 220);
         assert_eq!(
@@ -900,6 +1131,12 @@ mod tests {
             HostBattlePlan::SearchAndDestroy.door_closing(),
             HostBattlePlanDoor::Door3Closing
         );
+        // Turret natural-position residual gate.
+        assert!(strategy_center_turret_is_natural(false, false, None));
+        assert!(strategy_center_turret_is_natural(false, false, Some(30)));
+        assert!(!strategy_center_turret_is_natural(true, false, None));
+        assert!(!strategy_center_turret_is_natural(false, true, None));
+        assert!(!strategy_center_turret_is_natural(false, false, Some(5)));
     }
 
     #[test]
@@ -910,41 +1147,122 @@ mod tests {
         assert_eq!(state.door, HostBattlePlanDoor::Door1Opening);
         assert_eq!(state.next_ready_frame, BATTLE_PLAN_ANIMATION_FRAMES);
         // Mid-animation: no transition.
-        assert!(state.tick(100).is_none());
+        assert!(state.tick(100).is_empty());
         assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
-        // Animation complete → ACTIVE / WAITING_TO_CLOSE.
-        assert!(state.tick(BATTLE_PLAN_ANIMATION_FRAMES).is_none());
+        // Animation complete → ACTIVE / WAITING_TO_CLOSE + BecameActive.
+        let events = state.tick(BATTLE_PLAN_ANIMATION_FRAMES);
         assert_eq!(state.status, HostBattlePlanTransition::Active);
         assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                HostBattlePlanDoorEvent::BecameActive {
+                    plan: HostBattlePlan::Bombardment,
+                    ..
+                }
+            )),
+            "unpack complete must emit BecameActive residual"
+        );
     }
 
     #[test]
     fn door_residual_pack_then_unpack_switch_matrix() {
         let mut reg = HostBattlePlanRegistry::new();
         let cid = ObjectId(7);
-        let audio = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0);
-        assert_eq!(audio, Some(BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO));
+        let events = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0, true);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                HostBattlePlanDoorEvent::Audio {
+                    event: BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO,
+                    ..
+                }
+            ))
+        );
         assert!(reg.honesty_door_residual_ok());
         // Complete unpack residual.
-        let _ = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
+        let events = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
         assert!(reg.honesty_door_active_ok());
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                HostBattlePlanDoorEvent::BecameActive {
+                    plan: HostBattlePlan::Bombardment,
+                    ..
+                }
+            ))
+        );
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Active);
         assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
-        // Switch to HoldTheLine → PACKING door1 CLOSING.
-        let pack_audio =
-            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300);
-        assert_eq!(pack_audio, Some(BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO));
+        // Switch to HoldTheLine with natural turret → PACKING door1 CLOSING.
+        let pack_events =
+            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300, true);
+        assert!(
+            pack_events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
+        );
+        assert!(
+            pack_events.iter().any(|e| matches!(
+                e,
+                HostBattlePlanDoorEvent::Audio {
+                    event: BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO,
+                    ..
+                }
+            ))
+        );
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Packing);
         assert_eq!(state.door, HostBattlePlanDoor::Door1Closing);
         // Pack complete → idle → unpack HoldTheLine (TransitionIdleTime 0).
         let events = reg.tick_door_residuals(300 + BATTLE_PLAN_ANIMATION_FRAMES);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].1, BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                HostBattlePlanDoorEvent::Audio {
+                    event: BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO,
+                    ..
+                }
+            ))
+        );
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
         assert_eq!(state.door, HostBattlePlanDoor::Door2Opening);
+    }
+
+    #[test]
+    fn door_residual_bombardment_recenter_before_pack_matrix() {
+        let mut reg = HostBattlePlanRegistry::new();
+        let cid = ObjectId(9);
+        let _ = reg.begin_door_residual(cid, 0, HostBattlePlan::Bombardment, 0, true);
+        let _ = reg.tick_door_residuals(BATTLE_PLAN_ANIMATION_FRAMES);
+        // Non-natural turret → recenter residual (pack deferred).
+        let events =
+            reg.begin_door_residual(cid, 0, HostBattlePlan::HoldTheLine, 300, false);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganRecenter { .. }))
+        );
+        assert!(reg.honesty_turret_recenter_ok());
+        let state = reg.door_state_for_center(cid).unwrap();
+        assert!(state.centering_turret);
+        assert_eq!(state.status, HostBattlePlanTransition::Active);
+        assert_eq!(
+            state.next_ready_frame,
+            300 + BATTLE_PLAN_TURRET_RECENTER_FRAMES
+        );
+        // Recenter complete → PACKING.
+        let events = reg.tick_door_residuals(300 + BATTLE_PLAN_TURRET_RECENTER_FRAMES);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
+        );
+        let state = reg.door_state_for_center(cid).unwrap();
+        assert_eq!(state.status, HostBattlePlanTransition::Packing);
+        assert!(!state.centering_turret);
     }
 
     #[test]
@@ -1031,16 +1349,19 @@ mod tests {
         let mut reg = HostBattlePlanRegistry::new();
         assert!(!reg.honesty_host_path_ok());
         let id = reg.alloc_id();
-        reg.record_selection(HostBattlePlanSelection {
-            id,
-            player_id: 0,
-            plan: HostBattlePlan::Bombardment,
-            activate_frame: 0,
-            strategy_center_id: None,
-            buffs: 2,
-            building_bonus: true,
-            paralyzed: 2,
-        });
+        reg.record_selection(
+            HostBattlePlanSelection {
+                id,
+                player_id: 0,
+                plan: HostBattlePlan::Bombardment,
+                activate_frame: 0,
+                strategy_center_id: None,
+                buffs: 2,
+                building_bonus: true,
+                paralyzed: 2,
+            },
+            true,
+        );
         assert!(reg.honesty_select_ok());
         assert!(reg.honesty_buff_ok());
         assert!(reg.honesty_paralyze_ok());
