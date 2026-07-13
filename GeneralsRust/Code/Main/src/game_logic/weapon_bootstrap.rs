@@ -149,6 +149,13 @@ pub const SCORPION_MISSILE_WEAPON: &str = "ScorpionMissileWeapon";
 /// Retail America Tomahawk residual weapon.
 pub const TOMAHAWK_MISSILE_WEAPON: &str = "TomahawkMissileWeapon";
 
+/// USA Raptor jet residual.
+pub const RAPTOR_JET_MISSILE_WEAPON: &str = "RaptorJetMissileWeapon";
+pub const AIRF_RAPTOR_JET_MISSILE_WEAPON: &str = "AirF_RaptorJetMissileWeapon";
+
+/// USA Battle Drone residual.
+pub const BATTLE_DRONE_MACHINE_GUN: &str = "BattleDroneMachineGun";
+
 /// Retail China Overlord / Emperor residual main gun.
 pub const OVERLORD_TANK_GUN: &str = "OverlordTankGun";
 
@@ -378,6 +385,20 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "USA_TomahawkLauncher"
         | "TestTomahawk"
         | "SupW_AmericaVehicleTomahawk" => Some(TOMAHAWK_MISSILE_WEAPON),
+        // AmericaJetRaptor residual missiles (King Raptor uses AirF weapon).
+        "AmericaJetRaptor"
+        | "USA_Raptor"
+        | "TestRaptor"
+        | "SupW_AmericaJetRaptor"
+        | "Lazr_AmericaJetRaptor" => Some(RAPTOR_JET_MISSILE_WEAPON),
+        "AirF_AmericaJetRaptor" | "TestKingRaptor" => Some(AIRF_RAPTOR_JET_MISSILE_WEAPON),
+        // AmericaVehicleBattleDrone residual MG.
+        "AmericaVehicleBattleDrone"
+        | "USA_BattleDrone"
+        | "TestBattleDrone"
+        | "SupW_AmericaVehicleBattleDrone"
+        | "AirF_AmericaVehicleBattleDrone"
+        | "Lazr_AmericaVehicleBattleDrone" => Some(BATTLE_DRONE_MACHINE_GUN),
         // China Overlord / Emperor residual main gun.
         "ChinaTankOverlord"
         | "China_OverlordTank"
@@ -497,6 +518,13 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 return Some(TOMAHAWK_MISSILE_WEAPON);
+            }
+            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
+                let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
+                return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
+            }
+            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
+                return Some(BATTLE_DRONE_MACHINE_GUN);
             }
             if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
                 return Some(OVERLORD_TANK_GUN);
@@ -984,6 +1012,35 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 2,
             weapon_speed: 1000.0,
         },
+        // RaptorJetMissileWeapon PRIMARY — PrimaryDamage 100, Range 320, min 100,
+        // Delay 150ms → 5 frames. ClipSize 4 honesty.
+        SeedWeapon {
+            name: RAPTOR_JET_MISSILE_WEAPON,
+            primary_damage: 100.0,
+            attack_range: 320.0,
+            delay_frames: 5,
+            clip_size: 4,
+            weapon_speed: 1000.0,
+        },
+        // AirF_RaptorJetMissileWeapon — PrimaryDamage 125, Range 350, Delay 75ms → 3 frames.
+        SeedWeapon {
+            name: AIRF_RAPTOR_JET_MISSILE_WEAPON,
+            primary_damage: 125.0,
+            attack_range: 350.0,
+            delay_frames: 3,
+            clip_size: 6,
+            weapon_speed: 1000.0,
+        },
+        // BattleDroneMachineGun — PrimaryDamage 1, Range 110, Delay 100ms → 3 frames.
+        SeedWeapon {
+            name: BATTLE_DRONE_MACHINE_GUN,
+            primary_damage: 1.0,
+            attack_range: 110.0,
+            delay_frames: 3,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
         // AttackRange 125. KILL_GARRISONED residual via host combat path.
         SeedWeapon {
