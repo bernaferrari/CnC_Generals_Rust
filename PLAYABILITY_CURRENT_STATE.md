@@ -1225,9 +1225,32 @@
 **Still residual (fail-closed, not claimed):**
 - Full C++ capture progress bar / SpecialAbilityUpdate packing / prep duration
 - Object defection flash / undetected-defector helper timing
-- Black Lotus special capture path parity beyond hero gate residual
 - Network capture replication (network deferred)
 - Full ActionManager canCaptureBuilding edge matrix (stealthed, garrison, etc.)
+
+## Residual Host Playability — Black Lotus Specials (2026-07-13)
+**Closed (host-testable Lotus Capture / StealCash / DisableVehicle residual):**
+1. Template gate: `is_black_lotus_template` (ChinaInfantryBlackLotus / TestBlackLotus / general variants).
+2. **CaptureBuilding** without infantry Capture research (hero + Lotus residual); StartAbilityRange **150**;
+   reuses Capturing ownership-transfer residual + honesty `building_captures`.
+3. **StealCashHack**: only Lotus; cash-generator targets only (supply / black market / drop zone /
+   TestBuilding residual); amount **1000**; range **150**; honesty `cash_steals` / `cash_stolen_total`.
+4. **DisableVehicleHack**: only Lotus; enemy manned ground vehicle → DISABLED_HACKED for **900** frames;
+   range **150**; honesty `vehicle_disables`.
+5. Fail-closed: non-Lotus units cannot issue StealCash / DisableVehicle; non-cash structures reject steal.
+6. Tests (not log-only):
+   - `black_lotus_capture_building_without_upgrade`
+   - `steal_cash_hack_command_transfers_cash_after_reach`
+   - `steal_cash_hack_rejects_non_lotus_and_non_cash_targets`
+   - `disable_vehicle_hack_command_disables_after_reach`
+   - `disable_vehicle_hack_rejects_non_lotus`
+   - host_hero_abilities module unit tests
+
+**Still residual (fail-closed, not claimed):**
+- Full SpecialAbilityUpdate Unpack/Pack/Prep timers + laser FX interleave
+- CashHack science upgrade money matrix (2000 / 4000)
+- One-at-a-time Lotus special busy matrix
+- Network special replication (network deferred)
 
 ## Residual Host Playability — Campaign SinglePlayer Path (2026-07-12)
 **Closed (host-testable campaign residual):**
