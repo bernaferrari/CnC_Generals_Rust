@@ -1,3 +1,38 @@
+## Residual Host Playability — InGameUI Floating Text Freeze + MoneyPickUp Anim2D Presentation (2026-07-13)
+**Closed (host-testable presentation residual not covered by laser SegLine / ControlBar dual-tick):**
+1. **PresentationFrame floating text freeze residual** (`presentation_frame`):
+   - Freeze host residual registries into snapshot-owned `PresentationFloatingText`:
+     oil derrick / black market AutoDeposit, HackInternet, CashBounty, MoneyCrate.
+   - Retail timeout residual: `DEFAULT_FLOATING_TEXT_TIMEOUT` = **10** frames
+     (`LOGICFRAMES_PER_SECOND/3`); move-up **1.0**, vanish rate **0.1**.
+   - Stable sort by spawn frame / source id / kind; included in `presentation_hash`.
+   - Host inject helpers for dual-tick freeze tests (`push_residual_*_for_presentation`).
+   - Fail-closed: not full DisplayString GPU / Unicode GameText localization.
+2. **MoneyPickUp Anim2D world-anim freeze residual** (`presentation_frame`):
+   - Freeze `HostMoneyPickUpAnim` → `PresentationWorldAnim` (template MoneyPickUp,
+     display **4.0**s, ZRise **15**, fades **Yes**).
+   - Honesty: `world_anim_presentation_ok` (empty honest; non-empty template check).
+   - Fail-closed: not full Anim2DCollection GPU / WORLD_ANIM_FADE_ON_EXPIRE draw.
+3. **CPU floating-text layout pack residual** (`graphics/floating_text_layout`):
+   - Interleaved layout samples: pos + lift_y + color + alpha + amount + age/timeout.
+   - Move-up / vanish residual matches C++ `updateFloatingText` / `drawFloatingText`.
+   - Honesty: `cpu_pack_ok` / `has_geometry` / `gpu_upload_ready` (ready mark only).
+   - Shell smoke: empty host pack + synthetic cash geometry pack residual.
+4. Tests (not log-only):
+   - `presentation_frame_freezes_floating_text_and_world_anim`
+   - `graphics::floating_text_layout::*` (empty / synthetic / vanish)
+   - shell_smoke residual flags `floating_text_layout_ok` + `world_anim_presentation_ok`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full DisplayString GPU raster / font atlas submit for floating cash
+- Full Unicode GameText localization of `GUI:AddCash`
+- Full Anim2DCollection GPU / world-anim draw path
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / model-condition CONTINUOUS_FIRE_*
+- Network floating-text / world-anim residual replication (network deferred)
+
 ## Residual Host Playability — PUC DamagePulseRemnant + Spectre CONTINUOUS_FIRE ModelCondition (2026-07-13)
 **Closed (host-testable combat/power residual not covered by wave 16 swath/VoiceRapidFire):**
 1. **Particle Uplink DamagePulseRemnant trail residual** (`special_power_strikes` /

@@ -274,6 +274,238 @@ impl PresentationLaserBeam {
     }
 }
 
+/// C++ `DEFAULT_FLOATING_TEXT_TIMEOUT = LOGICFRAMES_PER_SECOND / 3` → **10** frames.
+pub const PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES: u32 = 10;
+/// C++ `m_floatingTextMoveUpSpeed` default (world units per logic frame, draw residual).
+pub const PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED: f32 = 1.0;
+/// C++ `m_floatingTextMoveVanishRate` default (alpha decay residual after timeout).
+pub const PRESENTATION_FLOATING_TEXT_VANISH_RATE: f32 = 0.1;
+
+/// Source residual family for frozen floating cash / caption text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum PresentationFloatingTextKind {
+    /// AutoDepositUpdate (oil derrick / black market).
+    AutoDeposit,
+    /// HackInternet / Internet Center floating cash.
+    Hacker,
+    /// CashBounty kill bounty floating cash.
+    CashBounty,
+    /// MoneyCrateCollide pickup floating cash.
+    MoneyCrate,
+}
+
+/// Snapshot-owned InGameUI::addFloatingText residual for dual-tick consumers.
+///
+/// Built only from host residual registries at presentation build time so the
+/// UI / GPU layout pack path does not re-read live GameLogic mid-render.
+/// Fail-closed: not full DisplayString GPU draw / Unicode GameText localization.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationFloatingText {
+    pub kind: PresentationFloatingTextKind,
+    pub text: String,
+    pub text_key: String,
+    pub position: Vec3,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub amount: u32,
+    pub spawn_frame: u32,
+    /// Source object (derrick / hacker / killer / crate).
+    pub source_id: ObjectId,
+    /// Frame when residual times out (`spawn + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES`).
+    pub timeout_frame: u32,
+}
+
+impl PresentationFloatingText {
+    pub fn from_parts(
+        kind: PresentationFloatingTextKind,
+        text: String,
+        text_key: String,
+        position: Vec3,
+        color_rgba: (u8, u8, u8, u8),
+        amount: u32,
+        spawn_frame: u32,
+        source_id: ObjectId,
+    ) -> Self {
+        Self {
+            kind,
+            text,
+            text_key,
+            position,
+            color_rgba,
+            amount,
+            spawn_frame,
+            source_id,
+            timeout_frame: spawn_frame.saturating_add(PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES),
+        }
+    }
+
+    /// True while C++ keeps the entry before vanish-phase erase residual.
+    pub fn is_active_at(&self, logic_frame: u32) -> bool {
+        logic_frame < self.timeout_frame
+    }
+
+    /// Synthetic cash residual for host-testable floating-text pack honesty.
+    pub fn synthetic_cash(amount: u32, spawn_frame: u32) -> Self {
+        Self::from_parts(
+            PresentationFloatingTextKind::MoneyCrate,
+            format!("+${amount}"),
+            "GUI:AddCash".into(),
+            Vec3::new(10.0, 20.0, 5.0),
+            (0, 255, 0, 255),
+            amount,
+            spawn_frame,
+            ObjectId(7001),
+        )
+    }
+}
+
+/// Snapshot-owned InGameUI::addWorldAnimation residual (MoneyPickUp Anim2D family).
+///
+/// Fail-closed: not full Anim2DCollection GPU / WORLD_ANIM_FADE_ON_EXPIRE draw.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationWorldAnim {
+    pub template: String,
+    pub position: Vec3,
+    pub display_time_seconds: f32,
+    pub z_rise_per_second: f32,
+    pub fades: bool,
+    pub spawn_frame: u32,
+    pub crate_id: ObjectId,
+    pub picker_id: ObjectId,
+}
+
+impl PresentationWorldAnim {
+    pub fn from_money_pickup(
+        anim: &crate::game_logic::host_money_crate::HostMoneyPickUpAnim,
+    ) -> Self {
+        Self {
+            template: anim.template.clone(),
+            position: anim.position,
+            display_time_seconds: anim.display_time_seconds,
+            z_rise_per_second: anim.z_rise_per_second,
+            fades: anim.fades,
+            spawn_frame: anim.spawn_frame,
+            crate_id: anim.crate_id,
+            picker_id: anim.picker_id,
+        }
+    }
+
+    /// Synthetic MoneyPickUp residual for host-testable world-anim pack honesty.
+    pub fn synthetic_money_pickup(spawn_frame: u32) -> Self {
+        Self {
+            template: crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_TEMPLATE.to_string(),
+            position: Vec3::new(12.0, 0.0, 8.0),
+            display_time_seconds:
+                crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_DISPLAY_TIME_SECONDS,
+            z_rise_per_second:
+                crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_Z_RISE_PER_SECOND,
+            fades: crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_FADES,
+            spawn_frame,
+            crate_id: ObjectId(8001),
+            picker_id: ObjectId(8002),
+        }
+    }
+
+    /// Display duration residual in logic frames (30 Hz).
+    pub fn display_frames(&self) -> u32 {
+        (self.display_time_seconds * 30.0).ceil().max(1.0) as u32
+    }
+
+    pub fn is_active_at(&self, logic_frame: u32) -> bool {
+        logic_frame < self.spawn_frame.saturating_add(self.display_frames())
+    }
+}
+
+/// Collect host residual floating texts into a stable presentation list.
+fn collect_presentation_floating_texts(logic: &GameLogic) -> Vec<PresentationFloatingText> {
+    let mut out = Vec::new();
+
+    for t in &logic.oil_derricks().floating_texts {
+        out.push(PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::AutoDeposit,
+            t.text.clone(),
+            t.text_key.clone(),
+            t.position,
+            t.color_rgba,
+            t.amount,
+            t.spawn_frame,
+            t.source_id,
+        ));
+    }
+    for t in &logic.black_markets().floating_texts {
+        out.push(PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::AutoDeposit,
+            t.text.clone(),
+            t.text_key.clone(),
+            t.position,
+            t.color_rgba,
+            t.amount,
+            t.spawn_frame,
+            t.source_id,
+        ));
+    }
+    for t in &logic.hacker_income().floating_texts {
+        out.push(PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::Hacker,
+            t.text.clone(),
+            t.text_key.clone(),
+            t.position,
+            t.color_rgba,
+            t.amount,
+            t.spawn_frame,
+            t.hacker_id,
+        ));
+    }
+    for t in &logic.cash_bounty_registry().floating_texts {
+        out.push(PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::CashBounty,
+            t.text.clone(),
+            t.text_key.clone(),
+            t.position,
+            t.color_rgba,
+            t.amount,
+            t.spawn_frame,
+            t.killer_id,
+        ));
+    }
+    for t in &logic.host_money_crates().money_floating_texts {
+        out.push(PresentationFloatingText::from_parts(
+            PresentationFloatingTextKind::MoneyCrate,
+            t.text.clone(),
+            t.text_key.clone(),
+            t.position,
+            t.color_rgba,
+            t.amount,
+            t.spawn_frame,
+            t.crate_id,
+        ));
+    }
+
+    // Stable presentation order: spawn frame then source id then kind.
+    out.sort_by(|a, b| {
+        a.spawn_frame
+            .cmp(&b.spawn_frame)
+            .then(a.source_id.0.cmp(&b.source_id.0))
+            .then(a.kind.cmp(&b.kind))
+    });
+    out
+}
+
+fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<PresentationWorldAnim> {
+    let mut out: Vec<PresentationWorldAnim> = logic
+        .host_money_crates()
+        .money_pickup_anims
+        .iter()
+        .map(PresentationWorldAnim::from_money_pickup)
+        .collect();
+    out.sort_by(|a, b| {
+        a.spawn_frame
+            .cmp(&b.spawn_frame)
+            .then(a.crate_id.0.cmp(&b.crate_id.0))
+            .then(a.picker_id.0.cmp(&b.picker_id.0))
+    });
+    out
+}
+
 /// Immutable feed for GameClient / renderer after each authoritative logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
@@ -300,6 +532,12 @@ pub struct PresentationFrame {
     /// Frozen so WGPU laser segment pack does not re-read live host mid-render.
     /// Fail-closed: not full SegLineRenderer GPU texture draw.
     pub laser_beams: Vec<PresentationLaserBeam>,
+    /// InGameUI floating cash / caption texts frozen from host residual registries.
+    /// Fail-closed: not full DisplayString GPU / Unicode GameText draw.
+    pub floating_texts: Vec<PresentationFloatingText>,
+    /// InGameUI world animations (MoneyPickUp Anim2D residual) frozen from host.
+    /// Fail-closed: not full Anim2DCollection GPU draw.
+    pub world_anims: Vec<PresentationWorldAnim>,
 }
 
 impl PresentationFrame {
@@ -383,6 +621,10 @@ impl PresentationFrame {
             .map(|(i, l)| PresentationLaserBeam::from_host_laser(l, i as u32, 0.0))
             .collect();
 
+        // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.
+        let floating_texts = collect_presentation_floating_texts(logic);
+        let world_anims = collect_presentation_world_anims(logic);
+
         let mut events = Vec::new();
         for (id, team) in logic.combat_particles().destroyed_this_frame() {
             events.push(PresentationEvent::ObjectDestroyed {
@@ -416,6 +658,8 @@ impl PresentationFrame {
             fow_grid,
             particle_systems,
             laser_beams,
+            floating_texts,
+            world_anims,
         }
     }
 
@@ -465,6 +709,25 @@ impl PresentationFrame {
             beam.to_id.0.hash(&mut h);
             beam.segments.len().hash(&mut h);
             beam.scroll_offset.to_bits().hash(&mut h);
+        }
+        self.floating_texts.len().hash(&mut h);
+        for ft in &self.floating_texts {
+            ft.kind.hash(&mut h);
+            ft.text.hash(&mut h);
+            ft.amount.hash(&mut h);
+            ft.spawn_frame.hash(&mut h);
+            ft.source_id.0.hash(&mut h);
+            ft.position.x.to_bits().hash(&mut h);
+            ft.position.y.to_bits().hash(&mut h);
+            ft.position.z.to_bits().hash(&mut h);
+        }
+        self.world_anims.len().hash(&mut h);
+        for wa in &self.world_anims {
+            wa.template.hash(&mut h);
+            wa.spawn_frame.hash(&mut h);
+            wa.crate_id.0.hash(&mut h);
+            wa.picker_id.0.hash(&mut h);
+            wa.display_time_seconds.to_bits().hash(&mut h);
         }
         h.finish()
     }
@@ -562,6 +825,64 @@ impl PresentationFrame {
     /// True when at least one residual laser beam is frozen on this frame.
     pub fn has_active_lasers(&self) -> bool {
         !self.laser_beams.is_empty()
+    }
+
+    /// Frozen InGameUI floating texts (host residual observe path).
+    pub fn floating_texts(&self) -> &[PresentationFloatingText] {
+        &self.floating_texts
+    }
+
+    /// Floating texts still within residual timeout at `frame` (or this frame).
+    pub fn active_floating_texts_at(&self, logic_frame: u32) -> Vec<&PresentationFloatingText> {
+        self.floating_texts
+            .iter()
+            .filter(|t| t.is_active_at(logic_frame))
+            .collect()
+    }
+
+    /// True when at least one floating text is frozen on this frame.
+    pub fn has_floating_texts(&self) -> bool {
+        !self.floating_texts.is_empty()
+    }
+
+    /// Host-testable floating text residual usable for dual-tick UI layout pack.
+    ///
+    /// Empty is honest (no cash events yet). Non-empty requires GUI:AddCash key residual
+    /// and positive timeout window.
+    pub fn floating_text_presentation_ok(&self) -> bool {
+        if self.floating_texts.is_empty() {
+            return true;
+        }
+        self.floating_texts.iter().all(|t| {
+            !t.text.is_empty()
+                && t.text_key == "GUI:AddCash"
+                && t.timeout_frame > t.spawn_frame
+                && t.amount > 0
+        })
+    }
+
+    /// Frozen MoneyPickUp / world Anim2D residuals.
+    pub fn world_anims(&self) -> &[PresentationWorldAnim] {
+        &self.world_anims
+    }
+
+    /// True when at least one world anim is frozen on this frame.
+    pub fn has_world_anims(&self) -> bool {
+        !self.world_anims.is_empty()
+    }
+
+    /// Host-testable world-anim residual usable for dual-tick Anim2D pack.
+    ///
+    /// Empty is honest. Non-empty requires MoneyPickUp template + positive display.
+    pub fn world_anim_presentation_ok(&self) -> bool {
+        if self.world_anims.is_empty() {
+            return true;
+        }
+        self.world_anims.iter().all(|a| {
+            a.template == crate::game_logic::host_money_crate::MONEY_PICKUP_ANIM_TEMPLATE
+                && a.display_time_seconds > 0.0
+                && a.z_rise_per_second > 0.0
+        })
     }
 
     /// Host-testable FOW grid residual usable for minimap / terrain texture path.
@@ -1704,6 +2025,106 @@ mod tests {
             )),
             "presentation events should include ObjectDestroyed for victim"
         );
+    }
+
+    /// Residual: presentation freezes InGameUI floating text + MoneyPickUp Anim2D.
+    #[test]
+    fn presentation_frame_freezes_floating_text_and_world_anim() {
+        use crate::game_logic::host_money_crate::{
+            HostMoneyCrateRegistry, MONEY_PICKUP_ANIM_TEMPLATE,
+        };
+        use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("FloatPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+
+        // Empty residual when host has no cash events.
+        let empty = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(!empty.has_floating_texts());
+        assert!(!empty.has_world_anims());
+        assert!(empty.floating_text_presentation_ok());
+        assert!(empty.world_anim_presentation_ok());
+
+        let frame = logic.get_frame();
+        let oil_ft = HostAutoDepositFloatingText::new(
+            ObjectId(11),
+            Vec3::new(1.0, 0.0, 2.0),
+            100,
+            (200, 200, 200),
+            frame,
+            false,
+        );
+        logic.push_residual_auto_deposit_floating_text_for_presentation(oil_ft);
+
+        let anim = HostMoneyCrateRegistry::money_pickup_anim(
+            ObjectId(21),
+            ObjectId(22),
+            Vec3::new(5.0, 0.0, 6.0),
+            frame,
+        );
+        let money_ft = HostMoneyCrateRegistry::money_floating_text(
+            ObjectId(21),
+            ObjectId(22),
+            Vec3::new(5.0, 0.0, 6.0),
+            125,
+            frame,
+        );
+        logic.push_residual_money_pickup_presentation(anim, money_ft);
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            snap.has_floating_texts(),
+            "presentation must freeze host floating texts"
+        );
+        assert!(
+            snap.has_world_anims(),
+            "presentation must freeze MoneyPickUp world anim"
+        );
+        assert!(snap.floating_text_presentation_ok());
+        assert!(snap.world_anim_presentation_ok());
+        assert_eq!(snap.floating_texts.len(), 2);
+        assert_eq!(snap.world_anims.len(), 1);
+        assert_eq!(snap.world_anims[0].template, MONEY_PICKUP_ANIM_TEMPLATE);
+        assert!(
+            snap.floating_texts
+                .iter()
+                .any(|t| t.kind == PresentationFloatingTextKind::AutoDeposit && t.amount == 100)
+        );
+        assert!(
+            snap.floating_texts
+                .iter()
+                .any(|t| t.kind == PresentationFloatingTextKind::MoneyCrate
+                    && t.amount == 125
+                    && t.color_rgba == (0, 255, 0, 255))
+        );
+        assert_eq!(snap.active_floating_texts_at(frame).len(), 2);
+        assert!(
+            snap.active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
+                .is_empty()
+        );
+
+        // Snapshot stays frozen after host clears residual registries.
+        let frozen_count = snap.floating_texts.len();
+        let frozen_anims = snap.world_anims.len();
+        logic.clear_residual_floating_text_for_presentation();
+        assert_eq!(snap.floating_texts.len(), frozen_count);
+        assert_eq!(snap.world_anims.len(), frozen_anims);
+        let after = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(!after.has_floating_texts());
+        assert!(!after.has_world_anims());
+
+        // Synthetic residual for host-testable pack without combat/deposit path.
+        let synth = PresentationFloatingText::synthetic_cash(50, 0);
+        assert_eq!(synth.text_key, "GUI:AddCash");
+        assert_eq!(
+            synth.timeout_frame,
+            PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
+        );
+        let wa = PresentationWorldAnim::synthetic_money_pickup(0);
+        assert_eq!(wa.template, MONEY_PICKUP_ANIM_TEMPLATE);
+        assert!((wa.z_rise_per_second - 15.0).abs() < 0.01);
     }
 
     /// Residual: presentation freezes assist laser Line3D segments for SegLine pack.
