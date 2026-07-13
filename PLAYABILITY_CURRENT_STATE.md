@@ -1,3 +1,41 @@
+## Residual Host Playability — Connector Soft Edge + Scud Thrust Wobble + Howitzer Shell Loft Flight (2026-07-13)
+**Closed (host-testable combat residual not covered by wave 29–31 soft-edge/ballistic residual):**
+1. **Intense connector soft-edge + laser segments residual** (`special_power_strikes`):
+   - Intense connector NumBeams **5**, InnerBeamWidth **0.6** → OuterBeamWidth **2.0**.
+   - Soft-edge scale/color lerp residual + EXLaser.tga texture honesty.
+   - Outer-node → connector bone laser segments (5 residual segments).
+   - Honesty: `honesty_beam_connector_soft_edge_ok`.
+   - Fail-closed: not full LaserUpdate drawable matrix / client shroud path.
+2. **ScudStormMissile ThrustRoll / ThrustWobble residual** (`special_power_strikes`):
+   - ThrustRoll **0.06**, ThrustWobbleRate **0.008**, Min/Max ±0.040.
+   - Deterministic sine wobble sample residual on ballistic flight path.
+   - CloseEnoughDist3D residual honesty.
+   - Honesty: `honesty_scud_thrust_wobble_ok`.
+   - Fail-closed: not full Locomotor thrust matrix / Physics motive force.
+3. **SpectreHowitzerShell loft flight residual** (`special_power_strikes`):
+   - Pad-safe HeightDie InitialDelay (**30**f) loft sample residual.
+   - Sink to TargetHeight **1** with OnlyWhenMovingDown + ground impact.
+   - Honesty: `honesty_howitzer_shell_loft_flight_ok`.
+   - Fail-closed: not full DumbProjectileBehavior Object / live Physics flight.
+4. Snapshot/Xfer: connector soft-edge / loft flight residual fields appended.
+5. Tests (not log-only):
+   - `particle_uplink_connector_soft_edge_residual_honesty`
+   - `scud_thrust_wobble_residual_honesty`
+   - `spectre_howitzer_shell_loft_flight_residual_honesty`
+   - all `special_power_strikes::` (**50**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Presentation CSF/STR + Multi-Beam Soft Edge + Anim2D Frame + DisplayString Measure (2026-07-13)
 **Closed (host-testable presentation residual not covered by wave 27–29 RNG/combat residual):**
 1. **CSF/STR Unicode GameText residual** (`game_text_residual`):

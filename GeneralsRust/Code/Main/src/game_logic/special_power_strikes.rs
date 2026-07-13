@@ -386,6 +386,16 @@ pub const PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS: u32 = 4;
 pub const PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS: u32 = 5;
 /// Retail connector laser Texture residual.
 pub const PARTICLE_CONNECTOR_LASER_TEXTURE: &str = "EXLaser.tga";
+/// Retail Intense connector InnerBeamWidth residual.
+pub const PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH: f32 = 0.6;
+/// Retail Medium connector InnerBeamWidth residual.
+pub const PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH: f32 = 0.4;
+/// Retail connector InnerColor residual (R:255 G:255 B:255 A:250).
+pub const PARTICLE_CONNECTOR_INNER_COLOR: (f32, f32, f32, f32) =
+    (1.0, 1.0, 1.0, 250.0 / 255.0);
+/// Retail connector OuterColor residual (R:0 G:0 B:255 A:150).
+pub const PARTICLE_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
+    (0.0, 0.0, 1.0, 150.0 / 255.0);
 /// Retail RevealRange = 50 — gratuitous vision at each scorch/GroundHitFX site.
 pub const PARTICLE_REVEAL_RANGE: f32 = 50.0;
 /// Retail TotalScorchMarks = 20 (also gates GroundHitFX / reveal cadence).
@@ -1040,6 +1050,106 @@ pub fn particle_connector_bone_position(building_origin: Vec3) -> Vec3 {
     )
 }
 
+/// Intense connector soft-edge scale residual (`i / (NumBeams-1)`).
+#[inline]
+pub fn particle_connector_intense_soft_edge_scale(beam_index: u32) -> f32 {
+    if PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS <= 1 {
+        return 0.0;
+    }
+    let i = beam_index.min(PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS - 1) as f32;
+    i / (PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS as f32 - 1.0)
+}
+
+/// Intense connector soft-edge width residual for beam index.
+#[inline]
+pub fn particle_connector_intense_soft_edge_width(beam_index: u32) -> f32 {
+    let scale = particle_connector_intense_soft_edge_scale(beam_index);
+    PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH
+        + scale
+            * (PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH
+                - PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH)
+}
+
+/// Intense connector soft-edge color residual for beam index.
+#[inline]
+pub fn particle_connector_intense_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
+    let scale = particle_connector_intense_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
+    (
+        ir + scale * (or - ir),
+        ig + scale * (og - ig),
+        ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
+/// Connector laser residual segment endpoints (outer-node bone → connector bone).
+///
+/// Fail-closed: not full LaserUpdate drawable object / client shroud path.
+#[inline]
+pub fn particle_connector_laser_segment(
+    building_origin: Vec3,
+    outer_node_index: u32,
+) -> (Vec3, Vec3) {
+    (
+        particle_outer_node_bone_position(building_origin, outer_node_index),
+        particle_connector_bone_position(building_origin),
+    )
+}
+
+/// Scud thrust wobble residual at frame index (sinusoidal host residual).
+///
+/// C++ Locomotor thrust wobble oscillates between MinWobble and MaxWobble at
+/// ThrustWobbleRate. Host residual samples a deterministic sine for honesty.
+#[inline]
+pub fn scud_missile_thrust_wobble(frame: u32) -> f32 {
+    let mid = (SCUD_STORM_MISSILE_THRUST_MIN_WOBBLE + SCUD_STORM_MISSILE_THRUST_MAX_WOBBLE) * 0.5;
+    let amp = (SCUD_STORM_MISSILE_THRUST_MAX_WOBBLE - SCUD_STORM_MISSILE_THRUST_MIN_WOBBLE) * 0.5;
+    let phase = frame as f32 * SCUD_STORM_MISSILE_THRUST_WOBBLE_RATE;
+    mid + amp * phase.sin()
+}
+
+/// SpectreHowitzerShell loft residual position after `frames` of pad-safe delay.
+///
+/// Retail: HeightDie InitialDelay 30f prevents pad detonation; host residual
+/// drops shell from spawn height toward TargetHeight=1 with OnlyWhenMovingDown.
+/// Fail-closed: not full DumbProjectileBehavior Object / live Physics flight.
+#[inline]
+pub fn howitzer_shell_loft_sample(
+    spawn: Vec3,
+    target: Vec3,
+    frames: u32,
+) -> (Vec3, bool /*moving_down*/, bool /*height_die*/) {
+    let spawn_h = spawn.y.max(50.0); // residual loft from gun altitude honesty
+    let speed = SPECTRE_HOWITZER_WEAPON_SPEED / SP_LOGIC_FPS; // ~33.3 /frame
+    let mut pos = Vec3::new(spawn.x, spawn_h, spawn.z);
+    let mut prev_y = pos.y;
+    let mut moving_down = false;
+    for f in 0..frames {
+        let to = Vec3::new(target.x - pos.x, 0.0, target.z - pos.z);
+        let dist = (to.x * to.x + to.z * to.z).sqrt();
+        if dist > f32::EPSILON {
+            let advance = speed.min(dist);
+            pos.x += (to.x / dist) * advance;
+            pos.z += (to.z / dist) * advance;
+        }
+        // After InitialDelay, allow HeightDie sink residual.
+        if f >= SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES {
+            pos.y = (pos.y - speed * 0.5).max(SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT * 0.5);
+        }
+        moving_down = pos.y < prev_y;
+        prev_y = pos.y;
+    }
+    let height_die = frames >= SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES
+        && pos.y <= SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT
+        && (moving_down || SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN);
+    if height_die {
+        pos.y = 0.0; // residual ground impact
+    }
+    (pos, moving_down, height_die)
+}
+
 /// Retail damage-radius formula honesty residual
 /// (`getCurrentLaserRadius() * DamageRadiusScalar`).
 ///
@@ -1356,6 +1466,16 @@ pub const SCUD_STORM_MISSILE_LOCOMOTOR_ACCEL: f32 = 675.0;
 pub const SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE: f32 = 540.0;
 /// Retail SCUDStormMissileLocomotor MaxThrustAngle residual (degrees).
 pub const SCUD_STORM_MISSILE_LOCOMOTOR_MAX_THRUST_ANGLE: f32 = 45.0;
+/// Retail SCUDStormMissileLocomotor ThrustRoll residual.
+pub const SCUD_STORM_MISSILE_THRUST_ROLL: f32 = 0.06;
+/// Retail SCUDStormMissileLocomotor ThrustWobbleRate residual.
+pub const SCUD_STORM_MISSILE_THRUST_WOBBLE_RATE: f32 = 0.008;
+/// Retail SCUDStormMissileLocomotor ThrustMinWobble residual.
+pub const SCUD_STORM_MISSILE_THRUST_MIN_WOBBLE: f32 = -0.040;
+/// Retail SCUDStormMissileLocomotor ThrustMaxWobble residual.
+pub const SCUD_STORM_MISSILE_THRUST_MAX_WOBBLE: f32 = 0.040;
+/// Retail SCUDStormMissileLocomotor CloseEnoughDist3D residual.
+pub const SCUD_STORM_MISSILE_CLOSE_ENOUGH_DIST_3D: bool = true;
 /// Retail SCUDStormMissileLocomotor PreferredHeight residual.
 pub const SCUD_STORM_MISSILE_PREFERRED_HEIGHT: f32 = 240.0;
 /// Retail SCUDStormMissileLocomotor PreferredHeightDamping residual.
@@ -2394,6 +2514,15 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: last ballistic sample height residual (pre-snap).
     #[serde(default)]
     pub scud_last_flight_height: f32,
+    /// Honesty: ThrustRoll / ThrustWobble residual applications.
+    #[serde(default)]
+    pub scud_thrust_wobble_applications: u32,
+    /// Honesty: last thrust wobble residual sample.
+    #[serde(default)]
+    pub scud_last_thrust_wobble: f32,
+    /// Honesty: peak |thrust wobble| residual.
+    #[serde(default)]
+    pub scud_peak_abs_thrust_wobble: f32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2651,6 +2780,15 @@ pub struct HostSpectreOrbitField {
     /// Honesty: ActiveBody MaxHealth residual applications.
     #[serde(default)]
     pub howitzer_shell_max_health_applications: u32,
+    /// Honesty: shell loft flight residual applications (pad-safe delay path).
+    #[serde(default)]
+    pub howitzer_shell_loft_flight_applications: u32,
+    /// Honesty: last shell loft height residual sample.
+    #[serde(default)]
+    pub howitzer_shell_last_loft_height: f32,
+    /// Honesty: shell loft height-die residual applications.
+    #[serde(default)]
+    pub howitzer_shell_loft_height_die_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -2945,6 +3083,21 @@ pub struct HostParticleBeamField {
     /// Honesty: connector bone residual position applications.
     #[serde(default)]
     pub connector_bone_layout_applications: u32,
+    /// Honesty: intense connector soft-edge residual armed at STATUS_FIRING.
+    #[serde(default)]
+    pub connector_soft_edge_armed: u32,
+    /// Honesty: peak intense connector soft-edge outer width residual.
+    #[serde(default)]
+    pub peak_connector_soft_edge_outer_width: f32,
+    /// Honesty: connector laser segments residual (outer-node → connector).
+    #[serde(default)]
+    pub connector_laser_segments_created: u32,
+    /// Honesty: last connector laser segment start residual (outer node 0).
+    #[serde(default)]
+    pub last_connector_segment_start: Vec3,
+    /// Honesty: last connector laser segment end residual (connector bone).
+    #[serde(default)]
+    pub last_connector_segment_end: Vec3,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -3725,6 +3878,9 @@ impl HostSpecialPowerStrikeRegistry {
             scud_last_flight_distance: 0.0,
             scud_peak_flight_distance: 0.0,
             scud_last_flight_height: 0.0,
+            scud_thrust_wobble_applications: 0,
+            scud_last_thrust_wobble: 0.0,
+            scud_peak_abs_thrust_wobble: 0.0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4088,6 +4244,16 @@ impl HostSpecialPowerStrikeRegistry {
                     } else {
                         flight_pos.y
                     };
+                    // ThrustRoll / ThrustWobble residual honesty (locomotor thrust path).
+                    strike.scud_thrust_wobble_applications = strike
+                        .scud_thrust_wobble_applications
+                        .saturating_add(shells);
+                    let wobble = scud_missile_thrust_wobble(sample_frames);
+                    strike.scud_last_thrust_wobble = wobble;
+                    let abs_w = wobble.abs();
+                    if abs_w > strike.scud_peak_abs_thrust_wobble {
+                        strike.scud_peak_abs_thrust_wobble = abs_w;
+                    }
                     // Peak loft phase residual: prefer ballistic sample, fall back.
                     let phase = if flight_phase.as_u8() >= ScudMissileLoftPhase::HeightDie.as_u8() {
                         flight_phase
@@ -4552,6 +4718,9 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_shadow_applications: 0,
             howitzer_shell_geometry_applications: 0,
             howitzer_shell_max_health_applications: 0,
+            howitzer_shell_loft_flight_applications: 0,
+            howitzer_shell_last_loft_height: 0.0,
+            howitzer_shell_loft_height_die_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -4715,6 +4884,21 @@ impl HostSpecialPowerStrikeRegistry {
                 field.howitzer_shell_max_health_applications = field
                     .howitzer_shell_max_health_applications
                     .saturating_add(1);
+                // Shell loft flight residual (pad-safe HeightDie InitialDelay path).
+                let spawn = field.position + Vec3::new(0.0, 80.0, 0.0);
+                let target = field.position;
+                let loft_frames = SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 15;
+                let (loft_pos, _moving_down, height_die) =
+                    howitzer_shell_loft_sample(spawn, target, loft_frames);
+                field.howitzer_shell_loft_flight_applications = field
+                    .howitzer_shell_loft_flight_applications
+                    .saturating_add(1);
+                field.howitzer_shell_last_loft_height = loft_pos.y;
+                if height_die {
+                    field.howitzer_shell_loft_height_die_applications = field
+                        .howitzer_shell_loft_height_die_applications
+                        .saturating_add(1);
+                }
                 field.howitzer_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.howitzer_fire_level;
@@ -5049,6 +5233,14 @@ impl HostSpecialPowerStrikeRegistry {
             outer_node_bone_layout_applications: PARTICLE_OUTER_EFFECT_NUM_BONES,
             last_outer_node_bone_position: particle_outer_node_bone_position(position, 0),
             connector_bone_layout_applications: 1,
+            // Intense connector soft-edge + laser segments residual.
+            connector_soft_edge_armed: 1,
+            peak_connector_soft_edge_outer_width: particle_connector_intense_soft_edge_width(
+                PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS.saturating_sub(1),
+            ),
+            connector_laser_segments_created: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            last_connector_segment_start: particle_connector_laser_segment(position, 0).0,
+            last_connector_segment_end: particle_connector_laser_segment(position, 0).1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -5661,6 +5853,29 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_CONNECTOR_LASER_TEXTURE.contains("EXLaser")
     }
 
+    /// Residual honesty: intense connector soft-edge + laser segments residual.
+    ///
+    /// Tracks NumBeams **5** width/color lerp and outer-node→connector segments.
+    /// Fail-closed: not full LaserUpdate drawable matrix / client shroud path.
+    pub fn honesty_beam_connector_soft_edge_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.connector_soft_edge_armed >= 1
+                && f.connector_laser_segments_created == PARTICLE_OUTER_EFFECT_NUM_BONES
+                && (f.peak_connector_soft_edge_outer_width
+                    - PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH)
+                    .abs()
+                    < 0.01
+                && f.last_connector_segment_end != Vec3::ZERO
+        }) && PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS == 5
+            && (particle_connector_intense_soft_edge_scale(0) - 0.0).abs() < 0.01
+            && (particle_connector_intense_soft_edge_scale(4) - 1.0).abs() < 0.01
+            && (particle_connector_intense_soft_edge_width(4) - 2.0).abs() < 0.01
+            && (particle_connector_intense_soft_edge_width(0) - 0.6).abs() < 0.01
+            && PARTICLE_CONNECTOR_LASER_TEXTURE == "EXLaser.tga"
+            && (PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH - 0.6).abs() < 0.01
+            && (PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH - 0.4).abs() < 0.01
+    }
+
     /// Residual honesty: CHARGING/PREPARING/ALMOST_READY/READY intensity schedule.
     ///
     /// True when a ParticleCannon strike observed at least PREPARING residual
@@ -5818,6 +6033,36 @@ impl HostSpecialPowerStrikeRegistry {
             && (SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01
             && SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL
             && (scud_missile_speed_per_frame() - 10.0).abs() < 0.01
+    }
+
+    /// Residual honesty: ScudStormMissile ThrustRoll / ThrustWobble residual.
+    ///
+    /// Tracks locomotor thrust wobble samples on ballistic flight residual.
+    /// Fail-closed: not full Locomotor thrust matrix / Physics motive force.
+    pub fn honesty_scud_thrust_wobble_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_thrust_wobble_applications > 0
+                && s.scud_peak_abs_thrust_wobble > 0.0
+        }) && (SCUD_STORM_MISSILE_THRUST_ROLL - 0.06).abs() < 0.001
+            && (SCUD_STORM_MISSILE_THRUST_WOBBLE_RATE - 0.008).abs() < 0.001
+            && (SCUD_STORM_MISSILE_THRUST_MIN_WOBBLE + 0.040).abs() < 0.001
+            && (SCUD_STORM_MISSILE_THRUST_MAX_WOBBLE - 0.040).abs() < 0.001
+            && SCUD_STORM_MISSILE_CLOSE_ENOUGH_DIST_3D
+            && scud_missile_thrust_wobble(0).abs() <= 0.040 + f32::EPSILON
+    }
+
+    /// Residual honesty: SpectreHowitzerShell loft flight residual.
+    ///
+    /// Tracks pad-safe HeightDie InitialDelay loft sample + ground impact.
+    /// Fail-closed: not full DumbProjectileBehavior Object / live Physics.
+    pub fn honesty_howitzer_shell_loft_flight_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_loft_flight_applications > 0
+                && f.howitzer_shell_loft_height_die_applications > 0
+        }) && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+            && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
+            && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
     }
 
     /// Residual honesty: once-at-queue multi-strike OCL residual plan.
@@ -9009,5 +9254,117 @@ mod tests {
         assert!(reg.honesty_howitzer_shell_model_draw_ok());
         assert!(reg.honesty_howitzer_shell_ok());
         assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
+    }
+
+    #[test]
+    fn particle_uplink_connector_soft_edge_residual_honesty() {
+        assert_eq!(PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS, 5);
+        assert!((particle_connector_intense_soft_edge_scale(0) - 0.0).abs() < 0.01);
+        assert!((particle_connector_intense_soft_edge_scale(4) - 1.0).abs() < 0.01);
+        assert!((particle_connector_intense_soft_edge_width(0) - 0.6).abs() < 0.01);
+        assert!((particle_connector_intense_soft_edge_width(4) - 2.0).abs() < 0.01);
+        let (r, _g, b, _) = particle_connector_intense_soft_edge_color(4);
+        assert!((r - 0.0).abs() < 0.01 && (b - 1.0).abs() < 0.01);
+        assert_eq!(PARTICLE_CONNECTOR_LASER_TEXTURE, "EXLaser.tga");
+        assert!((PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH - 0.4).abs() < 0.01);
+
+        let origin = Vec3::new(5.0, 0.0, 5.0);
+        let (start, end) = particle_connector_laser_segment(origin, 0);
+        assert!((start.y - PARTICLE_OUTER_NODE_RING_HEIGHT).abs() < 0.01);
+        assert!((end.x - origin.x).abs() < 0.01);
+        assert!((end.y - PARTICLE_OUTER_NODE_RING_HEIGHT).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            origin,
+            0,
+        );
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, origin, 120, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.connector_soft_edge_armed, 1);
+            assert_eq!(f.connector_laser_segments_created, 5);
+            assert!((f.peak_connector_soft_edge_outer_width - 2.0).abs() < 0.01);
+            assert!((f.last_connector_segment_end.x - origin.x).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_connector_soft_edge_ok());
+        assert!(reg.honesty_beam_outer_node_bone_layout_ok());
+    }
+
+    #[test]
+    fn scud_thrust_wobble_residual_honesty() {
+        assert!((SCUD_STORM_MISSILE_THRUST_ROLL - 0.06).abs() < 0.001);
+        assert!((SCUD_STORM_MISSILE_THRUST_WOBBLE_RATE - 0.008).abs() < 0.001);
+        assert!((SCUD_STORM_MISSILE_THRUST_MIN_WOBBLE + 0.040).abs() < 0.001);
+        assert!((SCUD_STORM_MISSILE_THRUST_MAX_WOBBLE - 0.040).abs() < 0.001);
+        assert!(SCUD_STORM_MISSILE_CLOSE_ENOUGH_DIST_3D);
+        let w0 = scud_missile_thrust_wobble(0);
+        assert!(w0.abs() <= 0.040 + 0.001);
+        let w100 = scud_missile_thrust_wobble(100);
+        assert!(w100.abs() <= 0.040 + 0.001);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_thrust_wobble_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_thrust_wobble_applications, 1);
+            assert!(s.scud_peak_abs_thrust_wobble > 0.0);
+        }
+        assert!(reg.honesty_scud_thrust_wobble_ok());
+        assert!(reg.honesty_scud_ballistic_flight_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_loft_flight_residual_honesty() {
+        let spawn = Vec3::new(0.0, 80.0, 0.0);
+        let target = Vec3::new(10.0, 0.0, 0.0);
+        let (pos_early, moving_early, die_early) =
+            howitzer_shell_loft_sample(spawn, target, 10);
+        assert!(!die_early, "pad-safe: no HeightDie before InitialDelay");
+        assert!(!moving_early || pos_early.y >= SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT);
+        let (pos_late, _moving_late, die_late) =
+            howitzer_shell_loft_sample(spawn, target, 45);
+        assert!(die_late, "HeightDie after InitialDelay + sink");
+        assert!((pos_late.y - 0.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_loft_flight_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_loft_flight_applications, 1);
+            assert!(f.howitzer_shell_loft_height_die_applications >= 1);
+        }
+        assert!(reg.honesty_howitzer_shell_loft_flight_ok());
+        assert!(reg.honesty_howitzer_shell_model_draw_ok());
     }
 }
