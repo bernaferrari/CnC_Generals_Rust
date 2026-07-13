@@ -1,3 +1,119 @@
+## Residual Host Playability — Wave 60: host_gla_rebel + host_rpg_trooper + host_missile_defender + host_terrorist residual (2026-07-13)
+**Closed (host-testable residual peels):**
+1. **GLA Rebel residual pack** (`host_gla_rebel`):
+   - Gun residual: PrimaryDamage **5**, AttackRange **100**, Delay **100**ms → **3**f,
+     ClipSize **3**, ClipReload **700**ms → **21**f, DamageType **SMALL_ARMS**,
+     FireSound **RebelWeapon**, FireFX **WeaponFX_GenericMachineGunFire**,
+     radius **0** (intended-only).
+   - AP Bullets residual: Upgrade_GLAAPBullets DAMAGE **125%** → **6.25**.
+   - Capture residual: `SpecialAbilityRebelCaptureBuilding` Reload **15000**ms → **450**f,
+     StartAbilityRange **5**, Unpack **3000**ms → **90**f, Prep **20000**ms → **600**f,
+     Pack **2000**ms → **60**f, AwardXP **12**, Upgrade_InfantryCaptureBuilding gate.
+   - Body residual: MaxHealth **120**, Vision **150**, Shroud **300**, BuildCost **150**.
+   - BoobyTrap residual name honesty: SpecialAbilityBoobyTrap Reload **7500**ms → **225**f
+     (fail-closed: not full SpecialObject plant matrix).
+   - Honesty: `honesty_gla_rebel_residual_pack_ok` + layer honesty tests.
+2. **RPG Trooper residual pack** (`host_rpg_trooper`):
+   - Rocket residual: Primary **40**/r**5**, range **175**/min **5**, Delay **1000**ms → **30**f,
+     WeaponSpeed **600**, DamageType **INFANTRY_MISSILE**, DeathType **EXPLODED**,
+     ClipSize **0**, AutoReloadsClip **Yes**, ScatterRadiusVsInfantry **10**,
+     Projectile **TunnelDefenderMissile**, FireSound **RPGTrooperWeapon**,
+     detonation FX **WeaponFX_RocketBuggyMissileDetonation**.
+   - AP Rockets residual: Upgrade_GLAAPRockets DAMAGE **125%** → **50**.
+   - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**.
+   - Honesty: `honesty_rpg_trooper_residual_pack_ok` + layer honesty tests.
+3. **Missile Defender residual pack** (`host_missile_defender`):
+   - Primary residual: **40**/r**5**/range **175**/Delay **1000**ms → **30**f,
+     DamageType **INFANTRY_MISSILE**, FireFX **FX_BuggyMissileIgnition**,
+     WeaponBonus DAMAGE **125%** honesty mult.
+   - Laser weapon residual: **40**/r**5**/range **300**/Delay **500**ms → **15**f,
+     DamageType **ARMOR_PIERCING**, AutoChooseSources SECONDARY **NONE**.
+   - Laser lock residual: StartAbilityRange **200**, AbilityAbortRange **250**,
+     PreparationTime **1000**ms → **30**f, PersistentPrepTime **500**ms → **15**f,
+     SpecialObject **LaserBeam**, ReloadTime **0**, InitiateSound
+     **MissileDefenderVoiceAttackLaser**.
+   - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**.
+   - Honesty: `honesty_missile_defender_residual_pack_ok` + layer honesty tests.
+4. **Terrorist residual pack** (`host_terrorist`):
+   - Trigger residual: TerroristSuicideWeapon AttackRange **1**, PrimaryDamage **999999**,
+     LeechRangeWeapon **Yes**, ClipSize **1**, AutoReloadsClip **No**; host combat
+     path keeps dynamite AttackRange **5** (fail-closed vs exact trigger range).
+   - Death weapon residual: dual rings Primary **500**/r**18** + Secondary **300**/r**50**,
+     FireFX **WeaponFX_SuicideDynamitePackDetonation**, FireSound **CarBomberDie**,
+     RadiusAffects SELF SUICIDE … NOT_SIMILAR, DamageType **EXPLOSION**/DeathType **SUICIDED**.
+   - Profile residual: Chem Gamma primary **600**, Demo primary **700**,
+     Demo FireFX **WeaponFX_DemoSuicideDynamitePackDetonation**,
+     Chem FireOCL poison fields.
+   - Body residual: MaxHealth **120**, Vision **150**, Shroud **200**, BuildCost **200**.
+   - Honesty: `honesty_terrorist_residual_pack_ok` + layer honesty tests.
+5. Tests / gates (not log-only):
+   - `gla_rebel_residual_pack_honesty` / capture / gun / body
+   - `rpg_trooper_residual_pack_honesty` / rocket / AP / body
+   - `missile_defender_residual_pack_honesty` / primary / laser lock / body
+   - `terrorist_residual_pack_honesty` / trigger / death weapon / profile
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full ClipSize=3 in-clip DelayBetweenShots 100ms + ClipReload 700ms volley matrix
+- Full CaptureBuilding BinaryDataStream attach / packing anim matrix
+- Full BoobyTrap SpecialObject plant / MaxSpecialObjects list UI
+- Full ScatterRadiusVsInfantry random miss / projectile exhaust FX matrix
+- Full LaserBeam special object attach-bone matrix / live WeaponBonus apply
+- Full SlowDeath SUICIDED fling / ConvertToCarBombCrateCollide (host_car_bomb)
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 61: host_usa_pilot + host_aurora_bomb + host_slave_drones residual (2026-07-13)
+**Closed (host-testable residual peels):**
+1. **USA Pilot residual pack** (`host_usa_pilot`):
+   - Body residual: MaxHealth **100**, VisionRange **150**, ShroudClearingRange **300**,
+     StartingLevel **VETERAN**, TransportSlotCount **1**, Mass **5**.
+   - Ejection residual: InvulnerableTime **2000**ms → **60**f, Ground force **2–3** /
+     Air force **10–12**, pitch **50–60**, PutInContainer **AmericaParachute**,
+     DeathTypes **ALL -CRUSHED -SPLATTED**, ExemptStatus **HIJACKED**,
+     VeterancyLevels **ALL -REGULAR**, InheritsVeterancy **Yes**.
+   - Parachute residual: retail OpenDist **25** dual-track + host/CINE **100**,
+     FreeFallDamage **50%**, Pitch/RollRateMax **60** deg/s, LowAltitudeDamping **0.2**,
+     GeometryHeight **10** / MajorRadius **15**, open audio **ParachuteOpen**.
+   - Return-to-base residual: PilotFindVehicle base-center fallback (`m_didMoveToBase`),
+     ScanRate **1000**ms → **30**f / ScanRange **300** / MinHealth **0.5**;
+     AutoFindHealing NeverHeal **0.85** / AlwaysHeal **0.25** (busy-interrupt dead).
+   - Honesty: `honesty_usa_pilot_residual_pack_ok` + layer honesty tests.
+2. **Aurora bomb residual pack** (`host_aurora_bomb`):
+   - Bomb damage/range residual: Standard **400**/r**20**/range **300**, AirF detonation
+     **1000**/r**100**, SupW **900**/r**70**, primary tiny **2**/r**4**, flame **5**/r**100**,
+     DamageType **AURORA_BOMB**, AcceptableAimDelta **45**, RadiusAffects ALLIES…NOT_SIMILAR.
+   - RETURN_TO_BASE reload residual: ClipSize **1**, ClipReload **5000**ms → **150**f,
+     AutoReloadsClip **RETURN_TO_BASE**, Jet ReturnToBaseIdleTime **10000**ms → **300**f.
+   - Projectile residual: **AuroraBomb** MaxHealth **100**, Mass **75**, loco Speed **480** /
+     MinSpeed **240** / Accel **960** / TurnRate **960** / MaxThrustAngle **60**;
+     Jet body MaxHealth **80**, Vision **180**, Shroud **600**, BuildCost **2500**,
+     SneakyOffset **-20**.
+   - Honesty: `honesty_aurora_bomb_residual_pack_ok` + layer honesty tests.
+3. **Slave drones residual pack** (`host_slave_drones`):
+   - SlavedUpdate wander residual: GuardMax/Wander **35**, Attack **75**/Wander **10**,
+     Scout **75**/Wander **10**, StayOnSameLayerAsMaster **Yes**, Scout range-bonus **20**,
+     DetectionRate **500**ms → **15**f.
+   - Spawn residual: OCL Scout Offset **X:-8 Z:10**, Battle/Hellfire **Z:10**, Count **1**,
+     Disposition LIKE_EXISTING; Upgrade costs Scout **100** / Battle **300** / Hellfire **500**,
+     MaxHealth **100**, DroneArmor +**25**/+**50** Battle.
+   - Repair residual: RepairRange **8**, Min/MaxAltitude **18/24**, Rate **10**/s,
+     BelowHealth% **60**, Ready **300–750**ms, Weld **250–500**ms, BlueSparks;
+     Hellfire **40**/r**5**/range **150** cycle **90**f; Battle gun **1**/range **110**/3f.
+   - Honesty: `honesty_slave_drones_residual_pack_ok` + layer honesty tests.
+4. Tests / gates (not log-only):
+   - `usa_pilot_residual_pack_honesty_wave61` / body / ejection / parachute / return-to-base
+   - `aurora_bomb_residual_pack_honesty_wave61` / damage-range / RETURN_TO_BASE / projectile
+   - `slave_drones_residual_pack_honesty_wave61` / wander / spawn / repair
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full dual-template ParachuteOpenDist matrix (retail 25 vs CINE 100) / W3D bone extract
+- Full JetAIUpdate airfield RETURN_TO_BASE rearm path / AuroraBombLocomotor flight
+- Full SlavedUpdate AI wander pathfinding / weld arm pack-unpack anim interleave
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 57: host_colonel_burton + host_jarmen_kell + host_hero_abilities residual (2026-07-13)
 **Closed (host-testable residual peels):**
 1. **Colonel Burton residual pack** (`host_colonel_burton`):

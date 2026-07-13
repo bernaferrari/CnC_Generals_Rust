@@ -8,16 +8,32 @@
 //! - AP Rockets PLAYER_UPGRADE residual (`Upgrade_GLAAPRockets`):
 //!   WeaponBonus DAMAGE **125%** → PrimaryDamage **50**.
 //!
+//! Wave 60 residual pack (retail INI honesty):
+//! - Rocket residual: PrimaryDamage **40**, PrimaryDamageRadius **5**, AttackRange **175**,
+//!   MinimumAttackRange **5**, Delay **1000**ms → **30**f, WeaponSpeed **600**,
+//!   DamageType **INFANTRY_MISSILE**, DeathType **EXPLODED**, ClipSize **0**,
+//!   AutoReloadsClip **Yes**, ScatterRadiusVsInfantry **10**, Projectile
+//!   **TunnelDefenderMissile**, FireSound **RPGTrooperWeapon**, detonation FX
+//!   **WeaponFX_RocketBuggyMissileDetonation**.
+//! - AP Rockets residual: Upgrade_GLAAPRockets DAMAGE **125%** → **50**.
+//! - Body residual: MaxHealth **100**, Vision **150**, Shroud **400**, BuildCost **300**.
+//!
 //! Fail-closed honesty:
-//! - Not full ScatterRadiusVsInfantry / projectile exhaust FX matrix
+//! - Not full ScatterRadiusVsInfantry random miss matrix
+//! - Not full projectile exhaust / VeterancyProjectileExhaust FX matrix
 //! - Not full Salvager crate matrix
 //! - Not network AP / RPG replication (network deferred)
 
 use super::Weapon;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
 
+/// Logic frames per second (host fixed step).
+pub const RPG_LOGIC_FPS: f32 = 30.0;
+
 /// Retail primary weapon.
 pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
+/// Retail projectile residual.
+pub const TUNNEL_DEFENDER_MISSILE: &str = "TunnelDefenderMissile";
 /// Retail Upgrade_GLAAPRockets.
 pub const UPGRADE_GLA_AP_ROCKETS: &str = "Upgrade_GLAAPRockets";
 
@@ -29,16 +45,48 @@ pub const RPG_TROOPER_SPLASH_RADIUS: f32 = 5.0;
 pub const RPG_TROOPER_RANGE: f32 = 175.0;
 /// Retail MinimumAttackRange.
 pub const RPG_TROOPER_MIN_RANGE: f32 = 5.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const RPG_TROOPER_DELAY_MS: u32 = 1_000;
 /// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const RPG_TROOPER_BASE_DELAY_FRAMES: u32 = 30;
 /// Retail WeaponSpeed residual (missile flight residual; host hits still residual-instant).
 pub const RPG_TROOPER_PROJECTILE_SPEED: f32 = 600.0;
+/// Retail DamageType residual.
+pub const RPG_TROOPER_DAMAGE_TYPE: &str = "INFANTRY_MISSILE";
+/// Retail DeathType residual.
+pub const RPG_TROOPER_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ClipSize residual (0 == infinite).
+pub const RPG_TROOPER_CLIP_SIZE: u32 = 0;
+/// Retail AutoReloadsClip residual.
+pub const RPG_TROOPER_AUTO_RELOADS_CLIP: bool = true;
+/// Retail ScatterRadiusVsInfantry residual (honesty only; host fail-closed no random miss).
+pub const RPG_TROOPER_SCATTER_VS_INFANTRY: f32 = 10.0;
+/// Retail ProjectileDetonationFX residual.
+pub const RPG_TROOPER_DETONATION_FX: &str = "WeaponFX_RocketBuggyMissileDetonation";
+/// Residual fire audio.
+pub const RPG_TROOPER_FIRE_AUDIO: &str = "RPGTrooperWeapon";
 
 /// AP Rockets WeaponBonus DAMAGE 125%.
 pub const RPG_AP_DAMAGE_MULT: f32 = 1.25;
 
-/// Residual fire audio.
-pub const RPG_TROOPER_FIRE_AUDIO: &str = "RPGTrooperWeapon";
+// --- Body residual ---
+
+/// Retail MaxHealth residual.
+pub const RPG_TROOPER_MAX_HEALTH: f32 = 100.0;
+/// Retail VisionRange residual.
+pub const RPG_TROOPER_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const RPG_TROOPER_SHROUD_CLEARING_RANGE: f32 = 400.0;
+/// Retail BuildCost residual.
+pub const RPG_TROOPER_BUILD_COST: u32 = 300;
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn rpg_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * RPG_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Whether template is a residual RPG Trooper / Tunnel Defender infantry.
 ///
@@ -169,6 +217,73 @@ pub fn should_apply_rpg_trooper_residual(is_rpg_trooper: bool) -> bool {
     is_rpg_trooper
 }
 
+/// Whether residual attack range is legal (min + max gate).
+pub fn rpg_trooper_range_ok(distance: f32) -> bool {
+    distance >= RPG_TROOPER_MIN_RANGE && distance <= RPG_TROOPER_RANGE
+}
+
+// --- Wave 60 residual honesty packs ---
+
+/// Wave 60 residual honesty: rocket damage / range / ROF residual.
+pub fn honesty_rpg_rocket_residual_ok() -> bool {
+    (RPG_TROOPER_DAMAGE - 40.0).abs() < 0.01
+        && (RPG_TROOPER_SPLASH_RADIUS - 5.0).abs() < 0.01
+        && (RPG_TROOPER_RANGE - 175.0).abs() < 0.01
+        && (RPG_TROOPER_MIN_RANGE - 5.0).abs() < 0.01
+        && RPG_TROOPER_DELAY_MS == 1_000
+        && RPG_TROOPER_BASE_DELAY_FRAMES == rpg_ms_to_frames(RPG_TROOPER_DELAY_MS)
+        && (RPG_TROOPER_PROJECTILE_SPEED - 600.0).abs() < 0.01
+        && TUNNEL_DEFENDER_ROCKET_WEAPON == "TunnelDefenderRocketWeapon"
+        && TUNNEL_DEFENDER_MISSILE == "TunnelDefenderMissile"
+        && RPG_TROOPER_DAMAGE_TYPE == "INFANTRY_MISSILE"
+        && RPG_TROOPER_DEATH_TYPE == "EXPLODED"
+        && RPG_TROOPER_CLIP_SIZE == 0
+        && RPG_TROOPER_AUTO_RELOADS_CLIP
+        && (RPG_TROOPER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && RPG_TROOPER_DETONATION_FX == "WeaponFX_RocketBuggyMissileDetonation"
+        && RPG_TROOPER_FIRE_AUDIO == "RPGTrooperWeapon"
+        && rpg_trooper_range_ok(5.0)
+        && rpg_trooper_range_ok(175.0)
+        && !rpg_trooper_range_ok(4.9)
+        && !rpg_trooper_range_ok(175.1)
+        && {
+            let w = rpg_trooper_weapon(false);
+            (w.damage - 40.0).abs() < 0.01
+                && (w.range - 175.0).abs() < 0.01
+                && (w.min_range - 5.0).abs() < 0.01
+                && w.can_target_air
+                && w.can_target_ground
+        }
+}
+
+/// Wave 60 residual honesty: AP Rockets + splash residual.
+pub fn honesty_rpg_ap_splash_residual_ok() -> bool {
+    UPGRADE_GLA_AP_ROCKETS == "Upgrade_GLAAPRockets"
+        && (RPG_AP_DAMAGE_MULT - 1.25).abs() < 0.001
+        && (rpg_trooper_damage_with_ap(false) - 40.0).abs() < 0.01
+        && (rpg_trooper_damage_with_ap(true) - 50.0).abs() < 0.01
+        && (rpg_trooper_splash_damage_at(true, 100.0, 40.0) - 40.0).abs() < 0.01
+        && (rpg_trooper_splash_damage_at(false, 5.0, 40.0) - 40.0).abs() < 0.01
+        && rpg_trooper_splash_damage_at(false, 5.1, 40.0).abs() < 0.01
+        && is_legal_rpg_trooper_splash_target(true, false, false, true)
+        && !is_legal_rpg_trooper_splash_target(true, true, false, true)
+}
+
+/// Wave 60 residual honesty: body residual.
+pub fn honesty_rpg_body_residual_ok() -> bool {
+    (RPG_TROOPER_MAX_HEALTH - 100.0).abs() < 0.01
+        && (RPG_TROOPER_VISION_RANGE - 150.0).abs() < 0.01
+        && (RPG_TROOPER_SHROUD_CLEARING_RANGE - 400.0).abs() < 0.01
+        && RPG_TROOPER_BUILD_COST == 300
+}
+
+/// Combined Wave 60 RPG Trooper residual honesty pack.
+pub fn honesty_rpg_trooper_residual_pack_ok() -> bool {
+    honesty_rpg_rocket_residual_ok()
+        && honesty_rpg_ap_splash_residual_ok()
+        && honesty_rpg_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +358,15 @@ mod tests {
         assert!(is_legal_rpg_trooper_splash_target(true, false, false, true));
         assert!(!is_legal_rpg_trooper_splash_target(false, false, false, true));
         assert!(!is_legal_rpg_trooper_splash_target(true, true, false, true));
+    }
+
+    #[test]
+    fn rpg_trooper_residual_pack_honesty() {
+        assert!(honesty_rpg_rocket_residual_ok());
+        assert!(honesty_rpg_ap_splash_residual_ok());
+        assert!(honesty_rpg_body_residual_ok());
+        assert!(honesty_rpg_trooper_residual_pack_ok());
+        assert_eq!(rpg_ms_to_frames(1_000), 30);
+        assert_eq!(rpg_ms_to_frames(0), 0);
     }
 }
