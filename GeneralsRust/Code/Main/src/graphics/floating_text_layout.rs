@@ -23,6 +23,9 @@
 //! - DisplayString setWordWrapCentered residual (centered flag change → notify)
 //! - DisplayString setUseHotkey residual (flag+color; always notify)
 //! - DisplayString setClipRegion residual (region equality early-out)
+//! - DisplayString getFont residual (identity font pointer residual)
+//! - DisplayString draw residual (empty early-out / default drop 1,1 /
+//!   pos+color rebuild dirty residual; fail-closed vs GPU StretchRect)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -377,6 +380,118 @@ pub fn honesty_display_string_set_clip_region(
 ) -> bool {
     let (expected, expect_changed) = display_string_set_clip_region(previous, new_region);
     result == expected && changed == expect_changed
+}
+
+/// DisplayString `getFont` residual: return current residual font name.
+///
+/// C++ `DisplayString::getFont` → `m_font`. Host residual is identity.
+#[inline]
+pub fn display_string_get_font(font: &str) -> &str {
+    font
+}
+
+/// Honesty: getFont residual matches stored residual font.
+pub fn honesty_display_string_get_font(font: &str, got: &str) -> bool {
+    got == display_string_get_font(font)
+}
+
+/// DisplayString draw residual sample (host-testable; fail-closed vs GPU).
+///
+/// C++ `W3DDisplayString::draw(x,y,color,dropColor)` delegates to
+/// `draw(..., xDrop=1, yDrop=1)`. Empty text early-outs. Rebuilds sentence polys
+/// when font/text dirty or position/color changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayStringDrawResidual {
+    pub x: i32,
+    pub y: i32,
+    pub color: (u8, u8, u8, u8),
+    pub drop_color: (u8, u8, u8, u8),
+    pub x_drop: i32,
+    pub y_drop: i32,
+    /// Shadow screen position residual (`x + xDrop` / `y + yDrop` order honesty).
+    pub shadow_x: i32,
+    pub shadow_y: i32,
+    /// True when sentence rebuild residual would run (text/font/pos/color change).
+    pub rebuilt: bool,
+    /// True when any draw residual executed (text non-empty).
+    pub drew: bool,
+}
+
+/// DisplayString `draw` residual with default drop shadow offset (1, 1).
+#[inline]
+pub fn display_string_draw(
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8, u8),
+    drop_color: (u8, u8, u8, u8),
+    prev_x: i32,
+    prev_y: i32,
+    prev_color: (u8, u8, u8, u8),
+    prev_drop_color: (u8, u8, u8, u8),
+    text_or_font_dirty: bool,
+) -> DisplayStringDrawResidual {
+    display_string_draw_with_drop(
+        text, x, y, color, drop_color, 1, 1,
+        prev_x, prev_y, prev_color, prev_drop_color, text_or_font_dirty,
+    )
+}
+
+/// DisplayString `draw` residual with explicit drop shadow offsets.
+#[inline]
+pub fn display_string_draw_with_drop(
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8, u8),
+    drop_color: (u8, u8, u8, u8),
+    x_drop: i32,
+    y_drop: i32,
+    prev_x: i32,
+    prev_y: i32,
+    prev_color: (u8, u8, u8, u8),
+    prev_drop_color: (u8, u8, u8, u8),
+    text_or_font_dirty: bool,
+) -> DisplayStringDrawResidual {
+    if text.is_empty() {
+        return DisplayStringDrawResidual {
+            x, y, color, drop_color, x_drop, y_drop,
+            shadow_x: x + x_drop, shadow_y: y + y_drop,
+            rebuilt: false, drew: false,
+        };
+    }
+    let pos_or_color_changed = x != prev_x
+        || y != prev_y
+        || color != prev_color
+        || drop_color != prev_drop_color;
+    let rebuilt = text_or_font_dirty || pos_or_color_changed;
+    DisplayStringDrawResidual {
+        x, y, color, drop_color, x_drop, y_drop,
+        // Shadow drawn first at (x+xDrop, y+yDrop), then text at (x,y).
+        shadow_x: x + x_drop, shadow_y: y + y_drop,
+        rebuilt, drew: true,
+    }
+}
+
+/// Honesty: draw residual matches empty early-out / default drop / rebuild dirty path.
+pub fn honesty_display_string_draw(
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8, u8),
+    drop_color: (u8, u8, u8, u8),
+    prev_x: i32,
+    prev_y: i32,
+    prev_color: (u8, u8, u8, u8),
+    prev_drop_color: (u8, u8, u8, u8),
+    text_or_font_dirty: bool,
+    sample: DisplayStringDrawResidual,
+) -> bool {
+    let expected = display_string_draw(
+        text, x, y, color, drop_color,
+        prev_x, prev_y, prev_color, prev_drop_color, text_or_font_dirty,
+    );
+    sample == expected
 }
 
 /// Floats per packed layout entry:
@@ -883,6 +998,63 @@ mod tests {
         assert_eq!(region, next);
         assert!(!changed);
         assert!(honesty_display_string_set_clip_region(next, next, next, false));
+    }
+
+    #[test]
+    fn display_string_get_font_residual_honesty() {
+        assert_eq!(display_string_get_font("Arial"), "Arial");
+        assert_eq!(display_string_get_font(""), "");
+        assert!(honesty_display_string_get_font("FixedSys", "FixedSys"));
+        assert!(!honesty_display_string_get_font("Arial", "Other"));
+    }
+
+    #[test]
+    fn display_string_draw_residual_honesty() {
+        let empty = display_string_draw(
+            "", 10, 20, (255, 255, 255, 255), (0, 0, 0, 255),
+            0, 0, (0, 0, 0, 0), (0, 0, 0, 0), true,
+        );
+        assert!(!empty.drew);
+        assert!(!empty.rebuilt);
+        assert_eq!(empty.x_drop, 1);
+        assert_eq!(empty.y_drop, 1);
+        assert!(honesty_display_string_draw(
+            "", 10, 20, (255, 255, 255, 255), (0, 0, 0, 255),
+            0, 0, (0, 0, 0, 0), (0, 0, 0, 0), true, empty,
+        ));
+
+        let same = display_string_draw(
+            "+$100", 10, 20, (0, 255, 0, 255), (0, 0, 0, 255),
+            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), false,
+        );
+        assert!(same.drew);
+        assert!(!same.rebuilt);
+
+        let moved = display_string_draw(
+            "+$100", 12, 20, (0, 255, 0, 255), (0, 0, 0, 255),
+            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), false,
+        );
+        assert!(moved.drew && moved.rebuilt);
+
+        let dirty = display_string_draw(
+            "+$100", 10, 20, (0, 255, 0, 255), (0, 0, 0, 255),
+            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), true,
+        );
+        assert!(dirty.drew && dirty.rebuilt);
+
+        let drop = display_string_draw_with_drop(
+            "X", 0, 0, (255, 255, 0, 255), (0, 0, 0, 128),
+            2, 3, 0, 0, (255, 255, 0, 255), (0, 0, 0, 128), false,
+        );
+        assert!(drop.drew);
+        assert!(!drop.rebuilt);
+        assert_eq!(drop.x_drop, 2);
+        assert_eq!(drop.y_drop, 3);
+        // Shadow-then-text order residual: shadow at (x+xDrop, y+yDrop).
+        assert_eq!(drop.shadow_x, 2);
+        assert_eq!(drop.shadow_y, 3);
+        assert_eq!(same.shadow_x, 11); // 10+1 default drop
+        assert_eq!(same.shadow_y, 21);
     }
 
 }
