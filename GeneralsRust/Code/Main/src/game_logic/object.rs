@@ -487,6 +487,10 @@ impl Object {
 
     /// C++ parity (Object::isDisabled): returns true if the object is in any
     /// disabled state that prevents it from acting (attacking, producing, etc.)
+    ///
+    /// Note: `weapons_jammed` (ECM residual) is intentionally **not** full
+    /// disabled — C++ DISABLED_SUBDUED only blocks `canFireWeapon`; residual
+    /// keeps movement. Check `is_weapons_jammed()` / `can_attack()` for fire.
     pub fn is_disabled(&self) -> bool {
         self.status.disabled_underpowered
             || self.status.disabled_unmanned
@@ -502,6 +506,25 @@ impl Object {
     /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
     pub fn is_hacked_disabled(&self) -> bool {
         self.status.disabled_hacked
+    }
+
+    /// Host ECM / jammer residual: weapons cannot fire while in jam radius.
+    /// C++ DISABLED_SUBDUED / canFireWeapon residual (Microwave/ECM disabler).
+    pub fn is_weapons_jammed(&self) -> bool {
+        self.status.weapons_jammed
+    }
+
+    /// Apply / clear weapons-jam residual (ECM field coverage).
+    pub fn set_weapons_jammed(&mut self, jammed: bool) {
+        if jammed {
+            self.status.weapons_jammed = true;
+            // C++ canFireWeapon false while subdued: drop in-progress attack fire
+            // but do not freeze movement (jam residual is weapons-only).
+            self.status.attacking = false;
+            self.force_attack = false;
+        } else {
+            self.status.weapons_jammed = false;
+        }
     }
 
     /// Apply kill-pilot residual: vehicle becomes unmanned (no HP change).
@@ -594,9 +617,11 @@ impl Object {
     pub fn can_attack(&self) -> bool {
         // Garrisoned units may still fire from the structure (residual
         // fire-from-garrison). Docked transport cargo and units mid-enter cannot.
+        // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
         self.is_alive()
             && self.weapon.is_some()
             && !self.is_disabled()
+            && !self.status.weapons_jammed
             && !matches!(self.ai_state, AIState::Docked | AIState::Entering)
     }
 
@@ -853,6 +878,10 @@ impl Object {
     }
 
     pub fn can_fire(&self, current_time: f32) -> bool {
+        // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
+        if self.status.weapons_jammed || self.is_disabled() {
+            return false;
+        }
         if let Some(weapon) = &self.weapon {
             if Self::weapon_ready(weapon, current_time) {
                 return true;
@@ -941,6 +970,10 @@ impl Object {
     }
 
     pub fn fire_at(&mut self, target_id: ObjectId, current_time: f32) -> bool {
+        // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
+        if self.status.weapons_jammed || self.is_disabled() {
+            return false;
+        }
         // Prefer the locked/active slot when ready; else primary; else secondary.
         let slot = {
             let prefer_secondary = self.active_weapon_slot == 1;
@@ -1050,6 +1083,7 @@ impl Object {
 
     // Command system compatibility methods
     pub fn can_move(&self) -> bool {
+        // weapons_jammed intentionally does NOT block movement (weapons-only residual).
         self.is_mobile()
             && self.is_alive()
             && !self.status.disabled_unmanned

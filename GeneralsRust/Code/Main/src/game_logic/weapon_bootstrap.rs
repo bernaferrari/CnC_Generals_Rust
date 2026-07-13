@@ -43,6 +43,10 @@ pub const HUMVEE_PRIMARY_WEAPON: &str = "HumveeGun";
 pub const RANGER_SECONDARY_WEAPON: &str = "RangerFlashBangGrenadeWeapon";
 pub const HUMVEE_SECONDARY_WEAPON: &str = "HumveeMissileWeapon";
 
+/// Retail base-defense primary weapons (Patriot / Gattling structure residual).
+pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
+pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -55,20 +59,18 @@ pub fn ensure_host_weapon_store() -> usize {
         return 0;
     }
 
-    // Fast path: already have the ranger weapon from archive load or prior seed.
-    if store_has(RANGER_PRIMARY_WEAPON) {
-        BOOTSTRAP_ATTEMPTED.store(true, Ordering::Relaxed);
-        return 0;
-    }
-
     let mut added = 0usize;
 
-    // Prefer real INI data when extracted game data is on disk.
-    if !BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) || !store_has(RANGER_PRIMARY_WEAPON) {
+    // Prefer real INI data when extracted game data is on disk (once / until ranger present).
+    if !store_has(RANGER_PRIMARY_WEAPON)
+        && (!BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) || !store_has(RANGER_PRIMARY_WEAPON))
+    {
         added += try_load_weapon_ini_from_disk();
     }
+    BOOTSTRAP_ATTEMPTED.store(true, Ordering::Relaxed);
 
-    // Always guarantee golden-unit weapons even without game data.
+    // Always fill gaps for known host weapons (units + base-defense residual).
+    // seed_known_host_weapons skips names already present in the store.
     added += seed_known_host_weapons();
     added
 }
@@ -82,7 +84,15 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             Some(REDGUARD_PRIMARY_WEAPON)
         }
         "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_PRIMARY_WEAPON),
-        _ => None,
+        // Base-defense structures (Patriot / Gattling residual auto-fire).
+        "USA_Patriot" | "USA_PatriotMissile" | "AmericaPatriotBattery" | "PatriotMissile" => {
+            Some(PATRIOT_PRIMARY_WEAPON)
+        }
+        "China_GattlingCannon" | "ChinaGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
+        _ => {
+            // Name residual for Laser/Superweapon general variants.
+            crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
+        }
     }
 }
 
@@ -225,6 +235,26 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 1,
             weapon_speed: 600.0,
+        },
+        // AmericaPatriotBattery PRIMARY — PrimaryDamage 30, AttackRange 225,
+        // DelayBetweenShots 250ms → 8 frames @ 30 FPS.
+        SeedWeapon {
+            name: PATRIOT_PRIMARY_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 225.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 1.0,
+        },
+        // ChinaGattlingCannon PRIMARY — PrimaryDamage 10, AttackRange 225,
+        // DelayBetweenShots 250ms → 8 frames @ 30 FPS. Instant hit.
+        SeedWeapon {
+            name: GATTLING_BUILDING_PRIMARY_WEAPON,
+            primary_damage: 10.0,
+            attack_range: 225.0,
+            delay_frames: 8,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
         },
     ];
 

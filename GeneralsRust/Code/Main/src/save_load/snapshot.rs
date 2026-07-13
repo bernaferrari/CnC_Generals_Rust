@@ -257,6 +257,10 @@ pub struct ObjectStatusSnapshot {
     /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
     #[serde(default)]
     pub disabled_hacked_until_frame: u32,
+    /// Host ECM tank / jammer residual: weapons cannot fire in jam radius.
+    /// Serde default for older snaps.
+    #[serde(default)]
+    pub weapons_jammed: bool,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual. Serde default for older snaps.
     #[serde(default)]
     pub is_carbomb: bool,
@@ -293,6 +297,7 @@ impl Default for ObjectStatusSnapshot {
             disabled_unmanned: false,
             disabled_hacked: false,
             disabled_hacked_until_frame: 0,
+            weapons_jammed: false,
             is_carbomb: false,
             hijacked: false,
             special_power_ready: true,
@@ -1410,6 +1415,10 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_f32(&mut self.special_power_cooldown_remaining)?;
         xfer.xfer_marker_label("ActiveWeaponSlot")?;
         xfer.xfer_u8(&mut self.active_weapon_slot)?;
+        // Appended residual (ECM weapons_jammed); older binary residual saves without
+        // this field fail-closed on xfer (serde JSON path uses #[serde(default)]).
+        xfer.xfer_marker_label("WeaponsJammed")?;
+        xfer.xfer_bool(&mut self.weapons_jammed)?;
         Ok(())
     }
 }
@@ -3180,6 +3189,7 @@ impl SnapshotBuilder {
             disabled_unmanned: object.status.disabled_unmanned,
             disabled_hacked: object.status.disabled_hacked,
             disabled_hacked_until_frame: object.status.disabled_hacked_until_frame,
+            weapons_jammed: object.status.weapons_jammed,
             is_carbomb: object.status.is_carbomb,
             hijacked: object.status.hijacked,
             special_power_ready: object.special_power_ready,
@@ -3803,6 +3813,7 @@ impl SnapshotBuilder {
         object.status.disabled_unmanned = status.disabled_unmanned;
         object.status.disabled_hacked = status.disabled_hacked;
         object.status.disabled_hacked_until_frame = status.disabled_hacked_until_frame;
+        object.status.weapons_jammed = status.weapons_jammed;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
 

@@ -634,6 +634,15 @@ pub struct GameLogic {
     propaganda_residual_heals: u32,
     propaganda_residual_buffs: u32,
 
+    /// Host China ECM Tank / jammer residual honesty counters.
+    /// Fail-closed: not full subdual damage / laser stream / missile scatter matrix.
+    /// jams: weapons_jammed grants applied to enemy/neutral units in radius.
+    ecm_residual_jams: u32,
+
+    /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
+    /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
+    base_defense_residual_fires: u32,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -1469,6 +1478,8 @@ impl GameLogic {
             heal_residual_heal_pad_heals: 0,
             propaganda_residual_heals: 0,
             propaganda_residual_buffs: 0,
+            ecm_residual_jams: 0,
+            base_defense_residual_fires: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1622,6 +1633,8 @@ impl GameLogic {
         self.heal_residual_heal_pad_heals = 0;
         self.propaganda_residual_heals = 0;
         self.propaganda_residual_buffs = 0;
+        self.ecm_residual_jams = 0;
+        self.base_defense_residual_fires = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -3466,6 +3479,10 @@ impl GameLogic {
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
         self.update_propaganda_tower_pulse(dt);
 
+        // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
+        // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
+        self.update_ecm_jam_field();
+
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
         self.update_radar_scans();
@@ -4238,6 +4255,11 @@ impl GameLogic {
             if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
                 continue;
             }
+            // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
+            // Chase is also suppressed so jammed units do not re-acquire via combat path.
+            if attacker.status.weapons_jammed || attacker.is_disabled() {
+                continue;
+            }
             // Interaction orders set `target` without being attacks. Skip combat
             // (fire + chase) so CaptureBuilding / SpecialAbility / Repair / Enter
             // are not converted into weapon fire or Attacking chase.
@@ -4261,6 +4283,30 @@ impl GameLogic {
             if attacker.ai_state == AIState::Garrisoned {
                 self.try_garrison_residual_fire(attacker_id);
                 continue;
+            }
+            // Base-defense residual: Patriot / Gattling (and FSBaseDefense) auto-acquire
+            // and fire at nearby enemies without a manual AttackObject order.
+            // Respect skirmish AI pause so golden clear is not structure-counterfired.
+            {
+                let is_defense = crate::game_logic::host_base_defense::is_base_defense_structure(
+                    &attacker.template_name,
+                    attacker.is_kind_of(KindOf::Structure),
+                    attacker.is_kind_of(KindOf::FSBaseDefense),
+                );
+                let defense_auto_ok = is_defense
+                    && attacker.is_constructed()
+                    && attacker.can_attack()
+                    && matches!(
+                        attacker.ai_state,
+                        AIState::Idle | AIState::Attacking | AIState::Patrolling
+                    )
+                    && !self.skirmish_ai_auto_engage_paused(attacker.team);
+                if defense_auto_ok {
+                    // Residual owns base-defense fire (nearest-in-range each shot).
+                    // Manual AttackObject is not required; structures never chase.
+                    self.try_base_defense_residual_fire(attacker_id);
+                    continue;
+                }
             }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
@@ -4610,7 +4656,14 @@ impl GameLogic {
                         return evaluate_enemy(enemy_id, search_radius);
                     }
                 }
-                if !ai_auto_engage_paused && frame % 300 == object_id.0 % 300 {
+                // Structures (especially base defenses) must not enter unit patrol
+                // wander — residual auto-fire keeps them Idle and scanning.
+                let is_structure = self
+                    .objects
+                    .get(&object_id)
+                    .map(|o| o.is_kind_of(KindOf::Structure))
+                    .unwrap_or(false);
+                if !ai_auto_engage_paused && !is_structure && frame % 300 == object_id.0 % 300 {
                     Some(AICommand::SetAIState {
                         object_id,
                         state: AIState::Patrolling,
@@ -8890,6 +8943,137 @@ impl GameLogic {
             self.overlord_bunker_residual_exits.saturating_add(1);
     }
 
+    /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
+    /// structures acquire nearest enemy in weapon range and deal damage without
+    /// a manual AttackObject order.
+    /// Fail-closed: not full AutoAcquire LOS / continuous-fire / multi-slot matrix.
+    fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&defense_id) else {
+            return;
+        };
+        if !attacker.is_alive()
+            || !attacker.is_constructed()
+            || attacker.weapon.is_none()
+            || !attacker.can_attack()
+        {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = attacker.get_position();
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == defense_id {
+                continue;
+            }
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            if !crate::game_logic::host_base_defense::is_legal_base_defense_target(
+                obj.is_alive(),
+                obj.team == team,
+                obj.team == Team::Neutral,
+                obj.status.under_construction,
+                combat_kind,
+            ) {
+                continue;
+            }
+            // Stealthed + undetected residual: skip (parity with update_combat).
+            if obj.is_effectively_stealthed() && obj.team != team {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(damage);
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&defense_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            // Track engagement for UI / subsequent frames without requiring
+            // a player AttackObject. Structures stay immobile (no chase).
+            attacker.target = Some(target_id);
+            attacker.target_location = None;
+            attacker.force_attack = false;
+            attacker.ai_state = AIState::Attacking;
+            attacker.status.attacking = true;
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+                attacker.stop_attack();
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        // Muzzle + audio residual (shared combat honesty).
+        let muzzle_pos = self
+            .objects
+            .get(&defense_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let impact_pos = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.get_position());
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            impact_pos,
+            self.frame,
+            defense_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new("WeaponFire")
+                .with_object(defense_id)
+                .with_position(muzzle_pos)
+                .with_priority(160),
+        );
+
+        self.base_defense_residual_fires =
+            self.base_defense_residual_fires.saturating_add(1);
+    }
+
+    /// Residual honesty: at least one base-defense auto-fire residual shot.
+    pub fn honesty_base_defense_fire_ok(&self) -> bool {
+        self.base_defense_residual_fires > 0
+    }
+
+    /// Residual honesty counter: base-defense auto-fire residual shots.
+    pub fn base_defense_residual_fires(&self) -> u32 {
+        self.base_defense_residual_fires
+    }
+
     /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
     /// enemy in weapon range from the **container position**.
     /// Fail-closed: not C++ garrison weapon bone positions / multi-slot matrix.
@@ -9154,6 +9338,144 @@ impl GameLogic {
     /// Combined host propaganda tower residual honesty (heal or buff).
     pub fn honesty_propaganda_ok(&self) -> bool {
         self.honesty_propaganda_heal_ok() || self.honesty_propaganda_buff_ok()
+    }
+
+    /// Host ECM tank residual jam honesty ticks (weapons_jammed grants).
+    pub fn ecm_residual_jams(&self) -> u32 {
+        self.ecm_residual_jams
+    }
+
+    fn record_ecm_residual_jam(&mut self) {
+        self.ecm_residual_jams = self.ecm_residual_jams.saturating_add(1);
+    }
+
+    /// Residual honesty: ECM tank / jammer jammed enemy weapons at least once.
+    pub fn honesty_ecm_jam_ok(&self) -> bool {
+        self.ecm_residual_jams > 0
+    }
+
+    /// Host China ECM Tank / jammer residual: jam enemy weapons in radius.
+    ///
+    /// Retail inspiration:
+    /// - ECMTankVehicleDisabler (SUBDUAL_VEHICLE → DISABLED_SUBDUED cannot fire)
+    /// - ECMTankMissileJammer FireWeaponUpdate pulse (PrimaryDamageRadius=150,
+    ///   RadiusDamageAffects = ENEMIES NEUTRALS)
+    ///
+    /// Fail-closed: continuous aura sets `weapons_jammed` (not full subdual damage
+    /// accumulate/heal, not laser stream, not missile projectile scatter).
+    pub fn update_ecm_jam_field(&mut self) {
+        use crate::game_logic::host_ecm_jam::{
+            in_ecm_jam_radius_2d, is_ecm_hostile_team, is_ecm_jammer, is_legal_ecm_jam_target,
+            HOST_ECM_JAM_RADIUS,
+        };
+        use std::collections::HashSet;
+
+        // Snapshot jammers: alive ECM tank / frequency jammer residual sources.
+        let jammers: Vec<(ObjectId, Team, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_ecm_jammer(&obj.template_name) {
+                    return None;
+                }
+                // Under construction / unmanned / hacked jammers do not emit.
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if obj.status.disabled_unmanned || obj.status.disabled_hacked {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z))
+            })
+            .collect();
+
+        if jammers.is_empty() {
+            // Clear residual jam when no jammers remain.
+            for obj in self.objects.values_mut() {
+                if obj.status.weapons_jammed {
+                    obj.set_weapons_jammed(false);
+                }
+            }
+            return;
+        }
+
+        // Snapshot armed non-structure candidates.
+        let candidates: Vec<(ObjectId, Team, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.is_kind_of(KindOf::Structure) {
+                    return None;
+                }
+                if obj.status.under_construction {
+                    return None;
+                }
+                let has_weapon =
+                    obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                if !has_weapon {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z, has_weapon))
+            })
+            .collect();
+
+        let mut covered: HashSet<ObjectId> = HashSet::new();
+        for (jammer_id, jammer_team, jx, jz) in &jammers {
+            let jammer_neutral = *jammer_team == Team::Neutral;
+            for (target_id, target_team, tx, tz, has_weapon) in &candidates {
+                let same_team = *jammer_team == *target_team;
+                let target_neutral = *target_team == Team::Neutral;
+                let enemy_or_neutral =
+                    is_ecm_hostile_team(jammer_neutral, same_team, target_neutral);
+                if !is_legal_ecm_jam_target(
+                    false,
+                    true,
+                    enemy_or_neutral,
+                    *jammer_id == *target_id,
+                    false,
+                    *has_weapon,
+                ) {
+                    continue;
+                }
+                if !in_ecm_jam_radius_2d((*jx, *jz), (*tx, *tz), HOST_ECM_JAM_RADIUS) {
+                    continue;
+                }
+                covered.insert(*target_id);
+            }
+        }
+
+        let mut jam_ticks: u32 = 0;
+        for target_id in &covered {
+            let Some(target) = self.objects.get_mut(target_id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            if !target.status.weapons_jammed {
+                target.set_weapons_jammed(true);
+                jam_ticks = jam_ticks.saturating_add(1);
+            } else {
+                // Already jammed — keep flag set (coverage refresh).
+                target.status.weapons_jammed = true;
+            }
+        }
+
+        // Clear jam on units no longer covered by any jammer.
+        for (id, obj) in self.objects.iter_mut() {
+            if covered.contains(id) {
+                continue;
+            }
+            if obj.status.weapons_jammed {
+                obj.set_weapons_jammed(false);
+            }
+        }
+
+        for _ in 0..jam_ticks {
+            self.record_ecm_residual_jam();
+        }
     }
 
     /// Host China Propaganda / Speaker Tower residual: heal + weapon buff in radius.
@@ -18099,6 +18421,211 @@ mod tests {
         );
     }
 
+    /// Residual E2E: enemy weapons jammed near China ECM tank residual field.
+    ///
+    /// C++ ECMTankVehicleDisabler (SUBDUAL → DISABLED_SUBDUED cannot fire) +
+    /// ECMTankMissileJammer FireWeaponUpdate pulse (PrimaryDamageRadius=150).
+    /// Fail-closed: continuous aura (not full subdual damage / laser stream).
+    #[test]
+    fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut ecm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankECM");
+        ecm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("ChinaTankECM".to_string(), ecm_tpl);
+
+        let ecm_id = game_logic
+            .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ecm tank");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy tank");
+        let ally_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(30.0, 0.0, 0.0))
+            .expect("ally tank");
+
+        // Bind weapons so residual jam target filter accepts units.
+        for id in [enemy_id, ally_id, ecm_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 25.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert_eq!(game_logic.ecm_residual_jams(), 0);
+        assert!(!game_logic.honesty_ecm_jam_ok());
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .expect("enemy")
+                .is_weapons_jammed(),
+            "enemy must not start jammed"
+        );
+
+        // One residual pulse — continuous aura, no command required.
+        game_logic.update_ecm_jam_field();
+
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            enemy.is_weapons_jammed(),
+            "enemy weapons must be jammed near ECM residual"
+        );
+        assert!(
+            !enemy.can_attack(),
+            "jammed enemy must fail can_attack residual"
+        );
+        assert!(
+            !enemy.can_fire(0.0),
+            "jammed enemy must fail can_fire residual"
+        );
+        // Weapons-only residual: movement still allowed.
+        assert!(
+            enemy.can_move(),
+            "weapons jam residual must not freeze movement"
+        );
+
+        let ally = game_logic.find_object(ally_id).expect("ally");
+        assert!(
+            !ally.is_weapons_jammed(),
+            "same-team ally must not be jammed by own ECM"
+        );
+        assert!(
+            ally.can_attack(),
+            "ally with weapons must still can_attack"
+        );
+
+        assert!(
+            game_logic.ecm_residual_jams() > 0,
+            "must record ECM jam honesty ticks"
+        );
+        assert!(
+            game_logic.honesty_ecm_jam_ok(),
+            "ECM jam residual honesty path"
+        );
+
+        // Combat path must not fire while jammed.
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.target = Some(ecm_id);
+            enemy.ai_state = AIState::Attacking;
+            enemy.status.attacking = true;
+        }
+        let ecm_hp_before = game_logic
+            .find_object(ecm_id)
+            .expect("ecm")
+            .health
+            .current;
+        game_logic.update_combat(&[enemy_id, ecm_id, ally_id], 1.0 / 30.0);
+        let ecm_hp_after = game_logic
+            .find_object(ecm_id)
+            .expect("ecm")
+            .health
+            .current;
+        assert_eq!(
+            ecm_hp_before, ecm_hp_after,
+            "jammed enemy must not damage ECM via combat residual"
+        );
+
+        // Leave radius → jam clears.
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(400.0, 0.0, 0.0));
+        }
+        game_logic.update_ecm_jam_field();
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            !enemy.is_weapons_jammed(),
+            "enemy leaving jam radius must recover weapons"
+        );
+        assert!(
+            enemy.can_attack(),
+            "recovered enemy must can_attack again"
+        );
+
+        assert!(
+            game_logic
+                .find_object(ecm_id)
+                .map(|e| e.is_alive())
+                .unwrap_or(false),
+            "ECM tank must remain alive"
+        );
+    }
+
+    /// Residual: unit outside ECM jam radius is not jammed; walk-in jams weapons.
+    #[test]
+    fn ecm_jam_residual_out_of_range_then_in_range() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut ecm_tpl = crate::game_logic::ThingTemplate::new("Tank_ChinaTankECM");
+        ecm_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("Tank_ChinaTankECM".to_string(), ecm_tpl);
+
+        let _ecm_id = game_logic
+            .create_object(
+                "Tank_ChinaTankECM",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ecm");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 120.0,
+                last_fire_time: -5.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.update_ecm_jam_field();
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .expect("enemy")
+                .is_weapons_jammed(),
+            "out-of-range enemy must not be jammed"
+        );
+        // First pulse with no cover does not increment honesty.
+        assert_eq!(game_logic.ecm_residual_jams(), 0);
+        assert!(!game_logic.honesty_ecm_jam_ok());
+
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(20.0, 0.0, 0.0));
+        }
+        game_logic.update_ecm_jam_field();
+        assert!(
+            game_logic
+                .find_object(enemy_id)
+                .expect("enemy")
+                .is_weapons_jammed(),
+            "walk-in to ECM radius must jam weapons"
+        );
+        assert!(game_logic.honesty_ecm_jam_ok());
+    }
+
     /// Residual: ConvertToCarbomb walks to vehicle → IS_CARBOMB + team defect;
     /// converter consumed. Does NOT detonate/kill the vehicle on contact.
     #[test]
@@ -23830,5 +24357,204 @@ mod tests {
             "detected clears at expiry; stealthed may remain"
         );
         assert!(stealth.is_effectively_stealthed());
+    }
+
+    // -----------------------------------------------------------------------
+    // Base-defense residual (Patriot / Gattling auto-fire without AttackObject)
+    // Fail-closed: not full AutoAcquire LOS / continuous-fire / multi-slot matrix.
+    // -----------------------------------------------------------------------
+
+    /// Residual: USA Patriot auto-fires nearby enemy without manual AttackObject.
+    #[test]
+    fn base_defense_residual_patriot_auto_fires_without_attack_object() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+
+        // GameLogic::new does not load faction buildings; register residual template.
+        let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+        patriot_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Patriot".to_string(), patriot_tpl);
+
+        let patriot_id = game_logic
+            .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("patriot");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let p = game_logic.find_object(patriot_id).expect("patriot obj");
+            assert!(
+                p.weapon.is_some(),
+                "Patriot must bind residual primary weapon"
+            );
+            assert!(
+                p.can_attack(),
+                "Patriot residual must be able to attack when armed"
+            );
+            assert!(
+                crate::game_logic::host_base_defense::is_base_defense_structure(
+                    &p.template_name,
+                    p.is_kind_of(KindOf::Structure),
+                    p.is_kind_of(KindOf::FSBaseDefense),
+                ),
+                "USA_Patriot must classify as base defense residual"
+            );
+            // No AttackObject: stay Idle with no target.
+            assert_eq!(p.ai_state, AIState::Idle);
+            assert!(p.target.is_none());
+        }
+        {
+            let p = game_logic.find_object_mut(patriot_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        // Several combat ticks (reload residual) without any AttackObject command.
+        for f in 0..40 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[patriot_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        }
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Patriot residual auto-fire must damage nearby enemy without AttackObject (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_base_defense_fire_ok(),
+            "base-defense residual honesty must record auto-fire"
+        );
+        assert!(
+            game_logic.base_defense_residual_fires() > 0,
+            "expected residual fire counter > 0"
+        );
+    }
+
+    /// Residual: China Gattling Cannon auto-fires nearby enemy without AttackObject.
+    #[test]
+    fn base_defense_residual_gattling_auto_fires_without_attack_object() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+
+        let mut gattling_tpl = crate::game_logic::ThingTemplate::new("China_GattlingCannon");
+        gattling_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(500.0)
+            .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("China_GattlingCannon".to_string(), gattling_tpl);
+
+        let gattling_id = game_logic
+            .create_object("China_GattlingCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("gattling");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let g = game_logic.find_object_mut(gattling_id).unwrap();
+            assert!(g.weapon.is_some(), "Gattling must bind residual weapon");
+            if let Some(w) = g.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            assert_eq!(g.ai_state, AIState::Idle);
+            assert!(g.target.is_none());
+        }
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        for f in 0..40 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[gattling_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        }
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "Gattling residual auto-fire must damage nearby enemy without AttackObject (before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_base_defense_fire_ok(),
+            "base-defense residual honesty"
+        );
+    }
+
+    /// Fail-closed residual: non-defense structure does not auto-fire.
+    #[test]
+    fn base_defense_residual_barracks_does_not_auto_fire() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks");
+        // Even if someone arms a barracks, residual auto-fire is base-defense only.
+        {
+            let b = game_logic.find_object_mut(barracks_id).unwrap();
+            b.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 200.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        for f in 0..30 {
+            game_logic.frame = f;
+            game_logic.update_combat(&[barracks_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        }
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert_eq!(
+            enemy_hp_after, enemy_hp_before,
+            "non-defense structure must not residual auto-fire without AttackObject"
+        );
+        assert!(
+            !game_logic.honesty_base_defense_fire_ok(),
+            "fail-closed: barracks must not set base-defense residual honesty"
+        );
     }
 }

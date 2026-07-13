@@ -304,9 +304,12 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
         .set_health(600.0)
         .set_cost(1000, -2)
-        .set_model("abpatriotsw"); // USA patriot missile system model
+        .set_model("abpatriotsw") // USA patriot missile system model
+        // Residual auto-fire: bind retail Patriot primary (not Weapon::default).
+        .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON);
     templates.insert("USA_Patriot".to_string(), usa_patriot);
 
     // China Buildings
@@ -363,9 +366,12 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
         .set_health(500.0)
         .set_cost(800, -2)
-        .set_model("nbgattling_a1"); // China gattling cannon model
+        .set_model("nbgattling_a1") // China gattling cannon model
+        // Residual auto-fire: bind retail Gattling building primary.
+        .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON);
     templates.insert("China_GattlingCannon".to_string(), china_gattling);
 
     // Additional GLA Buildings
@@ -374,9 +380,11 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
         .set_health(400.0)
         .set_cost(800, -2)
         .set_model("ubstingers"); // GLA Stinger Site - anti-air defense
+    // Fail-closed: retail Stinger is SPAWNS_ARE_THE_WEAPONS (no primary gun residual).
     templates.insert("GLA_StingerSite".to_string(), gla_stinger);
 
     let mut gla_tunnel = ThingTemplate::new("GLA_TunnelNetwork");
