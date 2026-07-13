@@ -1217,6 +1217,7 @@ impl Object {
         let target_is_infantry = target.is_kind_of(KindOf::Infantry);
         let target_is_vehicle = target.is_kind_of(KindOf::Vehicle)
             && !target.is_kind_of(KindOf::Aircraft);
+        let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
         let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
         let secondary_damage = self
@@ -1225,7 +1226,22 @@ impl Object {
             .map(|w| w.damage)
             .unwrap_or(0.0);
 
+        // SCUD residual: PreferredAgainst SECONDARY INFANTRY (toxin warhead)
+        // even though secondary primary-damage is lower than explosive.
+        let scud_prefer_toxin = crate::game_logic::host_scud_launcher::scud_prefer_secondary_vs_infantry(
+            crate::game_logic::host_scud_launcher::is_scud_launcher_template(&self.template_name),
+            target_is_infantry,
+        );
+
+        // Quad Cannon residual: airborne targets prefer AA secondary slot.
+        let quad_prefer_aa = crate::game_logic::host_quad_cannon::is_quad_cannon_template(
+            &self.template_name,
+        ) && target_is_air;
+
         if secondary_ok && !rocket_pods_manual_only {
+            if scud_prefer_toxin || quad_prefer_aa {
+                return Some(1);
+            }
             // PreferredAgainst residual by target kind + relative damage.
             if target_is_structure && (secondary_damage >= primary_damage || !primary_ok) {
                 return Some(1);

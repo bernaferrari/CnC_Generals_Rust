@@ -87,6 +87,23 @@ pub const HELLFIRE_MISSILE_WEAPON: &str = "HellfireMissileWeapon";
 /// Host GLA Angry Mob residual aggregate fire weapon (nexus residual).
 pub const ANGRY_MOB_RESIDUAL_WEAPON: &str = "GLAAngryMobResidualWeapon";
 
+/// Retail GLA Rocket Buggy primary residual weapons.
+pub const BUGGY_ROCKET_WEAPON: &str = "BuggyRocketWeapon";
+pub const BUGGY_ROCKET_WEAPON_UPGRADED: &str = "BuggyRocketWeaponUpgraded";
+
+/// Retail GLA Quad Cannon ground / anti-air residual weapons.
+pub const QUAD_CANNON_GUN: &str = "QuadCannonGun";
+pub const QUAD_CANNON_GUN_AIR: &str = "QuadCannonGunAir";
+pub const QUAD_CANNON_GUN_UPGRADE_ONE: &str = "QuadCannonGunUpgradeOne";
+pub const QUAD_CANNON_GUN_UPGRADE_ONE_AIR: &str = "QuadCannonGunUpgradeOneAir";
+pub const QUAD_CANNON_GUN_UPGRADE_TWO: &str = "QuadCannonGunUpgradeTwo";
+pub const QUAD_CANNON_GUN_UPGRADE_TWO_AIR: &str = "QuadCannonGunUpgradeTwoAir";
+
+/// Retail GLA SCUD launcher residual weapons.
+pub const SCUD_GUN_EXPLOSIVE: &str = "SCUDLauncherGunExplosive";
+pub const SCUD_GUN_TOXIN: &str = "SCUDLauncherGunToxin";
+pub const SCUD_GUN_ANTHRAX: &str = "SCUDLauncherGunAnthrax";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -191,6 +208,27 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaVehicleSentryDrone"
         | "SupW_AmericaVehicleSentryDrone"
         | "Lazr_AmericaVehicleSentryDrone" => None,
+        // GLA Rocket Buggy residual long-range rockets.
+        "GLAVehicleRocketBuggy"
+        | "GLA_RocketBuggy"
+        | "TestRocketBuggy"
+        | "Chem_GLAVehicleRocketBuggy"
+        | "Demo_GLAVehicleRocketBuggy"
+        | "Slth_GLAVehicleRocketBuggy" => Some(BUGGY_ROCKET_WEAPON),
+        // GLA Quad Cannon residual ground gun.
+        "GLAVehicleQuadCannon"
+        | "GLA_QuadCannon"
+        | "TestQuadCannon"
+        | "Chem_GLAVehicleQuadCannon"
+        | "Demo_GLAVehicleQuadCannon"
+        | "Slth_GLAVehicleQuadCannon" => Some(QUAD_CANNON_GUN),
+        // GLA SCUD launcher residual explosive primary.
+        "GLAVehicleScudLauncher"
+        | "GLA_ScudLauncher"
+        | "TestScudLauncher"
+        | "Chem_GLAVehicleScudLauncher"
+        | "Demo_GLAVehicleScudLauncher"
+        | "Slth_GLAVehicleScudLauncher" => Some(SCUD_GUN_EXPLOSIVE),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
@@ -239,6 +277,15 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
                 return Some(ANGRY_MOB_RESIDUAL_WEAPON);
             }
+            if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
+                return Some(BUGGY_ROCKET_WEAPON);
+            }
+            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
+                return Some(QUAD_CANNON_GUN);
+            }
+            if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name) {
+                return Some(SCUD_GUN_EXPLOSIVE);
+            }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
     }
@@ -261,9 +308,29 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
         | "Lazr_AmericaVehicleComanche" => None,
+        // Quad Cannon residual AA secondary (ground primary + air secondary).
+        "GLAVehicleQuadCannon"
+        | "GLA_QuadCannon"
+        | "TestQuadCannon"
+        | "Chem_GLAVehicleQuadCannon"
+        | "Demo_GLAVehicleQuadCannon"
+        | "Slth_GLAVehicleQuadCannon" => Some(QUAD_CANNON_GUN_AIR),
+        // SCUD residual toxin secondary (Anthrax swaps warhead residual).
+        "GLAVehicleScudLauncher"
+        | "GLA_ScudLauncher"
+        | "TestScudLauncher"
+        | "Chem_GLAVehicleScudLauncher"
+        | "Demo_GLAVehicleScudLauncher"
+        | "Slth_GLAVehicleScudLauncher" => Some(SCUD_GUN_TOXIN),
         _ => {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 Some(NUKE_CANNON_NEUTRON_WEAPON)
+            } else if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name)
+            {
+                Some(QUAD_CANNON_GUN_AIR)
+            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name)
+            {
+                Some(SCUD_GUN_TOXIN)
             } else {
                 // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
@@ -581,6 +648,80 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 999_999.0,
         },
+        // GLA Rocket Buggy BuggyRocketWeapon — PrimaryDamage 20, Range 300,
+        // Delay 200ms → 6 frames, clip 6. Min range / splash residual via host.
+        SeedWeapon {
+            name: BUGGY_ROCKET_WEAPON,
+            primary_damage: 20.0,
+            attack_range: 300.0,
+            delay_frames: 6,
+            clip_size: 6,
+            weapon_speed: 600.0,
+        },
+        // BuggyRocketWeaponUpgraded — same damage, clip 12 residual.
+        SeedWeapon {
+            name: BUGGY_ROCKET_WEAPON_UPGRADED,
+            primary_damage: 20.0,
+            attack_range: 300.0,
+            delay_frames: 6,
+            clip_size: 12,
+            weapon_speed: 600.0,
+        },
+        // QuadCannonGun ground — PrimaryDamage 10, Range 150, Delay 100ms → 3 frames.
+        SeedWeapon {
+            name: QUAD_CANNON_GUN,
+            primary_damage: 10.0,
+            attack_range: 150.0,
+            delay_frames: 3,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // QuadCannonGunUpgradeOne — dmg 8, Delay 50ms → 2 frames.
+        SeedWeapon {
+            name: QUAD_CANNON_GUN_UPGRADE_ONE,
+            primary_damage: 8.0,
+            attack_range: 150.0,
+            delay_frames: 2,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // QuadCannonGunUpgradeTwo — dmg 8, Delay 25ms → 1 frame.
+        SeedWeapon {
+            name: QUAD_CANNON_GUN_UPGRADE_TWO,
+            primary_damage: 8.0,
+            attack_range: 150.0,
+            delay_frames: 1,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // SCUDLauncherGunExplosive — PrimaryDamage 300, Range 350, clip 1,
+        // ClipReload 10000ms → 300 frames. Area residual via host.
+        SeedWeapon {
+            name: SCUD_GUN_EXPLOSIVE,
+            primary_damage: 300.0,
+            attack_range: 350.0,
+            delay_frames: 300,
+            clip_size: 1,
+            weapon_speed: 200.0,
+        },
+        // SCUDLauncherGunToxin — PrimaryDamage 200, Range 350, toxin residual.
+        SeedWeapon {
+            name: SCUD_GUN_TOXIN,
+            primary_damage: 200.0,
+            attack_range: 350.0,
+            delay_frames: 300,
+            clip_size: 1,
+            weapon_speed: 200.0,
+        },
+        // SCUDLauncherGunAnthrax — same blast residual as toxin; upgraded field flag.
+        SeedWeapon {
+            name: SCUD_GUN_ANTHRAX,
+            primary_damage: 200.0,
+            attack_range: 350.0,
+            delay_frames: 300,
+            clip_size: 1,
+            weapon_speed: 200.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -596,6 +737,17 @@ fn seed_known_host_weapons() -> usize {
         t.clip_size = seed.clip_size;
         t.weapon_speed = seed.weapon_speed;
         t.anti_mask.insert(WeaponAntiMask::GROUND);
+        // Min-range residual for long-range GLA artillery / rockets.
+        if seed.name == BUGGY_ROCKET_WEAPON || seed.name == BUGGY_ROCKET_WEAPON_UPGRADED {
+            t.minimum_attack_range = 50.0;
+        }
+        if seed.name == SCUD_GUN_EXPLOSIVE
+            || seed.name == SCUD_GUN_TOXIN
+            || seed.name == SCUD_GUN_ANTHRAX
+        {
+            t.minimum_attack_range = 200.0;
+            t.pre_attack_delay = 15; // 500ms @ 30 FPS residual
+        }
         match with_weapon_store_mut(|store| {
             store.add_weapon_template(t);
         }) {
@@ -608,6 +760,40 @@ fn seed_known_host_weapons() -> usize {
             }
         }
     }
+
+    // Quad Cannon AA secondaries: airborne only (AntiGround=No residual).
+    for (name, delay) in [
+        (QUAD_CANNON_GUN_AIR, 3i32),
+        (QUAD_CANNON_GUN_UPGRADE_ONE_AIR, 2),
+        (QUAD_CANNON_GUN_UPGRADE_TWO_AIR, 1),
+    ] {
+        if store_has(name) {
+            continue;
+        }
+        let mut t = WeaponTemplate::new(name.to_string());
+        t.primary_damage = 5.0;
+        t.attack_range = 350.0;
+        t.min_delay_between_shots = delay;
+        t.max_delay_between_shots = delay;
+        t.clip_size = 0;
+        t.weapon_speed = 999_999.0;
+        // Air only — no GROUND mask so can_target_ground residual is false.
+        t.anti_mask = WeaponAntiMask::new(0);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        match with_weapon_store_mut(|store| {
+            store.add_weapon_template(t);
+        }) {
+            Ok(()) => {
+                log::debug!("Host WeaponStore: seeded AA weapon {}", name);
+                added += 1;
+            }
+            Err(e) => {
+                log::warn!("Host WeaponStore: failed to seed {}: {e}", name);
+            }
+        }
+    }
+
     if added > 0 {
         log::info!(
             "Host WeaponStore: seeded {} known golden-unit weapons (INI data unavailable or incomplete)",
