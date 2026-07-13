@@ -77,6 +77,8 @@ pub mod host_terrorist;
 pub mod host_missile_defender;
 pub mod host_minigunner;
 pub mod host_colonel_burton;
+pub mod host_usa_pilot;
+pub mod host_gla_worker;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
@@ -166,6 +168,14 @@ pub use host_car_bomb::{
     car_bomb_damage_at_distance, suicide_car_bomb_weapon, HostCarBombRegistry,
     CAR_BOMB_CONVERT_AUDIO, CAR_BOMB_DETONATE_AUDIO, HIJACK_AUDIO, SUICIDE_CAR_BOMB_ATTACK_RANGE,
     SUICIDE_CAR_BOMB_DAMAGE, SUICIDE_CAR_BOMB_RADIUS,
+};
+pub use host_usa_pilot::{
+    is_pilot_template, is_recrewable_unmanned_vehicle, should_recrew_on_enter, HostUsaPilotRegistry,
+    PILOT_RECREW_AUDIO,
+};
+pub use host_gla_worker::{
+    is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
+    HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
 };
 pub use host_heal::{
     is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,

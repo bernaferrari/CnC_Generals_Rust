@@ -766,6 +766,45 @@ impl Object {
         self.ai_state = AIState::Idle;
     }
 
+    /// Apply USA Pilot recrew residual onto this unmanned vehicle.
+    ///
+    /// Clears DISABLED_UNMANNED, transfers team to pilot team, merges pilot
+    /// veterancy (retail VeterancyCrateCollide IsPilot + AddsOwnerVeterancy).
+    /// Caller destroys the pilot infantry.
+    pub fn apply_pilot_recrew(
+        &mut self,
+        pilot_team: Team,
+        pilot_level: crate::game_logic::VeterancyLevel,
+    ) -> bool {
+        use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
+
+        if !self.status.disabled_unmanned {
+            return false;
+        }
+        self.status.disabled_unmanned = false;
+        self.status.disabled_hacked = false;
+        self.status.disabled_hacked_until_frame = 0;
+        self.status.disabled_emp = false;
+        self.status.disabled_emp_until_frame = 0;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+        self.set_team(pilot_team);
+
+        let previous = self.experience.level;
+        let merged = merged_recrew_veterancy(previous, pilot_level);
+        let transferred = veterancy_rank(merged) > veterancy_rank(previous);
+        if merged != previous {
+            self.experience.level = merged;
+            self.apply_veterancy_bonuses(previous, merged);
+        }
+        transferred
+    }
+
     /// Apply DISABLED_HACKED residual until `until_frame` (absolute host logic frame).
     /// C++ SpecialAbilityUpdate: setDisabledUntil(DISABLED_HACKED, now + EffectDuration).
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
