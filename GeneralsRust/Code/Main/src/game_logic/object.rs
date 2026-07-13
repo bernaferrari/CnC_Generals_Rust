@@ -208,6 +208,13 @@ pub struct Object {
     /// Detection range in world units. `0` => use template `sight_range`
     /// (matches C++ when DetectionRange is unset/0).
     pub detection_range: f32,
+    /// StealthDetectorUpdate DetectionRate residual in logic frames.
+    /// `0` = continuous every-frame scan (legacy host residual detectors).
+    /// Strategy Center S&D residual sets **15** (500ms @ 30 FPS).
+    pub detection_rate_frames: u32,
+    /// Absolute frame when the next DetectionRate residual scan may fire.
+    /// `0` means scan is due immediately (setSDEnabled → UPDATE_SLEEP_NONE).
+    pub next_detection_scan_frame: u32,
     /// Logic frame when OBJECT_STATUS_DETECTED expires (0 = no timer).
     /// C++ StealthUpdate::m_detectionExpiresFrame residual.
     pub detection_expires_frame: u32,
@@ -485,6 +492,8 @@ impl Object {
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
+            detection_rate_frames: 0,
+            next_detection_scan_frame: 0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
             stealth_breaks_on_move: false,
@@ -594,6 +603,8 @@ impl Object {
             mine_data: None,
             is_detector: false,
             detection_range: 0.0,
+            detection_rate_frames: 0,
+            next_detection_scan_frame: 0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
             stealth_breaks_on_move: false,

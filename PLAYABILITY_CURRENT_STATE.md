@@ -1,3 +1,42 @@
+## Residual Host Playability — BinaryDataStream Laser + DetectionRate Sleep (2026-07-13)
+**Closed (host-testable Patriot assist laser feedback + StealthDetector DetectionRate residual):**
+1. **BinaryDataStream laser residual** (`AssistedTargetingUpdate::makeFeedbackLaser`):
+   - On assist accept, residual spawns two beams with template
+     `PatriotBinaryDataStream`.
+   - `LaserFromAssisted`: requestor → assistant.
+   - `LaserToTarget`: assistant → victim.
+   - DeletionUpdate Min/MaxLifetime **600**ms → **18** frames residual lifetime.
+   - Host-testable: pair endpoints; lifetime expiry; honesty counters.
+   - Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable
+     (arc / scroll / texture / NumBeams).
+2. **StealthDetectorUpdate DetectionRate residual** (Strategy Center ModuleTag_16):
+   - DetectionRate **500**ms → **15** frames sleep between scans.
+   - `setSDEnabled(true)` residual: first scan immediate (`next_scan_frame = 0`).
+   - After scan: `next_detection_scan_frame = frame + 15`.
+   - `markAsDetected(updateRate + 1)` residual hold **16** frames.
+   - Host-testable: mid-rate no re-scan; re-scan at +15; hold honesty.
+   - Fail-closed: VisionObjectName spawn residual still not claimed
+     (createVisionObject disabled in retail C++); non-SC detectors keep
+     continuous legacy scan (rate_frames=0).
+3. Tests (not log-only):
+   - `patriot_assist_binary_data_stream_laser_residual`
+   - `strategy_center_stealth_detector_detection_rate_residual`
+   - updated `patriot_assisted_targeting_request_assist_range_residual`
+     (laser honesty)
+   - updated `strategy_center_stealth_detector_enable_residual` (rate fields)
+   - module unit tests in `host_base_defense` / `host_strategy_center`
+     (laser matrix / DetectionRate gates)
+
+**Still residual (fail-closed, not claimed):**
+- Full W3DLaserDraw / LaserUpdate client drawable for Patriot assist beams
+- Full AI turret pitch/yaw natural-position angle matrix (recenter frame gate closed)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
+- Full CamoNetting sub-object net visual / opacity drawable matrix
+- Network laser / DetectionRate replication (network deferred)
+
 ## Residual Host Playability — Stinger HiveStructureBody + CamoNetting Structure Reveal (2026-07-13)
 **Closed (host-testable HiveStructureBody/SpawnBehavior + CamoNetting structure StealthUpdate residual):**
 1. **HiveStructureBody + SpawnBehavior residual** (`GLAStingerSite` ModuleTag_04/06):

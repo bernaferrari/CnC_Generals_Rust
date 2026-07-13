@@ -26,8 +26,10 @@
 //! - **StealthDetectorUpdate residual** (Strategy Center ModuleTag_16):
 //!   DetectionRange **500**, DetectionRate **500**ms → **15** frames,
 //!   InitiallyDisabled **Yes**. Enabled only while SearchAndDestroy is active
-//!   (`setSDEnabled(true)` residual). VisionObjectName createVisionObject is
-//!   disabled in retail C++ (ShroudRevealToAllRange path) — fail-closed.
+//!   (`setSDEnabled(true)` residual). DetectionRate residual: first scan
+//!   immediate, then sleep **15** frames; `markAsDetected(rate+1=**16**)`.
+//!   VisionObjectName createVisionObject is disabled in retail C++
+//!   (ShroudRevealToAllRange path) — fail-closed.
 //!
 //! - **Pack/unpack door model-condition residual**: retail AnimationTime
 //!   **7000**ms → **210** frames for all three plans; TransitionIdleTime **0**.
@@ -116,8 +118,45 @@ pub const STRATEGY_CENTER_STEALTH_DETECTION_RATE_MS: u32 = 500;
 /// DetectionRate → frames at 30 FPS (500 / (1000/30) = 15).
 pub const STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES: u32 = 15;
 
+/// C++ `markAsDetected(updateRate + 1)` residual hold frames for Strategy Center.
+/// Ensures detected status survives until the next DetectionRate wake.
+pub const STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES: u32 =
+    STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES + 1;
+
 /// Retail StrategyCenterSearchAndDestroyDetectsStealth.
 pub const STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH: bool = true;
+
+/// Whether a StealthDetectorUpdate residual scan is due this frame.
+///
+/// C++ `setSDEnabled(true)` wakes with `UPDATE_SLEEP_NONE` (immediate first scan);
+/// subsequent wakes sleep `DetectionRate` frames. Host residual: `next_scan_frame == 0`
+/// or `frame >= next_scan_frame` is due. `rate_frames == 0` means continuous (legacy).
+pub fn stealth_detector_scan_due(rate_frames: u32, next_scan_frame: u32, frame: u32) -> bool {
+    if rate_frames == 0 {
+        return true;
+    }
+    next_scan_frame == 0 || frame >= next_scan_frame
+}
+
+/// Absolute frame for the next DetectionRate residual scan after a scan at `frame`.
+pub fn stealth_detector_next_scan_frame(rate_frames: u32, frame: u32) -> u32 {
+    if rate_frames == 0 {
+        return 0;
+    }
+    frame.saturating_add(rate_frames)
+}
+
+/// Detected-status hold frames residual: `markAsDetected(updateRate + 1)`.
+///
+/// When `rate_frames == 0` (legacy continuous detectors), host uses **30** frames
+/// (~1 logic second) for fail-closed compatibility with non-rate residual detectors.
+pub fn stealth_detector_hold_frames(rate_frames: u32) -> u32 {
+    if rate_frames == 0 {
+        30
+    } else {
+        rate_frames.saturating_add(1)
+    }
+}
 
 // --- Pack/unpack door animation residual (BattlePlanUpdate) ---
 
@@ -1099,6 +1138,7 @@ mod tests {
         assert!((STRATEGY_CENTER_STEALTH_DETECTION_RANGE - 500.0).abs() < 0.001);
         assert_eq!(STRATEGY_CENTER_STEALTH_DETECTION_RATE_MS, 500);
         assert_eq!(STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES, 15);
+        assert_eq!(STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES, 16);
         assert!(STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH);
         assert!(strategy_center_stealth_detector_enabled_for_plan(
             HostBattlePlan::SearchAndDestroy
@@ -1112,6 +1152,17 @@ mod tests {
         assert!(
             (strategy_center_stealth_detection_range_when_enabled() - 500.0).abs() < 0.001
         );
+        // DetectionRate residual: immediate first scan, then rate-gated; hold = rate+1.
+        assert!(stealth_detector_scan_due(15, 0, 0));
+        assert!(stealth_detector_scan_due(15, 0, 100));
+        assert!(stealth_detector_scan_due(15, 10, 10));
+        assert!(stealth_detector_scan_due(15, 10, 11));
+        assert!(!stealth_detector_scan_due(15, 10, 9));
+        assert!(stealth_detector_scan_due(0, 99, 0)); // continuous legacy
+        assert_eq!(stealth_detector_next_scan_frame(15, 10), 25);
+        assert_eq!(stealth_detector_next_scan_frame(0, 10), 0);
+        assert_eq!(stealth_detector_hold_frames(15), 16);
+        assert_eq!(stealth_detector_hold_frames(0), 30);
         // Pack/unpack door animation residual (AnimationTime 7000ms → 210 frames).
         assert_eq!(BATTLE_PLAN_ANIMATION_TIME_MS, 7000);
         assert_eq!(BATTLE_PLAN_ANIMATION_FRAMES, 210);

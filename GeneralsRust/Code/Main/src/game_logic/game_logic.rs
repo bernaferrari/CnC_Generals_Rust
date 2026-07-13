@@ -1143,8 +1143,16 @@ pub struct GameLogic {
     patriot_assist_residual_fires: u32,
     /// AssistedTargetingUpdate residual: assistants that accepted a request.
     patriot_assist_residual_accepts: u32,
+    /// BinaryDataStream residual: LaserFromAssisted beams spawned.
+    patriot_assist_laser_from_assisted: u32,
+    /// BinaryDataStream residual: LaserToTarget beams spawned.
+    patriot_assist_laser_to_target: u32,
+    /// Active residual BinaryDataStream assist lasers (DeletionUpdate lifetime).
+    patriot_assist_lasers: Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
     pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
+    /// StealthDetectorUpdate DetectionRate residual scans performed.
+    stealth_detector_rate_scans: u32,
 
     /// Game paused state
     is_paused: bool,
@@ -2160,7 +2168,11 @@ impl GameLogic {
             patriot_assist_residual_requests: 0,
             patriot_assist_residual_fires: 0,
             patriot_assist_residual_accepts: 0,
+            patriot_assist_laser_from_assisted: 0,
+            patriot_assist_laser_to_target: 0,
+            patriot_assist_lasers: Vec::new(),
             pending_patriot_assists: Vec::new(),
+            stealth_detector_rate_scans: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -2491,7 +2503,11 @@ impl GameLogic {
         self.patriot_assist_residual_requests = 0;
         self.patriot_assist_residual_fires = 0;
         self.patriot_assist_residual_accepts = 0;
+        self.patriot_assist_laser_from_assisted = 0;
+        self.patriot_assist_laser_to_target = 0;
+        self.patriot_assist_lasers.clear();
         self.pending_patriot_assists.clear();
+        self.stealth_detector_rate_scans = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -6984,6 +7000,8 @@ impl GameLogic {
         // AssistedTargeting residual: advance pending Patriot assist clips after
         // primary fire this combat pass (AssistingClipSize / DelayBetweenShots).
         self.update_pending_patriot_assists();
+        // BinaryDataStream laser residual: expire DeletionUpdate lifetime beams.
+        self.update_patriot_assist_lasers();
     }
 
     fn find_ground_attack_victim(
@@ -15104,8 +15122,9 @@ impl GameLogic {
                 );
             }
             // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
-            // equivalent Patriots fire AssistingClipSize assist-weapon shots.
-            // Fail-closed: not full BinaryDataStream laser drawable feedback.
+            // equivalent Patriots fire AssistingClipSize assist-weapon shots +
+            // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
+            // Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
             if !destroyed {
                 self.process_patriot_assist_request(defense_id, target_id);
             }
@@ -15123,8 +15142,9 @@ impl GameLogic {
     fn process_patriot_assist_request(&mut self, requester_id: ObjectId, victim_id: ObjectId) {
         use crate::game_logic::host_base_defense::{
             is_patriot_battery_structure, is_patriot_free_to_assist, is_within_patriot_assist_weapon_range,
-            is_within_patriot_request_assist_range, patriots_are_assist_equivalent,
-            PendingPatriotAssist, PATRIOT_ASSIST_LASER_AUDIO,
+            is_within_patriot_request_assist_range, make_patriot_assist_lasers,
+            patriots_are_assist_equivalent, PendingPatriotAssist, PatriotAssistLaserKind,
+            PATRIOT_ASSIST_LASER_AUDIO,
         };
 
         let Some(requester) = self.objects.get(&requester_id) else {
@@ -15150,7 +15170,7 @@ impl GameLogic {
 
         // Snapshot candidate assistants (avoid borrow issues while mutating pending).
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-        let mut candidates: Vec<(ObjectId, String)> = Vec::new();
+        let mut candidates: Vec<(ObjectId, String, Vec3)> = Vec::new();
         for (id, obj) in &self.objects {
             if *id == requester_id {
                 continue;
@@ -15192,19 +15212,19 @@ impl GameLogic {
                 continue;
             }
             // Victim must be in assist weapon range from the assistant.
+            let assistant_pos = obj.get_position();
             let vdist = {
-                let p = obj.get_position();
-                let dx = p.x - victim_pos.x;
-                let dz = p.z - victim_pos.z;
+                let dx = assistant_pos.x - victim_pos.x;
+                let dz = assistant_pos.z - victim_pos.z;
                 (dx * dx + dz * dz).sqrt()
             };
             if !is_within_patriot_assist_weapon_range(vdist) {
                 continue;
             }
-            candidates.push((*id, obj.template_name.clone()));
+            candidates.push((*id, obj.template_name.clone(), assistant_pos));
         }
 
-        for (assistant_id, assistant_template) in candidates {
+        for (assistant_id, assistant_template, assistant_pos) in candidates {
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
                 assistant_id,
                 victim_id,
@@ -15214,17 +15234,45 @@ impl GameLogic {
             ));
             self.patriot_assist_residual_accepts =
                 self.patriot_assist_residual_accepts.saturating_add(1);
-            // Residual BinaryDataStream laser honesty cue (not full LaserUpdate drawable).
-            if let Some(asst) = self.objects.get(&assistant_id) {
-                let pos = asst.get_position();
-                self.queue_audio_event(
-                    AudioEventRequest::new(PATRIOT_ASSIST_LASER_AUDIO)
-                        .with_object(assistant_id)
-                        .with_position(pos)
-                        .with_priority(140),
-                );
+            // BinaryDataStream laser residual: LaserFromAssisted + LaserToTarget
+            // (retail makeFeedbackLaser pair; DeletionUpdate 600ms lifetime).
+            // Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
+            let beams = make_patriot_assist_lasers(
+                requester_id,
+                assistant_id,
+                victim_id,
+                (requester_pos.x, requester_pos.y, requester_pos.z),
+                (assistant_pos.x, assistant_pos.y, assistant_pos.z),
+                (victim_pos.x, victim_pos.y, victim_pos.z),
+                self.frame,
+            );
+            for beam in beams {
+                match beam.kind {
+                    PatriotAssistLaserKind::FromAssisted => {
+                        self.patriot_assist_laser_from_assisted =
+                            self.patriot_assist_laser_from_assisted.saturating_add(1);
+                    }
+                    PatriotAssistLaserKind::ToTarget => {
+                        self.patriot_assist_laser_to_target =
+                            self.patriot_assist_laser_to_target.saturating_add(1);
+                    }
+                }
+                self.patriot_assist_lasers.push(beam);
             }
+            // Residual BinaryDataStream laser honesty audio cue.
+            self.queue_audio_event(
+                AudioEventRequest::new(PATRIOT_ASSIST_LASER_AUDIO)
+                    .with_object(assistant_id)
+                    .with_position(assistant_pos)
+                    .with_priority(140),
+            );
         }
+    }
+
+    /// Advance residual Patriot BinaryDataStream laser lifetimes (DeletionUpdate).
+    pub fn update_patriot_assist_lasers(&mut self) {
+        use crate::game_logic::host_base_defense::expire_patriot_assist_lasers;
+        expire_patriot_assist_lasers(&mut self.patriot_assist_lasers, self.frame);
     }
 
     /// Advance pending Patriot AssistedTargeting residual clips.
@@ -16596,6 +16644,11 @@ impl GameLogic {
             && self.patriot_assist_residual_fires > 0
     }
 
+    /// Residual honesty: BinaryDataStream LaserFromAssisted + LaserToTarget spawned.
+    pub fn honesty_patriot_assist_laser_ok(&self) -> bool {
+        self.patriot_assist_laser_from_assisted > 0 && self.patriot_assist_laser_to_target > 0
+    }
+
     pub fn patriot_assist_residual_requests(&self) -> u32 {
         self.patriot_assist_residual_requests
     }
@@ -16606,6 +16659,29 @@ impl GameLogic {
 
     pub fn patriot_assist_residual_accepts(&self) -> u32 {
         self.patriot_assist_residual_accepts
+    }
+
+    pub fn patriot_assist_laser_from_assisted(&self) -> u32 {
+        self.patriot_assist_laser_from_assisted
+    }
+
+    pub fn patriot_assist_laser_to_target(&self) -> u32 {
+        self.patriot_assist_laser_to_target
+    }
+
+    pub fn active_patriot_assist_lasers(
+        &self,
+    ) -> &[crate::game_logic::host_base_defense::ResidualPatriotAssistLaser] {
+        &self.patriot_assist_lasers
+    }
+
+    /// Residual honesty: StealthDetectorUpdate DetectionRate residual scan fired.
+    pub fn honesty_stealth_detector_rate_ok(&self) -> bool {
+        self.stealth_detector_rate_scans > 0
+    }
+
+    pub fn stealth_detector_rate_scans(&self) -> u32 {
+        self.stealth_detector_rate_scans
     }
 
     /// DemoTrapUpdate weapon-slot mode residual (Proximity / Manual / Detonate).
@@ -23706,6 +23782,8 @@ impl GameLogic {
                     HostBattlePlan::SearchAndDestroy => {
                         center.detection_range = 0.0;
                         center.is_detector = false;
+                        center.detection_rate_frames = 0;
+                        center.next_detection_scan_frame = 0;
                         disabled_stealth_detector = true;
                         let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
                     }
@@ -23867,6 +23945,11 @@ impl GameLogic {
                                 center.detection_range =
                                     strategy_center_stealth_detection_range_when_enabled();
                                 center.is_detector = true;
+                                // DetectionRate residual: 500ms → 15 frames.
+                                // setSDEnabled(true) → first scan immediate (next=0).
+                                center.detection_rate_frames =
+                                    crate::game_logic::host_strategy_center::STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES;
+                                center.next_detection_scan_frame = 0;
                                 enabled_stealth_detector = true;
                             }
                             let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
@@ -28082,8 +28165,13 @@ impl GameLogic {
                 .saturating_add(reveals);
         }
 
-        // Collect active detectors (alive, not under construction).
+        // Collect active detectors (alive, not under construction) that are due
+        // for a StealthDetectorUpdate DetectionRate residual scan.
         // Track residual detector kind for honesty counters.
+        use crate::game_logic::host_strategy_center::{
+            stealth_detector_hold_frames, stealth_detector_next_scan_frame,
+            stealth_detector_scan_due,
+        };
         #[derive(Clone, Copy)]
         struct DetFlags {
             is_sentry: bool,
@@ -28092,49 +28180,62 @@ impl GameLogic {
             is_listening_outpost: bool,
             is_troop_crawler: bool,
         }
-        let detectors: Vec<(Team, Vec3, f32, DetFlags)> = self
-            .objects
-            .values()
-            .filter(|o| {
-                o.is_detector && o.is_alive() && !o.status.under_construction && !o.status.destroyed
-            })
-            .map(|o| {
-                let flags = DetFlags {
-                    is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
+        let mut detectors: Vec<(ObjectId, Team, Vec3, f32, DetFlags, u32)> = Vec::new();
+        let mut scanned_detector_ids: Vec<ObjectId> = Vec::new();
+        for (id, o) in &self.objects {
+            if !(o.is_detector
+                && o.is_alive()
+                && !o.status.under_construction
+                && !o.status.destroyed)
+            {
+                continue;
+            }
+            let range = o.effective_detection_range();
+            if range <= 0.0 {
+                continue;
+            }
+            if !stealth_detector_scan_due(o.detection_rate_frames, o.next_detection_scan_frame, frame)
+            {
+                continue;
+            }
+            let flags = DetFlags {
+                is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
+                    &o.template_name,
+                ),
+                is_pathfinder: crate::game_logic::host_pathfinder::is_pathfinder_template(
+                    &o.template_name,
+                ),
+                is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
+                    &o.template_name,
+                ),
+                is_listening_outpost:
+                    crate::game_logic::host_listening_outpost::is_listening_outpost_template(
                         &o.template_name,
-                    ),
-                    is_pathfinder: crate::game_logic::host_pathfinder::is_pathfinder_template(
-                        &o.template_name,
-                    ),
-                    is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
-                        &o.template_name,
-                    ),
-                    is_listening_outpost:
-                        crate::game_logic::host_listening_outpost::is_listening_outpost_template(
-                            &o.template_name,
-                        ) || o.is_listening_outpost_style_container(),
-                    is_troop_crawler:
-                        crate::game_logic::host_troop_crawler::is_troop_crawler_template(
-                            &o.template_name,
-                        ) || o.is_troop_crawler_style_container(),
-                };
-                (
-                    o.team,
-                    o.get_position(),
-                    o.effective_detection_range(),
-                    flags,
-                )
-            })
-            .filter(|(_, _, range, _)| *range > 0.0)
-            .collect();
+                    ) || o.is_listening_outpost_style_container(),
+                is_troop_crawler: crate::game_logic::host_troop_crawler::is_troop_crawler_template(
+                    &o.template_name,
+                ) || o.is_troop_crawler_style_container(),
+            };
+            detectors.push((*id, o.team, o.get_position(), range, flags, o.detection_rate_frames));
+            scanned_detector_ids.push(*id);
+        }
+
+        // Advance DetectionRate residual sleep for every detector that scanned
+        // this tick (C++ returns UPDATE_SLEEP(m_updateRate) after each wake).
+        for det_id in &scanned_detector_ids {
+            if let Some(obj) = self.objects.get_mut(det_id) {
+                if obj.detection_rate_frames > 0 {
+                    obj.next_detection_scan_frame =
+                        stealth_detector_next_scan_frame(obj.detection_rate_frames, frame);
+                    self.stealth_detector_rate_scans =
+                        self.stealth_detector_rate_scans.saturating_add(1);
+                }
+            }
+        }
 
         if detectors.is_empty() {
             return;
         }
-
-        // C++ residual: markAsDetected(updateRate + 1). Host uses ~1 logic second.
-        const DETECT_HOLD_FRAMES: u32 = 30;
-        let expires = frame.saturating_add(DETECT_HOLD_FRAMES);
 
         // Collect stealthed targets first to avoid borrow conflicts.
         let stealthed_ids: Vec<ObjectId> = self
@@ -28158,31 +28259,40 @@ impl GameLogic {
             let mut detected_by_scout = false;
             let mut detected_by_listening_outpost = false;
             let mut detected_by_troop_crawler = false;
-            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range, flags)| {
-                let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
-                if in_range {
-                    if flags.is_sentry {
-                        detected_by_sentry = true;
+            // C++ markAsDetected(updateRate + 1); take max hold among detecting scanners.
+            let mut best_expires: u32 = 0;
+            let detected_by_someone = detectors.iter().any(
+                |(_id, det_team, det_pos, range, flags, rate)| {
+                    let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
+                    if in_range {
+                        let hold = stealth_detector_hold_frames(*rate);
+                        let exp = frame.saturating_add(hold);
+                        if exp > best_expires {
+                            best_expires = exp;
+                        }
+                        if flags.is_sentry {
+                            detected_by_sentry = true;
+                        }
+                        if flags.is_pathfinder {
+                            detected_by_pathfinder = true;
+                        }
+                        if flags.is_scout {
+                            detected_by_scout = true;
+                        }
+                        if flags.is_listening_outpost {
+                            detected_by_listening_outpost = true;
+                        }
+                        if flags.is_troop_crawler {
+                            detected_by_troop_crawler = true;
+                        }
                     }
-                    if flags.is_pathfinder {
-                        detected_by_pathfinder = true;
-                    }
-                    if flags.is_scout {
-                        detected_by_scout = true;
-                    }
-                    if flags.is_listening_outpost {
-                        detected_by_listening_outpost = true;
-                    }
-                    if flags.is_troop_crawler {
-                        detected_by_troop_crawler = true;
-                    }
-                }
-                in_range
-            });
+                    in_range
+                },
+            );
 
             if detected_by_someone {
                 if let Some(obj) = self.objects.get_mut(&sid) {
-                    obj.mark_detected(expires);
+                    obj.mark_detected(best_expires);
                 }
                 // Honesty: first residual reveal by residual detector kinds this tick.
                 if !already_detected {
@@ -41548,14 +41658,17 @@ mod tests {
 
     /// Residual: Strategy Center StealthDetectorUpdate enable stack (S&D).
     ///
-    /// Retail ModuleTag_16: DetectionRange **500**, DetectionRate **500**ms,
-    /// InitiallyDisabled **Yes**. SearchAndDestroy → setSDEnabled(true);
-    /// leaving S&D → setSDEnabled(false). VisionObjectName spawn residual is
-    /// fail-closed (createVisionObject disabled in retail C++).
+    /// Retail ModuleTag_16: DetectionRange **500**, DetectionRate **500**ms →
+    /// **15** frames, InitiallyDisabled **Yes**. SearchAndDestroy →
+    /// setSDEnabled(true); leaving S&D → setSDEnabled(false). DetectionRate
+    /// residual: immediate first scan, then rate-gated with
+    /// markAsDetected(rate+1). VisionObjectName spawn residual is fail-closed
+    /// (createVisionObject disabled in retail C++).
     #[test]
     fn strategy_center_stealth_detector_enable_residual() {
         use crate::game_logic::host_strategy_center::{
             HostBattlePlan, STRATEGY_CENTER_STEALTH_DETECTION_RANGE,
+            STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
         };
 
         let mut game_logic = GameLogic::new();
@@ -41642,9 +41755,21 @@ mod tests {
                 "DetectionRange residual must be 500, got {}",
                 sc.detection_range
             );
+            assert_eq!(
+                sc.detection_rate_frames, STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
+                "DetectionRate residual must be 15 frames"
+            );
+            assert_eq!(
+                sc.next_detection_scan_frame, 0,
+                "setSDEnabled residual first scan must be immediate"
+            );
         }
 
         game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic.honesty_stealth_detector_rate_ok(),
+            "DetectionRate residual must record scan honesty"
+        );
         assert!(
             !game_logic
                 .find_object(near_id)
@@ -41659,6 +41784,15 @@ mod tests {
                 .is_effectively_stealthed(),
             "far stealthed enemy beyond 500 must remain undetected"
         );
+        // After first scan, next DetectionRate wake is frame + 15.
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert_eq!(
+                sc.next_detection_scan_frame,
+                game_logic.frame + STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
+                "DetectionRate residual must sleep 15 frames after scan"
+            );
+        }
 
         // Leave S&D → PACKING setSDEnabled(false) residual.
         assert!(game_logic.activate_battle_plan(
@@ -41672,6 +41806,10 @@ mod tests {
             assert!(
                 sc.detection_range.abs() < 0.1,
                 "PACKING residual must clear DetectionRange residual"
+            );
+            assert_eq!(
+                sc.detection_rate_frames, 0,
+                "PACKING residual must clear DetectionRate residual"
             );
         }
         assert!(
@@ -41692,6 +41830,119 @@ mod tests {
                 .is_effectively_stealthed(),
             "disabled StealthDetector residual must not detect"
         );
+    }
+
+    /// Residual: StealthDetectorUpdate DetectionRate sleep phasing (Strategy Center).
+    ///
+    /// Retail DetectionRate **500**ms → **15** frames; markAsDetected(rate+1=**16**).
+    /// First scan immediate on setSDEnabled; subsequent scans rate-gated.
+    /// Fail-closed: VisionObjectName spawn residual still not claimed.
+    #[test]
+    fn strategy_center_stealth_detector_detection_rate_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
+            STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        sc_template.sight_range = 400.0;
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.is_detector = false;
+            sc.detection_range = 0.0;
+            sc.object_type = ObjectType::Building;
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(200.0, 0.0, 0.0))
+            .expect("stealthed enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            e.apply_grant_stealth();
+        }
+
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::SearchAndDestroy,
+            Some(sc_id),
+        ));
+        advance_battle_plan_door_to_active(&mut game_logic);
+
+        // Frame 0: immediate first DetectionRate residual scan.
+        game_logic.frame = 0;
+        let scans_before = game_logic.stealth_detector_rate_scans();
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic.stealth_detector_rate_scans() > scans_before,
+            "first DetectionRate residual scan must fire immediately"
+        );
+        {
+            let e = game_logic.find_object(enemy_id).expect("enemy");
+            assert!(e.status.detected, "first scan must detect in-range stealthed");
+            assert_eq!(
+                e.detection_expires_frame,
+                STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
+                "markAsDetected(rate+1) residual hold must be 16 frames"
+            );
+        }
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert_eq!(
+                sc.next_detection_scan_frame,
+                STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES,
+                "next scan residual at frame 15"
+            );
+        }
+
+        // Mid-rate frames: detector sleeps — no new rate scan.
+        let scans_after_first = game_logic.stealth_detector_rate_scans();
+        game_logic.frame = 7;
+        game_logic.update_stealth_and_detection();
+        assert_eq!(
+            game_logic.stealth_detector_rate_scans(),
+            scans_after_first,
+            "DetectionRate residual must not re-scan mid-sleep"
+        );
+
+        // Next DetectionRate wake at frame 15.
+        game_logic.frame = STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES;
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic.stealth_detector_rate_scans() > scans_after_first,
+            "DetectionRate residual must re-scan after 15 frames"
+        );
+        {
+            let e = game_logic.find_object(enemy_id).expect("enemy");
+            assert!(e.status.detected, "rate re-scan must refresh detected residual");
+            assert_eq!(
+                e.detection_expires_frame,
+                STRATEGY_CENTER_STEALTH_DETECTION_RATE_FRAMES
+                    + STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
+                "refresh hold residual = scan_frame + rate + 1"
+            );
+        }
+        assert!(game_logic.honesty_stealth_detector_rate_ok());
     }
 
     /// Residual: BattlePlan pack/unpack door model-condition / 7s animation.
@@ -52965,6 +53216,19 @@ mod tests {
             game_logic.honesty_patriot_assist_ok(),
             "patriot assist honesty must record request + accept + fire"
         );
+        // BinaryDataStream laser residual honesty (LaserFromAssisted + LaserToTarget).
+        assert!(
+            game_logic.honesty_patriot_assist_laser_ok(),
+            "assist accept must spawn BinaryDataStream laser residual pair"
+        );
+        assert!(
+            game_logic.patriot_assist_laser_from_assisted() >= 1,
+            "LaserFromAssisted residual must fire"
+        );
+        assert!(
+            game_logic.patriot_assist_laser_to_target() >= 1,
+            "LaserToTarget residual must fire"
+        );
         // Full clip residual honesty: 4 assist shots when victim survives.
         assert!(
             game_logic.patriot_assist_residual_fires() >= PATRIOT_ASSISTING_CLIP_SIZE
@@ -52985,6 +53249,113 @@ mod tests {
                 .any(|p| p.assistant_id == far_id),
             "far patriot outside RequestAssistRange must not assist"
         );
+    }
+
+    /// Residual: AssistedTargetingUpdate BinaryDataStream LaserFromAssisted +
+    /// LaserToTarget feedback beams (PatriotBinaryDataStream DeletionUpdate 600ms).
+    ///
+    /// Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
+    #[test]
+    fn patriot_assist_binary_data_stream_laser_residual() {
+        use crate::game_logic::host_base_defense::{
+            PatriotAssistLaserKind, PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM,
+            PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+        patriot_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Patriot".to_string(), patriot_tpl);
+
+        let requester_id = game_logic
+            .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("requester");
+        let assistant_id = game_logic
+            .create_object(
+                "USA_Patriot",
+                Team::USA,
+                Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("assistant");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.health.current = 500.0;
+            e.health.maximum = 500.0;
+            e.max_health = 500.0;
+        }
+        for id in [requester_id, assistant_id] {
+            if let Some(p) = game_logic.find_object_mut(id) {
+                if let Some(w) = p.weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                }
+            }
+        }
+
+        game_logic.frame = 5;
+        game_logic.update_combat(
+            &[requester_id, assistant_id, enemy_id],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.honesty_patriot_assist_laser_ok(),
+            "BinaryDataStream laser residual pair must spawn on assist accept"
+        );
+        let lasers = game_logic.active_patriot_assist_lasers();
+        assert!(
+            lasers.len() >= 2,
+            "must have FromAssisted + ToTarget residual beams (got {})",
+            lasers.len()
+        );
+        assert!(
+            lasers.iter().any(|l| l.kind == PatriotAssistLaserKind::FromAssisted
+                && l.from_id == requester_id
+                && l.to_id == assistant_id),
+            "LaserFromAssisted residual must link requestor → assistant"
+        );
+        assert!(
+            lasers.iter().any(|l| l.kind == PatriotAssistLaserKind::ToTarget
+                && l.from_id == assistant_id
+                && l.to_id == enemy_id),
+            "LaserToTarget residual must link assistant → victim"
+        );
+        for l in lasers {
+            assert_eq!(l.template_name(), PATRIOT_BINARY_DATA_STREAM);
+            assert_eq!(
+                l.expires_frame,
+                5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES,
+                "DeletionUpdate residual lifetime 600ms → 18 frames"
+            );
+            assert!(l.is_active_at(5));
+            assert!(l.is_active_at(5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES - 1));
+            assert!(!l.is_active_at(5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES));
+        }
+
+        // DeletionUpdate residual: beams expire after lifetime.
+        game_logic.frame = 5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES;
+        game_logic.update_patriot_assist_lasers();
+        assert!(
+            game_logic.active_patriot_assist_lasers().is_empty(),
+            "BinaryDataStream residual beams must expire after 18 frames"
+        );
+        // Honesty counters persist after beam expiry.
+        assert!(game_logic.honesty_patriot_assist_laser_ok());
     }
 
     /// Residual: Lazr Patriot assist damage family (35) + non-equivalent stock reject.
