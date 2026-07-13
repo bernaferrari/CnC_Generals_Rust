@@ -2870,6 +2870,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 total_damage_applied: 0.0,
                 objects_hit: 0,
                 objects_destroyed: 0,
+                artillery_tier: crate::game_logic::special_power_strikes::ArtilleryBarrageScienceTier::Level1,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
