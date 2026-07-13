@@ -42,9 +42,12 @@
 //! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
 //! (host residual; full howitzer projectile Object deferred; MODELCONDITION
 //! CONTINUOUS_FIRE_* honesty residual closed) / ParticleUplinkCannonUpdate
-//! outer-node lasers + full manual driving residual deferred; DamagePulseRemnant
+//! outer-node + connector laser residual closed at STATUS_FIRING; manual beam
+//! driving residual closed (override destination + ManualDrivingSpeed /
+//! ManualFastDrivingSpeed / DoubleClickToFastDriveDelay); DamagePulseRemnant
 //! trail residual closed; swath sine residual closed; WidthGrow damage-radius
-//! + TotalScorchMarks/RevealRange residual closed). CarpetBomb residual is DropDelay-staggered multi-point
+//! grow+hold+decay shrink residual closed; TotalScorchMarks/RevealRange residual
+//! closed). CarpetBomb residual is DropDelay-staggered multi-point
 //! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
@@ -264,8 +267,14 @@ pub const PARTICLE_SWATH_OF_DEATH_DISTANCE: f32 = 200.0;
 /// Retail SwathOfDeathAmplitude — lateral sine amplitude of swath residual.
 pub const PARTICLE_SWATH_OF_DEATH_AMPLITUDE: f32 = 50.0;
 /// Retail WidthGrowTime = 2000 ms → 60 frames @ 30 FPS.
-/// Laser radius ramps 0→full over this window (same value used for shrink/decay).
+/// Laser radius ramps 0→full over this window at orbital birth, and shrinks
+/// full→0 over the same window after TotalFiringTime (`LaserUpdate::setDecayFrames`).
 pub const PARTICLE_WIDTH_GROW_FRAMES: u32 = (2000 * 30) / 1000;
+/// Full orbital beam lifetime residual: TotalFiringTime + WidthGrowTime decay tail.
+/// C++: `orbitalDeathFrame = orbitalDecayStart + widthGrowFrames` where
+/// `orbitalDecayStart - orbitalBirth = totalFiringFrames`.
+pub const PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES: u32 =
+    PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES;
 /// Retail OuterBeamWidth residual for OrbitalLaser honesty (26.0).
 /// Host full damage radius is [`PARTICLE_BEAM_RADIUS`]; OuterBeamWidth ×
 /// DamageRadiusScalar = 26 × 3.4 ≈ 88.4 is the full GPU laser matrix (fail-closed).
@@ -278,15 +287,58 @@ pub const PARTICLE_TOTAL_SCORCH_MARKS: u32 = 20;
 pub const PARTICLE_SCORCH_MARK_SCALAR: f32 = 2.4;
 /// Residual GroundHitFX name honesty (TotalScorchMarks determines call count).
 pub const PARTICLE_GROUND_HIT_FX: &str = "FX_ParticleUplinkCannon_BeamHitsGround";
-/// Retail ManualDrivingSpeed = 20 (logic units / frame residual honesty).
-/// Fail-closed: not full player retarget / override destination matrix.
+/// Retail ManualDrivingSpeed = 20 (world units per second).
+/// Host residual converts to per-frame via [`particle_manual_speed_per_frame`].
 pub const PARTICLE_MANUAL_DRIVING_SPEED: f32 = 20.0;
-/// Retail ManualFastDrivingSpeed = 40.
+/// Retail ManualFastDrivingSpeed = 40 (world units per second; double-click).
 pub const PARTICLE_MANUAL_FAST_DRIVING_SPEED: f32 = 40.0;
 /// Retail DoubleClickToFastDriveDelay = 500 ms → 15 frames.
 pub const PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES: u32 = (500 * 30) / 1000;
 /// Residual ambient cue while beam is annihilating ground.
 pub const PARTICLE_BEAM_AUDIO: &str = "ParticleUplinkCannon_GroundAnnihilationSoundLoop";
+/// Retail OuterEffectNumBones = 5 (outer node FX bones / connector lasers).
+pub const PARTICLE_OUTER_EFFECT_NUM_BONES: u32 = 5;
+/// Retail OuterEffectBoneName base (`FX01`..`FX05` layout residual).
+pub const PARTICLE_OUTER_EFFECT_BONE_NAME: &str = "FX";
+/// Retail ConnectorBoneName.
+pub const PARTICLE_CONNECTOR_BONE_NAME: &str = "FXConnector";
+/// Retail FireBoneName (main beam origin).
+pub const PARTICLE_FIRE_BONE_NAME: &str = "FXMain";
+/// Retail OuterNodesLightFlareParticleSystem.
+pub const PARTICLE_OUTER_NODE_LIGHT_FLARE: &str = "ParticleUplinkCannon_OuterNodeLightFlare";
+/// Retail OuterNodesMediumFlareParticleSystem.
+pub const PARTICLE_OUTER_NODE_MEDIUM_FLARE: &str = "ParticleUplinkCannon_OuterNodeMediumFlare";
+/// Retail OuterNodesIntenseFlareParticleSystem (STATUS_FIRING residual).
+pub const PARTICLE_OUTER_NODE_INTENSE_FLARE: &str = "ParticleUplinkCannon_OuterNodeIntenseFlare";
+/// Retail ConnectorMediumLaserName.
+pub const PARTICLE_CONNECTOR_MEDIUM_LASER: &str = "ParticleUplinkCannon_MediumConnectorLaser";
+/// Retail ConnectorIntenseLaserName (STATUS_FIRING residual).
+pub const PARTICLE_CONNECTOR_INTENSE_LASER: &str = "ParticleUplinkCannon_IntenseConnectorLaser";
+/// Retail LaserBaseLightFlareParticleSystemName (ready residual honesty).
+pub const PARTICLE_LASER_BASE_READY_FLARE: &str = "ParticleUplinkCannon_LaserBaseReadyToFire";
+/// Retail ParticleBeamLaserName (ground↔orbit + orbit→target lasers).
+pub const PARTICLE_ORBITAL_LASER_NAME: &str = "ParticleUplinkCannon_OrbitalLaser";
+
+/// Manual drive speed per logic frame residual.
+///
+/// C++: `speed /= LOGICFRAMES_PER_SECOND` after selecting ManualDrivingSpeed or
+/// ManualFastDrivingSpeed.
+pub fn particle_manual_speed_per_frame(fast: bool) -> f32 {
+    let speed = if fast {
+        PARTICLE_MANUAL_FAST_DRIVING_SPEED
+    } else {
+        PARTICLE_MANUAL_DRIVING_SPEED
+    };
+    speed / SP_LOGIC_FPS
+}
+
+/// True when double-click gap is within [`PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES`].
+///
+/// C++: `m_lastDrivingClickFrame - m_2ndLastDrivingClickFrame < delay`.
+pub fn particle_is_fast_drive(last_click_frame: u32, second_last_click_frame: u32) -> bool {
+    last_click_frame.saturating_sub(second_last_click_frame)
+        < PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES
+}
 
 /// Next absolute frame for the next Particle Uplink damage pulse (fractional residual).
 ///
@@ -337,10 +389,31 @@ pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) 
     base + particle_swath_offset(pulses_made_before_this_pulse)
 }
 
-/// Laser width grow scalar residual (`LaserUpdate::m_currentWidthScalar`).
+/// Absolute frame when WidthGrow decay starts (`LaserUpdate::setDecayFrames`).
 ///
-/// Retail: `scalar = (now - widenStart) / WidthGrowTime`, clamped to [0, 1].
-/// Host residual uses beam spawn as widenStart.
+/// Retail: `orbitalDecayStart = startAttack + totalFiring + beamTravel` relative
+/// to orbital birth → `spawn + TotalFiringTime`.
+pub fn particle_decay_start_frame(spawn_frame: u32) -> u32 {
+    spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES)
+}
+
+/// Absolute frame when the orbital laser dies after decay shrink.
+///
+/// Retail: `orbitalDeathFrame = orbitalDecayStart + widthGrowFrames`.
+pub fn particle_death_frame(spawn_frame: u32) -> u32 {
+    spawn_frame.saturating_add(PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES)
+}
+
+/// Laser width scalar residual (`LaserUpdate::m_currentWidthScalar`).
+///
+/// Retail lifecycle relative to orbital birth (`spawn_frame`):
+/// - **Grow** `[spawn, spawn+WidthGrow]`: `scalar = elapsed / WidthGrowTime` (0→1)
+/// - **Hold** `(spawn+WidthGrow, spawn+TotalFiring]`: scalar = 1.0
+/// - **Decay** `(spawn+TotalFiring, spawn+TotalFiring+WidthGrow]`:
+///   `scalar = 1 - (now - decayStart) / WidthGrowTime` (1→0)
+/// - **Dead** after orbital death: 0.0
+///
+/// Fail-closed: not full OuterBeamWidth × scalar GPU laser / client drawable.
 pub fn particle_width_scalar(spawn_frame: u32, current_frame: u32) -> f32 {
     if PARTICLE_WIDTH_GROW_FRAMES == 0 {
         return 1.0;
@@ -348,14 +421,30 @@ pub fn particle_width_scalar(spawn_frame: u32, current_frame: u32) -> f32 {
     if current_frame <= spawn_frame {
         return 0.0;
     }
-    let elapsed = current_frame.saturating_sub(spawn_frame) as f32;
-    (elapsed / (PARTICLE_WIDTH_GROW_FRAMES as f32)).clamp(0.0, 1.0)
+    let grow_end = spawn_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES);
+    let decay_start = particle_decay_start_frame(spawn_frame);
+    let death = particle_death_frame(spawn_frame);
+
+    if current_frame <= grow_end {
+        let elapsed = current_frame.saturating_sub(spawn_frame) as f32;
+        return (elapsed / (PARTICLE_WIDTH_GROW_FRAMES as f32)).clamp(0.0, 1.0);
+    }
+    // Hold full width through TotalFiringTime (inclusive of decay_start frame —
+    // C++ setDecayFrames initializes scalar to 1.0 on the decay-start frame).
+    if current_frame <= decay_start {
+        return 1.0;
+    }
+    if current_frame >= death {
+        return 0.0;
+    }
+    let elapsed = current_frame.saturating_sub(decay_start) as f32;
+    (1.0 - elapsed / (PARTICLE_WIDTH_GROW_FRAMES as f32)).clamp(0.0, 1.0)
 }
 
-/// Residual damage radius at `current_frame` under WidthGrow residual.
+/// Residual damage radius at `current_frame` under WidthGrow grow/hold/decay.
 ///
-/// Full radius is [`PARTICLE_BEAM_RADIUS`] once grow completes. Early pulses
-/// use a smaller radius (retail laser radius × DamageRadiusScalar grow matrix).
+/// Full radius is [`PARTICLE_BEAM_RADIUS`] while hold. Early grow and late decay
+/// pulses use a smaller radius (retail laser radius × width scalar matrix).
 pub fn particle_beam_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 {
     PARTICLE_BEAM_RADIUS * particle_width_scalar(spawn_frame, current_frame)
 }
@@ -1702,33 +1791,129 @@ pub struct HostParticleBeamField {
     /// Honesty: last residual damage radius used (WidthGrow residual).
     #[serde(default)]
     pub last_damage_radius: f32,
+    /// Honesty: last sampled width scalar (grow/hold/decay residual).
+    #[serde(default)]
+    pub last_width_scalar: f32,
+    /// Honesty: lowest width scalar observed during decay phase (starts 1.0).
+    #[serde(default = "default_trough_width_scalar")]
+    pub trough_width_scalar: f32,
+    /// Honesty: frames sampled while in WidthGrow decay (after TotalFiringTime).
+    #[serde(default)]
+    pub decay_samples: u32,
     /// Last residual scorch epicenter (swath position at scorch).
     #[serde(default)]
     pub last_scorch_position: Vec3,
     /// Honesty: last residual scorch radius.
     #[serde(default)]
     pub last_scorch_radius: f32,
+    /// Manual beam driving residual (`setSpecialPowerOverridableDestination`).
+    ///
+    /// When true, epicenter follows [`current_target_position`] toward
+    /// [`override_destination`] instead of SwathOfDeath S-curve (retail human
+    /// players always start in manual mode; host residual defaults swath until
+    /// an override is applied so AI residual tests stay swath-driven).
+    #[serde(default)]
+    pub manual_target_mode: bool,
+    /// Player-requested beam destination residual.
+    #[serde(default)]
+    pub override_destination: Vec3,
+    /// Live beam target residual (moves toward override at ManualDrivingSpeed).
+    #[serde(default)]
+    pub current_target_position: Vec3,
+    /// Last override click frame (double-click fast-drive residual).
+    #[serde(default)]
+    pub last_driving_click_frame: u32,
+    /// Second-last override click frame.
+    #[serde(default)]
+    pub second_last_driving_click_frame: u32,
+    /// Last frame manual drive advance ran (multi-frame step residual).
+    #[serde(default)]
+    pub last_drive_update_frame: u32,
+    /// Honesty: total horizontal distance driven under manual residual.
+    #[serde(default)]
+    pub manual_drive_distance_total: f32,
+    /// Honesty: number of advance steps that moved the beam.
+    #[serde(default)]
+    pub manual_drive_applications: u32,
+    /// Honesty: advance steps that used ManualFastDrivingSpeed.
+    #[serde(default)]
+    pub fast_drive_applications: u32,
+    /// Honesty: outer-node particle systems created at STATUS_FIRING residual
+    /// (retail OuterEffectNumBones × Intense flare).
+    #[serde(default)]
+    pub outer_node_systems_created: u32,
+    /// Honesty: connector lasers created at STATUS_FIRING residual
+    /// (retail OuterEffectNumBones × Intense connector laser).
+    #[serde(default)]
+    pub connector_lasers_created: u32,
+    /// Honesty: laser-base flare systems created (STATUS_FIRING Intense).
+    #[serde(default)]
+    pub laser_base_flare_created: u32,
+    /// Honesty: ground-to-orbit orbital laser residual created at STATUS_FIRING.
+    #[serde(default)]
+    pub ground_to_orbit_laser_created: u32,
+}
+
+fn default_trough_width_scalar() -> f32 {
+    1.0
 }
 
 impl HostParticleBeamField {
+    /// True when the orbital laser has finished the WidthGrow decay tail.
+    ///
+    /// Beam fields remain alive after TotalDamagePulses / TotalFiringTime so
+    /// the decay shrink residual can still be sampled (retail LASERSTATUS_DECAYING).
     pub fn is_expired(&self, current_frame: u32) -> bool {
         current_frame >= self.expires_frame
-            || self.pulses_made >= PARTICLE_BEAM_TOTAL_PULSES
     }
 
+    /// True when a damage pulse residual is due.
+    ///
+    /// Pulses stop once TotalDamagePulses is reached; the field may still live
+    /// through the WidthGrow decay tail without further damage ticks.
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
-        !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+        !self.is_expired(current_frame)
+            && self.pulses_made < PARTICLE_BEAM_TOTAL_PULSES
+            && current_frame >= self.next_tick_frame
     }
 
     /// True when a scorch mark residual is due (and marks remain).
     ///
     /// Scorch schedule is independent of damage-pulse cap; it runs for the
     /// beam orbital lifetime (`expires_frame` inclusive), matching retail
-    /// STATUS_FIRING scorch cadence.
+    /// STATUS_FIRING scorch cadence through the decay tail.
     pub fn is_due_scorch(&self, current_frame: u32) -> bool {
         self.scorch_marks_made < PARTICLE_TOTAL_SCORCH_MARKS
             && current_frame >= self.next_scorch_frame
-            && current_frame <= self.expires_frame
+            && current_frame < self.expires_frame
+    }
+
+    /// Sample WidthGrow grow/hold/decay scalar honesty at `current_frame`.
+    pub fn sample_width_honesty(&mut self, current_frame: u32) {
+        let width_scalar = particle_width_scalar(self.spawn_frame, current_frame);
+        self.last_width_scalar = width_scalar;
+        if width_scalar > self.peak_width_scalar {
+            self.peak_width_scalar = width_scalar;
+        }
+        let decay_start = particle_decay_start_frame(self.spawn_frame);
+        if current_frame > decay_start && current_frame < self.expires_frame {
+            self.decay_samples = self.decay_samples.saturating_add(1);
+            if width_scalar < self.trough_width_scalar {
+                self.trough_width_scalar = width_scalar;
+            }
+        }
+    }
+
+    /// Residual damage / scorch epicenter for the current beam mode.
+    ///
+    /// Manual mode uses live `current_target_position`; swath mode uses the
+    /// S-curve offset for the given pulse index.
+    pub fn residual_epicenter(&self, pulse_index: u32) -> Vec3 {
+        if self.manual_target_mode {
+            self.current_target_position
+        } else {
+            particle_swath_epicenter(self.position, pulse_index)
+        }
     }
 }
 
@@ -3317,7 +3502,9 @@ impl HostSpecialPowerStrikeRegistry {
             source_team,
             position,
             spawn_frame,
-            expires_frame: spawn_frame.saturating_add(PARTICLE_BEAM_DURATION_FRAMES),
+            // Orbital death after TotalFiringTime + WidthGrow decay tail
+            // (retail orbitalDeathFrame = orbitalDecayStart + widthGrowFrames).
+            expires_frame: particle_death_frame(spawn_frame),
             // First damage pulse on beam-start frame (retail m_nextDamagePulseFrame = now).
             next_tick_frame: spawn_frame,
             pulses_made: 0,
@@ -3335,8 +3522,29 @@ impl HostSpecialPowerStrikeRegistry {
             ground_hit_fx_applications: 0,
             peak_width_scalar: 0.0,
             last_damage_radius: 0.0,
+            last_width_scalar: 0.0,
+            trough_width_scalar: 1.0,
+            decay_samples: 0,
             last_scorch_position: position,
             last_scorch_radius: 0.0,
+            // Default swath mode (AI residual); human override via
+            // set_beam_override_destination flips to manual driving residual.
+            manual_target_mode: false,
+            override_destination: position,
+            current_target_position: position,
+            last_driving_click_frame: 0,
+            second_last_driving_click_frame: 0,
+            last_drive_update_frame: spawn_frame,
+            manual_drive_distance_total: 0.0,
+            manual_drive_applications: 0,
+            fast_drive_applications: 0,
+            // STATUS_FIRING client residual: Intense outer nodes + connector
+            // lasers + laser-base flare + ground-to-orbit orbital laser.
+            // Fail-closed: not full bone extract / drawable ThingFactory lasers.
+            outer_node_systems_created: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            connector_lasers_created: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            laser_base_flare_created: 1,
+            ground_to_orbit_laser_created: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -3344,18 +3552,96 @@ impl HostSpecialPowerStrikeRegistry {
         id
     }
 
+    /// Apply `setSpecialPowerOverridableDestination` residual to a live beam.
+    ///
+    /// C++: sets `m_overrideTargetDestination`, arms `m_manualTargetMode`, and
+    /// records double-click frames for ManualFastDrivingSpeed. Host residual
+    /// seeds `current_target_position` from the last swath/click epicenter when
+    /// first entering manual mode.
+    pub fn set_beam_override_destination(
+        &mut self,
+        field_id: u32,
+        destination: Vec3,
+        current_frame: u32,
+    ) -> bool {
+        if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            if field.is_expired(current_frame) {
+                return false;
+            }
+            field.second_last_driving_click_frame = field.last_driving_click_frame;
+            field.last_driving_click_frame = current_frame;
+            field.override_destination = destination;
+            if !field.manual_target_mode {
+                // Entering manual: seed from last residual epicenter (swath or click).
+                field.current_target_position = if field.swath_applications > 0 {
+                    field.last_swath_position
+                } else {
+                    field.position
+                };
+                field.last_drive_update_frame = current_frame;
+            }
+            field.manual_target_mode = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Advance manual beam positions for all fields in manual-target mode.
+    ///
+    /// C++ update each frame: move `m_currentTargetPosition` toward override at
+    /// ManualDrivingSpeed (or Fast) / LOGICFRAMES_PER_SECOND, clamping so the
+    /// step never overshoots. Call once per logic frame before damage planning.
+    pub fn advance_manual_beam_drive(&mut self, current_frame: u32) {
+        for field in &mut self.beam_fields {
+            if !field.manual_target_mode || field.is_expired(current_frame) {
+                continue;
+            }
+            let last = field.last_drive_update_frame;
+            if current_frame <= last {
+                continue;
+            }
+            let frames = current_frame - last;
+            let fast = particle_is_fast_drive(
+                field.last_driving_click_frame,
+                field.second_last_driving_click_frame,
+            );
+            let max_step = particle_manual_speed_per_frame(fast) * frames as f32;
+            let dx = field.override_destination.x - field.current_target_position.x;
+            let dz = field.override_destination.z - field.current_target_position.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist > 1e-4 {
+                let step = max_step.min(dist);
+                let scale = step / dist;
+                field.current_target_position.x += dx * scale;
+                field.current_target_position.z += dz * scale;
+                // Host residual keeps Y at click height (terrain Z fail-closed).
+                field.manual_drive_distance_total += step;
+                field.manual_drive_applications =
+                    field.manual_drive_applications.saturating_add(1);
+                if fast {
+                    field.fast_drive_applications =
+                        field.fast_drive_applications.saturating_add(1);
+                }
+            }
+            field.last_drive_update_frame = current_frame;
+        }
+    }
+
     /// Build Particle Uplink beam pulse plans for all fields whose tick frame
     /// has arrived.
     ///
     /// Retail damages all alive objects in beam radius (DamageRadiusScalar ×
-    /// laser radius) at the SwathOfDeath epicenter. Host residual damages living
-    /// objects in WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] around the residual
-    /// swath epicenter, excluding the source launcher and same-team friendlies
-    /// (host strike convention). Fail-closed vs full building→target rotation
-    /// matrix / manual beam driving / full GPU laser width matrix. WidthGrow
-    /// damage-radius residual scales radius 0→full over
-    /// [`PARTICLE_WIDTH_GROW_FRAMES`]. DamagePulseRemnant trail residual spawns
-    /// on each completed pulse ([`spawn_remnant_field`]).
+    /// laser radius) at the SwathOfDeath or manual-drive epicenter. Host residual
+    /// damages living objects in WidthGrow-scaled [`PARTICLE_BEAM_RADIUS`] around
+    /// the residual epicenter, excluding the source launcher and same-team
+    /// friendlies (host strike convention). Fail-closed vs full building→target
+    /// rotation matrix / full GPU laser width matrix. WidthGrow damage-radius
+    /// residual scales radius 0→full over grow, holds full through
+    /// TotalFiringTime, then shrinks full→0 over decay ([`PARTICLE_WIDTH_GROW_FRAMES`]).
+    /// Manual driving residual uses override destination when armed.
+    /// DamagePulseRemnant trail residual spawns on each completed pulse
+    /// ([`spawn_remnant_field`]).
     pub fn plan_due_beam_ticks(
         &self,
         current_frame: u32,
@@ -3366,8 +3652,8 @@ impl HostSpecialPowerStrikeRegistry {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
-            // SwathOfDeath residual: walk S-curve around click epicenter.
-            let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
+            // SwathOfDeath or manual-drive residual epicenter.
+            let epicenter = field.residual_epicenter(field.pulses_made);
             // WidthGrow residual: damage radius ramps with laser width scalar.
             let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
             let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
@@ -3417,24 +3703,27 @@ impl HostSpecialPowerStrikeRegistry {
     ) {
         let mut spawn_remnant: Option<(ObjectId, super::Team, Vec3, u32, u32)> = None;
         if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
-            // Swath residual honesty for the pulse that just applied.
-            let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
-            let offset = particle_swath_offset(field.pulses_made);
-            let offset_len = (offset.x * offset.x + offset.z * offset.z).sqrt();
-            field.last_swath_position = epicenter;
-            if offset_len > field.max_swath_offset {
-                field.max_swath_offset = offset_len;
-            }
-            if offset_len > 0.01 {
-                field.swath_applications = field.swath_applications.saturating_add(1);
+            // Epicenter residual honesty for the pulse that just applied.
+            let epicenter = field.residual_epicenter(field.pulses_made);
+            if field.manual_target_mode {
+                // Manual mode: still record last epicenter; swath offset honesty
+                // remains 0 (no S-curve while player is driving).
+                field.last_swath_position = epicenter;
+            } else {
+                let offset = particle_swath_offset(field.pulses_made);
+                let offset_len = (offset.x * offset.x + offset.z * offset.z).sqrt();
+                field.last_swath_position = epicenter;
+                if offset_len > field.max_swath_offset {
+                    field.max_swath_offset = offset_len;
+                }
+                if offset_len > 0.01 {
+                    field.swath_applications = field.swath_applications.saturating_add(1);
+                }
             }
 
-            // WidthGrow residual honesty for the pulse that just applied.
-            let width_scalar = particle_width_scalar(field.spawn_frame, current_frame);
+            // WidthGrow grow/hold/decay residual honesty for the pulse that just applied.
+            field.sample_width_honesty(current_frame);
             let damage_radius = particle_beam_damage_radius(field.spawn_frame, current_frame);
-            if width_scalar > field.peak_width_scalar {
-                field.peak_width_scalar = width_scalar;
-            }
             field.last_damage_radius = damage_radius;
 
             field.total_damage_applied += total_damage;
@@ -3557,7 +3846,19 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
-    /// Drop expired Particle Uplink beam fields.
+    /// Sample WidthGrow grow/hold/decay honesty for all live beam fields.
+    ///
+    /// Call each logic frame so decay-tail residual is observed even when no
+    /// damage pulses remain (retail LASERSTATUS_DECAYING after TotalFiringTime).
+    pub fn sample_beam_width_honesty(&mut self, current_frame: u32) {
+        for field in &mut self.beam_fields {
+            if !field.is_expired(current_frame) {
+                field.sample_width_honesty(current_frame);
+            }
+        }
+    }
+
+    /// Drop expired Particle Uplink beam fields (after WidthGrow decay death).
     pub fn prune_expired_beam(&mut self, current_frame: u32) {
         self.beam_fields.retain(|f| !f.is_expired(current_frame));
     }
@@ -3707,6 +4008,54 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_WIDTH_GROW_FRAMES == 60
     }
 
+    /// Residual honesty: WidthGrow decay shrink residual after TotalFiringTime.
+    ///
+    /// True when any beam field sampled decay (trough scalar ≤ 0.5 after a
+    /// full peak). Fail-closed: not full OuterBeamWidth GPU laser / drawable
+    /// destroy after orbitalDeathFrame client path.
+    pub fn honesty_beam_width_decay_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.decay_samples > 0
+                && f.trough_width_scalar <= 0.5 + f32::EPSILON
+                && f.peak_width_scalar >= 0.99
+        }) && PARTICLE_WIDTH_GROW_FRAMES == 60
+            && PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES
+                == PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES
+    }
+
+    /// Residual honesty: manual beam drive moved the epicenter at least once.
+    ///
+    /// Fail-closed: not full scripted waypoint mode / disabled-object reject /
+    /// terrain height snap on every frame.
+    pub fn honesty_beam_manual_drive_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.manual_target_mode && f.manual_drive_distance_total > 0.01
+        }) && (PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01
+    }
+
+    /// Residual honesty: ManualFastDrivingSpeed used after double-click residual.
+    pub fn honesty_beam_fast_drive_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| f.fast_drive_applications > 0)
+            && (PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01
+            && PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES == 15
+    }
+
+    /// Residual honesty: STATUS_FIRING outer-node + connector laser residual.
+    ///
+    /// Fail-closed: not full bone-world convert / LaserUpdate drawable matrix /
+    /// intensity transitions across CHARGING/PREPARING/ALMOST_READY.
+    pub fn honesty_beam_outer_nodes_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.outer_node_systems_created == PARTICLE_OUTER_EFFECT_NUM_BONES
+                && f.connector_lasers_created == PARTICLE_OUTER_EFFECT_NUM_BONES
+                && f.laser_base_flare_created >= 1
+                && f.ground_to_orbit_laser_created >= 1
+        }) && PARTICLE_OUTER_EFFECT_NUM_BONES == 5
+            && PARTICLE_OUTER_NODE_INTENSE_FLARE.contains("Intense")
+            && PARTICLE_CONNECTOR_INTENSE_LASER.contains("Intense")
+            && PARTICLE_ORBITAL_LASER_NAME.contains("OrbitalLaser")
+    }
+
     /// Residual honesty: TotalScorchMarks residual applied at least one mark.
     pub fn honesty_beam_scorch_ok(&self) -> bool {
         (self.beam_fields.iter().any(|f| f.scorch_marks_made > 0)
@@ -3740,7 +4089,7 @@ impl HostSpecialPowerStrikeRegistry {
             // Catch up all due scorch marks (may be multi if frames skipped).
             while field.is_due_scorch(current_frame) {
                 let pulse_idx = particle_scorch_pulse_index(field.scorch_marks_made);
-                let epicenter = particle_swath_epicenter(field.position, pulse_idx);
+                let epicenter = field.residual_epicenter(pulse_idx);
                 let scorch_r = particle_scorch_radius(field.spawn_frame, current_frame);
                 field.scorch_marks_made = field.scorch_marks_made.saturating_add(1);
                 field.ground_hit_fx_applications =
@@ -3937,18 +4286,36 @@ mod tests {
         assert!((PARTICLE_SWATH_OF_DEATH_DISTANCE - 200.0).abs() < 0.1);
         assert!((PARTICLE_SWATH_OF_DEATH_AMPLITUDE - 50.0).abs() < 0.1);
         assert!((PARTICLE_DAMAGE_RADIUS_SCALAR - 3.4).abs() < 0.01);
-        // WidthGrow + RevealRange + ScorchMarks retail residual.
+        // WidthGrow grow/hold/decay + RevealRange + ScorchMarks retail residual.
         assert_eq!(PARTICLE_WIDTH_GROW_FRAMES, 60);
+        assert_eq!(
+            PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES,
+            PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES
+        );
         assert!((PARTICLE_REVEAL_RANGE - 50.0).abs() < 0.01);
         assert_eq!(PARTICLE_TOTAL_SCORCH_MARKS, 20);
         assert!((PARTICLE_SCORCH_MARK_SCALAR - 2.4).abs() < 0.01);
         assert!((PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01);
         assert!((PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01);
         assert_eq!(PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES, 15);
+        // Grow phase.
         assert!((particle_width_scalar(100, 100) - 0.0).abs() < 0.01);
         assert!((particle_width_scalar(100, 130) - 0.5).abs() < 0.01);
         assert!((particle_width_scalar(100, 160) - 1.0).abs() < 0.01);
         assert!((particle_beam_damage_radius(100, 160) - PARTICLE_BEAM_RADIUS).abs() < 0.01);
+        // Hold through TotalFiringTime (decay start inclusive).
+        let decay_start = particle_decay_start_frame(100);
+        assert_eq!(decay_start, 100 + PARTICLE_BEAM_DURATION_FRAMES);
+        assert!((particle_width_scalar(100, decay_start) - 1.0).abs() < 0.01);
+        // Decay half-way: scalar 0.5, death at orbital lifetime.
+        let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
+        assert!((particle_width_scalar(100, half_decay) - 0.5).abs() < 0.01);
+        assert!(
+            (particle_beam_damage_radius(100, half_decay) - 25.0).abs() < 0.1
+        );
+        let death = particle_death_frame(100);
+        assert_eq!(death, 100 + PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES);
+        assert!((particle_width_scalar(100, death) - 0.0).abs() < 0.01);
         assert_eq!(particle_next_scorch_frame(100, 0), 101);
         assert_eq!(
             particle_next_scorch_frame(100, 10),
@@ -5600,6 +5967,100 @@ mod tests {
     }
 
     #[test]
+    fn particle_uplink_width_grow_decay_shrink_residual_honesty() {
+        // After TotalFiringTime, WidthGrow decay shrinks scalar 1→0 over 60 frames
+        // (retail LaserUpdate::setDecayFrames / LASERSTATUS_DECAYING).
+        assert_eq!(PARTICLE_WIDTH_GROW_FRAMES, 60);
+        assert_eq!(
+            PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES,
+            PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::China,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        assert_eq!(
+            reg.beam_fields()[0].expires_frame,
+            particle_death_frame(spawn),
+            "beam lives through WidthGrow decay tail"
+        );
+
+        // First-pulse swath epicenter; park unit 30 from it for radius tests.
+        let epic0 = particle_swath_epicenter(click, 0);
+        let near = epic0 + Vec3::new(30.0, 0.0, 0.0);
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::China, true),
+            (ObjectId(2), near, Team::GLA, true),
+        ];
+
+        // Hold phase end (TotalFiringTime): full radius 50 → hit unit at dist 30.
+        let decay_start = particle_decay_start_frame(spawn);
+        if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            f.next_tick_frame = decay_start;
+            f.pulses_made = 0;
+            f.peak_width_scalar = 1.0; // prior grow residual reached full
+        }
+        let hold = reg.plan_due_beam_ticks(decay_start, &objects);
+        assert_eq!(hold.len(), 1);
+        assert!((hold[0].width_scalar - 1.0).abs() < 0.01);
+        assert!((hold[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
+        assert_eq!(hold[0].hits.len(), 1);
+        reg.record_beam_tick_complete(
+            field_id,
+            PARTICLE_BEAM_DAMAGE_PER_PULSE,
+            1,
+            0,
+            decay_start,
+        );
+
+        // Half-decay: scalar 0.5 → radius 25 → miss unit at dist 30.
+        let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
+        if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            f.next_tick_frame = half_decay;
+            f.pulses_made = 0; // keep first swath epicenter for radius test
+        }
+        let mid = reg.plan_due_beam_ticks(half_decay, &objects);
+        assert_eq!(mid.len(), 1);
+        assert!((mid[0].width_scalar - 0.5).abs() < 0.01);
+        assert!((mid[0].damage_radius - 25.0).abs() < 0.1);
+        assert!(
+            mid[0].hits.is_empty(),
+            "half-decay radius 25 must miss unit at dist 30"
+        );
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, half_decay);
+        assert!(reg.beam_fields()[0].decay_samples > 0);
+        assert!(reg.beam_fields()[0].trough_width_scalar < 0.51);
+        assert!(reg.honesty_beam_width_decay_ok());
+
+        // Sample-only path (no damage pulse) still tracks trough residual.
+        let later = half_decay + 10;
+        reg.sample_beam_width_honesty(later);
+        assert!(reg.beam_fields()[0].trough_width_scalar < 0.4);
+        assert!((reg.beam_fields()[0].last_width_scalar
+            - particle_width_scalar(spawn, later))
+            .abs()
+            < 0.01);
+
+        // Beam still alive during decay tail; dies at orbital death frame.
+        assert!(!reg.beam_fields()[0].is_expired(later));
+        let death = particle_death_frame(spawn);
+        reg.prune_expired_beam(death);
+        assert!(
+            reg.beam_fields().is_empty(),
+            "beam must expire after WidthGrow decay death"
+        );
+    }
+
+    #[test]
     fn particle_uplink_scorch_reveal_residual_honesty() {
         // TotalScorchMarks 20 + RevealRange 50 + GroundHitFX residual.
         assert_eq!(PARTICLE_TOTAL_SCORCH_MARKS, 20);
@@ -5710,5 +6171,134 @@ mod tests {
         reg.apply_orbit_coast_cooldown(coast_until + 1);
         assert!(reg.honesty_model_condition_slow_ok());
         assert!(reg.orbit_fields()[0].model_condition_slow_sets >= 1);
+    }
+
+    #[test]
+    fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
+        // Manual drive speed residual: 20/s and 40/s → /30 frames.
+        assert!((particle_manual_speed_per_frame(false) - (20.0 / 30.0)).abs() < 1e-4);
+        assert!((particle_manual_speed_per_frame(true) - (40.0 / 30.0)).abs() < 1e-4);
+        assert_eq!(PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES, 15);
+        // Double-click gap: C++ last - 2ndLast < delay → fast.
+        assert!(!particle_is_fast_drive(100, 0)); // first click after zero init
+        assert!(particle_is_fast_drive(110, 100)); // 10 < 15
+        assert!(!particle_is_fast_drive(120, 100)); // 20 >= 15
+        // Outer-node residual retail honesty.
+        assert_eq!(PARTICLE_OUTER_EFFECT_NUM_BONES, 5);
+        assert_eq!(PARTICLE_OUTER_EFFECT_BONE_NAME, "FX");
+        assert_eq!(PARTICLE_CONNECTOR_BONE_NAME, "FXConnector");
+        assert_eq!(PARTICLE_FIRE_BONE_NAME, "FXMain");
+        assert!(PARTICLE_OUTER_NODE_INTENSE_FLARE.contains("Intense"));
+        assert!(PARTICLE_CONNECTOR_INTENSE_LASER.contains("Intense"));
+        assert!(PARTICLE_ORBITAL_LASER_NAME.contains("OrbitalLaser"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+
+        // STATUS_FIRING outer-node / connector residual on spawn.
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.outer_node_systems_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+            assert_eq!(f.connector_lasers_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+            assert_eq!(f.laser_base_flare_created, 1);
+            assert_eq!(f.ground_to_orbit_laser_created, 1);
+            assert!(!f.manual_target_mode);
+        }
+        assert!(reg.honesty_beam_outer_nodes_ok());
+
+        // First pulse uses swath (not manual).
+        let swath0 = particle_swath_epicenter(click, 0);
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(2), swath0, Team::GLA, true),
+        ];
+        let first = reg.plan_due_beam_ticks(spawn, &objects);
+        assert_eq!(first.len(), 1);
+        assert!((first[0].position.x - swath0.x).abs() < 0.1);
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+        assert!(reg.honesty_beam_swath_ok());
+
+        // Arm manual override far from current swath epicenter.
+        let override_dest = Vec3::new(200.0, 0.0, 0.0);
+        assert!(reg.set_beam_override_destination(field_id, override_dest, spawn + 1));
+        {
+            let f = &reg.beam_fields()[0];
+            assert!(f.manual_target_mode);
+            assert_eq!(f.last_driving_click_frame, spawn + 1);
+            // Seeded from last swath epicenter when entering manual.
+            assert!((f.current_target_position.x - swath0.x).abs() < 0.1);
+        }
+
+        // Advance 30 frames at normal speed: 20 units/sec → 20 units moved.
+        let after_normal = spawn + 1 + 30;
+        reg.advance_manual_beam_drive(after_normal);
+        {
+            let f = &reg.beam_fields()[0];
+            assert!(
+                f.manual_drive_distance_total > 19.0 && f.manual_drive_distance_total < 21.0,
+                "normal drive ~20 units over 1s, got {}",
+                f.manual_drive_distance_total
+            );
+            assert!(f.manual_drive_applications >= 1);
+            assert_eq!(f.fast_drive_applications, 0);
+            // Still short of override (200 - (-100) = 300 remaining initially).
+            assert!(f.current_target_position.x < override_dest.x - 1.0);
+        }
+        assert!(reg.honesty_beam_manual_drive_ok());
+
+        // Double-click residual → fast drive (40 units/sec).
+        // Second click ends the first retarget window; third click within 15
+        // frames of the second arms ManualFastDrivingSpeed.
+        let click2 = after_normal;
+        assert!(reg.set_beam_override_destination(field_id, override_dest, click2));
+        let click3 = click2 + 10; // gap 10 < 15
+        assert!(reg.set_beam_override_destination(field_id, override_dest, click3));
+        assert!(particle_is_fast_drive(click3, click2));
+        // Sync drive update to click3 so the next advance measures exactly 30 frames.
+        reg.advance_manual_beam_drive(click3);
+        let before_fast_dist = reg.beam_fields()[0].manual_drive_distance_total;
+        let before_fast_pos_x = reg.beam_fields()[0].current_target_position.x;
+        let after_fast = click3 + 30;
+        reg.advance_manual_beam_drive(after_fast);
+        {
+            let f = &reg.beam_fields()[0];
+            let moved = f.manual_drive_distance_total - before_fast_dist;
+            assert!(
+                moved > 39.0 && moved < 41.0,
+                "fast drive ~40 units over 1s, got {}",
+                moved
+            );
+            assert!(f.fast_drive_applications >= 1);
+            assert!(f.current_target_position.x > before_fast_pos_x);
+        }
+        assert!(reg.honesty_beam_fast_drive_ok());
+
+        // Damage pulse under manual mode uses current_target_position, not swath.
+        if let Some(f) = reg.beam_fields.iter_mut().find(|f| f.id == field_id) {
+            f.next_tick_frame = after_fast;
+            f.pulses_made = 1; // keep non-zero; epicenter is manual now
+        }
+        let manual_pos = reg.beam_fields()[0].current_target_position;
+        let objects_manual = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(3), manual_pos, Team::GLA, true),
+            (ObjectId(4), swath0, Team::GLA, true), // old swath — should miss
+        ];
+        // Full width after grow (spawn + 60 already passed).
+        let plans = reg.plan_due_beam_ticks(after_fast, &objects_manual);
+        assert_eq!(plans.len(), 1);
+        assert!((plans[0].position.x - manual_pos.x).abs() < 0.1);
+        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
     }
 }

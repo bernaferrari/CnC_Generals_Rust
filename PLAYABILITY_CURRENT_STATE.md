@@ -1,3 +1,57 @@
+## Residual Host Playability — PUC WidthGrow Decay + Manual Drive + Outer Nodes (2026-07-13)
+**Closed (host-testable combat/presentation residual not covered by wave 21 WidthGrow grow + Scorch/Reveal):**
+1. **Particle Uplink WidthGrow decay shrink residual** (`special_power_strikes` /
+   `ParticleUplinkCannonUpdate` / `LaserUpdate::setDecayFrames`):
+   - Retail lifecycle relative to orbital birth: **grow** 0→1 over WidthGrowTime
+     (**60**f), **hold** full through TotalFiringTime (**105**f), **decay** 1→0
+     over WidthGrowTime after `orbitalDecayStart` (LASERSTATUS_DECAYING).
+   - Host residual: `particle_width_scalar` / `particle_beam_damage_radius`
+     implement grow/hold/decay; `particle_decay_start_frame` /
+     `particle_death_frame` / `PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES` (**165**).
+   - Beam `expires_frame` = orbital death (TotalFiring + WidthGrow decay tail);
+     damage pulses stop at TotalDamagePulses but field lives through decay for
+     width honesty sampling (`sample_beam_width_honesty` each logic frame).
+   - Host-testable: hold end r50 hits unit at dist 30; half-decay r25 misses.
+   - Honesty: `last_width_scalar` / `trough_width_scalar` / `decay_samples` /
+     `honesty_beam_width_decay_ok`.
+2. **Manual beam driving residual** (`setSpecialPowerOverridableDestination`):
+   - `set_beam_override_destination` arms `manual_target_mode`, seeds
+     `current_target_position` from last swath/click, records double-click frames.
+   - `advance_manual_beam_drive` moves toward override at ManualDrivingSpeed
+     **20**/s or ManualFastDrivingSpeed **40**/s (÷30 frames) when double-click
+     gap < DoubleClickToFastDriveDelay (**15**f).
+   - Damage/scorch epicenters use `current_target_position` under manual mode
+     (not SwathOfDeath).
+   - Honesty: `honesty_beam_manual_drive_ok` / `honesty_beam_fast_drive_ok`.
+3. **Outer-node + connector laser residual** (STATUS_FIRING honesty):
+   - Retail OuterEffectNumBones **5**, bone names FX / FXConnector / FXMain,
+     Intense outer-node flare + Intense connector laser name residual.
+   - On beam spawn: `outer_node_systems_created` / `connector_lasers_created` =
+     5, laser-base ready flare + ground↔orbit laser honesty counters.
+   - Honesty: `honesty_beam_outer_nodes_ok`.
+   - Fail-closed: not full W3D bone extract matrix / GPU OuterBeamWidth draw /
+     live ParticleSystem / LaserUpdate drawable objects.
+4. Snapshot/Xfer: decay + manual + outer residual fields appended on
+   `HostParticleBeamField`.
+5. Tests (not log-only):
+   - `particle_uplink_width_grow_decay_shrink_residual_honesty`
+   - `particle_uplink_manual_drive_and_outer_nodes_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam` (decay hold)
+   - all `special_power_strikes::` (**35**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
+- Full SpectreHowitzerShell projectile Object / full W3D CONTINUOUS_FIRE anim draw
+- Full W3D bone-extract outer-node / connector LaserUpdate drawable objects
+- Full OuterBeamWidth × scalar GPU laser radius (host residual caps at r50)
+- Full intensity schedule client residual for CHARGING/PREPARING/ALMOST_READY
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Full Anim2DCollection GPU / world-anim draw path
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — PUC WidthGrow Damage Radius + Scorch/Reveal (2026-07-13)
 **Closed (host-testable combat/presentation residual not covered by wave 18 remnant/model-condition):**
 1. **Particle Uplink WidthGrow damage-radius residual** (`special_power_strikes` /
@@ -10,8 +64,8 @@
      full-grow radius 50.
    - Honesty: `peak_width_scalar` / `last_damage_radius` /
      `honesty_beam_width_grow_ok`.
-   - Fail-closed: not full OuterBeamWidth GPU laser matrix / decay shrink after
-     TotalFiringTime / outer-node connector lasers / manual beam driving.
+   - WidthGrow **decay shrink** + manual drive + outer-node residual closed
+     wave 22 (see section above).
 2. **TotalScorchMarks + GroundHitFX + RevealRange residual**
    (`ParticleUplinkCannonUpdate` STATUS_FIRING):
    - Retail TotalScorchMarks **20**, ScorchMarkScalar **2.4**, RevealRange **50**,
@@ -24,24 +78,22 @@
    - Honesty: `honesty_beam_scorch_ok` / `honesty_beam_reveal_ok`.
    - Fail-closed: not full TheGameClient::addScorch GPU decals / full FOW grid
      cell matrix without shroud init.
-3. **Manual driving speed honesty constants** (ManualDrivingSpeed **20** /
-   ManualFastDrivingSpeed **40** residual labels; full retarget matrix deferred).
-4. Snapshot/Xfer: WidthGrow + scorch residual fields appended on
+3. Snapshot/Xfer: WidthGrow + scorch residual fields appended on
    `HostParticleBeamField`.
-5. Tests (not log-only):
+4. Tests (not log-only):
    - `particle_uplink_width_grow_damage_radius_residual_honesty`
    - `particle_uplink_scorch_reveal_residual_honesty`
    - updated `particle_cannon_params_match_retail_continuous_beam`
    - updated `particle_cannon_impact_spawns_beam_and_ticks_damage` (WidthGrow)
-   - all `special_power_strikes::` (**33**)
+   - all `special_power_strikes::` (**33** at wave 20; **35** after wave 22)
    - golden_skirmish_gate --frames 8 → `playable_claim=true`
    - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
 
 **Still residual (fail-closed, not claimed):**
 - Full ScudStormMissile projectile Object / PreAttack animation / Chem FX bones
 - Full SpectreHowitzerShell projectile Object / full W3D CONTINUOUS_FIRE anim draw
-- Full PUC outer-node lasers / connector lasers / manual beam retarget matrix
-- Full WidthGrow decay shrink after TotalFiringTime / OuterBeamWidth GPU laser
+- Full W3D bone-extract outer-node / connector LaserUpdate drawable objects
+- Full OuterBeamWidth × scalar GPU laser (host residual closed wave 22)
 - Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
 - Full InGameUI::addFloatingText GPU draw / Unicode GameText
 - Full Anim2DCollection GPU / world-anim draw path
