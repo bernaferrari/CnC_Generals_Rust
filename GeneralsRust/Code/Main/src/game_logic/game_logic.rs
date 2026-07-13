@@ -5053,6 +5053,10 @@ impl GameLogic {
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
             }
+            // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
+            // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
+            // C++ human players sleep forever — host residual: is_local → skip.
+            self.try_pilot_find_vehicle_residual(object_id);
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world
@@ -11901,11 +11905,12 @@ impl GameLogic {
                 }
 
                 // USA EjectPilotDie residual: spawn AmericaInfantryPilot on vehicle death.
-                // Fail-closed: ground OCL only (not full parachute air path / invuln timer).
+                // Fail-closed: ground OCL only (not full parachute air path).
+                // VeterancyLevels = ALL -REGULAR residual: Rookie does not eject.
                 {
                     use crate::game_logic::host_usa_pilot::{
                         can_eject_pilot_on_death, is_eject_pilot_eligible_template,
-                        EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+                        meets_eject_pilot_veterancy_gate, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
                     };
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
                         || obj.object_type == ObjectType::Vehicle;
@@ -11913,12 +11918,25 @@ impl GameLogic {
                         || obj.object_type == ObjectType::Aircraft;
                     let under_construction = obj.status.under_construction
                         || obj.construction_percent + 0.001 < 1.0;
+                    let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
+                    let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
+                    // Honesty: record REGULAR-gate blocks when all other gates pass.
+                    if eligible_template
+                        && !obj.is_unmanned()
+                        && !under_construction
+                        && is_vehicle
+                        && !is_aircraft
+                        && !vet_gate
+                    {
+                        self.usa_pilot.record_eject_veterancy_block();
+                    }
                     if can_eject_pilot_on_death(
-                        is_eject_pilot_eligible_template(&obj.template_name),
+                        eligible_template,
                         obj.is_unmanned(),
                         under_construction,
                         is_vehicle,
                         is_aircraft,
+                        vet_gate,
                     ) {
                         let pilot_team = obj.team;
                         // Ensure pilot template exists for residual spawn.
@@ -24573,9 +24591,114 @@ impl GameLogic {
         self.usa_pilot.honesty_invulnerable_block_ok()
     }
 
+    /// Residual honesty: PilotFindVehicleUpdate issued at least one Enter order.
+    pub fn honesty_pilot_find_vehicle_ok(&self) -> bool {
+        self.usa_pilot.honesty_find_vehicle_ok()
+    }
+
+    /// Residual honesty: VeterancyLevels REGULAR gate blocked at least one eject.
+    pub fn honesty_pilot_eject_veterancy_gate_ok(&self) -> bool {
+        self.usa_pilot.honesty_eject_veterancy_gate_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
+    }
+
+    /// PilotFindVehicleUpdate residual: AI idle pilot auto-scan for recrewable
+    /// unmanned vehicles (ScanRate 1000ms → 30 frames, ScanRange 300, MinHealth 0.5).
+    ///
+    /// C++ PilotFindVehicleUpdate: human players sleep forever; AI issues
+    /// `aiEnter` on closest valid target. Host residual maps valid targets onto
+    /// the recrewable-unmanned path (not full VeterancyCrate same-team matrix).
+    /// Fail-closed: not full base-center fallback / CollideModule iterate.
+    fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
+        use crate::game_logic::host_usa_pilot::{
+            is_pilot_find_vehicle_target, is_pilot_template, is_recrewable_unmanned_vehicle,
+            pilot_find_vehicle_scan_eligible, pilot_find_vehicle_scan_frame,
+            vehicle_meets_pilot_find_min_health, PILOT_FIND_VEHICLE_MIN_HEALTH,
+            PILOT_FIND_VEHICLE_SCAN_RANGE,
+        };
+
+        if !pilot_find_vehicle_scan_frame(self.frame) {
+            return;
+        }
+
+        let snapshot = match self.objects.get(&pilot_id) {
+            Some(obj) if obj.is_alive() => {
+                let is_pilot = is_pilot_template(&obj.template_name);
+                let is_idle = matches!(obj.ai_state, AIState::Idle);
+                // C++ PLAYER_HUMAN → no scan. Host residual: local player is human.
+                // No mapped player → fail-closed treat as non-AI (no auto-scan).
+                let is_ai = self
+                    .player_id_for_team(obj.team)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|p| !p.is_local)
+                    .unwrap_or(false);
+                if !pilot_find_vehicle_scan_eligible(is_pilot, true, is_idle, is_ai) {
+                    return;
+                }
+                (obj.get_position(), obj.team, obj.selection_radius)
+            }
+            _ => return,
+        };
+        let (pilot_pos, pilot_team, pilot_radius) = snapshot;
+
+        // Scan nearest recrewable unmanned vehicle in range with MinHealth residual.
+        let mut best: Option<(ObjectId, f32, Vec3)> = None;
+        for (vid, vehicle) in &self.objects {
+            if *vid == pilot_id || !vehicle.is_alive() {
+                continue;
+            }
+            let is_vehicle =
+                vehicle.is_kind_of(KindOf::Vehicle) || vehicle.object_type == ObjectType::Vehicle;
+            let is_air = vehicle.is_kind_of(KindOf::Aircraft)
+                || vehicle.object_type == ObjectType::Aircraft
+                || vehicle.status.airborne_target;
+            let under_construction = vehicle.status.under_construction
+                || vehicle.construction_percent + 0.001 < 1.0;
+            let is_dozer = vehicle.is_worker()
+                || vehicle.template_name.to_ascii_lowercase().contains("dozer");
+            let recrewable = is_recrewable_unmanned_vehicle(
+                true,
+                is_vehicle,
+                is_air,
+                vehicle.is_unmanned(),
+                under_construction,
+                is_dozer,
+            );
+            let health_ok = vehicle_meets_pilot_find_min_health(
+                vehicle.health.current,
+                vehicle.max_health.max(vehicle.health.maximum),
+                PILOT_FIND_VEHICLE_MIN_HEALTH,
+            );
+            let vpos = vehicle.get_position();
+            // 2D range residual (FROM_CENTER_2D).
+            let dist = ((pilot_pos.x - vpos.x).powi(2) + (pilot_pos.z - vpos.z).powi(2)).sqrt();
+            let in_range = dist <= PILOT_FIND_VEHICLE_SCAN_RANGE;
+            if !is_pilot_find_vehicle_target(recrewable, health_ok, in_range) {
+                continue;
+            }
+            if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+                best = Some((*vid, dist, vpos));
+            }
+        }
+
+        let Some((vehicle_id, _, vehicle_pos)) = best else {
+            return;
+        };
+
+        // Issue Enter residual (matches player Enter command → recrew path).
+        if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+            pilot.set_target(Some(vehicle_id));
+            pilot.set_destination(vehicle_pos);
+            pilot.ai_state = AIState::Entering;
+            // Keep selection radius residual for enter-range calc in process_ai_behavior.
+            let _ = pilot_radius;
+            let _ = pilot_team;
+        }
+        self.usa_pilot.record_find_vehicle_order();
     }
 
     /// Apply residual damage to an object, honoring InvulnerableTime residual.
@@ -38352,12 +38475,14 @@ mod tests {
     /// Residual: EjectPilotDie spawns AmericaInfantryPilot when eligible USA vehicle dies.
     ///
     /// C++ EjectPilotDie → OCL_EjectPilotOnGround ObjectNames = AmericaInfantryPilot.
+    /// VeterancyLevels = ALL -REGULAR residual: vehicle must be Veteran+.
     /// Fail-closed: not full parachute air OCL / invulnerable timer matrix.
     #[test]
     fn eject_pilot_die_spawns_pilot_on_vehicle_death_residual() {
         use crate::game_logic::host_usa_pilot::{
             is_eject_pilot_eligible_template, EJECT_PILOT_TEMPLATE,
         };
+        use crate::game_logic::VeterancyLevel;
 
         let mut game_logic = GameLogic::new();
 
@@ -38382,6 +38507,11 @@ mod tests {
                 Vec3::new(50.0, 0.0, 50.0),
             )
             .expect("humvee");
+        {
+            // VeterancyLevels = ALL -REGULAR residual: only vet+ ejects.
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            h.experience.level = VeterancyLevel::Veteran;
+        }
         let tank_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 100.0))
             .expect("tank");
@@ -38455,6 +38585,7 @@ mod tests {
             .expect("humvee2");
         {
             let h = game_logic.find_object_mut(humvee2).expect("humvee2");
+            h.experience.level = VeterancyLevel::Veteran;
             h.apply_kill_pilot_unmanned();
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
@@ -38468,6 +38599,108 @@ mod tests {
         );
     }
 
+    /// Residual: EjectPilotDie VeterancyLevels = ALL -REGULAR blocks Rookie eject.
+    ///
+    /// C++ DieMuxData::isDieApplicable → only vet+ gives pilot.
+    #[test]
+    fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
+        use crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        // Rookie / REGULAR residual → no eject.
+        let rookie_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("rookie humvee");
+        {
+            let h = game_logic.find_object_mut(rookie_id).expect("rookie");
+            h.experience.level = VeterancyLevel::Rookie;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(rookie_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_pilot_eject_veterancy_gate_ok(),
+            "REGULAR gate residual must record block honesty"
+        );
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            0,
+            "Rookie vehicle must not eject pilot"
+        );
+        assert_eq!(
+            game_logic
+                .objects
+                .values()
+                .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+                .count(),
+            0,
+            "no pilot spawn for REGULAR residual"
+        );
+
+        // Veteran residual → eject.
+        let vet_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 80.0),
+            )
+            .expect("vet humvee");
+        {
+            let h = game_logic.find_object_mut(vet_id).expect("vet");
+            h.experience.level = VeterancyLevel::Veteran;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(vet_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            1,
+            "Veteran vehicle must eject pilot residual"
+        );
+        assert!(game_logic.honesty_pilot_eject_ok());
+
+        // Elite residual → eject.
+        let elite_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(160.0, 0.0, 160.0),
+            )
+            .expect("elite humvee");
+        {
+            let h = game_logic.find_object_mut(elite_id).expect("elite");
+            h.experience.level = VeterancyLevel::Elite;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(elite_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            2,
+            "Elite vehicle must eject pilot residual"
+        );
+    }
+
     /// Residual: OCL InvulnerableTime (2000ms → 60 frames) shields ejected pilot.
     ///
     /// C++ ObjectCreationList InvulnerableTime → goInvulnerable residual.
@@ -38478,6 +38711,7 @@ mod tests {
         use crate::game_logic::host_usa_pilot::{
             EJECT_PILOT_INVULNERABLE_FRAMES, EJECT_PILOT_TEMPLATE,
         };
+        use crate::game_logic::VeterancyLevel;
 
         let mut game_logic = GameLogic::new();
 
@@ -38501,6 +38735,8 @@ mod tests {
 
         {
             let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            // VeterancyLevels = ALL -REGULAR residual required for eject path.
+            h.experience.level = VeterancyLevel::Veteran;
             let _ = h.take_damage(h.max_health * 2.0);
             h.status.destroyed = true;
         }
@@ -38567,6 +38803,175 @@ mod tests {
         assert!(
             hp_after < hp_mid - 0.5,
             "post-expiry pilot must take damage"
+        );
+    }
+
+    /// Residual: PilotFindVehicleUpdate AI auto-scan → Enter recrewable unmanned vehicle.
+    ///
+    /// C++ PilotFindVehicleUpdate: ScanRate 1000ms / ScanRange 300 / MinHealth 0.5;
+    /// AI-only (human sleep forever). Host residual: issues Enter toward nearest
+    /// recrewable unmanned vehicle meeting MinHealth, then recrew path completes.
+    #[test]
+    fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            is_pilot_template, PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_FRAMES,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        // AI player residual (is_local=false) — C++ PLAYER_HUMAN skips scan.
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            assert!(is_pilot_template(&p.template_name));
+            p.experience.level = VeterancyLevel::Veteran;
+            p.ai_state = AIState::Idle;
+        }
+
+        // Healthy unmanned tank within scan range (100% HP ≥ MinHealth 0.5).
+        let tank_id = game_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .expect("tank");
+        {
+            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.health.current = t.max_health;
+        }
+
+        // Low-HP unmanned tank closer — must be skipped by MinHealth residual.
+        let low_id = game_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(5.0, 0.0, 0.0))
+            .expect("low tank");
+        {
+            let t = game_logic.find_object_mut(low_id).expect("low");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
+        }
+
+        assert!(!game_logic.honesty_pilot_find_vehicle_ok());
+        game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES; // scan tick residual
+        game_logic.update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_pilot_find_vehicle_ok(),
+            "PilotFindVehicle residual must issue Enter order honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().find_vehicle_orders, 1);
+
+        // Same-frame process_ai_behavior may complete recrew when already in enter
+        // range (selection radii residual). Otherwise a second tick finishes Enter.
+        if game_logic
+            .find_object(pilot_id)
+            .map(|p| !p.status.destroyed)
+            .unwrap_or(false)
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            assert_eq!(
+                p.ai_state,
+                AIState::Entering,
+                "AI pilot residual must Enter after scan"
+            );
+            assert_eq!(
+                p.target,
+                Some(tank_id),
+                "must target healthy vehicle (MinHealth skips low-HP closer tank)"
+            );
+            game_logic.update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0);
+        }
+
+        let tank = game_logic.find_object(tank_id).expect("tank after recrew");
+        assert!(!tank.is_unmanned(), "recrew must clear unmanned");
+        assert_eq!(tank.team, Team::USA, "recrew transfers AI pilot team");
+        assert!(game_logic.honesty_pilot_recrew_ok());
+        // Low-HP closer vehicle must remain unmanned (MinHealth residual skip).
+        assert!(
+            game_logic.find_object(low_id).unwrap().is_unmanned(),
+            "MinHealth residual must not recrew low-HP vehicle"
+        );
+        assert!(
+            game_logic
+                .find_object(pilot_id)
+                .map(|p| p.status.destroyed)
+                .unwrap_or(true),
+            "pilot consumed after auto-recrew residual"
+        );
+
+        // Human player residual: no auto-scan (C++ sleep forever).
+        let mut human_logic = GameLogic::new();
+        ensure_test_tank_template(&mut human_logic);
+        human_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA Human", true));
+        human_logic.templates.insert(
+            "AmericaInfantryPilot".to_string(),
+            {
+                let mut t = ThingTemplate::new("AmericaInfantryPilot");
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .set_health(100.0);
+                t
+            },
+        );
+        let hp = human_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("human pilot");
+        {
+            let p = human_logic.find_object_mut(hp).expect("hp");
+            p.ai_state = AIState::Idle;
+        }
+        let ht = human_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ht");
+        {
+            let t = human_logic.find_object_mut(ht).expect("ht");
+            t.apply_kill_pilot_unmanned();
+        }
+        human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        human_logic.update_ai(&[hp, ht], 1.0 / 30.0);
+        assert!(
+            !human_logic.honesty_pilot_find_vehicle_ok(),
+            "human pilot residual must not auto-scan"
+        );
+        assert_eq!(
+            human_logic.usa_pilot_residual().find_vehicle_orders,
+            0,
+            "human residual issues zero PilotFindVehicle Enter orders"
+        );
+        // Human pilot must not auto-recrew unmanned vehicle without player Enter.
+        assert!(
+            human_logic.find_object(ht).unwrap().is_unmanned(),
+            "human pilot residual must not auto-recrew unmanned vehicle"
+        );
+        assert!(
+            !human_logic.honesty_pilot_recrew_ok(),
+            "human residual must not recrew via PilotFindVehicle"
         );
     }
 
