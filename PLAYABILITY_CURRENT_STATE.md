@@ -1,3 +1,44 @@
+## Residual Host Playability — Bomb Truck Disguise + GLA Camouflage (2026-07-12)
+**Closed (host-testable disguise + Camouflage stealth upgrade):**
+1. **Bomb Truck disguise residual** (`SpecialAbilityDisguiseAsVehicle` /
+   `GLAVehicleBombTruck` StealthUpdate DisguisesAsTeam):
+   - `CommandType::DisguiseAsVehicle` on bomb-truck residual casters
+     (`*BombTruck*` / `TestBombTruck`) targeting any living ground vehicle
+     (ally/enemy/neutral) except bomb trucks / trains / aircraft.
+   - Instant complete residual (retail `StartAbilityRange = 1e6`).
+   - Sets `OBJECT_STATUS_DISGUISED` + `STEALTHED`, stores disguise template + team.
+   - Enemies auto-target via **apparent team** residual (disguised-as-USA skips USA
+     auto-target; China still targets as enemy). Not pure-stealth hide
+     (`is_effectively_stealthed` excludes DISGUISED — C++ `!DISGUISED` gate).
+   - Reveal residual: while attacking, if 2D distance to victim ≤ **100**
+     (`RevealDistanceFromTarget`) → clear disguise + stealth + honesty reveal.
+   - Honesty: `honesty_bomb_truck_disguise_ok` / `honesty_bomb_truck_reveal_ok` /
+     `honesty_bomb_truck_disguise_path_ok`.
+2. **GLA Camouflage residual** (`Upgrade_GLACamouflage` / Rebel `StealthUpgrade`):
+   - `HostUpgradeKind::Camouflage` QueueUpgrade → complete grants residual
+     STEALTHED + `innate_stealth` to Rebel infantry templates
+     (`GLAInfantryRebel` / Chem_/Demo_ variants / `TestRebel`).
+   - Attack breaks stealth (`stealth_breaks_on_attack`); idle re-cloak residual
+     in `update_stealth_and_detection`.
+   - **Workers fail-closed**: `GLAInfantryWorker` has no StealthUpgrade for
+     Camouflage in retail INI — residual correctly skips workers.
+   - Honesty: host_upgrades `honesty_host_path_ok(Camouflage)` with units_affected.
+3. Tests (not log-only):
+   - `bomb_truck_disguise_residual_applies_and_hides_from_disguise_team`
+   - `bomb_truck_disguise_residual_reveals_near_attack_target`
+   - `bomb_truck_disguise_residual_rejects_non_bomb_truck_caster`
+   - `camouflage_upgrade_queue_complete_stealths_rebel`
+   - `camouflage_residual_attack_breaks_and_idle_recloaks`
+   - module unit tests in `host_bomb_truck_disguise.rs` / `host_upgrades` camouflage helpers
+
+**Still residual (fail-closed, not claimed):**
+- Full StealthUpdate disguise transition opacity / half-point model swap / FX
+- Full drawable indicator-color night/day matrix for disguised players
+- Full 2500ms StealthDelay re-cloak timer / FriendlyOpacity pulse for Camouflage
+- Bomb truck FireWeaponWhenDead upgrade matrix (HE/Bio/Anthrax) detonation residual
+- Rocket Buggy / Quad Cannon / SCUD launcher host residual polish (not this slice)
+- Network disguise / camouflage replication (network deferred)
+
 ## Residual Host Playability — GLA Tunnel Network Enter/Exit (2026-07-12)
 **Closed (host-testable TunnelContain shared pool + cross-tunnel exit):**
 1. **Tunnel Network residual** (`GLATunnelNetwork` / general variants / SneakAttack tunnel):

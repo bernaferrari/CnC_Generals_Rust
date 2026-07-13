@@ -75,6 +75,8 @@ pub enum HostUpgradeKind {
     ComancheRocketPods,
     /// America Sentry Drone Gun: equips residual SentryDroneGun primary for auto-fire.
     SentryDroneGun,
+    /// GLA Camouflage: grants residual stealth to Rebel infantry (StealthUpgrade).
+    Camouflage,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -99,6 +101,9 @@ impl HostUpgradeKind {
             HostUpgradeKind::ComancheRocketPods
         } else if n.contains("sentrydronegun") || n.contains("sentrydrone") {
             HostUpgradeKind::SentryDroneGun
+        } else if n.contains("camouflage") || n.contains("camoflage") {
+            // Retail spelling is Camouflage; allow common misspelling residual.
+            HostUpgradeKind::Camouflage
         } else {
             HostUpgradeKind::Other
         }
@@ -114,6 +119,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::BunkerBusters => "BunkerBusters",
             HostUpgradeKind::ComancheRocketPods => "ComancheRocketPods",
             HostUpgradeKind::SentryDroneGun => "SentryDroneGun",
+            HostUpgradeKind::Camouflage => "Camouflage",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -132,6 +138,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::BunkerBusters
             | HostUpgradeKind::ComancheRocketPods
             | HostUpgradeKind::SentryDroneGun
+            | HostUpgradeKind::Camouflage
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -598,5 +605,71 @@ mod tests {
         assert!(!loaded.honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
         assert!(loaded.honesty_complete_ok(HostUpgradeKind::CaptureBuilding));
         assert_eq!(loaded.get(id).unwrap().units_affected, 1);
+    }
+}
+
+// --- GLA Camouflage residual helpers (Upgrade_GLACamouflage / StealthUpgrade) ---
+
+/// Retail GLA Camouflage upgrade name (Palace research).
+pub const UPGRADE_GLA_CAMOUFLAGE: &str = "Upgrade_GLACamouflage";
+
+/// Template names that receive StealthUpgrade from Camouflage residual.
+///
+/// C++: GLAInfantryRebel (+ Chem_/Demo_/CINE_ variants) StealthUpgrade
+/// TriggeredBy = Upgrade_GLACamouflage. Fail-closed: not full StealthUpgrade
+/// module on every general variant; workers do **not** receive Camouflage
+/// (Worker has no StealthUpgrade — fail-closed honesty).
+pub fn is_camouflage_unit_template(name: &str) -> bool {
+    let n: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.is_empty() {
+        return false;
+    }
+    // Explicit residual test names.
+    if n == "testrebel" || n == "testglarebel" {
+        return true;
+    }
+    // Rebel residual (not worker, not hijacker, not terrorist).
+    if n.contains("worker") {
+        return false;
+    }
+    n.contains("rebel") || n == "glainfantryrebel" || n.ends_with("infantryrebel")
+}
+
+/// C++ StealthUpdate StealthDelay residual for Rebel after Camouflage (2500 ms).
+/// Host residual: re-cloak after this many logic frames once attack stops
+/// (fail-closed vs full StealthUpdate forbidden-condition matrix).
+pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
+
+#[cfg(test)]
+mod camouflage_template_tests {
+    use super::*;
+
+    #[test]
+    fn camouflage_unit_name_residual() {
+        assert!(is_camouflage_unit_template("GLAInfantryRebel"));
+        assert!(is_camouflage_unit_template("Demo_GLAInfantryRebel"));
+        assert!(is_camouflage_unit_template("Chem_GLAInfantryRebel"));
+        assert!(is_camouflage_unit_template("TestRebel"));
+        // Host shorthand GLA_Soldier is not a retail camouflage carrier (Rebel is).
+        assert!(!is_camouflage_unit_template("GLA_Soldier"));
+        assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
+        assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
+        assert!(!is_camouflage_unit_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn camouflage_kind_from_name() {
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLACamouflage"),
+            HostUpgradeKind::Camouflage
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name("Upgrade_GLA_Camouflage"),
+            HostUpgradeKind::Camouflage
+        );
     }
 }

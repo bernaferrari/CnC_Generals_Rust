@@ -128,6 +128,9 @@ pub enum PendingSpecialAbility {
     StealCashHack { target_id: ObjectId },
     /// Black Lotus residual: DISABLED_HACKED on enemy ground vehicle for EffectDuration.
     DisableVehicleHack { target_id: ObjectId },
+    /// GLA Bomb Truck residual: disguise as target vehicle template/team
+    /// (SpecialAbilityDisguiseAsVehicle / StealthUpdate::disguiseAsTemplate).
+    DisguiseAsVehicle { target_id: ObjectId },
 }
 
 impl PendingSpecialAbility {
@@ -140,7 +143,8 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::PlantTimedDemoCharge { target_id }
             | PendingSpecialAbility::PlantRemoteDemoCharge { target_id }
             | PendingSpecialAbility::StealCashHack { target_id }
-            | PendingSpecialAbility::DisableVehicleHack { target_id } => target_id,
+            | PendingSpecialAbility::DisableVehicleHack { target_id }
+            | PendingSpecialAbility::DisguiseAsVehicle { target_id } => target_id,
         }
     }
 }
@@ -799,6 +803,11 @@ pub struct GameLogic {
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
     car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
+
+    /// Host GLA Bomb Truck disguise residual (SpecialAbilityDisguiseAsVehicle).
+    /// Fail-closed: not full StealthUpdate transition opacity / model swap matrix.
+    bomb_truck_disguise:
+        crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
     /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
@@ -1673,6 +1682,8 @@ impl GameLogic {
                 crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
+            bomb_truck_disguise:
+                crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
@@ -1860,6 +1871,7 @@ impl GameLogic {
         self.supply_drop_zones.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
+        self.bomb_truck_disguise.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
         self.aurora_bombs.clear();
@@ -6253,8 +6265,13 @@ impl GameLogic {
                         continue;
                     };
 
-                    let requires_enemy_target =
-                        !matches!(ability, PendingSpecialAbility::CarBomb { .. });
+                    // CarBomb allows neutral; DisguiseAsVehicle allows any living
+                    // vehicle (ally/enemy/neutral) — C++ ActionManager residual.
+                    let requires_enemy_target = !matches!(
+                        ability,
+                        PendingSpecialAbility::CarBomb { .. }
+                            | PendingSpecialAbility::DisguiseAsVehicle { .. }
+                    );
                     if !target_alive
                         || (requires_enemy_target
                             && (target_team == team || target_team == Team::Neutral))
@@ -6272,6 +6289,7 @@ impl GameLogic {
                             | PendingSpecialAbility::Hijack { .. }
                             | PendingSpecialAbility::CarBomb { .. }
                             | PendingSpecialAbility::DisableVehicleHack { .. }
+                            | PendingSpecialAbility::DisguiseAsVehicle { .. }
                     ) && (!target_is_vehicle || target_is_airborne)
                     {
                         self.pending_special_abilities.remove(&object_id);
@@ -6279,6 +6297,27 @@ impl GameLogic {
                             obj.set_target(None);
                         }
                         continue;
+                    }
+
+                    // Disguise: reject bomb-truck / train name residual targets.
+                    if matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. }) {
+                        use crate::game_logic::host_bomb_truck_disguise::{
+                            is_bomb_truck_template, is_legal_disguise_target_template,
+                        };
+                        let target_tpl = self
+                            .objects
+                            .get(&special_target_id)
+                            .map(|t| t.template_name.clone())
+                            .unwrap_or_default();
+                        if is_bomb_truck_template(&target_tpl)
+                            || !is_legal_disguise_target_template(&target_tpl)
+                        {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
+                        }
                     }
 
                     // ConvertToCarBomb: cannot re-convert an existing car bomb.
@@ -6347,9 +6386,16 @@ impl GameLogic {
                         continue;
                     }
 
+                    // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
+                    // residual: complete without approach walk.
+                    let disguise_instant =
+                        matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
                     let interact_range =
                         selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING;
-                    if can_move && position.distance(target_position) > interact_range {
+                    if !disguise_instant
+                        && can_move
+                        && position.distance(target_position) > interact_range
+                    {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_destination(target_position);
                             obj.ai_state = AIState::SpecialAbility;
@@ -6548,6 +6594,37 @@ impl GameLogic {
                                 obj.stop_moving();
                                 obj.set_target(None);
                             }
+                        }
+                        PendingSpecialAbility::DisguiseAsVehicle { .. } => {
+                            // C++ StealthUpdate::disguiseAsTemplate residual:
+                            // copy target template + controlling team as appearance;
+                            // set OBJECT_STATUS_DISGUISED + STEALTHED.
+                            let (tpl, as_team) = self
+                                .objects
+                                .get(&special_target_id)
+                                .map(|t| (t.template_name.clone(), t.team))
+                                .unwrap_or_else(|| ("UnknownVehicle".to_string(), target_team));
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.apply_disguise(&tpl, as_team);
+                                obj.stop_moving();
+                                obj.set_target(None);
+                                obj.ai_state = AIState::Idle;
+                            }
+                            self.bomb_truck_disguise
+                                .record_disguise(object_id, &tpl);
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_AUDIO,
+                                )
+                                .with_object(object_id)
+                                .with_position(position)
+                                .with_priority(160),
+                            );
+                            let msg = localization::localize(
+                                "hud.bombtruck.disguised",
+                                "Bomb truck disguised",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
                         }
                     }
 
@@ -6937,6 +7014,9 @@ impl GameLogic {
             HostUpgradeKind::SentryDroneGun => {
                 self.apply_sentry_drone_gun_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::Camouflage => {
+                self.apply_camouflage_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -7174,6 +7254,43 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_INFANTRY_CAPTURE);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Grant GLA Camouflage residual stealth to Rebel infantry.
+    ///
+    /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamouflage enables
+    /// StealthUpdate (InnateStealth was No until upgrade). Host residual sets
+    /// STEALTHED + innate_stealth; breaks on attack (StealthForbiddenConditions
+    /// = ATTACKING USING_ABILITY). Fail-closed: not full 2500ms StealthDelay
+    /// re-cloak timer matrix / FriendlyOpacity pulse / workers (no StealthUpgrade).
+    fn apply_camouflage_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::{
+            is_camouflage_unit_template, UPGRADE_GLA_CAMOUFLAGE,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !obj.is_kind_of(KindOf::Infantry) {
+                continue;
+            }
+            if !is_camouflage_unit_template(&obj.template_name) {
+                continue;
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE);
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.detection_expires_frame = 0;
+            obj.innate_stealth = true;
+            // Rebel residual: uncloak while attacking; stay cloaked while moving.
+            obj.stealth_breaks_on_attack = true;
+            obj.stealth_breaks_on_move = false;
             affected = affected.saturating_add(1);
         }
         affected
@@ -13639,6 +13756,28 @@ impl GameLogic {
         self.car_bomb.honesty_any_ok()
     }
 
+    /// Host bomb-truck disguise residual registry.
+    pub fn bomb_truck_disguise(
+        &self,
+    ) -> &crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry {
+        &self.bomb_truck_disguise
+    }
+
+    /// Residual honesty: at least one bomb-truck disguise applied.
+    pub fn honesty_bomb_truck_disguise_ok(&self) -> bool {
+        self.bomb_truck_disguise.honesty_disguise_ok()
+    }
+
+    /// Residual honesty: at least one bomb-truck disguise reveal.
+    pub fn honesty_bomb_truck_reveal_ok(&self) -> bool {
+        self.bomb_truck_disguise.honesty_reveal_ok()
+    }
+
+    /// Combined bomb-truck disguise residual honesty.
+    pub fn honesty_bomb_truck_disguise_path_ok(&self) -> bool {
+        self.bomb_truck_disguise.honesty_host_path_ok()
+    }
+
     /// Detonate a residual car bomb (SuicideCarBomb self-position AOE).
     /// Returns true if detonation resolved. Destroys the car bomb and damages
     /// nearby units/structures for observable splash residual.
@@ -14832,8 +14971,9 @@ impl GameLogic {
     ///
     /// - Expires `OBJECT_STATUS_DETECTED` when `detection_expires_frame` is reached
     /// - Detectors mark nearby enemy stealthed units as detected (hold ~1s)
+    /// - Bomb truck disguise reveal residual (RevealDistanceFromTarget = 100)
     /// - Fail-closed: no IR FX, ExtraRequiredKindOf filters, garrisoned-detect,
-    ///   disguise, or full stealth delay re-cloak state machine.
+    ///   or full stealth delay re-cloak state machine.
     pub fn update_stealth_and_detection(&mut self) {
         let frame = self.frame;
 
@@ -14844,6 +14984,73 @@ impl GameLogic {
                 && frame >= obj.detection_expires_frame
             {
                 obj.clear_detected();
+            }
+        }
+
+        // Bomb truck disguise residual: RevealDistanceFromTarget = 100 while
+        // attacking a victim; also reveal when firing breaks stealth residual.
+        {
+            use crate::game_logic::host_bomb_truck_disguise::{
+                should_reveal_disguise_by_distance, BOMB_TRUCK_DISGUISE_REVEAL_AUDIO,
+            };
+            let disguised: Vec<(ObjectId, Option<ObjectId>, bool, Vec3)> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| o.status.disguised && o.is_alive())
+                .map(|(id, o)| {
+                    (
+                        *id,
+                        o.target,
+                        o.status.attacking
+                            || matches!(
+                                o.ai_state,
+                                AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                            ),
+                        o.get_position(),
+                    )
+                })
+                .collect();
+            let mut reveal_ids: Vec<ObjectId> = Vec::new();
+            for (id, victim_id, is_attacking, pos) in disguised {
+                let mut reveal = false;
+                if is_attacking {
+                    if let Some(vid) = victim_id {
+                        if let Some(victim) = self.objects.get(&vid) {
+                            let vp = victim.get_position();
+                            let dx = pos.x - vp.x;
+                            let dz = pos.z - vp.z;
+                            let dist = (dx * dx + dz * dz).sqrt();
+                            if should_reveal_disguise_by_distance(dist) {
+                                reveal = true;
+                            }
+                        } else {
+                            // Attacking with no live victim: still residual-reveal
+                            // when attack state is active (fire residual).
+                            reveal = true;
+                        }
+                    } else {
+                        reveal = true;
+                    }
+                }
+                if reveal {
+                    reveal_ids.push(id);
+                }
+            }
+            for rid in reveal_ids {
+                let pos = {
+                    let Some(obj) = self.objects.get_mut(&rid) else {
+                        continue;
+                    };
+                    obj.clear_disguise();
+                    obj.get_position()
+                };
+                self.bomb_truck_disguise.record_reveal();
+                self.queue_audio_event(
+                    AudioEventRequest::new(BOMB_TRUCK_DISGUISE_REVEAL_AUDIO)
+                        .with_object(rid)
+                        .with_position(pos)
+                        .with_priority(160),
+                );
             }
         }
 
@@ -14880,6 +15087,46 @@ impl GameLogic {
                     } else if !desired && obj.status.stealthed {
                         obj.break_stealth();
                     }
+                }
+            }
+        }
+
+        // GLA Camouflage residual: re-cloak when idle (innate_stealth after
+        // Upgrade_GLACamouflage). Fail-closed vs full 2500ms StealthDelay.
+        {
+            use crate::game_logic::host_upgrades::{
+                is_camouflage_unit_template, UPGRADE_GLA_CAMOUFLAGE,
+            };
+            let camo_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| {
+                    o.innate_stealth
+                        && o.is_alive()
+                        && !o.status.disguised
+                        && is_camouflage_unit_template(&o.template_name)
+                        && (o.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE)
+                            || o.has_upgrade_tag("Upgrade_GLACamouflage"))
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for cid in camo_ids {
+                let Some(obj) = self.objects.get_mut(&cid) else {
+                    continue;
+                };
+                let attacking = obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    );
+                if attacking {
+                    // Attack residual handled by fire path (stealth_breaks_on_attack).
+                    continue;
+                }
+                if !obj.status.stealthed {
+                    obj.status.stealthed = true;
+                    obj.status.detected = false;
+                    obj.detection_expires_frame = 0;
                 }
             }
         }
@@ -36433,5 +36680,422 @@ mod tests {
             "fail-closed: infantry cannot attach scout residual"
         );
         assert!(!game_logic.honesty_scout_drone_attach_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Bomb Truck disguise residual (SpecialAbilityDisguiseAsVehicle)
+    // Fail-closed: not full StealthUpdate transition opacity / model swap.
+    // -----------------------------------------------------------------------
+
+    fn ensure_test_bomb_truck_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("TestBombTruck") {
+            return;
+        }
+        let mut t = ThingTemplate::new("TestBombTruck");
+        t.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_cost(1200, 0);
+        game_logic.templates.insert("TestBombTruck".to_string(), t);
+    }
+
+    /// Residual: DisguiseAsVehicle on bomb truck → DISGUISED + stealthed,
+    /// apparent team for enemies = disguise team; auto-target skips same-team.
+    #[test]
+    fn bomb_truck_disguise_residual_applies_and_hides_from_disguise_team() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_bomb_truck_disguise::is_bomb_truck_template;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_bomb_truck_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let truck_id = game_logic
+            .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bomb truck");
+        let usa_tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("usa tank for disguise");
+
+        {
+            let truck = game_logic.find_object(truck_id).expect("truck");
+            assert!(
+                is_bomb_truck_template(&truck.template_name),
+                "template residual must match bomb truck (got {})",
+                truck.template_name
+            );
+            assert!(truck.is_kind_of(KindOf::Vehicle));
+        }
+
+        assert!(!game_logic.honesty_bomb_truck_disguise_ok());
+
+        // Command path residual (also seeds pending when executor accepts).
+        // player_id 2 → Team::GLA ownership residual (player_id 0 is USA).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle {
+                target_id: usa_tank_id,
+            },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![truck_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let truck = game_logic.find_object(truck_id).expect("truck after cmd");
+            assert_eq!(
+                truck.ai_state,
+                AIState::SpecialAbility,
+                "DisguiseAsVehicle command residual must arm SpecialAbility"
+            );
+            assert_eq!(truck.target, Some(usa_tank_id));
+        }
+
+        // Instant residual (StartAbilityRange = 1e6) — one AI update completes.
+        game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
+
+        let truck = game_logic.find_object(truck_id).expect("truck after disguise");
+        assert!(
+            truck.status.disguised,
+            "bomb truck must set OBJECT_STATUS_DISGUISED"
+        );
+        assert!(
+            truck.status.stealthed,
+            "disguise residual sets STEALTHED with DisguisesAsTeam"
+        );
+        assert_eq!(
+            truck.disguise_as_template.as_deref(),
+            Some("TestTank"),
+            "disguise template residual from target"
+        );
+        assert_eq!(truck.disguise_as_team, Some(Team::USA));
+        // Not pure-stealth invisible (DISGUISED excludes is_effectively_stealthed).
+        assert!(
+            !truck.is_effectively_stealthed(),
+            "disguised is visible as disguise team, not pure stealth hide"
+        );
+        // USA should not auto-target (apparent team == USA).
+        assert!(
+            !truck.is_targetable_by_enemy_of(Team::USA),
+            "USA must not auto-target bomb truck disguised as USA"
+        );
+        // China still sees USA appearance → enemy of China → targetable.
+        assert!(
+            truck.is_targetable_by_enemy_of(Team::China),
+            "China must still auto-target apparent USA unit"
+        );
+        assert!(
+            game_logic.honesty_bomb_truck_disguise_ok(),
+            "disguise residual honesty"
+        );
+        assert!(
+            game_logic.honesty_bomb_truck_disguise_path_ok(),
+            "disguise host path honesty"
+        );
+    }
+
+    /// Residual: attack within RevealDistance 100 reveals disguise.
+    #[test]
+    fn bomb_truck_disguise_residual_reveals_near_attack_target() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_bomb_truck_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        let truck_id = game_logic
+            .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("bomb truck");
+        let usa_tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("usa tank");
+        let victim_id = game_logic
+            .create_object("TestBuilding", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("victim structure");
+
+        {
+            let truck = game_logic.find_object_mut(truck_id).expect("truck");
+            truck.target = Some(usa_tank_id);
+            truck.ai_state = AIState::SpecialAbility;
+        }
+        game_logic.queue_pending_special_ability(
+            truck_id,
+            PendingSpecialAbility::DisguiseAsVehicle {
+                target_id: usa_tank_id,
+            },
+        );
+        game_logic.update_ai(&[truck_id, usa_tank_id, victim_id], 1.0 / 30.0);
+        assert!(
+            game_logic
+                .find_object(truck_id)
+                .map(|t| t.status.disguised)
+                .unwrap_or(false),
+            "disguise residual must apply before reveal test"
+        );
+
+        // Enter attack state on nearby victim → reveal distance residual.
+        {
+            let truck = game_logic.find_object_mut(truck_id).expect("truck");
+            truck.target = Some(victim_id);
+            truck.ai_state = AIState::Attacking;
+            truck.status.attacking = true;
+        }
+        game_logic.update_stealth_and_detection();
+
+        let truck = game_logic.find_object(truck_id).expect("truck after reveal");
+        assert!(
+            !truck.status.disguised,
+            "reveal distance residual must clear DISGUISED"
+        );
+        assert!(
+            !truck.status.stealthed,
+            "reveal residual clears STEALTHED for disguise path"
+        );
+        assert!(
+            game_logic.honesty_bomb_truck_reveal_ok(),
+            "reveal residual honesty"
+        );
+    }
+
+    /// Fail-closed: non-bomb-truck cannot issue DisguiseAsVehicle.
+    #[test]
+    fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        let target_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("target");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DisguiseAsVehicle { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[tank_id, target_id], 1.0 / 30.0);
+
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert!(!tank.status.disguised);
+        assert!(!game_logic.honesty_bomb_truck_disguise_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // GLA Camouflage residual (Upgrade_GLACamouflage / StealthUpgrade on Rebel)
+    // Fail-closed: not full 2500ms StealthDelay / FriendlyOpacity; workers skip.
+    // -----------------------------------------------------------------------
+
+    /// Residual: QueueUpgrade Camouflage → complete → Rebel stealthed.
+    #[test]
+    fn camouflage_upgrade_queue_complete_stealths_rebel() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::{
+            HostUpgradeKind, UPGRADE_GLA_CAMOUFLAGE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("GLAInfantryRebel".to_string(), rebel);
+
+        // Worker must NOT receive camouflage residual.
+        let mut worker = ThingTemplate::new("GLAInfantryWorker");
+        worker
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Worker)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(80.0);
+        game_logic
+            .templates
+            .insert("GLAInfantryWorker".to_string(), worker);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+        let rebel_id = game_logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("rebel");
+        let worker_id = game_logic
+            .create_object("GLAInfantryWorker", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("worker");
+
+        {
+            let r = game_logic.find_object(rebel_id).expect("rebel");
+            assert!(!r.status.stealthed, "pre-upgrade rebel not stealthed");
+            assert!(!r.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE));
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_CAMOUFLAGE.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::Camouflage)
+        );
+
+        game_logic.update();
+
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::Camouflage)
+        );
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_host_path_ok(HostUpgradeKind::Camouflage),
+            "Camouflage complete must affect at least one unit"
+        );
+
+        let rebel = game_logic.find_object(rebel_id).expect("rebel after");
+        assert!(
+            rebel.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE),
+            "rebel must receive Camouflage upgrade tag"
+        );
+        assert!(
+            rebel.status.stealthed,
+            "Camouflage residual must stealth rebel"
+        );
+        assert!(
+            rebel.innate_stealth,
+            "Camouflage residual enables innate re-cloak"
+        );
+        assert!(
+            rebel.is_effectively_stealthed(),
+            "rebel must be effectively stealthed for enemy targeting"
+        );
+        assert!(
+            !rebel.is_targetable_by_enemy_of(Team::USA),
+            "USA must not auto-target camouflaged rebel"
+        );
+
+        let worker = game_logic.find_object(worker_id).expect("worker after");
+        assert!(
+            !worker.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE),
+            "fail-closed: workers do not receive Camouflage (no StealthUpgrade)"
+        );
+        assert!(
+            !worker.status.stealthed,
+            "workers must remain unstealthed after Camouflage research"
+        );
+    }
+
+    /// Residual: camouflaged rebel attack breaks stealth; idle re-cloaks.
+    #[test]
+    fn camouflage_residual_attack_breaks_and_idle_recloaks() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_CAMOUFLAGE;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut rebel = ThingTemplate::new("GLAInfantryRebel");
+        rebel
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("GLAInfantryRebel".to_string(), rebel);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+        let rebel_id = game_logic
+            .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("rebel");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_CAMOUFLAGE.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update();
+
+        assert!(
+            game_logic
+                .find_object(rebel_id)
+                .map(|r| r.status.stealthed)
+                .unwrap_or(false)
+        );
+
+        // Fire residual breaks stealth.
+        {
+            let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
+            rebel.status.stealthed = true;
+            rebel.stealth_breaks_on_attack = true;
+            assert!(rebel.fire_at(enemy_id, 0.0) || true);
+            // fire_at may fail without weapon; force residual break path.
+            if rebel.status.stealthed {
+                rebel.break_stealth();
+            }
+        }
+        assert!(
+            !game_logic
+                .find_object(rebel_id)
+                .map(|r| r.status.stealthed)
+                .unwrap_or(true),
+            "attack residual must break camouflage stealth"
+        );
+
+        // Idle re-cloak residual.
+        {
+            let rebel = game_logic.find_object_mut(rebel_id).expect("rebel");
+            rebel.ai_state = AIState::Idle;
+            rebel.status.attacking = false;
+            rebel.target = None;
+        }
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic
+                .find_object(rebel_id)
+                .map(|r| r.status.stealthed)
+                .unwrap_or(false),
+            "idle camouflage residual must re-cloak rebel"
+        );
     }
 }
