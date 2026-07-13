@@ -3183,6 +3183,15 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         self.last_laser_update_drawable_mid.xfer(xfer)?;
         xfer.xfer_marker_label("LastLaserUpdateRadius")?;
         xfer.xfer_f32(&mut self.last_laser_update_radius)?;
+        // Wave 45: PUC sound / scorch residual pack honesty (appended).
+        xfer.xfer_marker_label("GroundAnnihilationAudioApplications")?;
+        xfer.xfer_u32(&mut self.ground_annihilation_audio_applications)?;
+        xfer.xfer_marker_label("FiringToPackAudioApplications")?;
+        xfer.xfer_u32(&mut self.firing_to_pack_audio_applications)?;
+        xfer.xfer_marker_label("SoundResidualPackArmed")?;
+        xfer.xfer_u32(&mut self.sound_residual_pack_armed)?;
+        xfer.xfer_marker_label("ScorchScalarPackArmed")?;
+        xfer.xfer_u32(&mut self.scorch_scalar_pack_armed)?;
         Ok(())
     }
 }
@@ -3222,6 +3231,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 particle_model_unpacking_sets: 0,
                 particle_model_deployed_sets: 0,
                 particle_model_packing_sets: 0,
+                particle_powerup_audio_applications: 0,
+                particle_unpack_audio_applications: 0,
                 scud_pre_attack_active: false,
                 scud_pre_attack_frames: 0,
                 scud_chem_fx_bones: 0,
@@ -3498,6 +3509,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 last_laser_update_end: Vec3::ZERO,
                 last_laser_update_drawable_mid: Vec3::ZERO,
                 last_laser_update_radius: 0.0,
+                ground_annihilation_audio_applications: 0,
+                firing_to_pack_audio_applications: 0,
+                sound_residual_pack_armed: 0,
+                scorch_scalar_pack_armed: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;

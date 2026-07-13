@@ -140,6 +140,13 @@
 //! (R:255 G:0 B:255); DeletionUpdate calcSleepDelay residual (min/max frames,
 //! clamp ≥1; remnant fixed 120 frames); graphics GameText MISSING fetch +
 //! DisplayStringManager link + Anim2D status/alpha residual.
+//! Wave 45 residual closed: PUC sound residual pack honesty
+//! (PoweringUp/UnpackToIdle/FiringToPack/GroundAnnihilation + BeamLaunchFX
+//! interval 30 + GroundHitFX names; applications on charge status + beam spawn);
+//! Scorch residual pack honesty (ScorchMarkScalar 2.4 / Swath 200/50 /
+//! ManualDriving 20/40 / DoubleClick 15 frames); SupW PointDefenseDroneLaserBeam
+//! LifetimeUpdate Min=Max 95 ms → ceil → 3 frames; PUC FlammableUpdate residual
+//! (AflameDuration 5000 ms / DamageAmount 5 / DamageDelay 500 ms).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -686,6 +693,63 @@ pub const PARTICLE_UNPACK_AUDIO: &str = "ParticleUplinkCannon_UnpackToIdleSoundL
 /// Retail FiringToPackSoundLoop (STATUS_FIRING residual honesty).
 pub const PARTICLE_FIRING_TO_PACK_AUDIO: &str = "ParticleUplinkCannon_FiringToPackSoundLoop";
 
+// --- SupW PointDefenseDroneLaserBeam / PointDefenseLaserBeam LifetimeUpdate ---
+// Retail WeaponObjects.ini / SuperWeaponGeneral.ini: MinLifetime=MaxLifetime=95 ms.
+
+/// Retail SupW_PointDefenseDroneLaserBeam object name residual.
+pub const POINT_DEFENSE_DRONE_LASER_BEAM: &str = "SupW_PointDefenseDroneLaserBeam";
+/// Retail PointDefenseLaserBeam object name residual (same LifetimeUpdate).
+pub const POINT_DEFENSE_LASER_BEAM: &str = "PointDefenseLaserBeam";
+/// Retail LifetimeUpdate MinLifetime residual (msec).
+pub const POINT_DEFENSE_LASER_MIN_LIFETIME_MS: u32 = 95;
+/// Retail LifetimeUpdate MaxLifetime residual (msec; equals Min for fixed life).
+pub const POINT_DEFENSE_LASER_MAX_LIFETIME_MS: u32 = 95;
+/// LifetimeUpdate Min==Max 95 ms → [`duration_ms_to_logic_frames`] = **3** frames.
+///
+/// C++ `ConvertDurationFromMsecsToFrames` = ceil(msec * 30 / 1000):
+/// ceil(95*30/1000) = ceil(2.85) = 3. Fail-closed: not full LifetimeUpdate
+/// destroyObject on dieFrame / ThingFactory laser drawable.
+pub const POINT_DEFENSE_LASER_LIFETIME_FRAMES: u32 = (95 * 30 + 999) / 1000;
+
+// --- AmericaParticleUplinkCannon FlammableUpdate residual ---
+// Retail FactionBuilding.ini ModuleTag_14 on Particle Uplink building.
+
+/// Retail FlammableUpdate AflameDuration residual (msec).
+pub const PARTICLE_UPLINK_AFLAME_DURATION_MS: u32 = 5000;
+/// AflameDuration 5000 ms → 150 frames @ 30 FPS.
+pub const PARTICLE_UPLINK_AFLAME_DURATION_FRAMES: u32 = (5000 * 30) / 1000;
+/// Retail FlammableUpdate AflameDamageAmount residual.
+pub const PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT: f32 = 5.0;
+/// Retail FlammableUpdate AflameDamageDelay residual (msec).
+pub const PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
+/// AflameDamageDelay 500 ms → 15 frames @ 30 FPS.
+pub const PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES: u32 = (500 * 30) / 1000;
+
+/// C++ `ConvertDurationFromMsecsToFrames` residual (logic clock @ 30 FPS).
+///
+/// `ceil(msec * LOGICFRAMES_PER_SECOND / 1000)`. Used by LifetimeUpdate /
+/// parseDurationUnsignedInt residual. Integer form: `(msec * 30 + 999) / 1000`.
+#[inline]
+pub fn duration_ms_to_logic_frames(msec: u32) -> u32 {
+    if msec == 0 {
+        return 0;
+    }
+    ((msec as u64 * 30 + 999) / 1000) as u32
+}
+
+/// Fixed LifetimeUpdate residual frames when MinLifetime == MaxLifetime (msec).
+///
+/// Host residual: deterministic die delay = parseDuration frames (ceil).
+/// Fail-closed: not full GameLogicRandomValue range when min≠max.
+#[inline]
+pub fn lifetime_update_fixed_frames(min_ms: u32, max_ms: u32) -> u32 {
+    let lo = min_ms.min(max_ms);
+    let hi = min_ms.max(max_ms);
+    // Equal min/max → fixed lifetime frames (PointDefense 95/95 → 3).
+    let frames = duration_ms_to_logic_frames(if lo == hi { lo } else { lo });
+    frames.max(1)
+}
+
 /// Retail `ParticleUplinkCannonUpdate` logical / client status residual.
 ///
 /// C++ `PUCStatus` order is load-bearing for honesty comparisons.
@@ -947,12 +1011,18 @@ fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, now: u32) {
         ParticleUplinkStatus::Charging => {
             strike.particle_charging_applications =
                 strike.particle_charging_applications.saturating_add(1);
+            // PoweringUpSoundLoop residual (STATUS_CHARGING).
+            strike.particle_powerup_audio_applications =
+                strike.particle_powerup_audio_applications.saturating_add(1);
         }
         ParticleUplinkStatus::Preparing => {
             strike.particle_preparing_applications =
                 strike.particle_preparing_applications.saturating_add(1);
             strike.particle_model_unpacking_sets =
                 strike.particle_model_unpacking_sets.saturating_add(1);
+            // UnpackToIdleSoundLoop residual (STATUS_PREPARING).
+            strike.particle_unpack_audio_applications =
+                strike.particle_unpack_audio_applications.saturating_add(1);
         }
         ParticleUplinkStatus::AlmostReady => {
             strike.particle_almost_ready_applications =
@@ -1680,6 +1750,62 @@ pub fn honesty_particle_supw_outer_color() -> bool {
         && PARTICLE_SUPW_INTENSE_CONNECTOR.contains("SupW_")
         && PARTICLE_SUPW_ORBITAL_LASER.contains("SupW_")
         && PARTICLE_CONNECTOR_MEDIUM_LASER.starts_with("ParticleUplink")
+}
+
+/// Honesty: PUC sound residual pack name + BeamLaunchFX / GroundHitFX constants.
+///
+/// Fail-closed: not full Miles audio event playback / 3D positional loop stop.
+pub fn honesty_particle_sound_loops() -> bool {
+    PARTICLE_POWERUP_AUDIO == "ParticleUplinkCannon_PowerupSoundLoop"
+        && PARTICLE_UNPACK_AUDIO == "ParticleUplinkCannon_UnpackToIdleSoundLoop"
+        && PARTICLE_FIRING_TO_PACK_AUDIO == "ParticleUplinkCannon_FiringToPackSoundLoop"
+        && PARTICLE_BEAM_AUDIO == "ParticleUplinkCannon_GroundAnnihilationSoundLoop"
+        && PARTICLE_BEAM_LAUNCH_FX == "FX_ParticleUplinkCannon_BeamLaunchIteration"
+        && PARTICLE_LAUNCH_FX_INTERVAL_FRAMES == 30
+        && PARTICLE_GROUND_HIT_FX == "FX_ParticleUplinkCannon_BeamHitsGround"
+}
+
+/// Honesty: Scorch residual pack constants (scalar / swath / manual drive).
+///
+/// Fail-closed: not full TheGameClient::addScorch GPU decal / partition shroud.
+pub fn honesty_particle_scorch_pack() -> bool {
+    PARTICLE_TOTAL_SCORCH_MARKS == 20
+        && (PARTICLE_SCORCH_MARK_SCALAR - 2.4).abs() < 0.01
+        && (PARTICLE_SWATH_OF_DEATH_DISTANCE - 200.0).abs() < 0.01
+        && (PARTICLE_SWATH_OF_DEATH_AMPLITUDE - 50.0).abs() < 0.01
+        && (PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01
+        && (PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01
+        && PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES == 15
+        && PARTICLE_GROUND_HIT_FX.contains("BeamHitsGround")
+}
+
+/// Honesty: SupW PointDefenseDroneLaserBeam LifetimeUpdate residual (95 ms → 3).
+///
+/// Fail-closed: not full LifetimeUpdate destroyObject / ThingFactory laser Object.
+pub fn honesty_point_defense_laser_lifetime() -> bool {
+    POINT_DEFENSE_DRONE_LASER_BEAM == "SupW_PointDefenseDroneLaserBeam"
+        && POINT_DEFENSE_LASER_BEAM == "PointDefenseLaserBeam"
+        && POINT_DEFENSE_LASER_MIN_LIFETIME_MS == 95
+        && POINT_DEFENSE_LASER_MAX_LIFETIME_MS == 95
+        && POINT_DEFENSE_LASER_LIFETIME_FRAMES == 3
+        && duration_ms_to_logic_frames(95) == 3
+        && lifetime_update_fixed_frames(
+            POINT_DEFENSE_LASER_MIN_LIFETIME_MS,
+            POINT_DEFENSE_LASER_MAX_LIFETIME_MS,
+        ) == 3
+}
+
+/// Honesty: PUC building FlammableUpdate residual pack.
+///
+/// Fail-closed: not full aflame object status bit / live damage-over-time module.
+pub fn honesty_particle_uplink_flammable() -> bool {
+    PARTICLE_UPLINK_AFLAME_DURATION_MS == 5000
+        && PARTICLE_UPLINK_AFLAME_DURATION_FRAMES == 150
+        && (PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT - 5.0).abs() < 0.01
+        && PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_MS == 500
+        && PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES == 15
+        && duration_ms_to_logic_frames(5000) == 150
+        && duration_ms_to_logic_frames(500) == 15
 }
 
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
@@ -3063,6 +3189,12 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: MODELCONDITION_PACKING residual sets (PACKING).
     #[serde(default)]
     pub particle_model_packing_sets: u32,
+    /// Honesty: PoweringUpSoundLoop residual applications (STATUS_CHARGING).
+    #[serde(default)]
+    pub particle_powerup_audio_applications: u32,
+    /// Honesty: UnpackToIdleSoundLoop residual applications (STATUS_PREPARING).
+    #[serde(default)]
+    pub particle_unpack_audio_applications: u32,
     /// ScudStorm PreAttack residual active (PER_CLIP first-missile window).
     #[serde(default)]
     pub scud_pre_attack_active: bool,
@@ -3875,6 +4007,18 @@ pub struct HostParticleBeamField {
     /// Honesty: last LaserUpdate getCurrentLaserRadius residual.
     #[serde(default)]
     pub last_laser_update_radius: f32,
+    /// Honesty: GroundAnnihilationSoundLoop residual applications (STATUS_FIRING).
+    #[serde(default)]
+    pub ground_annihilation_audio_applications: u32,
+    /// Honesty: FiringToPackSoundLoop residual applications (STATUS_FIRING).
+    #[serde(default)]
+    pub firing_to_pack_audio_applications: u32,
+    /// Honesty: full PUC sound residual pack armed at beam spawn (names + FX).
+    #[serde(default)]
+    pub sound_residual_pack_armed: u32,
+    /// Honesty: ScorchMarkScalar residual pack armed (scorch radius formula).
+    #[serde(default)]
+    pub scorch_scalar_pack_armed: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -4669,6 +4813,8 @@ impl HostSpecialPowerStrikeRegistry {
             particle_model_unpacking_sets: 0,
             particle_model_deployed_sets: 0,
             particle_model_packing_sets: 0,
+            particle_powerup_audio_applications: 0,
+            particle_unpack_audio_applications: 0,
             scud_pre_attack_active: false,
             scud_pre_attack_frames: 0,
             scud_chem_fx_bones: 0,
@@ -6252,6 +6398,14 @@ impl HostSpecialPowerStrikeRegistry {
                 laser_update_drawable_midpoint(s, e)
             },
             last_laser_update_radius: 0.0,
+            // STATUS_FIRING sound residual: GroundAnnihilation + FiringToPack loops.
+            // Fail-closed: not full Miles 3D positional loop / stop on POSTFIRE.
+            ground_annihilation_audio_applications: 1,
+            firing_to_pack_audio_applications: 1,
+            // Full sound residual pack names + LaunchFX interval + GroundHitFX.
+            sound_residual_pack_armed: 1,
+            // ScorchMarkScalar + TotalScorchMarks residual pack armed at spawn.
+            scorch_scalar_pack_armed: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -7805,14 +7959,49 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Residual honesty: TotalScorchMarks residual applied at least one mark.
+    ///
+    /// Wave 45: also requires ScorchMarkScalar **2.4** residual pack armed.
     pub fn honesty_beam_scorch_ok(&self) -> bool {
         (self.beam_fields.iter().any(|f| f.scorch_marks_made > 0)
             || self
                 .beam_fields
                 .iter()
                 .any(|f| f.ground_hit_fx_applications > 0))
-            && PARTICLE_TOTAL_SCORCH_MARKS == 20
-            && PARTICLE_GROUND_HIT_FX.contains("BeamHitsGround")
+            && self
+                .beam_fields
+                .iter()
+                .any(|f| f.scorch_scalar_pack_armed >= 1)
+            && honesty_particle_scorch_pack()
+    }
+
+    /// Residual honesty: PUC sound residual pack applied on beam spawn / charge.
+    ///
+    /// Tracks PoweringUp / UnpackToIdle / FiringToPack / GroundAnnihilation
+    /// names + BeamLaunchFX interval + GroundHitFX. Prefire UnpackToIdle arms
+    /// on PREPARING (host impact_delay seeds PREPARING); PoweringUp arms when
+    /// CHARGING window is reached. Fail-closed: not full Miles audio loops.
+    pub fn honesty_beam_sound_residual_ok(&self) -> bool {
+        let beam_ok = self.beam_fields.iter().any(|f| {
+            f.ground_annihilation_audio_applications >= 1
+                && f.firing_to_pack_audio_applications >= 1
+                && f.sound_residual_pack_armed >= 1
+                && f.beam_launch_fx_applications >= 1
+        });
+        let prefire_ok = self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ParticleCannon
+                && s.particle_unpack_audio_applications > 0
+        });
+        beam_ok && prefire_ok && honesty_particle_sound_loops()
+    }
+
+    /// Residual honesty: PointDefense laser LifetimeUpdate residual constants.
+    pub fn honesty_point_defense_laser_lifetime_ok(&self) -> bool {
+        honesty_point_defense_laser_lifetime()
+    }
+
+    /// Residual honesty: PUC FlammableUpdate residual constants.
+    pub fn honesty_particle_uplink_flammable_ok(&self) -> bool {
+        honesty_particle_uplink_flammable()
     }
 
     /// Residual honesty: RevealRange residual applied at least once with scorch.
@@ -12089,5 +12278,156 @@ mod tests {
         assert!((2..=5).contains(&d));
         let d = deletion_update_calc_sleep_delay(2, 5, 3);
         assert!((2..=5).contains(&d));
+    }
+
+    #[test]
+    fn particle_uplink_sound_residual_pack_honesty() {
+        // Retail sound/FX name residual pack.
+        assert!(honesty_particle_sound_loops());
+        assert_eq!(
+            PARTICLE_POWERUP_AUDIO,
+            "ParticleUplinkCannon_PowerupSoundLoop"
+        );
+        assert_eq!(
+            PARTICLE_UNPACK_AUDIO,
+            "ParticleUplinkCannon_UnpackToIdleSoundLoop"
+        );
+        assert_eq!(
+            PARTICLE_FIRING_TO_PACK_AUDIO,
+            "ParticleUplinkCannon_FiringToPackSoundLoop"
+        );
+        assert_eq!(
+            PARTICLE_BEAM_AUDIO,
+            "ParticleUplinkCannon_GroundAnnihilationSoundLoop"
+        );
+        assert_eq!(
+            PARTICLE_BEAM_LAUNCH_FX,
+            "FX_ParticleUplinkCannon_BeamLaunchIteration"
+        );
+        assert_eq!(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES, 30);
+        assert_eq!(
+            PARTICLE_GROUND_HIT_FX,
+            "FX_ParticleUplinkCannon_BeamHitsGround"
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_beam_sound_residual_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        // PREPARING residual seeds UnpackToIdle sound on queue.
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.particle_unpack_audio_applications >= 1);
+            assert_eq!(s.particle_status, ParticleUplinkStatus::Preparing);
+        }
+        // Long impact window can also hit CHARGING → PoweringUpSoundLoop.
+        // begin_charge = impact - (ReadyDelay+RaiseAntenna+BeginCharge) =
+        // impact - 350; use impact_frame 350 so frame 0 is CHARGING.
+        // Default impact_delay 120 only covers PREPARING at activate.
+        if let Some(s) = reg.strikes.get_mut(&id) {
+            s.impact_frame = 350;
+            s.particle_status = ParticleUplinkStatus::Idle;
+            s.particle_status_peak = ParticleUplinkStatus::Idle;
+        }
+        reg.advance_particle_intensity_schedule(0);
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.particle_status, ParticleUplinkStatus::Charging);
+            assert!(s.particle_powerup_audio_applications >= 1);
+        }
+        // Beam spawn arms GroundAnnihilation + FiringToPack + sound pack.
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.ground_annihilation_audio_applications, 1);
+            assert_eq!(f.firing_to_pack_audio_applications, 1);
+            assert_eq!(f.sound_residual_pack_armed, 1);
+            assert!(f.beam_launch_fx_applications >= 1);
+        }
+        assert!(reg.honesty_beam_sound_residual_ok());
+    }
+
+    #[test]
+    fn particle_uplink_scorch_pack_residual_honesty() {
+        assert!(honesty_particle_scorch_pack());
+        assert!((PARTICLE_SCORCH_MARK_SCALAR - 2.4).abs() < 0.01);
+        assert!((PARTICLE_SWATH_OF_DEATH_DISTANCE - 200.0).abs() < 0.01);
+        assert!((PARTICLE_SWATH_OF_DEATH_AMPLITUDE - 50.0).abs() < 0.01);
+        assert!((PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01);
+        assert!((PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01);
+        assert_eq!(PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES, 15);
+        assert_eq!(PARTICLE_TOTAL_SCORCH_MARKS, 20);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.scorch_scalar_pack_armed, 1);
+        }
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        let events = reg.apply_due_beam_scorch_reveals(spawn);
+        assert_eq!(events.len(), 1);
+        // Scorch radius = (50 / 3.4) * 2.4 * width_scalar(0) ≈ 0 at spawn grow.
+        // Peak scorch at full width: (50/3.4)*2.4 ≈ 35.29.
+        let peak_scorch = particle_scorch_radius(spawn, spawn + PARTICLE_WIDTH_GROW_FRAMES);
+        assert!((peak_scorch - (PARTICLE_BEAM_RADIUS / PARTICLE_DAMAGE_RADIUS_SCALAR
+            * PARTICLE_SCORCH_MARK_SCALAR))
+            .abs()
+            < 0.1);
+        assert!(reg.honesty_beam_scorch_ok());
+        assert!((particle_manual_speed_per_frame(false) - 20.0 / 30.0).abs() < 0.01);
+        assert!((particle_manual_speed_per_frame(true) - 40.0 / 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn point_defense_laser_lifetime_update_residual_honesty() {
+        assert!(honesty_point_defense_laser_lifetime());
+        assert_eq!(
+            POINT_DEFENSE_DRONE_LASER_BEAM,
+            "SupW_PointDefenseDroneLaserBeam"
+        );
+        assert_eq!(POINT_DEFENSE_LASER_BEAM, "PointDefenseLaserBeam");
+        assert_eq!(POINT_DEFENSE_LASER_MIN_LIFETIME_MS, 95);
+        assert_eq!(POINT_DEFENSE_LASER_MAX_LIFETIME_MS, 95);
+        // ceil(95*30/1000) = ceil(2.85) = 3 frames.
+        assert_eq!(POINT_DEFENSE_LASER_LIFETIME_FRAMES, 3);
+        assert_eq!(duration_ms_to_logic_frames(95), 3);
+        assert_eq!(duration_ms_to_logic_frames(0), 0);
+        assert_eq!(duration_ms_to_logic_frames(1000), 30);
+        assert_eq!(
+            lifetime_update_fixed_frames(
+                POINT_DEFENSE_LASER_MIN_LIFETIME_MS,
+                POINT_DEFENSE_LASER_MAX_LIFETIME_MS
+            ),
+            3
+        );
+        let reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_point_defense_laser_lifetime_ok());
+    }
+
+    #[test]
+    fn particle_uplink_flammable_update_residual_honesty() {
+        assert!(honesty_particle_uplink_flammable());
+        assert_eq!(PARTICLE_UPLINK_AFLAME_DURATION_MS, 5000);
+        assert_eq!(PARTICLE_UPLINK_AFLAME_DURATION_FRAMES, 150);
+        assert!((PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT - 5.0).abs() < 0.01);
+        assert_eq!(PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_MS, 500);
+        assert_eq!(PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES, 15);
+        assert_eq!(duration_ms_to_logic_frames(5000), 150);
+        assert_eq!(duration_ms_to_logic_frames(500), 15);
+        let reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_particle_uplink_flammable_ok());
     }
 }

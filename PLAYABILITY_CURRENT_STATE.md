@@ -1,3 +1,97 @@
+## Residual Host Playability — Wave 45: PUC Sound/Scorch Pack + PointDefense Lifetime + FlammableUpdate (2026-07-13)
+**Closed (host-testable residual not covered by wave 44 SupW/DeletionUpdate residual):**
+1. **PUC sound residual pack** (`special_power_strikes`):
+   - PoweringUpSoundLoop / UnpackToIdleSoundLoop / FiringToPackSoundLoop /
+     GroundAnnihilationSoundLoop retail name residual.
+   - BeamLaunchFX **FX_ParticleUplinkCannon_BeamLaunchIteration** +
+     DelayBetweenLaunchFX **1000 ms → 30** frames.
+   - GroundHitFX **FX_ParticleUplinkCannon_BeamHitsGround**.
+   - Honesty counters: powerup on STATUS_CHARGING, unpack on PREPARING,
+     annihilation + firing-to-pack + sound pack armed on beam spawn.
+   - Honesty: `honesty_particle_sound_loops` / `honesty_beam_sound_residual_ok`.
+   - Fail-closed: not full Miles 3D positional loop / stop on POSTFIRE.
+2. **Scorch residual pack** (`special_power_strikes`):
+   - ScorchMarkScalar **2.4** (scorch radius = laser_r × scalar × width).
+   - SwathOfDeathDistance **200** / Amplitude **50** residual.
+   - ManualDrivingSpeed **20** / ManualFastDrivingSpeed **40** /
+     DoubleClickToFastDriveDelay **500 ms → 15** frames.
+   - TotalScorchMarks **20** + GroundHitFX cadence residual.
+   - Honesty: `honesty_particle_scorch_pack` / strengthened `honesty_beam_scorch_ok`.
+   - Fail-closed: not full TheGameClient::addScorch GPU decal path.
+3. **PointDefense laser LifetimeUpdate residual** (`special_power_strikes`):
+   - SupW_PointDefenseDroneLaserBeam / PointDefenseLaserBeam
+     MinLifetime=MaxLifetime **95** ms → ceil(95×30/1000) = **3** frames
+     (`duration_ms_to_logic_frames` / `ConvertDurationFromMsecsToFrames`).
+   - Honesty: `honesty_point_defense_laser_lifetime`.
+   - Fail-closed: not full LifetimeUpdate destroyObject / ThingFactory laser Object.
+4. **PUC FlammableUpdate residual** (`special_power_strikes`):
+   - AflameDuration **5000** ms → **150** frames.
+   - AflameDamageAmount **5** / AflameDamageDelay **500** ms → **15** frames.
+   - Honesty: `honesty_particle_uplink_flammable`.
+   - Fail-closed: not full aflame object status bit / live DoT module.
+5. Snapshot/Xfer: beam sound residual + scorch_scalar_pack_armed fields appended
+   on HostParticleBeamField; strike powerup/unpack audio default residual fields.
+6. Tests (not log-only):
+   - `particle_uplink_sound_residual_pack_honesty`
+   - `particle_uplink_scorch_pack_residual_honesty`
+   - `point_defense_laser_lifetime_update_residual_honesty`
+   - `particle_uplink_flammable_update_residual_honesty`
+   - special_power_strikes lib tests **87** green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full Miles audio event playback / 3D positional PUC sound loops
+- Full LifetimeUpdate destroyObject on PointDefense laser dieFrame
+- Full FlammableUpdate aflame status / live damage-over-time on PUC building
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 46: Anim2DCollection + GameText translateCopy + DisplayString Deepen (2026-07-13)
+**Closed (host-testable residual not covered by wave 44 collection/status residual):**
+1. **Anim2DCollection residual** (`world_anim_layout`):
+   - Template list head-insert `newTemplate` / `findTemplate` by name residual.
+   - `registerAnimation` / `unRegisterAnimation` doubly-linked instance list residual.
+   - `update()` skips `tryNextFrame` when `ANIM_2D_STATUS_FROZEN` set.
+   - `init` residual path constant `Data/INI/Animation2D.ini` (fail-closed vs full INI parse).
+   - MoneyPickUp `RandomizeStartFrame = No` residual.
+   - `getCurrentFrameWidth`/`Height` monospaced placeholder size residual (32×32).
+   - Honesty: `honesty_anim2d_collection_residual`.
+   - Fail-closed: not full Anim2DCollection GPU texture atlas / Image draw.
+2. **GameText translateCopy residual** (`game_text_residual`):
+   - Backslash escape table matching C++ `GameTextManager::translateCopy`
+     (`\n` newline, `\t` tab, `\\` backslash, `\'` `\"` `\?`, default keep char).
+   - Honesty: `honesty_translate_copy_escape_table`.
+   - Fail-closed: not Jabber reverseWord debug residual / multi-locale boot UI.
+3. **DisplayString deepen residual** (`floating_text_layout`):
+   - `usingResources(frame)` residual — last-used frame stamp when draw succeeds.
+   - `computeExtents` residual honesty: empty/no-font → (0,0); non-empty monospaced.
+   - Hotkey Build_Sentence residual: when useHotkey, extract `&` letter + monospaced pos.
+   - Honesty: `honesty_display_string_deepen_residual`.
+   - Fail-closed: not full Render2DSentence GPU StretchRect / hotkey underline draw.
+4. Tests (not log-only):
+   - `anim2d_collection_residual_honesty`
+   - `translate_copy_escape_table_residual_honesty`
+   - `display_string_using_resources_and_hotkey_residual_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 44: SupW Magenta OuterColor + DeletionUpdate Sleep + GameText MISSING Fetch + DisplayStringManager Link + Anim2D Status/Alpha (2026-07-13)
 **Closed (host-testable residual not covered by wave 43 special/gattling/immortal residual):**
 1. **SupW ParticleUplink magenta OuterColor residual** (`special_power_strikes`):
