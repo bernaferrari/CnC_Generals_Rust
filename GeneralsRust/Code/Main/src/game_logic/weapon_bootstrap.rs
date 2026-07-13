@@ -644,10 +644,10 @@ fn seed_known_host_weapons() -> usize {
             weapon_speed: 999_999.0,
         },
         // ChinaVehicleNukeCannon PRIMARY — NukeCannonGun residual seed.
-        // PrimaryDamage ~200 retail shell; host residual uses 200 / range 350.
+        // PrimaryDamage 400 retail shell; host residual area path uses 400/50 + 20/60.
         SeedWeapon {
             name: NUKE_CANNON_PRIMARY_WEAPON,
-            primary_damage: 200.0,
+            primary_damage: 400.0,
             attack_range: 350.0,
             delay_frames: 300,
             clip_size: 0,
