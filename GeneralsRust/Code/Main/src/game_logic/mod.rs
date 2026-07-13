@@ -35,6 +35,7 @@ pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
 pub mod host_inferno_cannon;
+pub mod host_battle_bus;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -151,6 +152,10 @@ pub use host_inferno_cannon::{
     INFERNO_CANNON_FIRE_AUDIO, INFERNO_CANNON_PRIMARY_WEAPON, INFERNO_CANNON_SHELL_DAMAGE,
     INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_RADIUS,
     INFERNO_FIRE_TICK_INTERVAL_FRAMES,
+};
+pub use host_battle_bus::{
+    battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
+    HostBattleBusRegistry, BATTLE_BUS_TRANSPORT_SLOTS,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

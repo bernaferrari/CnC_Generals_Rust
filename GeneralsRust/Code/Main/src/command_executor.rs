@@ -1172,9 +1172,9 @@ impl<'a> CommandExecutor<'a> {
 
             // Classify residual exit before mutating unit state.
             // Prefer AI state; fall back to container kind when only contained_by is set.
-            // Overlord BattleBunker residual is vehicle-docked but tracked separately
-            // from generic Humvee transport residual.
-            let (was_garrisoned, was_overlord_bunker, was_transport) =
+            // Overlord BattleBunker / GLA Battle Bus residuals are vehicle-docked but
+            // tracked separately from generic Humvee transport residual.
+            let (was_garrisoned, was_overlord_bunker, was_battle_bus, was_transport) =
                 if let Some(unit) = self.game_logic.get_object(unit_id) {
                     let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
                     let docked = matches!(unit.ai_state, AIState::Docked);
@@ -1183,26 +1183,37 @@ impl<'a> CommandExecutor<'a> {
                     let is_overlord = container
                         .map(|c| c.is_overlord_style_container())
                         .unwrap_or(false);
+                    let is_battle_bus = container
+                        .map(|c| c.is_battle_bus_style_container())
+                        .unwrap_or(false);
                     let is_structure = container
                         .map(|c| c.is_kind_of(KindOf::Structure))
                         .unwrap_or(false);
                     if garrisoned {
-                        (true, false, false)
+                        (true, false, false, false)
                     } else if docked {
-                        (false, is_overlord, !is_overlord)
+                        if is_overlord {
+                            (false, true, false, false)
+                        } else if is_battle_bus {
+                            (false, false, true, false)
+                        } else {
+                            (false, false, false, true)
+                        }
                     } else if unit.contained_by.is_some() || container_id.is_some() {
                         if is_structure {
-                            (true, false, false)
+                            (true, false, false, false)
                         } else if is_overlord {
-                            (false, true, false)
+                            (false, true, false, false)
+                        } else if is_battle_bus {
+                            (false, false, true, false)
                         } else {
-                            (false, false, true)
+                            (false, false, false, true)
                         }
                     } else {
-                        (false, false, false)
+                        (false, false, false, false)
                     }
                 } else {
-                    (false, false, false)
+                    (false, false, false, false)
                 };
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
@@ -1217,6 +1228,8 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.record_garrison_residual_exit();
                 } else if was_overlord_bunker {
                     self.game_logic.record_overlord_bunker_residual_exit();
+                } else if was_battle_bus {
+                    self.game_logic.record_battle_bus_residual_unload();
                 } else if was_transport {
                     self.game_logic.record_transport_residual_unload();
                 }
@@ -1224,6 +1237,14 @@ impl<'a> CommandExecutor<'a> {
                     "Unit {} exiting transport/garrison near {:?}",
                     unit_id.0, drop_position
                 );
+            }
+
+            // Refresh Battle Bus armed-riders weapon set after unload residual.
+            if let Some(cid) = container_id {
+                if was_battle_bus {
+                    self.game_logic
+                        .refresh_battle_bus_armed_riders_weapon_set(cid);
+                }
             }
         }
 
@@ -2462,12 +2483,13 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        // Residual garrison / Overlord BattleBunker: infantry (and heroes) only.
-        // C++ BattleBunker AllowInsideKindOf = INFANTRY. Generic transports still
-        // accept any mobile unit. Fail-closed vs full C++ garrison filters.
+        // Residual garrison / Overlord BattleBunker / Battle Bus: infantry (and heroes)
+        // only. C++ AllowInsideKindOf = INFANTRY. Generic transports still accept any
+        // mobile unit. Fail-closed vs full C++ garrison filters.
         let infantry_only_container = target.is_kind_of(KindOf::Structure)
             || (target.is_overlord_style_container()
-                && target.overlord_bunker_slot_capacity() > 0);
+                && target.overlord_bunker_slot_capacity() > 0)
+            || target.is_battle_bus_style_container();
         if infantry_only_container
             && !unit.is_kind_of(KindOf::Infantry)
             && !unit.is_hero()
