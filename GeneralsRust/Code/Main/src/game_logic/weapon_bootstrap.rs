@@ -51,6 +51,9 @@ pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
 pub const NUKE_CANNON_PRIMARY_WEAPON: &str = "NukeCannonGun";
 pub const NUKE_CANNON_NEUTRON_WEAPON: &str = "NukeCannonNeutronWeapon";
 
+/// Retail Inferno Cannon primary residual weapon (FireFieldSmall on impact).
+pub const INFERNO_CANNON_PRIMARY_WEAPON: &str = "InfernoCannonGun";
+
 /// Retail PointDefenseLaser residual weapons (Paladin / Avenger).
 pub const PALADIN_POINT_DEFENSE_LASER: &str = "PaladinPointDefenseLaser";
 pub const AVENGER_POINT_DEFENSE_LASER: &str = "AvengerPointDefenseLaserOne";
@@ -101,10 +104,17 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
         | "TestNukeCannon" => Some(NUKE_CANNON_PRIMARY_WEAPON),
+        "China_InfernoCannon"
+        | "ChinaVehicleInfernoCannon"
+        | "Nuke_ChinaVehicleInfernoCannon"
+        | "TestInfernoCannon" => Some(INFERNO_CANNON_PRIMARY_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 return Some(NUKE_CANNON_PRIMARY_WEAPON);
+            }
+            if crate::game_logic::host_inferno_cannon::is_inferno_cannon_template(template_name) {
+                return Some(INFERNO_CANNON_PRIMARY_WEAPON);
             }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
@@ -320,6 +330,16 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 0,
             weapon_speed: 999_999.0,
+        },
+        // InfernoCannonGun PRIMARY — PrimaryDamage 30, AttackRange 300,
+        // DelayBetweenShots 4000ms → 120 frames. FireFieldSmall residual on impact.
+        SeedWeapon {
+            name: INFERNO_CANNON_PRIMARY_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 300.0,
+            delay_frames: 120,
+            clip_size: 0,
+            weapon_speed: 250.0,
         },
     ];
 

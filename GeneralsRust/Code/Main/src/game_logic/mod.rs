@@ -34,6 +34,7 @@ pub mod host_neutron_shell;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
+pub mod host_inferno_cannon;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -144,6 +145,12 @@ pub use host_firewall::{
     HostFireWall, HostFireWallRegistry, HostFireWallSegment, FIREWALL_ACTIVATE_AUDIO,
     FIREWALL_DAMAGE_PER_TICK, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_RADIUS,
     FIREWALL_TICK_INTERVAL_FRAMES,
+};
+pub use host_inferno_cannon::{
+    is_inferno_cannon_template, HostInfernoFireZone, HostInfernoFireZoneRegistry,
+    INFERNO_CANNON_FIRE_AUDIO, INFERNO_CANNON_PRIMARY_WEAPON, INFERNO_CANNON_SHELL_DAMAGE,
+    INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES, INFERNO_FIRE_RADIUS,
+    INFERNO_FIRE_TICK_INTERVAL_FRAMES,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
