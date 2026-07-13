@@ -18,11 +18,17 @@
 //! - DisplayString getText / reset residual (identity text / clear text+font, no notify)
 //! - DisplayString appendChar / removeLastChar residual (mutate + notifyTextChanged)
 //! - DisplayString getWidth residual (monospaced charPos width; skip `\n`)
+//! - DisplayString getSize residual (monospaced width×height; empty/no-font → 0×0)
+//! - DisplayString setWordWrap residual (wrapping width change → notify)
+//! - DisplayString setWordWrapCentered residual (centered flag change → notify)
+//! - DisplayString setUseHotkey residual (flag+color; always notify)
+//! - DisplayString setClipRegion residual (region equality early-out)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
 //! - Full multi-locale CSF/STR Unicode GameText table load at boot
 //! - Full vanish-rate alpha blend on live Display surface
+//! - Full FontCharsClass Get_Formatted_Text_Extents for getSize
 
 use crate::graphics::game_text_residual::{
     honesty_display_string_measure, measure_display_string_residual,
@@ -228,6 +234,149 @@ pub fn display_string_get_width(text: &str, char_pos: i32) -> u32 {
 /// Honesty: getWidth residual matches monospaced charPos walk.
 pub fn honesty_display_string_get_width(text: &str, char_pos: i32, width: u32) -> bool {
     display_string_get_width(text, char_pos) == width
+}
+
+/// DisplayString monospaced glyph residual height (font8x8 family).
+pub const DISPLAY_STRING_GLYPH_HEIGHT: u32 = 8;
+/// Default hotkey residual color (C++ `GameMakeColor(255,255,255,255)` / 0xffffffff).
+pub const DISPLAY_STRING_HOTKEY_COLOR_DEFAULT: (u8, u8, u8, u8) = (255, 255, 255, 255);
+
+/// DisplayString `getSize` residual: monospaced (width, height).
+///
+/// C++ `W3DDisplayString::computeExtents`: empty text **or** null font → (0,0);
+/// else `Get_Formatted_Text_Extents`. Host residual: empty/`has_font=false` → (0,0);
+/// otherwise width = monospaced getWidth(-1), height = line_count × 8px.
+/// Fail-closed vs live FontCharsClass formatted extents / word-wrap height.
+#[inline]
+pub fn display_string_get_size(text: &str, has_font: bool) -> (u32, u32) {
+    if text.is_empty() || !has_font {
+        return (0, 0);
+    }
+    let width = display_string_get_width(text, -1);
+    // Count lines (at least 1 when non-empty). Trailing newline still adds a line
+    // residual matching simple split-lines walk.
+    let lines = text.lines().count().max(1) as u32;
+    // If text ends with `\n`, `lines()` drops the trailing empty; retail formatted
+    // extents typically include it — host residual keeps max(1, lines) for captions.
+    let height = lines.saturating_mul(DISPLAY_STRING_GLYPH_HEIGHT);
+    (width, height)
+}
+
+/// Honesty: getSize residual matches monospaced width×height / empty-or-no-font zero.
+pub fn honesty_display_string_get_size(
+    text: &str,
+    has_font: bool,
+    width: u32,
+    height: u32,
+) -> bool {
+    display_string_get_size(text, has_font) == (width, height)
+}
+
+/// DisplayString `setWordWrap` residual: change wrap width → notify when changed.
+///
+/// C++ `W3DDisplayString::setWordWrap`: `Set_Wrapping_Width` returns true on change
+/// then `notifyTextChanged()`. Host residual compares previous vs new width.
+/// Fail-closed vs live Render2DSentence wrap reflow / poly rebuild.
+#[inline]
+pub fn display_string_set_word_wrap(previous_width: i32, new_width: i32) -> (i32, bool) {
+    if previous_width == new_width {
+        (previous_width, false)
+    } else {
+        (new_width, true)
+    }
+}
+
+/// Honesty: setWordWrap residual matches change → notify path.
+pub fn honesty_display_string_set_word_wrap(
+    previous_width: i32,
+    new_width: i32,
+    result_width: i32,
+    notified: bool,
+) -> bool {
+    let (expected, expect_notify) = display_string_set_word_wrap(previous_width, new_width);
+    result_width == expected && notified == expect_notify
+}
+
+/// DisplayString `setWordWrapCentered` residual: change centered flag → notify.
+///
+/// C++ `Set_Word_Wrap_Centered` returns true on change then notify.
+#[inline]
+pub fn display_string_set_word_wrap_centered(
+    previous_centered: bool,
+    new_centered: bool,
+) -> (bool, bool) {
+    if previous_centered == new_centered {
+        (previous_centered, false)
+    } else {
+        (new_centered, true)
+    }
+}
+
+/// Honesty: setWordWrapCentered residual matches change → notify path.
+pub fn honesty_display_string_set_word_wrap_centered(
+    previous_centered: bool,
+    new_centered: bool,
+    result: bool,
+    notified: bool,
+) -> bool {
+    let (expected, expect_notify) =
+        display_string_set_word_wrap_centered(previous_centered, new_centered);
+    result == expected && notified == expect_notify
+}
+
+/// DisplayString `setUseHotkey` residual: set flag+color and always notify.
+///
+/// C++ always assigns `m_useHotKey` / `m_hotKeyColor`, enables hotkey parse, and
+/// `notifyTextChanged()` (no early-out). Fail-closed vs live hotkey marker parse.
+#[inline]
+pub fn display_string_set_use_hotkey(
+    use_hotkey: bool,
+    hotkey_color: (u8, u8, u8, u8),
+) -> (bool, (u8, u8, u8, u8), bool) {
+    (use_hotkey, hotkey_color, true)
+}
+
+/// Honesty: setUseHotkey residual always notifies with stored flag+color.
+pub fn honesty_display_string_set_use_hotkey(
+    use_hotkey: bool,
+    hotkey_color: (u8, u8, u8, u8),
+    result_use: bool,
+    result_color: (u8, u8, u8, u8),
+    notified: bool,
+) -> bool {
+    let (eu, ec, en) = display_string_set_use_hotkey(use_hotkey, hotkey_color);
+    result_use == eu && result_color == ec && notified == en
+}
+
+/// DisplayString clip region residual (lo.x, lo.y, hi.x, hi.y).
+pub type DisplayStringClipRegion = (i32, i32, i32, i32);
+
+/// DisplayString `setClipRegion` residual: assign region when any edge differs.
+///
+/// C++ only updates when lo/hi differ from stored clip region. Base
+/// `DisplayString::setClipRegion` is a no-op; W3D path applies RectClass.
+/// Host residual returns (region, changed). Fail-closed vs live renderer clip.
+#[inline]
+pub fn display_string_set_clip_region(
+    previous: DisplayStringClipRegion,
+    new_region: DisplayStringClipRegion,
+) -> (DisplayStringClipRegion, bool) {
+    if previous == new_region {
+        (previous, false)
+    } else {
+        (new_region, true)
+    }
+}
+
+/// Honesty: setClipRegion residual matches equality early-out path.
+pub fn honesty_display_string_set_clip_region(
+    previous: DisplayStringClipRegion,
+    new_region: DisplayStringClipRegion,
+    result: DisplayStringClipRegion,
+    changed: bool,
+) -> bool {
+    let (expected, expect_changed) = display_string_set_clip_region(previous, new_region);
+    result == expected && changed == expect_changed
 }
 
 /// Floats per packed layout entry:
@@ -667,6 +816,73 @@ mod tests {
         // Full width matches measure residual for ASCII captions (no newlines).
         let (mw, _) = crate::graphics::game_text_residual::measure_display_string_residual("+$150");
         assert_eq!(mw, display_string_get_width("+$150", -1));
+    }
+
+    #[test]
+    fn display_string_get_size_residual_honesty() {
+        // Empty text or no font → (0,0) residual (C++ computeExtents early-out).
+        assert_eq!(display_string_get_size("", true), (0, 0));
+        assert_eq!(display_string_get_size("+$150", false), (0, 0));
+        assert!(honesty_display_string_get_size("", true, 0, 0));
+        assert!(honesty_display_string_get_size("+$150", false, 0, 0));
+        // Monospaced single-line residual.
+        assert_eq!(display_string_get_size("+$150", true), (40, 8));
+        assert!(honesty_display_string_get_size("+$150", true, 40, 8));
+        // Multi-line residual height.
+        assert_eq!(display_string_get_size("A\nB", true), (16, 16));
+        assert!(honesty_display_string_get_size("A\nB", true, 16, 16));
+        assert_eq!(DISPLAY_STRING_GLYPH_HEIGHT, 8);
+    }
+
+    #[test]
+    fn display_string_set_word_wrap_residual_honesty() {
+        let (w, notified) = display_string_set_word_wrap(0, 200);
+        assert_eq!(w, 200);
+        assert!(notified);
+        assert!(honesty_display_string_set_word_wrap(0, 200, 200, true));
+        // Equal width → no notify residual.
+        let (w, notified) = display_string_set_word_wrap(200, 200);
+        assert_eq!(w, 200);
+        assert!(!notified);
+        assert!(honesty_display_string_set_word_wrap(200, 200, 200, false));
+
+        let (c, notified) = display_string_set_word_wrap_centered(false, true);
+        assert!(c && notified);
+        assert!(honesty_display_string_set_word_wrap_centered(false, true, true, true));
+        let (c, notified) = display_string_set_word_wrap_centered(true, true);
+        assert!(c && !notified);
+        assert!(honesty_display_string_set_word_wrap_centered(true, true, true, false));
+    }
+
+    #[test]
+    fn display_string_set_use_hotkey_and_clip_residual_honesty() {
+        let (use_hk, color, notified) =
+            display_string_set_use_hotkey(true, DISPLAY_STRING_HOTKEY_COLOR_DEFAULT);
+        assert!(use_hk && notified);
+        assert_eq!(color, (255, 255, 255, 255));
+        assert!(honesty_display_string_set_use_hotkey(
+            true,
+            DISPLAY_STRING_HOTKEY_COLOR_DEFAULT,
+            true,
+            (255, 255, 255, 255),
+            true
+        ));
+        // Always notifies even when flag already true residual.
+        let (use_hk, _, notified) =
+            display_string_set_use_hotkey(false, (255, 0, 0, 255));
+        assert!(!use_hk && notified);
+
+        let prev = (0, 0, 0, 0);
+        let next = (10, 20, 100, 80);
+        let (region, changed) = display_string_set_clip_region(prev, next);
+        assert_eq!(region, next);
+        assert!(changed);
+        assert!(honesty_display_string_set_clip_region(prev, next, next, true));
+        // Equal region → early-out residual.
+        let (region, changed) = display_string_set_clip_region(next, next);
+        assert_eq!(region, next);
+        assert!(!changed);
+        assert!(honesty_display_string_set_clip_region(next, next, next, false));
     }
 
 }
