@@ -5,6 +5,7 @@
 ** Module declarations for C++ SAGE engine equivalent structures
 */
 
+pub mod floating_text_layout;
 pub mod fow_uniform_integration;
 pub mod graphics_system;
 pub mod laser_segment_upload;
@@ -13,6 +14,10 @@ pub mod render_item;
 pub mod render_pipeline;
 pub mod selection_renderer;
 pub mod ui_render_pass;
+pub use floating_text_layout::{
+    pack_floating_text_and_mark_ready, FloatingTextLayout, FloatingTextLayoutEntry,
+    FloatingTextLayoutHonesty, FLOATING_TEXT_LAYOUT_BYTES, FLOATING_TEXT_LAYOUT_FLOATS,
+};
 pub use graphics_system::{GlobalUniforms, GraphicsStatistics, GraphicsSystem};
 pub use laser_segment_upload::{
     pack_and_mark_upload_ready, LaserSegmentUpload, LaserSegmentUploadHonesty, LaserSegmentVertex,
