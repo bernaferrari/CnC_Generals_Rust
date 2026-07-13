@@ -1,5 +1,55 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Emergency Repair (2026-07-12)
+**Closed (host-testable Emergency Repair → SingleBurst ally vehicle heal):**
+1. **Emergency Repair residual** (`SuperweaponEmergencyRepair` host path):
+   - `DoSpecialPower(EmergencyRepair)` at a world location heals damaged **same-team VEHICLE**
+     units in residual radius **100** (retail RadiusCursorRadius /
+     RepairVehiclesInArea_InvisibleMarker AutoHealBehavior Radius).
+   - HealingAmount residual **100 / 200 / 300** by Level1/2/3 (default Level1 fail-closed).
+   - KindOf VEHICLE only; infantry / enemies / full-HP / out-of-radius residual-skip.
+2. Honesty counters (`host_emergency_repair.rs` + GameLogic):
+   - `activation_count` / `heal_count` / `heal_amount_total`
+   - `honesty_emergency_repair_activate_ok` / `honesty_emergency_repair_heal_ok` /
+     `honesty_emergency_repair_ok`
+3. Tests (not log-only):
+   - `emergency_repair_residual_heals_damaged_ally_vehicles`
+   - `emergency_repair_does_not_queue_superweapon_strike`
+   - unit tests in `host_emergency_repair.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full OCL RepairVehicles invisible marker / RepairCloud particle path
+- Full science tier upgrade matrix (Level2/3 selection from player sciences)
+- Full ally relationship filter (uses same-team residual)
+- Network Emergency Repair replication (network deferred)
+
+## Residual Host Playability — GPS Scrambler (2026-07-12)
+**Closed (host-testable GPS Scrambler → GrantStealth ally vehicles/infantry):**
+1. **GPS Scrambler residual** (`SuperweaponGPSScrambler` host path):
+   - `DoSpecialPower(GpsScrambler)` at a world location grants **STEALTHED** to
+     same-team **VEHICLE|INFANTRY** in residual FinalRadius **100**
+     (retail GrantStealthBehavior receiveGrant → CAN_STEALTH + STEALTHED).
+   - Stealthed-and-undetected units are not enemy-targetable / not visible to enemies
+     (existing host stealth gates). Attack still breaks stealth
+     (STEALTH_NOT_WHILE_ATTACKING residual).
+   - Skips bomb-truck disguise residual by name (C++ canDisguise skip).
+   - Note: older module comments claiming "disables enemy radar" are incorrect for
+     ZH retail — this is GrantStealth on allies, not radar jam.
+2. Honesty counters (`host_gps_scrambler.rs` + GameLogic):
+   - `activation_count` / `grant_count`
+   - `honesty_gps_scrambler_activate_ok` / `honesty_gps_scrambler_grant_ok` /
+     `honesty_gps_scrambler_ok`
+3. Tests (not log-only):
+   - `gps_scrambler_residual_grants_stealth_to_ally_units`
+   - `gps_scrambler_does_not_queue_superweapon_strike`
+   - unit tests in `host_gps_scrambler.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full OCL GPSScrambler_InvisibleMarker grow-from-StartRadius pulse scan
+- Full StealthUpdate module framesGranted / opacity drawable / flashAsSelected
+- Full ally relationship filter (uses same-team residual)
+- Network GPS Scrambler replication (network deferred)
+
 ## Residual Host Playability — Leaflet Drop (2026-07-12)
 **Closed (host-testable USA Leaflet Drop → delayed enemy infantry/vehicle disable):**
 1. **Leaflet Drop residual** (`LeafletDropBehavior` host path):

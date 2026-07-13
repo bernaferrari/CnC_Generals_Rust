@@ -914,6 +914,23 @@ impl Object {
         self.detection_expires_frame = 0;
     }
 
+    /// C++ StealthUpdate::receiveGrant residual (GPS Scrambler / GrantStealthBehavior).
+    ///
+    /// Sets OBJECT_STATUS_STEALTHED (+ host residual CAN_STEALTH via stealthed flag)
+    /// and clears DETECTED so the unit is effectively stealthed until broken by
+    /// attack / mark_detected / break_stealth.
+    ///
+    /// Fail-closed: not full StealthUpdate framesGranted timer / disguise skip
+    /// (callers filter disguise units) / opacity drawable path.
+    pub fn apply_grant_stealth(&mut self) {
+        if self.status.destroyed {
+            return;
+        }
+        self.status.stealthed = true;
+        self.status.detected = false;
+        self.detection_expires_frame = 0;
+    }
+
     /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
     /// When on, spying player treats this unit as a temporary looker / revealed target.
     pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
