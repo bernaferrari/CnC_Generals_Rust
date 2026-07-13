@@ -57,13 +57,26 @@
 //!   other damage hits the structure. SPAWNS_ARE_THE_WEAPONS residual: site cannot
 //!   fire with **0** soldiers. SpawnReplaceDelay **30000**ms → **900** frames.
 //!
+//! - **Physical SpawnBehavior slave roster + getClosestSlave residual**:
+//!   Host tracks **3** residual slave slots at SpawnPoint bone offsets (radius
+//!   **12**, 120° layout). `getClosestSlave` residual picks the alive slave
+//!   nearest the shooter in 2D; HiveStructureBody propagate damages that slot.
+//!   Respawn revives the first dead slot. Fail-closed: not full GLAInfantryStingerSoldier
+//!   Object spawn / AI / W3D model attach.
+//!
+//! - **W3DLaserDraw arc segment residual** (PatriotBinaryDataStream):
+//!   Host samples cosine arc points from start→end using retail ArcHeight **30**
+//!   / Segments **20** (C++ `doDrawModule` mid-peak cos curve). Fail-closed:
+//!   not full texture / Line3D GPU draw.
+//!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
-//! - Not full W3DLaserDraw texture / arc segment GPU draw for assist beams
-//!   (endpoint track + draw-param honesty host residual closed 2026-07-13)
-//! - Not full SpawnBehavior physical slave objects / bone attach / getClosestSlave matrix
+//! - Not full W3DLaserDraw texture / Line3D GPU draw for assist beams
+//!   (endpoint track + draw-param + arc segment sample host residual closed)
+//! - Not full SpawnBehavior physical soldier Object / AI / bone matrix
+//!   (getClosestSlave + per-slave HP/position host residual closed)
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full CONTINUOUS_FIRE_* model-condition animation / VoiceRapidFire matrix
 //! - Not network base-defense replication (network deferred)
@@ -154,6 +167,8 @@ pub const PATRIOT_LASER_SEGMENTS: u32 = 20;
 pub const PATRIOT_LASER_ARC_HEIGHT: f32 = 30.0;
 /// Retail W3DLaserDraw TilingScalar.
 pub const PATRIOT_LASER_TILING_SCALAR: f32 = 0.25;
+/// Retail W3DLaserDraw SegmentOverlapRatio default (host residual honesty).
+pub const PATRIOT_LASER_SEGMENT_OVERLAP_RATIO: f32 = 0.0;
 
 /// Kind of residual assist feedback laser (AssistedTargetingUpdate::makeFeedbackLaser).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +344,63 @@ pub fn expire_patriot_assist_lasers(
     (before.saturating_sub(lasers.len())) as u32
 }
 
+// --- W3DLaserDraw arc segment residual (C++ doDrawModule cos curve) ---
+
+/// C++ W3DLaserDraw arc height boost at normalized `t` ∈ [0, 1] along the beam.
+///
+/// Retail: `height = cos(dist_from_mid / half_length * π/2) * ArcHeight`.
+/// Midpoint (t=0.5) → full ArcHeight; endpoints (t=0/1) → 0.
+pub fn patriot_laser_arc_z_boost(t: f32, arc_height: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let dist_ratio = (t - 0.5).abs() * 2.0; // 0 at mid → 1 at ends
+    let scaled = dist_ratio * std::f32::consts::FRAC_PI_2; // 0 → π/2
+    arc_height * scaled.cos()
+}
+
+/// Sample a residual W3DLaserDraw arc point at segment start ratio.
+///
+/// C++ builds Segments residual ground samples then raises Z by cos-arc.
+/// Host residual: lerp start→end XY + linear Z base, then add arc boost.
+/// Fail-closed: not ground-height skimming / SegmentOverlapRatio stretch.
+pub fn sample_patriot_laser_arc_point(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    t: f32,
+    arc_height: f32,
+) -> (f32, f32, f32) {
+    let t = t.clamp(0.0, 1.0);
+    let x = from.0 + (to.0 - from.0) * t;
+    let y = from.1 + (to.1 - from.1) * t;
+    let z_base = from.2 + (to.2 - from.2) * t;
+    let z = z_base + patriot_laser_arc_z_boost(t, arc_height);
+    (x, y, z)
+}
+
+/// Sample residual arc segment endpoints for segment `i` of `segments`.
+///
+/// Returns `(start, end)` world points for the residual Line3D segment.
+pub fn sample_patriot_laser_arc_segment(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    segment: u32,
+    segments: u32,
+    arc_height: f32,
+) -> ((f32, f32, f32), (f32, f32, f32)) {
+    let segs = segments.max(1) as f32;
+    let i = segment.min(segments.saturating_sub(1)) as f32;
+    let t0 = i / segs;
+    let t1 = (i + 1.0) / segs;
+    (
+        sample_patriot_laser_arc_point(from, to, t0, arc_height),
+        sample_patriot_laser_arc_point(from, to, t1, arc_height),
+    )
+}
+
+/// Midpoint residual arc peak Z boost (should equal ArcHeight on level beams).
+pub fn patriot_laser_arc_peak_boost(arc_height: f32) -> f32 {
+    patriot_laser_arc_z_boost(0.5, arc_height)
+}
+
 // --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
 /// Retail EMPPatriotEffectSpheroid EffectRadius residual.
 pub const SUPW_PATRIOT_EMP_RADIUS: f32 = 10.0;
@@ -358,6 +430,12 @@ pub const STINGER_SPAWN_NUMBER: u32 = 3;
 pub const STINGER_SOLDIER_MAX_HEALTH: f32 = 100.0;
 /// Retail SpawnReplaceDelay 30000ms → 900 frames @ 30 FPS.
 pub const STINGER_SPAWN_REPLACE_DELAY_FRAMES: u32 = 900;
+/// Host residual SpawnPoint bone radius (W3D SpawnPoint layout residual).
+///
+/// Fail-closed: not full model bone matrix — three soldiers ring the site.
+pub const STINGER_SPAWN_POINT_RADIUS: f32 = 12.0;
+/// Residual SpawnTemplate honesty name (stock Stinger Site).
+pub const STINGER_SPAWN_TEMPLATE: &str = "GLAInfantryStingerSoldier";
 /// Residual fire audio for Stinger residual shots.
 pub const STINGER_FIRE_AUDIO: &str = "StingerMissileWeapon";
 /// Residual soldier death audio honesty (not full OCL / FXListDie).
@@ -398,6 +476,73 @@ pub struct HostHiveDamageResult {
     pub slaves_killed: u32,
     /// True when swallow residual ate the damage (no slaves + swallow class).
     pub swallowed: bool,
+    /// Residual slave index damaged by getClosestSlave path (`None` if none).
+    pub closest_slave_index: Option<u8>,
+}
+
+/// Host residual physical SpawnBehavior slave slot (Stinger Site).
+///
+/// Fail-closed: not a full Object — position offset + HP only (getClosestSlave).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ResidualHiveSlave {
+    /// Residual soldier HP (MaxHealth 100).
+    pub hp: f32,
+    /// World-XZ offset from site center (SpawnPoint bone residual).
+    pub offset_x: f32,
+    pub offset_z: f32,
+    /// Alive residual (dead slots wait for SpawnReplaceDelay).
+    pub alive: bool,
+}
+
+impl Default for ResidualHiveSlave {
+    fn default() -> Self {
+        Self {
+            hp: 0.0,
+            offset_x: 0.0,
+            offset_z: 0.0,
+            alive: false,
+        }
+    }
+}
+
+impl ResidualHiveSlave {
+    /// World residual position given site center (x, z).
+    pub fn world_xz(&self, site_x: f32, site_z: f32) -> (f32, f32) {
+        (site_x + self.offset_x, site_z + self.offset_z)
+    }
+}
+
+/// Deterministic residual SpawnPoint bone offsets (3 soldiers @ 120° ring).
+pub fn stinger_spawn_point_offsets() -> [(f32, f32); 3] {
+    let r = STINGER_SPAWN_POINT_RADIUS;
+    let half = r * 0.5;
+    let y = r * (3.0_f32).sqrt() * 0.5; // sin(120°) * r
+    [(r, 0.0), (-half, y), (-half, -y)]
+}
+
+/// Build full residual slave roster for a constructed Stinger Site.
+pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
+    let offs = stinger_spawn_point_offsets();
+    [
+        ResidualHiveSlave {
+            hp: STINGER_SOLDIER_MAX_HEALTH,
+            offset_x: offs[0].0,
+            offset_z: offs[0].1,
+            alive: true,
+        },
+        ResidualHiveSlave {
+            hp: STINGER_SOLDIER_MAX_HEALTH,
+            offset_x: offs[1].0,
+            offset_z: offs[1].1,
+            alive: true,
+        },
+        ResidualHiveSlave {
+            hp: STINGER_SOLDIER_MAX_HEALTH,
+            offset_x: offs[2].0,
+            offset_z: offs[2].1,
+            alive: true,
+        },
+    ]
 }
 
 /// Initial residual slave count + HP for a constructed Stinger Site.
@@ -410,22 +555,109 @@ pub fn stinger_can_fire_with_slaves(slave_count: u8) -> bool {
     slave_count > 0
 }
 
+/// Count alive residual slaves.
+pub fn count_alive_hive_slaves(slaves: &[ResidualHiveSlave]) -> u8 {
+    slaves.iter().filter(|s| s.alive).count() as u8
+}
+
+/// Active residual slave HP (first alive) — mirror for legacy count/hp fields.
+pub fn active_hive_slave_hp(slaves: &[ResidualHiveSlave]) -> f32 {
+    slaves
+        .iter()
+        .find(|s| s.alive)
+        .map(|s| s.hp)
+        .unwrap_or(0.0)
+}
+
+/// Sync legacy `(count, hp)` mirrors from residual roster.
+pub fn sync_hive_slave_mirrors(slaves: &[ResidualHiveSlave]) -> (u8, f32) {
+    (count_alive_hive_slaves(slaves), active_hive_slave_hp(slaves))
+}
+
+/// C++ `SpawnBehavior::getClosestSlave` residual — nearest alive slave to world point.
+///
+/// Returns index into residual roster, or `None` when no slaves remain.
+pub fn get_closest_hive_slave_index(
+    slaves: &[ResidualHiveSlave],
+    site_x: f32,
+    site_z: f32,
+    query_x: f32,
+    query_z: f32,
+) -> Option<usize> {
+    let mut best: Option<(usize, f32)> = None;
+    for (i, slave) in slaves.iter().enumerate() {
+        if !slave.alive {
+            continue;
+        }
+        let (sx, sz) = slave.world_xz(site_x, site_z);
+        let dx = sx - query_x;
+        let dz = sz - query_z;
+        let d2 = dx * dx + dz * dz;
+        if best.map(|(_, bd)| d2 < bd).unwrap_or(true) {
+            best = Some((i, d2));
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
+/// First alive residual slave index (legacy "active" slave when no shooter).
+pub fn first_alive_hive_slave_index(slaves: &[ResidualHiveSlave]) -> Option<usize> {
+    slaves.iter().position(|s| s.alive)
+}
+
 /// Pure HiveStructureBody residual resolution (mutates slave count/HP inputs).
 ///
 /// Returns updated `(slave_count, slave_hp, structure_hp_after, result)`.
-/// `structure_hp` / `structure_max` are used only for HitStructure / fallback paths.
+/// Uses first-alive residual path (no shooter / getClosestSlave).
+/// `structure_hp` is used only for HitStructure / fallback paths.
 pub fn resolve_hive_structure_damage(
-    mut slave_count: u8,
-    mut slave_hp: f32,
+    slave_count: u8,
+    slave_hp: f32,
     structure_hp: f32,
     damage: f32,
     class: HostHiveDamageClass,
 ) -> (u8, f32, f32, HostHiveDamageResult) {
+    // Legacy path: synthesize a single active residual slot from count/hp.
+    let mut slaves = [ResidualHiveSlave::default(); 3];
+    let n = (slave_count as usize).min(3);
+    for i in 0..n {
+        slaves[i].alive = true;
+        slaves[i].hp = if i == 0 {
+            slave_hp.max(0.0)
+        } else {
+            STINGER_SOLDIER_MAX_HEALTH
+        };
+        let offs = stinger_spawn_point_offsets();
+        slaves[i].offset_x = offs[i].0;
+        slaves[i].offset_z = offs[i].1;
+    }
+    let (new_slaves, new_struct, result) =
+        resolve_hive_structure_damage_roster(&mut slaves, structure_hp, damage, class, None);
+    let (c, h) = sync_hive_slave_mirrors(&new_slaves);
+    // When first slave dies, legacy mirror expects next slave at full HP (h).
+    let _ = new_slaves;
+    (c, h, new_struct, result)
+}
+
+/// HiveStructureBody residual with physical slave roster + getClosestSlave.
+///
+/// `shooter_xz`: when `Some`, damages closest slave to shooter (C++ path).
+/// When `None`, damages first alive residual (host legacy residual).
+pub fn resolve_hive_structure_damage_roster(
+    slaves: &mut [ResidualHiveSlave],
+    structure_hp: f32,
+    damage: f32,
+    class: HostHiveDamageClass,
+    shooter_xz: Option<(f32, f32, f32, f32)>, // (site_x, site_z, shoot_x, shoot_z)
+) -> ([ResidualHiveSlave; 3], f32, HostHiveDamageResult) {
+    let mut roster = [ResidualHiveSlave::default(); 3];
+    for (i, s) in slaves.iter().take(3).enumerate() {
+        roster[i] = *s;
+    }
     let dmg = damage.max(0.0);
     if dmg <= 0.0 {
         return (
-            slave_count,
-            slave_hp,
+            roster,
             structure_hp,
             HostHiveDamageResult {
                 structure_destroyed: structure_hp <= 0.0,
@@ -433,6 +665,7 @@ pub fn resolve_hive_structure_damage(
                 slave_damage_applied: 0.0,
                 slaves_killed: 0,
                 swallowed: false,
+                closest_slave_index: None,
             },
         );
     }
@@ -442,42 +675,45 @@ pub fn resolve_hive_structure_damage(
         HostHiveDamageClass::PropagateToSlaves | HostHiveDamageClass::SwallowIfNoSlaves
     );
     let swallow = matches!(class, HostHiveDamageClass::SwallowIfNoSlaves);
+    let alive = count_alive_hive_slaves(&roster);
 
-    if propagate && slave_count > 0 {
-        // C++: slave->attemptDamage(damageInfo); structure takes none.
-        let before = slave_hp.max(0.0);
-        let applied = dmg.min(before);
-        slave_hp = (before - dmg).max(0.0);
-        let mut killed = 0u32;
-        if slave_hp <= 0.0 {
-            slave_count = slave_count.saturating_sub(1);
-            killed = 1;
-            // Next residual slave starts at full HP if any remain.
-            slave_hp = if slave_count > 0 {
-                STINGER_SOLDIER_MAX_HEALTH
-            } else {
-                0.0
-            };
+    if propagate && alive > 0 {
+        let idx = match shooter_xz {
+            Some((sx, sz, qx, qz)) => get_closest_hive_slave_index(&roster, sx, sz, qx, qz),
+            None => first_alive_hive_slave_index(&roster),
+        };
+        if let Some(i) = idx {
+            let before = roster[i].hp.max(0.0);
+            let applied = dmg.min(before);
+            roster[i].hp = (before - dmg).max(0.0);
+            let mut killed = 0u32;
+            if roster[i].hp <= 0.0 {
+                roster[i].alive = false;
+                roster[i].hp = 0.0;
+                killed = 1;
+            }
+            // Write back.
+            for (j, s) in slaves.iter_mut().take(3).enumerate() {
+                *s = roster[j];
+            }
+            return (
+                roster,
+                structure_hp,
+                HostHiveDamageResult {
+                    structure_destroyed: false,
+                    structure_damage_applied: 0.0,
+                    slave_damage_applied: applied,
+                    slaves_killed: killed,
+                    swallowed: false,
+                    closest_slave_index: Some(i as u8),
+                },
+            );
         }
-        return (
-            slave_count,
-            slave_hp,
-            structure_hp,
-            HostHiveDamageResult {
-                structure_destroyed: false,
-                structure_damage_applied: 0.0,
-                slave_damage_applied: applied,
-                slaves_killed: killed,
-                swallowed: false,
-            },
-        );
     }
 
-    if swallow && slave_count == 0 {
-        // C++: no slave → eat SNIPER/POISON/SURRENDER residual.
+    if swallow && alive == 0 {
         return (
-            slave_count,
-            slave_hp,
+            roster,
             structure_hp,
             HostHiveDamageResult {
                 structure_destroyed: false,
@@ -485,16 +721,16 @@ pub fn resolve_hive_structure_damage(
                 slave_damage_applied: 0.0,
                 slaves_killed: 0,
                 swallowed: true,
+                closest_slave_index: None,
             },
         );
     }
 
-    // Structure body residual (HitStructure, or propagate with no slaves and not swallow).
+    // Structure body residual.
     let new_hp = (structure_hp - dmg).max(0.0);
     let applied = structure_hp - new_hp;
     (
-        slave_count,
-        slave_hp,
+        roster,
         new_hp,
         HostHiveDamageResult {
             structure_destroyed: new_hp <= 0.0,
@@ -502,8 +738,21 @@ pub fn resolve_hive_structure_damage(
             slave_damage_applied: 0.0,
             slaves_killed: 0,
             swallowed: false,
+            closest_slave_index: None,
         },
     )
+}
+
+/// Respawn one residual dead slave slot (SpawnReplaceDelay). Returns true if respawned.
+pub fn respawn_one_hive_slave(slaves: &mut [ResidualHiveSlave]) -> bool {
+    if let Some(slot) = slaves.iter_mut().find(|s| !s.alive) {
+        slot.alive = true;
+        slot.hp = STINGER_SOLDIER_MAX_HEALTH;
+        // Keep existing offset (SpawnPoint residual).
+        true
+    } else {
+        false
+    }
 }
 
 /// Schedule next residual slave respawn after a death (SpawnReplaceDelay).
@@ -1751,5 +2000,107 @@ mod tests {
         assert!(should_respawn_stinger_slave(2, 910, 910));
         assert!(!should_respawn_stinger_slave(3, 910, 910));
         assert!(!should_respawn_stinger_slave(2, 900, 910));
+    }
+
+    #[test]
+    fn stinger_get_closest_slave_roster_honesty() {
+        let roster = init_stinger_hive_slave_roster();
+        assert_eq!(roster.len(), 3);
+        assert_eq!(count_alive_hive_slaves(&roster), 3);
+        assert_eq!(STINGER_SPAWN_TEMPLATE, "GLAInfantryStingerSoldier");
+        assert!((STINGER_SPAWN_POINT_RADIUS - 12.0).abs() < 0.001);
+
+        // Offsets form a 120° ring residual.
+        let offs = stinger_spawn_point_offsets();
+        assert!((offs[0].0 - STINGER_SPAWN_POINT_RADIUS).abs() < 0.01);
+        assert!((offs[0].1).abs() < 0.01);
+
+        // Shooter near slave 0 (+radius, 0) → index 0.
+        let i0 = get_closest_hive_slave_index(&roster, 0.0, 0.0, 100.0, 0.0);
+        assert_eq!(i0, Some(0));
+        // Shooter near slave 1 (-half, +y) → index 1.
+        let (sx1, sz1) = roster[1].world_xz(0.0, 0.0);
+        let i1 = get_closest_hive_slave_index(&roster, 0.0, 0.0, sx1 + 1.0, sz1);
+        assert_eq!(i1, Some(1));
+        // Shooter near slave 2 → index 2.
+        let (sx2, sz2) = roster[2].world_xz(0.0, 0.0);
+        let i2 = get_closest_hive_slave_index(&roster, 0.0, 0.0, sx2, sz2 - 1.0);
+        assert_eq!(i2, Some(2));
+
+        // Kill slave 0: closest to +x becomes slave 1 or 2 (not 0).
+        let mut live = roster;
+        live[0].alive = false;
+        live[0].hp = 0.0;
+        assert_eq!(count_alive_hive_slaves(&live), 2);
+        let i = get_closest_hive_slave_index(&live, 0.0, 0.0, 100.0, 0.0);
+        assert!(i == Some(1) || i == Some(2));
+        assert_ne!(i, Some(0));
+
+        // Damage closest (slave 1) with roster residual.
+        let mut slaves = roster;
+        let (_, struct_hp, r) = resolve_hive_structure_damage_roster(
+            &mut slaves,
+            1000.0,
+            40.0,
+            HostHiveDamageClass::PropagateToSlaves,
+            Some((0.0, 0.0, sx1, sz1)),
+        );
+        assert!((struct_hp - 1000.0).abs() < 0.01);
+        assert_eq!(r.closest_slave_index, Some(1));
+        assert!((r.slave_damage_applied - 40.0).abs() < 0.01);
+        assert!((slaves[1].hp - 60.0).abs() < 0.01);
+        assert!((slaves[0].hp - 100.0).abs() < 0.01);
+        assert!((slaves[2].hp - 100.0).abs() < 0.01);
+
+        // Kill closest slave 1.
+        let (_, _, r2) = resolve_hive_structure_damage_roster(
+            &mut slaves,
+            1000.0,
+            80.0,
+            HostHiveDamageClass::PropagateToSlaves,
+            Some((0.0, 0.0, sx1, sz1)),
+        );
+        assert_eq!(r2.slaves_killed, 1);
+        assert!(!slaves[1].alive);
+        assert_eq!(count_alive_hive_slaves(&slaves), 2);
+
+        // Respawn residual revives first dead slot.
+        assert!(respawn_one_hive_slave(&mut slaves));
+        assert!(slaves[1].alive);
+        assert!((slaves[1].hp - STINGER_SOLDIER_MAX_HEALTH).abs() < 0.01);
+        assert_eq!(count_alive_hive_slaves(&slaves), 3);
+    }
+
+    #[test]
+    fn patriot_laser_arc_segment_honesty() {
+        // Cos arc: mid = ArcHeight, ends = 0.
+        assert!((patriot_laser_arc_peak_boost(PATRIOT_LASER_ARC_HEIGHT) - 30.0).abs() < 0.001);
+        assert!((patriot_laser_arc_z_boost(0.0, 30.0)).abs() < 0.001);
+        assert!((patriot_laser_arc_z_boost(1.0, 30.0)).abs() < 0.001);
+        assert!((patriot_laser_arc_z_boost(0.5, 30.0) - 30.0).abs() < 0.001);
+        // Quarter points still raised but less than peak.
+        let q = patriot_laser_arc_z_boost(0.25, 30.0);
+        assert!(q > 0.0 && q < 30.0);
+
+        let from = (0.0_f32, 0.0, 10.0);
+        let to = (100.0_f32, 0.0, 10.0);
+        let mid = sample_patriot_laser_arc_point(from, to, 0.5, PATRIOT_LASER_ARC_HEIGHT);
+        assert!((mid.0 - 50.0).abs() < 0.01);
+        assert!((mid.2 - (10.0 + 30.0)).abs() < 0.01, "mid Z = base + ArcHeight");
+
+        let (s0, e0) =
+            sample_patriot_laser_arc_segment(from, to, 0, PATRIOT_LASER_SEGMENTS, PATRIOT_LASER_ARC_HEIGHT);
+        assert!((s0.0 - 0.0).abs() < 0.01);
+        assert!(e0.0 > s0.0);
+        // Last segment ends near target.
+        let (_s_last, e_last) = sample_patriot_laser_arc_segment(
+            from,
+            to,
+            PATRIOT_LASER_SEGMENTS - 1,
+            PATRIOT_LASER_SEGMENTS,
+            PATRIOT_LASER_ARC_HEIGHT,
+        );
+        assert!((e_last.0 - 100.0).abs() < 0.5);
+        assert!((e_last.2 - 10.0).abs() < 0.5); // end arc boost ~0
     }
 }

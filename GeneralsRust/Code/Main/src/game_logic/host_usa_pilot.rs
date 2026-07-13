@@ -57,8 +57,9 @@
 //! Fail-closed honesty:
 //! - Not full AmericaParachute bone PARA_COG / rider sway / DeliverPayload matrix
 //!   (pitch/roll spring-damper host residual closed 2026-07-13)
-//! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
-//!   (C++ early-return makes busy path unreachable — host matches idle-only)
+//! - AutoFindHealingUpdate AlwaysHeal busy-interrupt path is **dead code in retail
+//!   C++** (`return UPDATE_SLEEP_NONE` before AlwaysHeal check) — host residual
+//!   intentionally matches idle-only (AlwaysHeal constant retained for honesty).
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not full same-map PartitionFilterSameMapStatus matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
@@ -127,9 +128,19 @@ pub const AUTO_FIND_HEALING_SCAN_RANGE: f32 = 300.0;
 pub const AUTO_FIND_HEALING_NEVER_HEAL: f32 = 0.85;
 
 /// Retail AutoFindHealingUpdate AlwaysHeal (busy-interrupt threshold residual).
-/// Host residual fail-closed: only idle units scan (C++ "for now, only heal if idle"
-/// early-return makes the AlwaysHeal branch unreachable in retail).
+///
+/// **Dead code in retail C++**: `update()` early-returns when `!ai->isIdle()`
+/// before the AlwaysHeal branch is reached. Host residual keeps the constant for
+/// honesty and intentionally does **not** implement busy-interrupt (parity with
+/// unreachable retail path).
 pub const AUTO_FIND_HEALING_ALWAYS_HEAL: f32 = 0.25;
+
+/// Whether AlwaysHeal busy-interrupt residual is live in host path.
+///
+/// Always `false` — matches C++ early-return (busy units never reach AlwaysHeal).
+pub fn auto_find_healing_always_heal_busy_interrupt_live() -> bool {
+    false
+}
 
 // --- EjectPilotDie air OCL / isSignificantlyAboveTerrain residual ---
 
@@ -1268,6 +1279,9 @@ mod tests {
         assert!(!auto_find_healing_scan_eligible(true, true, true, false)); // human
         assert!(!auto_find_healing_scan_eligible(true, true, false, true)); // not idle
         assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // no module
+        // AlwaysHeal busy-interrupt is dead code in retail C++ — host residual closed as idle-only.
+        assert!(!auto_find_healing_always_heal_busy_interrupt_live());
+        assert!((AUTO_FIND_HEALING_ALWAYS_HEAL - 0.25).abs() < 0.001);
 
         assert!(is_auto_find_healing_template("AmericaInfantryPilot"));
         assert!(is_auto_find_healing_template("AmericaInfantryRanger"));

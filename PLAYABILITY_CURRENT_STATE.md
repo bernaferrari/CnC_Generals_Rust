@@ -1,3 +1,57 @@
+## Residual Host Playability — getClosestSlave + W3DLaser Arc + TurretAI Mood-Target + Camo StealthLook (2026-07-13)
+**Closed (host-testable physical hive slaves + laser arc + mood-target + heat-vision residual):**
+1. **Physical SpawnBehavior slave roster + getClosestSlave residual** (GLAStingerSite):
+   - SpawnNumber **3** residual slots at SpawnPoint bone offsets (radius **12**, 120° ring).
+   - Per-slave HP residual (MaxHealth **100**); `getClosestSlave` picks nearest alive
+     slot to shooter world XZ for HiveStructureBody propagate.
+   - Kill marks slot dead; SpawnReplaceDelay respawn revives first dead slot.
+   - Host-testable: closest-slot damage; independent HP; kill + respawn schedule.
+   - Fail-closed: not full GLAInfantryStingerSoldier Object / AI / W3D bone attach.
+2. **W3DLaserDraw arc segment residual** (PatriotBinaryDataStream):
+   - Cosine arc sample residual: mid peak = ArcHeight **30**, endpoints **0**.
+   - Segments **20** residual segment endpoints host-sampled (C++ doDrawModule).
+   - Host-testable: mid Z = base + ArcHeight; segment 0 start near base Z.
+   - Fail-closed: not full texture / Line3D GPU draw / ground-height skim.
+3. **TurretAI idle mood-target residual** (Strategy Center Bombardment):
+   - `friend_checkForIdleMoodTarget` residual: idle gun acquires enemy in
+     StrategyCenterGun range band (min **100** / max **400**), aims FirePitch **45**,
+     flags `m_targetWasSetByIdleMood`.
+   - Mood target leaving range / dying clears target so IDLESCAN can resume.
+   - Host-testable: acquire + aim; out-of-range clear honesty.
+   - Fail-closed: not full mood matrix Sleep/Passive / bone pitch drawable.
+4. **CamoNetting StealthLook / heat-vision residual**:
+   - Host of Drawable::setStealthLook: None / VisibleFriendly /
+     VisibleFriendlyDetected / VisibleDetected / Invisible.
+   - Detected residual → heat-vision second material pass opacity **1.0**.
+   - Host-testable: detect cloaked structure → VISIBLE_DETECTED + opacity 1.
+   - Fail-closed: not full W3D second material pass GPU / mine heat-vision hack.
+5. **AlwaysHeal busy-interrupt residual**: documented as **dead code in retail C++**
+   (early-return before AlwaysHeal branch). Host keeps AlwaysHeal **0.25** honesty
+   constant and idle-only scan (matches unreachable retail path). Closed as
+   fail-closed parity — not a missing live path.
+6. Tests (not log-only):
+   - `stinger_get_closest_slave_physical_roster_residual`
+   - `stinger_get_closest_slave_roster_honesty` (module)
+   - `patriot_laser_arc_segment_honesty` + updated binary laser residual (arc sample)
+   - `strategy_center_turret_mood_target_residual`
+   - updated `camo_netting_structure_attack_and_damage_reveal_residual` (StealthLook)
+   - AlwaysHeal dead-path honesty in `auto_find_healing_gates`
+
+**Still residual (fail-closed, not claimed):**
+- Full TurretAI mood matrix Sleep/Passive / bone pitch drawable matrix
+  (idle mood-target acquire + OOR clear host residual closed 2026-07-13)
+- Full W3DLaserDraw texture / Line3D GPU draw for Patriot assist beams
+  (arc segment sample host residual closed 2026-07-13)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute bone PARA_COG / DeliverPayload residual
+  (pitch/roll spring-damper host residual closed 2026-07-13)
+- Full physical SpawnBehavior soldier Object / AI / W3D model attach
+  (getClosestSlave + per-slave HP/position host residual closed 2026-07-13)
+- Full CamoNetting sub-object net mesh visual / W3D heat-vision GPU pass
+  (StealthLook + second-pass opacity host residual closed 2026-07-13)
+- Network mood-target / closest-slave / laser-arc / heat-vision replication
+  (network deferred)
+
 ## Residual Host Playability — Parachute Pitch/Roll Sway + LaserUpdate Endpoint Track (2026-07-13)
 **Closed (host-testable AmericaParachute pitch/roll sway + Patriot LaserUpdate residual):**
 1. **AmericaParachute pitch/roll sway residual** (ParachuteContain + ParachuteLocomotor):

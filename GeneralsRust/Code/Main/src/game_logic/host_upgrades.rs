@@ -751,6 +751,91 @@ pub const CAMO_NETTING_FRIENDLY_OPACITY_MAX: f32 = 1.0;
 /// C++ StealthUpdate pulse phase rate residual (`m_pulsePhaseRate = 0.2`).
 pub const CAMO_NETTING_OPACITY_PULSE_PHASE_RATE: f32 = 0.2;
 
+// --- CamoNetting StealthLook / heat-vision residual (Drawable::setStealthLook) ---
+
+/// C++ StealthLookType residual (host of Drawable::m_stealthLook).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum HostCamoStealthLook {
+    /// STEALTHLOOK_NONE — not stealthed.
+    None = 0,
+    /// STEALTHLOOK_VISIBLE_FRIENDLY — stealthed, friendly sees pulse opacity.
+    VisibleFriendly = 1,
+    /// STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED — friendly + detected (heat vision).
+    VisibleFriendlyDetected = 2,
+    /// STEALTHLOOK_VISIBLE_DETECTED — enemy detects stealthed unit (heat vision).
+    VisibleDetected = 3,
+    /// STEALTHLOOK_INVISIBLE — stealthed, not detected by observer.
+    Invisible = 4,
+}
+
+impl HostCamoStealthLook {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::VisibleFriendly,
+            2 => Self::VisibleFriendlyDetected,
+            3 => Self::VisibleDetected,
+            4 => Self::Invisible,
+            _ => Self::None,
+        }
+    }
+
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Whether residual heat-vision second material pass is active.
+    ///
+    /// C++: VISIBLE_DETECTED / VISIBLE_FRIENDLY_DETECTED → secondMaterialPassOpacity=1
+    /// (mines excluded — host residual structures never mines).
+    pub fn heat_vision_active(self) -> bool {
+        matches!(
+            self,
+            Self::VisibleFriendlyDetected | Self::VisibleDetected
+        )
+    }
+}
+
+/// Resolve CamoNetting structure StealthLook residual for an observer.
+///
+/// Host residual of StealthUpdate::calcStealthLook:
+/// - not stealthed → None
+/// - stealthed + same team (friendly) + !detected → VisibleFriendly
+/// - stealthed + same team + detected → VisibleFriendlyDetected
+/// - stealthed + enemy + detected → VisibleDetected
+/// - stealthed + enemy + !detected → Invisible
+///
+/// Fail-closed: not full disguise / mine heat-vision hack / W3D second pass GPU.
+pub fn camo_netting_stealth_look(
+    stealthed: bool,
+    detected: bool,
+    observer_is_friendly: bool,
+) -> HostCamoStealthLook {
+    if !stealthed {
+        return HostCamoStealthLook::None;
+    }
+    if observer_is_friendly {
+        if detected {
+            HostCamoStealthLook::VisibleFriendlyDetected
+        } else {
+            HostCamoStealthLook::VisibleFriendly
+        }
+    } else if detected {
+        HostCamoStealthLook::VisibleDetected
+    } else {
+        HostCamoStealthLook::Invisible
+    }
+}
+
+/// Heat-vision second material pass opacity residual (0.0 or 1.0).
+pub fn camo_netting_heat_vision_opacity(look: HostCamoStealthLook) -> f32 {
+    if look.heat_vision_active() {
+        1.0
+    } else {
+        0.0
+    }
+}
+
 /// Discrete FriendlyOpacity residual from cloaked / revealed state.
 ///
 /// Stealthed-and-undetected → FriendlyOpacityMin; otherwise → Max.
@@ -783,7 +868,7 @@ pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
 /// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
 /// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
 ///
-/// Fail-closed: not full sub-object camo net visual / W3D heat-vision matrix.
+/// Fail-closed: not full sub-object camo net mesh visual (StealthLook residual closed).
 pub fn camo_netting_structure_stealth_desired(
     innate_stealth: bool,
     is_alive: bool,
@@ -964,6 +1049,38 @@ mod camo_netting_and_gamma_tests {
         assert!((op_pi_2 - 1.0).abs() < 0.001);
         let (op_3pi_2, _) = camo_netting_pulse_opacity(3.0 * std::f32::consts::FRAC_PI_2);
         assert!((op_3pi_2 - 0.5).abs() < 0.001);
+
+        // StealthLook / heat-vision residual matrix.
+        assert_eq!(
+            camo_netting_stealth_look(false, false, true),
+            HostCamoStealthLook::None
+        );
+        assert_eq!(
+            camo_netting_stealth_look(true, false, true),
+            HostCamoStealthLook::VisibleFriendly
+        );
+        assert_eq!(
+            camo_netting_stealth_look(true, true, true),
+            HostCamoStealthLook::VisibleFriendlyDetected
+        );
+        assert_eq!(
+            camo_netting_stealth_look(true, true, false),
+            HostCamoStealthLook::VisibleDetected
+        );
+        assert_eq!(
+            camo_netting_stealth_look(true, false, false),
+            HostCamoStealthLook::Invisible
+        );
+        assert!(!HostCamoStealthLook::VisibleFriendly.heat_vision_active());
+        assert!(HostCamoStealthLook::VisibleDetected.heat_vision_active());
+        assert!(HostCamoStealthLook::VisibleFriendlyDetected.heat_vision_active());
+        assert!(
+            (camo_netting_heat_vision_opacity(HostCamoStealthLook::VisibleDetected) - 1.0).abs()
+                < 0.001
+        );
+        assert!(
+            (camo_netting_heat_vision_opacity(HostCamoStealthLook::Invisible) - 0.0).abs() < 0.001
+        );
     }
 
     #[test]
