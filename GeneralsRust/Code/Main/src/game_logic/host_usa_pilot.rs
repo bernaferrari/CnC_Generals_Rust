@@ -11,13 +11,19 @@
 //!   Crusader / Paladin / Avenger / Microwave + general variants) spawn
 //!   `AmericaInfantryPilot` on death via OCL_EjectPilotOnGround residual path.
 //!   Fail-closed: unmanned vehicles do not eject (no pilot left).
+//! - **VeterancyLevels residual**: retail `VeterancyLevels = ALL -REGULAR`
+//!   ("only vet+ gives pilot"). Rookie / LEVEL_REGULAR vehicles do **not** eject.
 //! - **InvulnerableTime residual**: OCL_EjectPilotOnGround `InvulnerableTime = 2000`
 //!   ms → **60 frames**. Post-eject pilot residual blocks damage (host of C++
 //!   `goInvulnerable` / undetected-defector relationship shield).
+//! - **PilotFindVehicleUpdate residual**: AI-only idle pilot auto-scan
+//!   (ScanRate **1000**ms → **30** frames, ScanRange **300**, MinHealth **0.5**)
+//!   toward nearest recrewable unmanned vehicle → Enter residual.
+//!   C++ human players sleep forever (no auto-scan).
 //!
 //! Fail-closed honesty:
 //! - Not full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
-//! - Not full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+//! - Not full PilotFindVehicleUpdate base-center fallback / CollideModule matrix
 //! - Not full AutoFindHealingUpdate hospital path residual
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
@@ -42,6 +48,20 @@ pub const EJECT_PILOT_LOGIC_FPS: f32 = 30.0;
 
 /// Retail InvulnerableTime → frames at 30 FPS (2000 / (1000/30) = 60).
 pub const EJECT_PILOT_INVULNERABLE_FRAMES: u32 = 60;
+
+// --- PilotFindVehicleUpdate residual (AmericaInfantryPilot) ---
+
+/// Retail PilotFindVehicleUpdate ScanRate (ms).
+pub const PILOT_FIND_VEHICLE_SCAN_RATE_MS: u32 = 1000;
+
+/// ScanRate → frames at 30 FPS (1000 / (1000/30) = 30).
+pub const PILOT_FIND_VEHICLE_SCAN_FRAMES: u32 = 30;
+
+/// Retail PilotFindVehicleUpdate ScanRange.
+pub const PILOT_FIND_VEHICLE_SCAN_RANGE: f32 = 300.0;
+
+/// Retail PilotFindVehicleUpdate MinHealth (don't enter vehicle below this ratio).
+pub const PILOT_FIND_VEHICLE_MIN_HEALTH: f32 = 0.5;
 
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
@@ -153,18 +173,71 @@ pub fn is_eject_pilot_eligible_template(template_name: &str) -> bool {
         || (n.contains("microwave") && (n.contains("tank") || n.contains("vehicle")))
 }
 
+/// Retail `VeterancyLevels = ALL -REGULAR` residual gate.
+///
+/// C++ DieMuxData::isDieApplicable → getVeterancyLevelFlag(m_veterancyLevels, level).
+/// LEVEL_REGULAR / Rookie is excluded; Veteran / Elite / Heroic eject.
+pub fn meets_eject_pilot_veterancy_gate(level: VeterancyLevel) -> bool {
+    !matches!(level, VeterancyLevel::Rookie)
+}
+
 /// Whether residual EjectPilotDie should fire on death.
 ///
 /// Fail-closed: eligible template, not unmanned, not under construction,
-/// vehicle kind residual (not structure).
+/// vehicle kind residual (not structure / aircraft), VeterancyLevels ALL -REGULAR.
 pub fn can_eject_pilot_on_death(
     is_eligible_template: bool,
     is_unmanned: bool,
     under_construction: bool,
     is_vehicle: bool,
     is_aircraft: bool,
+    meets_veterancy_gate: bool,
 ) -> bool {
-    is_eligible_template && !is_unmanned && !under_construction && is_vehicle && !is_aircraft
+    is_eligible_template
+        && !is_unmanned
+        && !under_construction
+        && is_vehicle
+        && !is_aircraft
+        && meets_veterancy_gate
+}
+
+/// Whether PilotFindVehicleUpdate residual may auto-scan this pilot.
+///
+/// C++: AI-only (`PLAYER_HUMAN` → UPDATE_SLEEP_FOREVER); idle AI only.
+pub fn pilot_find_vehicle_scan_eligible(
+    is_pilot: bool,
+    is_alive: bool,
+    is_idle: bool,
+    is_ai_controlled: bool,
+) -> bool {
+    is_pilot && is_alive && is_idle && is_ai_controlled
+}
+
+/// Whether vehicle health meets PilotFindVehicleUpdate MinHealth residual.
+///
+/// C++ skips targets with `health < maxHealth * MinHealth` (default 0.5).
+pub fn vehicle_meets_pilot_find_min_health(health: f32, max_health: f32, min_ratio: f32) -> bool {
+    if max_health <= 0.0 {
+        return false;
+    }
+    health >= max_health * min_ratio
+}
+
+/// Whether a candidate vehicle is a valid PilotFindVehicle target residual.
+///
+/// Host residual: recrewable unmanned path (not full VeterancyCrate same-team
+/// exp-gain matrix). MinHealth + range gates preserved.
+pub fn is_pilot_find_vehicle_target(
+    recrewable: bool,
+    health_ok: bool,
+    in_scan_range: bool,
+) -> bool {
+    recrewable && health_ok && in_scan_range
+}
+
+/// Whether current frame is a PilotFindVehicle scan tick residual.
+pub fn pilot_find_vehicle_scan_frame(frame: u32) -> bool {
+    frame.is_multiple_of(PILOT_FIND_VEHICLE_SCAN_FRAMES)
 }
 
 /// Rank for residual veterancy transfer (higher wins).
@@ -225,6 +298,12 @@ pub struct HostUsaPilotRegistry {
     /// Residual damage attempts blocked by InvulnerableTime.
     #[serde(default)]
     pub invulnerable_blocks: u32,
+    /// PilotFindVehicleUpdate residual auto-scan Enter orders issued.
+    #[serde(default)]
+    pub find_vehicle_orders: u32,
+    /// Rookie / REGULAR deaths skipped by VeterancyLevels gate residual.
+    #[serde(default)]
+    pub eject_veterancy_blocks: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -255,6 +334,14 @@ impl HostUsaPilotRegistry {
         self.invulnerable_blocks = self.invulnerable_blocks.saturating_add(1);
     }
 
+    pub fn record_find_vehicle_order(&mut self) {
+        self.find_vehicle_orders = self.find_vehicle_orders.saturating_add(1);
+    }
+
+    pub fn record_eject_veterancy_block(&mut self) {
+        self.eject_veterancy_blocks = self.eject_veterancy_blocks.saturating_add(1);
+    }
+
     /// Residual honesty: at least one recrew completed.
     pub fn honesty_recrew_ok(&self) -> bool {
         self.recrews > 0
@@ -280,9 +367,19 @@ impl HostUsaPilotRegistry {
         self.invulnerable_blocks > 0
     }
 
+    /// Residual honesty: PilotFindVehicleUpdate issued at least one Enter order.
+    pub fn honesty_find_vehicle_ok(&self) -> bool {
+        self.find_vehicle_orders > 0
+    }
+
+    /// Residual honesty: VeterancyLevels REGULAR gate blocked at least one eject.
+    pub fn honesty_eject_veterancy_gate_ok(&self) -> bool {
+        self.eject_veterancy_blocks > 0
+    }
+
     /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
-        self.honesty_recrew_ok() || self.honesty_eject_ok()
+        self.honesty_recrew_ok() || self.honesty_eject_ok() || self.honesty_find_vehicle_ok()
     }
 }
 
@@ -370,12 +467,82 @@ mod tests {
 
     #[test]
     fn eject_on_death_gate() {
-        assert!(can_eject_pilot_on_death(true, false, false, true, false));
-        assert!(!can_eject_pilot_on_death(true, true, false, true, false)); // unmanned
-        assert!(!can_eject_pilot_on_death(true, false, true, true, false)); // construction
-        assert!(!can_eject_pilot_on_death(false, false, false, true, false)); // ineligible
-        assert!(!can_eject_pilot_on_death(true, false, false, false, false)); // not vehicle
-        assert!(!can_eject_pilot_on_death(true, false, false, true, true)); // aircraft
+        assert!(can_eject_pilot_on_death(
+            true, false, false, true, false, true
+        ));
+        assert!(!can_eject_pilot_on_death(
+            true, true, false, true, false, true
+        )); // unmanned
+        assert!(!can_eject_pilot_on_death(
+            true, false, true, true, false, true
+        )); // construction
+        assert!(!can_eject_pilot_on_death(
+            false, false, false, true, false, true
+        )); // ineligible
+        assert!(!can_eject_pilot_on_death(
+            true, false, false, false, false, true
+        )); // not vehicle
+        assert!(!can_eject_pilot_on_death(
+            true, false, false, true, true, true
+        )); // aircraft
+        assert!(!can_eject_pilot_on_death(
+            true, false, false, true, false, false
+        )); // REGULAR / Rookie blocked
+    }
+
+    #[test]
+    fn eject_veterancy_levels_all_minus_regular() {
+        assert!(!meets_eject_pilot_veterancy_gate(VeterancyLevel::Rookie));
+        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Veteran));
+        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Elite));
+        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Heroic));
+    }
+
+    #[test]
+    fn pilot_find_vehicle_gates() {
+        assert!(pilot_find_vehicle_scan_eligible(
+            true, true, true, true
+        ));
+        assert!(!pilot_find_vehicle_scan_eligible(
+            true, true, true, false
+        )); // human
+        assert!(!pilot_find_vehicle_scan_eligible(
+            true, true, false, true
+        )); // not idle
+        assert!(!pilot_find_vehicle_scan_eligible(
+            false, true, true, true
+        )); // not pilot
+
+        assert!(vehicle_meets_pilot_find_min_health(50.0, 100.0, 0.5));
+        assert!(vehicle_meets_pilot_find_min_health(100.0, 100.0, 0.5));
+        assert!(!vehicle_meets_pilot_find_min_health(49.0, 100.0, 0.5));
+        assert!(!vehicle_meets_pilot_find_min_health(10.0, 0.0, 0.5));
+
+        assert!(is_pilot_find_vehicle_target(true, true, true));
+        assert!(!is_pilot_find_vehicle_target(true, false, true)); // low HP
+        assert!(!is_pilot_find_vehicle_target(false, true, true)); // not recrewable
+        assert!(!is_pilot_find_vehicle_target(true, true, false)); // out of range
+
+        assert!(pilot_find_vehicle_scan_frame(0));
+        assert!(pilot_find_vehicle_scan_frame(30));
+        assert!(!pilot_find_vehicle_scan_frame(1));
+        assert_eq!(PILOT_FIND_VEHICLE_SCAN_FRAMES, 30);
+        assert!((PILOT_FIND_VEHICLE_SCAN_RANGE - 300.0).abs() < 0.001);
+        assert!((PILOT_FIND_VEHICLE_MIN_HEALTH - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn find_vehicle_and_vet_gate_honesty() {
+        let mut reg = HostUsaPilotRegistry::new();
+        assert!(!reg.honesty_find_vehicle_ok());
+        assert!(!reg.honesty_eject_veterancy_gate_ok());
+        reg.record_find_vehicle_order();
+        assert!(reg.honesty_find_vehicle_ok());
+        assert!(reg.honesty_pilot_ok());
+        reg.record_eject_veterancy_block();
+        assert!(reg.honesty_eject_veterancy_gate_ok());
+        assert_eq!(reg.find_vehicle_orders, 1);
+        assert_eq!(reg.eject_veterancy_blocks, 1);
     }
 
     #[test]
