@@ -1,3 +1,65 @@
+## Residual Host Playability — Wave 62: strategy_center + unit_training + upgrades + sneak_attack residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Strategy Center residual pack** (`host_strategy_center`):
+   - Battle plan army residuals: Bombardment DAMAGE **120%**, HoldTheLine armor scalar **0.9**,
+     SearchAndDestroy RANGE **120%** + Sight **1.2**; building HoldTheLine MaxHealth **2.0**
+     PRESERVE_RATIO; S&D Sight **2.0** + DetectsStealth **Yes**.
+   - Pack/unpack AnimationTime **7000**ms → **210**f (all plans); TransitionIdle **0**;
+     pack/unpack audio residual names honesty.
+   - BattlePlanChangeParalyzeTime **5000**ms → **150**f residual.
+   - Strategy Center body residual: BuildCost **2500**, BuildTime **60**s → **1800**f,
+     MaxHealth **1500**, Vision/Shroud **400**, EnergyProduction **-2**,
+     SpecialAbilityChangeBattlePlans + Valid/Invalid MemberKindOf tokens + message labels.
+   - Honesty: `honesty_strategy_center_residual_pack_ok` + layer honesty tests.
+2. **Unit training residual pack** (`host_unit_training`):
+   - Veterancy StartingLevel residual: RedGuard/Artillery/Technical/Gattling **VETERAN**,
+     InfaRedGuard/Battlemaster **ELITE**; SciencePurchasePointCost **1**.
+   - SCIENCE_GattlingTankTraining residual → Gattling Tank VETERAN grant path.
+   - Training BuildTime residual: RedGuard **10**s→**300**f, Battlemaster **10**s→**300**f,
+     Inferno **15**s→**450**f, Technical **5**s→**150**f, MiniGunner **10**s→**300**f,
+     Gattling **10**s→**300**f.
+   - Free unit residual: always-Veteran pilot path (no ScienceRequired) + AdvancedTraining
+     ExperienceScalarUpgrade AddXPScalar **1.0**.
+   - Honesty: `honesty_unit_training_residual_pack_ok` + layer honesty tests.
+3. **Upgrades residual pack** (`host_upgrades`):
+   - Retail Upgrade.ini BuildCost / BuildTime residual matrix for HostUpgradeKind
+     (SupplyLines **800**/30s, FlashBang **800**/30s, Capture **1000**/30s,
+     Camouflage **2000**/60s, CamoNetting **500**/5s, NeutronShells **2500**/60s, …).
+   - Host `residual_research_frames` remains **1** (observable queue); `retail_research_frames`
+     documents Upgrade.ini BuildTime → frames honesty.
+   - StealthForbiddenConditions residual: Camouflage Rebel = ATTACKING USING_ABILITY;
+     CamoNetting structures = ATTACKING USING_ABILITY TAKING_DAMAGE; Camouflage unit
+     stealth_desired helper + StealthDelay **2500**ms → **75**f.
+   - Honesty: `honesty_upgrades_residual_pack_ok` + layer honesty tests.
+4. **Sneak Attack residual pack** (`host_sneak_attack`):
+   - SuperweaponSneakAttack: ReloadTime **150000**ms → **4500**f, RadiusCursor **50**,
+     RequiredScience SCIENCE_SneakAttack, SharedSyncedTimer **Yes**,
+     InitiateAtLocationSound SneakAttackActivated.
+   - Tunnel residual: GLASneakAttackTunnelNetwork MaxHealth **1000**, Vision **200**,
+     Start Lifetime **5000**ms → **150**f, OCL Start/Tunnel residual names.
+   - Multi-shockwave residual matrix: Small **10**/r**35** @ **10**ms→**1**f;
+     Big **50**/r**50** @ **1000**ms→**30**f and **2500**ms→**75**f
+     (host live apply still Big-only at spawn — fail-closed multi-pulse).
+   - Honesty: `honesty_sneak_attack_residual_pack_ok` + layer honesty tests.
+5. **Scorpion thin residual pack** (`host_scorpion`, optional):
+   - Gun **20**/**25** salvage + rocket **100**/r**5** + **80**/r**25** + AP **125%** honesty pack.
+6. Tests / gates (not log-only):
+   - `strategy_center_residual_pack_honesty` / battle_plan params / pack_unpack / paralyze / body
+   - `unit_training_residual_pack_honesty` / veterancy / time / free unit
+   - `upgrades_residual_pack_honesty` / cost / time / stealth forbidden
+   - `sneak_attack_residual_pack_honesty` / special power / tunnel / spawn
+   - `scorpion_residual_pack_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full PartitionManager filter stack / W3D Turret bone GPU draw for Strategy Center
+- Full SCIENCE_GattlingTankTraining stock ChinaTankGattling module wire (science residual only)
+- Full multi-shockwave live damage apply (host still Big-only at spawn)
+- Full ProductionUpdate retail BuildTime for host upgrade research path (still 1-frame host queue)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 60: host_gla_rebel + host_rpg_trooper + host_missile_defender + host_terrorist residual (2026-07-13)
 **Closed (host-testable residual peels):**
 1. **GLA Rebel residual pack** (`host_gla_rebel`):

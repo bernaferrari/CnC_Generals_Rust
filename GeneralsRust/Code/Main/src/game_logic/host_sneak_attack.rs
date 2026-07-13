@@ -10,9 +10,21 @@
 //!   (retail FireWeaponUpdate SneakAttackShockwaveWeaponBig residual).
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 62 residual pack (retail SpecialPower / Weapon / Tunnel residual):
+//! - SuperweaponSneakAttack: ReloadTime **150000**ms → **4500**f, RadiusCursor **50**,
+//!   RequiredScience **SCIENCE_SneakAttack**, SharedSyncedTimer **Yes**,
+//!   InitiateAtLocationSound **SneakAttackActivated**
+//! - Tunnel Start Lifetime **5000**ms → **150**f spawn delay; tunnel MaxHealth **1000**,
+//!   Vision/Shroud **200**, template **GLASneakAttackTunnelNetwork**
+//! - Multi-shockwave residual matrix:
+//!   Small **10**/r**35** @ InitialDelay **10**ms → **1**f,
+//!   Big **50**/r**50** @ **1000**ms → **30**f and **2500**ms → **75**f
+//! - Host gameplay still collapses spawn to Big pulse residual (fail-closed multi-pulse
+//!   live apply); honesty pack documents full INI timing matrix
+//!
 //! Fail-closed honesty:
 //! - Not full OCL Start/Tunnel model animation / crack dust particle stack
-//! - Not full multi-shockwave timing matrix (10ms / 1000ms / 2500ms FireWeaponUpdate)
+//! - Not full multi-shockwave live damage apply (host still Big-only at spawn)
 //! - TunnelContain enter/exit residual is host_tunnel_network (shared pool + cross-exit);
 //!   not full GuardTunnelNetwork AI path
 //! - Not SharedSyncedTimer / multiplayer academy classification
@@ -49,6 +61,91 @@ pub const SNEAK_ATTACK_RESIDUAL_TEMPLATE: &str = "TestSneakTunnel";
 pub const SNEAK_ATTACK_ACTIVATE_AUDIO: &str = "SneakAttackActivated";
 /// Tunnel emerge / spawn audio residual.
 pub const SNEAK_ATTACK_SPAWN_AUDIO: &str = "SneakAttackTunnelSpawn";
+
+// --- Wave 62 special-power / tunnel / multi-shockwave residual pack ---
+
+/// Retail SuperweaponSneakAttack ReloadTime (ms).
+pub const SNEAK_ATTACK_RELOAD_TIME_MS: u32 = 150_000;
+/// ReloadTime → frames @ 30 FPS (150000 / (1000/30) = 4500).
+pub const SNEAK_ATTACK_RELOAD_TIME_FRAMES: u32 = 4500;
+/// Retail RequiredScience residual.
+pub const SNEAK_ATTACK_REQUIRED_SCIENCE: &str = "SCIENCE_SneakAttack";
+/// Retail SpecialPower template name.
+pub const SNEAK_ATTACK_SPECIAL_POWER_TEMPLATE: &str = "SuperweaponSneakAttack";
+/// Retail SharedSyncedTimer residual.
+pub const SNEAK_ATTACK_SHARED_SYNCED_TIMER: bool = true;
+/// Retail ShortcutPower residual.
+pub const SNEAK_ATTACK_SHORTCUT_POWER: bool = true;
+/// Retail PublicTimer residual.
+pub const SNEAK_ATTACK_PUBLIC_TIMER: bool = false;
+
+/// Retail GLASneakAttackTunnelNetwork MaxHealth residual.
+pub const SNEAK_ATTACK_TUNNEL_MAX_HEALTH: f32 = 1000.0;
+/// Retail tunnel VisionRange / ShroudClearingRange residual.
+pub const SNEAK_ATTACK_TUNNEL_VISION_RANGE: f32 = 200.0;
+/// Retail OCL Start object residual name.
+pub const SNEAK_ATTACK_TUNNEL_START_TEMPLATE: &str = "GLASneakAttackTunnelNetworkStart";
+/// Retail OCL_CreateSneakAttackTunnelStart residual.
+pub const SNEAK_ATTACK_OCL_START: &str = "OCL_CreateSneakAttackTunnelStart";
+/// Retail OCL_CreateSneakAttackTunnel residual.
+pub const SNEAK_ATTACK_OCL_TUNNEL: &str = "OCL_CreateSneakAttackTunnel";
+
+/// Multi-shockwave residual entry (FireWeaponUpdate InitialDelay matrix).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SneakShockwavePulse {
+    pub weapon_name: &'static str,
+    pub primary_damage: f32,
+    pub primary_radius: f32,
+    pub initial_delay_ms: u32,
+    pub initial_delay_frames: u32,
+}
+
+/// Retail SneakAttackShockwaveWeaponSmall residual.
+pub const SNEAK_SHOCKWAVE_SMALL_DAMAGE: f32 = 10.0;
+pub const SNEAK_SHOCKWAVE_SMALL_RADIUS: f32 = 35.0;
+pub const SNEAK_SHOCKWAVE_SMALL_DELAY_MS: u32 = 10;
+/// 10ms → 1 frame @ 30 FPS (ceil).
+pub const SNEAK_SHOCKWAVE_SMALL_DELAY_FRAMES: u32 = 1;
+
+/// Retail SneakAttackShockwaveWeaponBig residual (also Medium uses 50r / 30 dmg).
+pub const SNEAK_SHOCKWAVE_BIG_DELAY_1_MS: u32 = 1000;
+pub const SNEAK_SHOCKWAVE_BIG_DELAY_1_FRAMES: u32 = 30;
+pub const SNEAK_SHOCKWAVE_BIG_DELAY_2_MS: u32 = 2500;
+pub const SNEAK_SHOCKWAVE_BIG_DELAY_2_FRAMES: u32 = 75;
+pub const SNEAK_SHOCKWAVE_MEDIUM_DAMAGE: f32 = 30.0;
+pub const SNEAK_SHOCKWAVE_MEDIUM_RADIUS: f32 = 50.0;
+
+/// Retail multi-shockwave residual matrix (Start object FireWeaponUpdate).
+pub fn sneak_attack_shockwave_pulses() -> [SneakShockwavePulse; 3] {
+    [
+        SneakShockwavePulse {
+            weapon_name: "SneakAttackShockwaveWeaponSmall",
+            primary_damage: SNEAK_SHOCKWAVE_SMALL_DAMAGE,
+            primary_radius: SNEAK_SHOCKWAVE_SMALL_RADIUS,
+            initial_delay_ms: SNEAK_SHOCKWAVE_SMALL_DELAY_MS,
+            initial_delay_frames: SNEAK_SHOCKWAVE_SMALL_DELAY_FRAMES,
+        },
+        SneakShockwavePulse {
+            weapon_name: "SneakAttackShockwaveWeaponBig",
+            primary_damage: SNEAK_ATTACK_SHOCKWAVE_DAMAGE,
+            primary_radius: SNEAK_ATTACK_SHOCKWAVE_RADIUS,
+            initial_delay_ms: SNEAK_SHOCKWAVE_BIG_DELAY_1_MS,
+            initial_delay_frames: SNEAK_SHOCKWAVE_BIG_DELAY_1_FRAMES,
+        },
+        SneakShockwavePulse {
+            weapon_name: "SneakAttackShockwaveWeaponBig",
+            primary_damage: SNEAK_ATTACK_SHOCKWAVE_DAMAGE,
+            primary_radius: SNEAK_ATTACK_SHOCKWAVE_RADIUS,
+            initial_delay_ms: SNEAK_SHOCKWAVE_BIG_DELAY_2_MS,
+            initial_delay_frames: SNEAK_SHOCKWAVE_BIG_DELAY_2_FRAMES,
+        },
+    ]
+}
+
+/// Absolute frame for a shockwave pulse after Start spawn at `activate_frame`.
+pub fn sneak_shockwave_pulse_frame(activate_frame: u32, pulse: &SneakShockwavePulse) -> u32 {
+    activate_frame.saturating_add(pulse.initial_delay_frames)
+}
 
 /// Host residual sneak-attack kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -368,6 +465,70 @@ impl HostSneakAttackRegistry {
     }
 }
 
+
+// --- Wave 62 residual honesty packs ---
+
+/// Special-power residual honesty (ReloadTime / science / audio / radius).
+pub fn honesty_sneak_attack_special_power_residual_ok() -> bool {
+    SNEAK_ATTACK_SPECIAL_POWER_TEMPLATE == "SuperweaponSneakAttack"
+        && SNEAK_ATTACK_REQUIRED_SCIENCE == "SCIENCE_SneakAttack"
+        && SNEAK_ATTACK_RELOAD_TIME_MS == 150_000
+        && SNEAK_ATTACK_RELOAD_TIME_FRAMES == 4500
+        && (HOST_SNEAK_ATTACK_RADIUS - 50.0).abs() < 0.01
+        && SNEAK_ATTACK_SHARED_SYNCED_TIMER
+        && SNEAK_ATTACK_SHORTCUT_POWER
+        && !SNEAK_ATTACK_PUBLIC_TIMER
+        && SNEAK_ATTACK_ACTIVATE_AUDIO == "SneakAttackActivated"
+        && HostSneakAttackKind::GLASneakAttack.activate_audio() == SNEAK_ATTACK_ACTIVATE_AUDIO
+}
+
+/// Tunnel residual honesty (template / health / vision / OCL / spawn delay).
+pub fn honesty_sneak_attack_tunnel_residual_ok() -> bool {
+    GLA_SNEAK_TUNNEL_TEMPLATE == "GLASneakAttackTunnelNetwork"
+        && SNEAK_ATTACK_TUNNEL_START_TEMPLATE == "GLASneakAttackTunnelNetworkStart"
+        && SNEAK_ATTACK_OCL_START == "OCL_CreateSneakAttackTunnelStart"
+        && SNEAK_ATTACK_OCL_TUNNEL == "OCL_CreateSneakAttackTunnel"
+        && (SNEAK_ATTACK_TUNNEL_MAX_HEALTH - 1000.0).abs() < 0.01
+        && (SNEAK_ATTACK_TUNNEL_VISION_RANGE - 200.0).abs() < 0.01
+        && SNEAK_ATTACK_LIFETIME_MS == 5_000
+        && SNEAK_ATTACK_SPAWN_DELAY_FRAMES == 150
+        && HostSneakAttackKind::GLASneakAttack.spawn_delay_frames() == 150
+        && HostSneakAttackKind::GLASneakAttack.tunnel_template() == GLA_SNEAK_TUNNEL_TEMPLATE
+}
+
+/// Multi-shockwave spawn residual honesty matrix.
+pub fn honesty_sneak_attack_spawn_residual_ok() -> bool {
+    let pulses = sneak_attack_shockwave_pulses();
+    pulses.len() == 3
+        && pulses[0].weapon_name == "SneakAttackShockwaveWeaponSmall"
+        && (pulses[0].primary_damage - 10.0).abs() < 0.01
+        && (pulses[0].primary_radius - 35.0).abs() < 0.01
+        && pulses[0].initial_delay_ms == 10
+        && pulses[0].initial_delay_frames == 1
+        && pulses[1].weapon_name == "SneakAttackShockwaveWeaponBig"
+        && (pulses[1].primary_damage - 50.0).abs() < 0.01
+        && (pulses[1].primary_radius - 50.0).abs() < 0.01
+        && pulses[1].initial_delay_ms == 1000
+        && pulses[1].initial_delay_frames == 30
+        && pulses[2].initial_delay_ms == 2500
+        && pulses[2].initial_delay_frames == 75
+        && sneak_shockwave_pulse_frame(0, &pulses[0]) == 1
+        && sneak_shockwave_pulse_frame(0, &pulses[1]) == 30
+        && sneak_shockwave_pulse_frame(0, &pulses[2]) == 75
+        // Host Big-only residual still matches second/third pulse damage.
+        && (SNEAK_ATTACK_SHOCKWAVE_DAMAGE - 50.0).abs() < 0.01
+        && (SNEAK_ATTACK_SHOCKWAVE_RADIUS - 50.0).abs() < 0.01
+        && (SNEAK_SHOCKWAVE_MEDIUM_DAMAGE - 30.0).abs() < 0.01
+        && (SNEAK_SHOCKWAVE_MEDIUM_RADIUS - 50.0).abs() < 0.01
+}
+
+/// Combined Wave 62 sneak-attack residual honesty pack.
+pub fn honesty_sneak_attack_residual_pack_ok() -> bool {
+    honesty_sneak_attack_special_power_residual_ok()
+        && honesty_sneak_attack_tunnel_residual_ok()
+        && honesty_sneak_attack_spawn_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,5 +599,13 @@ mod tests {
         assert!(is_legal_sneak_shockwave_target(true, false));
         assert!(!is_legal_sneak_shockwave_target(false, false));
         assert!(!is_legal_sneak_shockwave_target(true, true));
+    }
+
+    #[test]
+    fn sneak_attack_residual_pack_honesty() {
+        assert!(honesty_sneak_attack_special_power_residual_ok());
+        assert!(honesty_sneak_attack_tunnel_residual_ok());
+        assert!(honesty_sneak_attack_spawn_residual_ok());
+        assert!(honesty_sneak_attack_residual_pack_ok());
     }
 }
