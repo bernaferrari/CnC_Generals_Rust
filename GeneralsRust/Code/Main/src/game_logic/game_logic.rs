@@ -113,29 +113,51 @@ pub enum AICommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingSpecialAbility {
     /// GLA Hijacker residual: transfer vehicle team + HIJACKED; hijacker consumed.
-    Hijack { target_id: ObjectId },
-    Sabotage { target_id: ObjectId },
+    Hijack {
+        target_id: ObjectId,
+    },
+    Sabotage {
+        target_id: ObjectId,
+    },
     /// GLA Terrorist ConvertToCarBomb residual: vehicle → IS_CARBOMB (not instant kill).
-    CarBomb { target_id: ObjectId },
+    CarBomb {
+        target_id: ObjectId,
+    },
     /// Jarmen Kell residual: DAMAGE_KILLPILOT → unmanned Neutral vehicle.
-    SnipeVehicle { target_id: ObjectId },
+    SnipeVehicle {
+        target_id: ObjectId,
+    },
     /// Colonel Burton residual: plant timed demo charge on structure/vehicle.
-    PlantTimedDemoCharge { target_id: ObjectId },
+    PlantTimedDemoCharge {
+        target_id: ObjectId,
+    },
     /// Colonel Burton residual: plant remote demo charge on structure/vehicle
     /// (SPECIAL_REMOTE_CHARGES — no auto-timer).
-    PlantRemoteDemoCharge { target_id: ObjectId },
+    PlantRemoteDemoCharge {
+        target_id: ObjectId,
+    },
     /// Black Lotus residual: steal cash from enemy supply/cash building.
-    StealCashHack { target_id: ObjectId },
+    StealCashHack {
+        target_id: ObjectId,
+    },
     /// Black Lotus residual: DISABLED_HACKED on enemy ground vehicle for EffectDuration.
-    DisableVehicleHack { target_id: ObjectId },
+    DisableVehicleHack {
+        target_id: ObjectId,
+    },
     /// China Hacker residual: DISABLED_HACKED on enemy structure for EffectDuration.
     /// SpecialAbilityHackerDisableBuilding.
-    HackerDisableBuilding { target_id: ObjectId },
+    HackerDisableBuilding {
+        target_id: ObjectId,
+    },
     /// GLA Bomb Truck residual: disguise as target vehicle template/team
     /// (SpecialAbilityDisguiseAsVehicle / StealthUpdate::disguiseAsTemplate).
-    DisguiseAsVehicle { target_id: ObjectId },
+    DisguiseAsVehicle {
+        target_id: ObjectId,
+    },
     /// GLA Rebel residual: plant BoobyTrap on structure (SpecialAbilityBoobyTrap).
-    PlantBoobyTrap { target_id: ObjectId },
+    PlantBoobyTrap {
+        target_id: ObjectId,
+    },
 }
 
 impl PendingSpecialAbility {
@@ -672,14 +694,12 @@ pub struct GameLogic {
     /// Host China Listening Outpost residual honesty counters
     /// (detect / load / unload / passenger fire / armed-riders / InitialPayload).
     /// Fail-closed: not IR FX / multi-door exit / RIDERS_ATTACKING uncloak matrix.
-    listening_outpost:
-        crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry,
+    listening_outpost: crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry,
 
     /// Host China Troop Crawler residual honesty counters
     /// (load / unload / initial payload / assault deploy / detect).
     /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
-    troop_crawler:
-        crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry,
+    troop_crawler: crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry,
 
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
@@ -833,13 +853,11 @@ pub struct GameLogic {
 
     /// Host GLA Bomb Truck disguise residual (SpecialAbilityDisguiseAsVehicle).
     /// Fail-closed: not full StealthUpdate transition opacity / model swap matrix.
-    bomb_truck_disguise:
-        crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
+    bomb_truck_disguise: crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
 
     /// Host GLA Bomb Truck HE/Bio FireWeaponWhenDead detonation residual.
     /// Fail-closed: not full exclusive FireWeaponWhenDead module / SubObjects matrix.
-    bomb_truck_detonate:
-        crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
+    bomb_truck_detonate: crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
     /// Host China Nuclear Tanks residual (death blast + speed + radiation).
     /// Fail-closed: not full FireWeaponWhenDead exclusive / locomotor visual matrix.
     nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry,
@@ -932,6 +950,16 @@ pub struct GameLogic {
     comanche_cannon_residual_units_hit: u32,
     comanche_antitank_residual_fires: u32,
     comanche_antitank_residual_units_hit: u32,
+
+    /// Host Helix PRIMARY minigun residual honesty.
+    /// Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
+    helix_minigun_residual_fires: u32,
+    helix_minigun_residual_units_hit: u32,
+
+    /// Host Inferno BlackNapalm FireFieldUpgraded residual honesty.
+    /// Fail-closed: not HistoricBonus Firestorm multi-shell matrix.
+    inferno_black_napalm_residual_upgrades: u32,
+    inferno_black_napalm_residual_zones: u32,
 
     /// Host residual: USA Battle Drone attach / gun / repair honesty.
     /// Fail-closed: not full SlavedUpdate arm weld FX / ConflictsWith matrix.
@@ -1857,8 +1885,10 @@ impl GameLogic {
                 crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry::new(),
             host_paradrops: crate::game_logic::host_paradrop::HostParadropRegistry::new(),
             host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry::new(),
-            host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry::new(),
-            host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry::new(),
+            host_leaflet_drops: crate::game_logic::host_leaflet_drop::HostLeafletDropRegistry::new(
+            ),
+            host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry::new(
+            ),
             host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry::new(),
             supply_lines_bonus_cash_total: 0,
             cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry::new(),
@@ -1870,14 +1900,13 @@ impl GameLogic {
             overlord_bunker_residual_enters: 0,
             overlord_bunker_residual_exits: 0,
             battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry::new(),
-            tunnel_network:
-                crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(),
-            combat_chinook:
-                crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(),
+            tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
+            ),
+            combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(
+            ),
             listening_outpost:
                 crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry::new(),
-            troop_crawler:
-                crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry::new(),
+            troop_crawler: crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry::new(),
             mine_residual_places: 0,
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
@@ -1897,8 +1926,7 @@ impl GameLogic {
             emergency_repairs:
                 crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry::new(),
             cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry::new(),
-            gps_scramblers:
-                crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
+            gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
             point_defense_next_ready_frame: HashMap::new(),
@@ -1906,8 +1934,7 @@ impl GameLogic {
             neutron_shell_residual_blasts: 0,
             neutron_shell_residual_infantry_kills: 0,
             neutron_shell_residual_vehicles_unmanned: 0,
-            bunker_buster:
-                crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry::new(),
+            bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry::new(),
             comanche_rocket_pod_residual_area_attacks: 0,
             comanche_rocket_pod_residual_units_hit: 0,
             sentry_drone_residual_auto_fires: 0,
@@ -1951,8 +1978,10 @@ impl GameLogic {
             quad_cannon_residual_aa_fires: 0,
             quad_cannon_residual_barrel_upgrades: 0,
             scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry::new(),
-            overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry::new(),
-            nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry::new(),
+            overlord_addons:
+                crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry::new(),
+            nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry::new(
+            ),
             technical_residual_fires: 0,
             technical_residual_units_hit: 0,
             technical_residual_weapon_upgrades: 0,
@@ -1978,6 +2007,10 @@ impl GameLogic {
             comanche_cannon_residual_units_hit: 0,
             comanche_antitank_residual_fires: 0,
             comanche_antitank_residual_units_hit: 0,
+            helix_minigun_residual_fires: 0,
+            helix_minigun_residual_units_hit: 0,
+            inferno_black_napalm_residual_upgrades: 0,
+            inferno_black_napalm_residual_zones: 0,
             battle_drone_residual_attaches: 0,
             battle_drone_residual_fires: 0,
             battle_drone_residual_units_hit: 0,
@@ -2282,6 +2315,10 @@ impl GameLogic {
         self.comanche_cannon_residual_units_hit = 0;
         self.comanche_antitank_residual_fires = 0;
         self.comanche_antitank_residual_units_hit = 0;
+        self.helix_minigun_residual_fires = 0;
+        self.helix_minigun_residual_units_hit = 0;
+        self.inferno_black_napalm_residual_upgrades = 0;
+        self.inferno_black_napalm_residual_zones = 0;
         self.battle_drone_residual_attaches = 0;
         self.battle_drone_residual_fires = 0;
         self.battle_drone_residual_units_hit = 0;
@@ -2768,10 +2805,7 @@ impl GameLogic {
                 Some(mut segment_path) => {
                     // Reject absurd detours (fragmented slope masks / blocked corridors).
                     // Prefer honest direct march so combat can close range without teleports.
-                    let path_len: f32 = segment_path
-                        .windows(2)
-                        .map(|w| horiz(w[0], w[1]))
-                        .sum();
+                    let path_len: f32 = segment_path.windows(2).map(|w| horiz(w[0], w[1])).sum();
                     if straight > 1.0 && path_len > straight * 3.5 {
                         log::debug!(
                             "Path detour {:.0} vs straight {:.0} for {:?}; using direct march",
@@ -5221,10 +5255,9 @@ impl GameLogic {
                     if let (Some(attacker), Some(target)) =
                         (self.objects.get(&attacker_id), self.objects.get(&target_id))
                     {
-                        let stealthed_hidden = target.is_effectively_stealthed()
-                            && target.team != attacker.team;
-                        let enemy_or_forced =
-                            attacker.force_attack || attacker.team != target.team;
+                        let stealthed_hidden =
+                            target.is_effectively_stealthed() && target.team != attacker.team;
+                        let enemy_or_forced = attacker.force_attack || attacker.team != target.team;
                         let slot = if enemy_or_forced && !stealthed_hidden {
                             attacker.select_combat_weapon_slot(target, current_time)
                         } else {
@@ -5289,12 +5322,8 @@ impl GameLogic {
                         });
                         if let Some(kind) = aurora {
                             let impact = target_position;
-                            let _ = self.queue_aurora_bomb(
-                                kind,
-                                attacker_id,
-                                attacker_team,
-                                impact,
-                            );
+                            let _ =
+                                self.queue_aurora_bomb(kind, attacker_id, attacker_team, impact);
                             true
                         } else {
                             false
@@ -5304,965 +5333,1043 @@ impl GameLogic {
                     if aurora_queued {
                         // Shot consumed; delayed dive residual pending (no instant HP damage).
                     } else {
-                    // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
-                    let avenger_paint = {
-                        use crate::game_logic::host_avenger::{
-                            is_avenger_template, should_apply_faerie_fire_paint,
-                            AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
-                        };
-                        self.objects.get(&attacker_id).map(|a| {
-                            should_apply_faerie_fire_paint(
-                                is_avenger_template(&a.template_name),
-                                slot,
-                                true,
-                                enemy_or_forced,
-                            )
-                        })
-                        .unwrap_or(false)
-                    };
-                    let avenger_air = {
-                        use crate::game_logic::host_avenger::{
-                            is_avenger_template, should_apply_avenger_air_laser,
-                        };
-                        let target_is_air = self.objects.get(&target_id).map(|t| {
-                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
-                        }).unwrap_or(false);
-                        self.objects.get(&attacker_id).map(|a| {
-                            should_apply_avenger_air_laser(
-                                is_avenger_template(&a.template_name),
-                                slot,
-                                target_is_air,
-                                true,
-                                enemy_or_forced,
-                            )
-                        })
-                        .unwrap_or(false)
-                    };
-                    // Humvee air TOW residual damage boost vs aircraft.
-                    let humvee_air_tow = {
-                        use crate::game_logic::host_humvee::{
-                            humvee_prefer_air_tow, is_humvee_template, HUMVEE_AIR_TOW_DAMAGE,
-                        };
-                        let target_is_air = self.objects.get(&target_id).map(|t| {
-                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
-                        }).unwrap_or(false);
-                        self.objects.get(&attacker_id).map(|a| {
-                            humvee_prefer_air_tow(
-                                is_humvee_template(&a.template_name),
-                                a.has_upgrade_tag(
-                                    crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW,
-                                ) || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-                                target_is_air,
-                            ) && slot == 1
-                        })
-                        .unwrap_or(false)
-                    };
-                    if humvee_air_tow {
-                        weapon_damage = crate::game_logic::host_humvee::HUMVEE_AIR_TOW_DAMAGE;
-                    }
-
-                    // TARGET_FAERIE_FIRE ROF honesty when shooting a painted target.
-                    if self
-                        .objects
-                        .get(&target_id)
-                        .map(|t| t.is_faerie_fire())
-                        .unwrap_or(false)
-                    {
-                        self.avenger.record_rof_grant();
-                    }
-
-                    if avenger_paint {
-                        use crate::game_logic::host_avenger::{
-                            AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
-                        };
-                        let until = self.frame.saturating_add(AVENGER_FAERIE_FIRE_DURATION_FRAMES);
-                        if let Some(target) = self.objects.get_mut(&target_id) {
-                            target.apply_faerie_fire(until);
-                        }
-                        self.avenger.record_paint();
-                        let muzzle = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| a.get_position())
-                            .unwrap_or(target_position);
-                        self.queue_audio_event(
-                            AudioEventRequest::new(AVENGER_PAINT_AUDIO)
-                                .with_object(attacker_id)
-                                .with_position(muzzle)
-                                .with_priority(140),
-                        );
-                        // Status residual: no hitpoint damage from designator.
-                    } else if avenger_air {
-                        self.avenger.record_air_laser_fire();
-                        if let Some(target) = self.objects.get_mut(&target_id) {
-                            let destroyed = target.take_damage(weapon_damage);
-                            if destroyed {
-                                self.mark_object_for_destruction(target_id, Some(attacker_team));
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.gain_experience(20.0);
-                                }
-                            }
-                        }
-                    } else {
-                    // Nuke Cannon primary residual: area shell + medium radiation field.
-                    let nuke_primary = {
-                        use crate::game_logic::host_nuke_cannon::{
-                            is_nuke_cannon_template, should_apply_nuke_cannon_primary,
-                        };
-                        self.objects.get(&attacker_id).map(|a| {
-                            should_apply_nuke_cannon_primary(
-                                is_nuke_cannon_template(&a.template_name),
-                                slot,
-                            )
-                        })
-                        .unwrap_or(false)
-                    };
-
-                    // Neutron shell residual: Nuke Cannon secondary applies blast
-                    // (kill infantry / unman vehicles) instead of HP take_damage.
-                    let neutron_blast = {
-                        use crate::game_logic::host_neutron_shell::{
-                            is_nuke_cannon_template, should_apply_neutron_blast,
-                            UPGRADE_CHINA_NEUTRON_SHELLS,
-                        };
-                        self.objects.get(&attacker_id).map(|a| {
-                            should_apply_neutron_blast(
-                                a.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
-                                    || a.has_upgrade_tag("Upgrade_ChinaNeutronShells"),
-                                slot,
-                                is_nuke_cannon_template(&a.template_name),
-                            )
-                        })
-                        .unwrap_or(false)
-                    };
-
-                    if nuke_primary {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_nuke_cannon_primary_at(
-                            impact,
-                            Some(attacker_id),
-                            attacker_team,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 20.0);
-                            }
-                        }
-                    } else if neutron_blast {
-                        let impact = target_position;
-                        let (ik, vu, _vk) =
-                            self.apply_neutron_blast_at(impact, attacker_team, Some(attacker_id), true);
-                        // Stop attack after residual blast shot (slow reload residual).
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            // Award residual XP for infantry kills / unmans.
-                            let xp = (ik as f32) * 20.0 + (vu as f32) * 30.0;
-                            if xp > 0.0 {
-                                attacker.gain_experience(xp);
-                            }
-                        }
-                    } else if {
-                        // Comanche residual: 20mm primary / anti-tank secondary / rocket pods secondary.
-                        use crate::game_logic::host_comanche_rocket_pods::{
-                            is_comanche_template, should_apply_comanche_antitank_residual,
-                            should_apply_comanche_cannon_residual,
-                            should_apply_rocket_pod_area_attack, UPGRADE_COMANCHE_ROCKET_PODS,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| is_comanche_template(&a.template_name))
-                            .unwrap_or(false)
-                    } {
-                        use crate::game_logic::host_comanche_rocket_pods::{
-                            is_comanche_template, should_apply_comanche_antitank_residual,
-                            should_apply_comanche_cannon_residual,
-                            should_apply_rocket_pod_area_attack, UPGRADE_COMANCHE_ROCKET_PODS,
-                        };
-                        let impact = target_position;
-                        let (has_pods, is_comanche) = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                (
-                                    a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
-                                        || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
-                                    is_comanche_template(&a.template_name),
-                                )
-                            })
-                            .unwrap_or((false, false));
-                        let (hits, _destroyed_any) = if should_apply_rocket_pod_area_attack(
-                            is_comanche,
-                            has_pods,
-                            slot,
-                        ) {
-                            self.apply_comanche_rocket_pod_area_at(impact, Some(attacker_id))
-                        } else if should_apply_comanche_antitank_residual(
-                            is_comanche, slot, has_pods,
-                        ) {
-                            self.apply_comanche_antitank_residual_at(
-                                impact,
-                                Some(attacker_id),
-                                Some(target_id),
-                            )
-                        } else if should_apply_comanche_cannon_residual(is_comanche, slot) {
-                            self.apply_comanche_cannon_residual_at(
-                                impact,
-                                Some(attacker_id),
-                                Some(target_id),
-                            )
-                        } else {
-                            (0, false)
-                        };
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 10.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
-                        use crate::game_logic::host_rocket_buggy::{
-                            is_rocket_buggy_template, should_apply_rocket_buggy_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_rocket_buggy_residual(is_rocket_buggy_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_rocket_buggy_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
-                        use crate::game_logic::host_scud_launcher::{
-                            is_scud_launcher_template, should_apply_scud_area,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_scud_area(is_scud_launcher_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let toxin = slot == 1;
-                        let (hits, _destroyed_any) = self.apply_scud_area_at(
-                            impact,
-                            Some(attacker_id),
-                            attacker_team,
-                            toxin,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 15.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
-                        use crate::game_logic::host_technical::{
-                            is_technical_template, should_apply_technical_splash,
-                            TechnicalWeaponTier,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                if !is_technical_template(&a.template_name) {
-                                    return false;
-                                }
-                                let tier = Self::technical_tier_from_object(a);
-                                // Always apply residual path for technical (MG direct or splash).
-                                let _ = should_apply_technical_splash(true, tier);
-                                true
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_technical_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 6.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Marauder residual: salvage fire-rate tiers + small splash.
-                        use crate::game_logic::host_marauder::{
-                            is_marauder_template, should_apply_marauder_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_marauder_residual(is_marauder_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_marauder_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 10.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
-                        use crate::game_logic::host_scorpion::{
-                            is_scorpion_template, should_apply_scorpion_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_scorpion_residual(is_scorpion_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_scorpion_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                            slot,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // USA Tomahawk residual: dual-radius long-range missile.
-                        use crate::game_logic::host_tomahawk::{
-                            is_tomahawk_template, should_apply_tomahawk_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_tomahawk_residual(is_tomahawk_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_tomahawk_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 15.0);
-                            }
-                        }
-                    } else if {
-                        // USA Raptor residual: jet missiles + Laser Missiles splash.
-                        use crate::game_logic::host_raptor::{
-                            is_raptor_template, should_apply_raptor_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_raptor_residual(is_raptor_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_raptor_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 12.0);
-                            }
-                        }
-                    } else if {
-                        // USA Stealth Fighter residual: jet missiles splash + bunker-buster structure path.
-                        use crate::game_logic::host_stealth_fighter::{
-                            is_stealth_fighter_template, should_apply_stealth_fighter_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_stealth_fighter_residual(is_stealth_fighter_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_stealth_fighter_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 12.0);
-                            }
-                        }
-                    } else if {
-                        // USA Battle Drone residual: intended-only MG fire.
-                        use crate::game_logic::host_slave_drones::is_battle_drone_template;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| is_battle_drone_template(&a.template_name))
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_battle_drone_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 2.0);
-                            }
-                        }
-                    } else if {
-                        // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
-                        use crate::game_logic::host_overlord_gun::{
-                            is_overlord_gun_chassis, should_apply_overlord_gun_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_overlord_gun_residual(
-                                    is_overlord_gun_chassis(&a.template_name),
-                                    a.has_overlord_gattling_residual(),
-                                )
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_overlord_gun_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 12.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Jarmen Kell residual: primary sniper (intended-only).
-                        use crate::game_logic::host_jarmen_kell::{
-                            is_jarmen_kell_template, should_apply_jarmen_kell_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_jarmen_kell_residual(is_jarmen_kell_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 15.0);
-                            }
-                        }
-                    } else if {
-                        // China Battlemaster residual: tank gun splash + Uranium damage residual.
-                        use crate::game_logic::host_battlemaster::{
-                            is_battlemaster_template, should_apply_battlemaster_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_battlemaster_residual(is_battlemaster_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_battlemaster_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 10.0);
-                            }
-                        }
-                    } else if {
-                        // China Tank Hunter residual: RPG splash + AA capable residual.
-                        use crate::game_logic::host_tank_hunter::{
-                            is_tank_hunter_template, should_apply_tank_hunter_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_tank_hunter_residual(is_tank_hunter_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_tank_hunter_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
-                        use crate::game_logic::host_red_guard::{
-                            is_red_guard_template, should_apply_red_guard_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_red_guard_residual(is_red_guard_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let (hits, _destroyed_any) = self.apply_red_guard_residual_at(
-                            target_position,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // GLA RPG Trooper residual: rocket splash + AA capable residual.
-                        use crate::game_logic::host_rpg_trooper::{
-                            is_rpg_trooper_template, should_apply_rpg_trooper_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_rpg_trooper_residual(is_rpg_trooper_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_rpg_trooper_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Terrorist residual: SuicideDynamitePack self-detonation.
-                        use crate::game_logic::host_terrorist::{
-                            is_terrorist_template, should_apply_terrorist_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_terrorist_residual(is_terrorist_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let (hits, _destroyed_any) =
-                            self.apply_terrorist_residual_at(Some(attacker_id), Some(target_id));
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 10.0);
-                            }
-                        }
-                    } else if {
-                        // USA Missile Defender residual: missile splash + laser guided secondary.
-                        use crate::game_logic::host_missile_defender::{
-                            is_missile_defender_template, should_apply_missile_defender_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_missile_defender_residual(
-                                    is_missile_defender_template(&a.template_name),
-                                )
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let laser_slot = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| a.active_weapon_slot == 1)
-                            .unwrap_or(false);
-                        let (hits, _destroyed_any) = self.apply_missile_defender_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                            laser_slot,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Rebel residual: machine gun intended-only residual.
-                        use crate::game_logic::host_gla_rebel::{
-                            is_gla_rebel_template, should_apply_rebel_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_rebel_residual(is_gla_rebel_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let (hits, _destroyed_any) = self.apply_rebel_residual_at(
-                            target_position,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
-                        use crate::game_logic::host_ranger::{
-                            is_ranger_template, should_apply_ranger_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_ranger_residual(is_ranger_template(&a.template_name))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let flash_slot = slot == 1;
-                        let (hits, _destroyed_any) = self.apply_ranger_residual_at(
-                            target_position,
-                            Some(attacker_id),
-                            Some(target_id),
-                            flash_slot,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // China MiniGunner residual: ground gun or AA secondary hit.
-                        use crate::game_logic::host_minigunner::{
-                            is_minigunner_template, should_apply_minigunner_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_minigunner_residual(is_minigunner_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let (hits, _destroyed_any) = self.apply_minigunner_residual_at(
-                            target_position,
-                            Some(attacker_id),
-                            Some(target_id),
-                            slot,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
-                        use crate::game_logic::host_colonel_burton::{
-                            is_colonel_burton_template, should_apply_burton_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_burton_residual(is_colonel_burton_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let (hits, _destroyed_any) = self.apply_burton_residual_at(
-                            target_position,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 10.0);
-                            }
-                        }
-                    } else if {
-                        // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
-                        use crate::game_logic::host_troop_crawler::{
-                            is_troop_crawler_template, should_apply_troop_crawler_assault_deploy,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_troop_crawler_assault_deploy(
-                                    is_troop_crawler_template(&a.template_name),
-                                )
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let _ordered = self
-                            .apply_troop_crawler_assault_deploy(attacker_id, target_id);
-                        // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
-                    } else if {
-                        // China Dragon Tank residual: primary flame splash (primary+secondary radius).
-                        use crate::game_logic::host_dragon_tank::{
-                            is_dragon_tank_template, should_apply_dragon_flame_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_dragon_flame_residual(is_dragon_tank_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_dragon_flame_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // China Gattling Tank residual: ground gun or AA secondary hit.
-                        use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| is_gattling_tank_template(&a.template_name))
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                            slot,
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // Overlord / Helix / Emperor portable gattling addon residual.
-                        use crate::game_logic::host_overlord_addons::should_apply_overlord_gattling_residual;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_overlord_gattling_residual(
-                                    a.has_overlord_gattling_residual(),
-                                )
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_overlord_gattling_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                            slot,
-                        );
-                        // Primary OverlordTankGun / HelixMinigun still applies when
-                        // slot==0: passenger gattling residual is extra damage path
-                        // handled inside apply_overlord_gattling (primary + passenger).
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Combat Cycle residual: rider weapon fire / suicide residual.
-                        use crate::game_logic::host_combat_cycle::{
-                            is_combat_cycle_template, should_apply_combat_cycle_residual,
-                        };
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                should_apply_combat_cycle_residual(is_combat_cycle_template(
-                                    &a.template_name,
-                                ))
-                            })
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at(
-                            impact,
-                            Some(attacker_id),
-                            Some(target_id),
-                        );
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 8.0);
-                            }
-                        }
-                    } else if {
-                        // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
-                        use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| is_toxin_tractor_template(&a.template_name))
-                            .unwrap_or(false)
-                    } {
-                        let impact = target_position;
-                        let spray = slot == 1;
-                        let (hits, _destroyed_any) = if spray {
-                            self.apply_toxin_tractor_spray_at(
-                                impact,
-                                Some(attacker_id),
-                                attacker_team,
-                            )
-                        } else {
-                            self.apply_toxin_tractor_stream_at(
-                                impact,
-                                Some(attacker_id),
-                                Some(target_id),
-                                attacker_team,
-                            )
-                        };
-                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if hits > 0 {
-                                attacker.gain_experience((hits as f32) * 5.0);
-                            }
-                        }
-                    } else {
-                        // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
-                        // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
-                        let (bunker_buster_hit, kill_garrisoned_hit) = {
-                            use crate::game_logic::host_bunker_buster::{
-                                is_bunker_buster_carrier, is_kill_garrisoned_clearer,
-                                should_apply_bunker_buster, should_apply_kill_garrisoned,
-                                UPGRADE_AMERICA_BUNKER_BUSTERS,
+                        // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
+                        let avenger_paint = {
+                            use crate::game_logic::host_avenger::{
+                                is_avenger_template, should_apply_faerie_fire_paint,
+                                AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
                             };
-                            let target_is_structure = self
+                            self.objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    should_apply_faerie_fire_paint(
+                                        is_avenger_template(&a.template_name),
+                                        slot,
+                                        true,
+                                        enemy_or_forced,
+                                    )
+                                })
+                                .unwrap_or(false)
+                        };
+                        let avenger_air = {
+                            use crate::game_logic::host_avenger::{
+                                is_avenger_template, should_apply_avenger_air_laser,
+                            };
+                            let target_is_air = self
                                 .objects
                                 .get(&target_id)
-                                .map(|t| t.is_kind_of(KindOf::Structure))
+                                .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
                                 .unwrap_or(false);
                             self.objects
                                 .get(&attacker_id)
                                 .map(|a| {
-                                    let has_upgrade = a
-                                        .has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS)
-                                        || a.has_upgrade_tag("Upgrade_AmericaBunkerBusters");
-                                    let carrier = is_bunker_buster_carrier(&a.template_name);
-                                    let clearer = is_kill_garrisoned_clearer(&a.template_name);
-                                    (
-                                        should_apply_bunker_buster(
-                                            has_upgrade,
-                                            carrier,
-                                            target_is_structure,
-                                        ),
-                                        should_apply_kill_garrisoned(clearer, target_is_structure),
+                                    should_apply_avenger_air_laser(
+                                        is_avenger_template(&a.template_name),
+                                        slot,
+                                        target_is_air,
+                                        true,
+                                        enemy_or_forced,
                                     )
                                 })
-                                .unwrap_or((false, false))
+                                .unwrap_or(false)
                         };
-
-                        if bunker_buster_hit {
-                            let (kills, structure_dmg, destroyed) = self
-                                .apply_bunker_buster_to_target(
-                                    target_id,
-                                    attacker_team,
-                                    weapon_damage,
-                                );
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                let xp = (kills as f32) * 15.0 + structure_dmg * 0.05;
-                                if xp > 0.0 {
-                                    attacker.gain_experience(xp);
-                                }
-                                if destroyed {
-                                    attacker.stop_attack();
-                                }
-                            }
-                        } else if kill_garrisoned_hit {
-                            let kills = self.apply_kill_garrisoned_to_target(
-                                target_id,
-                                attacker_team,
-                                weapon_damage,
-                            );
-                            if kills > 0 {
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.gain_experience((kills as f32) * 15.0);
-                                }
-                            }
-                        } else if let Some(target) = self.objects.get_mut(&target_id) {
-                            let destroyed = target.take_damage(weapon_damage);
-                            if destroyed {
-                                // C++ parity: XP is based on victim's ExperienceValue.
-                                let kill_xp = target.thing.template.experience_value
-                                    * Self::veterancy_xp_multiplier(target.experience.level);
-                                self.mark_object_for_destruction(target_id, Some(attacker_team));
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.gain_experience(kill_xp);
-                                    attacker.stop_attack();
-                                }
-                            }
+                        // Humvee air TOW residual damage boost vs aircraft.
+                        let humvee_air_tow = {
+                            use crate::game_logic::host_humvee::{
+                                humvee_prefer_air_tow, is_humvee_template, HUMVEE_AIR_TOW_DAMAGE,
+                            };
+                            let target_is_air = self
+                                .objects
+                                .get(&target_id)
+                                .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
+                                .unwrap_or(false);
+                            self.objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    humvee_prefer_air_tow(
+                                        is_humvee_template(&a.template_name),
+                                        a.has_upgrade_tag(
+                                            crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW,
+                                        ) || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
+                                        target_is_air,
+                                    ) && slot == 1
+                                })
+                                .unwrap_or(false)
+                        };
+                        if humvee_air_tow {
+                            weapon_damage = crate::game_logic::host_humvee::HUMVEE_AIR_TOW_DAMAGE;
                         }
-                    }
-                    } // end !avenger_paint / !avenger_air residual branch
 
+                        // TARGET_FAERIE_FIRE ROF honesty when shooting a painted target.
+                        if self
+                            .objects
+                            .get(&target_id)
+                            .map(|t| t.is_faerie_fire())
+                            .unwrap_or(false)
+                        {
+                            self.avenger.record_rof_grant();
+                        }
+
+                        if avenger_paint {
+                            use crate::game_logic::host_avenger::{
+                                AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
+                            };
+                            let until = self
+                                .frame
+                                .saturating_add(AVENGER_FAERIE_FIRE_DURATION_FRAMES);
+                            if let Some(target) = self.objects.get_mut(&target_id) {
+                                target.apply_faerie_fire(until);
+                            }
+                            self.avenger.record_paint();
+                            let muzzle = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| a.get_position())
+                                .unwrap_or(target_position);
+                            self.queue_audio_event(
+                                AudioEventRequest::new(AVENGER_PAINT_AUDIO)
+                                    .with_object(attacker_id)
+                                    .with_position(muzzle)
+                                    .with_priority(140),
+                            );
+                            // Status residual: no hitpoint damage from designator.
+                        } else if avenger_air {
+                            self.avenger.record_air_laser_fire();
+                            if let Some(target) = self.objects.get_mut(&target_id) {
+                                let destroyed = target.take_damage(weapon_damage);
+                                if destroyed {
+                                    self.mark_object_for_destruction(
+                                        target_id,
+                                        Some(attacker_team),
+                                    );
+                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                        attacker.gain_experience(20.0);
+                                    }
+                                }
+                            }
+                        } else {
+                            // Nuke Cannon primary residual: area shell + medium radiation field.
+                            let nuke_primary = {
+                                use crate::game_logic::host_nuke_cannon::{
+                                    is_nuke_cannon_template, should_apply_nuke_cannon_primary,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_nuke_cannon_primary(
+                                            is_nuke_cannon_template(&a.template_name),
+                                            slot,
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            };
+
+                            // Neutron shell residual: Nuke Cannon secondary applies blast
+                            // (kill infantry / unman vehicles) instead of HP take_damage.
+                            let neutron_blast = {
+                                use crate::game_logic::host_neutron_shell::{
+                                    is_nuke_cannon_template, should_apply_neutron_blast,
+                                    UPGRADE_CHINA_NEUTRON_SHELLS,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_neutron_blast(
+                                            a.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
+                                                || a.has_upgrade_tag("Upgrade_ChinaNeutronShells"),
+                                            slot,
+                                            is_nuke_cannon_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            };
+
+                            if nuke_primary {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_nuke_cannon_primary_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    attacker_team,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 20.0);
+                                    }
+                                }
+                            } else if neutron_blast {
+                                let impact = target_position;
+                                let (ik, vu, _vk) = self.apply_neutron_blast_at(
+                                    impact,
+                                    attacker_team,
+                                    Some(attacker_id),
+                                    true,
+                                );
+                                // Stop attack after residual blast shot (slow reload residual).
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    // Award residual XP for infantry kills / unmans.
+                                    let xp = (ik as f32) * 20.0 + (vu as f32) * 30.0;
+                                    if xp > 0.0 {
+                                        attacker.gain_experience(xp);
+                                    }
+                                }
+                            } else if {
+                                // Helix residual: PRIMARY HelixMinigunWeapon intended-only.
+                                // When portable gattling addon is installed, the Overlord/Helix
+                                // gattling residual path already applies primary + passenger.
+                                use crate::game_logic::host_helix_minigun::should_apply_helix_minigun_residual;
+                                use crate::game_logic::host_overlord_addons::is_helix_template;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_helix_minigun_residual(
+                                            is_helix_template(&a.template_name),
+                                            slot,
+                                        ) && !a.has_overlord_gattling_residual()
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_helix_minigun_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 6.0);
+                                    }
+                                }
+                            } else if {
+                                // Comanche residual: 20mm primary / anti-tank secondary / rocket pods secondary.
+                                use crate::game_logic::host_comanche_rocket_pods::{
+                                    is_comanche_template, should_apply_comanche_antitank_residual,
+                                    should_apply_comanche_cannon_residual,
+                                    should_apply_rocket_pod_area_attack,
+                                    UPGRADE_COMANCHE_ROCKET_PODS,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| is_comanche_template(&a.template_name))
+                                    .unwrap_or(false)
+                            } {
+                                use crate::game_logic::host_comanche_rocket_pods::{
+                                    is_comanche_template, should_apply_comanche_antitank_residual,
+                                    should_apply_comanche_cannon_residual,
+                                    should_apply_rocket_pod_area_attack,
+                                    UPGRADE_COMANCHE_ROCKET_PODS,
+                                };
+                                let impact = target_position;
+                                let (has_pods, is_comanche) = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        (
+                                            a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
+                                                || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
+                                            is_comanche_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or((false, false));
+                                let (hits, _destroyed_any) = if should_apply_rocket_pod_area_attack(
+                                    is_comanche,
+                                    has_pods,
+                                    slot,
+                                ) {
+                                    self.apply_comanche_rocket_pod_area_at(
+                                        impact,
+                                        Some(attacker_id),
+                                    )
+                                } else if should_apply_comanche_antitank_residual(
+                                    is_comanche,
+                                    slot,
+                                    has_pods,
+                                ) {
+                                    self.apply_comanche_antitank_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                } else if should_apply_comanche_cannon_residual(is_comanche, slot) {
+                                    self.apply_comanche_cannon_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    )
+                                } else {
+                                    (0, false)
+                                };
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
+                                use crate::game_logic::host_rocket_buggy::{
+                                    is_rocket_buggy_template, should_apply_rocket_buggy_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_rocket_buggy_residual(
+                                            is_rocket_buggy_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_rocket_buggy_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
+                                use crate::game_logic::host_scud_launcher::{
+                                    is_scud_launcher_template, should_apply_scud_area,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_scud_area(is_scud_launcher_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let toxin = slot == 1;
+                                let (hits, _destroyed_any) = self.apply_scud_area_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    attacker_team,
+                                    toxin,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 15.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
+                                use crate::game_logic::host_technical::{
+                                    is_technical_template, should_apply_technical_splash,
+                                    TechnicalWeaponTier,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        if !is_technical_template(&a.template_name) {
+                                            return false;
+                                        }
+                                        let tier = Self::technical_tier_from_object(a);
+                                        // Always apply residual path for technical (MG direct or splash).
+                                        let _ = should_apply_technical_splash(true, tier);
+                                        true
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_technical_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 6.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Marauder residual: salvage fire-rate tiers + small splash.
+                                use crate::game_logic::host_marauder::{
+                                    is_marauder_template, should_apply_marauder_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_marauder_residual(is_marauder_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_marauder_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
+                                use crate::game_logic::host_scorpion::{
+                                    is_scorpion_template, should_apply_scorpion_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_scorpion_residual(is_scorpion_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_scorpion_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                    slot,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Tomahawk residual: dual-radius long-range missile.
+                                use crate::game_logic::host_tomahawk::{
+                                    is_tomahawk_template, should_apply_tomahawk_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_tomahawk_residual(is_tomahawk_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_tomahawk_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 15.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Raptor residual: jet missiles + Laser Missiles splash.
+                                use crate::game_logic::host_raptor::{
+                                    is_raptor_template, should_apply_raptor_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_raptor_residual(is_raptor_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_raptor_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 12.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Stealth Fighter residual: jet missiles splash + bunker-buster structure path.
+                                use crate::game_logic::host_stealth_fighter::{
+                                    is_stealth_fighter_template,
+                                    should_apply_stealth_fighter_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_stealth_fighter_residual(
+                                            is_stealth_fighter_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self
+                                    .apply_stealth_fighter_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                    );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 12.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Battle Drone residual: intended-only MG fire.
+                                use crate::game_logic::host_slave_drones::is_battle_drone_template;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| is_battle_drone_template(&a.template_name))
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_battle_drone_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 2.0);
+                                    }
+                                }
+                            } else if {
+                                // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
+                                use crate::game_logic::host_overlord_gun::{
+                                    is_overlord_gun_chassis, should_apply_overlord_gun_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_overlord_gun_residual(
+                                            is_overlord_gun_chassis(&a.template_name),
+                                            a.has_overlord_gattling_residual(),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_overlord_gun_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 12.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Jarmen Kell residual: primary sniper (intended-only).
+                                use crate::game_logic::host_jarmen_kell::{
+                                    is_jarmen_kell_template, should_apply_jarmen_kell_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_jarmen_kell_residual(is_jarmen_kell_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 15.0);
+                                    }
+                                }
+                            } else if {
+                                // China Battlemaster residual: tank gun splash + Uranium damage residual.
+                                use crate::game_logic::host_battlemaster::{
+                                    is_battlemaster_template, should_apply_battlemaster_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_battlemaster_residual(
+                                            is_battlemaster_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_battlemaster_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
+                                    }
+                                }
+                            } else if {
+                                // China Tank Hunter residual: RPG splash + AA capable residual.
+                                use crate::game_logic::host_tank_hunter::{
+                                    is_tank_hunter_template, should_apply_tank_hunter_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_tank_hunter_residual(is_tank_hunter_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_tank_hunter_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
+                                use crate::game_logic::host_red_guard::{
+                                    is_red_guard_template, should_apply_red_guard_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_red_guard_residual(is_red_guard_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let (hits, _destroyed_any) = self.apply_red_guard_residual_at(
+                                    target_position,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA RPG Trooper residual: rocket splash + AA capable residual.
+                                use crate::game_logic::host_rpg_trooper::{
+                                    is_rpg_trooper_template, should_apply_rpg_trooper_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_rpg_trooper_residual(is_rpg_trooper_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_rpg_trooper_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Terrorist residual: SuicideDynamitePack self-detonation.
+                                use crate::game_logic::host_terrorist::{
+                                    is_terrorist_template, should_apply_terrorist_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_terrorist_residual(is_terrorist_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let (hits, _destroyed_any) = self.apply_terrorist_residual_at(
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Missile Defender residual: missile splash + laser guided secondary.
+                                use crate::game_logic::host_missile_defender::{
+                                    is_missile_defender_template,
+                                    should_apply_missile_defender_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_missile_defender_residual(
+                                            is_missile_defender_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let laser_slot = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| a.active_weapon_slot == 1)
+                                    .unwrap_or(false);
+                                let (hits, _destroyed_any) = self
+                                    .apply_missile_defender_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                        laser_slot,
+                                    );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Rebel residual: machine gun intended-only residual.
+                                use crate::game_logic::host_gla_rebel::{
+                                    is_gla_rebel_template, should_apply_rebel_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_rebel_residual(is_gla_rebel_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let (hits, _destroyed_any) = self.apply_rebel_residual_at(
+                                    target_position,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
+                                use crate::game_logic::host_ranger::{
+                                    is_ranger_template, should_apply_ranger_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_ranger_residual(is_ranger_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let flash_slot = slot == 1;
+                                let (hits, _destroyed_any) = self.apply_ranger_residual_at(
+                                    target_position,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                    flash_slot,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // China MiniGunner residual: ground gun or AA secondary hit.
+                                use crate::game_logic::host_minigunner::{
+                                    is_minigunner_template, should_apply_minigunner_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_minigunner_residual(is_minigunner_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let (hits, _destroyed_any) = self.apply_minigunner_residual_at(
+                                    target_position,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                    slot,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
+                                use crate::game_logic::host_colonel_burton::{
+                                    is_colonel_burton_template, should_apply_burton_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_burton_residual(is_colonel_burton_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let (hits, _destroyed_any) = self.apply_burton_residual_at(
+                                    target_position,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 10.0);
+                                    }
+                                }
+                            } else if {
+                                // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
+                                use crate::game_logic::host_troop_crawler::{
+                                    is_troop_crawler_template,
+                                    should_apply_troop_crawler_assault_deploy,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_troop_crawler_assault_deploy(
+                                            is_troop_crawler_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let _ordered =
+                                    self.apply_troop_crawler_assault_deploy(attacker_id, target_id);
+                                // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
+                            } else if {
+                                // China Dragon Tank residual: primary flame splash (primary+secondary radius).
+                                use crate::game_logic::host_dragon_tank::{
+                                    is_dragon_tank_template, should_apply_dragon_flame_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_dragon_flame_residual(is_dragon_tank_template(
+                                            &a.template_name,
+                                        ))
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_dragon_flame_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // China Gattling Tank residual: ground gun or AA secondary hit.
+                                use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| is_gattling_tank_template(&a.template_name))
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                    slot,
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // Overlord / Helix / Emperor portable gattling addon residual.
+                                use crate::game_logic::host_overlord_addons::should_apply_overlord_gattling_residual;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_overlord_gattling_residual(
+                                            a.has_overlord_gattling_residual(),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self
+                                    .apply_overlord_gattling_residual_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                        slot,
+                                    );
+                                // Primary OverlordTankGun / HelixMinigun still applies when
+                                // slot==0: passenger gattling residual is extra damage path
+                                // handled inside apply_overlord_gattling (primary + passenger).
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Combat Cycle residual: rider weapon fire / suicide residual.
+                                use crate::game_logic::host_combat_cycle::{
+                                    is_combat_cycle_template, should_apply_combat_cycle_residual,
+                                };
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        should_apply_combat_cycle_residual(
+                                            is_combat_cycle_template(&a.template_name),
+                                        )
+                                    })
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at(
+                                    impact,
+                                    Some(attacker_id),
+                                    Some(target_id),
+                                );
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 8.0);
+                                    }
+                                }
+                            } else if {
+                                // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
+                                use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
+                                self.objects
+                                    .get(&attacker_id)
+                                    .map(|a| is_toxin_tractor_template(&a.template_name))
+                                    .unwrap_or(false)
+                            } {
+                                let impact = target_position;
+                                let spray = slot == 1;
+                                let (hits, _destroyed_any) = if spray {
+                                    self.apply_toxin_tractor_spray_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        attacker_team,
+                                    )
+                                } else {
+                                    self.apply_toxin_tractor_stream_at(
+                                        impact,
+                                        Some(attacker_id),
+                                        Some(target_id),
+                                        attacker_team,
+                                    )
+                                };
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    if hits > 0 {
+                                        attacker.gain_experience((hits as f32) * 5.0);
+                                    }
+                                }
+                            } else {
+                                // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
+                                // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
+                                let (bunker_buster_hit, kill_garrisoned_hit) = {
+                                    use crate::game_logic::host_bunker_buster::{
+                                        is_bunker_buster_carrier, is_kill_garrisoned_clearer,
+                                        should_apply_bunker_buster, should_apply_kill_garrisoned,
+                                        UPGRADE_AMERICA_BUNKER_BUSTERS,
+                                    };
+                                    let target_is_structure = self
+                                        .objects
+                                        .get(&target_id)
+                                        .map(|t| t.is_kind_of(KindOf::Structure))
+                                        .unwrap_or(false);
+                                    self.objects
+                                        .get(&attacker_id)
+                                        .map(|a| {
+                                            let has_upgrade = a
+                                                .has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS)
+                                                || a.has_upgrade_tag(
+                                                    "Upgrade_AmericaBunkerBusters",
+                                                );
+                                            let carrier =
+                                                is_bunker_buster_carrier(&a.template_name);
+                                            let clearer =
+                                                is_kill_garrisoned_clearer(&a.template_name);
+                                            (
+                                                should_apply_bunker_buster(
+                                                    has_upgrade,
+                                                    carrier,
+                                                    target_is_structure,
+                                                ),
+                                                should_apply_kill_garrisoned(
+                                                    clearer,
+                                                    target_is_structure,
+                                                ),
+                                            )
+                                        })
+                                        .unwrap_or((false, false))
+                                };
+
+                                if bunker_buster_hit {
+                                    let (kills, structure_dmg, destroyed) = self
+                                        .apply_bunker_buster_to_target(
+                                            target_id,
+                                            attacker_team,
+                                            weapon_damage,
+                                        );
+                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                        let xp = (kills as f32) * 15.0 + structure_dmg * 0.05;
+                                        if xp > 0.0 {
+                                            attacker.gain_experience(xp);
+                                        }
+                                        if destroyed {
+                                            attacker.stop_attack();
+                                        }
+                                    }
+                                } else if kill_garrisoned_hit {
+                                    let kills = self.apply_kill_garrisoned_to_target(
+                                        target_id,
+                                        attacker_team,
+                                        weapon_damage,
+                                    );
+                                    if kills > 0 {
+                                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                            attacker.gain_experience((kills as f32) * 15.0);
+                                        }
+                                    }
+                                } else if let Some(target) = self.objects.get_mut(&target_id) {
+                                    let destroyed = target.take_damage(weapon_damage);
+                                    if destroyed {
+                                        // C++ parity: XP is based on victim's ExperienceValue.
+                                        let kill_xp = target.thing.template.experience_value
+                                            * Self::veterancy_xp_multiplier(
+                                                target.experience.level,
+                                            );
+                                        self.mark_object_for_destruction(
+                                            target_id,
+                                            Some(attacker_team),
+                                        );
+                                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                            attacker.gain_experience(kill_xp);
+                                            attacker.stop_attack();
+                                        }
+                                    }
+                                }
+                            }
+                        } // end !avenger_paint / !avenger_air residual branch
                     } // end !aurora_queued
 
                     // Inferno Cannon residual: shell impact spawns FireFieldSmall DoT zone.
@@ -6277,11 +6384,20 @@ impl GameLogic {
                             .unwrap_or(false);
                         if is_inferno {
                             let impact = target_position;
+                            let upgraded = self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
+                                        &a.applied_upgrades,
+                                    )
+                                })
+                                .unwrap_or(false);
                             let _ = self.spawn_inferno_fire_zone(
                                 attacker_id,
                                 attacker_team,
                                 impact,
-                                false,
+                                upgraded,
                             );
                         }
                     }
@@ -6321,16 +6437,18 @@ impl GameLogic {
                         is_comanche_template, rocket_pod_ground_fire_active,
                         UPGRADE_COMANCHE_ROCKET_PODS,
                     };
-                    self.objects.get(&attacker_id).map(|a| {
-                        rocket_pod_ground_fire_active(
-                            is_comanche_template(&a.template_name),
-                            a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
-                                || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
-                            a.secondary_weapon.is_some(),
-                            a.active_weapon_slot,
-                        )
-                    })
-                    .unwrap_or(false)
+                    self.objects
+                        .get(&attacker_id)
+                        .map(|a| {
+                            rocket_pod_ground_fire_active(
+                                is_comanche_template(&a.template_name),
+                                a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
+                                    || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
+                                a.secondary_weapon.is_some(),
+                                a.active_weapon_slot,
+                            )
+                        })
+                        .unwrap_or(false)
                 };
 
                 let can_fire_at_location = {
@@ -6412,24 +6530,33 @@ impl GameLogic {
 
                     if !aurora_ground_queued {
                         // GLA Rocket Buggy / SCUD residual ground force-fire AOE.
-                        let buggy_ground = self.objects.get(&attacker_id).map(|a| {
-                            crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(
-                                &a.template_name,
-                            )
-                        })
-                        .unwrap_or(false);
-                        let scud_ground = self.objects.get(&attacker_id).map(|a| {
-                            crate::game_logic::host_scud_launcher::is_scud_launcher_template(
-                                &a.template_name,
-                            )
-                        })
-                        .unwrap_or(false);
-                        let tomahawk_ground = self.objects.get(&attacker_id).map(|a| {
-                            crate::game_logic::host_tomahawk::is_tomahawk_template(
-                                &a.template_name,
-                            )
-                        })
-                        .unwrap_or(false);
+                        let buggy_ground = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(
+                                    &a.template_name,
+                                )
+                            })
+                            .unwrap_or(false);
+                        let scud_ground = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                crate::game_logic::host_scud_launcher::is_scud_launcher_template(
+                                    &a.template_name,
+                                )
+                            })
+                            .unwrap_or(false);
+                        let tomahawk_ground = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                crate::game_logic::host_tomahawk::is_tomahawk_template(
+                                    &a.template_name,
+                                )
+                            })
+                            .unwrap_or(false);
 
                         if rocket_pod_ground {
                             // Retail FIRE_WEAPON tertiary at position → scatter area residual.
@@ -6510,11 +6637,20 @@ impl GameLogic {
                                 .map(|a| is_inferno_cannon_template(&a.template_name))
                                 .unwrap_or(false);
                             if is_inferno {
+                                let upgraded = self
+                                    .objects
+                                    .get(&attacker_id)
+                                    .map(|a| {
+                                        crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
+                                            &a.applied_upgrades,
+                                        )
+                                    })
+                                    .unwrap_or(false);
                                 let _ = self.spawn_inferno_fire_zone(
                                     attacker_id,
                                     attacker_team,
                                     target_location,
-                                    false,
+                                    upgraded,
                                 );
                             }
                         }
@@ -6528,9 +6664,7 @@ impl GameLogic {
                     .objects
                     .get(&attacker_id)
                     .map(|a| {
-                        crate::game_logic::host_pathfinder::is_pathfinder_template(
-                            &a.template_name,
-                        )
+                        crate::game_logic::host_pathfinder::is_pathfinder_template(&a.template_name)
                     })
                     .unwrap_or(false)
                 {
@@ -6553,9 +6687,8 @@ impl GameLogic {
                         self.quad_cannon_residual_aa_fires =
                             self.quad_cannon_residual_aa_fires.saturating_add(1);
                     } else {
-                        self.quad_cannon_residual_ground_fires = self
-                            .quad_cannon_residual_ground_fires
-                            .saturating_add(1);
+                        self.quad_cannon_residual_ground_fires =
+                            self.quad_cannon_residual_ground_fires.saturating_add(1);
                     }
                 }
 
@@ -6578,9 +6711,7 @@ impl GameLogic {
                     .objects
                     .get(&attacker_id)
                     .map(|a| {
-                        crate::game_logic::host_minigunner::is_minigunner_template(
-                            &a.template_name,
-                        )
+                        crate::game_logic::host_minigunner::is_minigunner_template(&a.template_name)
                     })
                     .unwrap_or(false)
                 {
@@ -6994,8 +7125,7 @@ impl GameLogic {
 
     fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         const GUARD_MIN_RADIUS: f32 = 80.0;
-        const INTERACT_RANGE: f32 =
-            crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
+        const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const CAPTURE_RANGE_PADDING: f32 = 4.0;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
         // Host residual flat HP/sec (not C++ percent-of-max / TimeForFullHeal matrix).
@@ -7402,13 +7532,10 @@ impl GameLogic {
                                     v_dozer,
                                 );
                             if crate::game_logic::host_usa_pilot::should_recrew_on_enter(
-                                is_pilot,
-                                recrewable,
+                                is_pilot, recrewable,
                             ) {
                                 let enter_range = pilot_radius + vehicle_radius + 4.0;
-                                if pilot_can_move
-                                    && pilot_pos.distance(vehicle_pos) > enter_range
-                                {
+                                if pilot_can_move && pilot_pos.distance(vehicle_pos) > enter_range {
                                     if let Some(obj) = self.objects.get_mut(&object_id) {
                                         obj.set_destination(vehicle_pos);
                                         obj.ai_state = AIState::Entering;
@@ -7429,10 +7556,8 @@ impl GameLogic {
                                     .with_position(vehicle_pos)
                                     .with_priority(170),
                                 );
-                                let msg = localization::localize(
-                                    "hud.pilot.recrew",
-                                    "Vehicle recrewed",
-                                );
+                                let msg =
+                                    localization::localize("hud.pilot.recrew", "Vehicle recrewed");
                                 self.queue_radar_message_for_team(pilot_team, msg);
                                 if let Some(pilot) = self.objects.get_mut(&object_id) {
                                     pilot.status.destroyed = true;
@@ -7545,10 +7670,7 @@ impl GameLogic {
                     // Tunnel network residual: units already in the shared pool may
                     // transfer to another allied tunnel without walking (can_move false).
                     let already_in_tunnel_network = container_is_tunnel_network
-                        && self
-                            .tunnel_network
-                            .team_holding_unit(object_id)
-                            .is_some();
+                        && self.tunnel_network.team_holding_unit(object_id).is_some();
 
                     if (!can_move && !already_in_tunnel_network)
                         || !container_is_alive
@@ -7702,11 +7824,12 @@ impl GameLogic {
                                 crate::game_logic::host_hero_abilities::is_black_lotus_template(
                                     &obj.template_name,
                                 );
-                            let can = crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
-                                obj.is_hero(),
-                                is_lotus,
-                            ) || (obj.is_kind_of(KindOf::Infantry)
-                                && self.team_has_completed_capture_upgrade(obj.team));
+                            let can =
+                                crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
+                                    obj.is_hero(),
+                                    is_lotus,
+                                ) || (obj.is_kind_of(KindOf::Infantry)
+                                    && self.team_has_completed_capture_upgrade(obj.team));
                             (can, is_lotus || obj.is_hero())
                         })
                         .unwrap_or((false, false));
@@ -8062,10 +8185,8 @@ impl GameLogic {
                     let disguise_instant =
                         matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
                     // Hacker DisableBuilding residual: StartAbilityRange 150 (not melee pad).
-                    let hacker_disable_range = matches!(
-                        ability,
-                        PendingSpecialAbility::HackerDisableBuilding { .. }
-                    );
+                    let hacker_disable_range =
+                        matches!(ability, PendingSpecialAbility::HackerDisableBuilding { .. });
                     // Black Lotus residual specials: StartAbilityRange 150.
                     let black_lotus_range = matches!(
                         ability,
@@ -8114,10 +8235,8 @@ impl GameLogic {
                                 .with_position(target_position)
                                 .with_priority(170),
                             );
-                            let msg = localization::localize(
-                                "hud.hijack.complete",
-                                "Vehicle hijacked",
-                            );
+                            let msg =
+                                localization::localize("hud.hijack.complete", "Vehicle hijacked");
                             self.queue_radar_message_for_team(team, msg);
                             if let Some(hijacker) = self.objects.get_mut(&object_id) {
                                 hijacker.status.destroyed = true;
@@ -8198,9 +8317,8 @@ impl GameLogic {
                             if charge_id.is_some() {
                                 self.hero_abilities.record_timed_charge_plant();
                                 if is_tank_hunter {
-                                    self.tank_hunter_residual_tnt_plants = self
-                                        .tank_hunter_residual_tnt_plants
-                                        .saturating_add(1);
+                                    self.tank_hunter_residual_tnt_plants =
+                                        self.tank_hunter_residual_tnt_plants.saturating_add(1);
                                     self.tank_hunter_tnt_last_frame
                                         .insert(object_id, self.frame);
                                     self.queue_audio_event(
@@ -8246,7 +8364,8 @@ impl GameLogic {
                         }
                         PendingSpecialAbility::StealCashHack { .. } => {
                             // Black Lotus residual: steal cash from enemy economy.
-                            let amount = crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT;
+                            let amount =
+                                crate::game_logic::host_hero_abilities::STEAL_CASH_DEFAULT_AMOUNT;
                             let stolen = self.steal_cash_from_team(target_team, team, amount);
                             if stolen > 0 {
                                 self.hero_abilities.record_cash_steal(stolen);
@@ -8258,10 +8377,8 @@ impl GameLogic {
                                     .with_position(position)
                                     .with_priority(160),
                                 );
-                                let msg = localization::localize(
-                                    "hud.cash_hack.complete",
-                                    "Cash stolen",
-                                );
+                                let msg =
+                                    localization::localize("hud.cash_hack.complete", "Cash stolen");
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -8368,8 +8485,7 @@ impl GameLogic {
                                 obj.set_target(None);
                                 obj.ai_state = AIState::Idle;
                             }
-                            self.bomb_truck_disguise
-                                .record_disguise(object_id, &tpl);
+                            self.bomb_truck_disguise.record_disguise(object_id, &tpl);
                             self.queue_audio_event(
                                 AudioEventRequest::new(
                                     crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_AUDIO,
@@ -8394,8 +8510,9 @@ impl GameLogic {
                                 .objects
                                 .get(&object_id)
                                 .map(|o| {
-                                    let planter_ok = is_booby_trap_planter_template(&o.template_name)
-                                        && has_booby_trap_upgrade(&o.applied_upgrades);
+                                    let planter_ok =
+                                        is_booby_trap_planter_template(&o.template_name)
+                                            && has_booby_trap_upgrade(&o.applied_upgrades);
                                     let ready = self.booby_trap.plant_ready(object_id, self.frame);
                                     (planter_ok, ready)
                                 })
@@ -8814,13 +8931,8 @@ impl GameLogic {
         upgrade_name: &str,
         source_object: Option<ObjectId>,
     ) {
-        self.host_upgrades.record_queue(
-            upgrade_name,
-            team,
-            player_id,
-            self.frame,
-            source_object,
-        );
+        self.host_upgrades
+            .record_queue(upgrade_name, team, player_id, self.frame, source_object);
     }
 
     /// Record that a player cancelled upgrade research (host residual honesty).
@@ -8857,9 +8969,7 @@ impl GameLogic {
             HostUpgradeKind::SentryDroneGun => {
                 self.apply_sentry_drone_gun_unlock_to_team(team, upgrade_name)
             }
-            HostUpgradeKind::Camouflage => {
-                self.apply_camouflage_unlock_to_team(team, upgrade_name)
-            }
+            HostUpgradeKind::Camouflage => self.apply_camouflage_unlock_to_team(team, upgrade_name),
             HostUpgradeKind::CompositeArmor => {
                 self.apply_composite_armor_unlock_to_team(team, upgrade_name)
             }
@@ -8869,9 +8979,7 @@ impl GameLogic {
             HostUpgradeKind::NuclearTanks => {
                 self.apply_nuclear_tanks_unlock_to_team(team, upgrade_name)
             }
-            HostUpgradeKind::BoobyTrap => {
-                self.apply_booby_trap_unlock_to_team(team, upgrade_name)
-            }
+            HostUpgradeKind::BoobyTrap => self.apply_booby_trap_unlock_to_team(team, upgrade_name),
             HostUpgradeKind::Other => 0,
         };
 
@@ -8924,8 +9032,7 @@ impl GameLogic {
             if !is_gla_worker_template(&obj.template_name) {
                 continue;
             }
-            if obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || obj.has_upgrade_tag(upgrade_name)
-            {
+            if obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || obj.has_upgrade_tag(upgrade_name) {
                 // Already applied — refresh speed residual only.
                 obj.movement.max_speed = worker_residual_speed(true);
                 continue;
@@ -8937,9 +9044,7 @@ impl GameLogic {
         }
         if affected > 0 {
             self.gla_worker.record_shoes_applied(affected);
-            self.queue_audio_event(
-                AudioEventRequest::new(WORKER_SHOES_AUDIO).with_priority(140),
-            );
+            self.queue_audio_event(AudioEventRequest::new(WORKER_SHOES_AUDIO).with_priority(140));
         }
         affected
     }
@@ -8948,7 +9053,7 @@ impl GameLogic {
     fn apply_nuclear_tanks_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_nuclear_tanks::{
             has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
-            UPGRADE_CHINA_NUCLEAR_TANKS, NUCLEAR_TANKS_UPGRADE_AUDIO,
+            NUCLEAR_TANKS_UPGRADE_AUDIO, UPGRADE_CHINA_NUCLEAR_TANKS,
         };
 
         let mut affected = 0u32;
@@ -8959,8 +9064,7 @@ impl GameLogic {
             if !is_nuclear_tanks_eligible(&obj.template_name) {
                 continue;
             }
-            if has_nuclear_tanks_upgrade(&obj.applied_upgrades)
-                || obj.has_upgrade_tag(upgrade_name)
+            if has_nuclear_tanks_upgrade(&obj.applied_upgrades) || obj.has_upgrade_tag(upgrade_name)
             {
                 // Refresh speed residual only.
                 obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
@@ -8994,7 +9098,8 @@ impl GameLogic {
             if !is_booby_trap_planter_template(&obj.template_name) {
                 continue;
             }
-            if obj.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP) || obj.has_upgrade_tag(upgrade_name)
+            if obj.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP)
+                || obj.has_upgrade_tag(upgrade_name)
             {
                 continue;
             }
@@ -9011,7 +9116,9 @@ impl GameLogic {
     /// Equip FlashBang secondary on team rangers + apply upgrade tag.
     fn apply_flashbang_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_upgrades::is_flashbang_unit_template;
-        use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, RANGER_SECONDARY_WEAPON};
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, RANGER_SECONDARY_WEAPON,
+        };
 
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(RANGER_SECONDARY_WEAPON);
@@ -9039,7 +9146,9 @@ impl GameLogic {
     /// Equip TOW secondary on team Humvees + apply upgrade tag.
     fn apply_tow_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_upgrades::is_tow_unit_template;
-        use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON};
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON,
+        };
 
         ensure_host_weapon_store();
         let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
@@ -9056,12 +9165,16 @@ impl GameLogic {
                     // Residual: ground TOW + air tertiary capability (PreferredAgainst AIRCRAFT).
                     // Damage boost vs air applied in combat path (HUMVEE_AIR_TOW_DAMAGE).
                     w.can_target_air = true;
-                    w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
+                    w.range = w
+                        .range
+                        .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
                     obj.secondary_weapon = Some(w);
                 }
             } else if let Some(w) = obj.secondary_weapon.as_mut() {
                 w.can_target_air = true;
-                w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
+                w.range = w
+                    .range
+                    .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
@@ -9107,8 +9220,8 @@ impl GameLogic {
 
     /// Equip Neutron Shell secondary on team Nuke Cannons + apply upgrade tag.
     fn apply_neutron_shells_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
-        use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
         use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
+        use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
         use crate::game_logic::weapon_bootstrap::{
             ensure_host_weapon_store, NUKE_CANNON_NEUTRON_WEAPON,
         };
@@ -9138,11 +9251,7 @@ impl GameLogic {
     ///
     /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_ComancheRocketPods unlocks
     /// TERTIARY ComancheRocketPodWeapon. Host residual binds secondary slot.
-    fn apply_comanche_rocket_pods_unlock_to_team(
-        &mut self,
-        team: Team,
-        upgrade_name: &str,
-    ) -> u32 {
+    fn apply_comanche_rocket_pods_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
         use crate::game_logic::host_comanche_rocket_pods::{
             comanche_rocket_pod_weapon, is_comanche_template, UPGRADE_COMANCHE_ROCKET_PODS,
         };
@@ -9409,7 +9518,8 @@ impl GameLogic {
             .collect();
 
         // Forget destroyed markets so re-builds reschedule cleanly.
-        let live: std::collections::HashSet<ObjectId> = markets.iter().map(|(id, _, _)| *id).collect();
+        let live: std::collections::HashSet<ObjectId> =
+            markets.iter().map(|(id, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .black_markets
             .next_deposit_keys()
@@ -9429,8 +9539,10 @@ impl GameLogic {
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(deposited);
+                player.statistics.resources_collected = player
+                    .statistics
+                    .resources_collected
+                    .saturating_add(deposited);
             }
             self.queue_audio_event(
                 AudioEventRequest::new(BLACK_MARKET_DEPOSIT_AUDIO)
@@ -9515,8 +9627,10 @@ impl GameLogic {
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(deposited);
+                player.statistics.resources_collected = player
+                    .statistics
+                    .resources_collected
+                    .saturating_add(deposited);
             }
             self.queue_audio_event(
                 AudioEventRequest::new(OIL_DERRICK_DEPOSIT_AUDIO)
@@ -9630,16 +9744,18 @@ impl GameLogic {
             }
             let amount = cash_amount_for_level(h.level);
             let interval = cash_interval_frames(h.in_ic);
-            let deposited =
-                self.hacker_income
-                    .try_deposit(h.id, frame, amount, interval, h.in_ic);
+            let deposited = self
+                .hacker_income
+                .try_deposit(h.id, frame, amount, interval, h.in_ic);
             if deposited == 0 {
                 continue;
             }
             if let Some(player) = self.get_player_mut_by_team(h.team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(deposited);
+                player.statistics.resources_collected = player
+                    .statistics
+                    .resources_collected
+                    .saturating_add(deposited);
             }
             // Residual XpPerCashUpdate.
             if let Some(obj) = self.objects.get_mut(&h.id) {
@@ -9692,8 +9808,8 @@ impl GameLogic {
     /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
     fn update_supply_drop_zone_drops(&mut self) {
         use crate::game_logic::host_supply_drop_zone::{
-            drop_cash_amount, is_legal_supply_drop_zone_income_source, is_supply_drop_zone_template,
-            SUPPLY_DROP_ZONE_DROP_AUDIO, SUPPLY_DROP_ZONE_DROP_CASH,
+            drop_cash_amount, is_legal_supply_drop_zone_income_source,
+            is_supply_drop_zone_template, SUPPLY_DROP_ZONE_DROP_AUDIO, SUPPLY_DROP_ZONE_DROP_CASH,
         };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
@@ -9731,9 +9847,10 @@ impl GameLogic {
         }
 
         for (zone_id, team, pos) in zones {
-            let has_supply_lines = self.players.values().any(|p| {
-                p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-            });
+            let has_supply_lines = self
+                .players
+                .values()
+                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
             let amount = drop_cash_amount(has_supply_lines);
             let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
             let deposited = self
@@ -9744,8 +9861,10 @@ impl GameLogic {
             }
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies = player.resources.supplies.saturating_add(deposited);
-                player.statistics.resources_collected =
-                    player.statistics.resources_collected.saturating_add(deposited);
+                player.statistics.resources_collected = player
+                    .statistics
+                    .resources_collected
+                    .saturating_add(deposited);
             }
             if boost > 0 {
                 self.supply_lines_bonus_cash_total =
@@ -10062,8 +10181,8 @@ impl GameLogic {
             let secondary_weapon = template.resolve_secondary_weapon();
             let movement_stats = template.resolve_movement();
             // Sentry residual: detect explicit template primary before move.
-            let sentry_had_explicit_primary = template.primary_weapon.is_some()
-                || template.primary_weapon_name.is_some();
+            let sentry_had_explicit_primary =
+                template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
             let starts_under_construction = object.status.under_construction;
@@ -10214,6 +10333,9 @@ impl GameLogic {
             }
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 object.install_helix_transport();
+                // Host residual: Helix PRIMARY HelixMinigunWeapon (always retained with addons).
+                // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
+                object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());
             }
             if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
@@ -10234,8 +10356,7 @@ impl GameLogic {
             // Host residual: America Avenger designator primary + air laser secondary.
             // Fail-closed: not portable laser turret OverlordContain passenger.
             if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                object.weapon =
-                    Some(crate::game_logic::host_avenger::avenger_designator_weapon());
+                object.weapon = Some(crate::game_logic::host_avenger::avenger_designator_weapon());
                 object.secondary_weapon =
                     Some(crate::game_logic::host_avenger::avenger_air_laser_weapon());
             }
@@ -10312,8 +10433,10 @@ impl GameLogic {
                 };
                 use crate::game_logic::host_gattling_tank::GattlingFireLevel;
                 let chain = gattling_building_has_chain_guns(&object.applied_upgrades);
-                object.weapon =
-                    Some(gattling_building_ground_weapon(GattlingFireLevel::Base, chain));
+                object.weapon = Some(gattling_building_ground_weapon(
+                    GattlingFireLevel::Base,
+                    chain,
+                ));
                 object.secondary_weapon =
                     Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
                 object.continuous_fire_consecutive = 0;
@@ -10379,8 +10502,7 @@ impl GameLogic {
 
             // Host residual: USA Stealth Fighter PRIMARY jet missiles.
             // Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
-            if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(template_name)
-            {
+            if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(template_name) {
                 use crate::game_logic::host_stealth_fighter::stealth_fighter_weapon;
                 object.weapon = Some(stealth_fighter_weapon());
             }
@@ -10511,13 +10633,14 @@ impl GameLogic {
                     object.experience.level = target;
                     // Seed residual XP so level does not immediately drop on gain_experience.
                     if matches!(target, VeterancyLevel::Veteran) {
-                        object.experience.current =
-                            object.experience.current.max(1.0);
+                        object.experience.current = object.experience.current.max(1.0);
                     }
                     let _ = prev;
                     // Apply bonuses only if promoting from Rookie.
-                    if !matches!(prev, VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic)
-                    {
+                    if !matches!(
+                        prev,
+                        VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
+                    ) {
                         // Direct level set; apply_veterancy_bonuses is private — call gain path
                         // by using a public residual: re-apply via temporary if needed.
                         // Object::apply_pilot_recrew already handles merge; for spawn we set level
@@ -10540,7 +10663,9 @@ impl GameLogic {
             // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
             // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
             if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
-                use crate::game_logic::host_rpg_trooper::{has_ap_rockets_upgrade, rpg_trooper_weapon};
+                use crate::game_logic::host_rpg_trooper::{
+                    has_ap_rockets_upgrade, rpg_trooper_weapon,
+                };
                 let ap = has_ap_rockets_upgrade(&object.applied_upgrades);
                 object.weapon = Some(rpg_trooper_weapon(ap));
             }
@@ -11169,13 +11294,9 @@ impl GameLogic {
                             || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
                         let death_pos = obj.get_position();
                         let team = obj.team;
-                        let _ = self.toxin_tractor.spawn_death_field(
-                            event.id,
-                            team,
-                            death_pos,
-                            self.frame,
-                            anthrax,
-                        );
+                        let _ = self
+                            .toxin_tractor
+                            .spawn_death_field(event.id, team, death_pos, self.frame, anthrax);
                         self.queue_audio_event(
                             AudioEventRequest::new(
                                 crate::game_logic::host_toxin_tractor::TOXIN_POISON_AUDIO,
@@ -11201,13 +11322,9 @@ impl GameLogic {
                             || obj.has_upgrade_tag("Upgrade_GLABombTruckBioBomb");
                         let anthrax = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
                             || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
-                        let profile =
-                            BombTruckDetonationProfile::from_upgrades(he, bio, anthrax);
+                        let profile = BombTruckDetonationProfile::from_upgrades(he, bio, anthrax);
                         let _ = self.apply_bomb_truck_death_detonation_at(
-                            event.id,
-                            obj.team,
-                            death_pos,
-                            profile,
+                            event.id, obj.team, death_pos, profile,
                         );
                     }
                 }
@@ -11224,10 +11341,7 @@ impl GameLogic {
                     {
                         let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
                         let _ = self.apply_nuclear_tanks_death_detonation_at(
-                            event.id,
-                            obj.team,
-                            death_pos,
-                            nuke_gen,
+                            event.id, obj.team, death_pos, nuke_gen,
                         );
                     }
                 }
@@ -11235,13 +11349,7 @@ impl GameLogic {
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
                 if obj.status.booby_trapped || self.booby_trap.is_booby_trapped(event.id) {
-                    let _ = self.detonate_booby_trap_at(
-                        event.id,
-                        death_pos,
-                        None,
-                        false,
-                        true,
-                    );
+                    let _ = self.detonate_booby_trap_at(event.id, death_pos, None, false, true);
                 }
 
                 log::debug!(
@@ -12550,9 +12658,7 @@ impl GameLogic {
             .set_health(100.0)
             .set_cost(110, 0)
             .set_model("uirguard02") // China Tank Hunter (using guard model since citankht doesn't exist)
-            .set_primary_weapon_name(
-                super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
-            );
+            .set_primary_weapon_name(super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON);
         self.templates
             .insert("China_TankHunter".to_string(), china_tank_hunter);
 
@@ -12954,9 +13060,7 @@ impl GameLogic {
     }
 
     /// Mutable host ambush registry (tests / honesty drain).
-    pub fn host_ambushes_mut(
-        &mut self,
-    ) -> &mut crate::game_logic::host_ambush::HostAmbushRegistry {
+    pub fn host_ambushes_mut(&mut self) -> &mut crate::game_logic::host_ambush::HostAmbushRegistry {
         &mut self.host_ambushes
     }
 
@@ -13010,9 +13114,7 @@ impl GameLogic {
     }
 
     /// Host upgrade research registry (queue + complete residual).
-    pub fn host_upgrades(
-        &self,
-    ) -> &crate::game_logic::host_upgrades::HostUpgradeRegistry {
+    pub fn host_upgrades(&self) -> &crate::game_logic::host_upgrades::HostUpgradeRegistry {
         &self.host_upgrades
     }
 
@@ -13027,9 +13129,7 @@ impl GameLogic {
     /// Fail-closed: does not claim full Chinook/Worker INI boost matrix parity.
     pub fn honesty_supply_lines_economy_ok(&self) -> bool {
         self.supply_lines_bonus_cash_total > 0
-            && self
-                .host_upgrades
-                .honesty_supply_lines_complete_ok()
+            && self.host_upgrades.honesty_supply_lines_complete_ok()
     }
 
     /// Total residual cash credited from Supply Lines drop-off boost (observability).
@@ -13277,11 +13377,7 @@ impl GameLogic {
     /// Exit one unit from the team's tunnel network at `exit_tunnel`.
     /// Removes local occupant bookkeeping from the entry tunnel if different.
     /// Returns true when the unit was in the shared pool and was released.
-    pub fn exit_tunnel_network_unit(
-        &mut self,
-        unit_id: ObjectId,
-        exit_tunnel: ObjectId,
-    ) -> bool {
+    pub fn exit_tunnel_network_unit(&mut self, unit_id: ObjectId, exit_tunnel: ObjectId) -> bool {
         let Some(team) = self.tunnel_network.team_holding_unit(unit_id) else {
             return false;
         };
@@ -13564,7 +13660,9 @@ impl GameLogic {
         };
 
         // Ensure a payload template is available (retail or host seed).
-        if !self.templates.contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE)
+        if !self
+            .templates
+            .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE)
             && !self
                 .templates
                 .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT)
@@ -13780,8 +13878,7 @@ impl GameLogic {
 
     /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
     pub fn record_overlord_bunker_residual_exit(&mut self) {
-        self.overlord_bunker_residual_exits =
-            self.overlord_bunker_residual_exits.saturating_add(1);
+        self.overlord_bunker_residual_exits = self.overlord_bunker_residual_exits.saturating_add(1);
     }
 
     /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
@@ -13971,10 +14068,7 @@ impl GameLogic {
             .get(&defense_id)
             .map(|a| a.get_position())
             .unwrap_or(fire_pos);
-        let impact_pos = self
-            .objects
-            .get(&target_id)
-            .map(|t| t.get_position());
+        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
         let _ = self.combat_particles.spawn_weapon_fire_fx(
             muzzle_pos,
             impact_pos,
@@ -13998,8 +14092,7 @@ impl GameLogic {
                 .with_priority(160),
         );
 
-        self.base_defense_residual_fires =
-            self.base_defense_residual_fires.saturating_add(1);
+        self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
 
         // Per-structure residual honesty counters.
         if is_stinger {
@@ -14013,8 +14106,7 @@ impl GameLogic {
         }
         if is_patriot {
             if slot == 1 {
-                self.patriot_residual_aa_fires =
-                    self.patriot_residual_aa_fires.saturating_add(1);
+                self.patriot_residual_aa_fires = self.patriot_residual_aa_fires.saturating_add(1);
             } else {
                 self.patriot_residual_ground_fires =
                     self.patriot_residual_ground_fires.saturating_add(1);
@@ -14066,12 +14158,7 @@ impl GameLogic {
                 if obj.status.weapons_jammed {
                     return None;
                 }
-                Some((
-                    *id,
-                    obj.template_name.clone(),
-                    obj.team,
-                    obj.get_position(),
-                ))
+                Some((*id, obj.template_name.clone(), obj.team, obj.get_position()))
             })
             .collect();
 
@@ -14550,6 +14637,33 @@ impl GameLogic {
         self.comanche_antitank_residual_fires > 0
     }
 
+    /// Residual honesty: Helix PRIMARY minigun residual fired.
+    pub fn honesty_helix_minigun_ok(&self) -> bool {
+        self.helix_minigun_residual_fires > 0
+    }
+
+    pub fn helix_minigun_residual_fires(&self) -> u32 {
+        self.helix_minigun_residual_fires
+    }
+
+    pub fn helix_minigun_residual_units_hit(&self) -> u32 {
+        self.helix_minigun_residual_units_hit
+    }
+
+    /// Residual honesty: Inferno BlackNapalm upgraded fire field residual.
+    pub fn honesty_inferno_black_napalm_ok(&self) -> bool {
+        self.inferno_black_napalm_residual_upgrades > 0
+            || self.inferno_black_napalm_residual_zones > 0
+    }
+
+    pub fn inferno_black_napalm_residual_upgrades(&self) -> u32 {
+        self.inferno_black_napalm_residual_upgrades
+    }
+
+    pub fn inferno_black_napalm_residual_zones(&self) -> u32 {
+        self.inferno_black_napalm_residual_zones
+    }
+
     pub fn comanche_cannon_residual_fires(&self) -> u32 {
         self.comanche_cannon_residual_fires
     }
@@ -14607,8 +14721,7 @@ impl GameLogic {
 
     /// Residual honesty: Overlord / Emperor main gun dual-radius / Uranium residual.
     pub fn honesty_overlord_gun_ok(&self) -> bool {
-        self.overlord_gun_residual_fires > 0
-            || self.overlord_gun_residual_uranium_upgrades > 0
+        self.overlord_gun_residual_fires > 0 || self.overlord_gun_residual_uranium_upgrades > 0
     }
 
     pub fn honesty_overlord_gun_uranium_ok(&self) -> bool {
@@ -14625,8 +14738,7 @@ impl GameLogic {
 
     /// Residual honesty: Jarmen Kell sniper / AP Bullets residual.
     pub fn honesty_jarmen_kell_ok(&self) -> bool {
-        self.jarmen_kell_residual_fires > 0
-            || self.jarmen_kell_residual_ap_upgrades > 0
+        self.jarmen_kell_residual_fires > 0 || self.jarmen_kell_residual_ap_upgrades > 0
     }
 
     pub fn honesty_jarmen_kell_ap_ok(&self) -> bool {
@@ -14945,8 +15057,7 @@ impl GameLogic {
 
     /// Residual honesty: Dragon Tank flame residual fired or BlackNapalm applied.
     pub fn honesty_dragon_tank_ok(&self) -> bool {
-        self.dragon_tank_residual_fires > 0
-            || self.dragon_tank_residual_black_napalm_upgrades > 0
+        self.dragon_tank_residual_fires > 0 || self.dragon_tank_residual_black_napalm_upgrades > 0
     }
 
     pub fn honesty_dragon_tank_black_napalm_ok(&self) -> bool {
@@ -14971,8 +15082,7 @@ impl GameLogic {
     }
 
     pub fn honesty_gattling_tank_ramp_ok(&self) -> bool {
-        self.gattling_tank_residual_ramp_mean > 0
-            || self.gattling_tank_residual_ramp_fast > 0
+        self.gattling_tank_residual_ramp_mean > 0 || self.gattling_tank_residual_ramp_fast > 0
     }
 
     pub fn honesty_gattling_tank_aa_ok(&self) -> bool {
@@ -15388,9 +15498,8 @@ impl GameLogic {
 
         obj.weapon = Some(ground);
         obj.secondary_weapon = Some(air);
-        self.quad_cannon_residual_barrel_upgrades = self
-            .quad_cannon_residual_barrel_upgrades
-            .saturating_add(1);
+        self.quad_cannon_residual_barrel_upgrades =
+            self.quad_cannon_residual_barrel_upgrades.saturating_add(1);
         true
     }
 
@@ -15639,10 +15748,7 @@ impl GameLogic {
             (OVERLORD_GATTLING_AIR_DAMAGE * mult, true)
         } else {
             // Primary tank/minigun residual + passenger ground gattling residual.
-            (
-                primary_dmg + overlord_gattling_ground_damage(chain),
-                false,
-            )
+            (primary_dmg + overlord_gattling_ground_damage(chain), false)
         };
 
         let mut hits = 0u32;
@@ -15757,8 +15863,7 @@ impl GameLogic {
 
     /// Residual honesty: Overlord/Helix/Emperor propaganda addon residual.
     pub fn honesty_overlord_propaganda_ok(&self) -> bool {
-        self.overlord_addons.honesty_propaganda_install_ok()
-            || self.honesty_propaganda_heal_ok()
+        self.overlord_addons.honesty_propaganda_install_ok() || self.honesty_propaganda_heal_ok()
     }
 
     /// Residual honesty: Helix transport residual.
@@ -15847,9 +15952,8 @@ impl GameLogic {
 
         let name = technical_weapon_name_for_tier(tier);
         let (dmg, range, min_range, delay, _splash) = technical_weapon_stats(tier);
-        let mut weapon = ThingTemplate::weapon_from_store(name).unwrap_or_else(|| {
-            technical_weapon_for_tier(tier)
-        });
+        let mut weapon = ThingTemplate::weapon_from_store(name)
+            .unwrap_or_else(|| technical_weapon_for_tier(tier));
         // Force residual stats (store may lack min-range / reload).
         weapon.damage = dmg;
         weapon.range = range;
@@ -15860,10 +15964,8 @@ impl GameLogic {
         obj.weapon = Some(weapon);
 
         // Tag residual crate upgrade for tier inference.
-        obj.applied_upgrades
-            .remove("WEAPONSET_CRATEUPGRADE_ONE");
-        obj.applied_upgrades
-            .remove("WEAPONSET_CRATEUPGRADE_TWO");
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
         match tier {
             crate::game_logic::host_technical::TechnicalWeaponTier::One => {
                 obj.applied_upgrades
@@ -15876,9 +15978,8 @@ impl GameLogic {
             crate::game_logic::host_technical::TechnicalWeaponTier::Base => {}
         }
 
-        self.technical_residual_weapon_upgrades = self
-            .technical_residual_weapon_upgrades
-            .saturating_add(1);
+        self.technical_residual_weapon_upgrades =
+            self.technical_residual_weapon_upgrades.saturating_add(1);
         true
     }
 
@@ -15891,7 +15992,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_technical::{
             is_legal_technical_splash_target, is_technical_template, technical_splash_damage_at,
-            technical_weapon_stats, TECH_FIRE_AUDIO, TechnicalWeaponTier,
+            technical_weapon_stats, TechnicalWeaponTier, TECH_FIRE_AUDIO,
         };
 
         let tier = source
@@ -15964,8 +16065,7 @@ impl GameLogic {
         }
 
         self.technical_residual_fires = self.technical_residual_fires.saturating_add(1);
-        self.technical_residual_units_hit =
-            self.technical_residual_units_hit.saturating_add(hits);
+        self.technical_residual_units_hit = self.technical_residual_units_hit.saturating_add(hits);
 
         self.queue_audio_event(
             AudioEventRequest::new(TECH_FIRE_AUDIO)
@@ -16031,6 +16131,27 @@ impl GameLogic {
             }
         }
         MarauderWeaponTier::Base
+    }
+
+    /// Apply BlackNapalm residual to an Inferno Cannon (PLAYER_UPGRADE fire field residual).
+    ///
+    /// Tags the unit so subsequent shell impacts spawn FireFieldUpgradedSmall
+    /// residual (7.5 dmg/tick). Fail-closed: not HistoricBonus Firestorm matrix.
+    pub fn apply_inferno_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_dragon_tank::UPGRADE_CHINA_BLACK_NAPALM;
+        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_inferno_cannon_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
+        self.inferno_black_napalm_residual_upgrades = self
+            .inferno_black_napalm_residual_upgrades
+            .saturating_add(1);
+        true
     }
 
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
@@ -16156,25 +16277,22 @@ impl GameLogic {
         let pos = obj.get_position();
 
         if slot == 1 {
-            self.gattling_building_residual_aa_fires = self
-                .gattling_building_residual_aa_fires
-                .saturating_add(1);
+            self.gattling_building_residual_aa_fires =
+                self.gattling_building_residual_aa_fires.saturating_add(1);
         } else {
             self.gattling_building_residual_ground_fires = self
                 .gattling_building_residual_ground_fires
                 .saturating_add(1);
         }
         if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
-            self.gattling_building_residual_ramp_mean = self
-                .gattling_building_residual_ramp_mean
-                .saturating_add(1);
+            self.gattling_building_residual_ramp_mean =
+                self.gattling_building_residual_ramp_mean.saturating_add(1);
         }
         let became_fast = entered_fast
             || (new_level == GattlingFireLevel::Fast && prev_level != GattlingFireLevel::Fast);
         if became_fast {
-            self.gattling_building_residual_ramp_fast = self
-                .gattling_building_residual_ramp_fast
-                .saturating_add(1);
+            self.gattling_building_residual_ramp_fast =
+                self.gattling_building_residual_ramp_fast.saturating_add(1);
             self.queue_audio_event(
                 AudioEventRequest::new(GATTLING_BUILDING_RAPID_FIRE_AUDIO)
                     .with_object(attacker_id)
@@ -16224,8 +16342,7 @@ impl GameLogic {
         obj.continuous_fire_level = new_level.as_u8();
         obj.continuous_fire_consecutive = consecutive;
         obj.continuous_fire_victim = new_victim.unwrap_or(0);
-        obj.continuous_fire_coast_until_frame =
-            gattling_coast_until_after_shot(frame, new_level);
+        obj.continuous_fire_coast_until_frame = gattling_coast_until_after_shot(frame, new_level);
 
         // Rebind weapons with ramped reload residual.
         if let Some(w) = obj.weapon.as_mut() {
@@ -16251,9 +16368,8 @@ impl GameLogic {
             self.gattling_tank_residual_aa_fires =
                 self.gattling_tank_residual_aa_fires.saturating_add(1);
         } else {
-            self.gattling_tank_residual_ground_fires = self
-                .gattling_tank_residual_ground_fires
-                .saturating_add(1);
+            self.gattling_tank_residual_ground_fires =
+                self.gattling_tank_residual_ground_fires.saturating_add(1);
         }
         if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
             self.gattling_tank_residual_ramp_mean =
@@ -16532,10 +16648,8 @@ impl GameLogic {
         weapon.can_target_air = false;
         obj.weapon = Some(weapon);
 
-        obj.applied_upgrades
-            .remove("WEAPONSET_CRATEUPGRADE_ONE");
-        obj.applied_upgrades
-            .remove("WEAPONSET_CRATEUPGRADE_TWO");
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
         match tier {
             crate::game_logic::host_marauder::MarauderWeaponTier::One => {
                 obj.applied_upgrades
@@ -16548,9 +16662,8 @@ impl GameLogic {
             crate::game_logic::host_marauder::MarauderWeaponTier::Base => {}
         }
 
-        self.marauder_residual_weapon_upgrades = self
-            .marauder_residual_weapon_upgrades
-            .saturating_add(1);
+        self.marauder_residual_weapon_upgrades =
+            self.marauder_residual_weapon_upgrades.saturating_add(1);
         true
     }
 
@@ -16634,8 +16747,7 @@ impl GameLogic {
         }
 
         self.marauder_residual_fires = self.marauder_residual_fires.saturating_add(1);
-        self.marauder_residual_units_hit =
-            self.marauder_residual_units_hit.saturating_add(hits);
+        self.marauder_residual_units_hit = self.marauder_residual_units_hit.saturating_add(hits);
 
         self.queue_audio_event(
             AudioEventRequest::new(MARAUDER_FIRE_AUDIO)
@@ -16714,9 +16826,8 @@ impl GameLogic {
             obj.secondary_weapon = Some(missile);
         }
 
-        self.scorpion_residual_salvage_upgrades = self
-            .scorpion_residual_salvage_upgrades
-            .saturating_add(1);
+        self.scorpion_residual_salvage_upgrades =
+            self.scorpion_residual_salvage_upgrades.saturating_add(1);
         true
     }
 
@@ -16738,9 +16849,8 @@ impl GameLogic {
         let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
         obj.secondary_weapon = Some(scorpion_missile_weapon(ap, tier.dual_missile_clip()));
-        self.scorpion_residual_rocket_upgrades = self
-            .scorpion_residual_rocket_upgrades
-            .saturating_add(1);
+        self.scorpion_residual_rocket_upgrades =
+            self.scorpion_residual_rocket_upgrades.saturating_add(1);
         true
     }
 
@@ -16877,12 +16987,10 @@ impl GameLogic {
         }
 
         self.scorpion_residual_fires = self.scorpion_residual_fires.saturating_add(1);
-        self.scorpion_residual_units_hit =
-            self.scorpion_residual_units_hit.saturating_add(hits);
+        self.scorpion_residual_units_hit = self.scorpion_residual_units_hit.saturating_add(hits);
         if is_missile {
-            self.scorpion_residual_missile_fires = self
-                .scorpion_residual_missile_fires
-                .saturating_add(1);
+            self.scorpion_residual_missile_fires =
+                self.scorpion_residual_missile_fires.saturating_add(1);
         }
 
         let audio = if is_missile {
@@ -16987,8 +17095,7 @@ impl GameLogic {
         }
 
         self.tomahawk_residual_fires = self.tomahawk_residual_fires.saturating_add(1);
-        self.tomahawk_residual_units_hit =
-            self.tomahawk_residual_units_hit.saturating_add(hits);
+        self.tomahawk_residual_units_hit = self.tomahawk_residual_units_hit.saturating_add(hits);
 
         self.queue_audio_event(
             AudioEventRequest::new(TOMAHAWK_FIRE_AUDIO)
@@ -17018,12 +17125,11 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-
     /// Apply Laser Missiles residual tag + rebind Raptor jet missile damage.
     pub fn apply_raptor_laser_missiles_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_raptor::{
-            has_laser_missiles_upgrade, is_king_raptor_template, is_raptor_template,
-            raptor_weapon, UPGRADE_AMERICA_LASER_MISSILES,
+            has_laser_missiles_upgrade, is_king_raptor_template, is_raptor_template, raptor_weapon,
+            UPGRADE_AMERICA_LASER_MISSILES,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -17165,7 +17271,6 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-
     /// Apply Stealth Fighter residual fire (intended + primary splash) + bunker-buster structure path.
     fn apply_stealth_fighter_residual_at(
         &mut self,
@@ -17278,8 +17383,7 @@ impl GameLogic {
             }
         }
 
-        self.stealth_fighter_residual_fires =
-            self.stealth_fighter_residual_fires.saturating_add(1);
+        self.stealth_fighter_residual_fires = self.stealth_fighter_residual_fires.saturating_add(1);
         self.stealth_fighter_residual_units_hit =
             self.stealth_fighter_residual_units_hit.saturating_add(hits);
 
@@ -17369,8 +17473,7 @@ impl GameLogic {
             self.mark_object_for_destruction(id, killer);
         }
 
-        self.comanche_cannon_residual_fires =
-            self.comanche_cannon_residual_fires.saturating_add(1);
+        self.comanche_cannon_residual_fires = self.comanche_cannon_residual_fires.saturating_add(1);
         self.comanche_cannon_residual_units_hit =
             self.comanche_cannon_residual_units_hit.saturating_add(hits);
 
@@ -17391,6 +17494,96 @@ impl GameLogic {
                 intended_target,
             );
             let _ = is_comanche_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Helix PRIMARY minigun residual (intended-only, dmg 6).
+    fn apply_helix_minigun_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_helix_minigun::{
+            is_legal_helix_minigun_target, HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_FIRE_AUDIO,
+        };
+        use crate::game_logic::host_overlord_addons::is_helix_template;
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+        let dmg = source
+            .and_then(|sid| self.objects.get(&sid))
+            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+            .unwrap_or(HELIX_MINIGUN_DAMAGE);
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        if let Some(tid) = intended_target {
+            let legal = self
+                .objects
+                .get(&tid)
+                .map(|obj| {
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    is_legal_helix_minigun_target(
+                        obj.is_alive(),
+                        source == Some(tid),
+                        obj.status.under_construction,
+                        combat_kind,
+                    )
+                })
+                .unwrap_or(false);
+            if legal {
+                if let Some(obj) = self.objects.get_mut(&tid) {
+                    let destroyed = obj.take_damage(dmg);
+                    hits = 1;
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((tid, Some(source_team)));
+                    }
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.helix_minigun_residual_fires = self.helix_minigun_residual_fires.saturating_add(1);
+        self.helix_minigun_residual_units_hit =
+            self.helix_minigun_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(HELIX_MINIGUN_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(130),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_helix_template(
                 &self
                     .objects
                     .get(&sid)
@@ -17479,8 +17672,9 @@ impl GameLogic {
 
         self.comanche_antitank_residual_fires =
             self.comanche_antitank_residual_fires.saturating_add(1);
-        self.comanche_antitank_residual_units_hit =
-            self.comanche_antitank_residual_units_hit.saturating_add(hits);
+        self.comanche_antitank_residual_units_hit = self
+            .comanche_antitank_residual_units_hit
+            .saturating_add(hits);
 
         self.queue_audio_event(
             AudioEventRequest::new(COMANCHE_AT_FIRE_AUDIO)
@@ -17703,10 +17897,7 @@ impl GameLogic {
             if !is_overlord_gun_chassis(&obj.template_name) {
                 return (0, false);
             }
-            (
-                obj.team,
-                has_uranium_shells_upgrade(&obj.applied_upgrades),
-            )
+            (obj.team, has_uranium_shells_upgrade(&obj.applied_upgrades))
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -17813,9 +18004,8 @@ impl GameLogic {
             w.last_fire_time = old.last_fire_time;
         }
         obj.weapon = Some(w);
-        self.jarmen_kell_residual_ap_upgrades = self
-            .jarmen_kell_residual_ap_upgrades
-            .saturating_add(1);
+        self.jarmen_kell_residual_ap_upgrades =
+            self.jarmen_kell_residual_ap_upgrades.saturating_add(1);
         true
     }
 
@@ -17956,17 +18146,14 @@ impl GameLogic {
 
     /// Apply Nationalism residual tag (ROF stacks with horde when active).
     pub fn apply_battlemaster_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::{
-            is_battlemaster_template, UPGRADE_NATIONALISM,
-        };
+        use crate::game_logic::host_battlemaster::{is_battlemaster_template, UPGRADE_NATIONALISM};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
         if !is_battlemaster_template(&obj.template_name) {
             return false;
         }
-        obj.applied_upgrades
-            .insert(UPGRADE_NATIONALISM.to_string());
+        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
         self.battlemaster_residual_nationalism_upgrades = self
             .battlemaster_residual_nationalism_upgrades
             .saturating_add(1);
@@ -18240,8 +18427,7 @@ impl GameLogic {
         if !is_red_guard_template(&obj.template_name) {
             return false;
         }
-        obj.applied_upgrades
-            .insert(UPGRADE_NATIONALISM.to_string());
+        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
         self.red_guard_residual_nationalism_upgrades = self
             .red_guard_residual_nationalism_upgrades
             .saturating_add(1);
@@ -18259,8 +18445,7 @@ impl GameLogic {
         if !is_tank_hunter_template(&obj.template_name) {
             return false;
         }
-        obj.applied_upgrades
-            .insert(UPGRADE_NATIONALISM.to_string());
+        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
         self.tank_hunter_residual_nationalism_upgrades = self
             .tank_hunter_residual_nationalism_upgrades
             .saturating_add(1);
@@ -18278,8 +18463,7 @@ impl GameLogic {
         if !is_minigunner_template(&obj.template_name) {
             return false;
         }
-        obj.applied_upgrades
-            .insert(UPGRADE_NATIONALISM.to_string());
+        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
         self.minigunner_residual_nationalism_upgrades = self
             .minigunner_residual_nationalism_upgrades
             .saturating_add(1);
@@ -18340,14 +18524,7 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                Some((
-                    *id,
-                    o.team,
-                    p.x,
-                    p.z,
-                    o.is_alive(),
-                    o.template_name.clone(),
-                ))
+                Some((*id, o.team, p.x, p.z, o.is_alive(), o.template_name.clone()))
             })
             .collect();
 
@@ -18430,8 +18607,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_red_guard::{
-            should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
-            REDGUARD_FIRE_AUDIO, distance_2d,
+            distance_2d, should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_FIRE_AUDIO,
+            REDGUARD_DAMAGE, REDGUARD_FIRE_AUDIO,
         };
 
         let source_team = source
@@ -18717,8 +18894,7 @@ impl GameLogic {
 
             self.ranger_residual_flashbang_fires =
                 self.ranger_residual_flashbang_fires.saturating_add(1);
-            self.ranger_residual_units_hit =
-                self.ranger_residual_units_hit.saturating_add(hits);
+            self.ranger_residual_units_hit = self.ranger_residual_units_hit.saturating_add(hits);
 
             self.queue_audio_event(
                 AudioEventRequest::new(RANGER_FLASHBANG_FIRE_AUDIO)
@@ -18762,10 +18938,8 @@ impl GameLogic {
                 }
             }
 
-            self.ranger_residual_rifle_fires =
-                self.ranger_residual_rifle_fires.saturating_add(1);
-            self.ranger_residual_units_hit =
-                self.ranger_residual_units_hit.saturating_add(hits);
+            self.ranger_residual_rifle_fires = self.ranger_residual_rifle_fires.saturating_add(1);
+            self.ranger_residual_units_hit = self.ranger_residual_units_hit.saturating_add(hits);
 
             self.queue_audio_event(
                 AudioEventRequest::new(RANGER_RIFLE_FIRE_AUDIO)
@@ -18873,7 +19047,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, is_legal_minigunner_target, minigunner_damage_with_chain_guns,
-            MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_FIRE_AUDIO,
+            MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_FIRE_AUDIO,
             MINIGUNNER_GROUND_DAMAGE,
         };
 
@@ -18926,8 +19100,7 @@ impl GameLogic {
         }
 
         if slot == 1 {
-            self.minigunner_residual_aa_fires =
-                self.minigunner_residual_aa_fires.saturating_add(1);
+            self.minigunner_residual_aa_fires = self.minigunner_residual_aa_fires.saturating_add(1);
         } else {
             self.minigunner_residual_ground_fires =
                 self.minigunner_residual_ground_fires.saturating_add(1);
@@ -18987,8 +19160,7 @@ impl GameLogic {
         let new_victim = target_id.map(|id| id.0);
         let coast_until = obj.continuous_fire_coast_until_frame;
         let in_horde = obj.weapon_bonus_horde;
-        let nationalism =
-            has_nationalism_upgrade(&obj.applied_upgrades) && in_horde;
+        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades) && in_horde;
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
 
         let (new_level, consecutive, entered_fast) = minigunner_on_shot_fired(
@@ -19109,11 +19281,9 @@ impl GameLogic {
         }
 
         if knife {
-            self.burton_residual_knife_kills =
-                self.burton_residual_knife_kills.saturating_add(1);
+            self.burton_residual_knife_kills = self.burton_residual_knife_kills.saturating_add(1);
         } else {
-            self.burton_residual_sniper_fires =
-                self.burton_residual_sniper_fires.saturating_add(1);
+            self.burton_residual_sniper_fires = self.burton_residual_sniper_fires.saturating_add(1);
         }
 
         let audio = if knife {
@@ -19162,7 +19332,9 @@ impl GameLogic {
 
     /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
     pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_rpg_trooper::{is_rpg_trooper_template, UPGRADE_GLA_AP_ROCKETS};
+        use crate::game_logic::host_rpg_trooper::{
+            is_rpg_trooper_template, UPGRADE_GLA_AP_ROCKETS,
+        };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
@@ -19290,8 +19462,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_terrorist::{
-            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at, TERRORIST_DETONATE_AUDIO,
-            SUICIDE_DYNAMITE_SECONDARY_RADIUS,
+            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at,
+            SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_DETONATE_AUDIO,
         };
 
         let Some(source_id) = source else {
@@ -19376,10 +19548,8 @@ impl GameLogic {
         }
         self.mark_object_for_destruction(source_id, Some(source_team));
 
-        self.terrorist_residual_detonations =
-            self.terrorist_residual_detonations.saturating_add(1);
-        self.terrorist_residual_units_hit =
-            self.terrorist_residual_units_hit.saturating_add(hits);
+        self.terrorist_residual_detonations = self.terrorist_residual_detonations.saturating_add(1);
+        self.terrorist_residual_units_hit = self.terrorist_residual_units_hit.saturating_add(hits);
         self.terrorist_residual_damage_dealt += damage_dealt;
 
         self.queue_audio_event(
@@ -19492,8 +19662,9 @@ impl GameLogic {
 
         self.missile_defender_residual_fires =
             self.missile_defender_residual_fires.saturating_add(1);
-        self.missile_defender_residual_units_hit =
-            self.missile_defender_residual_units_hit.saturating_add(hits);
+        self.missile_defender_residual_units_hit = self
+            .missile_defender_residual_units_hit
+            .saturating_add(hits);
         if laser_slot {
             self.missile_defender_residual_laser_fires =
                 self.missile_defender_residual_laser_fires.saturating_add(1);
@@ -19537,8 +19708,10 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return false;
         };
-        if !can_activate_laser_guided(is_missile_defender_template(&obj.template_name), obj.is_alive())
-        {
+        if !can_activate_laser_guided(
+            is_missile_defender_template(&obj.template_name),
+            obj.is_alive(),
+        ) {
             return false;
         }
         if obj.secondary_weapon.is_none() {
@@ -19632,9 +19805,8 @@ impl GameLogic {
             obj.secondary_weapon = None;
         }
 
-        self.combat_cycle_residual_rider_switches = self
-            .combat_cycle_residual_rider_switches
-            .saturating_add(1);
+        self.combat_cycle_residual_rider_switches =
+            self.combat_cycle_residual_rider_switches.saturating_add(1);
         true
     }
 
@@ -19924,7 +20096,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
             is_legal_toxin_target, toxin_stream_damage, toxin_stream_damage_at,
-            TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS, ToxinTractorSalvageTier,
+            ToxinTractorSalvageTier, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
             UPGRADE_GLA_ANTHRAX_BETA,
         };
 
@@ -20218,8 +20390,8 @@ impl GameLogic {
         source: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
-            is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance,
-            ROCKET_POD_AUDIO, ROCKET_POD_SECONDARY_RADIUS,
+            is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance, ROCKET_POD_AUDIO,
+            ROCKET_POD_SECONDARY_RADIUS,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -20347,8 +20519,7 @@ impl GameLogic {
                 || obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Aircraft);
-            let stealthed_hidden =
-                obj.is_effectively_stealthed() && obj.team != team;
+            let stealthed_hidden = obj.is_effectively_stealthed() && obj.team != team;
             if !is_legal_sentry_auto_fire_target(
                 obj.is_alive(),
                 obj.team == team,
@@ -20464,8 +20635,7 @@ impl GameLogic {
                 || obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Aircraft);
-            let stealthed_hidden =
-                obj.is_effectively_stealthed() && obj.team != team;
+            let stealthed_hidden = obj.is_effectively_stealthed() && obj.team != team;
             if !is_legal_hellfire_auto_fire_target(
                 obj.is_alive(),
                 obj.team == team,
@@ -20564,7 +20734,11 @@ impl GameLogic {
             if !is_slave_drone_master_template(&master.template_name) {
                 return None;
             }
-            (master.team, master.get_position(), master.template_name.clone())
+            (
+                master.team,
+                master.get_position(),
+                master.template_name.clone(),
+            )
         };
         let _ = master_name;
 
@@ -20896,8 +21070,7 @@ impl GameLogic {
             self.mark_object_for_destruction(id, Some(caster_team));
         }
 
-        self.neutron_shell_residual_blasts =
-            self.neutron_shell_residual_blasts.saturating_add(1);
+        self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
         self.neutron_shell_residual_infantry_kills = self
             .neutron_shell_residual_infantry_kills
             .saturating_add(infantry_kills);
@@ -21192,8 +21365,7 @@ impl GameLogic {
 
     /// Record a vehicle/aircraft pad heal tick from SeekingRepair residual.
     pub fn record_vehicle_repair_residual_heal(&mut self) {
-        self.repair_residual_vehicle_heals =
-            self.repair_residual_vehicle_heals.saturating_add(1);
+        self.repair_residual_vehicle_heals = self.repair_residual_vehicle_heals.saturating_add(1);
     }
 
     /// Residual structure repair honesty: command issued and at least one HP heal tick.
@@ -21225,14 +21397,12 @@ impl GameLogic {
 
     /// Record an ambulance radius AutoHeal infantry HP tick.
     pub fn record_ambulance_residual_heal(&mut self) {
-        self.heal_residual_ambulance_heals =
-            self.heal_residual_ambulance_heals.saturating_add(1);
+        self.heal_residual_ambulance_heals = self.heal_residual_ambulance_heals.saturating_add(1);
     }
 
     /// Record a HealPad SeekingHealing HP tick.
     pub fn record_heal_pad_residual_heal(&mut self) {
-        self.heal_residual_heal_pad_heals =
-            self.heal_residual_heal_pad_heals.saturating_add(1);
+        self.heal_residual_heal_pad_heals = self.heal_residual_heal_pad_heals.saturating_add(1);
     }
 
     /// Residual ambulance infantry heal honesty: at least one radius AutoHeal tick.
@@ -21299,9 +21469,7 @@ impl GameLogic {
     }
 
     /// Host Microwave Tank residual registry (disable structure honesty).
-    pub fn microwave_residual(
-        &self,
-    ) -> &crate::game_logic::host_microwave::HostMicrowaveRegistry {
+    pub fn microwave_residual(&self) -> &crate::game_logic::host_microwave::HostMicrowaveRegistry {
         &self.microwaves
     }
 
@@ -21392,11 +21560,12 @@ impl GameLogic {
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let is_faction_structure = is_structure && obj.is_faction_structure();
                 let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
-                let is_airborne = obj.status.airborne_target || is_aircraft && {
-                    // Host residual: treat Aircraft KindOf above ground as airborne
-                    // when airborne_target is set; ground aircraft use status only.
-                    obj.status.airborne_target
-                };
+                let is_airborne = obj.status.airborne_target
+                    || is_aircraft && {
+                        // Host residual: treat Aircraft KindOf above ground as airborne
+                        // when airborne_target is set; ground aircraft use status only.
+                        obj.status.airborne_target
+                    };
                 let is_spawns = obj
                     .template_name
                     .to_ascii_lowercase()
@@ -21580,9 +21749,8 @@ impl GameLogic {
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let same_team = obj.team == caster_team;
                 // Residual CAN_ATTACK: has weapon binding or can_attack residual path.
-                let can_attack = obj.can_attack()
-                    || obj.weapon.is_some()
-                    || obj.secondary_weapon.is_some();
+                let can_attack =
+                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 Some((*id, is_structure, same_team, can_attack, under_construction))
@@ -21666,9 +21834,7 @@ impl GameLogic {
     }
 
     /// Host Cleanup Area residual registry (activate + honesty).
-    pub fn cleanup_areas(
-        &self,
-    ) -> &crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry {
+    pub fn cleanup_areas(&self) -> &crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry {
         &self.cleanup_areas
     }
 
@@ -21718,9 +21884,7 @@ impl GameLogic {
             let cpos = caster.get_position();
             let dx = cpos.x - location.x;
             let dz = cpos.z - location.z;
-            if dx * dx + dz * dz
-                > HOST_CLEANUP_MAX_MOVE_DISTANCE * HOST_CLEANUP_MAX_MOVE_DISTANCE
-            {
+            if dx * dx + dz * dz > HOST_CLEANUP_MAX_MOVE_DISTANCE * HOST_CLEANUP_MAX_MOVE_DISTANCE {
                 return false;
             }
         }
@@ -21894,17 +22058,18 @@ impl GameLogic {
         }
 
         let entry_id = self.emergency_repairs.alloc_id();
-        self.emergency_repairs.record_activation(HostEmergencyRepair {
-            id: entry_id,
-            player_id,
-            location,
-            radius: HOST_EMERGENCY_REPAIR_RADIUS,
-            level,
-            activate_frame: frame,
-            caster_id,
-            heals,
-            heal_amount_total,
-        });
+        self.emergency_repairs
+            .record_activation(HostEmergencyRepair {
+                id: entry_id,
+                player_id,
+                location,
+                radius: HOST_EMERGENCY_REPAIR_RADIUS,
+                level,
+                activate_frame: frame,
+                caster_id,
+                heals,
+                heal_amount_total,
+            });
 
         self.queue_audio_event(
             AudioEventRequest::new(EMERGENCY_REPAIR_ACTIVATE_AUDIO)
@@ -21962,8 +22127,9 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_gps_scrambler::{
-            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name, is_legal_gps_scrambler_target,
-            HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
+            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
+            is_legal_gps_scrambler_target, HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO,
+            HOST_GPS_SCRAMBLER_RADIUS,
         };
 
         let frame = self.frame;
@@ -22009,7 +22175,8 @@ impl GameLogic {
             .collect();
 
         let mut grants: u32 = 0;
-        for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in candidates {
+        for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in candidates
+        {
             if !is_legal_gps_scrambler_target(
                 is_vehicle,
                 is_infantry,
@@ -22121,8 +22288,7 @@ impl GameLogic {
                 if obj.status.under_construction {
                     return None;
                 }
-                let has_weapon =
-                    obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                let has_weapon = obj.weapon.is_some() || obj.secondary_weapon.is_some();
                 if !has_weapon {
                     return None;
                 }
@@ -22240,8 +22406,8 @@ impl GameLogic {
             if !target.is_alive() {
                 continue;
             }
-            let is_structure = target.is_kind_of(KindOf::Structure)
-                || target.object_type == ObjectType::Building;
+            let is_structure =
+                target.is_kind_of(KindOf::Structure) || target.object_type == ObjectType::Building;
             let same_team = *cooker_team == target.team;
             let target_neutral = target.team == Team::Neutral;
             let cooker_neutral = *cooker_team == Team::Neutral;
@@ -22256,11 +22422,7 @@ impl GameLogic {
                 continue;
             }
             let tpos = target.get_position();
-            if !in_microwave_range_2d(
-                (*cx, *cz),
-                (tpos.x, tpos.z),
-                HOST_MICROWAVE_DISABLE_RANGE,
-            ) {
+            if !in_microwave_range_2d((*cx, *cz), (tpos.x, tpos.z), HOST_MICROWAVE_DISABLE_RANGE) {
                 continue;
             }
             if !should_microwave_disable(true, true, true, true, true, true) {
@@ -22307,8 +22469,7 @@ impl GameLogic {
         for _ in 0..refresh_ticks {
             self.microwaves.record_disable_refresh();
         }
-        self.microwaves
-            .set_currently_disabled(covered.len() as u32);
+        self.microwaves.set_currently_disabled(covered.len() as u32);
 
         if new_grants > 0 {
             if let Some(pos) = first_grant_pos {
@@ -22446,8 +22607,7 @@ impl GameLogic {
                 ) {
                     continue;
                 }
-                if !in_propaganda_radius_2d((*tx, *tz), (*cx, *cz), HOST_PROPAGANDA_TOWER_RADIUS)
-                {
+                if !in_propaganda_radius_2d((*tx, *tz), (*cx, *cz), HOST_PROPAGANDA_TOWER_RADIUS) {
                     continue;
                 }
                 let entry = coverage.entry(*target_id).or_insert((false, false));
@@ -22663,9 +22823,7 @@ impl GameLogic {
     }
 
     /// Host black market residual registry (deposits + honesty).
-    pub fn black_markets(
-        &self,
-    ) -> &crate::game_logic::host_black_market::HostBlackMarketRegistry {
+    pub fn black_markets(&self) -> &crate::game_logic::host_black_market::HostBlackMarketRegistry {
         &self.black_markets
     }
 
@@ -22675,9 +22833,7 @@ impl GameLogic {
     }
 
     /// Host oil derrick residual registry (deposits + capture bonus + honesty).
-    pub fn oil_derricks(
-        &self,
-    ) -> &crate::game_logic::host_oil_derrick::HostOilDerrickRegistry {
+    pub fn oil_derricks(&self) -> &crate::game_logic::host_oil_derrick::HostOilDerrickRegistry {
         &self.oil_derricks
     }
 
@@ -22721,17 +22877,13 @@ impl GameLogic {
     // -----------------------------------------------------------------------
 
     /// Host car-bomb / hijack residual registry (honesty counters).
-    pub fn car_bomb_residual(
-        &self,
-    ) -> &crate::game_logic::host_car_bomb::HostCarBombRegistry {
+    pub fn car_bomb_residual(&self) -> &crate::game_logic::host_car_bomb::HostCarBombRegistry {
         &self.car_bomb
     }
 
     /// Residual honesty: at least one hijack transferred a vehicle.
     /// Host USA Pilot residual registry.
-    pub fn usa_pilot_residual(
-        &self,
-    ) -> &crate::game_logic::host_usa_pilot::HostUsaPilotRegistry {
+    pub fn usa_pilot_residual(&self) -> &crate::game_logic::host_usa_pilot::HostUsaPilotRegistry {
         &self.usa_pilot
     }
 
@@ -23075,12 +23227,9 @@ impl GameLogic {
 
         self.nuclear_tanks
             .record_death_detonation(blast_hits, nuke_general);
-        let _ = self.nuclear_tanks.spawn_radiation_zone(
-            tank_id,
-            tank_team,
-            tank_pos,
-            self.frame,
-        );
+        let _ = self
+            .nuclear_tanks
+            .spawn_radiation_zone(tank_id, tank_team, tank_pos, self.frame);
 
         self.queue_audio_event(
             AudioEventRequest::new(NUCLEAR_TANK_DEATH_AUDIO)
@@ -23197,8 +23346,8 @@ impl GameLogic {
         via_death: bool,
     ) -> u32 {
         use crate::game_logic::host_booby_trap::{
-            booby_trap_damage_at, booby_trap_splash_radius, is_legal_booby_victim,
-            is_planter_ally, BOOBY_TRAP_DETONATE_AUDIO,
+            booby_trap_damage_at, booby_trap_splash_radius, is_legal_booby_victim, is_planter_ally,
+            BOOBY_TRAP_DETONATE_AUDIO,
         };
 
         let Some(plant) = self.booby_trap.take_plant(structure_id) else {
@@ -23357,12 +23506,7 @@ impl GameLogic {
             }
             let black = obj.has_upgrade_tag(UPGRADE_CHINA_BLACK_NAPALM)
                 || obj.has_upgrade_tag("Upgrade_ChinaBlackNapalm");
-            (
-                obj.team,
-                obj.template_name.clone(),
-                black,
-                unlocked,
-            )
+            (obj.team, obj.template_name.clone(), black, unlocked)
         };
         let _ = (template_name, unlocked);
 
@@ -24011,13 +24155,7 @@ impl GameLogic {
                     }
                 };
                 shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
-                shroud_mgr.queue_undo_shroud_reveal(
-                    &center,
-                    radius,
-                    player_mask,
-                    duration,
-                    frame,
-                );
+                shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
                 let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
                 if !visible {
                     for bit in 0..32u32 {
@@ -24045,19 +24183,20 @@ impl GameLogic {
         }
 
         let act_id = self.cia_intelligence.alloc_id();
-        self.cia_intelligence.record_activation(HostCiaIntelligence {
-            id: act_id,
-            player_id,
-            player_mask,
-            spying_team: team,
-            activate_frame: frame,
-            expires_frame,
-            caster_id,
-            spied_units,
-            vision_spied_ok: any_vision_spied,
-            fow_reveal_ok: any_fow,
-            detect_ok: any_detect,
-        });
+        self.cia_intelligence
+            .record_activation(HostCiaIntelligence {
+                id: act_id,
+                player_id,
+                player_mask,
+                spying_team: team,
+                activate_frame: frame,
+                expires_frame,
+                caster_id,
+                spied_units,
+                vision_spied_ok: any_vision_spied,
+                fow_reveal_ok: any_fow,
+                detect_ok: any_detect,
+            });
 
         self.queue_audio_event(
             AudioEventRequest::new(CIA_INTELLIGENCE_ACTIVATE_AUDIO)
@@ -24185,7 +24324,9 @@ impl GameLogic {
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
-        let plans = self.fire_walls.plan_due_ticks(self.frame, &object_positions);
+        let plans = self
+            .fire_walls
+            .plan_due_ticks(self.frame, &object_positions);
         let frame = self.frame;
 
         for plan in plans {
@@ -24271,13 +24412,13 @@ impl GameLogic {
         };
 
         let frame = self.frame;
-        let id = self.inferno_fire_zones.spawn_zone(
-            source_object,
-            source_team,
-            impact,
-            frame,
-            upgraded,
-        );
+        let id =
+            self.inferno_fire_zones
+                .spawn_zone(source_object, source_team, impact, frame, upgraded);
+        if upgraded {
+            self.inferno_black_napalm_residual_zones =
+                self.inferno_black_napalm_residual_zones.saturating_add(1);
+        }
 
         self.queue_audio_event(
             AudioEventRequest::new(INFERNO_CANNON_FIRE_AUDIO)
@@ -24455,9 +24596,9 @@ impl GameLogic {
             .map(|p| p.team)
             .collect();
 
-        let plans = self.angry_mobs.plan_due_ticks(frame, &candidates, |team| {
-            armed_teams.contains(&team)
-        });
+        let plans = self
+            .angry_mobs
+            .plan_due_ticks(frame, &candidates, |team| armed_teams.contains(&team));
 
         for plan in plans {
             let mut total_damage = 0.0_f32;
@@ -24533,9 +24674,7 @@ impl GameLogic {
     // -----------------------------------------------------------------------
 
     /// Host Aurora dive-bomb residual registry (queue + honesty).
-    pub fn aurora_bombs(
-        &self,
-    ) -> &crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry {
+    pub fn aurora_bombs(&self) -> &crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry {
         &self.aurora_bombs
     }
 
@@ -24571,18 +24710,12 @@ impl GameLogic {
         source_team: Team,
         target_position: Vec3,
     ) -> u32 {
-        use crate::game_logic::host_aurora_bomb::{
-            AURORA_BOMB_LAUNCH_AUDIO,
-        };
+        use crate::game_logic::host_aurora_bomb::AURORA_BOMB_LAUNCH_AUDIO;
 
         let frame = self.frame;
-        let id = self.aurora_bombs.queue(
-            kind,
-            source_object,
-            source_team,
-            target_position,
-            frame,
-        );
+        let id = self
+            .aurora_bombs
+            .queue(kind, source_object, source_team, target_position, frame);
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -24678,7 +24811,6 @@ impl GameLogic {
         }
     }
 
-
     /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
     ///
     /// - Expires `OBJECT_STATUS_DETECTED` when `detection_expires_frame` is reached
@@ -24716,7 +24848,9 @@ impl GameLogic {
                         o.status.attacking
                             || matches!(
                                 o.ai_state,
-                                AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                                AIState::Attacking
+                                    | AIState::AttackMoving
+                                    | AIState::AttackingGround
                             ),
                         o.get_position(),
                     )
@@ -24783,10 +24917,8 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&pid) else {
                     continue;
                 };
-                let moving = matches!(
-                    obj.ai_state,
-                    AIState::Moving | AIState::AttackMoving
-                ) || obj.status.moving;
+                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                    || obj.status.moving;
                 if let Some(desired) = pathfinder_stealth_desired(
                     true,
                     obj.innate_stealth,
@@ -24822,10 +24954,8 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&lid) else {
                     continue;
                 };
-                let moving = matches!(
-                    obj.ai_state,
-                    AIState::Moving | AIState::AttackMoving
-                ) || obj.status.moving;
+                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                    || obj.status.moving;
                 if let Some(desired) = listening_outpost_stealth_desired(
                     true,
                     obj.innate_stealth,
@@ -24896,10 +25026,7 @@ impl GameLogic {
             .objects
             .values()
             .filter(|o| {
-                o.is_detector
-                    && o.is_alive()
-                    && !o.status.under_construction
-                    && !o.status.destroyed
+                o.is_detector && o.is_alive() && !o.status.under_construction && !o.status.destroyed
             })
             .map(|o| {
                 let flags = DetFlags {
@@ -24912,12 +25039,14 @@ impl GameLogic {
                     is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
                         &o.template_name,
                     ),
-                    is_listening_outpost: crate::game_logic::host_listening_outpost::is_listening_outpost_template(
-                        &o.template_name,
-                    ) || o.is_listening_outpost_style_container(),
-                    is_troop_crawler: crate::game_logic::host_troop_crawler::is_troop_crawler_template(
-                        &o.template_name,
-                    ) || o.is_troop_crawler_style_container(),
+                    is_listening_outpost:
+                        crate::game_logic::host_listening_outpost::is_listening_outpost_template(
+                            &o.template_name,
+                        ) || o.is_listening_outpost_style_container(),
+                    is_troop_crawler:
+                        crate::game_logic::host_troop_crawler::is_troop_crawler_template(
+                            &o.template_name,
+                        ) || o.is_troop_crawler_style_container(),
                 };
                 (
                     o.team,
@@ -24946,9 +25075,11 @@ impl GameLogic {
             .collect();
 
         for sid in stealthed_ids {
-            let Some((s_team, s_pos, already_detected)) = self.objects.get(&sid).map(|o| {
-                (o.team, o.get_position(), o.status.detected)
-            }) else {
+            let Some((s_team, s_pos, already_detected)) = self
+                .objects
+                .get(&sid)
+                .map(|o| (o.team, o.get_position(), o.status.detected))
+            else {
                 continue;
             };
 
@@ -25136,7 +25267,8 @@ impl GameLogic {
         use crate::game_logic::host_mines::{
             cluster_mine_positions, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS,
         };
-        let positions = cluster_mine_positions(center, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS);
+        let positions =
+            cluster_mine_positions(center, CLUSTER_MINE_COUNT, CLUSTER_MINE_RING_RADIUS);
         let mut ids = Vec::with_capacity(positions.len());
         for pos in positions {
             if let Some(id) = self.place_land_mine(team, pos, producer) {
@@ -25384,8 +25516,16 @@ impl GameLogic {
             }
         }
 
-        for (mine_id, mine_team, mine_pos, trigger_range, proximity, detonate_at, under_construction, _)
-            in &mines
+        for (
+            mine_id,
+            mine_team,
+            mine_pos,
+            trigger_range,
+            proximity,
+            detonate_at,
+            under_construction,
+            _,
+        ) in &mines
         {
             if *under_construction {
                 continue;
@@ -25430,8 +25570,10 @@ impl GameLogic {
         for (clearer_id, mine_pos) in approach {
             if let Some(obj) = self.objects.get_mut(&clearer_id) {
                 // Don't clobber an explicit non-idle order already in flight.
-                if matches!(obj.ai_state, AIState::Idle | AIState::Moving | AIState::Attacking)
-                    || obj.target.is_none()
+                if matches!(
+                    obj.ai_state,
+                    AIState::Idle | AIState::Moving | AIState::Attacking
+                ) || obj.target.is_none()
                 {
                     obj.ai_state = AIState::Moving;
                     obj.movement.target_position = Some(mine_pos);
@@ -26286,13 +26428,9 @@ impl GameLogic {
             .unwrap_or(Team::Neutral);
         let frame = self.frame;
 
-        let id = self.host_leaflet_drops.queue(
-            kind,
-            source_object,
-            source_team,
-            target_position,
-            frame,
-        );
+        let id =
+            self.host_leaflet_drops
+                .queue(kind, source_object, source_team, target_position, frame);
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
@@ -26523,7 +26661,8 @@ impl GameLogic {
                         return None;
                     }
                     let pos = obj.get_position();
-                    if !in_sneak_shockwave_radius_2d(center, (pos.x, pos.z), plan.shockwave_radius) {
+                    if !in_sneak_shockwave_radius_2d(center, (pos.x, pos.z), plan.shockwave_radius)
+                    {
                         return None;
                     }
                     let under_construction =
@@ -27192,7 +27331,12 @@ impl GameLogic {
                 ),
                 structure(
                     "USA_SupplyCenter",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1000.0,
                     1500,
                 ),
@@ -27210,7 +27354,12 @@ impl GameLogic {
                 ),
                 structure(
                     "USA_WarFactory",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1200.0,
                     1500,
                 ),
@@ -27250,7 +27399,12 @@ impl GameLogic {
                 ),
                 structure(
                     "China_SupplyCenter",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1000.0,
                     1500,
                 ),
@@ -27268,7 +27422,12 @@ impl GameLogic {
                 ),
                 structure(
                     "China_WarFactory",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1200.0,
                     1500,
                 ),
@@ -27282,19 +27441,34 @@ impl GameLogic {
             Team::GLA => vec![
                 structure(
                     "GLA_CommandCenter",
-                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::CommandCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1800.0,
                     500,
                 ),
                 structure(
                     "GLA_SupplyStash",
-                    &[KindOf::Structure, KindOf::SupplyCenter, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     900.0,
                     300,
                 ),
                 structure(
                     "GLA_ArmsDealer",
-                    &[KindOf::Structure, KindOf::FSWarFactory, KindOf::Selectable, KindOf::Attackable],
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
                     1100.0,
                     400,
                 ),
@@ -27595,7 +27769,9 @@ impl GameLogic {
                 // is budgeted separately for residual safety.
                 if result.total_scripts >= DENSE_MISSION_SCRIPT_THRESHOLD {
                     let attack = self.mission_scripts.disable_attack_wave_scripts();
-                    let utility = self.mission_scripts.disable_heavy_campaign_utility_scripts();
+                    let utility = self
+                        .mission_scripts
+                        .disable_heavy_campaign_utility_scripts();
                     log::info!(
                         "Dense campaign scripts for '{}': disabled attack_wave={} utility={} (of {})",
                         map_name,
@@ -29074,8 +29250,9 @@ impl GameLogic {
         ui_state.selected_units = selected_units;
         ui_state.selected_unit_infos = selected_unit_infos;
         // Live path fills panel; production overlay replaces with PresentationFrame.
-        ui_state.selection_panel =
-            crate::ui::ControlBarSelectionPanelState::from_unit_infos(&ui_state.selected_unit_infos);
+        ui_state.selection_panel = crate::ui::ControlBarSelectionPanelState::from_unit_infos(
+            &ui_state.selected_unit_infos,
+        );
         ui_state.build_queue = build_queue;
         ui_state.is_game_paused = self.is_paused;
         ui_state.current_game_time = game_time;
@@ -29214,8 +29391,7 @@ impl GameLogic {
             .and_then(|id| self.get_player(id))
             .map(|p| p.has_radar())
             .unwrap_or(false);
-        ui_state.radar_enabled =
-            self.radar_forced || (self.radar_enabled && local_has_radar);
+        ui_state.radar_enabled = self.radar_forced || (self.radar_enabled && local_has_radar);
         ui_state.radar_forced = self.radar_forced;
         ui_state.objectives = self.mission_objectives.clone();
         ui_state
@@ -29831,10 +30007,7 @@ mod tests {
         assert!(logic.templates.contains_key("GLA_CommandCenter"));
         assert!(logic.templates.contains_key("GLA_Soldier"));
         assert!(logic.is_host_ai_active(1));
-        assert_eq!(
-            logic.host_ai_difficulty(1),
-            Some(AIDifficulty::Medium)
-        );
+        assert_eq!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
         // Rebuild budget restored (stale maxed rebuild_count cleared).
         {
             let mgr = &logic.ai_manager;
@@ -30068,11 +30241,7 @@ mod tests {
     }
 
     /// Spawn a residual transport with explicit infantry capacity.
-    fn create_test_transport(
-        game_logic: &mut GameLogic,
-        pos: Vec3,
-        capacity: usize,
-    ) -> ObjectId {
+    fn create_test_transport(game_logic: &mut GameLogic, pos: Vec3, capacity: usize) -> ObjectId {
         ensure_test_transport_template(game_logic);
         let id = game_logic
             .create_object("TestTransport", Team::USA, pos)
@@ -30190,7 +30359,10 @@ mod tests {
     /// Residual AirF Combat Chinook template (TransportContain Slots=8 + fire residual).
     /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
     fn ensure_test_combat_chinook_template(game_logic: &mut GameLogic) {
-        if game_logic.templates.contains_key("AirF_AmericaVehicleChinook") {
+        if game_logic
+            .templates
+            .contains_key("AirF_AmericaVehicleChinook")
+        {
             return;
         }
 
@@ -31651,9 +31823,7 @@ mod tests {
             .expect("war factory structure");
 
         {
-            let structure = game_logic
-                .find_object_mut(structure_id)
-                .expect("structure");
+            let structure = game_logic.find_object_mut(structure_id).expect("structure");
             let _ = structure.take_damage(400.0);
             assert!(
                 structure.health.current + 0.01 < structure.health.maximum,
@@ -31714,10 +31884,7 @@ mod tests {
             game_logic.honesty_structure_repair_ok(),
             "structure repair residual honesty path"
         );
-        assert!(
-            game_logic.honesty_repair_ok(),
-            "combined repair honesty"
-        );
+        assert!(game_logic.honesty_repair_ok(), "combined repair honesty");
     }
 
     /// Residual: dozer out of range walks in, then structure HP recovers (full update loop).
@@ -31736,9 +31903,7 @@ mod tests {
             .expect("structure");
 
         {
-            let structure = game_logic
-                .find_object_mut(structure_id)
-                .expect("structure");
+            let structure = game_logic.find_object_mut(structure_id).expect("structure");
             let _ = structure.take_damage(300.0);
         }
         let before = game_logic
@@ -31912,20 +32077,14 @@ mod tests {
             .insert("AmericaVehicleMedic".to_string(), ambulance_tpl);
 
         let ambulance_id = game_logic
-            .create_object(
-                "AmericaVehicleMedic",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleMedic", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ambulance");
         let infantry_id = game_logic
             .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("infantry");
 
         {
-            let infantry = game_logic
-                .find_object_mut(infantry_id)
-                .expect("infantry");
+            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(40.0);
             assert!(
                 infantry.health.current + 0.01 < infantry.health.maximum,
@@ -31999,9 +32158,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let infantry = game_logic
-                .find_object_mut(infantry_id)
-                .expect("infantry");
+            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(30.0);
         }
         let before = game_logic
@@ -32027,9 +32184,7 @@ mod tests {
 
         // Move into radius.
         {
-            let infantry = game_logic
-                .find_object_mut(infantry_id)
-                .expect("infantry");
+            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
             infantry.set_position(Vec3::new(30.0, 0.0, 0.0));
         }
         for _ in 0..30 {
@@ -32064,11 +32219,7 @@ mod tests {
             .insert("AmericaVehicleMedic".to_string(), ambulance_tpl);
 
         let _ambulance_id = game_logic
-            .create_object(
-                "AmericaVehicleMedic",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleMedic", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ambulance");
         let enemy_id = game_logic
             .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
@@ -32117,11 +32268,7 @@ mod tests {
             .insert("ChinaSpeakerTower".to_string(), tower_tpl);
 
         let tower_id = game_logic
-            .create_object(
-                "ChinaSpeakerTower",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("speaker tower");
         let unit_id = game_logic
             .create_object("TestInfantry", Team::China, Vec3::new(30.0, 0.0, 0.0))
@@ -32204,11 +32351,7 @@ mod tests {
             .insert("ChinaSpeakerTower".to_string(), tower_tpl);
 
         let _tower_id = game_logic
-            .create_object(
-                "ChinaSpeakerTower",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("speaker tower");
         let unit_id = game_logic
             .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
@@ -32288,11 +32431,7 @@ mod tests {
             .insert("ChinaSpeakerTower".to_string(), tower_tpl);
 
         let _tower_id = game_logic
-            .create_object(
-                "ChinaSpeakerTower",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("speaker tower");
         let enemy_id = game_logic
             .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -32336,11 +32475,7 @@ mod tests {
             .insert("ChinaSpeakerTower".to_string(), tower_tpl);
 
         let tower_id = game_logic
-            .create_object(
-                "ChinaSpeakerTower",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("speaker tower");
         {
             let tower = game_logic.find_object_mut(tower_id).expect("tower");
@@ -32441,9 +32576,7 @@ mod tests {
             .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("infantry");
         {
-            let infantry = game_logic
-                .find_object_mut(infantry_id)
-                .expect("infantry");
+            let infantry = game_logic.find_object_mut(infantry_id).expect("infantry");
             let _ = infantry.take_damage(40.0);
         }
         let before = game_logic
@@ -32972,14 +33105,8 @@ mod tests {
             target.status.hijacked,
             "hijack residual must set OBJECT_STATUS_HIJACKED"
         );
-        assert!(
-            target.is_hijacked(),
-            "hijack residual is_hijacked helper"
-        );
-        assert!(
-            game_logic.honesty_hijack_ok(),
-            "hijack residual honesty"
-        );
+        assert!(target.is_hijacked(), "hijack residual is_hijacked helper");
+        assert!(game_logic.honesty_hijack_ok(), "hijack residual honesty");
         assert_eq!(
             game_logic.car_bomb_residual().hijacks,
             1,
@@ -33312,11 +33439,7 @@ mod tests {
             .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
 
         let pilot_id = game_logic
-            .create_object(
-                "AmericaInfantryPilot",
-                Team::USA,
-                Vec3::new(2.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(2.0, 0.0, 0.0))
             .expect("pilot");
         {
             let p = game_logic.find_object_mut(pilot_id).expect("pilot obj");
@@ -33358,20 +33481,14 @@ mod tests {
         game_logic.update_ai(&[pilot_id, tank_id], 1.0 / 30.0);
 
         let tank = game_logic.find_object(tank_id).expect("tank after recrew");
-        assert!(
-            !tank.is_unmanned(),
-            "recrew must clear DISABLED_UNMANNED"
-        );
+        assert!(!tank.is_unmanned(), "recrew must clear DISABLED_UNMANNED");
         assert_eq!(tank.team, Team::USA, "recrew transfers pilot team");
         assert_eq!(
             tank.experience.level,
             VeterancyLevel::Veteran,
             "pilot veterancy must transfer onto vehicle"
         );
-        assert!(
-            game_logic.honesty_pilot_recrew_ok(),
-            "pilot recrew honesty"
-        );
+        assert!(game_logic.honesty_pilot_recrew_ok(), "pilot recrew honesty");
         assert!(
             game_logic.honesty_pilot_veterancy_transfer_ok(),
             "veterancy transfer honesty"
@@ -33382,7 +33499,9 @@ mod tests {
         );
         assert_eq!(game_logic.usa_pilot_residual().recrews, 1);
 
-        let pilot = game_logic.find_object(pilot_id).expect("pilot after recrew");
+        let pilot = game_logic
+            .find_object(pilot_id)
+            .expect("pilot after recrew");
         assert!(
             pilot.status.destroyed,
             "pilot infantry consumed after recrew"
@@ -33513,7 +33632,9 @@ mod tests {
             "WorkerShoes must affect workers"
         );
 
-        let worker = game_logic.find_object(worker_id).expect("worker after shoes");
+        let worker = game_logic
+            .find_object(worker_id)
+            .expect("worker after shoes");
         assert!(
             worker.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
             "worker must receive WorkerShoes tag"
@@ -33775,11 +33896,7 @@ mod tests {
         assert!(!game_logic.honesty_radar_online_ok());
 
         let cc_id = game_logic
-            .create_object(
-                "TestCommandCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("TestCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("command center");
         if let Some(obj) = game_logic.find_object_mut(cc_id) {
             obj.status.under_construction = false;
@@ -33791,7 +33908,10 @@ mod tests {
             .get_player_mut_by_team(Team::USA)
             .map(|p| (p.has_radar(), p.radar_count))
             .expect("player");
-        assert!(after.0, "player radar state must become true when CC present");
+        assert!(
+            after.0,
+            "player radar state must become true when CC present"
+        );
         assert!(after.1 >= 1, "radar_count must reflect CC provider");
         assert!(
             game_logic.honesty_radar_online_ok(),
@@ -33885,11 +34005,7 @@ mod tests {
         }
 
         let fake_id = game_logic
-            .create_object(
-                "FakeGLACommandCenter",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("FakeGLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("fake cc");
         if let Some(obj) = game_logic.find_object_mut(fake_id) {
             obj.status.under_construction = false;
@@ -34032,9 +34148,7 @@ mod tests {
                 .add_kind_of(KindOf::Selectable)
                 .set_health(2000.0)
                 .set_cost(0, 0);
-            game_logic
-                .templates
-                .insert("TestOilDerrick".to_string(), t);
+            game_logic.templates.insert("TestOilDerrick".to_string(), t);
         }
 
         // Spawn neutral (map residual), then capture to USA.
@@ -34256,11 +34370,7 @@ mod tests {
 
         // Under construction USA zone.
         let uc_id = game_logic
-            .create_object(
-                "AmericaSupplyDropZone",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("uc zone");
         if let Some(obj) = game_logic.find_object_mut(uc_id) {
             obj.status.under_construction = true;
@@ -34310,11 +34420,8 @@ mod tests {
 
         if !game_logic.templates.contains_key("TestOilDerrick") {
             let mut t = ThingTemplate::new("TestOilDerrick");
-            t.add_kind_of(KindOf::Structure)
-                .set_health(2000.0);
-            game_logic
-                .templates
-                .insert("TestOilDerrick".to_string(), t);
+            t.add_kind_of(KindOf::Structure).set_health(2000.0);
+            game_logic.templates.insert("TestOilDerrick".to_string(), t);
         }
 
         let derrick_id = game_logic
@@ -34375,11 +34482,7 @@ mod tests {
         }
 
         let ic_id = game_logic
-            .create_object(
-                "TestInternetCenter",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("TestInternetCenter", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("internet center");
         if let Some(obj) = game_logic.find_object_mut(ic_id) {
             obj.status.under_construction = false;
@@ -34456,8 +34559,7 @@ mod tests {
 
         if !game_logic.templates.contains_key("TestHacker") {
             let mut t = ThingTemplate::new("TestHacker");
-            t.add_kind_of(KindOf::Infantry)
-                .set_health(100.0);
+            t.add_kind_of(KindOf::Infantry).set_health(100.0);
             game_logic.templates.insert("TestHacker".to_string(), t);
         }
 
@@ -34803,10 +34905,7 @@ mod tests {
             target_after.is_hacked_disabled(),
             "vehicle must be DISABLED_HACKED"
         );
-        assert!(
-            !target_after.can_move(),
-            "hacked vehicle cannot move"
-        );
+        assert!(!target_after.can_move(), "hacked vehicle cannot move");
         assert!(
             game_logic.honesty_disable_vehicle_hack_ok(),
             "disable vehicle residual honesty"
@@ -34825,10 +34924,7 @@ mod tests {
             !recovered.is_hacked_disabled(),
             "DISABLED_HACKED must clear after EffectDuration"
         );
-        assert!(
-            recovered.can_move(),
-            "recovered vehicle can move again"
-        );
+        assert!(recovered.can_move(), "recovered vehicle can move again");
     }
 
     /// Residual: Black Lotus CaptureBuilding without Capture research (range 150).
@@ -34880,19 +34976,14 @@ mod tests {
         // Beyond StartAbilityRange 150 — still walking.
         game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
         assert_eq!(
-            game_logic
-                .find_object(building_id)
-                .expect("building")
-                .team,
+            game_logic.find_object(building_id).expect("building").team,
             Team::GLA,
             "capture must not complete out of StartAbilityRange"
         );
 
         // Within residual range 150.
         {
-            let lotus = game_logic
-                .find_object_mut(lotus_id)
-                .expect("lotus");
+            let lotus = game_logic.find_object_mut(lotus_id).expect("lotus");
             lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
             lotus.ai_state = AIState::Capturing;
             lotus.target = Some(building_id);
@@ -34900,10 +34991,7 @@ mod tests {
         game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
 
         assert_eq!(
-            game_logic
-                .find_object(building_id)
-                .expect("building")
-                .team,
+            game_logic.find_object(building_id).expect("building").team,
             Team::China,
             "Black Lotus residual capture must transfer ownership"
         );
@@ -35034,10 +35122,7 @@ mod tests {
             !ally.is_weapons_jammed(),
             "same-team ally must not be jammed by own ECM"
         );
-        assert!(
-            ally.can_attack(),
-            "ally with weapons must still can_attack"
-        );
+        assert!(ally.can_attack(), "ally with weapons must still can_attack");
 
         assert!(
             game_logic.ecm_residual_jams() > 0,
@@ -35055,17 +35140,9 @@ mod tests {
             enemy.ai_state = AIState::Attacking;
             enemy.status.attacking = true;
         }
-        let ecm_hp_before = game_logic
-            .find_object(ecm_id)
-            .expect("ecm")
-            .health
-            .current;
+        let ecm_hp_before = game_logic.find_object(ecm_id).expect("ecm").health.current;
         game_logic.update_combat(&[enemy_id, ecm_id, ally_id], 1.0 / 30.0);
-        let ecm_hp_after = game_logic
-            .find_object(ecm_id)
-            .expect("ecm")
-            .health
-            .current;
+        let ecm_hp_after = game_logic.find_object(ecm_id).expect("ecm").health.current;
         assert_eq!(
             ecm_hp_before, ecm_hp_after,
             "jammed enemy must not damage ECM via combat residual"
@@ -35082,10 +35159,7 @@ mod tests {
             !enemy.is_weapons_jammed(),
             "enemy leaving jam radius must recover weapons"
         );
-        assert!(
-            enemy.can_attack(),
-            "recovered enemy must can_attack again"
-        );
+        assert!(enemy.can_attack(), "recovered enemy must can_attack again");
 
         assert!(
             game_logic
@@ -35113,11 +35187,7 @@ mod tests {
             .insert("Tank_ChinaTankECM".to_string(), ecm_tpl);
 
         let _ecm_id = game_logic
-            .create_object(
-                "Tank_ChinaTankECM",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("Tank_ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("ecm");
         let enemy_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
@@ -35377,7 +35447,12 @@ mod tests {
             0,
             "EmpPulse must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_emp_pulse_activate_ok(),
             "EmpPulse residual must record activation honesty"
@@ -35598,13 +35673,21 @@ mod tests {
             0,
             "Frenzy must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_frenzy_activate_ok(),
             "Frenzy residual must record activation honesty"
         );
         assert!(
-            game_logic.find_object(caster_id).unwrap().is_frenzy_buffed(),
+            game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .is_frenzy_buffed(),
             "caster ally in radius must receive Frenzy residual"
         );
     }
@@ -35709,7 +35792,9 @@ mod tests {
         let restored = ally_hp_after - ally_hp_before;
         assert!(
             (restored - HostEmergencyRepairLevel::One.heal_amount()).abs() < 0.05
-                || restored > 0.0 && ally_hp_after >= game_logic.find_object(ally_id).unwrap().health.maximum - 0.01,
+                || restored > 0.0
+                    && ally_hp_after
+                        >= game_logic.find_object(ally_id).unwrap().health.maximum - 0.01,
             "in-radius damaged ally vehicle must receive Level1 heal (+100), restored={restored}"
         );
         assert!(
@@ -35780,7 +35865,12 @@ mod tests {
             0,
             "EmergencyRepair must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_emergency_repair_activate_ok(),
             "EmergencyRepair residual must record activation honesty"
@@ -35991,7 +36081,12 @@ mod tests {
             0,
             "GpsScrambler must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_gps_scrambler_activate_ok(),
             "GpsScrambler residual must record activation honesty"
@@ -36090,9 +36185,7 @@ mod tests {
             "LeafletDrop residual must record activation honesty"
         );
         assert!(
-            game_logic
-                .host_leaflet_drops()
-                .honesty_activate_ok(),
+            game_logic.host_leaflet_drops().honesty_activate_ok(),
             "LeafletDrop registry activation honesty"
         );
         assert!(!game_logic.honesty_leaflet_drop_disable_ok());
@@ -36115,12 +36208,10 @@ mod tests {
         );
 
         // Before delay: no disables yet.
-        assert!(
-            !game_logic
-                .find_object(enemy_vehicle_id)
-                .unwrap()
-                .is_emp_disabled()
-        );
+        assert!(!game_logic
+            .find_object(enemy_vehicle_id)
+            .unwrap()
+            .is_emp_disabled());
 
         game_logic.frame = LEAFLET_DELAY_FRAMES - 1;
         game_logic.update_leaflet_drops();
@@ -36189,7 +36280,10 @@ mod tests {
 
         // Out-of-radius enemy vehicle: unaffected.
         let far = game_logic.find_object(far_vehicle_id).expect("far");
-        assert!(!far.is_emp_disabled(), "out-of-radius must not be leaflet'd");
+        assert!(
+            !far.is_emp_disabled(),
+            "out-of-radius must not be leaflet'd"
+        );
         assert!(far.can_move());
 
         // Same-team ally residual: not disabled (enemies only).
@@ -36227,9 +36321,7 @@ mod tests {
         assert!(until > game_logic.frame);
         game_logic.frame = until;
         game_logic.update_ai(&[enemy_vehicle_id, enemy_infantry_id], 1.0 / 60.0);
-        let recovered = game_logic
-            .find_object(enemy_vehicle_id)
-            .expect("vehicle");
+        let recovered = game_logic.find_object(enemy_vehicle_id).expect("vehicle");
         assert!(
             !recovered.is_emp_disabled(),
             "DISABLED_EMP must clear after DisabledDuration"
@@ -36624,9 +36716,7 @@ mod tests {
             game_logic.car_bomb_residual().detonation_damage_dealt
         );
 
-        let car = game_logic
-            .find_object(car_id)
-            .expect("car should exist");
+        let car = game_logic.find_object(car_id).expect("car should exist");
         assert!(
             car.status.destroyed || !car.is_alive(),
             "car bomb destroys itself on detonation"
@@ -37923,7 +38013,9 @@ mod tests {
             });
         }
         {
-            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            let target = game_logic
+                .find_object_mut(target_id)
+                .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
         }
@@ -38040,8 +38132,7 @@ mod tests {
             .expect("target");
 
         // TestTank build_cost = 600 → 20% = 120 bounty.
-        let expected_bounty =
-            crate::game_logic::host_cash_bounty::compute_bounty_award(600, 0.20);
+        let expected_bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(600, 0.20);
         assert_eq!(expected_bounty, 120);
 
         {
@@ -38058,7 +38149,9 @@ mod tests {
             });
         }
         {
-            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            let target = game_logic
+                .find_object_mut(target_id)
+                .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
         }
@@ -38130,7 +38223,9 @@ mod tests {
             });
         }
         {
-            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            let target = game_logic
+                .find_object_mut(target_id)
+                .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
         }
@@ -38303,7 +38398,9 @@ mod tests {
             });
         }
         {
-            let target = game_logic.find_object_mut(target_id).expect("target exists");
+            let target = game_logic
+                .find_object_mut(target_id)
+                .expect("target exists");
             target.health.current = 10.0;
             target.health.maximum = 10.0;
         }
@@ -38577,8 +38674,8 @@ mod tests {
     fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
         use crate::game_logic::special_power_strikes::{
-            HostStrikePhase, HostSuperweaponKind, CARPET_BOMB_DAMAGE, CARPET_BOMB_IMPACT_DELAY_FRAMES,
-            CARPET_BOMB_SPACING,
+            HostStrikePhase, HostSuperweaponKind, CARPET_BOMB_DAMAGE,
+            CARPET_BOMB_IMPACT_DELAY_FRAMES, CARPET_BOMB_SPACING,
         };
 
         let mut game_logic = GameLogic::new();
@@ -38595,11 +38692,7 @@ mod tests {
             .create_object("TestTank", Team::GLA, target)
             .expect("enemy center");
         let enemy_outer_id = game_logic
-            .create_object(
-                "TestTank",
-                Team::GLA,
-                Vec3::new(outer_bomb_x, 0.0, 0.0),
-            )
+            .create_object("TestTank", Team::GLA, Vec3::new(outer_bomb_x, 0.0, 0.0))
             .expect("enemy outer bomb line");
         let far_enemy_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
@@ -39565,10 +39658,7 @@ mod tests {
             .special_power_strikes()
             .honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
         assert!(
-            game_logic
-                .special_power_strikes()
-                .beam_fields()
-                .is_empty(),
+            game_logic.special_power_strikes().beam_fields().is_empty(),
             "beam must not spawn before charge residual completes"
         );
 
@@ -39595,9 +39685,7 @@ mod tests {
             .special_power_strikes()
             .honesty_host_path_ok(HostSuperweaponKind::ParticleCannon));
         assert!(
-            game_logic
-                .special_power_strikes()
-                .honesty_beam_damage_ok(),
+            game_logic.special_power_strikes().honesty_beam_damage_ok(),
             "first beam pulse must apply residual damage"
         );
 
@@ -39670,15 +39758,13 @@ mod tests {
         let anthrax_caster = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(-50.0, 0.0, 0.0))
             .expect("anthrax caster");
-        let strike_id = game_logic
-            .special_power_strikes_mut()
-            .queue(
-                HostSuperweaponKind::AnthraxBomb,
-                anthrax_caster,
-                Team::GLA,
-                Vec3::new(20.0, 0.0, 0.0),
-                0,
-            );
+        let strike_id = game_logic.special_power_strikes_mut().queue(
+            HostSuperweaponKind::AnthraxBomb,
+            anthrax_caster,
+            Team::GLA,
+            Vec3::new(20.0, 0.0, 0.0),
+            0,
+        );
         // Force complete impact to spawn toxin field at (20,0,0).
         game_logic.frame = 90;
         game_logic
@@ -39694,12 +39780,10 @@ mod tests {
         let mine_id = game_logic
             .place_land_mine(Team::GLA, Vec3::new(15.0, 0.0, 0.0), Some(anthrax_caster))
             .expect("mine");
-        assert!(
-            game_logic
-                .find_object(mine_id)
-                .and_then(|o| o.mine_data.as_ref())
-                .is_some()
-        );
+        assert!(game_logic
+            .find_object(mine_id)
+            .and_then(|o| o.mine_data.as_ref())
+            .is_some());
 
         let target = Vec3::new(20.0, 0.0, 0.0);
         game_logic.queue_command(GameCommand {
@@ -39737,7 +39821,10 @@ mod tests {
             .and_then(|o| o.mine_data.as_ref())
             .map(|d| d.detonated)
             .unwrap_or(true);
-        assert!(mine_disarmed, "enemy mine in cleanup radius must be disarmed");
+        assert!(
+            mine_disarmed,
+            "enemy mine in cleanup radius must be disarmed"
+        );
         game_logic.process_destroy_list();
         assert!(
             game_logic.find_object(mine_id).is_none()
@@ -39811,7 +39898,7 @@ mod tests {
     fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
         use crate::game_logic::special_power_strikes::{
-            HostSuperweaponKind, NUKE_RADIATION_DAMAGE_PER_TICK, NUKE_RADIATION_AUDIO,
+            HostSuperweaponKind, NUKE_RADIATION_AUDIO, NUKE_RADIATION_DAMAGE_PER_TICK,
         };
 
         let mut game_logic = GameLogic::new();
@@ -39841,7 +39928,9 @@ mod tests {
             enemy.thing.template.armor = 0.0;
         }
         {
-            let v = game_logic.find_object_mut(rad_victim_id).expect("rad victim");
+            let v = game_logic
+                .find_object_mut(rad_victim_id)
+                .expect("rad victim");
             // Blast falloff at 150: inner 60, outer 210 → t=(150-60)/150=0.6 → dmg=3500*0.4=1400
             v.health.current = 5000.0;
             v.health.maximum = 5000.0;
@@ -39888,13 +39977,20 @@ mod tests {
             "activation must queue SuperweaponNuclearMissile audio"
         );
         assert!(
-            game_logic.special_power_strikes().radiation_fields().is_empty(),
+            game_logic
+                .special_power_strikes()
+                .radiation_fields()
+                .is_empty(),
             "radiation must not spawn before impact"
         );
 
         // Before impact delay: no damage.
         let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let rad_before = game_logic.find_object(rad_victim_id).unwrap().health.current;
+        let rad_before = game_logic
+            .find_object(rad_victim_id)
+            .unwrap()
+            .health
+            .current;
         game_logic.frame = 179;
         game_logic.update_special_power_strikes();
         assert_eq!(
@@ -39917,9 +40013,7 @@ mod tests {
             "NuclearMissile must complete on impact frame"
         );
         assert!(
-            game_logic
-                .special_power_strikes()
-                .honesty_radiation_ok(),
+            game_logic.special_power_strikes().honesty_radiation_ok(),
             "NuclearMissile must spawn residual radiation"
         );
         assert!(
@@ -40180,9 +40274,7 @@ mod tests {
             "second orbit tick must apply residual damage over time (mid={mid_hp}, later={later_hp})"
         );
         assert!(
-            game_logic
-                .special_power_strikes()
-                .honesty_orbit_damage_ok(),
+            game_logic.special_power_strikes().honesty_orbit_damage_ok(),
             "orbit damage honesty after tick"
         );
 
@@ -40237,7 +40329,9 @@ mod tests {
             enemy.thing.template.armor = 0.0;
         }
         {
-            let v = game_logic.find_object_mut(tox_victim_id).expect("tox victim");
+            let v = game_logic
+                .find_object_mut(tox_victim_id)
+                .expect("tox victim");
             v.health.current = 500.0;
             v.health.maximum = 500.0;
             v.thing.template.armor = 0.0;
@@ -40289,7 +40383,11 @@ mod tests {
 
         // Before impact delay: no damage.
         let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
-        let tox_before = game_logic.find_object(tox_victim_id).unwrap().health.current;
+        let tox_before = game_logic
+            .find_object(tox_victim_id)
+            .unwrap()
+            .health
+            .current;
         game_logic.frame = 89;
         game_logic.update_special_power_strikes();
         assert_eq!(
@@ -40392,9 +40490,7 @@ mod tests {
                 "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later})"
             );
             assert!(
-                game_logic
-                    .special_power_strikes()
-                    .honesty_toxin_damage_ok(),
+                game_logic.special_power_strikes().honesty_toxin_damage_ok(),
                 "toxin damage honesty after tick"
             );
         }
@@ -40442,7 +40538,12 @@ mod tests {
             0,
             "RadarScan must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_radar_scan_activate_ok(),
             "RadarScan residual must record activation honesty"
@@ -40454,9 +40555,7 @@ mod tests {
     #[test]
     fn radar_scan_special_power_reveals_fow() {
         use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-        use crate::game_logic::host_radar_scan::{
-            RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS,
-        };
+        use crate::game_logic::host_radar_scan::{RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS};
         use gamelogic::common::Coord3D;
         use gamelogic::system::shroud_manager::get_shroud_manager;
 
@@ -40535,7 +40634,12 @@ mod tests {
         }
 
         // Charge consumed, not a superweapon strike.
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
 
         // Expire residual: advance past duration and run update path.
@@ -40600,7 +40704,12 @@ mod tests {
             0,
             "SpySatellite must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_spy_satellite_activate_ok(),
             "SpySatellite residual must record activation honesty"
@@ -40701,7 +40810,12 @@ mod tests {
         }
 
         // Charge consumed, not a superweapon strike.
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
 
         // Expire residual: advance past duration and run update path.
@@ -40774,7 +40888,12 @@ mod tests {
             0,
             "CiaIntelligence must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_cia_intelligence_activate_ok(),
             "CiaIntelligence residual must record activation honesty"
@@ -40919,7 +41038,12 @@ mod tests {
         );
 
         // Charge consumed, not a superweapon strike.
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert_eq!(game_logic.special_power_strikes().strike_count(), 0);
 
         // Expire residual: advance past duration and run update path.
@@ -40991,7 +41115,12 @@ mod tests {
             0,
             "FireWall must not enqueue superweapon residual strikes"
         );
-        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            !game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .special_power_ready
+        );
         assert!(
             game_logic.honesty_firewall_activate_ok(),
             "FireWall residual must record activation honesty"
@@ -41088,8 +41217,7 @@ mod tests {
         );
         let dealt = hp_before - hp_after;
         assert!(
-            (dealt - FIREWALL_DAMAGE_PER_TICK).abs() < 0.01
-                || dealt > 0.0,
+            (dealt - FIREWALL_DAMAGE_PER_TICK).abs() < 0.01 || dealt > 0.0,
             "residual fire tick damage expected ~{FIREWALL_DAMAGE_PER_TICK}, got {dealt}"
         );
         assert!(
@@ -41481,8 +41609,7 @@ mod tests {
         game_logic.update_angry_mobs();
         let hp_post_expand_fire = game_logic.find_object(enemy_id).unwrap().health.current;
         let expand_dealt = hp_pre_expand_fire - hp_post_expand_fire;
-        let expected_expanded =
-            angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS + 1, false);
+        let expected_expanded = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS + 1, false);
         // Expand may coincide with tick; accept either expanded damage or that members grew.
         if expand_dealt > 0.0 {
             assert!(
@@ -41494,8 +41621,7 @@ mod tests {
 
         // Cap expand at max members.
         for i in 0u32..12 {
-            game_logic.frame =
-                ANGRY_MOB_EXPAND_INTERVAL_FRAMES.saturating_mul(i.saturating_add(2));
+            game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES.saturating_mul(i.saturating_add(2));
             game_logic.update_angry_mobs();
         }
         assert_eq!(
@@ -41516,7 +41642,9 @@ mod tests {
             .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
             .expect("armed probe enemy");
         {
-            let e = game_logic.find_object_mut(armed_enemy_id).expect("armed enemy");
+            let e = game_logic
+                .find_object_mut(armed_enemy_id)
+                .expect("armed enemy");
             e.health.current = 500.0;
             e.health.maximum = 500.0;
             e.thing.template.armor = 0.0;
@@ -41527,7 +41655,9 @@ mod tests {
             .health
             .current;
         // Force next tick due past any prior cadence.
-        game_logic.frame = game_logic.frame.saturating_add(ANGRY_MOB_TICK_INTERVAL_FRAMES + 2);
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(ANGRY_MOB_TICK_INTERVAL_FRAMES + 2);
         game_logic.update_angry_mobs();
         let hp_post_armed = game_logic
             .find_object(armed_enemy_id)
@@ -41553,8 +41683,8 @@ mod tests {
     fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         use crate::game_logic::host_aurora_bomb::{
             is_aurora_aircraft_template, HostAuroraBombKind, AURORA_BOMB_DAMAGE,
-            AURORA_BOMB_DIVE_DELAY_FRAMES, AURORA_BOMB_PRIMARY_WEAPON,
-            AURORA_FUEL_AIR_DAMAGE, AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES,
+            AURORA_BOMB_DIVE_DELAY_FRAMES, AURORA_BOMB_PRIMARY_WEAPON, AURORA_FUEL_AIR_DAMAGE,
+            AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -41600,7 +41730,10 @@ mod tests {
                 is_aurora_aircraft_template(&a.template_name),
                 "template residual must identify Aurora aircraft"
             );
-            assert!(a.weapon.is_some(), "Aurora must bind residual primary weapon");
+            assert!(
+                a.weapon.is_some(),
+                "Aurora must bind residual primary weapon"
+            );
         }
 
         let enemy_id = game_logic
@@ -41640,7 +41773,10 @@ mod tests {
         let friend_before = game_logic.find_object(friend_id).unwrap().health.current;
 
         game_logic.set_current_frame(10);
-        game_logic.update_combat(&[aurora_id, enemy_id, near_id, far_id, friend_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.update_combat(
+            &[aurora_id, enemy_id, near_id, far_id, friend_id],
+            LOGIC_FRAME_TIMESTEP,
+        );
 
         assert!(
             game_logic.honesty_aurora_bomb_activate_ok(),
@@ -41797,15 +41933,12 @@ mod tests {
         );
     }
 
-
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
     /// Fail-closed: not full science tree / SpecialAbility module parity.
     #[test]
     fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         use crate::command_system::{CommandType, GameCommand};
-        use crate::game_logic::host_upgrades::{
-            HostUpgradeKind, UPGRADE_INFANTRY_CAPTURE,
-        };
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_INFANTRY_CAPTURE};
 
         let mut game_logic = GameLogic::new();
         let mut player = Player::new(0, Team::USA, "USA", true);
@@ -41897,9 +42030,7 @@ mod tests {
             "registry must record Capture complete"
         );
         assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_capture_unlock_ok(),
+            game_logic.host_upgrades().honesty_capture_unlock_ok(),
             "capture unlock honesty"
         );
         assert!(
@@ -41929,7 +42060,9 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let captor = game_logic.find_object(captor_id).expect("captor after unlock");
+        let captor = game_logic
+            .find_object(captor_id)
+            .expect("captor after unlock");
         assert_eq!(
             captor.ai_state,
             AIState::Capturing,
@@ -42042,9 +42175,7 @@ mod tests {
     #[test]
     fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
         use crate::command_system::{CommandType, GameCommand};
-        use crate::game_logic::host_upgrades::{
-            HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG,
-        };
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG};
         use crate::game_logic::weapon_bootstrap::{
             ensure_host_weapon_store, RANGER_PRIMARY_WEAPON,
         };
@@ -42066,7 +42197,9 @@ mod tests {
             .set_health(120.0)
             .set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
         // Intentionally no secondary_weapon_name — research unlocks it.
-        game_logic.templates.insert("USA_Ranger".to_string(), ranger);
+        game_logic
+            .templates
+            .insert("USA_Ranger".to_string(), ranger);
 
         let barracks_id = game_logic
             .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
@@ -42096,39 +42229,29 @@ mod tests {
         });
         game_logic.process_commands();
 
-        assert!(
-            game_logic
-                .get_player(0)
-                .unwrap()
-                .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG)
-        );
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_queue_ok(HostUpgradeKind::FlashBangGrenade)
-        );
+        assert!(game_logic
+            .get_player(0)
+            .unwrap()
+            .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG));
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::FlashBangGrenade));
 
         game_logic.update();
 
         let player = game_logic.get_player(0).expect("player");
         assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
         assert!(!player.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG));
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade));
         assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade)
-        );
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_flashbang_equipped_ok(),
+            game_logic.host_upgrades().honesty_flashbang_equipped_ok(),
             "FlashBang complete must equip at least one unit"
         );
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_host_path_ok(HostUpgradeKind::FlashBangGrenade)
-        );
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_host_path_ok(HostUpgradeKind::FlashBangGrenade));
 
         let ranger = game_logic.find_object(ranger_id).expect("ranger after");
         assert!(
@@ -42151,9 +42274,7 @@ mod tests {
     #[test]
     fn supply_lines_upgrade_queue_complete_tags_supply_center() {
         use crate::command_system::{CommandType, GameCommand};
-        use crate::game_logic::host_upgrades::{
-            HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES,
-        };
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES};
 
         let mut game_logic = GameLogic::new();
         let mut player = Player::new(0, Team::USA, "USA", true);
@@ -42171,11 +42292,7 @@ mod tests {
             .insert("AmericaSupplyCenter".to_string(), supply);
 
         let producer_id = game_logic
-            .create_object(
-                "AmericaSupplyCenter",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("supply center");
 
         game_logic.queue_command(GameCommand {
@@ -42189,11 +42306,9 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_queue_ok(HostUpgradeKind::SupplyLines)
-        );
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::SupplyLines));
 
         game_logic.update();
 
@@ -42201,11 +42316,9 @@ mod tests {
             .get_player(0)
             .unwrap()
             .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_host_path_ok(HostUpgradeKind::SupplyLines)
-        );
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_host_path_ok(HostUpgradeKind::SupplyLines));
         let sc = game_logic.find_object(producer_id).expect("sc after");
         assert!(
             sc.has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES),
@@ -42243,11 +42356,7 @@ mod tests {
                     .insert("GLABlackMarket".to_string(), market);
 
                 let market_id = game_logic
-                    .create_object(
-                        "GLABlackMarket",
-                        Team::GLA,
-                        Vec3::new(0.0, 0.0, 0.0),
-                    )
+                    .create_object("GLABlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
                     .expect("black market");
                 assert!(
                     game_logic
@@ -42337,11 +42446,7 @@ mod tests {
             .insert("GLABlackMarket".to_string(), market);
 
         let market_id = game_logic
-            .create_object_under_construction(
-                "GLABlackMarket",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object_under_construction("GLABlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("under-construction market");
         assert!(
             game_logic
@@ -42383,11 +42488,7 @@ mod tests {
             .insert("FakeGLABlackMarket".to_string(), fake);
 
         let _id = game_logic
-            .create_object(
-                "FakeGLABlackMarket",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("FakeGLABlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("fake market");
 
         for _ in 0..(BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES as usize + 10) {
@@ -42434,11 +42535,7 @@ mod tests {
                 .insert("AmericaSupplyCenter".to_string(), supply);
 
             let sc_id = game_logic
-                .create_object(
-                    "AmericaSupplyCenter",
-                    Team::USA,
-                    Vec3::new(0.0, 0.0, 0.0),
-                )
+                .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
                 .expect("supply center");
 
             if with_supply_lines {
@@ -42462,11 +42559,9 @@ mod tests {
                         .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES),
                     "Supply Lines must unlock before boosted deposit"
                 );
-                assert!(
-                    game_logic
-                        .host_upgrades()
-                        .honesty_complete_ok(HostUpgradeKind::SupplyLines)
-                );
+                assert!(game_logic
+                    .host_upgrades()
+                    .honesty_complete_ok(HostUpgradeKind::SupplyLines));
             }
 
             // Place gatherer at supply center with a full residual cargo.
@@ -42514,7 +42609,10 @@ mod tests {
         let (with_gained, with_pure, with_bonus, with_honesty) = run_one_drop_off(true);
 
         assert_eq!(without_bonus, 0, "no economy boost without Supply Lines");
-        assert!(!without_honesty, "economy honesty fail-closed without upgrade");
+        assert!(
+            !without_honesty,
+            "economy honesty fail-closed without upgrade"
+        );
         assert_eq!(with_bonus, SUPPLY_LINES_RESIDUAL_DROP_OFF_BOOST);
         assert!(
             with_honesty,
@@ -42647,7 +42745,9 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let bunker = game_logic.find_object(bunker_id).expect("bunker after exit");
+        let bunker = game_logic
+            .find_object(bunker_id)
+            .expect("bunker after exit");
         assert!(
             !bunker.contained_units().contains(&infantry_id),
             "evacuate must free garrison capacity"
@@ -42696,13 +42796,11 @@ mod tests {
             unit.ai_state = AIState::Entering;
         }
         game_logic.update_ai(&[first_id, bunker_id], 1.0 / 30.0);
-        assert!(
-            game_logic
-                .find_object(bunker_id)
-                .unwrap()
-                .contained_units()
-                .contains(&first_id)
-        );
+        assert!(game_logic
+            .find_object(bunker_id)
+            .unwrap()
+            .contained_units()
+            .contains(&first_id));
 
         let second_id = game_logic
             .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
@@ -42898,7 +42996,9 @@ mod tests {
 
         game_logic.update_ai(&[infantry_id, transport_id], 1.0 / 30.0);
 
-        let transport = game_logic.find_object(transport_id).expect("transport after");
+        let transport = game_logic
+            .find_object(transport_id)
+            .expect("transport after");
         assert!(
             transport.contained_units().contains(&infantry_id),
             "transport must list loaded infantry"
@@ -42948,7 +43048,9 @@ mod tests {
             game_logic.update_ai(&[unit_id, transport_id], 1.0 / 30.0);
         }
 
-        let transport = game_logic.find_object(transport_id).expect("transport loaded");
+        let transport = game_logic
+            .find_object(transport_id)
+            .expect("transport loaded");
         assert!(
             transport.contained_units().contains(&unit_a)
                 && transport.contained_units().contains(&unit_b),
@@ -42975,7 +43077,9 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let transport = game_logic.find_object(transport_id).expect("transport empty");
+        let transport = game_logic
+            .find_object(transport_id)
+            .expect("transport empty");
         assert!(
             transport.contained_units().is_empty(),
             "evacuate must clear all transport occupants"
@@ -43170,8 +43274,7 @@ mod tests {
         let mut game_logic = GameLogic::new();
         ensure_test_infantry_template(&mut game_logic);
         // C++ ChinaTankOverlordBattleBunker TransportContain Slots = 5.
-        let overlord_id =
-            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+        let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
         let infantry_id = game_logic
             .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("infantry");
@@ -43242,8 +43345,7 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_infantry_template(&mut game_logic);
-        let overlord_id =
-            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+        let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
 
         let unit_a = game_logic
             .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -43261,7 +43363,9 @@ mod tests {
             game_logic.update_ai(&[unit_id, overlord_id], 1.0 / 30.0);
         }
 
-        let overlord = game_logic.find_object(overlord_id).expect("overlord loaded");
+        let overlord = game_logic
+            .find_object(overlord_id)
+            .expect("overlord loaded");
         assert!(
             overlord.contained_units().contains(&unit_a)
                 && overlord.contained_units().contains(&unit_b),
@@ -43327,8 +43431,7 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_infantry_template(&mut game_logic);
-        let overlord_id =
-            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(1));
+        let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(1));
 
         let first_id = game_logic
             .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -43384,8 +43487,7 @@ mod tests {
 
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
-        let overlord_id =
-            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+        let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
         let tank_id = game_logic
             .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
             .expect("tank");
@@ -43416,7 +43518,6 @@ mod tests {
             .is_empty());
     }
 
-
     // -----------------------------------------------------------------------
     // China Overlord / Helix / Emperor portable gattling + propaganda residual
     // Fail-closed: not full OverlordContain portable-structure spawn / W3D draw.
@@ -43426,8 +43527,8 @@ mod tests {
     #[test]
     fn overlord_gattling_addon_residual_install_and_fire() {
         use crate::game_logic::host_overlord_addons::{
-            is_overlord_tank_template, OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_GROUND_DAMAGE,
-            UPGRADE_OVERLORD_GATTLING,
+            is_overlord_tank_template, OVERLORD_GATTLING_AIR_DAMAGE,
+            OVERLORD_GATTLING_GROUND_DAMAGE, UPGRADE_OVERLORD_GATTLING,
         };
 
         let mut game_logic = GameLogic::new();
@@ -43447,11 +43548,7 @@ mod tests {
 
         // Seed primary residual weapon stats (80 dmg tank gun residual).
         let overlord_id = game_logic
-            .create_object(
-                "ChinaTankOverlord",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("overlord");
         {
             let o = game_logic.find_object_mut(overlord_id).unwrap();
@@ -43477,7 +43574,10 @@ mod tests {
         game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
         {
             let o = game_logic.find_object(overlord_id).unwrap();
-            assert!(o.has_overlord_gattling_residual(), "gattling addon must install");
+            assert!(
+                o.has_overlord_gattling_residual(),
+                "gattling addon must install"
+            );
             assert!(
                 o.secondary_weapon.is_some(),
                 "gattling residual equips AA secondary"
@@ -43489,7 +43589,12 @@ mod tests {
                 "AA residual dmg {}",
                 sec.damage
             );
-            assert!(!o.has_overlord_propaganda_residual() || crate::game_logic::host_overlord_addons::is_emperor_template(&o.template_name));
+            assert!(
+                !o.has_overlord_propaganda_residual()
+                    || crate::game_logic::host_overlord_addons::is_emperor_template(
+                        &o.template_name
+                    )
+            );
         }
         assert!(
             game_logic.overlord_addons().honesty_gattling_install_ok(),
@@ -43545,7 +43650,9 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
-        game_logic.templates.insert("TestAircraft".to_string(), air_tpl);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), air_tpl);
         let air_id = game_logic
             .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 20.0, 0.0))
             .expect("air");
@@ -43601,11 +43708,7 @@ mod tests {
             .insert("ChinaTankOverlord".to_string(), overlord_tpl);
 
         let overlord_id = game_logic
-            .create_object(
-                "ChinaTankOverlord",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("overlord");
         game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_PROPAGANDA);
         {
@@ -43705,11 +43808,7 @@ mod tests {
             .templates
             .insert("ChinaVehicleHelix".to_string(), helix_tpl);
         let helix_id = game_logic
-            .create_object(
-                "ChinaVehicleHelix",
-                Team::China,
-                Vec3::new(100.0, 0.0, 0.0),
-            )
+            .create_object("ChinaVehicleHelix", Team::China, Vec3::new(100.0, 0.0, 0.0))
             .expect("helix");
         {
             let h = game_logic.find_object(helix_id).unwrap();
@@ -43801,10 +43900,7 @@ mod tests {
         }
 
         game_logic.set_current_frame(30);
-        game_logic.update_combat(
-            &[cannon_id, primary_id, splash_id],
-            LOGIC_FRAME_TIMESTEP,
-        );
+        game_logic.update_combat(&[cannon_id, primary_id, splash_id], LOGIC_FRAME_TIMESTEP);
 
         assert!(
             game_logic.honesty_nuke_cannon_primary_ok(),
@@ -43837,7 +43933,10 @@ mod tests {
         game_logic.set_current_frame(30);
         game_logic.update();
         assert!(
-            game_logic.nuke_cannon_residual().radiation_damage_applications > 0
+            game_logic
+                .nuke_cannon_residual()
+                .radiation_damage_applications
+                > 0
                 || game_logic.nuke_cannon_residual().primary_blasts > 0,
             "radiation tick or primary residual honesty"
         );
@@ -43890,9 +43989,7 @@ mod tests {
         }
 
         game_logic.queue_command(GameCommand {
-            command_type: CommandType::Enter {
-                target_id: bus_id,
-            },
+            command_type: CommandType::Enter { target_id: bus_id },
             player_id: 2,
             command_id: 1,
             timestamp: std::time::SystemTime::now(),
@@ -43905,7 +44002,10 @@ mod tests {
         let bus = game_logic.find_object(bus_id).expect("bus after");
         assert!(bus.contained_units().contains(&infantry_id));
         assert_eq!(bus.transport_count(), 1);
-        assert!(bus.weapon_set_player_upgrade, "armed riders must upgrade weapon set");
+        assert!(
+            bus.weapon_set_player_upgrade,
+            "armed riders must upgrade weapon set"
+        );
         assert!(
             bus.weapon.is_some(),
             "PLAYER_UPGRADE residual binds passenger dummy weapon"
@@ -44121,9 +44221,7 @@ mod tests {
             .create_object("TestInfantry", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
             .expect("extra");
         game_logic.queue_command(GameCommand {
-            command_type: CommandType::Enter {
-                target_id: bus_id,
-            },
+            command_type: CommandType::Enter { target_id: bus_id },
             player_id: 2,
             command_id: 9,
             timestamp: std::time::SystemTime::now(),
@@ -44158,9 +44256,7 @@ mod tests {
             .expect("tank");
 
         game_logic.queue_command(GameCommand {
-            command_type: CommandType::Enter {
-                target_id: bus_id,
-            },
+            command_type: CommandType::Enter { target_id: bus_id },
             player_id: 2,
             command_id: 5,
             timestamp: std::time::SystemTime::now(),
@@ -44498,8 +44594,7 @@ mod tests {
             "Combat Chinook dummy must be ListeningOutpost residual (damage ~0.1)"
         );
         assert!(
-            (dummy.damage
-                - crate::game_logic::host_combat_chinook::LISTENING_OUTPOST_DUMMY_DAMAGE)
+            (dummy.damage - crate::game_logic::host_combat_chinook::LISTENING_OUTPOST_DUMMY_DAMAGE)
                 .abs()
                 < f32::EPSILON
         );
@@ -44714,7 +44809,10 @@ mod tests {
             game_logic.update_ai(&[id, chinook_id], 1.0 / 30.0);
         }
         assert_eq!(
-            game_logic.find_object(chinook_id).unwrap().transport_count(),
+            game_logic
+                .find_object(chinook_id)
+                .unwrap()
+                .transport_count(),
             crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
         );
 
@@ -44740,7 +44838,10 @@ mod tests {
             "full Combat Chinook residual must reject Enter"
         );
         assert_eq!(
-            game_logic.find_object(chinook_id).unwrap().transport_count(),
+            game_logic
+                .find_object(chinook_id)
+                .unwrap()
+                .transport_count(),
             crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS
         );
     }
@@ -44791,7 +44892,10 @@ mod tests {
         assert!(is_listening_outpost_template(&outpost.template_name));
         assert!(outpost.is_listening_outpost_style_container());
         assert!(outpost.can_contain());
-        assert_eq!(outpost.transport_capacity(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
+        assert_eq!(
+            outpost.transport_capacity(),
+            LISTENING_OUTPOST_TRANSPORT_SLOTS
+        );
         assert!(outpost.passengers_allowed_to_fire);
         assert!(outpost.armed_riders_upgrade_weapon_set);
         assert!(outpost.is_detector, "listening outpost detector residual");
@@ -45010,9 +45114,7 @@ mod tests {
             outpost
                 .weapon
                 .as_ref()
-                .map(|w| {
-                    crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
-                })
+                .map(|w| { crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w) })
                 .unwrap_or(false),
             "ListeningOutpostUpgradedDummyWeapon residual bind"
         );
@@ -45195,10 +45297,7 @@ mod tests {
         // Mine marked detonated / destroyed residual.
         if let Some(mine) = game_logic.find_object(mine_id) {
             assert!(
-                mine.mine_data
-                    .as_ref()
-                    .map(|d| d.detonated)
-                    .unwrap_or(true)
+                mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true)
                     || mine.status.destroyed
             );
         }
@@ -45262,13 +45361,7 @@ mod tests {
 
         // Short delay for test observability (not full 10s retail lifetime).
         let charge_id = game_logic
-            .place_timed_demo_charge(
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-                None,
-                None,
-                Some(3),
-            )
+            .place_timed_demo_charge(Team::USA, Vec3::new(0.0, 0.0, 0.0), None, None, Some(3))
             .expect("charge");
         assert_eq!(game_logic.mine_residual_places(), 1);
 
@@ -45302,9 +45395,7 @@ mod tests {
     /// Residual: ClusterMines special power places a ring of mines at target.
     #[test]
     fn cluster_mines_special_power_places_mines() {
-        use crate::command_system::{
-            CommandType, GameCommand, PowerTarget, SpecialPowerType,
-        };
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
         use crate::game_logic::host_mines::CLUSTER_MINE_COUNT;
 
         let mut game_logic = GameLogic::new();
@@ -45508,12 +45599,7 @@ mod tests {
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
         assert!(game_logic.find_object(dozer_id).unwrap().is_alive());
         if let Some(mine) = game_logic.find_object(mine_id) {
-            assert!(
-                mine.mine_data
-                    .as_ref()
-                    .map(|d| d.detonated)
-                    .unwrap_or(true)
-            );
+            assert!(mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true));
         }
     }
 
@@ -45541,7 +45627,10 @@ mod tests {
         assert_eq!(game_logic.mine_residual_proximity_detonations(), 0);
         let mine = game_logic.find_object(mine_id).unwrap();
         assert!(
-            mine.mine_data.as_ref().map(|d| d.is_active()).unwrap_or(false),
+            mine.mine_data
+                .as_ref()
+                .map(|d| d.is_active())
+                .unwrap_or(false),
             "ally mine must remain active"
         );
     }
@@ -45967,7 +46056,9 @@ mod tests {
         // AP Rockets residual × 1.25.
         assert!(game_logic.apply_stinger_ap_rockets_upgrade(stinger_id));
         {
-            let s = game_logic.find_object(stinger_id).expect("stinger after AP");
+            let s = game_logic
+                .find_object(stinger_id)
+                .expect("stinger after AP");
             let prim = s.weapon.as_ref().expect("ground");
             assert!(
                 (prim.damage - STINGER_GROUND_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01,
@@ -46090,7 +46181,11 @@ mod tests {
             .insert("China_GattlingCannon".to_string(), gattling_tpl);
 
         let gattling_id = game_logic
-            .create_object("China_GattlingCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .create_object(
+                "China_GattlingCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
             .expect("gattling");
         let enemy_id = game_logic
             .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
@@ -46431,7 +46526,10 @@ mod tests {
             "intercept counter must advance"
         );
         // Missile should be destroyed / marked for destruction residual.
-        let missile_gone = game_logic.find_object(missile_id).map(|m| !m.is_alive()).unwrap_or(true)
+        let missile_gone = game_logic
+            .find_object(missile_id)
+            .map(|m| !m.is_alive())
+            .unwrap_or(true)
             || game_logic
                 .find_object(missile_id)
                 .map(|m| m.health.current <= 0.0)
@@ -46452,11 +46550,7 @@ mod tests {
         game_logic.frame = 2;
         // Spawn another missile in range.
         let missile2 = game_logic
-            .create_object(
-                "TestMissile",
-                Team::China,
-                Vec3::new(20.0, 0.0, 0.0),
-            )
+            .create_object("TestMissile", Team::China, Vec3::new(20.0, 0.0, 0.0))
             .expect("missile2");
         game_logic.update_point_defense_intercept();
         assert_eq!(
@@ -46488,9 +46582,7 @@ mod tests {
         ensure_test_tank_template(&mut game_logic);
 
         let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
-        missile_tpl
-            .add_kind_of(KindOf::Projectile)
-            .set_health(50.0);
+        missile_tpl.add_kind_of(KindOf::Projectile).set_health(50.0);
         game_logic
             .templates
             .insert("TestMissile".to_string(), missile_tpl);
@@ -47098,9 +47190,7 @@ mod tests {
     /// (production stop residual) while cooking; clears when attack stops.
     #[test]
     fn microwave_tank_residual_disables_enemy_structure() {
-        use crate::game_logic::host_microwave::{
-            is_microwave_tank, HOST_MICROWAVE_DISABLE_RANGE,
-        };
+        use crate::game_logic::host_microwave::{is_microwave_tank, HOST_MICROWAVE_DISABLE_RANGE};
         use crate::game_logic::weapon_bootstrap::{
             ensure_host_weapon_store, MICROWAVE_BUILDING_CLEARER_WEAPON,
         };
@@ -47132,11 +47222,7 @@ mod tests {
             .insert("TestBarracks".to_string(), barracks_tpl);
 
         let micro_id = game_logic
-            .create_object(
-                "AmericaTankMicrowave",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("microwave");
         let barracks_id = game_logic
             .create_object(
@@ -47201,18 +47287,12 @@ mod tests {
 
         // Ally structure residual-skip: USA barracks next to USA microwave.
         let mut ally_tpl = crate::game_logic::ThingTemplate::new("TestAllyBarracks");
-        ally_tpl
-            .add_kind_of(KindOf::Structure)
-            .set_health(1000.0);
+        ally_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
         game_logic
             .templates
             .insert("TestAllyBarracks".to_string(), ally_tpl);
         let ally_id = game_logic
-            .create_object(
-                "TestAllyBarracks",
-                Team::USA,
-                Vec3::new(30.0, 0.0, 0.0),
-            )
+            .create_object("TestAllyBarracks", Team::USA, Vec3::new(30.0, 0.0, 0.0))
             .expect("ally barracks");
         {
             let a = game_logic.find_object_mut(ally_id).unwrap();
@@ -47281,12 +47361,10 @@ mod tests {
             !game_logic.honesty_microwave_disable_ok(),
             "fail-closed: ordinary tank must not microwave-disable"
         );
-        assert!(
-            !game_logic
-                .find_object(barracks_id)
-                .map(|b| b.is_subdued_disabled())
-                .unwrap_or(true)
-        );
+        assert!(!game_logic
+            .find_object(barracks_id)
+            .map(|b| b.is_subdued_disabled())
+            .unwrap_or(true));
     }
 
     /// Residual: King Raptor (AirF_AmericaJetRaptor) dual PDL intercepts missiles.
@@ -47320,11 +47398,7 @@ mod tests {
             .insert("TestMissile".to_string(), missile_tpl);
 
         let raptor_id = game_logic
-            .create_object(
-                "AirF_AmericaJetRaptor",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AirF_AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("king raptor");
         let missile_id = game_logic
             .create_object(
@@ -47370,11 +47444,7 @@ mod tests {
         let intercepts_after_first = game_logic.point_defense_residual_intercepts();
         game_logic.frame = 2;
         let _missile2 = game_logic
-            .create_object(
-                "TestMissile",
-                Team::China,
-                Vec3::new(20.0, 0.0, 0.0),
-            )
+            .create_object("TestMissile", Team::China, Vec3::new(20.0, 0.0, 0.0))
             .expect("missile2");
         game_logic.update_point_defense_intercept();
         assert_eq!(
@@ -47410,9 +47480,7 @@ mod tests {
             .insert("AmericaJetRaptor".to_string(), raptor_tpl);
 
         let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
-        missile_tpl
-            .add_kind_of(KindOf::Projectile)
-            .set_health(50.0);
+        missile_tpl.add_kind_of(KindOf::Projectile).set_health(50.0);
         game_logic
             .templates
             .insert("TestMissile".to_string(), missile_tpl);
@@ -47496,7 +47564,10 @@ mod tests {
                 c.weapon.is_some(),
                 "comanche must spawn with primary cannon residual"
             );
-            let sec = c.secondary_weapon.as_ref().expect("antitank residual secondary");
+            let sec = c
+                .secondary_weapon
+                .as_ref()
+                .expect("antitank residual secondary");
             assert!(
                 (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() < 0.01,
                 "pre-upgrade secondary is anti-tank residual (~50), got {}",
@@ -47778,11 +47849,7 @@ mod tests {
             .insert("GLAVehicleRocketBuggy".to_string(), buggy_tpl);
 
         let buggy_id = game_logic
-            .create_object(
-                "GLAVehicleRocketBuggy",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleRocketBuggy", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("buggy");
         {
             let b = game_logic.find_object(buggy_id).expect("buggy");
@@ -47903,11 +47970,7 @@ mod tests {
             .insert("TestAircraft".to_string(), aircraft_tpl);
 
         let quad_id = game_logic
-            .create_object(
-                "GLAVehicleQuadCannon",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleQuadCannon", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("quad");
         {
             let q = game_logic.find_object(quad_id).expect("quad");
@@ -48032,8 +48095,8 @@ mod tests {
     #[test]
     fn scud_launcher_residual_area_and_toxin() {
         use crate::game_logic::host_scud_launcher::{
-            is_scud_launcher_template, SCUD_ATTACK_RANGE, SCUD_EXP_PRIMARY_DAMAGE, SCUD_GUN_EXPLOSIVE,
-            SCUD_GUN_TOXIN, SCUD_MIN_RANGE, SCUD_POISON_DAMAGE_PER_TICK,
+            is_scud_launcher_template, SCUD_ATTACK_RANGE, SCUD_EXP_PRIMARY_DAMAGE,
+            SCUD_GUN_EXPLOSIVE, SCUD_GUN_TOXIN, SCUD_MIN_RANGE, SCUD_POISON_DAMAGE_PER_TICK,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -48208,13 +48271,13 @@ mod tests {
         );
     }
 
-        /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
+    /// Residual: GLA Technical transport capacity 5 + salvage weapon tiers.
     #[test]
     fn technical_residual_transport_and_salvage_weapon() {
         use crate::command_system::{CommandType, GameCommand};
         use crate::game_logic::host_technical::{
             is_technical_template, TechnicalWeaponTier, TECHNICAL_MACHINE_GUN,
-            TECH_MG_DAMAGE, TECH_RPG_DAMAGE, TECHNICAL_TRANSPORT_SLOTS,
+            TECHNICAL_TRANSPORT_SLOTS, TECH_MG_DAMAGE, TECH_RPG_DAMAGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -48236,11 +48299,7 @@ mod tests {
             .insert("GLAVehicleTechnical".to_string(), tech_tpl);
 
         let tech_id = game_logic
-            .create_object(
-                "GLAVehicleTechnical",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("technical");
         {
             let t = game_logic.find_object(tech_id).expect("tech");
@@ -48362,7 +48421,8 @@ mod tests {
             "technical unload residual honesty"
         );
         // Force unload honesty if Exit did not classify technical (fail-open for test).
-        if game_logic.technical_residual_loads() > 0 && game_logic.technical_residual_unloads() == 0 {
+        if game_logic.technical_residual_loads() > 0 && game_logic.technical_residual_unloads() == 0
+        {
             game_logic.record_technical_residual_unload();
         }
         assert!(
@@ -48375,8 +48435,8 @@ mod tests {
     #[test]
     fn toxin_tractor_residual_stream_spray_and_death_field() {
         use crate::game_logic::host_toxin_tractor::{
-            is_toxin_tractor_template, TOXIN_STREAM_DAMAGE, TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
-            TOXIN_MED_FIELD_DAMAGE,
+            is_toxin_tractor_template, TOXIN_MED_FIELD_DAMAGE, TOXIN_STREAM_DAMAGE,
+            TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -48399,11 +48459,7 @@ mod tests {
             .insert("GLAVehicleToxinTruck".to_string(), toxin_tpl);
 
         let toxin_id = game_logic
-            .create_object(
-                "GLAVehicleToxinTruck",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleToxinTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("toxin");
         {
             let t = game_logic.find_object(toxin_id).expect("toxin");
@@ -48549,7 +48605,7 @@ mod tests {
     }
 
     /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
-/// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
+    /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
     #[test]
     fn sentry_drone_residual_detect_and_auto_fire() {
         use crate::command_system::{CommandType, GameCommand};
@@ -48594,7 +48650,10 @@ mod tests {
         {
             let s = game_logic.find_object(sentry_id).expect("sentry");
             assert!(is_sentry_drone_template(&s.template_name));
-            assert!(s.is_detector, "sentry must spawn as stealth detector residual");
+            assert!(
+                s.is_detector,
+                "sentry must spawn as stealth detector residual"
+            );
             assert!(
                 (s.detection_range - SENTRY_DETECTION_RANGE).abs() < 0.1,
                 "sentry detection range residual 225, got {}",
@@ -48815,11 +48874,22 @@ mod tests {
             assert!(p.status.stealthed, "pathfinder innate stealth on spawn");
             assert!(p.innate_stealth);
             assert!(p.stealth_breaks_on_move);
-            assert!(!p.stealth_breaks_on_attack, "stays stealthed while attacking");
+            assert!(
+                !p.stealth_breaks_on_attack,
+                "stays stealthed while attacking"
+            );
             assert!(p.weapon.is_some(), "pathfinder sniper residual equipped");
             let w = p.weapon.as_ref().unwrap();
-            assert!((w.damage - 100.0).abs() < 0.1, "sniper dmg 100, got {}", w.damage);
-            assert!((w.range - 300.0).abs() < 0.1, "sniper range 300, got {}", w.range);
+            assert!(
+                (w.damage - 100.0).abs() < 0.1,
+                "sniper dmg 100, got {}",
+                w.damage
+            );
+            assert!(
+                (w.range - 300.0).abs() < 0.1,
+                "sniper range 300, got {}",
+                w.range
+            );
         }
 
         // Detect stealthed enemy within 200.
@@ -48945,11 +49015,7 @@ mod tests {
             .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
 
         let master_id = game_logic
-            .create_object(
-                "AmericaVehicleHumvee",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("humvee");
 
         // Attach Scout residual.
@@ -49006,8 +49072,16 @@ mod tests {
             assert!(is_hellfire_drone_template(&h.template_name));
             assert!(h.weapon.is_some(), "hellfire must equip missile residual");
             let w = h.weapon.as_ref().unwrap();
-            assert!((w.damage - 40.0).abs() < 0.1, "hellfire dmg 40, got {}", w.damage);
-            assert!((w.range - 150.0).abs() < 0.1, "hellfire range 150, got {}", w.range);
+            assert!(
+                (w.damage - 40.0).abs() < 0.1,
+                "hellfire dmg 40, got {}",
+                w.damage
+            );
+            assert!(
+                (w.range - 150.0).abs() < 0.1,
+                "hellfire range 150, got {}",
+                w.range
+            );
             let _ = HELLFIRE_MISSILE_WEAPON;
         }
         {
@@ -49148,7 +49222,9 @@ mod tests {
         // Instant residual (StartAbilityRange = 1e6) — one AI update completes.
         game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
 
-        let truck = game_logic.find_object(truck_id).expect("truck after disguise");
+        let truck = game_logic
+            .find_object(truck_id)
+            .expect("truck after disguise");
         assert!(
             truck.status.disguised,
             "bomb truck must set OBJECT_STATUS_DISGUISED"
@@ -49235,7 +49311,9 @@ mod tests {
         }
         game_logic.update_stealth_and_detection();
 
-        let truck = game_logic.find_object(truck_id).expect("truck after reveal");
+        let truck = game_logic
+            .find_object(truck_id)
+            .expect("truck after reveal");
         assert!(
             !truck.status.disguised,
             "reveal distance residual must clear DISGUISED"
@@ -49632,11 +49710,7 @@ mod tests {
             .insert("ChinaVehicleHelix".to_string(), helix_tpl);
 
         let helix_id = game_logic
-            .create_object(
-                "ChinaVehicleHelix",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("helix");
         {
             let h = game_logic.find_object_mut(helix_id).unwrap();
@@ -49674,9 +49748,7 @@ mod tests {
     #[test]
     fn camouflage_upgrade_queue_complete_stealths_rebel() {
         use crate::command_system::{CommandType, GameCommand};
-        use crate::game_logic::host_upgrades::{
-            HostUpgradeKind, UPGRADE_GLA_CAMOUFLAGE,
-        };
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_GLA_CAMOUFLAGE};
 
         let mut game_logic = GameLogic::new();
         let mut player = Player::new(0, Team::GLA, "GLA", true);
@@ -49732,19 +49804,15 @@ mod tests {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         game_logic.process_commands();
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_queue_ok(HostUpgradeKind::Camouflage)
-        );
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::Camouflage));
 
         game_logic.update();
 
-        assert!(
-            game_logic
-                .host_upgrades()
-                .honesty_complete_ok(HostUpgradeKind::Camouflage)
-        );
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::Camouflage));
         assert!(
             game_logic
                 .host_upgrades()
@@ -49831,12 +49899,10 @@ mod tests {
         game_logic.process_commands();
         game_logic.update();
 
-        assert!(
-            game_logic
-                .find_object(rebel_id)
-                .map(|r| r.status.stealthed)
-                .unwrap_or(false)
-        );
+        assert!(game_logic
+            .find_object(rebel_id)
+            .map(|r| r.status.stealthed)
+            .unwrap_or(false));
 
         // Fire residual breaks stealth.
         {
@@ -49901,11 +49967,7 @@ mod tests {
             .insert("GLATankMarauder".to_string(), marauder_tpl);
 
         let marauder_id = game_logic
-            .create_object(
-                "GLATankMarauder",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLATankMarauder", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("marauder");
         let base_reload = {
             let m = game_logic.find_object(marauder_id).expect("marauder");
@@ -50022,11 +50084,7 @@ mod tests {
             .insert("GLATankScorpion".to_string(), scorp_tpl);
 
         let scorp_id = game_logic
-            .create_object(
-                "GLATankScorpion",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("scorpion");
         {
             let s = game_logic.find_object(scorp_id).expect("scorpion");
@@ -50267,13 +50325,13 @@ mod tests {
     }
 
     /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
-    
+
     /// Residual: USA Raptor jet missiles + Laser Missiles upgrade + King Raptor stats.
     #[test]
     fn raptor_residual_missiles_and_laser_missiles() {
         use crate::game_logic::host_raptor::{
-            is_king_raptor_template, is_raptor_template, RAPTOR_DAMAGE, RAPTOR_MIN_RANGE,
-            RAPTOR_RANGE, RAPTOR_JET_MISSILE_WEAPON, KING_RAPTOR_DAMAGE, KING_RAPTOR_RANGE,
+            is_king_raptor_template, is_raptor_template, KING_RAPTOR_DAMAGE, KING_RAPTOR_RANGE,
+            RAPTOR_DAMAGE, RAPTOR_JET_MISSILE_WEAPON, RAPTOR_MIN_RANGE, RAPTOR_RANGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -50296,11 +50354,7 @@ mod tests {
             .insert("AmericaJetRaptor".to_string(), raptor_tpl);
 
         let raptor_id = game_logic
-            .create_object(
-                "AmericaJetRaptor",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("raptor");
         {
             let r = game_logic.find_object(raptor_id).expect("raptor");
@@ -50339,10 +50393,7 @@ mod tests {
             .unwrap_or(0.0);
 
         game_logic.set_current_frame(50);
-        game_logic.update_combat(
-            &[raptor_id, enemy, near_splash],
-            LOGIC_FRAME_TIMESTEP,
-        );
+        game_logic.update_combat(&[raptor_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
 
         assert!(
             game_logic.raptor_residual_fires() > 0,
@@ -50413,7 +50464,6 @@ mod tests {
             assert_eq!(prim.ammo, Some(6));
         }
     }
-
 
     /// Residual: USA Stealth Fighter missiles splash + ClipSize honesty.
     #[test]
@@ -50486,10 +50536,7 @@ mod tests {
             .unwrap_or(0.0);
 
         game_logic.set_current_frame(50);
-        game_logic.update_combat(
-            &[fighter_id, enemy, near_splash],
-            LOGIC_FRAME_TIMESTEP,
-        );
+        game_logic.update_combat(&[fighter_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
 
         assert!(
             game_logic.stealth_fighter_residual_fires() > 0,
@@ -50630,10 +50677,7 @@ mod tests {
             .map(|e| e.health.current)
             .unwrap_or(0.0);
         game_logic.set_current_frame(80);
-        game_logic.update_combat(
-            &[comanche_id, enemy, near_splash],
-            LOGIC_FRAME_TIMESTEP,
-        );
+        game_logic.update_combat(&[comanche_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
         assert!(
             game_logic.comanche_antitank_residual_fires() > 0,
             "comanche antitank residual fire honesty"
@@ -50659,11 +50703,214 @@ mod tests {
     }
 
     /// Residual: USA Battle Drone attach + MG fire + master repair.    /// Residual: USA Battle Drone attach + MG fire + master repair.
+    /// Residual: China Helix PRIMARY HelixMinigunWeapon intended-only combat residual.
+    /// Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
+    #[test]
+    fn helix_minigun_residual_intended_only() {
+        use crate::game_logic::host_helix_minigun::{
+            HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
+        };
+        use crate::game_logic::host_overlord_addons::is_helix_template;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "China", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut helix_tpl = ThingTemplate::new("ChinaVehicleHelix");
+        helix_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(HELIX_MINIGUN_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaVehicleHelix".to_string(), helix_tpl);
+
+        let helix_id = game_logic
+            .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("helix");
+        {
+            let h = game_logic.find_object(helix_id).expect("helix");
+            assert!(is_helix_template(&h.template_name));
+            assert!(h.is_helix_transport);
+            let w = h.weapon.as_ref().expect("Helix must bind minigun residual");
+            assert!((w.damage - HELIX_MINIGUN_DAMAGE).abs() < 0.01);
+            assert!((w.range - HELIX_MINIGUN_RANGE).abs() < 1.0);
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            e.health.current = 100.0;
+            e.health.maximum = 100.0;
+            e.thing.template.armor = 0.0;
+        }
+        // Splash / non-intended neighbor outside intended-only residual.
+        let neighbor_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
+            .expect("neighbor");
+        {
+            let n = game_logic.find_object_mut(neighbor_id).expect("neighbor");
+            n.health.current = 100.0;
+            n.health.maximum = 100.0;
+            n.thing.template.armor = 0.0;
+        }
+
+        {
+            let h = game_logic.find_object_mut(helix_id).expect("helix");
+            h.attack_target(enemy_id);
+            if let Some(w) = h.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.05;
+            }
+        }
+
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let neighbor_hp_before = game_logic.find_object(neighbor_id).unwrap().health.current;
+
+        game_logic.set_current_frame(10);
+        game_logic.update_combat(&[helix_id, enemy_id, neighbor_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_helix_minigun_ok(),
+            "Helix minigun residual must fire"
+        );
+        assert!(game_logic.helix_minigun_residual_fires() >= 1);
+        assert!(game_logic.helix_minigun_residual_units_hit() >= 1);
+
+        let enemy_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        let neighbor_hp = game_logic.find_object(neighbor_id).unwrap().health.current;
+        assert!(
+            enemy_hp < enemy_hp_before,
+            "intended target must take Helix minigun residual damage"
+        );
+        let dealt = enemy_hp_before - enemy_hp;
+        assert!(
+            (dealt - HELIX_MINIGUN_DAMAGE).abs() < 0.01 || dealt > 0.0,
+            "expected ~{HELIX_MINIGUN_DAMAGE} residual, got {dealt}"
+        );
+        assert!(
+            (neighbor_hp - neighbor_hp_before).abs() < 0.01,
+            "intended-only residual must not splash neighbor (before={neighbor_hp_before}, after={neighbor_hp})"
+        );
+    }
+
+    /// Residual: Inferno BlackNapalm upgrades FireFieldSmall → FireFieldUpgradedSmall (7.5 DoT).
+    /// Fail-closed: not HistoricBonus Firestorm multi-shell matrix.
+    #[test]
+    fn inferno_black_napalm_upgraded_fire_field_residual() {
+        use crate::game_logic::host_inferno_cannon::{
+            INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, INFERNO_CANNON_PRIMARY_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "China", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut cannon_tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(INFERNO_CANNON_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), cannon_tpl);
+
+        let cannon_id = game_logic
+            .create_object(
+                "ChinaVehicleInfernoCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("inferno");
+        assert!(game_logic.apply_inferno_black_napalm_upgrade(cannon_id));
+        assert!(game_logic.honesty_inferno_black_napalm_ok());
+        assert!(game_logic.inferno_black_napalm_residual_upgrades() >= 1);
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            e.health.current = 300.0;
+            e.health.maximum = 300.0;
+            e.thing.template.armor = 0.0;
+        }
+
+        {
+            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            c.attack_target(enemy_id);
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+
+        game_logic.set_current_frame(10);
+        game_logic.update_combat(&[cannon_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(game_logic.honesty_inferno_fire_spawn_ok());
+        assert!(
+            game_logic.inferno_black_napalm_residual_zones() >= 1,
+            "BlackNapalm Inferno must spawn upgraded fire zone honesty"
+        );
+        let zone = game_logic
+            .inferno_fire_zones()
+            .active_zones()
+            .iter()
+            .find(|z| z.upgraded)
+            .expect("upgraded FireFieldUpgradedSmall residual zone");
+        assert!(
+            (zone.damage_per_tick - INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED).abs() < 0.01,
+            "upgraded fire tick must be {}, got {}",
+            INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
+            zone.damage_per_tick
+        );
+        assert!(
+            (INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED - INFERNO_FIRE_DAMAGE_PER_TICK).abs() > 0.01,
+            "upgraded residual must exceed base FireFieldSmall tick"
+        );
+
+        let hp_after_shot = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.update_inferno_fire_zones();
+        let hp_after_dot = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(hp_after_dot < hp_after_shot, "upgraded fire DoT must apply");
+        let dealt = hp_after_shot - hp_after_dot;
+        assert!(
+            (dealt - INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED).abs() < 0.01
+                || dealt > INFERNO_FIRE_DAMAGE_PER_TICK,
+            "expected upgraded tick ~{}, got {}",
+            INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
+            dealt
+        );
+        assert!(game_logic.honesty_inferno_black_napalm_ok());
+        assert!(game_logic.honesty_inferno_cannon_ok());
+    }
+
     #[test]
     fn battle_drone_residual_attach_fire_and_repair() {
         use crate::game_logic::host_slave_drones::{
-            is_battle_drone_template, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_MACHINE_GUN,
-            SlaveDroneKind,
+            is_battle_drone_template, SlaveDroneKind, BATTLE_DRONE_GUN_DAMAGE,
+            BATTLE_DRONE_MACHINE_GUN,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -50685,11 +50932,7 @@ mod tests {
             .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
 
         let master_id = game_logic
-            .create_object(
-                "AmericaVehicleHumvee",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("humvee");
 
         // Damage master below 60% for repair residual.
@@ -50717,8 +50960,10 @@ mod tests {
         {
             let m = game_logic.find_object(master_id).unwrap();
             assert!(
-                m.applied_upgrades.iter().any(|u| u.to_ascii_lowercase().contains("battledrone")
-                    || u.contains("BattleDrone")),
+                m.applied_upgrades
+                    .iter()
+                    .any(|u| u.to_ascii_lowercase().contains("battledrone")
+                        || u.contains("BattleDrone")),
                 "master tagged with BattleDrone upgrade residual"
             );
         }
@@ -50778,7 +51023,7 @@ mod tests {
         assert!(game_logic.honesty_battle_drone_ok());
     }
 
-/// Residual: China Overlord main gun dual-radius + Uranium Shells.
+    /// Residual: China Overlord main gun dual-radius + Uranium Shells.
     #[test]
     fn overlord_gun_residual_dual_radius_and_uranium() {
         use crate::game_logic::host_overlord_gun::{
@@ -50926,11 +51171,7 @@ mod tests {
             .insert("GLAInfantryJarmenKell".to_string(), kell_tpl);
 
         let kell_id = game_logic
-            .create_object(
-                "GLAInfantryJarmenKell",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantryJarmenKell", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("kell");
         {
             let k = game_logic.find_object(kell_id).expect("kell");
@@ -51086,7 +51327,10 @@ mod tests {
                 "horde ROF residual ~40 frames, got reload={}",
                 w.reload_time
             );
-            assert!((w.damage - 60.0).abs() < 0.5, "horde does not change damage");
+            assert!(
+                (w.damage - 60.0).abs() < 0.5,
+                "horde does not change damage"
+            );
         }
 
         // Nationalism residual: additional ROF 125% while in horde → 32 frames.
@@ -51259,7 +51503,10 @@ mod tests {
                 "horde ROF residual ~20 frames, got reload={}",
                 w.reload_time
             );
-            assert!((w.damage - 15.0).abs() < 0.5, "horde does not change damage");
+            assert!(
+                (w.damage - 15.0).abs() < 0.5,
+                "horde does not change damage"
+            );
         }
 
         // Nationalism residual: additional ROF 125% while in horde → 16 frames.
@@ -51627,8 +51874,8 @@ mod tests {
     fn ranger_residual_rifle_and_flashbang_splash() {
         use crate::game_logic::host_ranger::{
             is_ranger_template, FLASHBANG_PRIMARY_DAMAGE, FLASHBANG_SECONDARY_DAMAGE,
-            RANGER_FLASHBANG_WEAPON, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_RANGE,
-            RANGER_RIFLE_WEAPON, UPGRADE_AMERICA_FLASHBANG,
+            RANGER_FLASHBANG_WEAPON, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_RANGE, RANGER_RIFLE_WEAPON,
+            UPGRADE_AMERICA_FLASHBANG,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -51651,11 +51898,7 @@ mod tests {
             .insert("AmericaInfantryRanger".to_string(), ranger_tpl);
 
         let ranger_id = game_logic
-            .create_object(
-                "AmericaInfantryRanger",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("ranger");
         {
             let ranger = game_logic.find_object(ranger_id).expect("ranger");
@@ -51830,11 +52073,7 @@ mod tests {
         // player_id 0 residual ownership maps to USA when no player exists —
         // mirror disable_vehicle_hack residual tests (USA actor vs enemy target).
         let hacker_id = game_logic
-            .create_object(
-                "ChinaInfantryHacker",
-                Team::USA,
-                Vec3::new(200.0, 0.0, 0.0),
-            )
+            .create_object("ChinaInfantryHacker", Team::USA, Vec3::new(200.0, 0.0, 0.0))
             .expect("hacker");
         {
             let h = game_logic.find_object(hacker_id).expect("hacker");
@@ -51924,7 +52163,10 @@ mod tests {
         // Expire residual timer → building recovers.
         let until = building_after.status.disabled_hacked_until_frame;
         assert!(
-            until >= game_logic.frame.saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES.saturating_sub(1)),
+            until
+                >= game_logic
+                    .frame
+                    .saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES.saturating_sub(1)),
             "EffectDuration residual ~60 frames (got until={until} frame={})",
             game_logic.frame
         );
@@ -52063,8 +52305,8 @@ mod tests {
     #[test]
     fn terrorist_residual_suicide_dynamite_pack() {
         use crate::game_logic::host_terrorist::{
-            is_terrorist_template, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
-            TERRORIST_SUICIDE_WEAPON,
+            is_terrorist_template, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
+            SUICIDE_DYNAMITE_PRIMARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -52086,11 +52328,7 @@ mod tests {
             .insert("GLAInfantryTerrorist".to_string(), terror_tpl);
 
         let terror_id = game_logic
-            .create_object(
-                "GLAInfantryTerrorist",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("terrorist");
         {
             let t = game_logic.find_object(terror_id).expect("terrorist");
@@ -52175,9 +52413,9 @@ mod tests {
     #[test]
     fn missile_defender_residual_missile_and_laser_guided() {
         use crate::game_logic::host_missile_defender::{
-            is_missile_defender_template, MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_RANGE,
-            MISSILE_DEFENDER_PRIMARY_RANGE, MISSILE_DEFENDER_MISSILE_WEAPON,
-            MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
+            is_missile_defender_template, MISSILE_DEFENDER_DAMAGE,
+            MISSILE_DEFENDER_LASER_GUIDED_WEAPON, MISSILE_DEFENDER_LASER_RANGE,
+            MISSILE_DEFENDER_MISSILE_WEAPON, MISSILE_DEFENDER_PRIMARY_RANGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -52214,10 +52452,7 @@ mod tests {
             assert!((w.range - MISSILE_DEFENDER_PRIMARY_RANGE).abs() < 1.0);
             assert!(w.can_target_air && w.can_target_ground);
             assert!((w.reload_time - 1.0).abs() < 0.05);
-            let sw = md
-                .secondary_weapon
-                .as_ref()
-                .expect("laser guided residual");
+            let sw = md.secondary_weapon.as_ref().expect("laser guided residual");
             assert!((sw.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
             assert!((sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0);
             assert!((sw.reload_time - 0.5).abs() < 0.05);
@@ -52331,7 +52566,7 @@ mod tests {
     }
 
     /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
-    
+
     // -----------------------------------------------------------------------
     // China Troop Crawler residual (transport 8 + Redguard payload + assault + detector)
     // Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
@@ -52359,7 +52594,10 @@ mod tests {
             "detection range residual 175, got {}",
             crawler.detection_range
         );
-        let prim = crawler.weapon.as_ref().expect("TroopCrawlerAssault residual");
+        let prim = crawler
+            .weapon
+            .as_ref()
+            .expect("TroopCrawlerAssault residual");
         assert!(
             (prim.range - TROOP_CRAWLER_ASSAULT_RANGE).abs() < 0.1,
             "assault weapon range residual 175, got {}",
@@ -52616,10 +52854,7 @@ mod tests {
                 && o.is_kind_of(KindOf::Infantry)
                 && o.contained_by.is_none()
                 && (o.target == Some(enemy)
-                    || matches!(
-                        o.ai_state,
-                        AIState::Attacking | AIState::AttackMoving
-                    ))
+                    || matches!(o.ai_state, AIState::Attacking | AIState::AttackMoving))
         });
         assert!(
             any_attacking,
@@ -52678,13 +52913,12 @@ mod tests {
         );
     }
 
-
     /// Residual: China Dragon Tank primary flame splash + BlackNapalm upgrade.
     #[test]
     fn dragon_tank_residual_flame_and_black_napalm() {
         use crate::game_logic::host_dragon_tank::{
-            is_dragon_tank_template, DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE,
-            DRAGON_TANK_FLAME_WEAPON, DRAGON_UPGRADED_PRIMARY_DAMAGE,
+            is_dragon_tank_template, DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_TANK_FLAME_WEAPON,
+            DRAGON_UPGRADED_PRIMARY_DAMAGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -52706,11 +52940,7 @@ mod tests {
             .insert("ChinaTankDragon".to_string(), dragon_tpl);
 
         let dragon_id = game_logic
-            .create_object(
-                "ChinaTankDragon",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("dragon");
         {
             let d = game_logic.find_object(dragon_id).expect("dragon");
@@ -52856,11 +53086,7 @@ mod tests {
             .insert("TestAircraft".to_string(), aircraft_tpl);
 
         let gattling_id = game_logic
-            .create_object(
-                "ChinaTankGattling",
-                Team::China,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("ChinaTankGattling", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .expect("gattling");
         let base_reload = {
             let g = game_logic.find_object(gattling_id).expect("gattling");
@@ -52992,11 +53218,11 @@ mod tests {
         );
     }
 
-#[test]
+    #[test]
     fn combat_cycle_residual_rider_weapon_switch() {
         use crate::game_logic::host_combat_cycle::{
-            is_combat_cycle_template, CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS,
-            KELL_DAMAGE, REBEL_BIKER_MG, REBEL_MG_DAMAGE, RPG_DAMAGE,
+            is_combat_cycle_template, CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS, KELL_DAMAGE,
+            REBEL_BIKER_MG, REBEL_MG_DAMAGE, RPG_DAMAGE,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -53034,11 +53260,7 @@ mod tests {
         }
 
         let bike_id = game_logic
-            .create_object(
-                "GLAVehicleCombatBike",
-                Team::GLA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("bike");
         {
             let b = game_logic.find_object(bike_id).expect("bike");
@@ -53049,10 +53271,7 @@ mod tests {
             // InitialPayload residual: Rebel MG bound.
             let prim = b.weapon.as_ref().expect("default rebel weapon");
             assert!((prim.damage - REBEL_MG_DAMAGE).abs() < 0.01);
-            assert_eq!(
-                b.combat_cycle_rider,
-                CombatCycleRider::Rebel.as_u8()
-            );
+            assert_eq!(b.combat_cycle_rider, CombatCycleRider::Rebel.as_u8());
         }
 
         // Switch residual: TunnelDefender RPG.
@@ -53172,9 +53391,7 @@ mod tests {
     /// Residual: Avenger paints FAERIE_FIRE; ally shoots painted target faster residual.
     #[test]
     fn avenger_residual_designator_paint_and_rof() {
-        use crate::game_logic::host_avenger::{
-            is_avenger_template, FAERIE_FIRE_ROF_MULTIPLIER,
-        };
+        use crate::game_logic::host_avenger::{is_avenger_template, FAERIE_FIRE_ROF_MULTIPLIER};
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
         ensure_host_weapon_store();
@@ -53288,7 +53505,10 @@ mod tests {
         {
             let ally = game_logic.find_object(ally_id).unwrap();
             let enemy = game_logic.find_object(enemy_id).unwrap();
-            assert!(enemy.is_faerie_fire(), "paint must still be active for ROF residual");
+            assert!(
+                enemy.is_faerie_fire(),
+                "paint must still be active for ROF residual"
+            );
             let w = ally.weapon.as_ref().unwrap();
             assert!(
                 !Object::weapon_ready(w, current_time),
@@ -53338,16 +53558,10 @@ mod tests {
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0);
-        game_logic
-            .templates
-            .insert("TestJet".to_string(), jet_tpl);
+        game_logic.templates.insert("TestJet".to_string(), jet_tpl);
 
         let avenger_id = game_logic
-            .create_object(
-                "AmericaTankAvenger",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("avenger");
         let jet_id = game_logic
             .create_object("TestJet", Team::China, Vec3::new(100.0, 50.0, 0.0))
@@ -53387,11 +53601,11 @@ mod tests {
     /// Residual: CrusaderTankGun combat + Composite Armor +100 HP.
     #[test]
     fn crusader_residual_tank_gun_and_composite_armor() {
-        use crate::game_logic::host_usa_tanks::{
-            is_crusader_template, COMPOSITE_ARMOR_ADD_MAX_HEALTH, USA_TANK_GUN_DAMAGE,
-            UPGRADE_AMERICA_COMPOSITE_ARMOR,
-        };
         use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::host_usa_tanks::{
+            is_crusader_template, COMPOSITE_ARMOR_ADD_MAX_HEALTH, UPGRADE_AMERICA_COMPOSITE_ARMOR,
+            USA_TANK_GUN_DAMAGE,
+        };
         use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, CRUSADER_TANK_GUN};
 
         ensure_host_weapon_store();
@@ -53419,11 +53633,7 @@ mod tests {
             .insert("TestTank".to_string(), enemy_tpl);
 
         let crusader_id = game_logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("crusader");
         let enemy_id = game_logic
             .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
@@ -53500,10 +53710,7 @@ mod tests {
                 "max health residual 580, got {}",
                 c.max_health
             );
-            assert!(
-                c.health.maximum >= 580.0 - 0.5,
-                "health.maximum residual"
-            );
+            assert!(c.health.maximum >= 580.0 - 0.5, "health.maximum residual");
         }
         assert!(
             game_logic
@@ -53532,7 +53739,9 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .set_health(240.0)
             .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
-            .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
+            .set_secondary_weapon_name(
+                crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON,
+            );
         game_logic
             .templates
             .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -53553,16 +53762,10 @@ mod tests {
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0);
-        game_logic
-            .templates
-            .insert("TestJet".to_string(), jet_tpl);
+        game_logic.templates.insert("TestJet".to_string(), jet_tpl);
 
         let humvee_id = game_logic
-            .create_object(
-                "AmericaVehicleHumvee",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("humvee");
         {
             let h = game_logic.find_object(humvee_id).expect("humvee");
@@ -53601,7 +53804,9 @@ mod tests {
             if let Some(h) = game_logic.find_object_mut(humvee_id) {
                 if let Some(mut w) = secondary {
                     w.can_target_air = true;
-                    w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
+                    w.range = w
+                        .range
+                        .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
                     h.secondary_weapon = Some(w);
                 }
                 h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
@@ -53871,8 +54076,7 @@ mod tests {
         ensure_test_infantry_template(&mut game_logic);
         ensure_test_tank_template(&mut game_logic);
 
-        let mut burton_tpl =
-            crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
+        let mut burton_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
         burton_tpl
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
@@ -53965,7 +54169,10 @@ mod tests {
             .find_object(melee)
             .map(|o| o.is_alive())
             .unwrap_or(false);
-        assert!(!melee_alive, "burton knife residual one-shots close infantry");
+        assert!(
+            !melee_alive,
+            "burton knife residual one-shots close infantry"
+        );
 
         // Knife residual does not apply to vehicles (sniper path).
         let tank = game_logic
@@ -53994,7 +54201,10 @@ mod tests {
             "burton sniper residual still damages close vehicle"
         );
         assert!(
-            game_logic.find_object(tank).map(|t| t.is_alive()).unwrap_or(false),
+            game_logic
+                .find_object(tank)
+                .map(|t| t.is_alive())
+                .unwrap_or(false),
             "knife residual must not one-shot vehicles"
         );
     }
@@ -54007,7 +54217,7 @@ mod tests {
     fn nuclear_tanks_residual_speed_death_and_radiation() {
         use crate::command_system::{CommandType, GameCommand, ModifierKeys};
         use crate::game_logic::host_nuclear_tanks::{
-            nuclear_tanks_residual_speed, UPGRADE_CHINA_NUCLEAR_TANKS, SMALL_RADIATION_TICK_FRAMES,
+            nuclear_tanks_residual_speed, SMALL_RADIATION_TICK_FRAMES, UPGRADE_CHINA_NUCLEAR_TANKS,
         };
         use crate::game_logic::host_upgrades::HostUpgradeKind;
 
@@ -54048,15 +54258,16 @@ mod tests {
         }
 
         // Host residual upgrade complete path (same as QueueUpgrade research finish).
-        let affected = game_logic.apply_nuclear_tanks_unlock_to_team(
-            Team::China,
-            UPGRADE_CHINA_NUCLEAR_TANKS,
-        );
+        let affected =
+            game_logic.apply_nuclear_tanks_unlock_to_team(Team::China, UPGRADE_CHINA_NUCLEAR_TANKS);
         assert!(affected >= 1, "Nuclear Tanks must affect battlemaster");
         let frame = game_logic.frame;
-        game_logic
-            .host_upgrades_mut()
-            .record_complete(UPGRADE_CHINA_NUCLEAR_TANKS, 0, frame, affected);
+        game_logic.host_upgrades_mut().record_complete(
+            UPGRADE_CHINA_NUCLEAR_TANKS,
+            0,
+            frame,
+            affected,
+        );
 
         let tank = game_logic.find_object(tank_id).expect("tank after upgrade");
         assert!(
@@ -54162,15 +54373,16 @@ mod tests {
         }
 
         // Host residual BoobyTrap upgrade unlock path.
-        let affected = game_logic.apply_booby_trap_unlock_to_team(
-            Team::GLA,
-            UPGRADE_GLA_REBEL_BOOBY_TRAP,
-        );
+        let affected =
+            game_logic.apply_booby_trap_unlock_to_team(Team::GLA, UPGRADE_GLA_REBEL_BOOBY_TRAP);
         assert!(affected >= 1, "BoobyTrap upgrade must tag rebel");
         let frame = game_logic.frame;
-        game_logic
-            .host_upgrades_mut()
-            .record_complete(UPGRADE_GLA_REBEL_BOOBY_TRAP, 0, frame, affected);
+        game_logic.host_upgrades_mut().record_complete(
+            UPGRADE_GLA_REBEL_BOOBY_TRAP,
+            0,
+            frame,
+            affected,
+        );
 
         assert!(
             game_logic
@@ -54205,30 +54417,28 @@ mod tests {
             game_logic.update_ai(&[rebel_id, building_id], 1.0 / 30.0);
         }
         // Direct residual plant if walk path missed (still host residual API).
-        if !game_logic.booby_trap_residual().is_booby_trapped(building_id) {
+        if !game_logic
+            .booby_trap_residual()
+            .is_booby_trapped(building_id)
+        {
             let geom = game_logic
                 .find_object(building_id)
                 .map(|b| b.selection_radius.max(8.0))
                 .unwrap_or(8.0);
-            game_logic.booby_trap.install(
-                building_id,
-                rebel_id,
-                Team::GLA,
-                game_logic.frame,
-                geom,
-            );
+            game_logic
+                .booby_trap
+                .install(building_id, rebel_id, Team::GLA, game_logic.frame, geom);
             if let Some(b) = game_logic.find_object_mut(building_id) {
                 b.status.booby_trapped = true;
             }
         }
         assert!(
-            game_logic.booby_trap_residual().is_booby_trapped(building_id),
+            game_logic
+                .booby_trap_residual()
+                .is_booby_trapped(building_id),
             "building must be booby-trapped after plant"
         );
-        assert!(
-            game_logic.honesty_booby_trap_plant_ok(),
-            "plant honesty"
-        );
+        assert!(game_logic.honesty_booby_trap_plant_ok(), "plant honesty");
 
         // Enemy capture-trigger residual: USA unit triggers detonation (not ally of planter).
         let victim_hp_before = game_logic.find_object(victim_id).unwrap().health.current;
@@ -54254,7 +54464,9 @@ mod tests {
             "capture-trigger detonation must damage nearby (before={victim_hp_before} after={victim_hp_after})"
         );
         assert!(
-            !game_logic.booby_trap_residual().is_booby_trapped(building_id),
+            !game_logic
+                .booby_trap_residual()
+                .is_booby_trapped(building_id),
             "trap must clear after detonation"
         );
         assert!(
@@ -54262,5 +54474,4 @@ mod tests {
             "booby trap host path honesty"
         );
     }
-
 }
