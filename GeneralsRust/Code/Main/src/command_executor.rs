@@ -897,6 +897,8 @@ impl<'a> CommandExecutor<'a> {
             // FireWall residual creates a line of fire damage zones toward target.
             // EmpPulse residual disables vehicles/structures in radius (DISABLED_EMP).
             // Frenzy residual buffs ally attack damage in radius (FRENZY_ONE/TWO/THREE).
+            // EmergencyRepair residual SingleBurst-heals ally vehicles in radius.
+            // GpsScrambler residual grants STEALTHED to ally vehicles/infantry in radius.
             // LeafletDrop residual delays then disables enemy infantry/vehicles (DISABLED_EMP).
             // SneakAttack residual delays then spawns a GLA tunnel + shockwave damage.
             //
@@ -969,6 +971,25 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                         crate::game_logic::host_frenzy::HostFrenzyLevel::One,
+                    ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::EmergencyRepair {
+                    // Fail-closed residual default: Level1 (SCIENCE_EmergencyRepair1).
+                    // Full science tier upgrade matrix deferred.
+                    if !self.game_logic.activate_emergency_repair(
+                        self.current_player_id,
+                        pos,
+                        Some(unit_id),
+                        crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel::One,
+                    ) {
+                        continue;
+                    }
+                } else if *power_type == SpecialPowerType::GpsScrambler {
+                    if !self.game_logic.activate_gps_scrambler(
+                        self.current_player_id,
+                        pos,
+                        Some(unit_id),
                     ) {
                         continue;
                     }

@@ -297,6 +297,10 @@ pub enum SpecialPowerType {
     /// Temporary ally attack buff in radius (WEAPONBONUSCONDITION_FRENZY_*).
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     Frenzy,
+    /// GLA GPS Scrambler residual (SPECIAL_GPS_SCRAMBLER / SuperweaponGPSScrambler).
+    /// Grants temporary STEALTHED to ally vehicles/infantry in radius (GrantStealth).
+    /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
+    GpsScrambler,
     /// USA Leaflet Drop residual (SPECIAL_LEAFLET_DROP / SuperweaponLeafletDrop).
     /// Delayed disable of enemy infantry/vehicles in radius (DISABLED_EMP residual).
     /// Fail-closed: not full OCL B52 / LeafletContainer / LeafletFX particle path.
