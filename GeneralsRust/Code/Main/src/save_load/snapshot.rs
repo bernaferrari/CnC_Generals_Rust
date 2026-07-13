@@ -153,6 +153,18 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime orbit damage applications (honesty after prune).
     #[serde(default)]
     pub orbit_damage_applications_total: u32,
+    /// Next residual Particle Uplink beam field id (ParticleCannon).
+    #[serde(default = "default_next_beam_id")]
+    pub next_beam_id: u32,
+    /// Active residual Particle Uplink continuous beam fields.
+    #[serde(default)]
+    pub beam_fields: Vec<crate::game_logic::special_power_strikes::HostParticleBeamField>,
+    /// Lifetime beam fields spawned (honesty after prune).
+    #[serde(default)]
+    pub beam_fields_spawned_total: u32,
+    /// Lifetime beam damage applications (honesty after prune).
+    #[serde(default)]
+    pub beam_damage_applications_total: u32,
 }
 
 fn default_next_radiation_id() -> u32 {
@@ -164,6 +176,10 @@ fn default_next_toxin_id() -> u32 {
 }
 
 fn default_next_orbit_id() -> u32 {
+    1
+}
+
+fn default_next_beam_id() -> u32 {
     1
 }
 
@@ -184,6 +200,10 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             orbit_fields: Vec::new(),
             orbit_fields_spawned_total: 0,
             orbit_damage_applications_total: 0,
+            next_beam_id: 1,
+            beam_fields: Vec::new(),
+            beam_fields_spawned_total: 0,
+            beam_damage_applications_total: 0,
         }
     }
 }
@@ -2791,6 +2811,37 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
     }
 }
 
+impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamField {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostParticleBeamField")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SpawnFrame")?;
+        xfer.xfer_u32(&mut self.spawn_frame)?;
+        xfer.xfer_marker_label("ExpiresFrame")?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer.xfer_marker_label("NextTickFrame")?;
+        xfer.xfer_u32(&mut self.next_tick_frame)?;
+        xfer.xfer_marker_label("PulsesMade")?;
+        xfer.xfer_u32(&mut self.pulses_made)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("DamageApplications")?;
+        xfer.xfer_u32(&mut self.damage_applications)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        xfer.xfer_marker_label("ParentStrikeId")?;
+        xfer.xfer_u32(&mut self.parent_strike_id)?;
+        Ok(())
+    }
+}
+
 impl XferData for SpecialPowerStrikeRegistrySnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("SpecialPowerStrikeRegistrySnapshot")?;
@@ -2890,6 +2941,32 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         xfer.xfer_u32(&mut self.orbit_fields_spawned_total)?;
         xfer.xfer_marker_label("OrbitDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.orbit_damage_applications_total)?;
+        // ParticleCannon residual continuous beam fields (appended after orbit).
+        xfer.xfer_marker_label("NextBeamId")?;
+        xfer.xfer_u32(&mut self.next_beam_id)?;
+        xfer.xfer_marker_label("BeamFields")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.beam_fields,
+            crate::game_logic::special_power_strikes::HostParticleBeamField {
+                id: 0,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                position: Vec3::ZERO,
+                spawn_frame: 0,
+                expires_frame: 0,
+                next_tick_frame: 0,
+                pulses_made: 0,
+                total_damage_applied: 0.0,
+                damage_applications: 0,
+                objects_destroyed: 0,
+                parent_strike_id: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
+        xfer.xfer_u32(&mut self.beam_fields_spawned_total)?;
+        xfer.xfer_marker_label("BeamDamageApplicationsTotal")?;
+        xfer.xfer_u32(&mut self.beam_damage_applications_total)?;
         Ok(())
     }
 }
@@ -4404,6 +4481,10 @@ impl SnapshotBuilder {
             orbit_fields: reg.orbit_fields().to_vec(),
             orbit_fields_spawned_total: reg.orbit_fields_spawned_total(),
             orbit_damage_applications_total: reg.orbit_damage_applications_total(),
+            next_beam_id: reg.next_beam_id(),
+            beam_fields: reg.beam_fields().to_vec(),
+            beam_fields_spawned_total: reg.beam_fields_spawned_total(),
+            beam_damage_applications_total: reg.beam_damage_applications_total(),
         })
     }
 
@@ -4429,6 +4510,10 @@ impl SnapshotBuilder {
                 snapshot.orbit_fields.clone(),
                 snapshot.orbit_fields_spawned_total,
                 snapshot.orbit_damage_applications_total,
+                snapshot.next_beam_id,
+                snapshot.beam_fields.clone(),
+                snapshot.beam_fields_spawned_total,
+                snapshot.beam_damage_applications_total,
             );
         Ok(())
     }
