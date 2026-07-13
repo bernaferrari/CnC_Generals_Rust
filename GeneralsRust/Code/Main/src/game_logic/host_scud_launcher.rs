@@ -12,10 +12,11 @@
 //! Fail-closed honesty:
 //! - Not full SCUDMissile projectile lob / PreAttackDelay PER_SHOT animation
 //! - Not full salvage PlusOne/PlusTwo range/damage weapon-set matrix
-//! - Not full Anthrax Beta / gamma poison particle bone matrix
+//! - Not full Anthrax Gamma particle bone / salvage PlusOne-Two matrix
 //! - Not network SCUD / toxin replication (network deferred)
 
 use super::ObjectId;
+use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +26,12 @@ pub const SCUD_GUN_EXPLOSIVE: &str = "SCUDLauncherGunExplosive";
 pub const SCUD_GUN_TOXIN: &str = "SCUDLauncherGunToxin";
 /// Retail secondary after Anthrax Beta.
 pub const SCUD_GUN_ANTHRAX: &str = "SCUDLauncherGunAnthrax";
+/// Retail Chem Anthrax Gamma primary (Chemical General SCUD).
+pub const SCUD_GUN_ANTHRAX_GAMMA: &str = "Chem_SCUDLauncherGunAnthraxGamma";
 /// Retail Upgrade_GLAAnthraxBeta.
 pub const UPGRADE_GLA_ANTHRAX_BETA: &str = "Upgrade_GLAAnthraxBeta";
+/// Retail Chem_Upgrade_GLAAnthraxGamma.
+pub const UPGRADE_GLA_ANTHRAX_GAMMA: &str = "Chem_Upgrade_GLAAnthraxGamma";
 
 /// Explosive primary residual.
 pub const SCUD_EXP_PRIMARY_DAMAGE: f32 = 300.0;
@@ -52,6 +57,8 @@ pub const SCUD_SCATTER_VS_INFANTRY: f32 = 30.0;
 
 /// Retail MediumPoisonFieldWeapon PrimaryDamage / radius / lifetime.
 pub const SCUD_POISON_DAMAGE_PER_TICK: f32 = 2.0;
+/// Retail Chem_MediumPoisonFieldWeaponGamma / anthrax-upgraded residual.
+pub const SCUD_POISON_DAMAGE_PER_TICK_UPGRADED: f32 = 2.5;
 pub const SCUD_POISON_RADIUS: f32 = 80.0;
 /// DelayBetweenShots 500ms → 15 frames @ 30 FPS.
 pub const SCUD_POISON_TICK_INTERVAL_FRAMES: u32 = 15;
@@ -95,9 +102,33 @@ pub fn should_apply_scud_area(is_scud: bool) -> bool {
 
 /// Whether residual secondary is toxin/anthrax path (spawn poison field).
 ///
-/// Slot 1 = secondary warhead residual.
+/// Slot 1 = secondary warhead residual. Chem SCUD residual uses primary anthrax
+/// (no explosive primary) — treat slot 0 as toxin when `chem_anthrax_primary`.
 pub fn should_spawn_scud_toxin_field(is_scud: bool, fired_slot: u8) -> bool {
     is_scud && fired_slot == 1
+}
+
+/// Chem General SCUD residual: primary is anthrax warhead (WeaponSet PRIMARY only).
+pub fn scud_uses_anthrax_primary(template_name: &str) -> bool {
+    is_scud_launcher_template(template_name) && is_chem_general_template(template_name)
+}
+
+/// Whether this SCUD fire should apply toxin warhead residual (blast + poison field).
+pub fn scud_toxin_warhead_for_slot(template_name: &str, fired_slot: u8) -> bool {
+    if !is_scud_launcher_template(template_name) {
+        return false;
+    }
+    fired_slot == 1 || scud_uses_anthrax_primary(template_name)
+}
+
+/// MediumPoisonField damage-per-tick residual for SCUD anthrax tier.
+pub fn scud_poison_damage_per_tick(anthrax: AnthraxResidualTier) -> f32 {
+    match anthrax {
+        AnthraxResidualTier::None => SCUD_POISON_DAMAGE_PER_TICK,
+        AnthraxResidualTier::Beta | AnthraxResidualTier::Gamma => {
+            SCUD_POISON_DAMAGE_PER_TICK_UPGRADED
+        }
+    }
 }
 
 /// Prefer secondary residual vs infantry (PreferredAgainst SECONDARY INFANTRY).
@@ -165,14 +196,18 @@ pub struct HostScudPoisonZone {
     pub activate_frame: u32,
     pub expires_frame: u32,
     pub next_tick_frame: u32,
-    /// Anthrax-upgraded residual (same medium field residual; flag for honesty).
-    pub anthrax_upgraded: bool,
+    /// Anthrax residual tier for this field (Beta/Gamma use upgraded DoT).
+    pub anthrax_tier: AnthraxResidualTier,
     pub total_damage_applied: f32,
     pub damage_applications: u32,
     pub objects_destroyed: u32,
 }
 
 impl HostScudPoisonZone {
+    pub fn anthrax_upgraded(&self) -> bool {
+        self.anthrax_tier.is_upgraded()
+    }
+
     pub fn is_expired(&self, current_frame: u32) -> bool {
         current_frame >= self.expires_frame
     }
@@ -250,7 +285,7 @@ impl HostScudPoisonRegistry {
         source_team: super::Team,
         impact_pos: Vec3,
         activate_frame: u32,
-        anthrax_upgraded: bool,
+        anthrax: AnthraxResidualTier,
     ) -> u32 {
         let id = self.alloc_id();
         let zone = HostScudPoisonZone {
@@ -259,11 +294,11 @@ impl HostScudPoisonRegistry {
             source_team,
             position: impact_pos,
             radius: SCUD_POISON_RADIUS,
-            damage_per_tick: SCUD_POISON_DAMAGE_PER_TICK,
+            damage_per_tick: scud_poison_damage_per_tick(anthrax),
             activate_frame,
             expires_frame: activate_frame.saturating_add(SCUD_POISON_DURATION_FRAMES),
             next_tick_frame: activate_frame,
-            anthrax_upgraded,
+            anthrax_tier: anthrax,
             total_damage_applied: 0.0,
             damage_applications: 0,
             objects_destroyed: 0,
@@ -395,6 +430,12 @@ mod tests {
         assert!(should_spawn_scud_toxin_field(true, 1));
         assert!(!should_spawn_scud_toxin_field(true, 0));
         assert!(!should_spawn_scud_toxin_field(false, 1));
+        assert!(scud_uses_anthrax_primary("Chem_GLAVehicleScudLauncher"));
+        assert!(!scud_uses_anthrax_primary("GLAVehicleScudLauncher"));
+        assert!(scud_toxin_warhead_for_slot("Chem_GLAVehicleScudLauncher", 0));
+        assert!(!scud_toxin_warhead_for_slot("GLAVehicleScudLauncher", 0));
+        assert!((scud_poison_damage_per_tick(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
+        assert!((scud_poison_damage_per_tick(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
         assert!(scud_prefer_secondary_vs_infantry(true, true));
         assert!(!scud_prefer_secondary_vs_infantry(true, false));
     }
@@ -407,11 +448,20 @@ mod tests {
             Team::GLA,
             Vec3::new(0.0, 0.0, 0.0),
             0,
-            false,
+            AnthraxResidualTier::None,
         );
         assert_eq!(id, 0);
         assert!(reg.honesty_toxin_ok());
         assert_eq!(reg.active_count(), 1);
+        let gamma = reg.spawn_zone(
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(5.0, 0.0, 0.0),
+            0,
+            AnthraxResidualTier::Gamma,
+        );
+        assert_eq!(gamma, 1);
+        assert!((reg.active_zones()[1].damage_per_tick - 2.5).abs() < 0.01);
 
         let positions = vec![
             (ObjectId(1), Vec3::ZERO, Team::GLA, true),
@@ -429,7 +479,8 @@ mod tests {
             ),
         ];
         let plans = reg.plan_due_ticks(0, &positions);
-        assert_eq!(plans.len(), 1);
+        // Base + gamma zones both due.
+        assert_eq!(plans.len(), 2);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
     }

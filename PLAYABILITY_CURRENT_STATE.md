@@ -1,3 +1,31 @@
+## Residual Host Playability — Chem Anthrax Gamma + GLA CamoNetting (2026-07-13)
+**Closed (host-testable Anthrax Gamma toxin combat + CamoNetting structure stealth residual):**
+1. **Anthrax Gamma residual** (`Chem_Upgrade_GLAAnthraxGamma` / `Upgrade_GLAAnthraxGamma`):
+   - QueueUpgrade → complete tags toxin combat units (Toxin Tractor / SCUD / Bomb Truck).
+   - Toxin Tractor stream residual: Chem baseline **12.5** (Beta); Gamma → **20.5**
+     (`Chem_ToxinTruckGunGamma`).
+   - Contaminate spray + death/SCUD MediumPoisonField DoT: Gamma/Beta → **2.5**/tick
+     (base remains **2.0**).
+   - Chem SCUD residual: primary is anthrax warhead (slot 0 toxin path + poison field).
+   - Honesty: `honesty_gamma_ok` / stream / spray / host_path AnthraxGamma.
+2. **CamoNetting residual** (`Upgrade_GLACamoNetting`):
+   - QueueUpgrade → complete grants STEALTHED + `innate_stealth` to eligible structures:
+     Stealth General buildings (`Slth_*` CC/Barracks/ArmsDealer/etc.),
+     `GLATunnelNetwork`, `GLAStingerSite` (+ general variants).
+   - Fail-closed: Rebel infantry does **not** receive CamoNetting (Camouflage residual
+     remains separate).
+   - Honesty: CamoNetting complete / host_path units_affected.
+3. Tests (not log-only):
+   - `anthrax_gamma_residual_toxin_stream_and_field`
+   - `camo_netting_upgrade_stealths_gla_structures`
+   - module unit tests in `host_toxin_tractor` / `host_scud_launcher` / `host_upgrades`
+
+**Still residual (fail-closed, not claimed):**
+- Full gamma particle bones / PlusOne-Two anthrax salvage weapon-set matrix
+- Full CamoNetting sub-object net visual / structure attack reveal matrix
+- Full Chem_DemoTrap / Terrorist suicide gamma death-weapon matrix
+- Network anthrax / camo-netting replication (network deferred)
+
 ## Residual Host Playability — SupW EMP Patriot + GLA Saboteur (2026-07-13)
 **Closed (host-testable SupW Patriot EMP dual-slot + Saboteur type-specific sabotage residual):**
 1. **Superweapon General EMP Patriot residual** (`SupW_AmericaPatriotBattery` / TestSupWPatriot):
