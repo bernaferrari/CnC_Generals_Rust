@@ -115,6 +115,20 @@ pub struct Object {
     /// Fail-closed: not multi-door / air-transport path parity.
     pub max_transport: usize,
 
+    /// Host residual: China Overlord / BattleBunker infantry capacity.
+    ///
+    /// C++ OverlordContain holds one PORTABLE_STRUCTURE (BattleBunker), then
+    /// redirects infantry contain queries into the bunker's TransportContain
+    /// (INI `Slots = 5`). Host residual collapses that redirect into a single
+    /// capacity on the tank:
+    /// - `None` — not an overlord-style container (normal vehicle residual)
+    /// - `Some(0)` — overlord-style without BattleBunker residual (reject enter)
+    /// - `Some(n)` — BattleBunker residual active with `n` infantry slots
+    ///
+    /// Fail-closed: not full OverlordContain redirect / portable-structure spawn /
+    /// GattlingCannon / PropagandaTower payload matrix.
+    pub overlord_bunker_capacity: Option<usize>,
+
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
@@ -262,6 +276,7 @@ impl Object {
             team_color: team.get_color(),
             occupants: Vec::new(),
             max_transport: 0,
+            overlord_bunker_capacity: None,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -326,6 +341,7 @@ impl Object {
             team_color: team.get_color(),
             occupants: Vec::new(),
             max_transport: 0,
+            overlord_bunker_capacity: None,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -464,6 +480,7 @@ impl Object {
     pub fn is_disabled(&self) -> bool {
         self.status.disabled_underpowered
             || self.status.disabled_unmanned
+            || self.status.disabled_hacked
             || self.status.under_construction
     }
 
@@ -472,10 +489,17 @@ impl Object {
         self.status.disabled_unmanned
     }
 
+    /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
+    pub fn is_hacked_disabled(&self) -> bool {
+        self.status.disabled_hacked
+    }
+
     /// Apply kill-pilot residual: vehicle becomes unmanned (no HP change).
     /// Caller is responsible for team transfer (typically Neutral).
     pub fn apply_kill_pilot_unmanned(&mut self) {
         self.status.disabled_unmanned = true;
+        self.status.disabled_hacked = false;
+        self.status.disabled_hacked_until_frame = 0;
         self.status.attacking = false;
         self.status.moving = false;
         self.stop_moving();
@@ -483,6 +507,31 @@ impl Object {
         self.target_location = None;
         self.force_attack = false;
         self.ai_state = AIState::Idle;
+    }
+
+    /// Apply DISABLED_HACKED residual until `until_frame` (absolute host logic frame).
+    /// C++ SpecialAbilityUpdate: setDisabledUntil(DISABLED_HACKED, now + EffectDuration).
+    pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
+        self.status.disabled_hacked = true;
+        self.status.disabled_hacked_until_frame = until_frame;
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+    }
+
+    /// Expire DISABLED_HACKED when the host frame passes the residual timer.
+    pub fn tick_disabled_hacked(&mut self, current_frame: u32) {
+        if self.status.disabled_hacked
+            && self.status.disabled_hacked_until_frame > 0
+            && current_frame >= self.status.disabled_hacked_until_frame
+        {
+            self.status.disabled_hacked = false;
+            self.status.disabled_hacked_until_frame = 0;
+        }
     }
 
     /// C++ OBJECT_STATUS_IS_CARBOMB residual.
@@ -500,6 +549,8 @@ impl Object {
     pub fn apply_convert_to_car_bomb(&mut self) {
         self.status.is_carbomb = true;
         self.status.disabled_unmanned = false;
+        self.status.disabled_hacked = false;
+        self.status.disabled_hacked_until_frame = 0;
         self.status.hijacked = false;
         self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
         self.secondary_weapon = None;
@@ -514,9 +565,13 @@ impl Object {
     }
 
     /// Apply Hijack residual ownership mark (caller sets team).
+    /// C++ ConvertToHijackedVehicleCrateCollide: OBJECT_STATUS_HIJACKED + idle AI.
     pub fn apply_hijacked(&mut self) {
         self.status.hijacked = true;
         self.status.disabled_unmanned = false;
+        self.status.disabled_hacked = false;
+        self.status.disabled_hacked_until_frame = 0;
+        self.status.is_carbomb = false;
         self.status.attacking = false;
         self.status.moving = false;
         self.stop_moving();
@@ -988,6 +1043,7 @@ impl Object {
         self.is_mobile()
             && self.is_alive()
             && !self.status.disabled_unmanned
+            && !self.status.disabled_hacked
             && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 
@@ -1083,6 +1139,11 @@ impl Object {
         if !self.is_alive() {
             return false;
         }
+        // China Overlord residual: only containable once BattleBunker residual
+        // capacity is installed (Some(n>0)). Without bunker (Some(0)) reject.
+        if self.is_overlord_style_container() {
+            return self.overlord_bunker_slot_capacity() > 0;
+        }
         // Transports: any vehicle may act as a container (host residual).
         // Explicit max_transport=0 still allows footprint residual capacity.
         if self.is_kind_of(KindOf::Vehicle) {
@@ -1107,7 +1168,11 @@ impl Object {
             }
             building.garrisoned_units.len() + count <= building.max_garrison
         } else if self.is_kind_of(KindOf::Vehicle) {
-            self.occupants.len() + count <= self.transport_capacity()
+            let cap = self.transport_capacity();
+            if cap == 0 {
+                return false;
+            }
+            self.occupants.len() + count <= cap
         } else {
             false
         }
@@ -1121,14 +1186,37 @@ impl Object {
             .unwrap_or(0)
     }
 
-    /// Residual transport capacity (vehicles). Explicit `max_transport` wins;
-    /// otherwise footprint heuristic. Structures return 0.
+    /// True when this vehicle uses OverlordContain residual semantics
+    /// (`overlord_bunker_capacity` is `Some(...)`).
+    pub fn is_overlord_style_container(&self) -> bool {
+        self.overlord_bunker_capacity.is_some()
+    }
+
+    /// Residual BattleBunker infantry slots on an Overlord-style vehicle.
+    /// `0` when not overlord-style or bunker residual not installed.
+    pub fn overlord_bunker_slot_capacity(&self) -> usize {
+        self.overlord_bunker_capacity.unwrap_or(0)
+    }
+
+    /// Install residual BattleBunker capacity (C++ OCL_OverlordBattleBunker →
+    /// ChinaTankOverlordBattleBunker TransportContain Slots=5).
+    /// Fail-closed: does not spawn a real portable-structure passenger object.
+    pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
+        self.overlord_bunker_capacity = Some(slots);
+    }
+
+    /// Residual transport capacity (vehicles). Overlord bunker residual wins,
+    /// then explicit `max_transport`, else footprint heuristic. Structures return 0.
     pub fn transport_capacity(&self) -> usize {
         if self.is_kind_of(KindOf::Structure) {
             return 0;
         }
         if !self.is_kind_of(KindOf::Vehicle) {
             return 0;
+        }
+        // Overlord BattleBunker residual: bunker slots only (0 without bunker).
+        if let Some(cap) = self.overlord_bunker_capacity {
+            return cap;
         }
         if self.max_transport > 0 {
             return self.max_transport;

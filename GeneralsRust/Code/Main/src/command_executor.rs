@@ -202,6 +202,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::StealCashHack { target_id } => {
                 self.execute_steal_cash_hack(&command.selected_units, *target_id)
             }
+            CommandType::DisableVehicleHack { target_id } => {
+                self.execute_disable_vehicle_hack(&command.selected_units, *target_id)
+            }
             CommandType::SwitchWeapons => self.execute_switch_weapons(&command.selected_units),
             CommandType::ToggleOvercharge => {
                 self.execute_toggle_overcharge(&command.selected_units)
@@ -1128,26 +1131,38 @@ impl<'a> CommandExecutor<'a> {
 
             // Classify residual exit before mutating unit state.
             // Prefer AI state; fall back to container kind when only contained_by is set.
-            let (was_garrisoned, was_transport) = if let Some(unit) =
-                self.game_logic.get_object(unit_id)
-            {
-                let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
-                let docked = matches!(unit.ai_state, AIState::Docked);
-                if garrisoned || docked {
-                    (garrisoned, docked)
-                } else if unit.contained_by.is_some() || container_id.is_some() {
+            // Overlord BattleBunker residual is vehicle-docked but tracked separately
+            // from generic Humvee transport residual.
+            let (was_garrisoned, was_overlord_bunker, was_transport) =
+                if let Some(unit) = self.game_logic.get_object(unit_id) {
+                    let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
+                    let docked = matches!(unit.ai_state, AIState::Docked);
                     let cid = unit.contained_by.or(container_id);
-                    let is_structure = cid
-                        .and_then(|id| self.game_logic.get_object(id))
+                    let container = cid.and_then(|id| self.game_logic.get_object(id));
+                    let is_overlord = container
+                        .map(|c| c.is_overlord_style_container())
+                        .unwrap_or(false);
+                    let is_structure = container
                         .map(|c| c.is_kind_of(KindOf::Structure))
                         .unwrap_or(false);
-                    (is_structure, !is_structure)
+                    if garrisoned {
+                        (true, false, false)
+                    } else if docked {
+                        (false, is_overlord, !is_overlord)
+                    } else if unit.contained_by.is_some() || container_id.is_some() {
+                        if is_structure {
+                            (true, false, false)
+                        } else if is_overlord {
+                            (false, true, false)
+                        } else {
+                            (false, false, true)
+                        }
+                    } else {
+                        (false, false, false)
+                    }
                 } else {
-                    (false, false)
-                }
-            } else {
-                (false, false)
-            };
+                    (false, false, false)
+                };
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
                 unit.stop_moving();
@@ -1159,6 +1174,8 @@ impl<'a> CommandExecutor<'a> {
                 unit.status.attacking = false;
                 if was_garrisoned {
                     self.game_logic.record_garrison_residual_exit();
+                } else if was_overlord_bunker {
+                    self.game_logic.record_overlord_bunker_residual_exit();
                 } else if was_transport {
                     self.game_logic.record_transport_residual_unload();
                 }
@@ -1595,19 +1612,33 @@ impl<'a> CommandExecutor<'a> {
     // === Special Unit Abilities ===
 
     fn execute_hijack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
-        let (target_team, target_pos, target_alive, target_is_vehicle, target_is_airborne) =
-            match self.game_logic.get_object(target_id) {
-                Some(target) => (
-                    target.team,
-                    target.get_position(),
-                    target.is_alive(),
-                    target.is_kind_of(KindOf::Vehicle),
-                    target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
+        // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
+        // only, not already HIJACKED, not neutral, not airborne.
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_hijacked,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_hijacked(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
 
-        if !target_alive || !target_is_vehicle || target_is_airborne {
+        if !target_alive
+            || !target_is_vehicle
+            || target_is_airborne
+            || target_hijacked
+            || target_team == Team::Neutral
+        {
             return CommandResult::InvalidTarget;
         }
 
@@ -1618,12 +1649,7 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .get_object(unit_id)
-                .map(|unit| {
-                    unit.is_alive()
-                        && unit.can_move()
-                        && unit.team != target_team
-                        && target_team != Team::Neutral
-                })
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
                 .unwrap_or(false);
             if !can_issue {
                 continue;
@@ -2027,6 +2053,84 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// Black Lotus residual: disable enemy ground vehicle (DISABLED_HACKED).
+    fn execute_disable_vehicle_hack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
+        // C++ ActionManager::canDisableVehicleViaHacking residual:
+        // enemy ground vehicle, not already hacked-disabled, not unmanned.
+        let (
+            target_team,
+            target_pos,
+            target_alive,
+            target_is_vehicle,
+            target_is_airborne,
+            target_hacked,
+            target_unmanned,
+        ) = match self.game_logic.get_object(target_id) {
+            Some(target) => (
+                target.team,
+                target.get_position(),
+                target.is_alive(),
+                target.is_kind_of(KindOf::Vehicle),
+                target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
+                target.is_hacked_disabled(),
+                target.is_unmanned(),
+            ),
+            None => return CommandResult::InvalidTarget,
+        };
+
+        if !target_alive
+            || !target_is_vehicle
+            || target_is_airborne
+            || target_hacked
+            || target_unmanned
+            || target_team == Team::Neutral
+        {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        let mut issued_units = Vec::new();
+        for &unit_id in units {
+            let can_issue = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .unwrap_or(false);
+            if !can_issue {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::SpecialAbility);
+                issued_units.push(unit_id);
+                any = true;
+            }
+        }
+
+        for unit_id in issued_units {
+            self.game_logic.queue_pending_special_ability(
+                unit_id,
+                PendingSpecialAbility::DisableVehicleHack { target_id },
+            );
+        }
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
     fn execute_switch_weapons(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
@@ -2304,9 +2408,13 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        // Residual garrison: infantry (and heroes) enter structures; transports
-        // still accept any mobile unit. Fail-closed vs full C++ garrison filters.
-        if target.is_kind_of(KindOf::Structure)
+        // Residual garrison / Overlord BattleBunker: infantry (and heroes) only.
+        // C++ BattleBunker AllowInsideKindOf = INFANTRY. Generic transports still
+        // accept any mobile unit. Fail-closed vs full C++ garrison filters.
+        let infantry_only_container = target.is_kind_of(KindOf::Structure)
+            || (target.is_overlord_style_container()
+                && target.overlord_bunker_slot_capacity() > 0);
+        if infantry_only_container
             && !unit.is_kind_of(KindOf::Infantry)
             && !unit.is_hero()
         {

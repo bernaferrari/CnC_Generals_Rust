@@ -123,6 +123,8 @@ pub enum PendingSpecialAbility {
     PlantTimedDemoCharge { target_id: ObjectId },
     /// Black Lotus residual: steal cash from enemy supply/cash building.
     StealCashHack { target_id: ObjectId },
+    /// Black Lotus residual: DISABLED_HACKED on enemy ground vehicle for EffectDuration.
+    DisableVehicleHack { target_id: ObjectId },
 }
 
 impl PendingSpecialAbility {
@@ -133,7 +135,8 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::CarBomb { target_id }
             | PendingSpecialAbility::SnipeVehicle { target_id }
             | PendingSpecialAbility::PlantTimedDemoCharge { target_id }
-            | PendingSpecialAbility::StealCashHack { target_id } => target_id,
+            | PendingSpecialAbility::StealCashHack { target_id }
+            | PendingSpecialAbility::DisableVehicleHack { target_id } => target_id,
         }
     }
 }
@@ -545,6 +548,11 @@ pub struct GameLogic {
     /// Fail-closed: not multi-door or Chinook air-transport path parity.
     transport_residual_loads: u32,
     transport_residual_unloads: u32,
+
+    /// Host China Overlord BattleBunker residual honesty counters (enter / exit).
+    /// Fail-closed: not full OverlordContain redirect / portable-structure spawn.
+    overlord_bunker_residual_enters: u32,
+    overlord_bunker_residual_exits: u32,
 
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
@@ -1390,6 +1398,8 @@ impl GameLogic {
             garrison_residual_fires: 0,
             transport_residual_loads: 0,
             transport_residual_unloads: 0,
+            overlord_bunker_residual_enters: 0,
+            overlord_bunker_residual_exits: 0,
             mine_residual_places: 0,
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
@@ -1538,6 +1548,8 @@ impl GameLogic {
         self.garrison_residual_fires = 0;
         self.transport_residual_loads = 0;
         self.transport_residual_unloads = 0;
+        self.overlord_bunker_residual_enters = 0;
+        self.overlord_bunker_residual_exits = 0;
         self.mine_residual_places = 0;
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
@@ -4048,6 +4060,10 @@ impl GameLogic {
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
+            // Expire DISABLED_HACKED residual timers (Black Lotus vehicle hack).
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.tick_disabled_hacked(self.frame);
+            }
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world
@@ -5123,6 +5139,7 @@ impl GameLogic {
                         container_team,
                         container_is_structure,
                         container_is_faction_structure,
+                        container_is_overlord_bunker,
                         container_is_alive,
                         container_under_construction,
                         container_can_contain,
@@ -5136,6 +5153,8 @@ impl GameLogic {
                             container.team,
                             container.is_kind_of(KindOf::Structure),
                             container.is_faction_structure(),
+                            container.is_overlord_style_container()
+                                && container.overlord_bunker_slot_capacity() > 0,
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
@@ -5152,13 +5171,16 @@ impl GameLogic {
                         continue;
                     };
 
-                    // Residual garrison: structures accept infantry/heroes only.
+                    // Residual garrison / Overlord BattleBunker: infantry/heroes only.
+                    // C++ BattleBunker TransportContain AllowInsideKindOf = INFANTRY.
                     let unit_can_garrison_structure = self
                         .objects
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Infantry) || o.is_hero())
                         .unwrap_or(false);
-                    if container_is_structure && !unit_can_garrison_structure {
+                    if (container_is_structure || container_is_overlord_bunker)
+                        && !unit_can_garrison_structure
+                    {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.set_target(None);
@@ -5236,6 +5258,9 @@ impl GameLogic {
                     }
                     if container_is_structure {
                         self.record_garrison_residual_enter();
+                    } else if container_is_overlord_bunker {
+                        // China Overlord BattleBunker residual load (redirected bunker slots).
+                        self.record_overlord_bunker_residual_enter();
                     } else {
                         // Vehicle transport residual load (Humvee / generic transport).
                         self.record_transport_residual_load();
@@ -5368,6 +5393,9 @@ impl GameLogic {
                         target_is_structure,
                         target_is_airborne,
                         target_is_carbomb,
+                        target_is_hijacked,
+                        target_is_hacked,
+                        target_is_unmanned,
                     )) = self.objects.get(&special_target_id).map(|target| {
                         (
                             target.get_position(),
@@ -5378,6 +5406,9 @@ impl GameLogic {
                             target.is_kind_of(KindOf::Structure),
                             target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target,
                             target.status.is_carbomb,
+                            target.status.hijacked,
+                            target.status.disabled_hacked,
+                            target.status.disabled_unmanned,
                         )
                     })
                     else {
@@ -5406,6 +5437,7 @@ impl GameLogic {
                         PendingSpecialAbility::SnipeVehicle { .. }
                             | PendingSpecialAbility::Hijack { .. }
                             | PendingSpecialAbility::CarBomb { .. }
+                            | PendingSpecialAbility::DisableVehicleHack { .. }
                     ) && (!target_is_vehicle || target_is_airborne)
                     {
                         self.pending_special_abilities.remove(&object_id);
@@ -5417,6 +5449,27 @@ impl GameLogic {
 
                     // ConvertToCarBomb: cannot re-convert an existing car bomb.
                     if matches!(ability, PendingSpecialAbility::CarBomb { .. }) && target_is_carbomb
+                    {
+                        self.pending_special_abilities.remove(&object_id);
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
+                    // Hijack: cannot re-hijack an already hijacked vehicle.
+                    if matches!(ability, PendingSpecialAbility::Hijack { .. }) && target_is_hijacked
+                    {
+                        self.pending_special_abilities.remove(&object_id);
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+
+                    // Disable vehicle hack: skip already-hacked or unmanned vehicles.
+                    if matches!(ability, PendingSpecialAbility::DisableVehicleHack { .. })
+                        && (target_is_hacked || target_is_unmanned)
                     {
                         self.pending_special_abilities.remove(&object_id);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5471,8 +5524,8 @@ impl GameLogic {
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
-                            // transfer team + OBJECT_STATUS_HIJACKED; hijacker consumed
-                            // (fail-closed vs hide-in-vehicle HijackerUpdate path).
+                            // walk → transfer team + OBJECT_STATUS_HIJACKED; hijacker
+                            // consumed (fail-closed vs hide-in-vehicle HijackerUpdate).
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_hijacked();
                                 target.set_team(team);
@@ -5486,6 +5539,11 @@ impl GameLogic {
                                 .with_position(target_position)
                                 .with_priority(170),
                             );
+                            let msg = localization::localize(
+                                "hud.hijack.complete",
+                                "Vehicle hijacked",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
                             if let Some(hijacker) = self.objects.get_mut(&object_id) {
                                 hijacker.status.destroyed = true;
                             }
@@ -5605,6 +5663,34 @@ impl GameLogic {
                                 bomber.status.destroyed = true;
                             }
                             self.mark_object_for_destruction(object_id, Some(team));
+                        }
+                        PendingSpecialAbility::DisableVehicleHack { .. } => {
+                            // C++ SpecialAbilityUpdate BLACKLOTUS_DISABLE_VEHICLE_HACK:
+                            // setDisabledUntil(DISABLED_HACKED, now + EffectDuration).
+                            let until = self.frame.saturating_add(
+                                crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_DURATION_FRAMES,
+                            );
+                            if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                target.apply_disabled_hacked(until);
+                            }
+                            self.hero_abilities.record_vehicle_disable();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(
+                                    crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_AUDIO,
+                                )
+                                .with_object(special_target_id)
+                                .with_position(target_position)
+                                .with_priority(170),
+                            );
+                            let msg = localization::localize(
+                                "hud.vehicle_hack.disabled",
+                                "Vehicle disabled",
+                            );
+                            self.queue_radar_message_for_team(team, msg);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
                         }
                     }
 
@@ -8633,6 +8719,16 @@ impl GameLogic {
         self.transport_residual_unloads
     }
 
+    /// Residual Overlord BattleBunker honesty: successful infantry enter count.
+    pub fn overlord_bunker_residual_enters(&self) -> u32 {
+        self.overlord_bunker_residual_enters
+    }
+
+    /// Residual Overlord BattleBunker honesty: successful exit/evacuate count.
+    pub fn overlord_bunker_residual_exits(&self) -> u32 {
+        self.overlord_bunker_residual_exits
+    }
+
     /// Record a residual structure-garrison enter (tests / host path).
     pub fn record_garrison_residual_enter(&mut self) {
         self.garrison_residual_enters = self.garrison_residual_enters.saturating_add(1);
@@ -8651,6 +8747,18 @@ impl GameLogic {
     /// Record a residual transport unload/evacuate (tests / host path).
     pub fn record_transport_residual_unload(&mut self) {
         self.transport_residual_unloads = self.transport_residual_unloads.saturating_add(1);
+    }
+
+    /// Record a residual Overlord BattleBunker enter (tests / host path).
+    pub fn record_overlord_bunker_residual_enter(&mut self) {
+        self.overlord_bunker_residual_enters =
+            self.overlord_bunker_residual_enters.saturating_add(1);
+    }
+
+    /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
+    pub fn record_overlord_bunker_residual_exit(&mut self) {
+        self.overlord_bunker_residual_exits =
+            self.overlord_bunker_residual_exits.saturating_add(1);
     }
 
     /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
@@ -8745,6 +8853,12 @@ impl GameLogic {
     /// Residual honesty: load → docked → unload path was exercised.
     pub fn honesty_transport_load_unload_ok(&self) -> bool {
         self.transport_residual_loads > 0 && self.transport_residual_unloads > 0
+    }
+
+    /// Residual honesty: Overlord BattleBunker enter → docked → exit path.
+    /// Fail-closed: not full OverlordContain redirect / portable-structure spawn.
+    pub fn honesty_overlord_bunker_enter_exit_ok(&self) -> bool {
+        self.overlord_bunker_residual_enters > 0 && self.overlord_bunker_residual_exits > 0
     }
 
     // -----------------------------------------------------------------------
@@ -9001,6 +9115,11 @@ impl GameLogic {
     /// Residual honesty: Black Lotus cash-hack completed at least once.
     pub fn honesty_steal_cash_ok(&self) -> bool {
         self.hero_abilities.honesty_cash_steal_ok()
+    }
+
+    /// Residual honesty: Black Lotus disable-vehicle hack completed at least once.
+    pub fn honesty_disable_vehicle_hack_ok(&self) -> bool {
+        self.hero_abilities.honesty_vehicle_disable_ok()
     }
 
     /// Combined residual honesty: any hero special ability path observed.
@@ -14362,6 +14481,44 @@ mod tests {
         id
     }
 
+    /// Residual China Overlord tank (OverlordContain style vehicle).
+    /// Fail-closed: not portable-structure payload / W3D rider draw parity.
+    fn ensure_test_overlord_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("TestOverlord") {
+            return;
+        }
+
+        let mut overlord = ThingTemplate::new("TestOverlord");
+        overlord
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0)
+            .set_cost(2000, 0);
+        game_logic
+            .templates
+            .insert("TestOverlord".to_string(), overlord);
+    }
+
+    /// Spawn residual Overlord. Without BattleBunker residual (`Some(0)`),
+    /// infantry enter is rejected. Call `install_overlord_battle_bunker(5)`
+    /// to match ChinaTankOverlordBattleBunker TransportContain Slots=5.
+    fn create_test_overlord(
+        game_logic: &mut GameLogic,
+        pos: Vec3,
+        bunker_slots: Option<usize>,
+    ) -> ObjectId {
+        ensure_test_overlord_template(game_logic);
+        let id = game_logic
+            .create_object("TestOverlord", Team::China, pos)
+            .expect("TestOverlord");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            // Mark overlord-style residual; slots=None means no bunker installed.
+            obj.overlord_bunker_capacity = Some(bunker_slots.unwrap_or(0));
+        }
+        id
+    }
+
     fn ensure_test_repair_pad_template(game_logic: &mut GameLogic) {
         if game_logic.templates.contains_key("TestRepairPad") {
             return;
@@ -16713,14 +16870,73 @@ mod tests {
             "hijack residual must set OBJECT_STATUS_HIJACKED"
         );
         assert!(
+            target.is_hijacked(),
+            "hijack residual is_hijacked helper"
+        );
+        assert!(
             game_logic.honesty_hijack_ok(),
             "hijack residual honesty"
+        );
+        assert_eq!(
+            game_logic.car_bomb_residual().hijacks,
+            1,
+            "hijack honesty counter"
         );
 
         let hijacker = game_logic
             .find_object(hijacker_id)
             .expect("hijacker should exist");
-        assert!(hijacker.status.destroyed);
+        assert!(
+            hijacker.status.destroyed,
+            "hijacker infantry consumed after steal"
+        );
+    }
+
+    #[test]
+    fn hijack_rejects_already_hijacked_vehicle() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let hijacker_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("hijacker should be created");
+        let target_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
+            .expect("target should be created");
+        {
+            let target = game_logic
+                .find_object_mut(target_id)
+                .expect("target should exist");
+            target.apply_hijacked();
+        }
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Hijack { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![hijacker_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        game_logic.update_ai(&[hijacker_id, target_id], 1.0 / 60.0);
+
+        let target = game_logic
+            .find_object(target_id)
+            .expect("target should exist");
+        assert_eq!(
+            target.team,
+            Team::GLA,
+            "already-hijacked vehicle must not re-transfer"
+        );
+        assert!(!game_logic.honesty_hijack_ok());
+        let hijacker = game_logic
+            .find_object(hijacker_id)
+            .expect("hijacker should exist");
+        assert!(
+            !hijacker.status.destroyed,
+            "failed re-hijack must not consume infantry"
+        );
     }
 
     #[test]
@@ -17116,6 +17332,117 @@ mod tests {
         assert!(
             victim_cash < 5_000,
             "victim must lose cash (remaining={victim_cash})"
+        );
+    }
+
+    /// Residual: Black Lotus DisableVehicleHack walks to enemy vehicle → DISABLED_HACKED.
+    #[test]
+    fn disable_vehicle_hack_command_disables_after_reach() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let lotus_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(190.0, 0.0, 0.0))
+            .expect("lotus should be created");
+        let target_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("target should be created");
+
+        let initial_health = game_logic
+            .find_object(target_id)
+            .expect("target should exist")
+            .health
+            .current;
+        let initial_team = game_logic
+            .find_object(target_id)
+            .expect("target should exist")
+            .team;
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::DisableVehicleHack { target_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![lotus_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let target_after_command = game_logic
+            .find_object(target_id)
+            .expect("target should exist");
+        assert!(
+            !target_after_command.is_hacked_disabled(),
+            "disable hack must not apply immediately on command issue"
+        );
+        assert!(!game_logic.honesty_disable_vehicle_hack_ok());
+
+        game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+        assert!(
+            !game_logic
+                .find_object(target_id)
+                .expect("target")
+                .is_hacked_disabled(),
+            "disable hack stays pending out of range"
+        );
+
+        {
+            let lotus = game_logic
+                .find_object_mut(lotus_id)
+                .expect("lotus should exist");
+            lotus.set_position(Vec3::new(2.0, 0.0, 0.0));
+            lotus.ai_state = AIState::SpecialAbility;
+            lotus.target = Some(target_id);
+        }
+        game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+
+        let target_after = game_logic
+            .find_object(target_id)
+            .expect("target should exist");
+        assert_eq!(
+            target_after.health.current, initial_health,
+            "disable hack residual must not damage HP"
+        );
+        assert_eq!(
+            target_after.team, initial_team,
+            "disable hack must not change ownership"
+        );
+        assert!(
+            target_after.is_hacked_disabled(),
+            "vehicle must be DISABLED_HACKED"
+        );
+        assert!(
+            !target_after.can_move(),
+            "hacked vehicle cannot move"
+        );
+        assert!(
+            !target_after.can_attack(),
+            "hacked vehicle cannot attack"
+        );
+        assert!(
+            game_logic.honesty_disable_vehicle_hack_ok(),
+            "disable vehicle residual honesty"
+        );
+        assert_eq!(
+            game_logic.hero_abilities().vehicle_disables,
+            1
+        );
+
+        // Expire residual timer → vehicle recovers.
+        let until = target_after.status.disabled_hacked_until_frame;
+        assert!(until > game_logic.frame);
+        game_logic.frame = until;
+        game_logic.update_ai(&[target_id], 1.0 / 60.0);
+        let recovered = game_logic
+            .find_object(target_id)
+            .expect("target should exist");
+        assert!(
+            !recovered.is_hacked_disabled(),
+            "DISABLED_HACKED must clear after EffectDuration"
+        );
+        assert!(
+            recovered.can_move(),
+            "recovered vehicle can move again"
         );
     }
 
@@ -21766,6 +22093,313 @@ mod tests {
                 .transport_count(),
             1
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // China Overlord BattleBunker residual
+    // Fail-closed: not full OverlordContain redirect / portable-structure spawn /
+    // GattlingCannon / PropagandaTower payload matrix.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Overlord without BattleBunker rejects infantry enter (fail-closed).
+    #[test]
+    fn overlord_bunker_residual_without_bunker_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        // Some(0): overlord-style, no BattleBunker residual installed.
+        let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), None);
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+
+        let overlord = game_logic.find_object(overlord_id).expect("overlord");
+        assert!(
+            overlord.is_overlord_style_container(),
+            "TestOverlord must mark overlord-style residual"
+        );
+        assert_eq!(overlord.overlord_bunker_slot_capacity(), 0);
+        assert!(
+            !overlord.can_contain(),
+            "Overlord without BattleBunker residual must not accept enter"
+        );
+        assert_eq!(overlord.transport_capacity(), 0);
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: overlord_id,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry");
+        assert_ne!(
+            infantry.ai_state,
+            AIState::Entering,
+            "enter must be rejected without bunker residual"
+        );
+        assert_ne!(infantry.target, Some(overlord_id));
+        assert_eq!(game_logic.overlord_bunker_residual_enters(), 0);
+    }
+
+    /// Residual: BattleBunker install → Enter → Docked + capacity bookkeeping.
+    #[test]
+    fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        // C++ ChinaTankOverlordBattleBunker TransportContain Slots = 5.
+        let overlord_id =
+            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("infantry");
+
+        let overlord = game_logic.find_object(overlord_id).expect("overlord");
+        assert!(
+            overlord.can_contain() && overlord.overlord_bunker_slot_capacity() == 5,
+            "BattleBunker residual must expose 5 infantry slots"
+        );
+        assert_eq!(overlord.transport_capacity(), 5);
+        assert_eq!(overlord.transport_count(), 0);
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: overlord_id,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry cmd");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Entering,
+            "Enter command must start residual Overlord bunker enter"
+        );
+        assert_eq!(infantry.target, Some(overlord_id));
+
+        game_logic.update_ai(&[infantry_id, overlord_id], 1.0 / 30.0);
+
+        let overlord = game_logic.find_object(overlord_id).expect("overlord after");
+        assert!(
+            overlord.contained_units().contains(&infantry_id),
+            "Overlord bunker residual must list loaded infantry"
+        );
+        assert_eq!(overlord.transport_count(), 1);
+        assert!(overlord.transport_count() <= overlord.transport_capacity());
+
+        let infantry = game_logic.find_object(infantry_id).expect("infantry after");
+        assert_eq!(
+            infantry.ai_state,
+            AIState::Docked,
+            "infantry must be Docked after Overlord bunker residual load"
+        );
+        assert_eq!(infantry.contained_by, Some(overlord_id));
+        assert!(!infantry.can_move(), "loaded units cannot move freely");
+        assert_eq!(game_logic.overlord_bunker_residual_enters(), 1);
+        assert_eq!(
+            game_logic.transport_residual_loads(),
+            0,
+            "Overlord bunker enter must not count as generic transport load"
+        );
+        assert_eq!(
+            game_logic.garrison_residual_enters(),
+            0,
+            "Overlord bunker enter must not count as structure garrison"
+        );
+    }
+
+    /// Residual acceptance: load 2 infantry → unload all → both free + honesty.
+    #[test]
+    fn overlord_bunker_residual_load_two_unload_both_free() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let overlord_id =
+            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.target = Some(overlord_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, overlord_id], 1.0 / 30.0);
+        }
+
+        let overlord = game_logic.find_object(overlord_id).expect("overlord loaded");
+        assert!(
+            overlord.contained_units().contains(&unit_a)
+                && overlord.contained_units().contains(&unit_b),
+            "both infantry must be loaded into Overlord bunker residual"
+        );
+        assert_eq!(overlord.transport_count(), 2);
+        assert_eq!(game_logic.overlord_bunker_residual_enters(), 2);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("loaded unit");
+            assert_eq!(unit.ai_state, AIState::Docked);
+            assert_eq!(unit.contained_by, Some(overlord_id));
+            assert!(!unit.can_move());
+        }
+
+        // Unload all (selected Overlord Evacuate residual).
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 1,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![overlord_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let overlord = game_logic.find_object(overlord_id).expect("overlord empty");
+        assert!(
+            overlord.contained_units().is_empty(),
+            "evacuate must clear all Overlord bunker residual occupants"
+        );
+        assert_eq!(overlord.transport_count(), 0);
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("freed unit");
+            assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+            assert!(unit.contained_by.is_none(), "contained_by must clear");
+            assert!(unit.target.is_none());
+            assert!(unit.can_move(), "unloaded unit must be free to move");
+        }
+
+        assert_eq!(game_logic.overlord_bunker_residual_exits(), 2);
+        assert!(
+            game_logic.honesty_overlord_bunker_enter_exit_ok(),
+            "enter+exit residual honesty"
+        );
+        assert_eq!(
+            game_logic.transport_residual_unloads(),
+            0,
+            "Overlord bunker unload must not count as generic transport unload"
+        );
+        assert_eq!(
+            game_logic.garrison_residual_exits(),
+            0,
+            "Overlord bunker unload must not count as garrison exit"
+        );
+    }
+
+    /// Residual: full BattleBunker capacity rejects further Enter.
+    #[test]
+    fn overlord_bunker_residual_capacity_full_rejects_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let overlord_id =
+            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(1));
+
+        let first_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("first");
+        {
+            let unit = game_logic.find_object_mut(first_id).unwrap();
+            unit.target = Some(overlord_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
+        assert!(game_logic
+            .find_object(overlord_id)
+            .unwrap()
+            .contained_units()
+            .contains(&first_id));
+
+        let second_id = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(3.0, 0.0, 0.0))
+            .expect("second");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: overlord_id,
+            },
+            player_id: 1,
+            command_id: 4,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![second_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let second = game_logic.find_object(second_id).expect("second after");
+        assert_ne!(
+            second.ai_state,
+            AIState::Entering,
+            "full Overlord bunker residual must reject Enter"
+        );
+        assert_ne!(second.target, Some(overlord_id));
+        assert_eq!(
+            game_logic
+                .find_object(overlord_id)
+                .unwrap()
+                .transport_count(),
+            1
+        );
+    }
+
+    /// Residual: vehicles cannot enter Overlord BattleBunker (infantry-only).
+    #[test]
+    fn overlord_bunker_residual_rejects_vehicle_enter() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let overlord_id =
+            create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+        let tank_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter {
+                target_id: overlord_id,
+            },
+            player_id: 1,
+            command_id: 5,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert_ne!(
+            tank.ai_state,
+            AIState::Entering,
+            "vehicles must not enter Overlord BattleBunker residual"
+        );
+        assert_eq!(game_logic.overlord_bunker_residual_enters(), 0);
+        assert!(game_logic
+            .find_object(overlord_id)
+            .unwrap()
+            .contained_units()
+            .is_empty());
     }
 
     // -----------------------------------------------------------------------
