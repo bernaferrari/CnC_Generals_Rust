@@ -662,6 +662,18 @@ pub struct GameLogic {
     /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
     combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry,
 
+    /// Host China Listening Outpost residual honesty counters
+    /// (detect / load / unload / passenger fire / armed-riders / InitialPayload).
+    /// Fail-closed: not IR FX / multi-door exit / RIDERS_ATTACKING uncloak matrix.
+    listening_outpost:
+        crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry,
+
+    /// Host China Troop Crawler residual honesty counters
+    /// (load / unload / initial payload / assault deploy / detect).
+    /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
+    troop_crawler:
+        crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry,
+
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
     mine_residual_places: u32,
@@ -1688,6 +1700,10 @@ impl GameLogic {
                 crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(),
             combat_chinook:
                 crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(),
+            listening_outpost:
+                crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry::new(),
+            troop_crawler:
+                crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry::new(),
             mine_residual_places: 0,
             mine_residual_proximity_detonations: 0,
             mine_residual_timed_detonations: 0,
@@ -1915,6 +1931,8 @@ impl GameLogic {
         self.battle_bus.clear();
         self.tunnel_network.clear();
         self.combat_chinook.clear();
+        self.listening_outpost.clear();
+        self.troop_crawler.clear();
         self.mine_residual_places = 0;
         self.mine_residual_proximity_detonations = 0;
         self.mine_residual_timed_detonations = 0;
@@ -5182,6 +5200,23 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
+                        use crate::game_logic::host_troop_crawler::{
+                            is_troop_crawler_template, should_apply_troop_crawler_assault_deploy,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_troop_crawler_assault_deploy(
+                                    is_troop_crawler_template(&a.template_name),
+                                )
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let _ordered = self
+                            .apply_troop_crawler_assault_deploy(attacker_id, target_id);
+                        // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
+                    } else if {
                         // China Dragon Tank residual: primary flame splash (primary+secondary radius).
                         use crate::game_logic::host_dragon_tank::{
                             is_dragon_tank_template, should_apply_dragon_flame_residual,
@@ -6416,6 +6451,8 @@ impl GameLogic {
                         container_is_technical,
                         container_is_combat_cycle,
                         container_is_combat_chinook,
+                        container_is_listening_outpost,
+                        container_is_troop_crawler,
                         container_is_tunnel_network,
                         container_is_alive,
                         container_under_construction,
@@ -6436,6 +6473,8 @@ impl GameLogic {
                             container.is_technical_style_container(),
                             container.is_combat_cycle_style_container(),
                             container.is_combat_chinook_style_container(),
+                            container.is_listening_outpost_style_container(),
+                            container.is_troop_crawler_style_container(),
                             container.is_tunnel_network_style_container(),
                             container.is_alive(),
                             container.status.under_construction,
@@ -6480,7 +6519,9 @@ impl GameLogic {
                         || container_is_overlord_bunker
                         || container_is_battle_bus
                         || container_is_technical
-                        || container_is_combat_cycle)
+                        || container_is_combat_cycle
+                        || container_is_listening_outpost
+                        || container_is_troop_crawler)
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -6627,6 +6668,13 @@ impl GameLogic {
                         // AirF Combat Chinook residual load (Slots=8 + passenger fire).
                         self.record_combat_chinook_residual_load();
                         self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+                    } else if container_is_listening_outpost {
+                        // China Listening Outpost residual load (Slots=2 + passenger fire).
+                        self.record_listening_outpost_residual_load();
+                        self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+                    } else if container_is_troop_crawler {
+                        // China Troop Crawler residual load (Slots=8; exit-to-fight).
+                        self.record_troop_crawler_residual_load();
                     } else {
                         // Vehicle transport residual load (Humvee / generic transport).
                         self.record_transport_residual_load();
@@ -8738,6 +8786,45 @@ impl GameLogic {
                 object.install_combat_chinook_transport();
             }
 
+            // Host residual: China Listening Outpost detect 300 + transport Slots=2 +
+            // InnateStealth + ArmedRiders dummy. Fail-closed: not IR FX / multi-door.
+            let is_listening_outpost_spawn =
+                crate::game_logic::host_listening_outpost::is_listening_outpost_template(
+                    template_name,
+                );
+            if is_listening_outpost_spawn {
+                object.install_listening_outpost_transport();
+            }
+
+            // Host residual: China Troop Crawler TransportContain Slots=8 +
+            // StealthDetector (VisionRange 175) + TroopCrawlerAssault DEPLOY.
+            // Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve.
+            let is_troop_crawler_spawn =
+                crate::game_logic::host_troop_crawler::is_troop_crawler_template(template_name);
+            if is_troop_crawler_spawn {
+                object.install_troop_crawler_transport();
+                object.weapon =
+                    Some(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
+                if crate::game_logic::host_troop_crawler::troop_crawler_spawn_is_detector(
+                    template_name,
+                ) {
+                    object.is_detector = true;
+                    if let Some(range) =
+                        crate::game_logic::host_troop_crawler::troop_crawler_detection_range(
+                            template_name,
+                        )
+                    {
+                        object.detection_range = range;
+                    }
+                }
+                // VisionRange residual (175) for effective_detection_range fallback.
+                object.thing.template.sight_range = object
+                    .thing
+                    .template
+                    .sight_range
+                    .max(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_VISION_RANGE);
+            }
+
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
             if crate::game_logic::host_humvee::is_humvee_template(template_name) {
@@ -8877,6 +8964,19 @@ impl GameLogic {
                         }
                     }
                 }
+            }
+
+            // Host residual: Listening Outpost InitialPayload TankHunter × 2.
+            // Dock after insert so recursive create_object cannot re-enter mid-build.
+            // Fail-closed: no payload if TankHunter template is absent.
+            if is_listening_outpost_spawn {
+                self.apply_listening_outpost_initial_payload(id, team, position);
+            }
+
+            // Host residual: Troop Crawler InitialPayload Redguard × 8.
+            // Dock after insert so recursive create_object cannot re-enter mid-build.
+            if is_troop_crawler_spawn {
+                self.apply_troop_crawler_initial_payload(id, team, position);
             }
 
             if counts_as_unit {
@@ -11486,8 +11586,8 @@ impl GameLogic {
     /// When `armed_riders_upgrade_weapon_set` and any infantry rider has a viable
     /// ranged damage weapon, set WEAPONSET_PLAYER_UPGRADE and bind the passenger
     /// dummy weapon. Clears the flag when no armed riders remain.
-    /// Battle Bus binds BattleBusPassengerDummyWeapon; Combat Chinook binds
-    /// ListeningOutpostUpgradedDummyWeapon.
+    /// Battle Bus binds BattleBusPassengerDummyWeapon; Combat Chinook and
+    /// Listening Outpost bind ListeningOutpostUpgradedDummyWeapon.
     pub fn refresh_battle_bus_armed_riders_weapon_set(&mut self, container_id: ObjectId) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -11496,6 +11596,7 @@ impl GameLogic {
             return;
         }
         let is_combat_chinook = container.is_combat_chinook_style_container();
+        let is_listening_outpost = container.is_listening_outpost_style_container();
         let is_battle_bus = container.is_battle_bus_style_container();
         let occupant_ids = container.contained_units();
         let was_upgraded = container.weapon_set_player_upgrade;
@@ -11536,7 +11637,8 @@ impl GameLogic {
                     }
                 };
                 if need_dummy {
-                    container.weapon = Some(if is_combat_chinook {
+                    // Combat Chinook + Listening Outpost share ListeningOutpost dummy.
+                    container.weapon = Some(if is_combat_chinook || is_listening_outpost {
                         crate::game_logic::host_combat_chinook::listening_outpost_upgraded_dummy_weapon(
                         )
                     } else {
@@ -11560,12 +11662,346 @@ impl GameLogic {
             }
         }
         if newly_upgraded {
-            if is_combat_chinook {
+            if is_listening_outpost {
+                self.listening_outpost.record_weapon_set_upgrade();
+            } else if is_combat_chinook {
                 self.combat_chinook.record_weapon_set_upgrade();
             } else if is_battle_bus {
                 self.battle_bus.record_weapon_set_upgrade();
             }
         }
+    }
+
+    /// Residual Listening Outpost honesty: successful infantry load count.
+    pub fn listening_outpost_residual_loads(&self) -> u32 {
+        self.listening_outpost.loads
+    }
+
+    /// Residual Listening Outpost honesty: successful unload/evacuate count.
+    pub fn listening_outpost_residual_unloads(&self) -> u32 {
+        self.listening_outpost.unloads
+    }
+
+    /// Residual Listening Outpost honesty: passenger fire-from-outpost shots.
+    pub fn listening_outpost_residual_passenger_fires(&self) -> u32 {
+        self.listening_outpost.passenger_fires
+    }
+
+    /// Residual Listening Outpost honesty: armed-riders weapon-set upgrades.
+    pub fn listening_outpost_residual_weapon_set_upgrades(&self) -> u32 {
+        self.listening_outpost.weapon_set_upgrades
+    }
+
+    /// Residual Listening Outpost honesty: detector residual reveals.
+    pub fn listening_outpost_residual_detects(&self) -> u32 {
+        self.listening_outpost.detects
+    }
+
+    /// Residual Listening Outpost honesty: InitialPayload TankHunter docks.
+    pub fn listening_outpost_residual_initial_payload_docks(&self) -> u32 {
+        self.listening_outpost.initial_payload_docks
+    }
+
+    /// Record a residual Listening Outpost load (tests / host path).
+    pub fn record_listening_outpost_residual_load(&mut self) {
+        self.listening_outpost.record_load();
+    }
+
+    /// Record a residual Listening Outpost unload/evacuate (tests / host path).
+    pub fn record_listening_outpost_residual_unload(&mut self) {
+        self.listening_outpost.record_unload();
+    }
+
+    /// Residual honesty: Listening Outpost load → docked → unload path.
+    pub fn honesty_listening_outpost_load_unload_ok(&self) -> bool {
+        self.listening_outpost.honesty_load_unload_ok()
+    }
+
+    /// Residual honesty: Listening Outpost passenger residual fire.
+    pub fn honesty_listening_outpost_passenger_fire_ok(&self) -> bool {
+        self.listening_outpost.honesty_passenger_fire_ok()
+    }
+
+    /// Residual honesty: Listening Outpost armed-riders weapon-set upgrade.
+    pub fn honesty_listening_outpost_weapon_set_upgrade_ok(&self) -> bool {
+        self.listening_outpost.honesty_weapon_set_upgrade_ok()
+    }
+
+    /// Residual honesty: Listening Outpost detector residual revealed a unit.
+    pub fn honesty_listening_outpost_detect_ok(&self) -> bool {
+        self.listening_outpost.honesty_detect_ok()
+    }
+
+    /// Residual honesty: Listening Outpost InitialPayload TankHunter residual.
+    pub fn honesty_listening_outpost_initial_payload_ok(&self) -> bool {
+        self.listening_outpost.honesty_initial_payload_ok()
+    }
+
+    /// Residual honesty: any Listening Outpost residual path.
+    pub fn honesty_listening_outpost_ok(&self) -> bool {
+        self.listening_outpost.honesty_any_ok()
+    }
+
+    /// Residual Troop Crawler honesty accessors.
+    pub fn troop_crawler_residual_loads(&self) -> u32 {
+        self.troop_crawler.loads
+    }
+    pub fn troop_crawler_residual_unloads(&self) -> u32 {
+        self.troop_crawler.unloads
+    }
+    pub fn troop_crawler_residual_assault_deploys(&self) -> u32 {
+        self.troop_crawler.assault_deploys
+    }
+    pub fn troop_crawler_residual_detects(&self) -> u32 {
+        self.troop_crawler.detects
+    }
+    pub fn troop_crawler_residual_initial_payloads(&self) -> u32 {
+        self.troop_crawler.initial_payloads
+    }
+    pub fn record_troop_crawler_residual_load(&mut self) {
+        self.troop_crawler.record_load();
+    }
+    pub fn record_troop_crawler_residual_unload(&mut self) {
+        self.troop_crawler.record_unload();
+    }
+    pub fn honesty_troop_crawler_load_unload_ok(&self) -> bool {
+        self.troop_crawler.honesty_load_unload_ok()
+    }
+    pub fn honesty_troop_crawler_assault_deploy_ok(&self) -> bool {
+        self.troop_crawler.honesty_assault_deploy_ok()
+    }
+    pub fn honesty_troop_crawler_detect_ok(&self) -> bool {
+        self.troop_crawler.honesty_detect_ok()
+    }
+    pub fn honesty_troop_crawler_initial_payload_ok(&self) -> bool {
+        self.troop_crawler.honesty_initial_payload_ok()
+    }
+    pub fn honesty_troop_crawler_ok(&self) -> bool {
+        self.troop_crawler.honesty_any_ok()
+    }
+
+    /// Dock InitialPayload TankHunter × 2 into a Listening Outpost residual.
+    ///
+    /// Fail-closed: no dock when TankHunter template is missing or capacity full.
+    fn apply_listening_outpost_initial_payload(
+        &mut self,
+        outpost_id: ObjectId,
+        team: Team,
+        position: Vec3,
+    ) {
+        use crate::game_logic::host_listening_outpost::{
+            preferred_payload_template, tank_hunter_missile_weapon,
+            LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
+            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT,
+        };
+
+        // Ensure a payload template is available (retail or host seed).
+        if !self.templates.contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE)
+            && !self
+                .templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT)
+        {
+            // Inject residual TankHunter template for host playability residual.
+            let mut th = ThingTemplate::new(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT);
+            th.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(70.0)
+                .set_cost(110, 0);
+            self.templates
+                .insert(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT.to_string(), th);
+        }
+
+        let payload_name = preferred_payload_template(
+            self.templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE),
+            self.templates
+                .contains_key(LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT),
+        );
+        let Some(payload_name) = payload_name else {
+            return;
+        };
+
+        for _ in 0..LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT {
+            // Capacity check before spawn (avoid orphan infantry on full residual).
+            let has_space = self
+                .objects
+                .get(&outpost_id)
+                .map(|o| o.has_capacity_for(1))
+                .unwrap_or(false);
+            if !has_space {
+                break;
+            }
+
+            let Some(hunter_id) = self.create_object(payload_name, team, position) else {
+                break;
+            };
+
+            // Ensure TankHunter residual missile weapon for armed-riders residual.
+            if let Some(hunter) = self.objects.get_mut(&hunter_id) {
+                if hunter.weapon.is_none()
+                    || hunter
+                        .weapon
+                        .as_ref()
+                        .map(|w| w.damage < 1.0)
+                        .unwrap_or(true)
+                {
+                    hunter.weapon = Some(tank_hunter_missile_weapon());
+                }
+                hunter.contained_by = Some(outpost_id);
+                hunter.ai_state = AIState::Docked;
+                hunter.stop_moving();
+                hunter.status.moving = false;
+                hunter.status.attacking = false;
+                hunter.set_target(None);
+                hunter.set_position(position);
+            }
+
+            if let Some(outpost) = self.objects.get_mut(&outpost_id) {
+                outpost.add_occupant(hunter_id);
+            }
+            self.listening_outpost.record_initial_payload_dock();
+        }
+
+        self.refresh_battle_bus_armed_riders_weapon_set(outpost_id);
+    }
+
+    /// Dock InitialPayload Redguard × 8 into a Troop Crawler residual.
+    ///
+    /// Fail-closed: injects host seed RedGuard template when retail name missing.
+    fn apply_troop_crawler_initial_payload(
+        &mut self,
+        crawler_id: ObjectId,
+        team: Team,
+        position: Vec3,
+    ) {
+        use crate::game_logic::host_troop_crawler::{
+            resolve_payload_template_name, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
+            TROOP_CRAWLER_PAYLOAD_TEMPLATE, TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS,
+        };
+        use crate::game_logic::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON;
+
+        // Ensure a payload template is available (retail or host seed).
+        if !self.templates.contains_key(TROOP_CRAWLER_PAYLOAD_TEMPLATE)
+            && !self
+                .templates
+                .contains_key(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS)
+            && !self.templates.contains_key("TestInfantry")
+        {
+            let mut rg = ThingTemplate::new(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS);
+            rg.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(55.0)
+                .set_cost(70, 0)
+                .set_primary_weapon_name(REDGUARD_PRIMARY_WEAPON);
+            self.templates
+                .insert(TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS.to_string(), rg);
+        }
+
+        let payload_name = resolve_payload_template_name(|n| self.templates.contains_key(n));
+        let Some(payload_name) = payload_name else {
+            return;
+        };
+
+        for i in 0..TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT {
+            let has_space = self
+                .objects
+                .get(&crawler_id)
+                .map(|o| o.has_capacity_for(1))
+                .unwrap_or(false);
+            if !has_space {
+                break;
+            }
+
+            let Some(guard_id) = self.create_object(payload_name, team, position) else {
+                break;
+            };
+
+            if let Some(guard) = self.objects.get_mut(&guard_id) {
+                // Ensure residual combat weapon so assault-deploy attack residual works.
+                if guard.weapon.is_none() {
+                    guard.weapon = Some(Weapon {
+                        damage: 15.0,
+                        range: 100.0,
+                        reload_time: 1.0,
+                        last_fire_time: 0.0,
+                        ..Weapon::default()
+                    });
+                }
+                guard.contained_by = Some(crawler_id);
+                guard.ai_state = AIState::Docked;
+                guard.stop_moving();
+                guard.status.moving = false;
+                guard.status.attacking = false;
+                guard.set_target(None);
+                guard.set_position(position);
+            }
+
+            if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+                crawler.add_occupant(guard_id);
+            }
+            self.troop_crawler.record_initial_payload();
+            // Initial payload docks count as residual loads for honesty bookkeeping.
+            let _ = i;
+        }
+    }
+
+    /// Residual Troop Crawler assault deploy: unload docked infantry and order attack.
+    ///
+    /// C++ AssaultTransportAIUpdate::beginAssault + update exit/attack residual.
+    /// Fail-closed: not wounded-retrieve / multi-exit stagger / heal matrix.
+    fn apply_troop_crawler_assault_deploy(
+        &mut self,
+        crawler_id: ObjectId,
+        target_id: ObjectId,
+    ) -> u32 {
+        use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DEPLOY_AUDIO;
+
+        let Some(crawler) = self.objects.get(&crawler_id) else {
+            return 0;
+        };
+        if !crawler.is_troop_crawler_style_container() {
+            return 0;
+        }
+        let crawler_pos = crawler.get_position();
+        let occupants = crawler.contained_units();
+        if occupants.is_empty() {
+            // Still record deploy attempt residual (weapon fired DEPLOY pulse).
+            self.troop_crawler.record_assault_deploy();
+            return 0;
+        }
+
+        let mut ordered = 0u32;
+        for (i, occ_id) in occupants.iter().copied().enumerate() {
+            // Remove from container.
+            if let Some(crawler) = self.objects.get_mut(&crawler_id) {
+                crawler.remove_occupant(occ_id);
+            }
+            // Drop near crawler and order attack.
+            let angle = (occ_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;
+            let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
+            if let Some(unit) = self.objects.get_mut(&occ_id) {
+                unit.stop_moving();
+                unit.set_position(crawler_pos + offset);
+                unit.contained_by = None;
+                unit.status.moving = false;
+                // GoAggressiveOnExit residual: attack designated target.
+                unit.attack_target(target_id);
+                ordered = ordered.saturating_add(1);
+                self.troop_crawler.record_deploy_attack_order();
+                self.troop_crawler.record_unload();
+            }
+        }
+
+        self.troop_crawler.record_assault_deploy();
+        self.queue_audio_event(
+            AudioEventRequest::new(TROOP_CRAWLER_DEPLOY_AUDIO)
+                .with_object(crawler_id)
+                .with_position(crawler_pos)
+                .with_priority(140),
+        );
+        ordered
     }
 
     /// Record a residual Overlord BattleBunker enter (tests / host path).
@@ -14719,6 +15155,7 @@ impl GameLogic {
         }
         let is_battle_bus = container.is_battle_bus_style_container();
         let is_combat_chinook = container.is_combat_chinook_style_container();
+        let is_listening_outpost = container.is_listening_outpost_style_container();
         let team = attacker.team;
         let range = weapon.range;
         let damage = weapon.damage;
@@ -14777,6 +15214,8 @@ impl GameLogic {
             self.battle_bus.record_passenger_fire();
         } else if is_combat_chinook {
             self.combat_chinook.record_passenger_fire();
+        } else if is_listening_outpost {
+            self.listening_outpost.record_passenger_fire();
         }
     }
 
@@ -17795,6 +18234,45 @@ impl GameLogic {
             }
         }
 
+        // Listening Outpost residual: StealthForbiddenConditions = MOVING
+        // (RIDERS_ATTACKING fail-closed). InnateStealth re-cloaks when stopped.
+        {
+            use crate::game_logic::host_listening_outpost::{
+                is_listening_outpost_template, listening_outpost_stealth_desired,
+            };
+            let lo_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| {
+                    is_listening_outpost_template(&o.template_name)
+                        || o.is_listening_outpost_style_container()
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for lid in lo_ids {
+                let Some(obj) = self.objects.get_mut(&lid) else {
+                    continue;
+                };
+                let moving = matches!(
+                    obj.ai_state,
+                    AIState::Moving | AIState::AttackMoving
+                ) || obj.status.moving;
+                if let Some(desired) = listening_outpost_stealth_desired(
+                    true,
+                    obj.innate_stealth,
+                    obj.stealth_breaks_on_move,
+                    obj.is_alive(),
+                    moving,
+                ) {
+                    if desired && !obj.status.stealthed {
+                        obj.status.stealthed = true;
+                    } else if !desired && obj.status.stealthed {
+                        obj.break_stealth();
+                    }
+                }
+            }
+        }
+
         // GLA Camouflage residual: re-cloak when idle (innate_stealth after
         // Upgrade_GLACamouflage). Fail-closed vs full 2500ms StealthDelay.
         {
@@ -17842,6 +18320,8 @@ impl GameLogic {
             is_sentry: bool,
             is_pathfinder: bool,
             is_scout: bool,
+            is_listening_outpost: bool,
+            is_troop_crawler: bool,
         }
         let detectors: Vec<(Team, Vec3, f32, DetFlags)> = self
             .objects
@@ -17863,6 +18343,12 @@ impl GameLogic {
                     is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
                         &o.template_name,
                     ),
+                    is_listening_outpost: crate::game_logic::host_listening_outpost::is_listening_outpost_template(
+                        &o.template_name,
+                    ) || o.is_listening_outpost_style_container(),
+                    is_troop_crawler: crate::game_logic::host_troop_crawler::is_troop_crawler_template(
+                        &o.template_name,
+                    ) || o.is_troop_crawler_style_container(),
                 };
                 (
                     o.team,
@@ -17900,6 +18386,8 @@ impl GameLogic {
             let mut detected_by_sentry = false;
             let mut detected_by_pathfinder = false;
             let mut detected_by_scout = false;
+            let mut detected_by_listening_outpost = false;
+            let mut detected_by_troop_crawler = false;
             let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range, flags)| {
                 let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
                 if in_range {
@@ -17911,6 +18399,12 @@ impl GameLogic {
                     }
                     if flags.is_scout {
                         detected_by_scout = true;
+                    }
+                    if flags.is_listening_outpost {
+                        detected_by_listening_outpost = true;
+                    }
+                    if flags.is_troop_crawler {
+                        detected_by_troop_crawler = true;
                     }
                 }
                 in_range
@@ -17933,6 +18427,12 @@ impl GameLogic {
                     if detected_by_scout {
                         self.scout_drone_residual_detects =
                             self.scout_drone_residual_detects.saturating_add(1);
+                    }
+                    if detected_by_listening_outpost {
+                        self.listening_outpost.record_detect();
+                    }
+                    if detected_by_troop_crawler {
+                        self.troop_crawler.record_detect();
                     }
                 }
             }
@@ -23130,6 +23630,78 @@ mod tests {
         if let Some(obj) = game_logic.find_object_mut(id) {
             if !obj.is_combat_chinook_style_container() {
                 obj.install_combat_chinook_transport();
+            }
+        }
+        id
+    }
+
+    /// Residual China Listening Outpost template (detect 300 + transport Slots=2).
+    /// Fail-closed: not IR FX / multi-door / RIDERS_ATTACKING uncloak matrix.
+    fn ensure_test_listening_outpost_template(game_logic: &mut GameLogic) {
+        if game_logic
+            .templates
+            .contains_key("ChinaVehicleListeningOutpost")
+        {
+            return;
+        }
+        let mut outpost = ThingTemplate::new("ChinaVehicleListeningOutpost");
+        outpost
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("ChinaVehicleListeningOutpost".to_string(), outpost);
+    }
+
+    /// Spawn residual China Listening Outpost with detect + transport residual.
+    /// InitialPayload TankHunter × 2 docks on create when payload template available.
+    fn create_test_listening_outpost(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
+        ensure_test_listening_outpost_template(game_logic);
+        let id = game_logic
+            .create_object("ChinaVehicleListeningOutpost", Team::China, pos)
+            .expect("ChinaVehicleListeningOutpost");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            if !obj.is_listening_outpost_style_container() {
+                obj.install_listening_outpost_transport();
+            }
+        }
+        id
+    }
+
+    /// Residual China Troop Crawler template (TransportContain Slots=8 residual).
+    fn ensure_test_troop_crawler_template(game_logic: &mut GameLogic) {
+        if game_logic
+            .templates
+            .contains_key("ChinaVehicleTroopCrawler")
+        {
+            return;
+        }
+        let mut crawler = ThingTemplate::new("ChinaVehicleTroopCrawler");
+        crawler
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_cost(1400, 0);
+        crawler.sight_range = 175.0;
+        game_logic
+            .templates
+            .insert("ChinaVehicleTroopCrawler".to_string(), crawler);
+    }
+
+    /// Spawn residual China Troop Crawler with transport + detector + assault residual.
+    /// InitialPayload Redguard × 8 docks on create when payload template available.
+    fn create_test_troop_crawler(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
+        ensure_test_troop_crawler_template(game_logic);
+        let id = game_logic
+            .create_object("ChinaVehicleTroopCrawler", Team::China, pos)
+            .expect("ChinaVehicleTroopCrawler");
+        if let Some(obj) = game_logic.find_object_mut(id) {
+            if !obj.is_troop_crawler_style_container() {
+                obj.install_troop_crawler_transport();
             }
         }
         id
@@ -36672,6 +37244,361 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // China Listening Outpost residual (detect 300 + transport 2 + TankHunter payload)
+    // Fail-closed: not IR FX / multi-door / RIDERS_ATTACKING uncloak matrix.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Listening Outpost create binds detect 300 + Slots=2 + InnateStealth + payload.
+    #[test]
+    fn listening_outpost_residual_capacity_detect_and_payload() {
+        use crate::game_logic::host_listening_outpost::{
+            is_listening_outpost_template, LISTENING_OUTPOST_DETECTION_RANGE,
+            LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_TRANSPORT_SLOTS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let outpost = game_logic.find_object(outpost_id).expect("outpost");
+        assert!(is_listening_outpost_template(&outpost.template_name));
+        assert!(outpost.is_listening_outpost_style_container());
+        assert!(outpost.can_contain());
+        assert_eq!(outpost.transport_capacity(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
+        assert!(outpost.passengers_allowed_to_fire);
+        assert!(outpost.armed_riders_upgrade_weapon_set);
+        assert!(outpost.is_detector, "listening outpost detector residual");
+        assert!(
+            (outpost.detection_range - LISTENING_OUTPOST_DETECTION_RANGE).abs() < 0.1,
+            "detection range residual 300, got {}",
+            outpost.detection_range
+        );
+        assert!(outpost.status.stealthed, "innate stealth residual on spawn");
+        assert!(outpost.innate_stealth);
+        assert!(outpost.stealth_breaks_on_move);
+        assert!(!outpost.stealth_breaks_on_attack);
+        // InitialPayload TankHunter × 2 residual docks when payload template available.
+        assert!(
+            outpost.transport_count() == LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT
+                || game_logic.listening_outpost_residual_initial_payload_docks()
+                    == LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT as u32,
+            "InitialPayload residual docks 2 TankHunters (count={}, docks={})",
+            outpost.transport_count(),
+            game_logic.listening_outpost_residual_initial_payload_docks()
+        );
+        assert!(
+            game_logic.honesty_listening_outpost_initial_payload_ok()
+                || outpost.transport_count() == LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT,
+            "InitialPayload residual honesty"
+        );
+        // Armed riders from payload upgrade weapon set residual.
+        if outpost.transport_count() > 0 {
+            assert!(
+                outpost.weapon_set_player_upgrade,
+                "payload armed riders must upgrade Listening Outpost weapon set"
+            );
+            assert!(
+                outpost.weapon.is_some(),
+                "PLAYER_UPGRADE residual binds ListeningOutpost dummy weapon"
+            );
+            if let Some(dummy) = outpost.weapon.as_ref() {
+                assert!(
+                    crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(dummy),
+                    "Listening Outpost dummy residual (damage ~0.1)"
+                );
+            }
+        }
+    }
+
+    /// Residual: Listening Outpost detects stealthed enemies within DetectionRange 300.
+    #[test]
+    fn listening_outpost_residual_detect_stealth_in_range() {
+        use crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Stealthed enemy within 300 residual detect range.
+        let stealth_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                Vec3::new(LISTENING_OUTPOST_DETECTION_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("stealthed enemy");
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(stealth_id).expect("enemy");
+            assert!(
+                e.status.detected,
+                "listening outpost detector residual must reveal stealthed enemy in range"
+            );
+        }
+        assert!(
+            game_logic.honesty_listening_outpost_detect_ok(),
+            "listening outpost detect honesty residual must fire"
+        );
+        assert!(
+            game_logic.listening_outpost_residual_detects() >= 1,
+            "detect counter residual"
+        );
+
+        // Fail-closed: enemy beyond 300 is not detected by this residual.
+        let far_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                Vec3::new(LISTENING_OUTPOST_DETECTION_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("far stealthed");
+        {
+            let e = game_logic.find_object_mut(far_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+        // Clear prior detect so only far is checked for new mark (already-detected enemy
+        // stays marked; far must remain undetected).
+        game_logic.frame = 2;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(far_id).expect("far");
+            assert!(
+                !e.status.detected,
+                "fail-closed: enemy outside DetectionRange 300 must not be residual-detected"
+            );
+        }
+
+        // Move residual: uncloak while moving, re-cloak when idle.
+        {
+            let o = game_logic.find_object_mut(outpost_id).unwrap();
+            o.ai_state = AIState::Moving;
+            o.status.moving = true;
+            o.status.stealthed = true;
+        }
+        game_logic.update_stealth_and_detection();
+        {
+            let o = game_logic.find_object(outpost_id).expect("outpost");
+            assert!(
+                !o.status.stealthed,
+                "moving listening outpost must uncloak residual"
+            );
+        }
+        {
+            let o = game_logic.find_object_mut(outpost_id).unwrap();
+            o.ai_state = AIState::Idle;
+            o.status.moving = false;
+        }
+        game_logic.update_stealth_and_detection();
+        {
+            let o = game_logic.find_object(outpost_id).expect("outpost");
+            assert!(
+                o.status.stealthed,
+                "idle listening outpost re-cloaks residual"
+            );
+        }
+    }
+
+    /// Residual: evacuate InitialPayload then load 2 infantry → unload both free.
+    #[test]
+    fn listening_outpost_residual_transport_load_unload() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_TRANSPORT_SLOTS;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Evacuate InitialPayload residual TankHunters to free slots for transport test.
+        {
+            let occupants = game_logic
+                .find_object(outpost_id)
+                .map(|o| o.contained_units())
+                .unwrap_or_default();
+            if !occupants.is_empty() {
+                game_logic.queue_command(GameCommand {
+                    command_type: CommandType::Evacuate,
+                    player_id: 1,
+                    command_id: 1,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![outpost_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                game_logic.process_commands();
+            }
+        }
+        {
+            let outpost = game_logic.find_object(outpost_id).expect("outpost");
+            assert_eq!(
+                outpost.transport_count(),
+                0,
+                "evacuate must free Listening Outpost residual slots"
+            );
+        }
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.weapon = Some(Weapon {
+                    damage: 20.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    last_fire_time: -10.0,
+                    ..Weapon::default()
+                });
+                unit.target = Some(outpost_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, outpost_id], 1.0 / 30.0);
+        }
+
+        let outpost = game_logic.find_object(outpost_id).expect("outpost loaded");
+        assert!(
+            outpost.contained_units().contains(&unit_a)
+                && outpost.contained_units().contains(&unit_b),
+            "both infantry must load into Listening Outpost residual"
+        );
+        assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
+        assert_eq!(game_logic.listening_outpost_residual_loads(), 2);
+        assert!(
+            outpost.weapon_set_player_upgrade,
+            "armed riders must upgrade Listening Outpost weapon set"
+        );
+        assert!(
+            outpost
+                .weapon
+                .as_ref()
+                .map(|w| {
+                    crate::game_logic::host_combat_chinook::is_passenger_dummy_weapon(w)
+                })
+                .unwrap_or(false),
+            "ListeningOutpostUpgradedDummyWeapon residual bind"
+        );
+        assert!(
+            game_logic.honesty_listening_outpost_weapon_set_upgrade_ok(),
+            "weapon-set upgrade residual honesty"
+        );
+
+        // Capacity full: third infantry rejected residual.
+        let unit_c = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(3.0, 0.0, 0.0))
+            .expect("unit c");
+        {
+            let unit = game_logic.find_object_mut(unit_c).unwrap();
+            unit.target = Some(outpost_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[unit_c, outpost_id], 1.0 / 30.0);
+        {
+            let outpost = game_logic.find_object(outpost_id).expect("full");
+            assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
+            assert!(!outpost.contained_units().contains(&unit_c));
+        }
+
+        // Unload residual.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 1,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![outpost_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("free unit");
+            assert_eq!(unit.ai_state, AIState::Idle);
+            assert!(unit.contained_by.is_none());
+            assert!(unit.can_move());
+        }
+        {
+            let outpost = game_logic.find_object(outpost_id).expect("empty");
+            assert_eq!(outpost.transport_count(), 0);
+            assert!(
+                !outpost.weapon_set_player_upgrade,
+                "no armed riders → clear PLAYER_UPGRADE residual"
+            );
+        }
+        assert!(
+            game_logic.listening_outpost_residual_unloads() >= 2,
+            "unload residual honesty counter"
+        );
+        assert!(
+            game_logic.honesty_listening_outpost_load_unload_ok(),
+            "load/unload residual honesty"
+        );
+        assert!(
+            game_logic.honesty_listening_outpost_ok(),
+            "listening outpost residual host path honesty"
+        );
+    }
+
+    /// Residual: vehicles rejected from Listening Outpost (AllowInsideKindOf=INFANTRY).
+    #[test]
+    fn listening_outpost_residual_rejects_vehicle_enter() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Free InitialPayload residual slots.
+        {
+            let occupants = game_logic
+                .find_object(outpost_id)
+                .map(|o| o.contained_units())
+                .unwrap_or_default();
+            if !occupants.is_empty() {
+                use crate::command_system::{CommandType, GameCommand};
+                game_logic.queue_command(GameCommand {
+                    command_type: CommandType::Evacuate,
+                    player_id: 1,
+                    command_id: 1,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![outpost_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                game_logic.process_commands();
+            }
+        }
+
+        let loads_before = game_logic.listening_outpost_residual_loads();
+        let tank_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+        {
+            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            unit.target = Some(outpost_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[tank_id, outpost_id], 1.0 / 30.0);
+
+        let outpost = game_logic.find_object(outpost_id).expect("outpost");
+        assert!(
+            !outpost.contained_units().contains(&tank_id),
+            "vehicles must not enter Listening Outpost residual"
+        );
+        assert_eq!(
+            game_logic.listening_outpost_residual_loads(),
+            loads_before,
+            "vehicle enter must not count as Listening Outpost load"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Mine / demo-trap / timed demo-charge residual
     // Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
     // -----------------------------------------------------------------------
@@ -40723,6 +41650,353 @@ mod tests {
 
     /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
     
+    // -----------------------------------------------------------------------
+    // China Troop Crawler residual (transport 8 + Redguard payload + assault + detector)
+    // Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
+    // -----------------------------------------------------------------------
+
+    /// Residual: Troop Crawler create binds Slots=8 + detect 175 + InitialPayload Redguard×8.
+    #[test]
+    fn troop_crawler_residual_capacity_detect_and_payload() {
+        use crate::game_logic::host_troop_crawler::{
+            is_troop_crawler_template, TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_DETECTION_RANGE,
+            TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_TRANSPORT_SLOTS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let crawler = game_logic.find_object(crawler_id).expect("crawler");
+        assert!(is_troop_crawler_template(&crawler.template_name));
+        assert!(crawler.is_troop_crawler_style_container());
+        assert!(crawler.can_contain());
+        assert_eq!(crawler.transport_capacity(), TROOP_CRAWLER_TRANSPORT_SLOTS);
+        assert!(!crawler.passengers_allowed_to_fire);
+        assert!(crawler.is_detector, "troop crawler detector residual");
+        assert!(
+            (crawler.detection_range - TROOP_CRAWLER_DETECTION_RANGE).abs() < 0.1,
+            "detection range residual 175, got {}",
+            crawler.detection_range
+        );
+        let prim = crawler.weapon.as_ref().expect("TroopCrawlerAssault residual");
+        assert!(
+            (prim.range - TROOP_CRAWLER_ASSAULT_RANGE).abs() < 0.1,
+            "assault weapon range residual 175, got {}",
+            prim.range
+        );
+        assert!(prim.damage < 0.001, "DEPLOY residual damage negligible");
+        assert!(
+            crawler.transport_count() == TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT
+                || game_logic.troop_crawler_residual_initial_payloads()
+                    == TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT as u32,
+            "InitialPayload residual docks 8 Redguards (count={}, docks={})",
+            crawler.transport_count(),
+            game_logic.troop_crawler_residual_initial_payloads()
+        );
+        assert!(
+            game_logic.honesty_troop_crawler_initial_payload_ok()
+                || crawler.transport_count() == TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
+            "InitialPayload residual honesty"
+        );
+    }
+
+    /// Residual: Troop Crawler detects stealthed enemies within VisionRange 175 residual.
+    #[test]
+    fn troop_crawler_residual_detect_stealth_in_range() {
+        use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DETECTION_RANGE;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let _ = crawler_id;
+
+        let stealth_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                Vec3::new(TROOP_CRAWLER_DETECTION_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("stealthed enemy");
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(stealth_id).expect("enemy");
+            assert!(
+                e.status.detected,
+                "troop crawler detector residual must reveal stealthed enemy in range"
+            );
+        }
+        assert!(
+            game_logic.honesty_troop_crawler_detect_ok(),
+            "troop crawler detect honesty residual must fire"
+        );
+        assert!(
+            game_logic.troop_crawler_residual_detects() >= 1,
+            "detect counter residual"
+        );
+
+        // Fail-closed: beyond 175 not detected.
+        let far_id = game_logic
+            .create_object(
+                "TestInfantry",
+                Team::GLA,
+                Vec3::new(TROOP_CRAWLER_DETECTION_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("far stealthed");
+        {
+            let e = game_logic.find_object_mut(far_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+        game_logic.frame = 2;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(far_id).expect("far");
+            assert!(
+                !e.status.detected,
+                "fail-closed: enemy outside VisionRange 175 residual must not be detected"
+            );
+        }
+    }
+
+    /// Residual: evacuate InitialPayload then load infantry → unload free.
+    #[test]
+    fn troop_crawler_residual_transport_load_unload() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Evacuate InitialPayload residual Redguards to free slots.
+        {
+            let occupants = game_logic
+                .find_object(crawler_id)
+                .map(|o| o.contained_units())
+                .unwrap_or_default();
+            if !occupants.is_empty() {
+                game_logic.queue_command(GameCommand {
+                    command_type: CommandType::Evacuate,
+                    player_id: 1,
+                    command_id: 1,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![crawler_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                game_logic.process_commands();
+            }
+        }
+        {
+            let crawler = game_logic.find_object(crawler_id).expect("crawler");
+            assert_eq!(
+                crawler.transport_count(),
+                0,
+                "evacuate must free Troop Crawler residual slots"
+            );
+        }
+
+        let unit_a = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("unit a");
+        let unit_b = game_logic
+            .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit b");
+
+        for unit_id in [unit_a, unit_b] {
+            {
+                let unit = game_logic.find_object_mut(unit_id).expect("unit mut");
+                unit.weapon = Some(Weapon {
+                    damage: 15.0,
+                    range: 80.0,
+                    reload_time: 0.5,
+                    last_fire_time: -10.0,
+                    ..Weapon::default()
+                });
+                unit.target = Some(crawler_id);
+                unit.ai_state = AIState::Entering;
+            }
+            game_logic.update_ai(&[unit_id, crawler_id], 1.0 / 30.0);
+        }
+
+        let crawler = game_logic.find_object(crawler_id).expect("crawler loaded");
+        assert!(
+            crawler.contained_units().contains(&unit_a)
+                && crawler.contained_units().contains(&unit_b),
+            "both infantry must load into Troop Crawler residual"
+        );
+        assert_eq!(crawler.transport_count(), 2);
+        assert_eq!(game_logic.troop_crawler_residual_loads(), 2);
+        assert!(crawler.transport_capacity() >= TROOP_CRAWLER_TRANSPORT_SLOTS);
+
+        // Unload residual.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 1,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![crawler_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        for unit_id in [unit_a, unit_b] {
+            let unit = game_logic.find_object(unit_id).expect("free unit");
+            assert_eq!(unit.ai_state, AIState::Idle);
+            assert!(unit.contained_by.is_none());
+            assert!(unit.can_move());
+        }
+        {
+            let crawler = game_logic.find_object(crawler_id).expect("empty");
+            assert_eq!(crawler.transport_count(), 0);
+        }
+        assert!(
+            game_logic.troop_crawler_residual_unloads() >= 2,
+            "unload residual honesty counter"
+        );
+        assert!(
+            game_logic.honesty_troop_crawler_load_unload_ok(),
+            "load/unload residual honesty"
+        );
+        assert!(
+            game_logic.honesty_troop_crawler_ok(),
+            "troop crawler residual host path honesty"
+        );
+    }
+
+    /// Residual: TroopCrawlerAssault DEPLOY fire unloads payload and orders attack.
+    #[test]
+    fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
+        use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_RANGE;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+        let payload_count = game_logic
+            .find_object(crawler_id)
+            .map(|c| c.transport_count())
+            .unwrap_or(0);
+        assert!(
+            payload_count >= 1,
+            "assault deploy residual requires InitialPayload residual occupants, got {payload_count}"
+        );
+
+        let enemy = game_logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                Vec3::new(TROOP_CRAWLER_ASSAULT_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("enemy");
+
+        {
+            let c = game_logic.find_object_mut(crawler_id).unwrap();
+            c.attack_target(enemy);
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[crawler_id, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_troop_crawler_assault_deploy_ok(),
+            "assault deploy residual honesty must fire"
+        );
+        assert!(
+            game_logic.troop_crawler_residual_assault_deploys() >= 1,
+            "deploy counter residual"
+        );
+
+        let remaining = game_logic
+            .find_object(crawler_id)
+            .map(|c| c.transport_count())
+            .unwrap_or(0);
+        assert_eq!(
+            remaining, 0,
+            "assault deploy residual must unload occupants (remaining={remaining})"
+        );
+
+        // At least one former occupant ordered to attack residual.
+        let any_attacking = game_logic.objects.values().any(|o| {
+            o.team == Team::China
+                && o.is_kind_of(KindOf::Infantry)
+                && o.contained_by.is_none()
+                && (o.target == Some(enemy)
+                    || matches!(
+                        o.ai_state,
+                        AIState::Attacking | AIState::AttackMoving
+                    ))
+        });
+        assert!(
+            any_attacking,
+            "assault deploy residual must order infantry to attack designated target"
+        );
+    }
+
+    /// Residual: vehicles rejected from Troop Crawler (AllowInsideKindOf=INFANTRY).
+    #[test]
+    fn troop_crawler_residual_rejects_vehicle_enter() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+        let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+
+        // Free InitialPayload residual slots.
+        {
+            let occupants = game_logic
+                .find_object(crawler_id)
+                .map(|o| o.contained_units())
+                .unwrap_or_default();
+            if !occupants.is_empty() {
+                use crate::command_system::{CommandType, GameCommand};
+                game_logic.queue_command(GameCommand {
+                    command_type: CommandType::Evacuate,
+                    player_id: 1,
+                    command_id: 1,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![crawler_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                game_logic.process_commands();
+            }
+        }
+
+        let loads_before = game_logic.troop_crawler_residual_loads();
+        let tank_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+        {
+            let unit = game_logic.find_object_mut(tank_id).unwrap();
+            unit.target = Some(crawler_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[tank_id, crawler_id], 1.0 / 30.0);
+
+        let crawler = game_logic.find_object(crawler_id).expect("crawler");
+        assert!(
+            !crawler.contained_units().contains(&tank_id),
+            "vehicles must not enter Troop Crawler residual"
+        );
+        assert_eq!(
+            game_logic.troop_crawler_residual_loads(),
+            loads_before,
+            "vehicle enter must not count as troop crawler residual load"
+        );
+    }
+
+
     /// Residual: China Dragon Tank primary flame splash + BlackNapalm upgrade.
     #[test]
     fn dragon_tank_residual_flame_and_black_napalm() {

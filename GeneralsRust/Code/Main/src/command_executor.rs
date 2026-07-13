@@ -1289,17 +1289,19 @@ impl<'a> CommandExecutor<'a> {
 
             // Classify residual exit before mutating unit state.
             // Prefer AI state; fall back to container kind when only contained_by is set.
-            // Overlord BattleBunker / GLA Battle Bus / Combat Chinook residuals are
-            // vehicle-docked but tracked separately from generic Humvee transport residual.
+            // Overlord BattleBunker / GLA Battle Bus / Combat Chinook / Listening Outpost
+            // residuals are vehicle-docked but tracked separately from generic Humvee residual.
             let (
                 was_garrisoned,
                 was_overlord_bunker,
                 was_battle_bus,
                 was_technical,
                 was_combat_chinook,
+                was_listening_outpost,
+                was_troop_crawler,
                 was_transport,
             ) = if was_tunnel {
-                (false, false, false, false, false, false)
+                (false, false, false, false, false, false, false, false)
             } else if let Some(unit) = self.game_logic.get_object(unit_id) {
                 let garrisoned = matches!(unit.ai_state, AIState::Garrisoned);
                 let docked = matches!(unit.ai_state, AIState::Docked);
@@ -1317,42 +1319,56 @@ impl<'a> CommandExecutor<'a> {
                 let is_combat_chinook = container
                     .map(|c| c.is_combat_chinook_style_container())
                     .unwrap_or(false);
+                let is_listening_outpost = container
+                    .map(|c| c.is_listening_outpost_style_container())
+                    .unwrap_or(false);
+                let is_troop_crawler = container
+                    .map(|c| c.is_troop_crawler_style_container())
+                    .unwrap_or(false);
                 let is_structure = container
                     .map(|c| c.is_kind_of(KindOf::Structure))
                     .unwrap_or(false);
                 if garrisoned {
-                    (true, false, false, false, false, false)
+                    (true, false, false, false, false, false, false, false)
                 } else if docked {
                     if is_overlord {
-                        (false, true, false, false, false, false)
+                        (false, true, false, false, false, false, false, false)
                     } else if is_battle_bus {
-                        (false, false, true, false, false, false)
+                        (false, false, true, false, false, false, false, false)
                     } else if is_technical {
-                        (false, false, false, true, false, false)
+                        (false, false, false, true, false, false, false, false)
                     } else if is_combat_chinook {
-                        (false, false, false, false, true, false)
+                        (false, false, false, false, true, false, false, false)
+                    } else if is_listening_outpost {
+                        (false, false, false, false, false, true, false, false)
+                    } else if is_troop_crawler {
+                        (false, false, false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, false, true)
+                        (false, false, false, false, false, false, false, true)
                     }
                 } else if unit.contained_by.is_some() || container_id.is_some() {
                     if is_structure {
-                        (true, false, false, false, false, false)
+                        (true, false, false, false, false, false, false, false)
                     } else if is_overlord {
-                        (false, true, false, false, false, false)
+                        (false, true, false, false, false, false, false, false)
                     } else if is_battle_bus {
-                        (false, false, true, false, false, false)
+                        (false, false, true, false, false, false, false, false)
                     } else if is_technical {
-                        (false, false, false, true, false, false)
+                        (false, false, false, true, false, false, false, false)
                     } else if is_combat_chinook {
-                        (false, false, false, false, true, false)
+                        (false, false, false, false, true, false, false, false)
+                    } else if is_listening_outpost {
+                        (false, false, false, false, false, true, false, false)
+                    } else if is_troop_crawler {
+                        (false, false, false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, false, true)
+                        (false, false, false, false, false, false, false, true)
                     }
                 } else {
-                    (false, false, false, false, false, false)
+                    (false, false, false, false, false, false, false, false)
                 }
             } else {
-                (false, false, false, false, false, false)
+                (false, false, false, false, false, false, false, false)
             };
 
             if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
@@ -1375,6 +1391,10 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.record_technical_residual_unload();
                 } else if was_combat_chinook {
                     self.game_logic.record_combat_chinook_residual_unload();
+                } else if was_listening_outpost {
+                    self.game_logic.record_listening_outpost_residual_unload();
+                } else if was_troop_crawler {
+                    self.game_logic.record_troop_crawler_residual_unload();
                 } else if was_transport {
                     self.game_logic.record_transport_residual_unload();
                 }
@@ -1386,7 +1406,7 @@ impl<'a> CommandExecutor<'a> {
 
             // Refresh armed-riders weapon set after unload residual.
             if let Some(cid) = container_id {
-                if was_battle_bus || was_combat_chinook {
+                if was_battle_bus || was_combat_chinook || was_listening_outpost {
                     self.game_logic
                         .refresh_battle_bus_armed_riders_weapon_set(cid);
                 }
@@ -2846,7 +2866,9 @@ impl<'a> CommandExecutor<'a> {
         let infantry_only_container = target.is_kind_of(KindOf::Structure)
             || (target.is_overlord_style_container()
                 && target.overlord_bunker_slot_capacity() > 0)
-            || target.is_battle_bus_style_container();
+            || target.is_battle_bus_style_container()
+            || target.is_listening_outpost_style_container()
+            || target.is_troop_crawler_style_container();
         if infantry_only_container
             && !unit.is_kind_of(KindOf::Infantry)
             && !unit.is_hero()

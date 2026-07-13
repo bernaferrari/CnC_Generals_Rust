@@ -67,6 +67,8 @@ pub mod host_marauder;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
+pub mod host_listening_outpost;
+pub mod host_troop_crawler;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -313,6 +315,18 @@ pub use host_gattling_tank::{
     preferred_gattling_slot, GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES,
     GATTLING_GROUND_DAMAGE, GATTLING_GROUND_RANGE, GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
     UPGRADE_CHINA_CHAIN_GUNS,
+};
+pub use host_listening_outpost::{
+    is_listening_outpost_template, listening_outpost_detection_range,
+    listening_outpost_spawn_is_detector, HostListeningOutpostRegistry,
+    LISTENING_OUTPOST_DETECTION_RANGE, LISTENING_OUTPOST_TRANSPORT_SLOTS,
+};
+pub use host_troop_crawler::{
+    is_troop_crawler_template, resolve_payload_template_name, should_apply_troop_crawler_assault_deploy,
+    troop_crawler_assault_weapon, troop_crawler_detection_range, troop_crawler_spawn_is_detector,
+    HostTroopCrawlerRegistry, TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON,
+    TROOP_CRAWLER_DETECTION_RANGE, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
+    TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

@@ -1,3 +1,26 @@
+## Residual Host Playability — China Troop Crawler (2026-07-13)
+**Closed (host-testable China Troop Crawler transport + detector + assault deploy residual):**
+1. **Troop Crawler residual** (`ChinaVehicleTroopCrawler` / Tank_/Nuke_ variants):
+   - `TransportContain` Slots=**8**, AllowInsideKindOf=INFANTRY (no passenger fire-from-inside).
+   - `InitialPayload` residual: Redguard × **8** docked on spawn.
+   - `StealthDetectorUpdate` residual: DetectionRange unset → VisionRange = **175**.
+   - `AssaultTransportAIUpdate` + `TroopCrawlerAssault` DEPLOY residual:
+     fire in range unloads docked infantry and orders them to attack the designated target.
+   - Honesty: `honesty_troop_crawler_ok` / load_unload / assault_deploy / detect / initial_payload.
+2. Tests (not log-only):
+   - `troop_crawler_residual_capacity_detect_and_payload`
+   - `troop_crawler_residual_detect_stealth_in_range`
+   - `troop_crawler_residual_transport_load_unload`
+   - `troop_crawler_residual_assault_deploy_unloads_and_attacks`
+   - `troop_crawler_residual_rejects_vehicle_enter`
+   - module unit tests in `host_troop_crawler.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-exit-path ExitStart01-nn / ExitDelay 250ms stagger
+- Full HealthRegen%PerSec / DamagePercentToUnits / MembersGetHealedAtLifeRatio retrieve matrix
+- Full IR detector FX / IRParticleSys bones
+- Network transport / deploy replication (network deferred)
+
 ## Residual Host Playability — China Dragon Tank + Gattling Tank (2026-07-13)
 **Closed (host-testable China vehicle flame + continuous-fire ramp residual):**
 1. **Dragon Tank residual** (`ChinaTankDragon` / general variants):
@@ -22,7 +45,6 @@
 - Full flamethrower ProjectileStream / garrison-clear AllowAttackGarrisonedBldgs matrix
 - Full FiringTracker model-condition CONTINUOUS_FIRE_* animation / VoiceRapidFire full matrix
 - Listening Outpost residual (stealth detect + transport + armed-riders dummy)
-- Troop Crawler residual (TransportContain Slots=8 + InitialPayload Redguard + assault deploy)
 - Overlord/Helix gattling payload / building Gattling continuous-fire ramp (structure uses base-defense residual without full ramp)
 - Network flame / continuous-fire replication (network deferred)
 

@@ -36,6 +36,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const RANGER_PRIMARY_WEAPON: &str = "RangerAdvancedCombatRifle";
 pub const GLA_REBEL_PRIMARY_WEAPON: &str = "GLARebelMachineGun";
 pub const REDGUARD_PRIMARY_WEAPON: &str = "RedguardMachineGun";
+/// China Troop Crawler residual DEPLOY primary.
+pub const TROOP_CRAWLER_ASSAULT_WEAPON: &str = "TroopCrawlerAssault";
 pub const HUMVEE_PRIMARY_WEAPON: &str = "HumveeGun";
 
 /// Retail secondary weapon names used by host golden / skirmish unit templates.
@@ -178,6 +180,11 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "China_RedGuard" | "China_Soldier" | "ChinaInfantryRedguard" => {
             Some(REDGUARD_PRIMARY_WEAPON)
         }
+        "ChinaVehicleTroopCrawler"
+        | "China_TroopCrawler"
+        | "Tank_ChinaVehicleTroopCrawler"
+        | "Nuke_ChinaVehicleTroopCrawler"
+        | "TestTroopCrawler" => Some(TROOP_CRAWLER_ASSAULT_WEAPON),
         "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
             Some(HUMVEE_PRIMARY_WEAPON)
         }
