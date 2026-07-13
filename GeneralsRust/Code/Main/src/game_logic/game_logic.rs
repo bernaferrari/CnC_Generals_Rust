@@ -31397,10 +31397,16 @@ impl GameLogic {
 
     /// Tick residual Particle Uplink continuous beam fields after charge residual.
     /// Manual drive + WidthGrow grow/hold/decay + outer-node honesty residual closed.
+    /// Intensity schedule (CHARGING/PREPARING/ALMOST_READY/POSTFIRE/PACKING) +
+    /// BeamLaunchFX residual closed.
     /// Fail-closed vs full bone-extract lasers / GPU OuterBeamWidth matrix.
     /// Swath + DamagePulseRemnant residual closed.
     fn update_particle_beam_fields(&mut self) {
         let frame = self.frame;
+        // Pre-fire intensity schedule + BeamLaunchFX + POSTFIRE/PACKING residual
+        // (also advances ScudStorm PreAttack residual frame counter).
+        self.special_power_strikes
+            .advance_particle_intensity_schedule(frame);
         // Manual beam driving residual: advance current target toward override
         // before damage / scorch planning (retail update order).
         self.special_power_strikes

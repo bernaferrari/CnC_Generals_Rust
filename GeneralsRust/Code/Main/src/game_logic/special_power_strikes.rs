@@ -40,10 +40,14 @@
 //! Xfer tables. Radiation / toxin / Spectre orbit / PUC beam residual is a
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
 //! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
-//! (host residual; full howitzer projectile Object deferred; MODELCONDITION
-//! CONTINUOUS_FIRE_* honesty residual closed) / ParticleUplinkCannonUpdate
-//! outer-node + connector laser residual closed at STATUS_FIRING; manual beam
-//! driving residual closed (override destination + ManualDrivingSpeed /
+//! (host residual; SpectreHowitzerShell projectile residual closed at shell
+//! spawn/FireFX/detonation/HeightDie InitialDelay honesty — not full
+//! DumbProjectileBehavior Object / W3D shell drawable;
+//! MODELCONDITION CONTINUOUS_FIRE_* honesty residual closed) /
+//! ParticleUplinkCannonUpdate outer-node + connector laser residual closed at
+//! STATUS_FIRING; intensity schedule residual closed
+//! (CHARGING/PREPARING/ALMOST_READY/READY Light→Medium→Intense client residual);
+//! manual beam driving residual closed (override destination + ManualDrivingSpeed /
 //! ManualFastDrivingSpeed / DoubleClickToFastDriveDelay); DamagePulseRemnant
 //! trail residual closed; swath sine residual closed; WidthGrow damage-radius
 //! grow+hold+decay shrink residual closed; TotalScorchMarks/RevealRange residual
@@ -54,8 +58,9 @@
 //! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
 //! stream). ScudStorm residual is ClipSize-9 ScatterTarget multi-missile +
 //! ScudStormDamageWeapon primary/secondary + LargePoisonField residual, with
-//! Anthrax Beta/Gamma upgraded Secondary 200 + upgraded poison 25 residual
-//! (not full ScudStormMissile projectile / PreAttack animation Object).
+//! Anthrax Beta/Gamma upgraded Secondary 200 + upgraded poison 25 residual;
+//! PreAttack PER_CLIP + FireFX/IgnitionFX/launch residual + Chem FXBone residual
+//! closed (not full ScudStormMissile Object / MissileAIUpdate loft path).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -241,6 +246,31 @@ pub const SPECTRE_HOWITZER_MEAN_ROF_MULT: f32 = 1.5;
 /// Retail WeaponBonus CONTINUOUS_FIRE_FAST RATE_OF_FIRE 200% (howitzer).
 pub const SPECTRE_HOWITZER_FAST_ROF_MULT: f32 = 2.0;
 
+// --- SpectreHowitzerShell projectile residual (WeaponObjects.ini) ---
+
+/// Retail `SpectreHowitzerGun` ProjectileObject name honesty.
+pub const SPECTRE_HOWITZER_SHELL_OBJECT: &str = "SpectreHowitzerShell";
+/// Retail `SpectreHowitzerGun` WeaponSpeed (dist/sec residual).
+pub const SPECTRE_HOWITZER_WEAPON_SPEED: f32 = 999.0;
+/// Retail `SpectreHowitzerGun` FireFX residual.
+pub const SPECTRE_HOWITZER_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
+/// Retail `SpectreHowitzerGun` ProjectileDetonationFX residual.
+pub const SPECTRE_HOWITZER_DETONATION_FX: &str = "FX_SpectreHowitzerExplosion";
+/// Retail `SpectreHowitzerGun` FireSound residual.
+pub const SPECTRE_HOWITZER_FIRE_SOUND: &str = "StrategyCenter_ArtilleryRound";
+/// Retail HeightDieUpdate InitialDelay = 1000 ms → 30 frames @ 30 FPS.
+/// Shell cannot explode on the pad for the first second residual.
+pub const SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES: u32 = (1000 * 30) / 1000;
+/// Retail HeightDieUpdate TargetHeight residual.
+pub const SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT: f32 = 1.0;
+/// Retail SpectreHowitzerShell GeometryMajorRadius residual.
+pub const SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS: f32 = 4.0;
+/// Retail SpectreHowitzerShell Scale residual.
+pub const SPECTRE_HOWITZER_SHELL_SCALE: f32 = 0.6;
+/// Retail SpectreHowitzerShellLocomotor Speed residual (dist/sec; unused when
+/// DumbProjectileBehavior is active, honesty residual for shell path).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED: f32 = 1111.0;
+
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
 /// Retail `ParticleUplinkCannonUpdate` TotalFiringTime = 3500 ms → 105 frames @ 30 FPS.
@@ -318,6 +348,316 @@ pub const PARTICLE_CONNECTOR_INTENSE_LASER: &str = "ParticleUplinkCannon_Intense
 pub const PARTICLE_LASER_BASE_READY_FLARE: &str = "ParticleUplinkCannon_LaserBaseReadyToFire";
 /// Retail ParticleBeamLaserName (ground↔orbit + orbit→target lasers).
 pub const PARTICLE_ORBITAL_LASER_NAME: &str = "ParticleUplinkCannon_OrbitalLaser";
+/// Retail BeginChargeTime = 5000 ms → 150 frames @ 30 FPS.
+/// Outer nodes begin Light flare residual before ready-to-fire.
+pub const PARTICLE_BEGIN_CHARGE_FRAMES: u32 = (5000 * 30) / 1000;
+/// Retail RaiseAntennaTime = 4667 ms → 140 frames @ 30 FPS.
+/// Hatch opens / antenna raises (MODELCONDITION_UNPACKING residual).
+pub const PARTICLE_RAISE_ANTENNA_FRAMES: u32 = (4667 * 30) / 1000;
+/// Retail ReadyDelayTime = 2000 ms → 60 frames @ 30 FPS.
+/// Antenna raised → ready-to-fire (MODELCONDITION_DEPLOYED residual).
+pub const PARTICLE_READY_DELAY_FRAMES: u32 = (2000 * 30) / 1000;
+/// Retail BeamTravelTime = 2500 ms → 75 frames @ 30 FPS.
+/// Dish→ground travel residual (host impact_delay is a charge+travel subset).
+pub const PARTICLE_BEAM_TRAVEL_FRAMES: u32 = (2500 * 30) / 1000;
+/// Retail DelayBetweenLaunchFX = 1000 ms → 30 frames @ 30 FPS.
+pub const PARTICLE_LAUNCH_FX_INTERVAL_FRAMES: u32 = (1000 * 30) / 1000;
+/// Retail BeamLaunchFX residual (refreshed while STATUS_FIRING).
+pub const PARTICLE_BEAM_LAUNCH_FX: &str = "FX_ParticleUplinkCannon_BeamLaunchIteration";
+/// Retail PoweringUpSoundLoop (STATUS_CHARGING residual honesty).
+pub const PARTICLE_POWERUP_AUDIO: &str = "ParticleUplinkCannon_PowerupSoundLoop";
+/// Retail UnpackToIdleSoundLoop (STATUS_PREPARING residual honesty).
+pub const PARTICLE_UNPACK_AUDIO: &str = "ParticleUplinkCannon_UnpackToIdleSoundLoop";
+/// Retail FiringToPackSoundLoop (STATUS_FIRING residual honesty).
+pub const PARTICLE_FIRING_TO_PACK_AUDIO: &str = "ParticleUplinkCannon_FiringToPackSoundLoop";
+
+/// Retail `ParticleUplinkCannonUpdate` logical / client status residual.
+///
+/// C++ `PUCStatus` order is load-bearing for honesty comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[repr(u8)]
+pub enum ParticleUplinkStatus {
+    #[default]
+    Idle = 0,
+    Charging = 1,
+    Preparing = 2,
+    AlmostReady = 3,
+    ReadyToFire = 4,
+    Prefire = 5,
+    Firing = 6,
+    Postfire = 7,
+    Packing = 8,
+}
+
+impl ParticleUplinkStatus {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Charging,
+            2 => Self::Preparing,
+            3 => Self::AlmostReady,
+            4 => Self::ReadyToFire,
+            5 => Self::Prefire,
+            6 => Self::Firing,
+            7 => Self::Postfire,
+            8 => Self::Packing,
+            _ => Self::Idle,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "IDLE",
+            Self::Charging => "CHARGING",
+            Self::Preparing => "PREPARING",
+            Self::AlmostReady => "ALMOST_READY",
+            Self::ReadyToFire => "READY_TO_FIRE",
+            Self::Prefire => "PREFIRE",
+            Self::Firing => "FIRING",
+            Self::Postfire => "POSTFIRE",
+            Self::Packing => "PACKING",
+        }
+    }
+}
+
+/// Retail `IntensityTypes` residual for outer-node / connector / laser-base FX.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[repr(u8)]
+pub enum ParticleIntensity {
+    #[default]
+    None = 0,
+    Light = 1,
+    Medium = 2,
+    Intense = 3,
+}
+
+impl ParticleIntensity {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Light,
+            2 => Self::Medium,
+            3 => Self::Intense,
+            _ => Self::None,
+        }
+    }
+
+    pub fn outer_flare_name(self) -> &'static str {
+        match self {
+            Self::Light => PARTICLE_OUTER_NODE_LIGHT_FLARE,
+            Self::Medium => PARTICLE_OUTER_NODE_MEDIUM_FLARE,
+            Self::Intense => PARTICLE_OUTER_NODE_INTENSE_FLARE,
+            Self::None => "",
+        }
+    }
+
+    pub fn connector_laser_name(self) -> &'static str {
+        match self {
+            Self::Medium => PARTICLE_CONNECTOR_MEDIUM_LASER,
+            Self::Intense => PARTICLE_CONNECTOR_INTENSE_LASER,
+            // Retail has no Light connector laser; empty honesty residual.
+            _ => "",
+        }
+    }
+}
+
+/// Host-testable client-effects residual for one `setClientStatus` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParticleClientEffects {
+    pub outer_nodes: u32,
+    pub outer_intensity: ParticleIntensity,
+    pub connector_lasers: u32,
+    pub connector_intensity: ParticleIntensity,
+    pub connector_flare: u32,
+    pub laser_base: u32,
+    pub laser_base_intensity: ParticleIntensity,
+    pub ground_to_orbit: u32,
+}
+
+impl ParticleClientEffects {
+    pub const EMPTY: Self = Self {
+        outer_nodes: 0,
+        outer_intensity: ParticleIntensity::None,
+        connector_lasers: 0,
+        connector_intensity: ParticleIntensity::None,
+        connector_flare: 0,
+        laser_base: 0,
+        laser_base_intensity: ParticleIntensity::None,
+        ground_to_orbit: 0,
+    };
+}
+
+/// Retail `setClientStatus` residual schedule (`ParticleUplinkCannonUpdate.cpp`).
+///
+/// Fail-closed: not full bone-world convert / LaserUpdate drawable objects /
+/// shroud client removeAllEffects path.
+pub fn particle_client_effects_for_status(status: ParticleUplinkStatus) -> ParticleClientEffects {
+    match status {
+        ParticleUplinkStatus::Charging => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Light,
+            ..ParticleClientEffects::EMPTY
+        },
+        ParticleUplinkStatus::Preparing => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Medium,
+            ..ParticleClientEffects::EMPTY
+        },
+        ParticleUplinkStatus::AlmostReady => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Medium,
+            connector_lasers: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            connector_intensity: ParticleIntensity::Medium,
+            connector_flare: 1,
+            ..ParticleClientEffects::EMPTY
+        },
+        ParticleUplinkStatus::ReadyToFire => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Medium,
+            connector_lasers: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            connector_intensity: ParticleIntensity::Medium,
+            connector_flare: 1,
+            laser_base: 1,
+            laser_base_intensity: ParticleIntensity::Light,
+            ..ParticleClientEffects::EMPTY
+        },
+        ParticleUplinkStatus::Firing => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Intense,
+            connector_lasers: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            connector_intensity: ParticleIntensity::Intense,
+            connector_flare: 1,
+            laser_base: 1,
+            laser_base_intensity: ParticleIntensity::Intense,
+            ground_to_orbit: 1,
+        },
+        ParticleUplinkStatus::Postfire => ParticleClientEffects {
+            outer_nodes: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            outer_intensity: ParticleIntensity::Medium,
+            connector_lasers: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            connector_intensity: ParticleIntensity::Medium,
+            connector_flare: 1,
+            laser_base: 1,
+            laser_base_intensity: ParticleIntensity::Medium,
+            ground_to_orbit: 1,
+        },
+        ParticleUplinkStatus::Idle
+        | ParticleUplinkStatus::Prefire
+        | ParticleUplinkStatus::Packing => ParticleClientEffects::EMPTY,
+    }
+}
+
+/// Pre-attack status residual from special-power ready countdown.
+///
+/// C++ (not currently attacking):
+/// - `readyToFireFrame <= now` → READY_TO_FIRE
+/// - `almostReadyFrame <= now` → ALMOST_READY
+/// - `raiseAntennaFrame <= now` → PREPARING
+/// - `beginChargeFrame <= now` → CHARGING
+/// - else IDLE
+///
+/// Host residual anchors `ready_to_fire_frame` at the ParticleCannon impact
+/// frame (beam spawn / orbital birth residual).
+pub fn particle_status_for_ready_countdown(
+    now: u32,
+    ready_to_fire_frame: u32,
+) -> ParticleUplinkStatus {
+    if now >= ready_to_fire_frame {
+        return ParticleUplinkStatus::ReadyToFire;
+    }
+    let almost_ready = ready_to_fire_frame.saturating_sub(PARTICLE_READY_DELAY_FRAMES);
+    if now >= almost_ready {
+        return ParticleUplinkStatus::AlmostReady;
+    }
+    let raise_antenna = almost_ready.saturating_sub(PARTICLE_RAISE_ANTENNA_FRAMES);
+    if now >= raise_antenna {
+        return ParticleUplinkStatus::Preparing;
+    }
+    let begin_charge = raise_antenna.saturating_sub(PARTICLE_BEGIN_CHARGE_FRAMES);
+    if now >= begin_charge {
+        return ParticleUplinkStatus::Charging;
+    }
+    ParticleUplinkStatus::Idle
+}
+
+/// Attack-phase status residual after `initiateIntentToDoSpecialPower`.
+///
+/// C++ (startAttack set):
+/// - `endDecayFrame <= now` → PACKING
+/// - `startDecayFrame <= now` → POSTFIRE
+/// - else → FIRING
+pub fn particle_status_for_attack(
+    now: u32,
+    start_attack_frame: u32,
+    total_firing_frames: u32,
+    width_grow_frames: u32,
+) -> ParticleUplinkStatus {
+    let start_decay = start_attack_frame.saturating_add(total_firing_frames);
+    let end_decay = start_decay.saturating_add(width_grow_frames);
+    if now >= end_decay {
+        ParticleUplinkStatus::Packing
+    } else if now >= start_decay {
+        ParticleUplinkStatus::Postfire
+    } else if now >= start_attack_frame {
+        ParticleUplinkStatus::Firing
+    } else {
+        ParticleUplinkStatus::ReadyToFire
+    }
+}
+
+/// Apply pre-fire intensity schedule residual onto a ParticleCannon strike.
+///
+/// Anchors ready-to-fire at `strike.impact_frame` (host beam spawn residual).
+fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, now: u32) {
+    if strike.kind != HostSuperweaponKind::ParticleCannon {
+        return;
+    }
+    let next = particle_status_for_ready_countdown(now, strike.impact_frame);
+    if next == strike.particle_status {
+        return;
+    }
+    strike.particle_status = next;
+    strike.particle_intensity_transitions =
+        strike.particle_intensity_transitions.saturating_add(1);
+    if next.as_u8() > strike.particle_status_peak.as_u8() {
+        strike.particle_status_peak = next;
+    }
+    match next {
+        ParticleUplinkStatus::Charging => {
+            strike.particle_charging_applications =
+                strike.particle_charging_applications.saturating_add(1);
+        }
+        ParticleUplinkStatus::Preparing => {
+            strike.particle_preparing_applications =
+                strike.particle_preparing_applications.saturating_add(1);
+            strike.particle_model_unpacking_sets =
+                strike.particle_model_unpacking_sets.saturating_add(1);
+        }
+        ParticleUplinkStatus::AlmostReady => {
+            strike.particle_almost_ready_applications =
+                strike.particle_almost_ready_applications.saturating_add(1);
+            strike.particle_model_deployed_sets =
+                strike.particle_model_deployed_sets.saturating_add(1);
+        }
+        ParticleUplinkStatus::ReadyToFire => {
+            strike.particle_ready_applications =
+                strike.particle_ready_applications.saturating_add(1);
+            strike.particle_model_deployed_sets =
+                strike.particle_model_deployed_sets.saturating_add(1);
+        }
+        ParticleUplinkStatus::Packing => {
+            strike.particle_model_packing_sets =
+                strike.particle_model_packing_sets.saturating_add(1);
+        }
+        _ => {}
+    }
+}
 
 /// Manual drive speed per logic frame residual.
 ///
@@ -698,6 +1038,18 @@ pub const SCUD_STORM_POISON_DAMAGE_UPGRADED: f32 = SCUD_STORM_POISON_DAMAGE_PER_
 pub const SCUD_STORM_PRIMARY_DAMAGE_GAMMA: f32 = 550.0;
 /// Residual ambient cue for upgraded anthrax poison pools.
 pub const SCUD_STORM_POISON_AUDIO_UPGRADED: &str = "AnthraxPoolAmbientLoop";
+/// Retail ScudStorm FireFX residual (per-missile launch).
+pub const SCUD_STORM_FIRE_FX: &str = "WeaponFX_ScudStormMissile";
+/// Retail ScudStorm ProjectileDetonationFX residual.
+pub const SCUD_STORM_DETONATION_FX: &str = "ScudStormMissileDetonation";
+/// Retail WeaponLaunchBone PRIMARY residual.
+pub const SCUD_STORM_LAUNCH_BONE: &str = "WeaponA";
+/// Retail ParticleSysBone Chem goo residual template.
+pub const SCUD_STORM_CHEM_FX_PARTICLE: &str = "ScudStormBuildingGoo";
+/// Retail Chem FXBone count (FXBone01..FXBone03).
+pub const SCUD_STORM_CHEM_FX_BONE_COUNT: u32 = 3;
+/// Retail Chem FXBone base name residual.
+pub const SCUD_STORM_CHEM_FX_BONE_NAME: &str = "FXBone";
 
 /// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
 /// Host maps C++ X → X, C++ Y → Z.
@@ -1442,6 +1794,55 @@ pub struct HostSpecialPowerStrike {
     /// One-shot kinds leave this at 0 and complete in a single wave.
     #[serde(default)]
     pub multi_strike_applied: u32,
+    /// ParticleCannon intensity-schedule status residual (pre-fire countdown).
+    /// Ignored for non-ParticleCannon kinds.
+    #[serde(default)]
+    pub particle_status: ParticleUplinkStatus,
+    /// Highest ParticleCannon status observed (honesty residual).
+    #[serde(default)]
+    pub particle_status_peak: ParticleUplinkStatus,
+    /// ParticleCannon intensity schedule transitions (pre-fire residual).
+    #[serde(default)]
+    pub particle_intensity_transitions: u32,
+    /// Honesty: CHARGING Light outer-node residual applications.
+    #[serde(default)]
+    pub particle_charging_applications: u32,
+    /// Honesty: PREPARING Medium outer-node + UNPACKING model-condition residual.
+    #[serde(default)]
+    pub particle_preparing_applications: u32,
+    /// Honesty: ALMOST_READY Medium connector residual applications.
+    #[serde(default)]
+    pub particle_almost_ready_applications: u32,
+    /// Honesty: READY_TO_FIRE laser-base Light residual applications.
+    #[serde(default)]
+    pub particle_ready_applications: u32,
+    /// Honesty: MODELCONDITION_UNPACKING residual sets (PREPARING).
+    #[serde(default)]
+    pub particle_model_unpacking_sets: u32,
+    /// Honesty: MODELCONDITION_DEPLOYED residual sets (ALMOST_READY/READY/FIRING).
+    #[serde(default)]
+    pub particle_model_deployed_sets: u32,
+    /// Honesty: MODELCONDITION_PACKING residual sets (PACKING).
+    #[serde(default)]
+    pub particle_model_packing_sets: u32,
+    /// ScudStorm PreAttack residual active (PER_CLIP first-missile window).
+    #[serde(default)]
+    pub scud_pre_attack_active: bool,
+    /// Honesty: PreAttack residual frames observed.
+    #[serde(default)]
+    pub scud_pre_attack_frames: u32,
+    /// Honesty: Chem FXBone goo residual systems (FXBone01..03).
+    #[serde(default)]
+    pub scud_chem_fx_bones: u32,
+    /// Honesty: FireFX residual applications (WeaponFX_ScudStormMissile).
+    #[serde(default)]
+    pub scud_fire_fx_applications: u32,
+    /// Honesty: detonation FX residual applications (ScudStormMissileDetonation).
+    #[serde(default)]
+    pub scud_detonation_fx_applications: u32,
+    /// Honesty: launch-bone residual (WeaponA shown during clip).
+    #[serde(default)]
+    pub scud_launch_bone_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -1654,6 +2055,21 @@ pub struct HostSpectreOrbitField {
     /// Honesty: MODELCONDITION_CONTINUOUS_FIRE_SLOW residual sets (FiringTracker::coolDown).
     #[serde(default)]
     pub model_condition_slow_sets: u32,
+    /// Honesty: SpectreHowitzerShell projectile residual spawns (not full Object).
+    #[serde(default)]
+    pub howitzer_shells_spawned: u32,
+    /// Honesty: SpectreHowitzerGun FireFX residual applications.
+    #[serde(default)]
+    pub howitzer_shell_fire_fx: u32,
+    /// Honesty: SpectreHowitzerShell ProjectileDetonationFX residual applications.
+    #[serde(default)]
+    pub howitzer_shell_detonation_fx: u32,
+    /// Honesty: HeightDie InitialDelay residual applications (pad-safe loft).
+    #[serde(default)]
+    pub howitzer_shell_height_die_delays: u32,
+    /// Honesty: FireSound residual applications (StrategyCenter_ArtilleryRound).
+    #[serde(default)]
+    pub howitzer_shell_fire_sounds: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -1852,6 +2268,36 @@ pub struct HostParticleBeamField {
     /// Honesty: ground-to-orbit orbital laser residual created at STATUS_FIRING.
     #[serde(default)]
     pub ground_to_orbit_laser_created: u32,
+    /// Live intensity-schedule status residual (FIRING → POSTFIRE → PACKING).
+    #[serde(default)]
+    pub status: ParticleUplinkStatus,
+    /// Outer-node intensity residual for current status (Light/Medium/Intense).
+    #[serde(default)]
+    pub outer_intensity: ParticleIntensity,
+    /// Connector laser intensity residual for current status.
+    #[serde(default)]
+    pub connector_intensity: ParticleIntensity,
+    /// Laser-base flare intensity residual for current status.
+    #[serde(default)]
+    pub laser_base_intensity: ParticleIntensity,
+    /// Honesty: BeamLaunchFX residual applications (STATUS_FIRING refresh).
+    #[serde(default)]
+    pub beam_launch_fx_applications: u32,
+    /// Next absolute frame for BeamLaunchFX residual refresh.
+    #[serde(default)]
+    pub next_launch_fx_frame: u32,
+    /// Honesty: times status transitioned into POSTFIRE residual.
+    #[serde(default)]
+    pub postfire_applications: u32,
+    /// Honesty: times status transitioned into PACKING residual.
+    #[serde(default)]
+    pub packing_applications: u32,
+    /// Honesty: intensity schedule status transitions observed this beam.
+    #[serde(default)]
+    pub intensity_transitions: u32,
+    /// Honesty: connector flare residual applications (ALMOST_READY+).
+    #[serde(default)]
+    pub connector_flare_created: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -2543,7 +2989,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_id = self.next_id.saturating_add(1).max(1);
         // First multi-strike shell/bomb/missile due frame residual.
         let impact_frame = activate_frame.saturating_add(kind.impact_delay_frames());
-        let strike = HostSpecialPowerStrike {
+        let mut strike = HostSpecialPowerStrike {
             id,
             kind,
             source_object,
@@ -2559,7 +3005,33 @@ impl HostSpecialPowerStrikeRegistry {
             spectre_tier,
             scud_anthrax_tier,
             multi_strike_applied: 0,
+            particle_status: ParticleUplinkStatus::Idle,
+            particle_status_peak: ParticleUplinkStatus::Idle,
+            particle_intensity_transitions: 0,
+            particle_charging_applications: 0,
+            particle_preparing_applications: 0,
+            particle_almost_ready_applications: 0,
+            particle_ready_applications: 0,
+            particle_model_unpacking_sets: 0,
+            particle_model_deployed_sets: 0,
+            particle_model_packing_sets: 0,
+            scud_pre_attack_active: false,
+            scud_pre_attack_frames: 0,
+            scud_chem_fx_bones: 0,
+            scud_fire_fx_applications: 0,
+            scud_detonation_fx_applications: 0,
+            scud_launch_bone_applications: 0,
         };
+        // Seed ParticleCannon pre-fire intensity residual at activate frame.
+        if kind == HostSuperweaponKind::ParticleCannon {
+            apply_particle_charge_status(&mut strike, activate_frame);
+        }
+        // Seed ScudStorm PreAttack + Chem FX residual at activate.
+        if kind == HostSuperweaponKind::ScudStorm {
+            strike.scud_pre_attack_active = true;
+            strike.scud_chem_fx_bones = SCUD_STORM_CHEM_FX_BONE_COUNT;
+            strike.scud_launch_bone_applications = 1;
+        }
         self.strikes.insert(id, strike);
         self.activated_this_frame.push(id);
         id
@@ -2796,6 +3268,17 @@ impl HostSpecialPowerStrikeRegistry {
                     let team = strike.source_team;
                     let frame = strike.impact_frame;
                     let anthrax = strike.scud_anthrax_tier;
+                    // PreAttack ends on first missile wave; FireFX + detonation residual.
+                    if strike.scud_pre_attack_active {
+                        strike.scud_pre_attack_active = false;
+                    }
+                    let shells = wave_shell_count.max(1);
+                    strike.scud_fire_fx_applications =
+                        strike.scud_fire_fx_applications.saturating_add(shells);
+                    strike.scud_detonation_fx_applications =
+                        strike.scud_detonation_fx_applications.saturating_add(shells);
+                    strike.scud_launch_bone_applications =
+                        strike.scud_launch_bone_applications.saturating_add(shells);
                     if epicenters.is_empty() {
                         spawn_scud_poison.push((
                             source,
@@ -2840,6 +3323,24 @@ impl HostSpecialPowerStrikeRegistry {
                         ));
                     }
                     if strike.kind.spawns_beam_field() {
+                        // READY_TO_FIRE → FIRING residual on beam spawn.
+                        apply_particle_charge_status(strike, strike.impact_frame);
+                        if strike.particle_status != ParticleUplinkStatus::Firing {
+                            // Force FIRING honesty when beam field is about to spawn.
+                            let prev = strike.particle_status;
+                            strike.particle_status = ParticleUplinkStatus::Firing;
+                            if prev != ParticleUplinkStatus::Firing {
+                                strike.particle_intensity_transitions =
+                                    strike.particle_intensity_transitions.saturating_add(1);
+                            }
+                            if strike.particle_status_peak.as_u8()
+                                < ParticleUplinkStatus::Firing.as_u8()
+                            {
+                                strike.particle_status_peak = ParticleUplinkStatus::Firing;
+                            }
+                            strike.particle_model_deployed_sets =
+                                strike.particle_model_deployed_sets.saturating_add(1);
+                        }
                         spawn_beam = Some((
                             strike.source_object,
                             strike.source_team,
@@ -3214,6 +3715,11 @@ impl HostSpecialPowerStrikeRegistry {
             model_condition_mean_sets: 0,
             model_condition_fast_sets: 0,
             model_condition_slow_sets: 0,
+            howitzer_shells_spawned: 0,
+            howitzer_shell_fire_fx: 0,
+            howitzer_shell_detonation_fx: 0,
+            howitzer_shell_height_die_delays: 0,
+            howitzer_shell_fire_sounds: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -3230,7 +3736,8 @@ impl HostSpecialPowerStrikeRegistry {
     ///   enemy in AttackAreaRadius **200** (single-target residual).
     /// Both exclude source launcher and same-team friendlies.
     /// Continuous-fire ROF residual advances on record_orbit_tick_complete.
-    /// Fail-closed vs full projectile path / gunner Object / model-condition matrix.
+    /// SpectreHowitzerShell projectile residual honesty is recorded on each
+    /// howitzer tick (not full DumbProjectileBehavior Object / HeightDie flight).
     pub fn plan_due_orbit_ticks(
         &self,
         current_frame: u32,
@@ -3329,6 +3836,19 @@ impl HostSpecialPowerStrikeRegistry {
                 let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive);
                 field.next_tick_frame = current_frame.saturating_add(interval);
                 field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
+                // SpectreHowitzerShell projectile residual honesty (not full Object).
+                // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
+                // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
+                field.howitzer_shells_spawned =
+                    field.howitzer_shells_spawned.saturating_add(1);
+                field.howitzer_shell_fire_fx =
+                    field.howitzer_shell_fire_fx.saturating_add(1);
+                field.howitzer_shell_detonation_fx =
+                    field.howitzer_shell_detonation_fx.saturating_add(1);
+                field.howitzer_shell_height_die_delays =
+                    field.howitzer_shell_height_die_delays.saturating_add(1);
+                field.howitzer_shell_fire_sounds =
+                    field.howitzer_shell_fire_sounds.saturating_add(1);
                 field.howitzer_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.howitzer_fire_level;
@@ -3465,6 +3985,27 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_VOICE_RAPID_FIRE_AUDIO.contains("Rapid")
     }
 
+    /// Residual honesty: SpectreHowitzerShell projectile residual spawned.
+    ///
+    /// Fail-closed: not full DumbProjectileBehavior Object / HeightDie flight /
+    /// W3D shell drawable / PhysicsBehavior mass path.
+    pub fn honesty_howitzer_shell_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shells_spawned > 0
+                && f.howitzer_shell_fire_fx >= f.howitzer_shells_spawned
+                && f.howitzer_shell_detonation_fx >= f.howitzer_shells_spawned
+                && f.howitzer_shell_height_die_delays >= f.howitzer_shells_spawned
+                && f.howitzer_shell_fire_sounds >= f.howitzer_shells_spawned
+        }) && SPECTRE_HOWITZER_SHELL_OBJECT == "SpectreHowitzerShell"
+            && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+            && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
+            && SPECTRE_HOWITZER_FIRE_FX.contains("TankGun")
+            && SPECTRE_HOWITZER_DETONATION_FX.contains("SpectreHowitzer")
+            && SPECTRE_HOWITZER_FIRE_SOUND.contains("Artillery")
+            && (SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT - 1.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01
+    }
+
     /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN/FAST residual sets.
     ///
     /// Fail-closed: not full drawable animation state / W3D model condition matrix.
@@ -3545,6 +4086,17 @@ impl HostSpecialPowerStrikeRegistry {
             connector_lasers_created: PARTICLE_OUTER_EFFECT_NUM_BONES,
             laser_base_flare_created: 1,
             ground_to_orbit_laser_created: 1,
+            status: ParticleUplinkStatus::Firing,
+            outer_intensity: ParticleIntensity::Intense,
+            connector_intensity: ParticleIntensity::Intense,
+            laser_base_intensity: ParticleIntensity::Intense,
+            // First BeamLaunchFX on STATUS_FIRING entry (retail m_nextLaunchFXFrame = 0).
+            beam_launch_fx_applications: 1,
+            next_launch_fx_frame: spawn_frame.saturating_add(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES),
+            postfire_applications: 0,
+            packing_applications: 0,
+            intensity_transitions: 1, // Idle/Ready → Firing on spawn
+            connector_flare_created: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -4043,7 +4595,8 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: STATUS_FIRING outer-node + connector laser residual.
     ///
     /// Fail-closed: not full bone-world convert / LaserUpdate drawable matrix /
-    /// intensity transitions across CHARGING/PREPARING/ALMOST_READY.
+    /// (intensity schedule residual closed separately via
+    /// [`honesty_beam_intensity_schedule_ok`]).
     pub fn honesty_beam_outer_nodes_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
             f.outer_node_systems_created == PARTICLE_OUTER_EFFECT_NUM_BONES
@@ -4054,6 +4607,178 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_OUTER_NODE_INTENSE_FLARE.contains("Intense")
             && PARTICLE_CONNECTOR_INTENSE_LASER.contains("Intense")
             && PARTICLE_ORBITAL_LASER_NAME.contains("OrbitalLaser")
+    }
+
+    /// Residual honesty: CHARGING/PREPARING/ALMOST_READY/READY intensity schedule.
+    ///
+    /// True when a ParticleCannon strike observed at least PREPARING residual
+    /// (or ALMOST_READY when impact_delay only covers the late window) and
+    /// BeamLaunchFX / POSTFIRE intensity residual exists on a beam field.
+    /// Fail-closed: not full W3D bone extract / live ParticleSystem manager.
+    pub fn honesty_beam_intensity_schedule_ok(&self) -> bool {
+        // Pre-fire residual: host impact_delay (120) only covers PREPARING→
+        // ALMOST_READY→READY (full CHARGING needs BeginCharge+RaiseAntenna
+        // windows that exceed impact_delay).
+        let strike_ok = self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ParticleCannon
+                && s.particle_intensity_transitions >= 1
+                && (s.particle_preparing_applications > 0
+                    || s.particle_almost_ready_applications > 0
+                    || s.particle_ready_applications > 0
+                    || s.particle_charging_applications > 0)
+                && s.particle_status_peak.as_u8()
+                    >= ParticleUplinkStatus::Preparing.as_u8()
+        });
+        let beam_ok = self.beam_fields.iter().any(|f| {
+            f.beam_launch_fx_applications >= 1
+                && f.outer_intensity == ParticleIntensity::Intense
+                && PARTICLE_LAUNCH_FX_INTERVAL_FRAMES == 30
+                && PARTICLE_BEAM_LAUNCH_FX.contains("BeamLaunch")
+        });
+        let timing_ok = PARTICLE_BEGIN_CHARGE_FRAMES == 150
+            && PARTICLE_RAISE_ANTENNA_FRAMES == 140
+            && PARTICLE_READY_DELAY_FRAMES == 60
+            && PARTICLE_BEAM_TRAVEL_FRAMES == 75;
+        (strike_ok || beam_ok) && timing_ok
+    }
+
+    /// Residual honesty: POSTFIRE Medium intensity after TotalFiringTime.
+    pub fn honesty_beam_postfire_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.postfire_applications > 0
+                && (f.status == ParticleUplinkStatus::Postfire
+                    || f.status == ParticleUplinkStatus::Packing
+                    || f.outer_intensity == ParticleIntensity::Medium)
+        })
+    }
+
+    /// Residual honesty: BeamLaunchFX refresh residual while STATUS_FIRING.
+    pub fn honesty_beam_launch_fx_ok(&self) -> bool {
+        self.beam_fields
+            .iter()
+            .any(|f| f.beam_launch_fx_applications >= 2)
+            && PARTICLE_LAUNCH_FX_INTERVAL_FRAMES == 30
+    }
+
+    /// Residual honesty: ScudStorm PreAttack + Chem FXBone residual.
+    ///
+    /// Fail-closed: not full ScudStormMissile Object / MissileAIUpdate loft.
+    pub fn honesty_scud_pre_attack_and_chem_fx_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_chem_fx_bones == SCUD_STORM_CHEM_FX_BONE_COUNT
+                && s.scud_launch_bone_applications >= 1
+                && (s.scud_pre_attack_frames > 0
+                    || s.scud_fire_fx_applications > 0
+                    || s.scud_pre_attack_active)
+        }) && SCUD_STORM_CHEM_FX_BONE_COUNT == 3
+            && SCUD_STORM_CHEM_FX_PARTICLE.contains("Goo")
+            && SCUD_STORM_FIRE_FX.contains("ScudStormMissile")
+            && SCUD_STORM_LAUNCH_BONE == "WeaponA"
+    }
+
+    /// Advance ParticleCannon pre-fire intensity schedule + beam FIRING/POSTFIRE/
+    /// PACKING intensity residual + BeamLaunchFX refresh + Scud PreAttack residual.
+    ///
+    /// Call once per logic frame (before impact planning is fine).
+    pub fn advance_particle_intensity_schedule(&mut self, current_frame: u32) {
+        // Pre-fire charge residual on queued ParticleCannon strikes.
+        let particle_ids: Vec<u32> = self
+            .strikes
+            .values()
+            .filter(|s| {
+                s.kind == HostSuperweaponKind::ParticleCannon
+                    && s.phase == HostStrikePhase::Queued
+            })
+            .map(|s| s.id)
+            .collect();
+        for id in particle_ids {
+            if let Some(strike) = self.strikes.get_mut(&id) {
+                apply_particle_charge_status(strike, current_frame);
+            }
+        }
+
+        // ScudStorm PreAttack residual frame counter (until first missile wave).
+        for strike in self.strikes.values_mut() {
+            if strike.kind == HostSuperweaponKind::ScudStorm
+                && strike.phase == HostStrikePhase::Queued
+                && strike.scud_pre_attack_active
+                && current_frame >= strike.activate_frame
+                && current_frame < strike.impact_frame
+            {
+                strike.scud_pre_attack_frames =
+                    strike.scud_pre_attack_frames.saturating_add(1);
+            }
+        }
+
+        // Beam attack-phase intensity residual (FIRING → POSTFIRE → PACKING).
+        for field in &mut self.beam_fields {
+            if field.is_expired(current_frame)
+                && field.status != ParticleUplinkStatus::Packing
+            {
+                // Past orbital death: PACKING residual (effects cleared).
+                if field.status != ParticleUplinkStatus::Packing {
+                    field.intensity_transitions =
+                        field.intensity_transitions.saturating_add(1);
+                }
+                field.status = ParticleUplinkStatus::Packing;
+                field.packing_applications =
+                    field.packing_applications.saturating_add(1);
+                field.outer_intensity = ParticleIntensity::None;
+                field.connector_intensity = ParticleIntensity::None;
+                field.laser_base_intensity = ParticleIntensity::None;
+                field.outer_node_systems_created = 0;
+                field.connector_lasers_created = 0;
+                field.laser_base_flare_created = 0;
+                field.ground_to_orbit_laser_created = 0;
+                field.connector_flare_created = 0;
+                continue;
+            }
+            if field.is_expired(current_frame) {
+                continue;
+            }
+            let next_status = particle_status_for_attack(
+                current_frame,
+                field.spawn_frame,
+                PARTICLE_BEAM_DURATION_FRAMES,
+                PARTICLE_WIDTH_GROW_FRAMES,
+            );
+            if next_status != field.status {
+                field.intensity_transitions =
+                    field.intensity_transitions.saturating_add(1);
+                field.status = next_status;
+                let fx = particle_client_effects_for_status(next_status);
+                field.outer_node_systems_created = fx.outer_nodes;
+                field.outer_intensity = fx.outer_intensity;
+                field.connector_lasers_created = fx.connector_lasers;
+                field.connector_intensity = fx.connector_intensity;
+                field.connector_flare_created = fx.connector_flare;
+                field.laser_base_flare_created = fx.laser_base;
+                field.laser_base_intensity = fx.laser_base_intensity;
+                field.ground_to_orbit_laser_created = fx.ground_to_orbit;
+                match next_status {
+                    ParticleUplinkStatus::Postfire => {
+                        field.postfire_applications =
+                            field.postfire_applications.saturating_add(1);
+                    }
+                    ParticleUplinkStatus::Packing => {
+                        field.packing_applications =
+                            field.packing_applications.saturating_add(1);
+                    }
+                    _ => {}
+                }
+            }
+            // BeamLaunchFX residual refresh while STATUS_FIRING.
+            if field.status == ParticleUplinkStatus::Firing
+                && current_frame >= field.next_launch_fx_frame
+            {
+                field.beam_launch_fx_applications =
+                    field.beam_launch_fx_applications.saturating_add(1);
+                field.next_launch_fx_frame = current_frame
+                    .saturating_add(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES)
+                    .max(field.next_launch_fx_frame.saturating_add(1));
+            }
+        }
     }
 
     /// Residual honesty: TotalScorchMarks residual applied at least one mark.
@@ -4298,6 +5023,30 @@ mod tests {
         assert!((PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01);
         assert!((PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01);
         assert_eq!(PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES, 15);
+        // Intensity schedule retail residual.
+        assert_eq!(PARTICLE_BEGIN_CHARGE_FRAMES, 150);
+        assert_eq!(PARTICLE_RAISE_ANTENNA_FRAMES, 140);
+        assert_eq!(PARTICLE_READY_DELAY_FRAMES, 60);
+        assert_eq!(PARTICLE_BEAM_TRAVEL_FRAMES, 75);
+        assert_eq!(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES, 30);
+        assert!(PARTICLE_BEAM_LAUNCH_FX.contains("BeamLaunch"));
+        // Client-effects residual matrix honesty.
+        let charging = particle_client_effects_for_status(ParticleUplinkStatus::Charging);
+        assert_eq!(charging.outer_intensity, ParticleIntensity::Light);
+        assert_eq!(charging.connector_lasers, 0);
+        let preparing = particle_client_effects_for_status(ParticleUplinkStatus::Preparing);
+        assert_eq!(preparing.outer_intensity, ParticleIntensity::Medium);
+        let almost = particle_client_effects_for_status(ParticleUplinkStatus::AlmostReady);
+        assert_eq!(almost.connector_intensity, ParticleIntensity::Medium);
+        assert_eq!(almost.connector_lasers, PARTICLE_OUTER_EFFECT_NUM_BONES);
+        let ready = particle_client_effects_for_status(ParticleUplinkStatus::ReadyToFire);
+        assert_eq!(ready.laser_base_intensity, ParticleIntensity::Light);
+        let firing = particle_client_effects_for_status(ParticleUplinkStatus::Firing);
+        assert_eq!(firing.outer_intensity, ParticleIntensity::Intense);
+        assert_eq!(firing.ground_to_orbit, 1);
+        let postfire = particle_client_effects_for_status(ParticleUplinkStatus::Postfire);
+        assert_eq!(postfire.outer_intensity, ParticleIntensity::Medium);
+        assert_eq!(postfire.ground_to_orbit, 1);
         // Grow phase.
         assert!((particle_width_scalar(100, 100) - 0.0).abs() < 0.01);
         assert!((particle_width_scalar(100, 130) - 0.5).abs() < 0.01);
@@ -6174,6 +6923,163 @@ mod tests {
     }
 
     #[test]
+    fn particle_uplink_intensity_schedule_and_beam_launch_fx_residual_honesty() {
+        // Ready-countdown residual relative to ready_frame = 350.
+        // beginCharge = 350 - 60 - 140 - 150 = 0
+        // raiseAntenna = 150, almostReady = 290, ready = 350
+        assert_eq!(
+            particle_status_for_ready_countdown(0, 350),
+            ParticleUplinkStatus::Charging
+        );
+        assert_eq!(
+            particle_status_for_ready_countdown(150, 350),
+            ParticleUplinkStatus::Preparing
+        );
+        assert_eq!(
+            particle_status_for_ready_countdown(290, 350),
+            ParticleUplinkStatus::AlmostReady
+        );
+        assert_eq!(
+            particle_status_for_ready_countdown(350, 350),
+            ParticleUplinkStatus::ReadyToFire
+        );
+        // Attack residual: FIRING → POSTFIRE → PACKING.
+        assert_eq!(
+            particle_status_for_attack(100, 100, 105, 60),
+            ParticleUplinkStatus::Firing
+        );
+        assert_eq!(
+            particle_status_for_attack(205, 100, 105, 60),
+            ParticleUplinkStatus::Postfire
+        );
+        assert_eq!(
+            particle_status_for_attack(265, 100, 105, 60),
+            ParticleUplinkStatus::Packing
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        // Activate@0 / impact@120 → PREPARING residual seeded on queue.
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.particle_status, ParticleUplinkStatus::Preparing);
+            assert!(s.particle_preparing_applications >= 1);
+            assert!(s.particle_model_unpacking_sets >= 1);
+        }
+
+        // Advance through ALMOST_READY (impact-60 = 60).
+        reg.advance_particle_intensity_schedule(60);
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.particle_status, ParticleUplinkStatus::AlmostReady);
+            assert!(s.particle_almost_ready_applications >= 1);
+            assert!(s.particle_model_deployed_sets >= 1);
+        }
+
+        // READY_TO_FIRE at impact frame, then complete → FIRING beam.
+        reg.advance_particle_intensity_schedule(120);
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.particle_status, ParticleUplinkStatus::ReadyToFire);
+            assert!(s.particle_ready_applications >= 1);
+        }
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert!(!reg.beam_fields().is_empty());
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.status, ParticleUplinkStatus::Firing);
+            assert_eq!(f.outer_intensity, ParticleIntensity::Intense);
+            assert_eq!(f.beam_launch_fx_applications, 1);
+            assert_eq!(
+                f.next_launch_fx_frame,
+                f.spawn_frame + PARTICLE_LAUNCH_FX_INTERVAL_FRAMES
+            );
+        }
+        assert!(reg.honesty_beam_intensity_schedule_ok());
+        assert!(reg.honesty_beam_outer_nodes_ok());
+
+        // BeamLaunchFX residual refresh after DelayBetweenLaunchFX.
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        reg.advance_particle_intensity_schedule(spawn + PARTICLE_LAUNCH_FX_INTERVAL_FRAMES);
+        assert!(reg.beam_fields()[0].beam_launch_fx_applications >= 2);
+        assert!(reg.honesty_beam_launch_fx_ok());
+
+        // POSTFIRE residual at TotalFiringTime.
+        let decay = spawn + PARTICLE_BEAM_DURATION_FRAMES;
+        reg.advance_particle_intensity_schedule(decay);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.status, ParticleUplinkStatus::Postfire);
+            assert_eq!(f.outer_intensity, ParticleIntensity::Medium);
+            assert_eq!(f.connector_intensity, ParticleIntensity::Medium);
+            assert!(f.postfire_applications >= 1);
+            assert_eq!(f.ground_to_orbit_laser_created, 1);
+        }
+        assert!(reg.honesty_beam_postfire_ok());
+
+        // PACKING residual at end of WidthGrow decay tail.
+        let death = particle_death_frame(spawn);
+        reg.advance_particle_intensity_schedule(death);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.status, ParticleUplinkStatus::Packing);
+            assert_eq!(f.outer_intensity, ParticleIntensity::None);
+            assert!(f.packing_applications >= 1);
+            assert_eq!(f.outer_node_systems_created, 0);
+        }
+    }
+
+    #[test]
+    fn scud_storm_pre_attack_and_chem_fx_residual_honesty() {
+        assert_eq!(SCUD_STORM_CHEM_FX_BONE_COUNT, 3);
+        assert_eq!(SCUD_STORM_LAUNCH_BONE, "WeaponA");
+        assert!(SCUD_STORM_CHEM_FX_PARTICLE.contains("Goo"));
+        assert!(SCUD_STORM_FIRE_FX.contains("ScudStormMissile"));
+        assert!(SCUD_STORM_DETONATION_FX.contains("Detonation"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.scud_pre_attack_active);
+            assert_eq!(s.scud_chem_fx_bones, SCUD_STORM_CHEM_FX_BONE_COUNT);
+            assert!(s.scud_launch_bone_applications >= 1);
+        }
+        // PreAttack residual frames accumulate until first missile.
+        for f in 1..SCUD_STORM_PRE_ATTACK_FRAMES {
+            reg.advance_particle_intensity_schedule(f);
+        }
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.scud_pre_attack_active);
+            assert!(s.scud_pre_attack_frames >= SCUD_STORM_PRE_ATTACK_FRAMES - 1);
+        }
+        assert!(reg.honesty_scud_pre_attack_and_chem_fx_ok());
+
+        // First missile wave: PreAttack ends; FireFX + detonation residual.
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(50.0, 0.0, 50.0)]);
+        {
+            let s = reg.get(id).unwrap();
+            assert!(!s.scud_pre_attack_active);
+            assert!(s.scud_fire_fx_applications >= 1);
+            assert!(s.scud_detonation_fx_applications >= 1);
+        }
+        assert!(reg.honesty_scud_pre_attack_and_chem_fx_ok());
+    }
+
+    #[test]
     fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
         // Manual drive speed residual: 20/s and 40/s → /30 frames.
         assert!((particle_manual_speed_per_frame(false) - (20.0 / 30.0)).abs() < 1e-4);
@@ -6300,5 +7206,58 @@ mod tests {
         assert!((plans[0].position.x - manual_pos.x).abs() < 0.1);
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_projectile_residual_honesty() {
+        // Retail SpectreHowitzerShell / SpectreHowitzerGun projectile residual.
+        assert_eq!(SPECTRE_HOWITZER_SHELL_OBJECT, "SpectreHowitzerShell");
+        assert!((SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, 30);
+        assert!((SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT - 1.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS - 4.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01);
+        assert!(SPECTRE_HOWITZER_FIRE_FX.contains("TankGun"));
+        assert!(SPECTRE_HOWITZER_DETONATION_FX.contains("SpectreHowitzer"));
+        assert!(SPECTRE_HOWITZER_FIRE_SOUND.contains("Artillery"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+
+        // First howitzer tick spawns SpectreHowitzerShell residual honesty.
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_ticks, 1);
+            assert_eq!(f.howitzer_shells_spawned, 1);
+            assert_eq!(f.howitzer_shell_fire_fx, 1);
+            assert_eq!(f.howitzer_shell_detonation_fx, 1);
+            assert_eq!(f.howitzer_shell_height_die_delays, 1);
+            assert_eq!(f.howitzer_shell_fire_sounds, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_ok());
+        assert!(reg.honesty_howitzer_ok());
+
+        // Second howitzer residual tick accumulates shell counters.
+        let next = spawn + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, next);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_ticks, 2);
+            assert_eq!(f.howitzer_shells_spawned, 2);
+            assert_eq!(f.howitzer_shell_fire_fx, 2);
+            assert_eq!(f.howitzer_shell_detonation_fx, 2);
+        }
+        assert!(reg.honesty_howitzer_shell_ok());
     }
 }
