@@ -915,6 +915,21 @@ pub struct GameLogic {
     rebel_residual_fires: u32,
     rebel_residual_ap_upgrades: u32,
 
+    /// Host residual: China MiniGunner ground/AA + continuous fire + chain guns + horde.
+    /// Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary matrix.
+    minigunner_residual_ground_fires: u32,
+    minigunner_residual_aa_fires: u32,
+    minigunner_residual_ramp_mean: u32,
+    minigunner_residual_ramp_fast: u32,
+    minigunner_residual_chain_gun_upgrades: u32,
+    minigunner_residual_nationalism_upgrades: u32,
+    minigunner_residual_horde_grants: u32,
+
+    /// Host residual: Colonel Burton sniper + knife melee honesty.
+    /// Fail-closed: not full clip volley / pre-attack knife anim lock matrix.
+    burton_residual_sniper_fires: u32,
+    burton_residual_knife_kills: u32,
+
     /// Host residual: GLA RPG Trooper / Tunnel Defender rocket + AP Rockets honesty.
     /// Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
     rpg_trooper_residual_fires: u32,
@@ -1882,6 +1897,15 @@ impl GameLogic {
             tank_hunter_tnt_last_frame: HashMap::new(),
             rebel_residual_fires: 0,
             rebel_residual_ap_upgrades: 0,
+            minigunner_residual_ground_fires: 0,
+            minigunner_residual_aa_fires: 0,
+            minigunner_residual_ramp_mean: 0,
+            minigunner_residual_ramp_fast: 0,
+            minigunner_residual_chain_gun_upgrades: 0,
+            minigunner_residual_nationalism_upgrades: 0,
+            minigunner_residual_horde_grants: 0,
+            burton_residual_sniper_fires: 0,
+            burton_residual_knife_kills: 0,
             rpg_trooper_residual_fires: 0,
             rpg_trooper_residual_units_hit: 0,
             rpg_trooper_residual_ap_upgrades: 0,
@@ -2142,6 +2166,15 @@ impl GameLogic {
         self.tank_hunter_tnt_last_frame.clear();
         self.rebel_residual_fires = 0;
         self.rebel_residual_ap_upgrades = 0;
+        self.minigunner_residual_ground_fires = 0;
+        self.minigunner_residual_aa_fires = 0;
+        self.minigunner_residual_ramp_mean = 0;
+        self.minigunner_residual_ramp_fast = 0;
+        self.minigunner_residual_chain_gun_upgrades = 0;
+        self.minigunner_residual_nationalism_upgrades = 0;
+        self.minigunner_residual_horde_grants = 0;
+        self.burton_residual_sniper_fires = 0;
+        self.burton_residual_knife_kills = 0;
         self.rpg_trooper_residual_fires = 0;
         self.rpg_trooper_residual_units_hit = 0;
         self.rpg_trooper_residual_ap_upgrades = 0;
@@ -5583,6 +5616,55 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // China MiniGunner residual: ground gun or AA secondary hit.
+                        use crate::game_logic::host_minigunner::{
+                            is_minigunner_template, should_apply_minigunner_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_minigunner_residual(is_minigunner_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let (hits, _destroyed_any) = self.apply_minigunner_residual_at(
+                            target_position,
+                            Some(attacker_id),
+                            Some(target_id),
+                            slot,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
+                    } else if {
+                        // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
+                        use crate::game_logic::host_colonel_burton::{
+                            is_colonel_burton_template, should_apply_burton_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_burton_residual(is_colonel_burton_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let (hits, _destroyed_any) = self.apply_burton_residual_at(
+                            target_position,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
+                    } else if {
                         // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
                         use crate::game_logic::host_troop_crawler::{
                             is_troop_crawler_template, should_apply_troop_crawler_assault_deploy,
@@ -6092,6 +6174,20 @@ impl GameLogic {
                     .unwrap_or(false)
                 {
                     self.advance_gattling_continuous_fire(attacker_id, target_id, slot);
+                }
+
+                // China MiniGunner residual: advance continuous-fire ramp + honesty.
+                if self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| {
+                        crate::game_logic::host_minigunner::is_minigunner_template(
+                            &a.template_name,
+                        )
+                    })
+                    .unwrap_or(false)
+                {
+                    self.advance_minigunner_continuous_fire(attacker_id, target_id, slot);
                 }
 
                 // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
@@ -9429,6 +9525,39 @@ impl GameLogic {
                 use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
                 let ap = has_ap_bullets_upgrade(&object.applied_upgrades);
                 object.weapon = Some(rebel_weapon(ap));
+            }
+
+            // Host residual: China MiniGunner dual ground/AA + continuous fire ramp.
+            // Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary.
+            if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
+                use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+                use crate::game_logic::host_minigunner::{
+                    has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
+                };
+                let chain = has_chain_guns_upgrade(&object.applied_upgrades);
+                object.weapon = Some(minigunner_ground_weapon(
+                    GattlingFireLevel::Base,
+                    chain,
+                    false,
+                    false,
+                ));
+                object.secondary_weapon = Some(minigunner_air_weapon(
+                    GattlingFireLevel::Base,
+                    chain,
+                    false,
+                    false,
+                ));
+                object.continuous_fire_consecutive = 0;
+                object.continuous_fire_level = 0;
+                object.continuous_fire_coast_until_frame = 0;
+                object.continuous_fire_victim = 0;
+            }
+
+            // Host residual: Colonel Burton PRIMARY sniper residual.
+            // Fail-closed: knife residual applied at fire-time for close infantry.
+            if crate::game_logic::host_colonel_burton::is_colonel_burton_template(template_name) {
+                use crate::game_logic::host_colonel_burton::burton_sniper_weapon;
+                object.weapon = Some(burton_sniper_weapon());
             }
 
             // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
@@ -13441,6 +13570,62 @@ impl GameLogic {
         self.rebel_residual_ap_upgrades
     }
 
+    /// Residual honesty: China MiniGunner ground/AA / continuous fire / chain guns / horde.
+    pub fn honesty_minigunner_ok(&self) -> bool {
+        self.minigunner_residual_ground_fires > 0
+            || self.minigunner_residual_aa_fires > 0
+            || self.minigunner_residual_ramp_mean > 0
+            || self.minigunner_residual_ramp_fast > 0
+            || self.minigunner_residual_chain_gun_upgrades > 0
+            || self.minigunner_residual_nationalism_upgrades > 0
+            || self.minigunner_residual_horde_grants > 0
+    }
+
+    pub fn honesty_minigunner_ramp_ok(&self) -> bool {
+        self.minigunner_residual_ramp_mean > 0 || self.minigunner_residual_ramp_fast > 0
+    }
+
+    pub fn honesty_minigunner_aa_ok(&self) -> bool {
+        self.minigunner_residual_aa_fires > 0
+    }
+
+    pub fn honesty_minigunner_horde_ok(&self) -> bool {
+        self.minigunner_residual_horde_grants > 0
+    }
+
+    pub fn honesty_minigunner_nationalism_ok(&self) -> bool {
+        self.minigunner_residual_nationalism_upgrades > 0
+    }
+
+    pub fn minigunner_residual_ground_fires(&self) -> u32 {
+        self.minigunner_residual_ground_fires
+    }
+
+    pub fn minigunner_residual_aa_fires(&self) -> u32 {
+        self.minigunner_residual_aa_fires
+    }
+
+    pub fn minigunner_residual_ramp_fast(&self) -> u32 {
+        self.minigunner_residual_ramp_fast
+    }
+
+    /// Residual honesty: Colonel Burton sniper / knife residual.
+    pub fn honesty_burton_ok(&self) -> bool {
+        self.burton_residual_sniper_fires > 0 || self.burton_residual_knife_kills > 0
+    }
+
+    pub fn honesty_burton_knife_ok(&self) -> bool {
+        self.burton_residual_knife_kills > 0
+    }
+
+    pub fn burton_residual_sniper_fires(&self) -> u32 {
+        self.burton_residual_sniper_fires
+    }
+
+    pub fn burton_residual_knife_kills(&self) -> u32 {
+        self.burton_residual_knife_kills
+    }
+
     /// Residual honesty: GLA RPG Trooper rocket / AP Rockets residual.
     pub fn honesty_rpg_trooper_ok(&self) -> bool {
         self.rpg_trooper_residual_fires > 0 || self.rpg_trooper_residual_ap_upgrades > 0
@@ -15551,6 +15736,40 @@ impl GameLogic {
         obj.weapon = Some(w);
     }
 
+    /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
+    fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
+        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+        use crate::game_logic::host_minigunner::{
+            has_chain_guns_upgrade, is_minigunner_template, minigunner_air_weapon,
+            minigunner_ground_weapon,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        if !is_minigunner_template(&obj.template_name) {
+            return;
+        }
+        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let in_horde = obj.weapon_bonus_horde;
+        let nationalism_active = nationalism && in_horde;
+        obj.weapon_bonus_nationalism = nationalism_active;
+        let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
+        let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let last_sec = obj
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.last_fire_time)
+            .unwrap_or(0.0);
+        let mut w = minigunner_ground_weapon(level, chain, in_horde, nationalism_active);
+        w.last_fire_time = last_fire;
+        obj.weapon = Some(w);
+        let mut s = minigunner_air_weapon(level, chain, in_horde, nationalism_active);
+        s.last_fire_time = last_sec;
+        obj.secondary_weapon = Some(s);
+    }
+
     /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
     pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
@@ -15589,11 +15808,51 @@ impl GameLogic {
         true
     }
 
-    /// Recompute China infantry HordeUpdate residual (Red Guard + Tank Hunter).
+    /// Apply Nationalism residual tag to a MiniGunner (ROF stacks with horde when active).
+    pub fn apply_minigunner_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_minigunner::is_minigunner_template;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_minigunner_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_NATIONALISM.to_string());
+        self.minigunner_residual_nationalism_upgrades = self
+            .minigunner_residual_nationalism_upgrades
+            .saturating_add(1);
+        self.refresh_minigunner_weapon(object_id);
+        true
+    }
+
+    /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
+    pub fn apply_minigunner_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_minigunner::{
+            is_minigunner_template, UPGRADE_CHINA_CHAIN_GUNS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_minigunner_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
+        self.minigunner_residual_chain_gun_upgrades = self
+            .minigunner_residual_chain_gun_upgrades
+            .saturating_add(1);
+        self.refresh_minigunner_weapon(object_id);
+        true
+    }
+
+    /// Recompute China infantry HordeUpdate residual (Red Guard + Tank Hunter + MiniGunner).
     ///
     /// KindOf INFANTRY allies within Radius 30; Count 5 (includes self). ExactMatch=No
     /// so any ally infantry counts. RubOff residual omitted (fail-closed).
     pub fn update_china_infantry_horde_status(&mut self) {
+        use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
             counts_toward_infantry_horde, distance_2d, is_china_infantry_horde_unit,
             is_in_infantry_horde, is_red_guard_template, INFANTRY_HORDE_RADIUS,
@@ -15634,8 +15893,10 @@ impl GameLogic {
 
         let mut red_grants = 0u32;
         let mut th_grants = 0u32;
+        let mut mg_grants = 0u32;
         let mut to_refresh_red: Vec<ObjectId> = Vec::new();
         let mut to_refresh_th: Vec<ObjectId> = Vec::new();
+        let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
 
         for (id, team, x, z, alive, name) in &horde_units {
             let mut nearby = 0u32;
@@ -15664,6 +15925,8 @@ impl GameLogic {
                         red_grants = red_grants.saturating_add(1);
                     } else if is_tank_hunter_template(name) {
                         th_grants = th_grants.saturating_add(1);
+                    } else if is_minigunner_template(name) {
+                        mg_grants = mg_grants.saturating_add(1);
                     }
                 }
                 if now_horde != was || now_horde {
@@ -15671,6 +15934,8 @@ impl GameLogic {
                         to_refresh_red.push(*id);
                     } else if is_tank_hunter_template(name) {
                         to_refresh_th.push(*id);
+                    } else if is_minigunner_template(name) {
+                        to_refresh_mg.push(*id);
                     }
                 }
             }
@@ -15682,12 +15947,18 @@ impl GameLogic {
         self.tank_hunter_residual_horde_grants = self
             .tank_hunter_residual_horde_grants
             .saturating_add(th_grants);
+        self.minigunner_residual_horde_grants = self
+            .minigunner_residual_horde_grants
+            .saturating_add(mg_grants);
 
         for id in to_refresh_red {
             self.refresh_red_guard_weapon(id);
         }
         for id in to_refresh_th {
             self.refresh_tank_hunter_weapon(id);
+        }
+        for id in to_refresh_mg {
+            self.refresh_minigunner_weapon(id);
         }
     }
 
@@ -15970,6 +16241,285 @@ impl GameLogic {
             AudioEventRequest::new(REBEL_FIRE_AUDIO)
                 .with_position(target_pos)
                 .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(target_pos),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply China MiniGunner residual fire: intended-only ground/AA residual.
+    fn apply_minigunner_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        slot: u8,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_minigunner::{
+            has_chain_guns_upgrade, is_legal_minigunner_target, minigunner_damage_with_chain_guns,
+            MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_FIRE_AUDIO,
+            MINIGUNNER_GROUND_DAMAGE,
+        };
+
+        let dmg = source
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| {
+                let chain = has_chain_guns_upgrade(&o.applied_upgrades);
+                // Prefer live weapon damage (already chain/horde-refreshed).
+                if slot == 1 {
+                    o.secondary_weapon
+                        .as_ref()
+                        .map(|w| w.damage)
+                        .unwrap_or_else(|| {
+                            minigunner_damage_with_chain_guns(MINIGUNNER_AIR_DAMAGE, chain)
+                        })
+                } else {
+                    o.weapon.as_ref().map(|w| w.damage).unwrap_or_else(|| {
+                        minigunner_damage_with_chain_guns(MINIGUNNER_GROUND_DAMAGE, chain)
+                    })
+                }
+            })
+            .unwrap_or(MINIGUNNER_GROUND_DAMAGE);
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let Some(tid) = intended_target else {
+            return (0, false);
+        };
+        if let Some(obj) = self.objects.get_mut(&tid) {
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            if is_legal_minigunner_target(
+                obj.is_alive(),
+                source == Some(tid),
+                obj.status.under_construction,
+                combat_kind,
+            ) {
+                let destroyed = obj.take_damage(dmg);
+                hits = 1;
+                if destroyed {
+                    any_destroyed = true;
+                    self.mark_object_for_destruction(tid, source_team);
+                }
+            }
+        }
+
+        if slot == 1 {
+            self.minigunner_residual_aa_fires =
+                self.minigunner_residual_aa_fires.saturating_add(1);
+        } else {
+            self.minigunner_residual_ground_fires =
+                self.minigunner_residual_ground_fires.saturating_add(1);
+        }
+
+        let audio = if slot == 1 {
+            MINIGUNNER_AA_FIRE_AUDIO
+        } else {
+            MINIGUNNER_FIRE_AUDIO
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Advance MiniGunner continuous-fire ramp residual after a successful shot.
+    fn advance_minigunner_continuous_fire(
+        &mut self,
+        attacker_id: ObjectId,
+        target_id: Option<ObjectId>,
+        slot: u8,
+    ) {
+        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
+        use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+        use crate::game_logic::host_minigunner::{
+            has_chain_guns_upgrade, minigunner_air_weapon, minigunner_coast_until_after_shot,
+            minigunner_ground_weapon, minigunner_on_shot_fired, MINIGUNNER_RAPID_FIRE_AUDIO,
+        };
+
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&attacker_id) else {
+            return;
+        };
+        let prev_level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
+        let prev_consec = obj.continuous_fire_consecutive;
+        let prev_victim = if obj.continuous_fire_victim == 0 {
+            None
+        } else {
+            Some(obj.continuous_fire_victim)
+        };
+        let new_victim = target_id.map(|id| id.0);
+        let coast_until = obj.continuous_fire_coast_until_frame;
+        let in_horde = obj.weapon_bonus_horde;
+        let nationalism =
+            has_nationalism_upgrade(&obj.applied_upgrades) && in_horde;
+        let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
+
+        let (new_level, consecutive, entered_fast) = minigunner_on_shot_fired(
+            prev_level,
+            prev_consec,
+            prev_victim,
+            new_victim,
+            frame,
+            coast_until,
+        );
+
+        obj.continuous_fire_level = new_level.as_u8();
+        obj.continuous_fire_consecutive = consecutive;
+        obj.continuous_fire_victim = new_victim.unwrap_or(0);
+        obj.continuous_fire_coast_until_frame =
+            minigunner_coast_until_after_shot(frame, new_level, in_horde, nationalism);
+
+        // Rebind weapons with ramped + horde reload residual.
+        if let Some(w) = obj.weapon.as_mut() {
+            let refreshed = minigunner_ground_weapon(new_level, chain, in_horde, nationalism);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = false;
+            w.can_target_ground = true;
+        }
+        if let Some(w) = obj.secondary_weapon.as_mut() {
+            let refreshed = minigunner_air_weapon(new_level, chain, in_horde, nationalism);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = true;
+            w.can_target_ground = false;
+        }
+
+        let pos = obj.get_position();
+
+        if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
+            self.minigunner_residual_ramp_mean =
+                self.minigunner_residual_ramp_mean.saturating_add(1);
+        }
+        let became_fast = entered_fast
+            || (new_level == GattlingFireLevel::Fast && prev_level != GattlingFireLevel::Fast);
+        if became_fast {
+            self.minigunner_residual_ramp_fast =
+                self.minigunner_residual_ramp_fast.saturating_add(1);
+            self.queue_audio_event(
+                AudioEventRequest::new(MINIGUNNER_RAPID_FIRE_AUDIO)
+                    .with_object(attacker_id)
+                    .with_position(pos)
+                    .with_priority(140),
+            );
+        }
+        let _ = slot; // slot honesty counted in apply_minigunner_residual_at
+    }
+
+    /// Apply Colonel Burton residual fire: knife one-shot vs close infantry, else sniper.
+    fn apply_burton_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_colonel_burton::{
+            distance_2d, is_legal_burton_target, should_apply_burton_knife_residual,
+            BURTON_KNIFE_DAMAGE, BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE,
+            BURTON_SNIPER_FIRE_AUDIO,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+        let source_pos = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
+            .unwrap_or(impact);
+
+        let Some(target_id) = intended_target else {
+            return (0, false);
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return (0, false);
+        };
+        let combat_kind = target.is_kind_of(KindOf::Attackable)
+            || target.is_kind_of(KindOf::Structure)
+            || target.is_kind_of(KindOf::Infantry)
+            || target.is_kind_of(KindOf::Vehicle)
+            || target.is_kind_of(KindOf::Aircraft);
+        if !is_legal_burton_target(
+            target.is_alive(),
+            source == Some(target_id),
+            target.status.under_construction,
+            combat_kind,
+        ) {
+            return (0, false);
+        }
+        let target_pos = target.get_position();
+        let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
+        let target_is_infantry = target.is_kind_of(KindOf::Infantry);
+        let knife = should_apply_burton_knife_residual(true, target_is_infantry, true, dist);
+        let damage = if knife {
+            BURTON_KNIFE_DAMAGE
+        } else {
+            source
+                .and_then(|sid| self.objects.get(&sid))
+                .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
+                .unwrap_or(BURTON_SNIPER_DAMAGE)
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        if let Some(obj) = self.objects.get_mut(&target_id) {
+            let destroyed = obj.take_damage(damage);
+            hits = 1;
+            if destroyed {
+                any_destroyed = true;
+                self.mark_object_for_destruction(target_id, Some(source_team));
+            }
+        }
+
+        if knife {
+            self.burton_residual_knife_kills =
+                self.burton_residual_knife_kills.saturating_add(1);
+        } else {
+            self.burton_residual_sniper_fires =
+                self.burton_residual_sniper_fires.saturating_add(1);
+        }
+
+        let audio = if knife {
+            BURTON_KNIFE_FIRE_AUDIO
+        } else {
+            BURTON_SNIPER_FIRE_AUDIO
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_position(target_pos)
+                .with_priority(160),
         );
         if let Some(sid) = source {
             let _ = self.combat_particles.spawn_weapon_fire_fx(
@@ -48240,6 +48790,363 @@ mod tests {
         assert!(
             dealt + 0.01 >= HUMVEE_AIR_TOW_DAMAGE * 0.4,
             "air TOW damage residual ~50 (armor may reduce); dealt={dealt}"
+        );
+    }
+
+    /// Residual: China MiniGunner dual ground/AA + continuous fire + chain guns + horde.
+    /// Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary matrix.
+    #[test]
+    fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
+        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+        use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+        use crate::game_logic::host_minigunner::{
+            is_minigunner_template, MINIGUNNER_GROUND_DAMAGE, MINIGUNNER_GROUND_RANGE,
+            MINIGUNNER_GUN, MINIGUNNER_GUN_AIR,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut mg_tpl = crate::game_logic::ThingTemplate::new("Infa_ChinaInfantryMiniGunner");
+        mg_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_primary_weapon_name(MINIGUNNER_GUN)
+            .set_secondary_weapon_name(MINIGUNNER_GUN_AIR);
+        game_logic
+            .templates
+            .insert("Infa_ChinaInfantryMiniGunner".to_string(), mg_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        // Spawn 5 ally minigunners for Horde Count=5 residual.
+        let mut mg_ids = Vec::new();
+        for i in 0..5 {
+            let id = game_logic
+                .create_object(
+                    "Infa_ChinaInfantryMiniGunner",
+                    Team::China,
+                    Vec3::new(i as f32 * 5.0, 0.0, 0.0),
+                )
+                .expect("minigunner");
+            mg_ids.push(id);
+        }
+        let mg0 = mg_ids[0];
+        let base_reload = {
+            let mg = game_logic.find_object(mg0).expect("mg0");
+            assert!(is_minigunner_template(&mg.template_name));
+            let prim = mg.weapon.as_ref().expect("ground gun");
+            assert!((prim.damage - MINIGUNNER_GROUND_DAMAGE).abs() < 0.5);
+            assert!((prim.range - MINIGUNNER_GROUND_RANGE).abs() < 1.0);
+            assert!(prim.can_target_ground && !prim.can_target_air);
+            let sec = mg.secondary_weapon.as_ref().expect("aa gun");
+            assert!(sec.can_target_air && !sec.can_target_ground);
+            assert_eq!(mg.continuous_fire_level, 0);
+            // Base 15 frames → 0.5s
+            assert!((prim.reload_time - 0.5).abs() < 0.05);
+            prim.reload_time
+        };
+
+        // Horde residual: 5 infantry allies → HORDE ROF 150% (floor(15/1.5)=10 frames).
+        game_logic.update_china_infantry_horde_status();
+        assert!(
+            game_logic.honesty_minigunner_horde_ok(),
+            "minigunner horde grant residual honesty"
+        );
+        {
+            let mg = game_logic.find_object(mg0).expect("mg0 horde");
+            assert!(mg.weapon_bonus_horde);
+            let w = mg.weapon.as_ref().expect("horde gun");
+            assert!(
+                (w.reload_time - (10.0 / 30.0)).abs() < 0.05,
+                "horde ROF residual ~10 frames, got reload={}",
+                w.reload_time
+            );
+        }
+
+        // Nationalism residual: additional ROF 125% while in horde → floor(15/1.875)=8 frames.
+        assert!(game_logic.apply_minigunner_nationalism_upgrade(mg0));
+        assert!(game_logic.honesty_minigunner_nationalism_ok());
+        {
+            let mg = game_logic.find_object(mg0).expect("mg0 nat");
+            assert!(mg.has_upgrade_tag(UPGRADE_NATIONALISM));
+            assert!(mg.weapon_bonus_nationalism);
+            let w = mg.weapon.as_ref().expect("nat gun");
+            assert!(
+                (w.reload_time - (8.0 / 30.0)).abs() < 0.05,
+                "horde+nationalism ROF residual ~8 frames, got reload={}",
+                w.reload_time
+            );
+        }
+
+        // Chain Guns residual → damage × 1.25.
+        assert!(game_logic.apply_minigunner_chain_guns_upgrade(mg0));
+        {
+            let mg = game_logic.find_object(mg0).expect("mg0 chain");
+            let prim = mg.weapon.as_ref().expect("chained ground");
+            assert!(
+                (prim.damage - MINIGUNNER_GROUND_DAMAGE * 1.25).abs() < 0.01,
+                "chain guns residual 125% damage, got {}",
+                prim.damage
+            );
+        }
+
+        // Fire repeatedly at same target to ramp continuous fire residual (MEAN after >6).
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        for i in 0..10u32 {
+            {
+                let mg = game_logic.find_object_mut(mg0).unwrap();
+                mg.attack_target(enemy);
+                if let Some(w) = mg.weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                    w.reload_time = 0.05;
+                }
+                if let Some(w) = mg.secondary_weapon.as_mut() {
+                    w.last_fire_time = 0.0;
+                    w.reload_time = 1000.0;
+                }
+            }
+            game_logic.set_current_frame(30 + (i as u64) * 15);
+            game_logic.update_combat(&[mg0, enemy], LOGIC_FRAME_TIMESTEP);
+        }
+
+        assert!(
+            game_logic.minigunner_residual_ground_fires() > 0,
+            "minigunner ground residual honesty"
+        );
+        assert!(
+            game_logic.honesty_minigunner_ramp_ok(),
+            "minigunner continuous-fire ramp residual honesty must reach MEAN or FAST"
+        );
+        {
+            let mg = game_logic.find_object(mg0).expect("mg0 ramped");
+            assert!(
+                mg.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
+                "after multi-shot residual must be MEAN or FAST, level={}",
+                mg.continuous_fire_level
+            );
+            let prim = mg.weapon.as_ref().expect("ramped gun");
+            assert!(
+                prim.reload_time < base_reload - 0.05,
+                "ramped fire residual faster than base (base={base_reload} now={})",
+                prim.reload_time
+            );
+        }
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "minigunner residual must damage ground target"
+        );
+
+        // AA secondary residual vs airborne.
+        let aircraft_id = game_logic
+            .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
+            .expect("aircraft");
+        {
+            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            a.status.airborne_target = true;
+        }
+        {
+            let mg = game_logic.find_object_mut(mg0).unwrap();
+            mg.attack_target(aircraft_id);
+            if let Some(w) = mg.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = mg.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+        let air_hp_before = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(400);
+        game_logic.update_combat(&[mg0, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_minigunner_aa_ok(),
+            "minigunner AA residual honesty must fire secondary vs airborne"
+        );
+        let air_hp_after = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "airborne target must take minigunner AA residual"
+        );
+        assert!(
+            game_logic.honesty_minigunner_ok(),
+            "minigunner residual host path honesty"
+        );
+    }
+
+    /// Residual: Colonel Burton sniper gun + knife one-shot vs close infantry.
+    /// Fail-closed: not full clip volley / pre-attack knife anim lock matrix.
+    #[test]
+    fn colonel_burton_residual_sniper_and_knife() {
+        use crate::game_logic::host_colonel_burton::{
+            is_colonel_burton_template, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_RANGE,
+            BURTON_SNIPER_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut burton_tpl =
+            crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
+        burton_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(BURTON_SNIPER_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaInfantryColonelBurton".to_string(), burton_tpl);
+
+        let burton_id = game_logic
+            .create_object(
+                "AmericaInfantryColonelBurton",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("burton");
+        {
+            let b = game_logic.find_object(burton_id).expect("burton");
+            assert!(is_colonel_burton_template(&b.template_name));
+            let w = b.weapon.as_ref().expect("sniper residual");
+            assert!(
+                (w.damage - BURTON_SNIPER_DAMAGE).abs() < 0.5,
+                "sniper damage residual 40, got {}",
+                w.damage
+            );
+            assert!((w.range - BURTON_SNIPER_RANGE).abs() < 1.0);
+            assert!(
+                (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
+                "sniper reload residual 0.1s, got {}",
+                w.reload_time
+            );
+            assert_eq!(w.ammo, Some(3));
+        }
+
+        // Sniper residual vs distant infantry.
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let b = game_logic.find_object_mut(burton_id).unwrap();
+            b.attack_target(enemy);
+            if let Some(w) = b.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[burton_id, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.burton_residual_sniper_fires() > 0,
+            "burton sniper residual fire honesty"
+        );
+        assert!(game_logic.honesty_burton_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "burton sniper residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+
+        // Knife residual: close-range infantry one-shot.
+        let melee = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("melee");
+        {
+            let b = game_logic.find_object_mut(burton_id).unwrap();
+            b.set_position(Vec3::new(0.0, 0.0, 0.0));
+            b.attack_target(melee);
+            if let Some(w) = b.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[burton_id, melee], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_burton_knife_ok(),
+            "burton knife residual honesty"
+        );
+        let melee_alive = game_logic
+            .find_object(melee)
+            .map(|o| o.is_alive())
+            .unwrap_or(false);
+        assert!(!melee_alive, "burton knife residual one-shots close infantry");
+
+        // Knife residual does not apply to vehicles (sniper path).
+        let tank = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("tank");
+        let tank_hp_before = game_logic
+            .find_object(tank)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        {
+            let b = game_logic.find_object_mut(burton_id).unwrap();
+            b.attack_target(tank);
+            if let Some(w) = b.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        game_logic.set_current_frame(120);
+        game_logic.update_combat(&[burton_id, tank], LOGIC_FRAME_TIMESTEP);
+        let tank_hp_after = game_logic
+            .find_object(tank)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_after < tank_hp_before,
+            "burton sniper residual still damages close vehicle"
+        );
+        assert!(
+            game_logic.find_object(tank).map(|t| t.is_alive()).unwrap_or(false),
+            "knife residual must not one-shot vehicles"
         );
     }
 }
