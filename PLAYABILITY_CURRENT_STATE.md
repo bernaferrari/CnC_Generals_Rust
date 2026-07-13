@@ -1,3 +1,56 @@
+## Residual Host Playability — ScudStormWeapon Launch + Howitzer Gun Anti + DisplayString getSize/WordWrap/Hotkey/Clip + Multi-locale STR Paths (2026-07-13)
+**Closed (host-testable residual not covered by wave 39 death-damage/fire-params/remnant residual):**
+1. **ScudStormWeapon launch residual** (`special_power_strikes`):
+   - ClipSize **9**, ClipReloadTime **10000** ms → **300** frames, AutoReloadsClip **Yes**.
+   - ScatterTargetScalar **120**, ScatterTarget count **9**, AcceptableAimDelta **180**.
+   - ProjectileCollidesWith **STRUCTURES**, ProjectileObject **ScudStormMissile**.
+   - DelayBetweenShots Min/Max **100**/**1000** ms → **3**/**30** frames.
+   - Death weapon ClipReloadTime **0** residual.
+   - Honesty: `honesty_scud_weapon_launch_ok`.
+   - Fail-closed: not full WeaponTemplate store / live pad reload matrix.
+2. **SpectreHowitzerGun anti residual** (`special_power_strikes`):
+   - AntiAirborneVehicle/Infantry **No**, AntiSmallMissile/AntiBallisticMissile **No**.
+   - AntiGround **Yes**, ProjectileObject **SpectreHowitzerShell**.
+   - ContinuousFireCoast **2000** ms, ContinuousFireOne/Two **1**/**2**.
+   - VeterancyFireFX residual (HEROIC GenericTankGunNoTracer).
+   - Honesty: `honesty_howitzer_gun_anti_params_ok`.
+   - Fail-closed: not full WeaponTemplate anti matrix / live turret aim.
+3. **DisplayString getSize / setWordWrap / setWordWrapCentered / setUseHotkey / setClipRegion residual** (`floating_text_layout`):
+   - getSize monospaced width×height; empty/no-font → 0×0.
+   - setWordWrap / setWordWrapCentered change → notify residual.
+   - setUseHotkey always notifies with flag+color residual.
+   - setClipRegion region equality early-out residual.
+   - Honesty: `honesty_display_string_get_size` / word-wrap / hotkey / clip residual tests.
+   - Fail-closed: not full FontCharsClass / WW3D StretchRect / live hotkey underline draw.
+4. **Multi-locale LanguageId STR path residual table** (`game_text_residual`):
+   - generals.str / map.str relatives for all 10 LanguageId discriminants.
+   - English-family residual includes W3DEnglishZH paths; Jabber/Unknown share English.
+   - Honesty: multi_locale_str_path_residual_table (10 locales).
+   - Fail-closed: not full multi-locale STR boot UI for all LanguageId assets.
+5. Snapshot/Xfer: scud weapon launch default + howitzer gun anti residual fields appended.
+6. Tests (not log-only):
+   - `scud_weapon_launch_residual_honesty`
+   - `spectre_howitzer_gun_anti_params_residual_honesty`
+   - `display_string_get_size_residual_honesty`
+   - `display_string_set_word_wrap_residual_honesty`
+   - `display_string_set_use_hotkey_and_clip_residual_honesty`
+   - `multi_locale_str_path_residual_table` (10 locales)
+   - all `special_power_strikes::` green
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Scud Death Damage Table + Howitzer Gun Fire Params + Remnant Fire/Deletion + DisplayString Text Ops + Full LanguageId Table (2026-07-13)
 **Closed (host-testable residual not covered by wave 38 FireOCL/aim/getTextLength residual):**
 1. **ScudStormDamageWeapon damage table residual** (`special_power_strikes`):
