@@ -43,6 +43,7 @@ pub mod host_ambush;
 pub mod host_firewall;
 pub mod host_inferno_cannon;
 pub mod host_battle_bus;
+pub mod host_cleanup_area;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -201,6 +202,11 @@ pub use host_inferno_cannon::{
 pub use host_battle_bus::{
     battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
     HostBattleBusRegistry, BATTLE_BUS_TRANSPORT_SLOTS,
+};
+pub use host_cleanup_area::{
+    in_cleanup_radius_2d, is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaRegistry,
+    CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
+    HOST_CLEANUP_AREA_RADIUS, HOST_CLEANUP_MAX_MOVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;

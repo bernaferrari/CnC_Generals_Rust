@@ -1042,6 +1042,14 @@ impl<'a> CommandExecutor<'a> {
                     {
                         continue;
                     }
+                } else if *power_type == SpecialPowerType::CleanupArea {
+                    if !self.game_logic.activate_cleanup_area(
+                        self.current_player_id,
+                        pos,
+                        Some(unit_id),
+                    ) {
+                        continue;
+                    }
                 } else {
                     let _ = self
                         .game_logic
