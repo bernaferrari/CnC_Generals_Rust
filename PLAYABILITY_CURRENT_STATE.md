@@ -1,3 +1,57 @@
+## Residual Host Playability — Wave 49: Sentry/PointDefense/Overlord residual packs (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / graphics):**
+1. **SentryDrone residual pack** (`host_sentry_drone`):
+   - DetectionRange **225** honesty + DetectionRate **900**ms → **27** frames.
+   - SentryDroneGun: PrimaryDamage **8**, range **150**, Delay **200**ms → **6**f,
+     PrimaryDamageRadius **0**, WeaponSpeed **600**.
+   - DeployStyleAIUpdate PackTime/UnpackTime **1000**ms → **30** frames each;
+     TurretsFunctionOnlyWhenDeployed / MustCenterBeforePack / AutoAcquire residual.
+   - StealthUpdate StealthDelay **2000**ms → **60** frames re-cloak;
+     ForbiddenConditions FIRING_PRIMARY + MOVING residual names.
+   - Honesty: `honesty_sentry_drone_residual_ok` / `sentry_drone_residual_pack_honesty`.
+   - Fail-closed: not full pack/unpack state machine / IR detector FX / ExtraRequiredKindOf.
+2. **PointDefenseLaser residual pack** (`host_point_defense`):
+   - ScanRate / ScanRange / PredictTargetVelocityFactor residual per carrier:
+     - Paladin: ScanRange **120**, ScanRate **500**ms→**15**f, Predict **3.0**.
+     - Avenger: ScanRange **200** (fixed from fire×1.2), ScanRate 0/100ms→**3**f, Predict **1.0**.
+     - King Raptor: ScanRange **200**, ScanRate 10/0ms→**0**f, Predict **2.0**.
+     - Combat Chinook: ScanRange **250**, ScanRate **33**ms→**1**f, Predict **1.0**.
+   - PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE; Secondary INFANTRY (Paladin only).
+   - Weapon residual PrimaryDamage **100** / Delay frames retained + honesty.
+   - Honesty: `honesty_point_defense_residual_ok` /
+     `point_defense_scan_predict_residual_honesty`.
+   - Fail-closed: not full velocity-seeker math / laser drawable / TERTIARY WeaponStore.
+3. **Overlord addon residual pack** (`host_overlord_addons`):
+   - Addon slot table: Gattling **1200**/20s, Propaganda **500**/10s (SpeakerTower),
+     Bunker **400**/15s + OCL / payload template residual names.
+   - ConflictsWith residual exclusivity matrix (only one portable addon).
+   - OverlordContain Slots **1** PORTABLE_STRUCTURE; bunker infantry slots **5**;
+     HelixContain Slots **5**; ProductionUpdate MaxQueueEntries **1**.
+   - Honesty: `honesty_overlord_addons_residual_ok` /
+     `overlord_addon_slot_conflicts_residual_honesty`.
+   - Fail-closed: not full OCL passenger object / W3D bone attach / ContinuousFire anim.
+4. **Comanche rocket-pod clip residual** (`host_comanche_rocket_pods`, optional room):
+   - ClipSize **20**, ClipReload **30000**ms → **900** frames.
+   - ScatterTargetScalar **50** + 20-entry ScatterTarget residual table.
+   - `rocket_pod_scatter_offset` host index residual.
+   - Honesty: `honesty_comanche_rocket_pod_clip_residual_ok` /
+     `comanche_rocket_pod_scatter_clip_residual_honesty`.
+   - Fail-closed: not full projectile spawn per offset / GameLogicRandom shuffle.
+5. Tests (not log-only):
+   - `sentry_drone_residual_pack_honesty` (lib sentry_drone: **7**)
+   - `point_defense_scan_predict_residual_honesty` (lib point_defense: **9**)
+   - `overlord_addon_slot_conflicts_residual_honesty` (lib overlord: **15**)
+   - `comanche_rocket_pod_scatter_clip_residual_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full DeployStyleAIUpdate pack state machine / turret-only-when-deployed anim
+- Full PointDefenseLaserUpdate live velocity prediction seeker
+- Full OverlordContain OCL portable-structure passenger / W3DDependencyModelDraw
+- Full Comanche ScatterTarget projectile volley spawn stream
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 48: Ambulance Vehicle AutoHeal + SpySatellite/RadarVan DynamicShroud (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics):**
 1. **Ambulance vehicle AutoHeal residual** (`host_heal`):

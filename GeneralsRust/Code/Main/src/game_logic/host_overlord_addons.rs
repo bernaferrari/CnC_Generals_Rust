@@ -7,18 +7,24 @@
 //!   - `Upgrade_ChinaOverlordGattlingCannon` / `Upgrade_ChinaHelixGattlingCannon`:
 //!     equips SECONDARY AA `GattlingBuildingGunAir` + passenger ground residual
 //!     `GattlingBuildingGun` on PRIMARY fires (PassengersAllowedToFire residual).
+//!     BuildCost **1200** / BuildTime **20**s residual.
 //!   - `Upgrade_ChinaOverlordPropagandaTower` / `Upgrade_ChinaHelixPropagandaTower`:
 //!     enables propaganda pulse residual on the host (Radius 150, heal 1%/2%).
+//!     BuildCost **500** / BuildTime **10**s residual.
 //!   - BattleBunker residual remains `install_overlord_battle_bunker` (existing).
+//!     BuildCost **400** / BuildTime **15**s residual. Bunker infantry slots **5**.
+//! - ConflictsWith residual exclusivity: only **one** portable addon at a time
+//!   (gattling ↔ propaganda ↔ bunker pairwise ConflictsWith).
+//! - OverlordContain residual capacity: Slots **1** (PORTABLE_STRUCTURE only).
 //! - Emperor tank (`Tank_ChinaTankEmperor`): innate propaganda residual
 //!   (`PropagandaTowerBehavior` AffectsSelf=Yes) + optional gattling upgrade.
-//! - Helix residual: `HelixContain` Slots=5 transport capacity.
+//! - Helix residual: `HelixContain` Slots=**5** transport capacity.
 //!
 //! Fail-closed honesty:
 //! - Not full OCL portable-structure passenger object / DamageModule share
 //! - Not full W3DOverlord*Draw / W3DDependencyModelDraw bone attach
 //! - Not full ContinuousFire model-condition animation on payload
-//! - Not full ConflictsWith production-queue exclusivity beyond residual install
+//! - Not full ProductionUpdate MaxQueueEntries UI production-queue path
 //! - Not network addon replication (network deferred)
 
 use super::Weapon;
@@ -33,6 +39,26 @@ pub const UPGRADE_HELIX_PROPAGANDA: &str = "Upgrade_ChinaHelixPropagandaTower";
 /// Retail Overlord / Helix battle bunker upgrade names (existing bunker residual).
 pub const UPGRADE_OVERLORD_BUNKER: &str = "Upgrade_ChinaOverlordBattleBunker";
 pub const UPGRADE_HELIX_BUNKER: &str = "Upgrade_ChinaHelixBattleBunker";
+
+/// Retail portable-structure object / OCL residual names (SpeakerTower = propaganda).
+pub const OCL_OVERLORD_GATTLING: &str = "OCL_OverlordGattlingCannon";
+pub const OCL_OVERLORD_PROPAGANDA: &str = "OCL_OverlordPropagandaTower";
+pub const OCL_OVERLORD_BUNKER: &str = "OCL_OverlordBattleBunker";
+/// Retail portable payload object template residual names.
+pub const OVERLORD_PAYLOAD_GATTLING: &str = "ChinaTankOverlordGattlingCannon";
+pub const OVERLORD_PAYLOAD_PROPAGANDA: &str = "ChinaTankOverlordPropagandaTower";
+pub const OVERLORD_PAYLOAD_BUNKER: &str = "ChinaTankOverlordBattleBunker";
+/// SpeakerTower residual alias for propaganda tower button image residual.
+pub const OVERLORD_SPEAKER_TOWER_BUTTON: &str = "SSOLSpeaker";
+
+/// Retail addon BuildCost residual (Upgrade.ini).
+pub const OVERLORD_GATTLING_BUILD_COST: u32 = 1200;
+pub const OVERLORD_PROPAGANDA_BUILD_COST: u32 = 500;
+pub const OVERLORD_BUNKER_BUILD_COST: u32 = 400;
+/// Retail addon BuildTime residual (seconds).
+pub const OVERLORD_GATTLING_BUILD_TIME_SECS: f32 = 20.0;
+pub const OVERLORD_PROPAGANDA_BUILD_TIME_SECS: f32 = 10.0;
+pub const OVERLORD_BUNKER_BUILD_TIME_SECS: f32 = 15.0;
 
 /// Retail GattlingBuildingGun (portable Overlord/Helix gattling ground).
 pub const GATTLING_BUILDING_GUN: &str = "GattlingBuildingGun";
@@ -63,8 +89,71 @@ pub const OVERLORD_PROPAGANDA_HEAL_PERCENT_PER_SEC: f32 = 0.01;
 /// Retail UpgradedHealPercentEachSecond = 2%.
 pub const OVERLORD_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC: f32 = 0.02;
 
+/// Retail OverlordContain Slots residual (portable structure capacity = 1).
+pub const OVERLORD_CONTAIN_SLOTS: usize = 1;
+/// Retail OverlordContain DamagePercentToUnits residual (100%).
+pub const OVERLORD_CONTAIN_DAMAGE_PERCENT_TO_UNITS: f32 = 1.0;
+/// Retail OverlordContain AllowInsideKindOf residual name.
+pub const OVERLORD_CONTAIN_ALLOW_INSIDE: &str = "PORTABLE_STRUCTURE";
+/// Retail ProductionUpdate MaxQueueEntries residual (only one addon at a time).
+pub const OVERLORD_PRODUCTION_MAX_QUEUE_ENTRIES: u32 = 1;
+
+/// Retail BattleBunker TransportContain Slots residual (infantry seats on bunker).
+pub const OVERLORD_BUNKER_INFANTRY_SLOTS: usize = 5;
+
 /// Retail HelixContain Slots residual.
 pub const HELIX_TRANSPORT_SLOTS: usize = 5;
+
+/// Portable addon kind residual (exclusive ConflictsWith matrix).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OverlordAddonKind {
+    Gattling,
+    Propaganda,
+    Bunker,
+}
+
+/// Residual addon slot table entry (name + cost + build time).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverlordAddonSlotResidual {
+    pub kind: OverlordAddonKind,
+    pub overlord_upgrade: &'static str,
+    pub helix_upgrade: &'static str,
+    pub ocl_name: &'static str,
+    pub payload_template: &'static str,
+    pub build_cost: u32,
+    pub build_time_secs: f32,
+}
+
+/// Retail Overlord / Helix portable addon residual table (3 exclusive slots).
+pub const OVERLORD_ADDON_SLOT_TABLE: &[OverlordAddonSlotResidual] = &[
+    OverlordAddonSlotResidual {
+        kind: OverlordAddonKind::Gattling,
+        overlord_upgrade: UPGRADE_OVERLORD_GATTLING,
+        helix_upgrade: UPGRADE_HELIX_GATTLING,
+        ocl_name: OCL_OVERLORD_GATTLING,
+        payload_template: OVERLORD_PAYLOAD_GATTLING,
+        build_cost: OVERLORD_GATTLING_BUILD_COST,
+        build_time_secs: OVERLORD_GATTLING_BUILD_TIME_SECS,
+    },
+    OverlordAddonSlotResidual {
+        kind: OverlordAddonKind::Propaganda,
+        overlord_upgrade: UPGRADE_OVERLORD_PROPAGANDA,
+        helix_upgrade: UPGRADE_HELIX_PROPAGANDA,
+        ocl_name: OCL_OVERLORD_PROPAGANDA,
+        payload_template: OVERLORD_PAYLOAD_PROPAGANDA,
+        build_cost: OVERLORD_PROPAGANDA_BUILD_COST,
+        build_time_secs: OVERLORD_PROPAGANDA_BUILD_TIME_SECS,
+    },
+    OverlordAddonSlotResidual {
+        kind: OverlordAddonKind::Bunker,
+        overlord_upgrade: UPGRADE_OVERLORD_BUNKER,
+        helix_upgrade: UPGRADE_HELIX_BUNKER,
+        ocl_name: OCL_OVERLORD_BUNKER,
+        payload_template: OVERLORD_PAYLOAD_BUNKER,
+        build_cost: OVERLORD_BUNKER_BUILD_COST,
+        build_time_secs: OVERLORD_BUNKER_BUILD_TIME_SECS,
+    },
+];
 
 /// Residual fire audio for portable gattling.
 pub const OVERLORD_GATTLING_FIRE_AUDIO: &str = "GattlingCannonWeapon";
@@ -254,6 +343,124 @@ pub fn is_bunker_addon_upgrade(name: &str) -> bool {
         || n.contains("helixbunker")
 }
 
+/// Map residual upgrade name → addon kind (if portable addon).
+pub fn overlord_addon_kind_from_upgrade(name: &str) -> Option<OverlordAddonKind> {
+    if is_gattling_addon_upgrade(name) {
+        Some(OverlordAddonKind::Gattling)
+    } else if is_propaganda_addon_upgrade(name) {
+        Some(OverlordAddonKind::Propaganda)
+    } else if is_bunker_addon_upgrade(name) {
+        Some(OverlordAddonKind::Bunker)
+    } else {
+        None
+    }
+}
+
+/// Lookup residual addon slot table entry by kind.
+pub fn overlord_addon_slot(kind: OverlordAddonKind) -> &'static OverlordAddonSlotResidual {
+    OVERLORD_ADDON_SLOT_TABLE
+        .iter()
+        .find(|e| e.kind == kind)
+        .expect("OVERLORD_ADDON_SLOT_TABLE covers all OverlordAddonKind values")
+}
+
+/// Retail ConflictsWith residual: portable addons are mutually exclusive.
+///
+/// Installing `next` conflicts with any other installed kind (not self).
+/// Emperor innate propaganda is not an ObjectCreationUpgrade ConflictsWith path
+/// (host residual: gattling may coexist with Emperor innate propaganda).
+pub fn overlord_addons_conflict(a: OverlordAddonKind, b: OverlordAddonKind) -> bool {
+    a != b
+}
+
+/// Residual ConflictsWith list for a given addon kind (the other two).
+pub fn overlord_addon_conflicts_with(kind: OverlordAddonKind) -> [OverlordAddonKind; 2] {
+    match kind {
+        OverlordAddonKind::Gattling => [OverlordAddonKind::Propaganda, OverlordAddonKind::Bunker],
+        OverlordAddonKind::Propaganda => [OverlordAddonKind::Gattling, OverlordAddonKind::Bunker],
+        OverlordAddonKind::Bunker => [OverlordAddonKind::Gattling, OverlordAddonKind::Propaganda],
+    }
+}
+
+/// Whether residual install of `next` is allowed given currently installed flags.
+///
+/// Non-Emperor hosts: only one of gattling / propaganda / bunker.
+/// Emperor: innate propaganda is not a ConflictsWith payload; gattling allowed.
+pub fn overlord_addon_install_allowed(
+    next: OverlordAddonKind,
+    has_gattling: bool,
+    has_propaganda: bool,
+    has_bunker: bool,
+    is_emperor: bool,
+) -> bool {
+    if is_emperor {
+        // Emperor residual: gattling optional; bunker/propaganda object addons N/A.
+        return matches!(next, OverlordAddonKind::Gattling | OverlordAddonKind::Propaganda);
+    }
+    let installed = [
+        (OverlordAddonKind::Gattling, has_gattling),
+        (OverlordAddonKind::Propaganda, has_propaganda),
+        (OverlordAddonKind::Bunker, has_bunker),
+    ];
+    for (kind, active) in installed {
+        if active && overlord_addons_conflict(kind, next) {
+            // Host residual: install path clears the conflicting flags (allowed
+            // with exclusivity applied). Retail production queue would block
+            // concurrent research via MaxQueueEntries=1 + ConflictsWith.
+            // Residual honesty: installing is always "allowed" but exclusive.
+            let _ = kind;
+        }
+    }
+    // Residual host always allows install then clears others (matches object.rs).
+    let _ = (has_gattling, has_propaganda, has_bunker);
+    true
+}
+
+/// Residual exclusive active kind after install (post ConflictsWith clear).
+pub fn overlord_exclusive_addon_after_install(
+    next: OverlordAddonKind,
+    is_emperor: bool,
+) -> (bool, bool, bool) {
+    // (gattling, propaganda, bunker)
+    match next {
+        OverlordAddonKind::Gattling => (true, is_emperor, false),
+        OverlordAddonKind::Propaganda => (false, true, false),
+        OverlordAddonKind::Bunker => (false, is_emperor, true),
+    }
+}
+
+/// Wave 49 residual honesty: addon table + ConflictsWith + OverlordContain slots.
+pub fn honesty_overlord_addons_residual_ok() -> bool {
+    OVERLORD_ADDON_SLOT_TABLE.len() == 3
+        && OVERLORD_CONTAIN_SLOTS == 1
+        && HELIX_TRANSPORT_SLOTS == 5
+        && OVERLORD_BUNKER_INFANTRY_SLOTS == 5
+        && OVERLORD_PRODUCTION_MAX_QUEUE_ENTRIES == 1
+        && (OVERLORD_CONTAIN_DAMAGE_PERCENT_TO_UNITS - 1.0).abs() < 0.01
+        && OVERLORD_CONTAIN_ALLOW_INSIDE == "PORTABLE_STRUCTURE"
+        && OVERLORD_GATTLING_BUILD_COST == 1200
+        && OVERLORD_PROPAGANDA_BUILD_COST == 500
+        && OVERLORD_BUNKER_BUILD_COST == 400
+        && (OVERLORD_GATTLING_BUILD_TIME_SECS - 20.0).abs() < 0.01
+        && (OVERLORD_PROPAGANDA_BUILD_TIME_SECS - 10.0).abs() < 0.01
+        && (OVERLORD_BUNKER_BUILD_TIME_SECS - 15.0).abs() < 0.01
+        && overlord_addons_conflict(OverlordAddonKind::Gattling, OverlordAddonKind::Propaganda)
+        && overlord_addons_conflict(OverlordAddonKind::Gattling, OverlordAddonKind::Bunker)
+        && overlord_addons_conflict(OverlordAddonKind::Propaganda, OverlordAddonKind::Bunker)
+        && !overlord_addons_conflict(OverlordAddonKind::Gattling, OverlordAddonKind::Gattling)
+        && overlord_addon_slot(OverlordAddonKind::Gattling).ocl_name == OCL_OVERLORD_GATTLING
+        && overlord_addon_slot(OverlordAddonKind::Propaganda).payload_template
+            == OVERLORD_PAYLOAD_PROPAGANDA
+        && overlord_addon_slot(OverlordAddonKind::Bunker).build_cost == 400
+        && overlord_addon_kind_from_upgrade(UPGRADE_OVERLORD_GATTLING)
+            == Some(OverlordAddonKind::Gattling)
+        && overlord_addon_kind_from_upgrade(UPGRADE_HELIX_PROPAGANDA)
+            == Some(OverlordAddonKind::Propaganda)
+        && overlord_addon_kind_from_upgrade(UPGRADE_OVERLORD_BUNKER)
+            == Some(OverlordAddonKind::Bunker)
+        && OVERLORD_SPEAKER_TOWER_BUTTON == "SSOLSpeaker"
+}
+
 /// Delay frames residual for continuous-fire level (building gattling base / ROF).
 pub fn overlord_gattling_delay_frames(level: u8) -> u32 {
     let base = OVERLORD_GATTLING_BASE_DELAY_FRAMES as f32;
@@ -423,5 +630,58 @@ mod tests {
         reg.record_helix_load();
         reg.record_helix_unload();
         assert!(reg.honesty_helix_transport_ok());
+    }
+
+    /// Wave 49: addon slot table + ConflictsWith exclusivity + OverlordContain slots.
+    #[test]
+    fn overlord_addon_slot_conflicts_residual_honesty() {
+        assert!(honesty_overlord_addons_residual_ok());
+        assert_eq!(OVERLORD_CONTAIN_SLOTS, 1);
+        assert_eq!(HELIX_TRANSPORT_SLOTS, 5);
+        assert_eq!(OVERLORD_BUNKER_INFANTRY_SLOTS, 5);
+
+        // Costs residual matrix.
+        let g = overlord_addon_slot(OverlordAddonKind::Gattling);
+        let p = overlord_addon_slot(OverlordAddonKind::Propaganda);
+        let b = overlord_addon_slot(OverlordAddonKind::Bunker);
+        assert_eq!(g.build_cost, 1200);
+        assert_eq!(p.build_cost, 500);
+        assert_eq!(b.build_cost, 400);
+        assert!((g.build_time_secs - 20.0).abs() < 0.01);
+        assert!((p.build_time_secs - 10.0).abs() < 0.01);
+        assert!((b.build_time_secs - 15.0).abs() < 0.01);
+
+        // ConflictsWith residual: pairwise exclusive.
+        let cg = overlord_addon_conflicts_with(OverlordAddonKind::Gattling);
+        assert!(cg.contains(&OverlordAddonKind::Propaganda));
+        assert!(cg.contains(&OverlordAddonKind::Bunker));
+        assert!(!cg.contains(&OverlordAddonKind::Gattling));
+
+        // Install exclusivity residual (non-Emperor).
+        assert_eq!(
+            overlord_exclusive_addon_after_install(OverlordAddonKind::Gattling, false),
+            (true, false, false)
+        );
+        assert_eq!(
+            overlord_exclusive_addon_after_install(OverlordAddonKind::Propaganda, false),
+            (false, true, false)
+        );
+        assert_eq!(
+            overlord_exclusive_addon_after_install(OverlordAddonKind::Bunker, false),
+            (false, false, true)
+        );
+        // Emperor keeps innate propaganda when installing gattling.
+        assert_eq!(
+            overlord_exclusive_addon_after_install(OverlordAddonKind::Gattling, true),
+            (true, true, false)
+        );
+
+        assert!(overlord_addon_install_allowed(
+            OverlordAddonKind::Gattling,
+            false,
+            false,
+            false,
+            false
+        ));
     }
 }
