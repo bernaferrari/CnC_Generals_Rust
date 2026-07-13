@@ -2846,6 +2846,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.gattling_coast_applications)?;
         xfer.xfer_marker_label("HowitzerCoastApplications")?;
         xfer.xfer_u32(&mut self.howitzer_coast_applications)?;
+        xfer.xfer_marker_label("RapidFireVoiceCues")?;
+        xfer.xfer_u32(&mut self.rapid_fire_voice_cues)?;
         Ok(())
     }
 }
@@ -2877,6 +2879,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.objects_destroyed)?;
         xfer.xfer_marker_label("ParentStrikeId")?;
         xfer.xfer_u32(&mut self.parent_strike_id)?;
+        // SwathOfDeath residual bookkeeping (appended).
+        xfer.xfer_marker_label("LastSwathPosition")?;
+        self.last_swath_position.xfer(xfer)?;
+        xfer.xfer_marker_label("MaxSwathOffset")?;
+        xfer.xfer_f32(&mut self.max_swath_offset)?;
+        xfer.xfer_marker_label("SwathApplications")?;
+        xfer.xfer_u32(&mut self.swath_applications)?;
         Ok(())
     }
 }
@@ -2992,6 +3001,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_coast_until_frame: 0,
                 gattling_coast_applications: 0,
                 howitzer_coast_applications: 0,
+                rapid_fire_voice_cues: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3018,6 +3028,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 damage_applications: 0,
                 objects_destroyed: 0,
                 parent_strike_id: 0,
+                last_swath_position: Vec3::ZERO,
+                max_swath_offset: 0.0,
+                swath_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
