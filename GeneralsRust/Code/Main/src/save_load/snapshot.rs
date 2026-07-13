@@ -2938,6 +2938,11 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         // SpectreGattlingGun anti/fire residual (appended).
         xfer.xfer_marker_label("GattlingGunParamsApplications")?;
         xfer.xfer_u32(&mut self.gattling_gun_params_applications)?;
+        // Wave 50: ContinuousFire WeaponBonus ROF residual applications (appended).
+        xfer.xfer_marker_label("GattlingRofMeanApplications")?;
+        xfer.xfer_u32(&mut self.gattling_rof_mean_applications)?;
+        xfer.xfer_marker_label("GattlingRofFastApplications")?;
+        xfer.xfer_u32(&mut self.gattling_rof_fast_applications)?;
         Ok(())
     }
 }
@@ -3192,6 +3197,11 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.sound_residual_pack_armed)?;
         xfer.xfer_marker_label("ScorchScalarPackArmed")?;
         xfer.xfer_u32(&mut self.scorch_scalar_pack_armed)?;
+        // Wave 50: OuterNodes flare pack + SlowDeath/InstantDeath pack (appended).
+        xfer.xfer_marker_label("OuterNodeFlarePackArmed")?;
+        xfer.xfer_u32(&mut self.outer_node_flare_pack_armed)?;
+        xfer.xfer_marker_label("DeathPackArmed")?;
+        xfer.xfer_u32(&mut self.death_pack_armed)?;
         Ok(())
     }
 }
@@ -3393,6 +3403,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_gun_fire_params_applications: 0,
                 howitzer_gun_anti_params_applications: 0,
                 gattling_gun_params_applications: 0,
+                gattling_rof_mean_applications: 0,
+                gattling_rof_fast_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3513,6 +3525,8 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 firing_to_pack_audio_applications: 0,
                 sound_residual_pack_armed: 0,
                 scorch_scalar_pack_armed: 0,
+                outer_node_flare_pack_armed: 0,
+                death_pack_armed: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;

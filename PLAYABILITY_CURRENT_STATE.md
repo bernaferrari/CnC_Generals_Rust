@@ -49,6 +49,67 @@
 - Full GridDecalTemplate additive decal GPU path
 - Network residual replication (network deferred)
 
+## Residual Host Playability — Wave 50: PUC Outer-Node Flares + Death Pack + Laser Texture Bind + Gattling ROF Counters (2026-07-13)
+**Closed (host-testable residual not covered by waves 41–47):**
+1. **PUC OuterNodes flare particle system residual pack** (`special_power_strikes`):
+   - OuterNodesLight/Medium/Intense = `ParticleUplinkCannon_OuterNode*Flare`.
+   - LaserBaseLightFlareParticleSystemName = `ParticleUplinkCannon_LaserBaseReadyToFire`.
+   - Connector Medium/Intense laser names + OrbitalLaser name residual.
+   - Intensity → flare/connector name table residual.
+   - Pack armed on beam STATUS_FIRING spawn (`outer_node_flare_pack_armed`).
+   - Honesty: `honesty_particle_outer_node_flare_pack` /
+     `honesty_beam_outer_node_flare_pack_ok`.
+   - Fail-closed: not full ParticleSystemManager spawn / W3D bone-world FX attach.
+2. **PUC SlowDeath / InstantDeath residual pack** (`special_power_strikes`):
+   - SlowDeath ExemptStatus **UNDER_CONSTRUCTION**, DestructionDelay **2000** ms → **60** frames.
+   - INITIAL FX `FX_ParticleUplinkDeathInitial` / OCL `OCL_SDILinkLasers`.
+   - FINAL FX `FX_StructureMediumDeath` / OCL `OCL_ParticleUplinkDeathFinal`.
+   - InstantDeath RequiredStatus UNDER_CONSTRUCTION: OCL `OCL_ABPowerPlantExplode`
+     + FX `FX_StructureMediumDeath`.
+   - Pack armed on beam spawn (`death_pack_armed`).
+   - Honesty: `honesty_particle_uplink_death_pack` /
+     `honesty_particle_uplink_death_pack_ok`.
+   - Fail-closed: not full SlowDeathBehavior multi-stage / Object die matrix.
+3. **Laser soft-edge texture bind residual pack** (`laser_segment_upload`):
+   - EXNoise02.tga (OrbitalLaser) / EXBinaryStream32.tga (BinaryDataStream) /
+     EXLaser.tga (connector) bind name residual.
+   - MaxIntensityLifetime / FadeLifetime residual defaults **0**.
+   - SoftnessDepth / SoftnessDistance residual: **not** W3DLaserDraw INI fields
+     (soft edge = multi-beam width/alpha lerp only).
+   - `gpu_upload_ready` is host flag only — does **not** claim live
+     `wgpu::Queue::write_buffer`.
+   - Honesty: `honesty_laser_texture_bind_pack` /
+     `honesty_gpu_write_buffer_not_claimed` /
+     `laser_soft_edge_texture_bind_pack_residual_honesty`.
+4. **Gattling ContinuousFire WeaponBonus ROF application counters**
+   (`special_power_strikes`):
+   - MEAN ROF **200%** / FAST ROF **300%** residual application counters on orbit ticks.
+   - ContinuousFireOne=**1** / ContinuousFireTwo=**2** exclusive thresholds.
+   - Honesty: `honesty_gattling_weapon_bonus_rof` /
+     `honesty_gattling_weapon_bonus_rof_ok`.
+   - Fail-closed: not full FiringTracker WeaponBonusConditionFlags combat matrix.
+5. Snapshot/Xfer: `OuterNodeFlarePackArmed` / `DeathPackArmed` on HostParticleBeamField;
+   `GattlingRofMeanApplications` / `GattlingRofFastApplications` on HostSpectreOrbitField.
+6. Tests (not log-only):
+   - `particle_uplink_outer_node_flare_pack_residual_honesty`
+   - `particle_uplink_slow_death_instant_death_residual_honesty`
+   - `spectre_gattling_weapon_bonus_rof_application_residual_honesty`
+   - `laser_soft_edge_texture_bind_pack_residual_honesty`
+   - special_power_strikes (**90**) + laser_segment (**9**) green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full Miles audio event playback / 3D positional PUC sound loops
+- Full SlowDeathBehavior multi-stage / Object die / live OCL spawn matrix
+- Full ParticleSystemManager outer-node FX attach / W3D bone-world extract
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas sample bind
+- Actual `wgpu::Queue::write_buffer` against a live device/pipeline
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 47: DeliverPayload DropVariance + VisiblePayload A10 Rack + Crate Geometry Pack + Patriot PunchThroughScalar (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics):**
 1. **DropVariance residual** (`host_deliver_payload`):
