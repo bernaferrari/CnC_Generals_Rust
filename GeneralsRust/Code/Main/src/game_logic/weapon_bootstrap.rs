@@ -65,6 +65,14 @@ pub const SUPW_AURORA_FUEL_BOMB_WEAPON: &str = "SupW_AuroraFuelBombWeapon";
 pub const PALADIN_POINT_DEFENSE_LASER: &str = "PaladinPointDefenseLaser";
 pub const AVENGER_POINT_DEFENSE_LASER: &str = "AvengerPointDefenseLaserOne";
 
+/// Retail America main battle tank guns + Avenger residual weapons.
+pub const CRUSADER_TANK_GUN: &str = "CrusaderTankGun";
+pub const PALADIN_TANK_GUN: &str = "PaladinTankGun";
+pub const AVENGER_TARGET_DESIGNATOR: &str = "AvengerTargetDesignator";
+pub const AVENGER_AIR_LASER: &str = "AvengerAirLaserOne";
+/// Retail Humvee TOW air tertiary residual.
+pub const HUMVEE_MISSILE_WEAPON_AIR: &str = "HumveeMissileWeaponAir";
+
 /// Retail StealthJetMissileWeapon residual (Bunker Buster carrier primary).
 pub const STEALTH_JET_MISSILE_WEAPON: &str = "StealthJetMissileWeapon";
 
@@ -126,6 +134,14 @@ pub const TUNNEL_DEFENDER_BIKER_ROCKET: &str = "TunnelDefenderBikerRocketWeapon"
 pub const BIKER_KELL_SNIPER: &str = "GLABikerKellSniperRifle";
 pub const TERRORIST_SUICIDE_WEAPON: &str = "TerroristSuicideWeapon";
 
+/// Retail China Dragon Tank flame residual weapons.
+pub const DRAGON_TANK_FLAME_WEAPON: &str = "DragonTankFlameWeapon";
+pub const DRAGON_TANK_FLAME_WEAPON_UPGRADED: &str = "DragonTankFlameWeaponUpgraded";
+
+/// Retail China Gattling Tank residual weapons.
+pub const GATTLING_TANK_GUN: &str = "GattlingTankGun";
+pub const GATTLING_TANK_GUN_AIR: &str = "GattlingTankGunAir";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -162,7 +178,21 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "China_RedGuard" | "China_Soldier" | "ChinaInfantryRedguard" => {
             Some(REDGUARD_PRIMARY_WEAPON)
         }
-        "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_PRIMARY_WEAPON),
+        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
+            Some(HUMVEE_PRIMARY_WEAPON)
+        }
+        "USA_Crusader"
+        | "USA_CrusaderTank"
+        | "AmericaTankCrusader"
+        | "TestCrusader" => Some(CRUSADER_TANK_GUN),
+        "USA_Paladin"
+        | "USA_PaladinTank"
+        | "AmericaTankPaladin"
+        | "TestPaladin" => Some(PALADIN_TANK_GUN),
+        "USA_Avenger"
+        | "AmericaTankAvenger"
+        | "AmericaVehicleAvenger"
+        | "TestAvenger" => Some(AVENGER_TARGET_DESIGNATOR),
         // Base-defense structures (Patriot / Gattling residual auto-fire).
         "USA_Patriot" | "USA_PatriotMissile" | "AmericaPatriotBattery" | "PatriotMissile" => {
             Some(PATRIOT_PRIMARY_WEAPON)
@@ -361,6 +391,17 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
             }
+            if let Some(w) =
+                crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
+            {
+                return Some(w);
+            }
+            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
+                return Some(AVENGER_TARGET_DESIGNATOR);
+            }
+            if crate::game_logic::host_humvee::is_humvee_template(template_name) {
+                return Some(HUMVEE_PRIMARY_WEAPON);
+            }
             if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
                 return Some(
                     match crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
@@ -386,7 +427,13 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
 pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static str> {
     match template_name {
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(RANGER_SECONDARY_WEAPON),
-        "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_SECONDARY_WEAPON),
+        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
+            Some(HUMVEE_SECONDARY_WEAPON)
+        }
+        "USA_Avenger"
+        | "AmericaTankAvenger"
+        | "AmericaVehicleAvenger"
+        | "TestAvenger" => Some(AVENGER_AIR_LASER),
         "China_NukeCannon"
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
@@ -628,6 +675,55 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 0,
             weapon_speed: 999_999.0,
+        },
+        // CrusaderTankGun PRIMARY — PrimaryDamage 60, AttackRange 150,
+        // DelayBetweenShots 2000ms → 60 frames.
+        SeedWeapon {
+            name: CRUSADER_TANK_GUN,
+            primary_damage: 60.0,
+            attack_range: 150.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 400.0,
+        },
+        // PaladinTankGun PRIMARY — same residual stats as CrusaderTankGun.
+        SeedWeapon {
+            name: PALADIN_TANK_GUN,
+            primary_damage: 60.0,
+            attack_range: 150.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 300.0,
+        },
+        // AvengerTargetDesignator PRIMARY — STATUS paint residual (0 HP dmg).
+        // PrimaryDamage in retail is duration ms; host residual damage=0.
+        SeedWeapon {
+            name: AVENGER_TARGET_DESIGNATOR,
+            primary_damage: 0.0,
+            attack_range: 200.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // AvengerAirLaserOne residual secondary AA — PrimaryDamage 10, Range 300,
+        // Delay 200ms → 6 frames. Anti-air only (seeded separately below).
+        SeedWeapon {
+            name: AVENGER_AIR_LASER,
+            primary_damage: 10.0,
+            attack_range: 300.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // HumveeMissileWeaponAir tertiary residual — PrimaryDamage 50, Range 320,
+        // Delay+ClipReload residual cycle → 90 frames. Anti-air only.
+        SeedWeapon {
+            name: HUMVEE_MISSILE_WEAPON_AIR,
+            primary_damage: 50.0,
+            attack_range: 320.0,
+            delay_frames: 90,
+            clip_size: 1,
+            weapon_speed: 600.0,
         },
         // InfernoCannonGun PRIMARY — PrimaryDamage 30, AttackRange 300,
         // DelayBetweenShots 4000ms → 120 frames. FireFieldSmall residual on impact.
@@ -949,6 +1045,33 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 1,
             weapon_speed: 999_999.0,
         },
+        // DragonTankFlameWeapon — dmg 10, range 75, Delay 40ms → 2 frames, splash residual.
+        SeedWeapon {
+            name: DRAGON_TANK_FLAME_WEAPON,
+            primary_damage: 10.0,
+            attack_range: 75.0,
+            delay_frames: 2,
+            clip_size: 30,
+            weapon_speed: 600.0,
+        },
+        // DragonTankFlameWeaponUpgraded — BlackNapalm dmg 12.5.
+        SeedWeapon {
+            name: DRAGON_TANK_FLAME_WEAPON_UPGRADED,
+            primary_damage: 12.5,
+            attack_range: 75.0,
+            delay_frames: 2,
+            clip_size: 0,
+            weapon_speed: 600.0,
+        },
+        // GattlingTankGun — dmg 15, range 150, Delay 400ms → 12 frames.
+        SeedWeapon {
+            name: GATTLING_TANK_GUN,
+            primary_damage: 15.0,
+            attack_range: 150.0,
+            delay_frames: 12,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -987,9 +1110,31 @@ fn seed_known_host_weapons() -> usize {
         {
             t.primary_damage_radius = 5.0;
         }
+        if seed.name == DRAGON_TANK_FLAME_WEAPON
+            || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED
+        {
+            t.primary_damage_radius = 5.0;
+            t.secondary_damage = if seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
+                1.25
+            } else {
+                1.0
+            };
+            t.secondary_damage_radius = 10.0;
+        }
         if seed.name == TUNNEL_DEFENDER_BIKER_ROCKET {
             t.minimum_attack_range = 5.0;
             t.primary_damage_radius = 5.0;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        // Avenger designator can paint air + ground residual.
+        if seed.name == AVENGER_TARGET_DESIGNATOR {
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        // Avenger air laser + Humvee air TOW: airborne only residual.
+        if seed.name == AVENGER_AIR_LASER || seed.name == HUMVEE_MISSILE_WEAPON_AIR {
+            t.anti_mask = WeaponAntiMask::new(0);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }
@@ -1035,6 +1180,31 @@ fn seed_known_host_weapons() -> usize {
             }
             Err(e) => {
                 log::warn!("Host WeaponStore: failed to seed {}: {e}", name);
+            }
+        }
+    }
+
+    // Gattling Tank AA secondary: airborne only residual.
+    if !store_has(GATTLING_TANK_GUN_AIR) {
+        let mut t = WeaponTemplate::new(GATTLING_TANK_GUN_AIR.to_string());
+        t.primary_damage = 12.0;
+        t.attack_range = 350.0;
+        t.min_delay_between_shots = 12;
+        t.max_delay_between_shots = 12;
+        t.clip_size = 0;
+        t.weapon_speed = 999_999.0;
+        t.anti_mask = WeaponAntiMask::new(0);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+        t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        match with_weapon_store_mut(|store| {
+            store.add_weapon_template(t);
+        }) {
+            Ok(()) => {
+                log::debug!("Host WeaponStore: seeded AA weapon {}", GATTLING_TANK_GUN_AIR);
+                added += 1;
+            }
+            Err(e) => {
+                log::warn!("Host WeaponStore: failed to seed {}: {e}", GATTLING_TANK_GUN_AIR);
             }
         }
     }

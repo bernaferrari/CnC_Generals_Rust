@@ -732,6 +732,10 @@ pub struct GameLogic {
     /// Per-carrier next ready frame for residual PDL shot delay.
     point_defense_next_ready_frame: HashMap<ObjectId, u32>,
 
+    /// Host America Avenger residual honesty (FAERIE_FIRE paint / air laser / ROF).
+    /// Fail-closed: not full portable laser turret / dual AirLaser stream matrix.
+    avenger: crate::game_logic::host_avenger::HostAvengerRegistry,
+
     /// Host Neutron Shell residual honesty (Nuke Cannon secondary blast).
     /// Fail-closed: not full DumbProjectileBehavior / NeutronBlastBehavior modules.
     neutron_shell_residual_blasts: u32,
@@ -863,6 +867,20 @@ pub struct GameLogic {
     combat_cycle_residual_rider_switches: u32,
     combat_cycle_residual_loads: u32,
     combat_cycle_residual_suicides: u32,
+
+    /// Host residual: China Dragon Tank primary flame honesty.
+    /// Fail-closed: not full projectile stream / garrison-clear matrix.
+    dragon_tank_residual_fires: u32,
+    dragon_tank_residual_units_hit: u32,
+    dragon_tank_residual_black_napalm_upgrades: u32,
+
+    /// Host residual: China Gattling Tank continuous-fire ramp honesty.
+    /// Fail-closed: not full FiringTracker model-condition animation matrix.
+    gattling_tank_residual_ground_fires: u32,
+    gattling_tank_residual_aa_fires: u32,
+    gattling_tank_residual_ramp_mean: u32,
+    gattling_tank_residual_ramp_fast: u32,
+    gattling_tank_residual_chain_gun_upgrades: u32,
 
     /// Game paused state
     is_paused: bool,
@@ -1694,6 +1712,7 @@ impl GameLogic {
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
             point_defense_next_ready_frame: HashMap::new(),
+            avenger: crate::game_logic::host_avenger::HostAvengerRegistry::new(),
             neutron_shell_residual_blasts: 0,
             neutron_shell_residual_infantry_kills: 0,
             neutron_shell_residual_vehicles_unmanned: 0,
@@ -1749,6 +1768,14 @@ impl GameLogic {
             combat_cycle_residual_rider_switches: 0,
             combat_cycle_residual_loads: 0,
             combat_cycle_residual_suicides: 0,
+            dragon_tank_residual_fires: 0,
+            dragon_tank_residual_units_hit: 0,
+            dragon_tank_residual_black_napalm_upgrades: 0,
+            gattling_tank_residual_ground_fires: 0,
+            gattling_tank_residual_aa_fires: 0,
+            gattling_tank_residual_ramp_mean: 0,
+            gattling_tank_residual_ramp_fast: 0,
+            gattling_tank_residual_chain_gun_upgrades: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1908,6 +1935,7 @@ impl GameLogic {
         self.base_defense_residual_fires = 0;
         self.point_defense_residual_intercepts = 0;
         self.point_defense_next_ready_frame.clear();
+        self.avenger.clear();
         self.neutron_shell_residual_blasts = 0;
         self.neutron_shell_residual_infantry_kills = 0;
         self.neutron_shell_residual_vehicles_unmanned = 0;
@@ -1957,6 +1985,14 @@ impl GameLogic {
         self.combat_cycle_residual_rider_switches = 0;
         self.combat_cycle_residual_loads = 0;
         self.combat_cycle_residual_suicides = 0;
+        self.dragon_tank_residual_fires = 0;
+        self.dragon_tank_residual_units_hit = 0;
+        self.dragon_tank_residual_black_napalm_upgrades = 0;
+        self.gattling_tank_residual_ground_fires = 0;
+        self.gattling_tank_residual_aa_fires = 0;
+        self.gattling_tank_residual_ramp_mean = 0;
+        self.gattling_tank_residual_ramp_fast = 0;
+        self.gattling_tank_residual_chain_gun_upgrades = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -4526,6 +4562,7 @@ impl GameLogic {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_disabled_emp(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
+                obj.tick_faerie_fire(self.frame);
             }
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
@@ -4877,6 +4914,106 @@ impl GameLogic {
                     if aurora_queued {
                         // Shot consumed; delayed dive residual pending (no instant HP damage).
                     } else {
+                    // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
+                    let avenger_paint = {
+                        use crate::game_logic::host_avenger::{
+                            is_avenger_template, should_apply_faerie_fire_paint,
+                            AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
+                        };
+                        self.objects.get(&attacker_id).map(|a| {
+                            should_apply_faerie_fire_paint(
+                                is_avenger_template(&a.template_name),
+                                slot,
+                                true,
+                                enemy_or_forced,
+                            )
+                        })
+                        .unwrap_or(false)
+                    };
+                    let avenger_air = {
+                        use crate::game_logic::host_avenger::{
+                            is_avenger_template, should_apply_avenger_air_laser,
+                        };
+                        let target_is_air = self.objects.get(&target_id).map(|t| {
+                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+                        }).unwrap_or(false);
+                        self.objects.get(&attacker_id).map(|a| {
+                            should_apply_avenger_air_laser(
+                                is_avenger_template(&a.template_name),
+                                slot,
+                                target_is_air,
+                                true,
+                                enemy_or_forced,
+                            )
+                        })
+                        .unwrap_or(false)
+                    };
+                    // Humvee air TOW residual damage boost vs aircraft.
+                    let humvee_air_tow = {
+                        use crate::game_logic::host_humvee::{
+                            humvee_prefer_air_tow, is_humvee_template, HUMVEE_AIR_TOW_DAMAGE,
+                        };
+                        let target_is_air = self.objects.get(&target_id).map(|t| {
+                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
+                        }).unwrap_or(false);
+                        self.objects.get(&attacker_id).map(|a| {
+                            humvee_prefer_air_tow(
+                                is_humvee_template(&a.template_name),
+                                a.has_upgrade_tag(
+                                    crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW,
+                                ) || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
+                                target_is_air,
+                            ) && slot == 1
+                        })
+                        .unwrap_or(false)
+                    };
+                    if humvee_air_tow {
+                        weapon_damage = crate::game_logic::host_humvee::HUMVEE_AIR_TOW_DAMAGE;
+                    }
+
+                    // TARGET_FAERIE_FIRE ROF honesty when shooting a painted target.
+                    if self
+                        .objects
+                        .get(&target_id)
+                        .map(|t| t.is_faerie_fire())
+                        .unwrap_or(false)
+                    {
+                        self.avenger.record_rof_grant();
+                    }
+
+                    if avenger_paint {
+                        use crate::game_logic::host_avenger::{
+                            AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
+                        };
+                        let until = self.frame.saturating_add(AVENGER_FAERIE_FIRE_DURATION_FRAMES);
+                        if let Some(target) = self.objects.get_mut(&target_id) {
+                            target.apply_faerie_fire(until);
+                        }
+                        self.avenger.record_paint();
+                        let muzzle = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| a.get_position())
+                            .unwrap_or(target_position);
+                        self.queue_audio_event(
+                            AudioEventRequest::new(AVENGER_PAINT_AUDIO)
+                                .with_object(attacker_id)
+                                .with_position(muzzle)
+                                .with_priority(140),
+                        );
+                        // Status residual: no hitpoint damage from designator.
+                    } else if avenger_air {
+                        self.avenger.record_air_laser_fire();
+                        if let Some(target) = self.objects.get_mut(&target_id) {
+                            let destroyed = target.take_damage(weapon_damage);
+                            if destroyed {
+                                self.mark_object_for_destruction(target_id, Some(attacker_team));
+                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                    attacker.gain_experience(20.0);
+                                }
+                            }
+                        }
+                    } else {
                     // Neutron shell residual: Nuke Cannon secondary applies blast
                     // (kill infantry / unman vehicles) instead of HP take_damage.
                     let neutron_blast = {
@@ -5041,6 +5178,51 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // China Dragon Tank residual: primary flame splash (primary+secondary radius).
+                        use crate::game_logic::host_dragon_tank::{
+                            is_dragon_tank_template, should_apply_dragon_flame_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_dragon_flame_residual(is_dragon_tank_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_dragon_flame_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // China Gattling Tank residual: ground gun or AA secondary hit.
+                        use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| is_gattling_tank_template(&a.template_name))
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            slot,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 5.0);
+                            }
+                        }
+                    } else if {
                         // GLA Combat Cycle residual: rider weapon fire / suicide residual.
                         use crate::game_logic::host_combat_cycle::{
                             is_combat_cycle_template, should_apply_combat_cycle_residual,
@@ -5169,6 +5351,7 @@ impl GameLogic {
                             }
                         }
                     }
+                    } // end !avenger_paint / !avenger_air residual branch
 
                     } // end !aurora_queued
 
@@ -5446,6 +5629,20 @@ impl GameLogic {
                             .quad_cannon_residual_ground_fires
                             .saturating_add(1);
                     }
+                }
+
+                // China Gattling Tank residual: advance continuous-fire ramp + honesty.
+                if self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| {
+                        crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+                            &a.template_name,
+                        )
+                    })
+                    .unwrap_or(false)
+                {
+                    self.advance_gattling_continuous_fire(attacker_id, target_id, slot);
                 }
 
                 // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
@@ -7339,6 +7536,9 @@ impl GameLogic {
             HostUpgradeKind::Camouflage => {
                 self.apply_camouflage_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::CompositeArmor => {
+                self.apply_composite_armor_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -7415,12 +7615,54 @@ impl GameLogic {
                 continue;
             }
             if obj.secondary_weapon.is_none() {
-                if let Some(ref w) = secondary {
-                    obj.secondary_weapon = Some(w.clone());
+                if let Some(mut w) = secondary.clone() {
+                    // Residual: ground TOW + air tertiary capability (PreferredAgainst AIRCRAFT).
+                    // Damage boost vs air applied in combat path (HUMVEE_AIR_TOW_DAMAGE).
+                    w.can_target_air = true;
+                    w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
+                    obj.secondary_weapon = Some(w);
                 }
+            } else if let Some(w) = obj.secondary_weapon.as_mut() {
+                w.can_target_air = true;
+                w.range = w.range.max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Apply Composite Armor MaxHealthUpgrade residual (+100 HP) to Crusader / Paladin.
+    fn apply_composite_armor_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_usa_tanks::{
+            apply_composite_armor_health, is_composite_armor_unit_template,
+            UPGRADE_AMERICA_COMPOSITE_ARMOR,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_composite_armor_unit_template(&obj.template_name) {
+                continue;
+            }
+            // Idempotent: skip if already tagged.
+            if obj.has_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR)
+                || obj.has_upgrade_tag(upgrade_name)
+            {
+                continue;
+            }
+            let mut max_h = obj.max_health;
+            let mut cur = obj.health.current;
+            let mut maximum = obj.health.maximum;
+            apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
+            obj.max_health = max_h;
+            obj.health.current = cur;
+            obj.health.maximum = maximum;
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
             affected = affected.saturating_add(1);
         }
         affected
@@ -8492,6 +8734,21 @@ impl GameLogic {
                 object.install_combat_chinook_transport();
             }
 
+            // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
+            // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
+            if crate::game_logic::host_humvee::is_humvee_template(template_name) {
+                object.install_humvee_transport();
+            }
+
+            // Host residual: America Avenger designator primary + air laser secondary.
+            // Fail-closed: not portable laser turret OverlordContain passenger.
+            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
+                object.weapon =
+                    Some(crate::game_logic::host_avenger::avenger_designator_weapon());
+                object.secondary_weapon =
+                    Some(crate::game_logic::host_avenger::avenger_air_laser_weapon());
+            }
+
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.
             if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
@@ -8526,6 +8783,33 @@ impl GameLogic {
                 object.innate_stealth = true;
                 object.stealth_breaks_on_attack = false;
                 object.stealth_breaks_on_move = true;
+            }
+
+            // Host residual: China Dragon Tank primary flame weapon bind.
+            // Fail-closed: FireWall secondary is host_firewall special-power residual.
+            if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
+                use crate::game_logic::host_dragon_tank::{
+                    dragon_flame_weapon, has_black_napalm_upgrade,
+                };
+                let upgraded = has_black_napalm_upgrade(&object.applied_upgrades);
+                // Force residual flame stats when store/template leaves defaults.
+                object.weapon = Some(dragon_flame_weapon(upgraded));
+            }
+
+            // Host residual: China Gattling Tank dual ground/AA + continuous-fire ramp state.
+            // Fail-closed: not Overlord/Helix/building gattling payloads.
+            if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
+                use crate::game_logic::host_gattling_tank::{
+                    gattling_air_weapon, gattling_ground_weapon, has_chain_guns_upgrade,
+                    GattlingFireLevel,
+                };
+                let chain = has_chain_guns_upgrade(&object.applied_upgrades);
+                object.weapon = Some(gattling_ground_weapon(GattlingFireLevel::Base, chain));
+                object.secondary_weapon = Some(gattling_air_weapon(GattlingFireLevel::Base, chain));
+                object.continuous_fire_consecutive = 0;
+                object.continuous_fire_level = 0;
+                object.continuous_fire_coast_until_frame = 0;
+                object.continuous_fire_victim = 0;
             }
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
@@ -11503,12 +11787,20 @@ impl GameLogic {
                     same_team,
                     &target.template_name,
                 );
-                let is_secondary = is_secondary_intercept_target(
-                    target.is_kind_of(KindOf::Infantry),
-                    target.is_alive(),
-                    same_team,
-                    target.status.under_construction,
-                );
+                // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
+                // Avenger / King Raptor / Combat Chinook: missiles only.
+                let is_secondary = if crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
+                    &template_name,
+                ) {
+                    is_secondary_intercept_target(
+                        target.is_kind_of(KindOf::Infantry),
+                        target.is_alive(),
+                        same_team,
+                        target.status.under_construction,
+                    )
+                } else {
+                    false
+                };
                 let Some(prio) = intercept_priority(is_primary, is_secondary) else {
                     continue;
                 };
@@ -11592,6 +11884,36 @@ impl GameLogic {
     /// Residual honesty counter: PDL intercept residual shots.
     pub fn point_defense_residual_intercepts(&self) -> u32 {
         self.point_defense_residual_intercepts
+    }
+
+    /// Residual honesty: Avenger FAERIE_FIRE paint residual applied.
+    pub fn honesty_avenger_paint_ok(&self) -> bool {
+        self.avenger.honesty_paint_ok()
+    }
+
+    /// Residual honesty: Avenger air laser residual fire.
+    pub fn honesty_avenger_air_laser_ok(&self) -> bool {
+        self.avenger.honesty_air_laser_ok()
+    }
+
+    /// Residual honesty: TARGET_FAERIE_FIRE ROF grant residual.
+    pub fn honesty_avenger_rof_ok(&self) -> bool {
+        self.avenger.honesty_rof_ok()
+    }
+
+    /// Residual honesty: any Avenger residual path exercised.
+    pub fn honesty_avenger_ok(&self) -> bool {
+        self.avenger.honesty_ok()
+    }
+
+    /// Residual honesty counters: Avenger paints.
+    pub fn avenger_residual_paints(&self) -> u32 {
+        self.avenger.paints
+    }
+
+    /// Residual honesty counters: Avenger air laser fires.
+    pub fn avenger_residual_air_laser_fires(&self) -> u32 {
+        self.avenger.air_laser_fires
     }
 
     /// Residual honesty: at least one neutron shell blast residual applied.
@@ -11854,6 +12176,54 @@ impl GameLogic {
 
     pub fn combat_cycle_residual_suicides(&self) -> u32 {
         self.combat_cycle_residual_suicides
+    }
+
+    /// Residual honesty: Dragon Tank flame residual fired or BlackNapalm applied.
+    pub fn honesty_dragon_tank_ok(&self) -> bool {
+        self.dragon_tank_residual_fires > 0
+            || self.dragon_tank_residual_black_napalm_upgrades > 0
+    }
+
+    pub fn honesty_dragon_tank_black_napalm_ok(&self) -> bool {
+        self.dragon_tank_residual_black_napalm_upgrades > 0
+    }
+
+    pub fn dragon_tank_residual_fires(&self) -> u32 {
+        self.dragon_tank_residual_fires
+    }
+
+    pub fn dragon_tank_residual_units_hit(&self) -> u32 {
+        self.dragon_tank_residual_units_hit
+    }
+
+    /// Residual honesty: Gattling Tank fired, ramped, or chain-gun upgraded.
+    pub fn honesty_gattling_tank_ok(&self) -> bool {
+        self.gattling_tank_residual_ground_fires > 0
+            || self.gattling_tank_residual_aa_fires > 0
+            || self.gattling_tank_residual_ramp_mean > 0
+            || self.gattling_tank_residual_ramp_fast > 0
+            || self.gattling_tank_residual_chain_gun_upgrades > 0
+    }
+
+    pub fn honesty_gattling_tank_ramp_ok(&self) -> bool {
+        self.gattling_tank_residual_ramp_mean > 0
+            || self.gattling_tank_residual_ramp_fast > 0
+    }
+
+    pub fn honesty_gattling_tank_aa_ok(&self) -> bool {
+        self.gattling_tank_residual_aa_fires > 0
+    }
+
+    pub fn gattling_tank_residual_ground_fires(&self) -> u32 {
+        self.gattling_tank_residual_ground_fires
+    }
+
+    pub fn gattling_tank_residual_aa_fires(&self) -> u32 {
+        self.gattling_tank_residual_aa_fires
+    }
+
+    pub fn gattling_tank_residual_ramp_fast(&self) -> u32 {
+        self.gattling_tank_residual_ramp_fast
     }
 
     /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
@@ -12453,6 +12823,363 @@ impl GameLogic {
             }
         }
         MarauderWeaponTier::Base
+    }
+
+    /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
+    pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_dragon_tank::{
+            dragon_flame_weapon, is_dragon_tank_template, UPGRADE_CHINA_BLACK_NAPALM,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_dragon_tank_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
+        obj.weapon = Some(dragon_flame_weapon(true));
+        self.dragon_tank_residual_black_napalm_upgrades = self
+            .dragon_tank_residual_black_napalm_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Chain Guns residual to a Gattling Tank (PLAYER_UPGRADE damage residual).
+    pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_gattling_tank::{
+            gattling_air_weapon, gattling_ground_weapon, is_gattling_tank_template,
+            GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_gattling_tank_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
+        let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
+        obj.weapon = Some(gattling_ground_weapon(level, true));
+        obj.secondary_weapon = Some(gattling_air_weapon(level, true));
+        self.gattling_tank_residual_chain_gun_upgrades = self
+            .gattling_tank_residual_chain_gun_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Advance Gattling continuous-fire ramp residual after a successful shot.
+    fn advance_gattling_continuous_fire(
+        &mut self,
+        attacker_id: ObjectId,
+        target_id: Option<ObjectId>,
+        slot: u8,
+    ) {
+        use crate::game_logic::host_gattling_tank::{
+            gattling_air_weapon, gattling_coast_until_after_shot, gattling_ground_weapon,
+            gattling_on_shot_fired, has_chain_guns_upgrade, GattlingFireLevel,
+            GATTLING_RAPID_FIRE_AUDIO,
+        };
+
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&attacker_id) else {
+            return;
+        };
+        let prev_level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
+        let prev_consec = obj.continuous_fire_consecutive;
+        let prev_victim = if obj.continuous_fire_victim == 0 {
+            None
+        } else {
+            Some(obj.continuous_fire_victim)
+        };
+        let new_victim = target_id.map(|id| id.0);
+        let coast_until = obj.continuous_fire_coast_until_frame;
+
+        let (new_level, consecutive, entered_fast) = gattling_on_shot_fired(
+            prev_level,
+            prev_consec,
+            prev_victim,
+            new_victim,
+            frame,
+            coast_until,
+        );
+
+        let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
+        obj.continuous_fire_level = new_level.as_u8();
+        obj.continuous_fire_consecutive = consecutive;
+        obj.continuous_fire_victim = new_victim.unwrap_or(0);
+        obj.continuous_fire_coast_until_frame =
+            gattling_coast_until_after_shot(frame, new_level);
+
+        // Rebind weapons with ramped reload residual.
+        if let Some(w) = obj.weapon.as_mut() {
+            let refreshed = gattling_ground_weapon(new_level, chain);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = false;
+            w.can_target_ground = true;
+        }
+        if let Some(w) = obj.secondary_weapon.as_mut() {
+            let refreshed = gattling_air_weapon(new_level, chain);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = true;
+            w.can_target_ground = false;
+        }
+
+        let pos = obj.get_position();
+
+        if slot == 1 {
+            self.gattling_tank_residual_aa_fires =
+                self.gattling_tank_residual_aa_fires.saturating_add(1);
+        } else {
+            self.gattling_tank_residual_ground_fires = self
+                .gattling_tank_residual_ground_fires
+                .saturating_add(1);
+        }
+        if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
+            self.gattling_tank_residual_ramp_mean =
+                self.gattling_tank_residual_ramp_mean.saturating_add(1);
+        }
+        let became_fast = entered_fast
+            || (new_level == GattlingFireLevel::Fast && prev_level != GattlingFireLevel::Fast);
+        if became_fast {
+            self.gattling_tank_residual_ramp_fast =
+                self.gattling_tank_residual_ramp_fast.saturating_add(1);
+            self.queue_audio_event(
+                AudioEventRequest::new(GATTLING_RAPID_FIRE_AUDIO)
+                    .with_object(attacker_id)
+                    .with_position(pos)
+                    .with_priority(140),
+            );
+        }
+    }
+
+    /// Apply Dragon Tank flame residual at impact (primary + secondary splash).
+    ///
+    /// Returns (units_hit, any_destroyed).
+    fn apply_dragon_flame_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_dragon_tank::{
+            dragon_flame_damage_at, has_black_napalm_upgrade, is_legal_dragon_flame_target,
+            DRAGON_FIRE_AUDIO, DRAGON_SECONDARY_RADIUS,
+        };
+
+        let upgraded = source
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| has_black_napalm_upgrade(&o.applied_upgrades))
+            .unwrap_or(false);
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_dragon_flame_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= DRAGON_SECONDARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = dragon_flame_damage_at(upgraded, is_intended, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.dragon_tank_residual_fires = self.dragon_tank_residual_fires.saturating_add(1);
+        self.dragon_tank_residual_units_hit =
+            self.dragon_tank_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(DRAGON_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Gattling Tank residual hit at impact (single-target residual).
+    ///
+    /// Returns (units_hit, any_destroyed). Continuous-fire ramp advances in
+    /// `advance_gattling_continuous_fire` after the fire path records last_fire_time.
+    fn apply_gattling_tank_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        slot: u8,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_gattling_tank::{
+            gattling_damage_with_chain_guns, has_chain_guns_upgrade, is_legal_gattling_target,
+            GATTLING_AIR_DAMAGE, GATTLING_FIRE_AUDIO, GATTLING_GROUND_DAMAGE,
+        };
+
+        let (base_dmg, chain) = source
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| {
+                let chain = has_chain_guns_upgrade(&o.applied_upgrades);
+                let base = if slot == 1 {
+                    GATTLING_AIR_DAMAGE
+                } else {
+                    GATTLING_GROUND_DAMAGE
+                };
+                (base, chain)
+            })
+            .unwrap_or((GATTLING_GROUND_DAMAGE, false));
+        let dmg = gattling_damage_with_chain_guns(base_dmg, chain);
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let tid = match intended_target {
+            Some(id) => id,
+            None => {
+                let mut best: Option<(ObjectId, f32)> = None;
+                for (&id, obj) in self.objects.iter() {
+                    if source == Some(id) || !obj.is_alive() {
+                        continue;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_gattling_target(
+                        true,
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        continue;
+                    }
+                    let pos = obj.get_position();
+                    let dx = impact.x - pos.x;
+                    let dz = impact.z - pos.z;
+                    let dist = (dx * dx + dz * dz).sqrt();
+                    if dist <= 12.0 {
+                        match best {
+                            Some((_, b)) if dist >= b => {}
+                            _ => best = Some((id, dist)),
+                        }
+                    }
+                }
+                match best {
+                    Some((id, _)) => id,
+                    None => {
+                        self.queue_audio_event(
+                            AudioEventRequest::new(GATTLING_FIRE_AUDIO)
+                                .with_position(impact)
+                                .with_priority(140),
+                        );
+                        return (0, false);
+                    }
+                }
+            }
+        };
+
+        if let Some(obj) = self.objects.get_mut(&tid) {
+            if is_legal_gattling_target(
+                obj.is_alive(),
+                source == Some(tid),
+                obj.status.under_construction,
+                true,
+            ) {
+                let destroyed = obj.take_damage(dmg);
+                hits = 1;
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((tid, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.queue_audio_event(
+            AudioEventRequest::new(GATTLING_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(140),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                Some(tid),
+            );
+        }
+
+        (hits, any_destroyed)
     }
 
     /// Apply residual salvage fire-rate tier to a Marauder (crate upgrade residual).
@@ -39991,7 +40718,321 @@ mod tests {
     }
 
     /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
+    
+    /// Residual: China Dragon Tank primary flame splash + BlackNapalm upgrade.
     #[test]
+    fn dragon_tank_residual_flame_and_black_napalm() {
+        use crate::game_logic::host_dragon_tank::{
+            is_dragon_tank_template, DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE,
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_UPGRADED_PRIMARY_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut dragon_tpl = crate::game_logic::ThingTemplate::new("ChinaTankDragon");
+        dragon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(280.0)
+            .set_primary_weapon_name(DRAGON_TANK_FLAME_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaTankDragon".to_string(), dragon_tpl);
+
+        let dragon_id = game_logic
+            .create_object(
+                "ChinaTankDragon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("dragon");
+        {
+            let d = game_logic.find_object(dragon_id).expect("dragon");
+            assert!(is_dragon_tank_template(&d.template_name));
+            let prim = d.weapon.as_ref().expect("flame");
+            assert!(
+                (prim.damage - DRAGON_PRIMARY_DAMAGE).abs() < 0.01,
+                "dragon flame dmg 10, got {}",
+                prim.damage
+            );
+            assert!((prim.range - DRAGON_RANGE).abs() < 1.0);
+        }
+
+        // BlackNapalm residual upgrade → higher primary damage.
+        assert!(game_logic.apply_dragon_black_napalm_upgrade(dragon_id));
+        assert!(
+            game_logic.honesty_dragon_tank_black_napalm_ok(),
+            "black napalm residual honesty"
+        );
+        {
+            let d = game_logic.find_object(dragon_id).expect("dragon");
+            let prim = d.weapon.as_ref().expect("upgraded flame");
+            assert!(
+                (prim.damage - DRAGON_UPGRADED_PRIMARY_DAMAGE).abs() < 0.01,
+                "upgraded flame dmg 12.5, got {}",
+                prim.damage
+            );
+        }
+
+        // Flame residual: intended + primary splash + secondary ring.
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        let splash_close = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(42.0, 0.0, 0.0))
+            .expect("splash_close");
+        let splash_outer = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(48.0, 0.0, 0.0))
+            .expect("splash_outer");
+        {
+            let d = game_logic.find_object_mut(dragon_id).unwrap();
+            d.attack_target(enemy);
+            if let Some(w) = d.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let close_hp_before = game_logic
+            .find_object(splash_close)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let outer_hp_before = game_logic
+            .find_object(splash_outer)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(
+            &[dragon_id, enemy, splash_close, splash_outer],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.dragon_tank_residual_fires() > 0,
+            "dragon flame residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_dragon_tank_ok(),
+            "dragon residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let close_hp_after = game_logic
+            .find_object(splash_close)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let outer_hp_after = game_logic
+            .find_object(splash_outer)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "intended must take flame primary residual"
+        );
+        assert!(
+            close_hp_after < close_hp_before,
+            "unit in primary radius 5 must take full primary residual"
+        );
+        assert!(
+            outer_hp_after < outer_hp_before,
+            "unit in secondary radius 10 must take secondary residual"
+        );
+        // Secondary residual is smaller than primary splash residual.
+        let close_dmg = close_hp_before - close_hp_after;
+        let outer_dmg = outer_hp_before - outer_hp_after;
+        assert!(
+            close_dmg > outer_dmg,
+            "primary splash residual > secondary ring residual (close={close_dmg} outer={outer_dmg})"
+        );
+    }
+
+    /// Residual: China Gattling Tank continuous-fire ramp + AA secondary + Chain Guns.
+    #[test]
+    fn gattling_tank_residual_ramp_fire_rate_and_aa() {
+        use crate::game_logic::host_gattling_tank::{
+            is_gattling_tank_template, GattlingFireLevel, GATTLING_GROUND_DAMAGE,
+            GATTLING_GROUND_RANGE, GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut gattling_tpl = crate::game_logic::ThingTemplate::new("ChinaTankGattling");
+        gattling_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0)
+            .set_primary_weapon_name(GATTLING_TANK_GUN)
+            .set_secondary_weapon_name(GATTLING_TANK_GUN_AIR);
+        game_logic
+            .templates
+            .insert("ChinaTankGattling".to_string(), gattling_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        let gattling_id = game_logic
+            .create_object(
+                "ChinaTankGattling",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("gattling");
+        let base_reload = {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            assert!(is_gattling_tank_template(&g.template_name));
+            let prim = g.weapon.as_ref().expect("ground gun");
+            assert!((prim.damage - GATTLING_GROUND_DAMAGE).abs() < 0.01);
+            assert!((prim.range - GATTLING_GROUND_RANGE).abs() < 1.0);
+            assert!(prim.can_target_ground);
+            assert!(!prim.can_target_air);
+            let sec = g.secondary_weapon.as_ref().expect("aa gun");
+            assert!(sec.can_target_air);
+            assert!(!sec.can_target_ground);
+            assert_eq!(g.continuous_fire_level, 0);
+            prim.reload_time
+        };
+
+        // Chain Guns residual → damage × 1.25.
+        assert!(game_logic.apply_gattling_chain_guns_upgrade(gattling_id));
+        {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let prim = g.weapon.as_ref().expect("chained ground");
+            assert!(
+                (prim.damage - GATTLING_GROUND_DAMAGE * 1.25).abs() < 0.01,
+                "chain guns residual 125% damage, got {}",
+                prim.damage
+            );
+        }
+
+        // Fire repeatedly at same target to ramp continuous fire residual.
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        for i in 0..8u32 {
+            {
+                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                g.attack_target(enemy);
+                if let Some(w) = g.weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                    // Keep fireable each frame residual.
+                    w.reload_time = 0.05;
+                }
+                if let Some(w) = g.secondary_weapon.as_mut() {
+                    w.last_fire_time = 0.0;
+                    w.reload_time = 1000.0;
+                }
+            }
+            game_logic.set_current_frame(30 + (i as u64) * 15);
+            game_logic.update_combat(&[gattling_id, enemy], LOGIC_FRAME_TIMESTEP);
+        }
+
+        assert!(
+            game_logic.gattling_tank_residual_ground_fires() > 0,
+            "gattling ground residual honesty"
+        );
+        assert!(
+            game_logic.honesty_gattling_tank_ramp_ok(),
+            "gattling continuous-fire ramp residual honesty must reach MEAN or FAST"
+        );
+        {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            assert!(
+                g.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
+                "after multi-shot residual must be MEAN or FAST, level={}",
+                g.continuous_fire_level
+            );
+            let prim = g.weapon.as_ref().expect("ramped gun");
+            // MEAN reload 6/30=0.2, FAST 4/30≈0.133 — both < base 12/30=0.4
+            assert!(
+                prim.reload_time < base_reload - 0.05,
+                "ramped fire residual faster than base (base={base_reload} now={})",
+                prim.reload_time
+            );
+        }
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "gattling residual must damage ground target"
+        );
+
+        // AA secondary residual vs airborne.
+        let aircraft_id = game_logic
+            .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
+            .expect("aircraft");
+        {
+            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            a.status.airborne_target = true;
+        }
+        {
+            let g = game_logic.find_object_mut(gattling_id).unwrap();
+            g.attack_target(aircraft_id);
+            if let Some(w) = g.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = g.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+        let air_hp_before = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(200);
+        game_logic.update_combat(&[gattling_id, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_gattling_tank_aa_ok(),
+            "gattling AA residual honesty must fire secondary vs airborne"
+        );
+        let air_hp_after = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "airborne target must take gattling AA residual"
+        );
+        assert!(
+            game_logic.honesty_gattling_tank_ok(),
+            "gattling residual host path honesty"
+        );
+    }
+
+#[test]
     fn combat_cycle_residual_rider_weapon_switch() {
         use crate::game_logic::host_combat_cycle::{
             is_combat_cycle_template, CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS,

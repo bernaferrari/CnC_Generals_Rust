@@ -243,6 +243,29 @@ pub struct Object {
     pub weapon_bonus_frenzy_until_frame: u32,
     /// Residual Frenzy tier 1..=3 (maps to FRENZY_ONE/TWO/THREE damage mult).
     pub weapon_bonus_frenzy_level: u8,
+    /// Host residual continuous-fire ramp (Gattling Tank FiringTracker residual).
+    /// Consecutive shots at current victim for ContinuousFireOne/Two thresholds.
+    /// Fail-closed: not full model-condition CONTINUOUS_FIRE_* animation matrix.
+    #[serde(default)]
+    pub continuous_fire_consecutive: u32,
+    /// 0=base/slow, 1=mean (200% RoF), 2=fast (300% RoF).
+    #[serde(default)]
+    pub continuous_fire_level: u8,
+    /// Absolute host frame until which coast keeps spin-up (0 = none).
+    #[serde(default)]
+    pub continuous_fire_coast_until_frame: u32,
+    /// Last continuous-fire victim object id bits (0 = none/ground).
+    #[serde(default)]
+    pub continuous_fire_victim: u32,
+
+    /// Absolute host logic frame when FAERIE_FIRE residual expires (0 = none).
+    /// C++ StatusDamageHelper m_frameToHeal residual (Avenger paint).
+    #[serde(default)]
+    pub faerie_fire_until_frame: u32,
+
+    /// Host residual: America Humvee TransportContain (Slots=5 + passengers fire).
+    #[serde(default)]
+    pub is_humvee_transport: bool,
 }
 
 /// AI behavior states
@@ -380,6 +403,12 @@ impl Object {
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,
+            continuous_fire_consecutive: 0,
+            continuous_fire_level: 0,
+            continuous_fire_coast_until_frame: 0,
+            continuous_fire_victim: 0,
+            faerie_fire_until_frame: 0,
+            is_humvee_transport: false,
         }
     }
 
@@ -463,6 +492,12 @@ impl Object {
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,
+            continuous_fire_consecutive: 0,
+            continuous_fire_level: 0,
+            continuous_fire_coast_until_frame: 0,
+            continuous_fire_victim: 0,
+            faerie_fire_until_frame: 0,
+            is_humvee_transport: false,
         }
     }
 
@@ -774,6 +809,49 @@ impl Object {
         }
         crate::game_logic::host_frenzy::HostFrenzyLevel::from_u8(self.weapon_bonus_frenzy_level)
             .damage_multiplier()
+    }
+
+    /// C++ OBJECT_STATUS_FAERIE_FIRE residual (Avenger paint).
+    pub fn is_faerie_fire(&self) -> bool {
+        self.status.faerie_fire
+    }
+
+    /// Apply FAERIE_FIRE status residual until absolute frame (refresh extends timer).
+    pub fn apply_faerie_fire(&mut self, until_frame: u32) {
+        self.status.faerie_fire = true;
+        if until_frame > self.faerie_fire_until_frame {
+            self.faerie_fire_until_frame = until_frame;
+        }
+    }
+
+    /// Clear FAERIE_FIRE residual status.
+    pub fn clear_faerie_fire(&mut self) {
+        self.status.faerie_fire = false;
+        self.faerie_fire_until_frame = 0;
+    }
+
+    /// Expire FAERIE_FIRE residual when host frame passes the residual timer.
+    pub fn tick_faerie_fire(&mut self, current_frame: u32) {
+        if self.status.faerie_fire
+            && self.faerie_fire_until_frame > 0
+            && current_frame >= self.faerie_fire_until_frame
+        {
+            self.clear_faerie_fire();
+        }
+    }
+
+    /// Weapon ready with optional TARGET_FAERIE_FIRE ROF residual (150%).
+    pub fn weapon_ready_vs_target(
+        weapon: &Weapon,
+        current_time: f32,
+        target_has_faerie_fire: bool,
+    ) -> bool {
+        crate::game_logic::host_avenger::weapon_ready_vs_faerie(
+            weapon.last_fire_time,
+            weapon.reload_time,
+            current_time,
+            target_has_faerie_fire,
+        )
     }
 
     /// C++ OBJECT_STATUS_IS_CARBOMB residual.
@@ -1200,11 +1278,14 @@ impl Object {
         target: &Object,
         current_time: f32,
     ) -> Option<u8> {
+        let target_faerie = target.is_faerie_fire();
         let primary_ok = self.weapon.as_ref().is_some_and(|w| {
-            Self::weapon_ready(w, current_time) && self.can_target_with(target, w)
+            Self::weapon_ready_vs_target(w, current_time, target_faerie)
+                && self.can_target_with(target, w)
         });
         let secondary_ok = self.secondary_weapon.as_ref().is_some_and(|w| {
-            Self::weapon_ready(w, current_time) && self.can_target_with(target, w)
+            Self::weapon_ready_vs_target(w, current_time, target_faerie)
+                && self.can_target_with(target, w)
         });
 
         if !primary_ok && !secondary_ok {
@@ -1257,8 +1338,22 @@ impl Object {
             &self.template_name,
         ) && target_is_air;
 
+        // Avenger residual: airborne targets prefer air laser secondary.
+        let avenger_prefer_aa = crate::game_logic::host_avenger::avenger_prefer_air_laser(
+            crate::game_logic::host_avenger::is_avenger_template(&self.template_name),
+            target_is_air,
+        );
+
+        // Humvee residual: airborne targets prefer air TOW after TOW upgrade.
+        let humvee_prefer_aa = crate::game_logic::host_humvee::humvee_prefer_air_tow(
+            crate::game_logic::host_humvee::is_humvee_template(&self.template_name),
+            self.has_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW)
+                || self.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
+            target_is_air,
+        );
+
         if secondary_ok && !rocket_pods_manual_only {
-            if scud_prefer_toxin || quad_prefer_aa {
+            if scud_prefer_toxin || quad_prefer_aa || avenger_prefer_aa || humvee_prefer_aa {
                 return Some(1);
             }
             // PreferredAgainst residual by target kind + relative damage.
@@ -1656,6 +1751,22 @@ impl Object {
     /// True when this vehicle is a GLA Combat Cycle residual transport.
     pub fn is_combat_cycle_style_container(&self) -> bool {
         self.is_combat_cycle_transport
+    }
+
+    /// Install residual America Humvee transport:
+    /// C++ TransportContain Slots=5, PassengersAllowedToFire=Yes,
+    /// AllowInsideKindOf=INFANTRY.
+    /// Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
+    pub fn install_humvee_transport(&mut self) {
+        self.is_humvee_transport = true;
+        self.max_transport = crate::game_logic::host_humvee::HUMVEE_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = false;
+    }
+
+    /// True when this vehicle is an America Humvee residual transport.
+    pub fn is_humvee_style_container(&self) -> bool {
+        self.is_humvee_transport
     }
 
     /// Install residual Air Force Combat Chinook transport:

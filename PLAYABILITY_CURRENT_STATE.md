@@ -1,3 +1,31 @@
+## Residual Host Playability — China Dragon Tank + Gattling Tank (2026-07-13)
+**Closed (host-testable China vehicle flame + continuous-fire ramp residual):**
+1. **Dragon Tank residual** (`ChinaTankDragon` / general variants):
+   - PRIMARY `DragonTankFlameWeapon` residual: PrimaryDamage **10** / radius **5**,
+     SecondaryDamage **1** / radius **10**, AttackRange **75**, Delay **40**ms (2 frames).
+   - Flame residual: intended + primary-radius units take full primary; secondary ring takes secondary dmg.
+   - BlackNapalm PLAYER_UPGRADE residual (`Upgrade_ChinaBlackNapalm`): dmg **12.5** / sec **1.25**.
+   - FireWall / Firestorm secondary remains `host_firewall` special-power residual (not re-opened).
+   - Honesty: `honesty_dragon_tank_ok` / `honesty_dragon_tank_black_napalm_ok` / fires / units_hit.
+2. **Gattling Tank residual** (`ChinaTankGattling` / vehicle variants):
+   - PRIMARY `GattlingTankGun` (15 / 150 / 400ms) + SECONDARY `GattlingTankGunAir` (12 / 350 / AA).
+   - Continuous-fire ramp residual (`FiringTracker` ContinuousFireOne=2 / Two=6 / Coast=1000ms):
+     - Base delay **12** frames → MEAN **6** (200% RoF) → FAST **4** (300% RoF).
+   - Chain Guns PLAYER_UPGRADE residual (`Upgrade_ChinaChainGuns`): damage × **1.25**.
+   - Honesty: `honesty_gattling_tank_ok` / ramp / aa / ground_fires / ramp_fast / chain_gun_upgrades.
+3. Tests (not log-only):
+   - `dragon_tank_residual_flame_and_black_napalm`
+   - `gattling_tank_residual_ramp_fire_rate_and_aa`
+   - module unit tests in `host_dragon_tank.rs` / `host_gattling_tank.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full flamethrower ProjectileStream / garrison-clear AllowAttackGarrisonedBldgs matrix
+- Full FiringTracker model-condition CONTINUOUS_FIRE_* animation / VoiceRapidFire full matrix
+- Listening Outpost residual (stealth detect + transport + armed-riders dummy)
+- Troop Crawler residual (TransportContain Slots=8 + InitialPayload Redguard + assault deploy)
+- Overlord/Helix gattling payload / building Gattling continuous-fire ramp (structure uses base-defense residual without full ramp)
+- Network flame / continuous-fire replication (network deferred)
+
 ## Residual Host Playability — GLA Marauder + Combat Cycle (2026-07-13)
 **Closed (host-testable GLA Marauder salvage fire-rate + Combat Cycle rider weapon residual):**
 1. **Marauder residual** (`GLATankMarauder` / Chem_/Demo_/Slth_ / `GLA_MarauderTank`):
