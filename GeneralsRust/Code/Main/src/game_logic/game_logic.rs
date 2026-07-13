@@ -15169,7 +15169,8 @@ impl GameLogic {
             // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
             // equivalent Patriots fire AssistingClipSize assist-weapon shots +
             // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
-            // Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
+            // Fail-closed: not full W3DLaserDraw texture/arc GPU draw
+            // (endpoint track + draw-param honesty residual closed 2026-07-13).
             if !destroyed {
                 self.process_patriot_assist_request(defense_id, target_id);
             }
@@ -15281,7 +15282,8 @@ impl GameLogic {
                 self.patriot_assist_residual_accepts.saturating_add(1);
             // BinaryDataStream laser residual: LaserFromAssisted + LaserToTarget
             // (retail makeFeedbackLaser pair; DeletionUpdate 600ms lifetime).
-            // Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
+            // Fail-closed: not full W3DLaserDraw texture/arc GPU draw
+            // (endpoint track + draw-param honesty residual closed 2026-07-13).
             let beams = make_patriot_assist_lasers(
                 requester_id,
                 assistant_id,
@@ -15314,9 +15316,31 @@ impl GameLogic {
         }
     }
 
-    /// Advance residual Patriot BinaryDataStream laser lifetimes (DeletionUpdate).
+    /// Advance residual Patriot BinaryDataStream lasers:
+    /// - LaserUpdate endpoint track residual (parent/target positions)
+    /// - W3DLaserDraw ScrollRate residual
+    /// - DeletionUpdate lifetime expiry
     pub fn update_patriot_assist_lasers(&mut self) {
-        use crate::game_logic::host_base_defense::expire_patriot_assist_lasers;
+        use crate::game_logic::host_base_defense::{
+            expire_patriot_assist_lasers, track_patriot_assist_laser_endpoints,
+        };
+
+        // Snapshot live positions for LaserUpdate residual (avoid borrow conflicts).
+        let positions: Vec<(ObjectId, f32, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| {
+                let p = obj.get_position();
+                (*id, p.x, p.y, p.z, obj.is_alive())
+            })
+            .collect();
+        let lookup = |id: ObjectId| {
+            positions
+                .iter()
+                .find(|(oid, _, _, _, _)| *oid == id)
+                .map(|(_, x, y, z, alive)| (*x, *y, *z, *alive))
+        };
+        track_patriot_assist_laser_endpoints(&mut self.patriot_assist_lasers, lookup);
         expire_patriot_assist_lasers(&mut self.patriot_assist_lasers, self.frame);
     }
 
@@ -25845,6 +25869,11 @@ impl GameLogic {
         self.usa_pilot.honesty_parachute_open_ok()
     }
 
+    /// Residual honesty: AmericaParachute pitch/roll sway residual stepped.
+    pub fn honesty_pilot_parachute_sway_ok(&self) -> bool {
+        self.usa_pilot.honesty_parachute_sway_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
@@ -26042,23 +26071,29 @@ impl GameLogic {
     /// OCL_EjectPilotViaParachute residual: freefall → OpenDist open → sink to ground.
     ///
     /// AmericaParachute residual: freefall at faster rate until fallen
-    /// `ParachuteOpenDist` (100), then open chute (slower sink + open audio).
-    /// Fail-closed: not full sway / pitch-roll / DeliverPayload matrix.
+    /// `ParachuteOpenDist` (100), then open chute (slower sink + open audio) and
+    /// pitch/roll spring-damper sway residual while open.
+    /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix.
     fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
             is_pilot_template, should_open_parachute, tick_parachute_height_with_state,
-            PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO,
+            tick_parachute_sway, PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO,
         };
 
-        let (pos, is_pilot, chute_open, start_h) = match self.objects.get(&pilot_id) {
-            Some(obj) if obj.is_alive() && obj.is_parachuting() => (
-                obj.get_position(),
-                is_pilot_template(&obj.template_name),
-                obj.is_parachute_open(),
-                obj.status.parachute_start_height,
-            ),
-            _ => return,
-        };
+        let (pos, is_pilot, chute_open, start_h, pitch, roll, pitch_rate, roll_rate) =
+            match self.objects.get(&pilot_id) {
+                Some(obj) if obj.is_alive() && obj.is_parachuting() => (
+                    obj.get_position(),
+                    is_pilot_template(&obj.template_name),
+                    obj.is_parachute_open(),
+                    obj.status.parachute_start_height,
+                    obj.status.parachute_pitch,
+                    obj.status.parachute_roll,
+                    obj.status.parachute_pitch_rate,
+                    obj.status.parachute_roll_rate,
+                ),
+                _ => return,
+            };
         if !is_pilot {
             // Fail-closed: only residual ejected pilots parachute-sink via this path.
             return;
@@ -26073,6 +26108,20 @@ impl GameLogic {
             just_opened = true;
         }
         let (new_y, landed) = tick_parachute_height_with_state(pos.y, ground, open);
+        // Pitch/roll sway residual only while chute open (C++ m_opened gate).
+        let mut did_sway = false;
+        let sway = if open && !just_opened && !landed {
+            did_sway = true;
+            Some(tick_parachute_sway(
+                pitch,
+                roll,
+                pitch_rate,
+                roll_rate,
+                (new_y - ground).max(0.0),
+            ))
+        } else {
+            None
+        };
         // If freefall would overshoot ground before OpenDist, land closed residual.
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
             if just_opened {
@@ -26081,6 +26130,12 @@ impl GameLogic {
             let mut p = pilot.get_position();
             p.y = new_y;
             pilot.set_position(p);
+            if let Some((np, nr, npr, nrr)) = sway {
+                pilot.status.parachute_pitch = np;
+                pilot.status.parachute_roll = nr;
+                pilot.status.parachute_pitch_rate = npr;
+                pilot.status.parachute_roll_rate = nrr;
+            }
             if landed {
                 pilot.clear_eject_parachuting();
             }
@@ -26092,6 +26147,9 @@ impl GameLogic {
                     .with_position(Vec3::new(pos.x, new_y, pos.z))
                     .with_priority(145),
             );
+        }
+        if did_sway {
+            self.usa_pilot.record_parachute_sway_tick();
         }
         if landed {
             self.usa_pilot.record_parachute_land();
@@ -41634,7 +41692,8 @@ mod tests {
     ///
     /// C++ isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute PutInContainer
     /// AmericaParachute residual: elevated pilot freefall → OpenDist open → land.
-    /// Fail-closed: not full AmericaParachute sway / DeliverPayload matrix.
+    /// Fail-closed: not full bone PARA_COG / DeliverPayload matrix
+    /// (pitch/roll spring-damper host residual closed 2026-07-13).
     #[test]
     fn eject_pilot_air_ocl_parachute_residual() {
         use crate::game_logic::host_usa_pilot::{
@@ -42342,7 +42401,7 @@ mod tests {
     ///
     /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
     /// (slower sink + ParachuteOpen audio residual). Fail-closed: not full
-    /// sway / pitch-roll / DeliverPayload matrix.
+    /// bone PARA_COG / DeliverPayload matrix.
     #[test]
     fn eject_pilot_parachute_open_dist_residual() {
         use crate::game_logic::host_usa_pilot::{
@@ -42438,6 +42497,122 @@ mod tests {
                 .y
                 .abs()
                 < 0.1
+        );
+    }
+
+    /// Residual: AmericaParachute pitch/roll spring-damper sway residual.
+    ///
+    /// While chute open: seed ±½ Pitch/RollRateMax, spring/damper with
+    /// ParachuteLocomotor stiffness/damping + LowAltitudeDamping near ground.
+    /// Fail-closed: not full bone PARA_COG / rider sway / DeliverPayload matrix.
+    #[test]
+    fn eject_pilot_parachute_pitch_roll_sway_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            parachute_initial_pitch_rate, parachute_initial_roll_rate,
+            significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE, PARACHUTE_OPEN_DIST,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let thr = significantly_above_terrain_threshold();
+        // Tall freefall so chute opens well above ground and sway has time to step.
+        let air_y = thr + PARACHUTE_OPEN_DIST + 200.0;
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, air_y, 0.0),
+            )
+            .expect("airborne humvee");
+        {
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.airborne_target = true;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        let pilot_id = game_logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+            .map(|(id, _)| *id)
+            .expect("ejected pilot");
+        let ids = [pilot_id];
+
+        // Freefall residual: pitch/roll stay 0 until open.
+        for _ in 0..5 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            let p = game_logic.find_object(pilot_id).expect("pilot");
+            if p.is_parachute_open() {
+                break;
+            }
+            assert!(
+                p.parachute_pitch().abs() < 1e-6 && p.parachute_roll().abs() < 1e-6,
+                "freefall residual must not sway before chute opens"
+            );
+        }
+
+        // Open residual then step pitch/roll spring-damper.
+        let mut saw_open = false;
+        let mut saw_non_zero_sway = false;
+        for _ in 0..80 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            let p = game_logic.find_object(pilot_id).expect("pilot");
+            if p.is_parachute_open() {
+                saw_open = true;
+                // Open frame seeds rates; subsequent frames integrate angles.
+                if p.parachute_pitch().abs() > 1e-6 || p.parachute_roll().abs() > 1e-6 {
+                    saw_non_zero_sway = true;
+                    break;
+                }
+            }
+            if game_logic.honesty_pilot_parachute_land_ok() {
+                break;
+            }
+        }
+        assert!(saw_open, "OpenDist residual must open chute for sway");
+        assert!(
+            saw_non_zero_sway,
+            "pitch/roll sway residual must leave zero after open frames"
+        );
+        assert!(
+            game_logic.honesty_pilot_parachute_sway_ok(),
+            "sway honesty residual must tick while chute open"
+        );
+        // Seed residual honesty: open sets deterministic mid rates.
+        let open_seed_ok = parachute_initial_pitch_rate().abs() > 0.0
+            && parachute_initial_roll_rate().abs() > 0.0;
+        assert!(open_seed_ok, "deterministic mid pitch/roll rate seed");
+
+        // Land residual clears sway angles.
+        for _ in 0..200 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            if game_logic.honesty_pilot_parachute_land_ok() {
+                break;
+            }
+        }
+        assert!(game_logic.honesty_pilot_parachute_land_ok());
+        let landed = game_logic.find_object(pilot_id).expect("pilot");
+        assert!(
+            !landed.is_parachuting(),
+            "land residual clears parachuting"
+        );
+        assert!(
+            landed.parachute_pitch().abs() < 1e-6 && landed.parachute_roll().abs() < 1e-6,
+            "land residual must clear pitch/roll sway state"
         );
     }
 
@@ -54416,13 +54591,15 @@ mod tests {
     }
 
     /// Residual: AssistedTargetingUpdate BinaryDataStream LaserFromAssisted +
-    /// LaserToTarget feedback beams (PatriotBinaryDataStream DeletionUpdate 600ms).
+    /// LaserToTarget feedback beams (PatriotBinaryDataStream DeletionUpdate 600ms)
+    /// + LaserUpdate endpoint track / W3DLaserDraw ScrollRate residual.
     ///
-    /// Fail-closed: not full W3DLaserDraw / LaserUpdate client drawable.
+    /// Fail-closed: not full W3DLaserDraw texture / arc GPU draw.
     #[test]
     fn patriot_assist_binary_data_stream_laser_residual() {
         use crate::game_logic::host_base_defense::{
             PatriotAssistLaserKind, PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM,
+            PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE,
             PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
         };
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -54501,6 +54678,8 @@ mod tests {
         );
         for l in lasers {
             assert_eq!(l.template_name(), PATRIOT_BINARY_DATA_STREAM);
+            assert_eq!(l.num_beams(), PATRIOT_LASER_NUM_BEAMS);
+            assert!((l.arc_height() - PATRIOT_LASER_ARC_HEIGHT).abs() < 0.001);
             assert_eq!(
                 l.expires_frame,
                 5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES,
@@ -54510,6 +54689,44 @@ mod tests {
             assert!(l.is_active_at(5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES - 1));
             assert!(!l.is_active_at(5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES));
         }
+
+        // LaserUpdate endpoint track residual: move victim, refresh endpoints.
+        // Note: update_combat already advanced ScrollRate once at end of assist pass.
+        let scroll_before = game_logic
+            .active_patriot_assist_lasers()
+            .iter()
+            .find(|l| l.kind == PatriotAssistLaserKind::ToTarget)
+            .map(|l| l.scroll_offset)
+            .unwrap_or(0.0);
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.set_position(Vec3::new(80.0, 0.0, 25.0));
+        }
+        game_logic.frame = 6;
+        game_logic.update_patriot_assist_lasers();
+        let lasers = game_logic.active_patriot_assist_lasers();
+        assert!(!lasers.is_empty());
+        let to_target = lasers
+            .iter()
+            .find(|l| l.kind == PatriotAssistLaserKind::ToTarget)
+            .expect("ToTarget residual");
+        assert!(
+            (to_target.to_x - 80.0).abs() < 0.01 && (to_target.to_z - 25.0).abs() < 0.01,
+            "LaserUpdate residual must track live target position"
+        );
+        assert!(
+            to_target.endpoint_tracked,
+            "endpoint track honesty residual"
+        );
+        assert!(
+            (to_target.scroll_offset - (scroll_before + PATRIOT_LASER_SCROLL_RATE)).abs() < 0.001,
+            "W3DLaserDraw ScrollRate residual must advance by ScrollRate each frame (before={scroll_before}, after={})",
+            to_target.scroll_offset
+        );
+        assert!(
+            to_target.scroll_offset < 0.0,
+            "ScrollRate residual is negative (towards parent)"
+        );
 
         // DeletionUpdate residual: beams expire after lifetime.
         game_logic.frame = 5 + PATRIOT_ASSIST_LASER_LIFETIME_FRAMES;

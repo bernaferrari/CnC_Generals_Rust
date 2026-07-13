@@ -1101,6 +1101,11 @@ impl Object {
         self.status.airborne_target = true;
         self.status.parachute_open = false;
         self.status.parachute_start_height = fudged;
+        // Freefall residual: pitch/roll rates seed only when chute opens.
+        self.status.parachute_pitch = 0.0;
+        self.status.parachute_roll = 0.0;
+        self.status.parachute_pitch_rate = 0.0;
+        self.status.parachute_roll_rate = 0.0;
     }
 
     /// Whether low-altitude open fudge residual applied for this parachute start.
@@ -1113,8 +1118,18 @@ impl Object {
     }
 
     /// Mark AmericaParachute residual chute open (after OpenDist freefall).
+    ///
+    /// Seeds pitch/roll rates residual (C++ constructor random in ±Pitch/RollRateMax;
+    /// host uses deterministic mid residual).
     pub fn open_eject_parachute(&mut self) {
+        use crate::game_logic::host_usa_pilot::{
+            parachute_initial_pitch_rate, parachute_initial_roll_rate,
+        };
         self.status.parachute_open = true;
+        self.status.parachute_pitch = 0.0;
+        self.status.parachute_roll = 0.0;
+        self.status.parachute_pitch_rate = parachute_initial_pitch_rate();
+        self.status.parachute_roll_rate = parachute_initial_roll_rate();
     }
 
     /// Clear parachuting residual on land.
@@ -1123,6 +1138,20 @@ impl Object {
         self.status.airborne_target = false;
         self.status.parachute_open = false;
         self.status.parachute_start_height = 0.0;
+        self.status.parachute_pitch = 0.0;
+        self.status.parachute_roll = 0.0;
+        self.status.parachute_pitch_rate = 0.0;
+        self.status.parachute_roll_rate = 0.0;
+    }
+
+    /// AmericaParachute pitch residual (radians) while chute open.
+    pub fn parachute_pitch(&self) -> f32 {
+        self.status.parachute_pitch
+    }
+
+    /// AmericaParachute roll residual (radians) while chute open.
+    pub fn parachute_roll(&self) -> f32 {
+        self.status.parachute_roll
     }
 
     pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {
