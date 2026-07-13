@@ -26,6 +26,13 @@
 //!   (`\\n` → newline, `\\t` tab, `\\\\` backslash, `\\'` `\\\"` `\\?`)
 //! - Honesty tests for escape table residual
 //!
+//! Host residual English CSF pack load peel closed here (Wave 65; fail-closed
+//! vs full multi-locale boot UI for all LanguageId packs):
+//! - Attempt load of English CSF pack path residual when assets present under
+//!   `windows_game/.../English/generals.csf`
+//! - Label-count residual honesty when the live file parses
+//! - Missing asset → empty table honesty (not a boot UI claim)
+//!
 //! Still residual:
 //! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
@@ -78,6 +85,10 @@ pub struct GameTextResidualHonesty {
     pub multi_locale_path_count: u32,
     /// Number of live multi-locale CSF files found (0 when assets absent).
     pub multi_locale_live_found: u32,
+    /// Wave 65: English CSF pack load residual honesty (label count / empty miss).
+    pub english_csf_pack_load_ok: bool,
+    /// Wave 65: English CSF pack label count residual (0 when missing asset).
+    pub english_csf_label_count: u32,
 }
 
 impl GameTextResidualHonesty {
@@ -88,6 +99,36 @@ impl GameTextResidualHonesty {
             && self.printf_format_ok
             && self.display_string_measure_ok
             && self.multi_locale_path_ok
+            && self.english_csf_pack_load_ok
+    }
+}
+
+/// Host residual result for English CSF pack path load peel (Wave 65).
+///
+/// Fail-closed: not full multi-locale GameTextManager boot UI for all LanguageId.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnglishCsfPackLoadResidual {
+    /// True when an English generals.csf path residual was found under windows_game.
+    pub path_found: bool,
+    /// True when the live CSF binary residual parsed successfully.
+    pub parse_ok: bool,
+    /// Label count residual from the live pack (0 when missing / parse fail).
+    pub label_count: u32,
+    /// True when missing asset yields an empty table (honest fail-closed residual).
+    pub empty_table_when_missing: bool,
+    /// Optional absolute path residual when found (debug honesty only).
+    pub path_display: String,
+}
+
+impl EnglishCsfPackLoadResidual {
+    /// Residual honesty: live pack has labels, or missing asset is empty-table honest.
+    pub fn honesty_ok(&self) -> bool {
+        if self.path_found {
+            self.parse_ok && self.label_count > 0
+        } else {
+            // Missing asset → empty table honesty (not a boot UI claim).
+            self.empty_table_when_missing && self.label_count == 0 && !self.parse_ok
+        }
     }
 }
 
@@ -642,6 +683,56 @@ pub fn find_english_csf_path() -> Option<PathBuf> {
     find_csf_path_for_language(ResidualLanguageId::English)
 }
 
+/// Host residual: attempt load of English CSF pack path under windows_game.
+///
+/// When the asset is present, parse and count labels. When missing, return an
+/// empty table honesty residual (label_count **0**, empty_table_when_missing).
+/// Fail-closed: not full multi-locale CSF boot UI / LanguageId runtime switch.
+pub fn load_english_csf_pack_residual() -> EnglishCsfPackLoadResidual {
+    match find_english_csf_path() {
+        Some(path) => {
+            let path_display = path.display().to_string();
+            match fs::read(&path).ok().and_then(|b| parse_csf_residual(&b)) {
+                Some(map) => EnglishCsfPackLoadResidual {
+                    path_found: true,
+                    parse_ok: !map.is_empty(),
+                    label_count: map.len() as u32,
+                    empty_table_when_missing: false,
+                    path_display,
+                },
+                None => EnglishCsfPackLoadResidual {
+                    // Path exists but parse failed — fail-closed empty residual.
+                    path_found: true,
+                    parse_ok: false,
+                    label_count: 0,
+                    empty_table_when_missing: true,
+                    path_display,
+                },
+            }
+        }
+        None => EnglishCsfPackLoadResidual {
+            path_found: false,
+            parse_ok: false,
+            label_count: 0,
+            empty_table_when_missing: true,
+            path_display: String::new(),
+        },
+    }
+}
+
+/// Honesty: English CSF pack load residual (Wave 65).
+///
+/// Live pack → label_count > 0. Missing asset → empty table honesty.
+/// Also checks that residual_csf_relatives(English) path table is non-empty.
+pub fn honesty_english_csf_pack_load() -> bool {
+    let load = load_english_csf_pack_residual();
+    load.honesty_ok()
+        && !residual_csf_relatives(ResidualLanguageId::English).is_empty()
+        && residual_csf_relatives(ResidualLanguageId::English)
+            .iter()
+            .any(|p| p.contains("English") && p.ends_with("generals.csf"))
+}
+
 /// Host-testable residual exercise: STR + CSF + printf + DisplayString measure.
 ///
 /// Prefer live English CSF when assets are present; always honest with synthetic
@@ -713,6 +804,17 @@ END
     let (multi_locale_path_ok, multi_locale_path_count, multi_locale_live_found) =
         exercise_multi_locale_csf_residual();
 
+    // Wave 65: English CSF pack load residual peel (label count / empty miss).
+    let english_pack = load_english_csf_pack_residual();
+    let english_csf_pack_load_ok = english_pack.honesty_ok()
+        && !residual_csf_relatives(ResidualLanguageId::English).is_empty();
+    // Prefer live pack label count; fall back to exercise map count when synthetic.
+    let english_csf_label_count = if english_pack.path_found && english_pack.parse_ok {
+        english_pack.label_count
+    } else {
+        0
+    };
+
     GameTextResidualExercise {
         honesty: GameTextResidualHonesty {
             str_parse_ok,
@@ -725,6 +827,8 @@ END
             multi_locale_path_ok,
             multi_locale_path_count,
             multi_locale_live_found,
+            english_csf_pack_load_ok,
+            english_csf_label_count,
         },
         add_cash_template,
         formatted_caption,
@@ -812,8 +916,58 @@ mod tests {
         assert!(ex.honesty.display_string_measure_ok);
         assert!(ex.honesty.multi_locale_path_ok, "multi-locale path table");
         assert_eq!(ex.honesty.multi_locale_path_count, 10);
+        assert!(
+            ex.honesty.english_csf_pack_load_ok,
+            "english CSF pack load residual"
+        );
+        // Live English CSF under windows_game → label_count > 0; missing → 0.
+        let pack = load_english_csf_pack_residual();
+        if pack.path_found && pack.parse_ok {
+            assert!(ex.honesty.english_csf_label_count > 0);
+            assert_eq!(ex.honesty.english_csf_label_count, pack.label_count);
+        } else {
+            assert_eq!(ex.honesty.english_csf_label_count, 0);
+            assert!(pack.empty_table_when_missing);
+        }
         assert!(ex.honesty.honesty_ok());
         assert_eq!(ex.formatted_caption, "$150");
+    }
+
+    #[test]
+    fn english_csf_pack_load_residual_wave65_honesty() {
+        assert!(honesty_english_csf_pack_load());
+        let pack = load_english_csf_pack_residual();
+        assert!(pack.honesty_ok(), "path_found={} parse_ok={} labels={}", pack.path_found, pack.parse_ok, pack.label_count);
+        // English residual path table always lists windows_game English pack relatives.
+        let relatives = residual_csf_relatives(ResidualLanguageId::English);
+        assert!(relatives.iter().any(|p| p.contains("EnglishZH")));
+        assert!(relatives.iter().any(|p| p.ends_with("generals.csf")));
+        if pack.path_found {
+            // Live asset residual: must count labels honestly (retail generals.csf is large).
+            assert!(pack.parse_ok, "live English CSF must parse");
+            assert!(
+                pack.label_count > 100,
+                "retail English CSF label_count residual, got {}",
+                pack.label_count
+            );
+            // Shell label residual when live pack present.
+            if let Some(path) = find_english_csf_path() {
+                let map = fs::read(&path)
+                    .ok()
+                    .and_then(|b| parse_csf_residual(&b))
+                    .expect("parse live English CSF");
+                assert_eq!(map.len() as u32, pack.label_count);
+                assert_eq!(
+                    map.get(GUI_ADD_CASH_KEY).map(String::as_str),
+                    Some(GUI_ADD_CASH_RETAIL_TEMPLATE)
+                );
+            }
+        } else {
+            // Fail-closed missing-asset residual: empty table honesty.
+            assert_eq!(pack.label_count, 0);
+            assert!(!pack.parse_ok);
+            assert!(pack.empty_table_when_missing);
+        }
     }
 
     #[test]

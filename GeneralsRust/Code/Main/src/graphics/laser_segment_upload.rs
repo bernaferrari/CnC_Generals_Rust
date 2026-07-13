@@ -24,6 +24,10 @@
 //!   such INI fields — soft edge is multi-beam width/alpha lerp only
 //! - `gpu_upload_ready` is a host flag only (does NOT claim live write_buffer)
 //!
+//! Wave 65 residual closed (host-testable, fail-closed vs GPU):
+//! - OuterBeamWidth multi-beam residual pack honesty (NumBeams 12 / Outer 26 /
+//!   Inner 0.6 / ScrollRate -1.75 / TilingScalar 0.15 / Tile Yes / colors)
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - Texture atlas GPU sample bind / sampler state
@@ -126,6 +130,66 @@ pub fn honesty_laser_texture_bind_pack() -> bool {
         && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
         && ORBITAL_LASER_TILE
         && honesty_connector_laser_defaults()
+}
+
+/// Honesty: OuterBeamWidth multi-beam residual pack (Wave 65).
+///
+/// Consolidates ParticleUplinkCannon_OrbitalLaser W3DLaserDraw INI residual:
+/// NumBeams **12**, OuterBeamWidth **26**, InnerBeamWidth **0.6**, ScrollRate
+/// **-1.75**, TilingScalar **0.15**, Tile **Yes**, Inner/Outer colors, texture
+/// EXNoise02.tga, additive shader + TILED_TEXTURE_MAP. SoftnessDepth/Distance
+/// remain absent (not W3DLaserDraw fields). Fail-closed: not full GPU soft-edge
+/// texture atlas sample / SegLineRenderer write_buffer submit.
+pub fn honesty_outer_beam_width_multi_beam_pack() -> bool {
+    ORBITAL_LASER_NUM_BEAMS == 12
+        && (ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01
+        && (ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01
+        && (ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01
+        && (ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.001
+        && ORBITAL_LASER_TILE
+        && ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
+        && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
+        && ORBITAL_LASER_SHADER == "_PresetAdditiveShader"
+        && (ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001
+        && {
+            let (r, g, b, a) = ORBITAL_LASER_INNER_COLOR;
+            (r - 1.0).abs() < 0.01
+                && (g - 1.0).abs() < 0.01
+                && (b - 1.0).abs() < 0.01
+                && (a - 250.0 / 255.0).abs() < 0.01
+        }
+        && {
+            let (r, g, b, a) = ORBITAL_LASER_OUTER_COLOR;
+            (r - 0.0).abs() < 0.01
+                && (g - 0.0).abs() < 0.01
+                && (b - 1.0).abs() < 0.01
+                && (a - 150.0 / 255.0).abs() < 0.01
+        }
+        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
+        && ORBITAL_LASER_FADE_FRAMES == 0
+        && !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
+        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
+        && honesty_laser_texture_bind_pack()
+        && {
+            // Multi-beam layer residual: outer edge width = OuterBeamWidth at scale 1.
+            let layers = multi_beam_layer_residuals(
+                ORBITAL_LASER_NUM_BEAMS,
+                ORBITAL_LASER_INNER_BEAM_WIDTH,
+                ORBITAL_LASER_OUTER_BEAM_WIDTH,
+                ORBITAL_LASER_INNER_COLOR,
+                ORBITAL_LASER_OUTER_COLOR,
+                200.0, // residual segment length honesty
+                ORBITAL_LASER_TILING_SCALAR,
+                ORBITAL_LASER_SCROLL_RATE,
+                1.0, // full width_scalar residual
+            );
+            honesty_orbital_multi_beam_layers(&layers)
+                && layers.len() == ORBITAL_LASER_NUM_BEAMS as usize
+                && (layers.last().map(|l| l.width).unwrap_or(0.0)
+                    - ORBITAL_LASER_OUTER_BEAM_WIDTH)
+                    .abs()
+                    < 0.01
+        }
 }
 
 /// Honesty: host `gpu_upload_ready` never claims a live `Queue::write_buffer`.
@@ -860,6 +924,38 @@ mod tests {
         assert!(honesty_gpu_write_buffer_not_claimed(&marked));
         // Ready flag must not be misread as GPU submit residual.
         assert!(marked.honesty.gpu_upload_ready);
+    }
+
+    #[test]
+    fn outer_beam_width_multi_beam_pack_wave65_honesty() {
+        assert!(honesty_outer_beam_width_multi_beam_pack());
+        assert_eq!(ORBITAL_LASER_NUM_BEAMS, 12);
+        assert!((ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
+        assert!((ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01);
+        assert!((ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01);
+        assert!((ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.001);
+        assert!(ORBITAL_LASER_TILE);
+        assert_eq!(ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
+        assert_eq!(ORBITAL_LASER_SHADER, "_PresetAdditiveShader");
+        assert_eq!(ORBITAL_LASER_TEXTURE_MAPPING, "TILED_TEXTURE_MAP");
+        // Soft edge is multi-beam width/alpha lerp only — no SoftnessDepth field.
+        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD);
+        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD);
+        let layers = multi_beam_layer_residuals(
+            ORBITAL_LASER_NUM_BEAMS,
+            ORBITAL_LASER_INNER_BEAM_WIDTH,
+            ORBITAL_LASER_OUTER_BEAM_WIDTH,
+            ORBITAL_LASER_INNER_COLOR,
+            ORBITAL_LASER_OUTER_COLOR,
+            200.0,
+            ORBITAL_LASER_TILING_SCALAR,
+            ORBITAL_LASER_SCROLL_RATE,
+            1.0,
+        );
+        assert_eq!(layers.len(), 12);
+        assert!((layers[0].width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01);
+        assert!((layers[11].width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01);
+        assert!(honesty_orbital_multi_beam_layers(&layers));
     }
 
 }
