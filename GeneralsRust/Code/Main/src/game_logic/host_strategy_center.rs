@@ -18,15 +18,21 @@
 //!   residual select), legal army members receive DISABLED_PARALYZED for
 //!   **5000 ms → 150 frames** (retail BattlePlanChangeParalyzeTime).
 //!
+//! - **Bombardment turret residual**: when Bombardment plan is active, Strategy
+//!   Center PRIMARY `StrategyCenterGun` residual auto-fires
+//!   (PrimaryDamage **200** / r**25**, range **400**, min **100**,
+//!   Delay **7000**ms → 210 frames). C++ `enableTurret(true)` residual path.
+//!
 //! Fail-closed honesty:
 //! - Not full BattlePlanUpdate pack/unpack animation / door model-condition matrix
 //! - Not full pack→NONE→unpack transition ordering (host paralyzes on activate)
-//! - Not full turret enable/recenter for Bombardment residual path
+//! - Not full turret recenter natural-position / pitch scan matrix
 //! - Not full StealthDetectorUpdate enable/disable module stack beyond residual flag
 //! - Not full vision object (VisionObjectName) spawn residual
+//! - Not full ScatterRadius / ScaleWeaponSpeed artillery lob matrix
 //! - Not network battle-plan replication (network deferred)
 
-use super::ObjectId;
+use super::{ObjectId, Weapon};
 use serde::{Deserialize, Serialize};
 
 /// Retail HoldTheLinePlanArmorDamageScalar (LESS is better — damage taken mult).
@@ -61,6 +67,76 @@ pub const BATTLE_PLAN_BOMBARDMENT_AUDIO: &str = "StrategyCenter_BombardmentPlanA
 pub const BATTLE_PLAN_HOLD_THE_LINE_AUDIO: &str = "StrategyCenter_HoldTheLineAnnouncement";
 pub const BATTLE_PLAN_SEARCH_AND_DESTROY_AUDIO: &str =
     "StrategyCenter_SearchAndDestroyAnnouncement";
+
+// --- StrategyCenterGun Bombardment turret residual ---
+/// Retail Strategy Center PRIMARY weapon.
+pub const STRATEGY_CENTER_GUN_WEAPON: &str = "StrategyCenterGun";
+/// Retail StrategyCenterGun PrimaryDamage.
+pub const STRATEGY_CENTER_GUN_DAMAGE: f32 = 200.0;
+/// Retail StrategyCenterGun PrimaryDamageRadius.
+pub const STRATEGY_CENTER_GUN_PRIMARY_RADIUS: f32 = 25.0;
+/// Retail StrategyCenterGun AttackRange.
+pub const STRATEGY_CENTER_GUN_RANGE: f32 = 400.0;
+/// Retail StrategyCenterGun MinimumAttackRange.
+pub const STRATEGY_CENTER_GUN_MIN_RANGE: f32 = 100.0;
+/// Retail StrategyCenterGun DelayBetweenShots 7000ms → 210 frames @ 30 FPS.
+pub const STRATEGY_CENTER_GUN_DELAY_FRAMES: u32 = 210;
+/// Residual projectile speed (WeaponSpeed 150 residual honesty).
+pub const STRATEGY_CENTER_GUN_PROJECTILE_SPEED: f32 = 150.0;
+/// Residual fire audio (retail FireSound).
+pub const STRATEGY_CENTER_GUN_FIRE_AUDIO: &str = "StrategyCenter_ArtilleryRound";
+
+/// Reload time seconds residual for delay frames @ 30 FPS.
+pub fn strategy_center_gun_reload_secs() -> f32 {
+    (STRATEGY_CENTER_GUN_DELAY_FRAMES.max(1) as f32) / 30.0
+}
+
+/// Build residual StrategyCenterGun Weapon (Bombardment turret residual).
+pub fn strategy_center_gun_weapon() -> Weapon {
+    Weapon {
+        damage: STRATEGY_CENTER_GUN_DAMAGE,
+        range: STRATEGY_CENTER_GUN_RANGE,
+        min_range: STRATEGY_CENTER_GUN_MIN_RANGE,
+        reload_time: strategy_center_gun_reload_secs(),
+        last_fire_time: 0.0,
+        ammo: None,
+        can_target_air: false,
+        can_target_ground: true,
+        projectile_speed: STRATEGY_CENTER_GUN_PROJECTILE_SPEED,
+        pre_attack_delay: 0.0,
+    }
+}
+
+/// Residual damage at distance from impact (intended / primary ring).
+pub fn strategy_center_gun_damage_at(distance_from_impact: f32) -> f32 {
+    if distance_from_impact <= STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
+        STRATEGY_CENTER_GUN_DAMAGE
+    } else {
+        0.0
+    }
+}
+
+/// Whether residual target is in StrategyCenterGun range band (min..=max).
+pub fn strategy_center_gun_in_range(distance: f32) -> bool {
+    distance >= STRATEGY_CENTER_GUN_MIN_RANGE && distance <= STRATEGY_CENTER_GUN_RANGE
+}
+
+/// Legal residual Strategy Center artillery target.
+pub fn is_legal_strategy_center_gun_target(
+    is_alive: bool,
+    same_team: bool,
+    is_neutral: bool,
+    under_construction: bool,
+    combat_kind: bool,
+    is_air: bool,
+) -> bool {
+    is_alive
+        && !same_team
+        && !is_neutral
+        && !under_construction
+        && combat_kind
+        && !is_air // ground residual only (can_target_air false)
+}
 
 /// Convert BattlePlanChangeParalyzeTime ms → logic frames (30 FPS residual).
 pub fn battle_plan_paralyze_frames_from_ms(ms: u32) -> u32 {
@@ -247,6 +323,12 @@ pub struct HostBattlePlanRegistry {
     /// Total army members hit by BattlePlanChangeParalyze residual.
     #[serde(default)]
     pub paralyze_count: u32,
+    /// Bombardment turret residual fires (StrategyCenterGun).
+    #[serde(default)]
+    pub turret_fire_count: u32,
+    /// Units hit by StrategyCenterGun residual splash/intended.
+    #[serde(default)]
+    pub turret_units_hit: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -272,6 +354,19 @@ impl HostBattlePlanRegistry {
 
     pub fn paralyze_count(&self) -> u32 {
         self.paralyze_count
+    }
+
+    pub fn turret_fire_count(&self) -> u32 {
+        self.turret_fire_count
+    }
+
+    pub fn turret_units_hit(&self) -> u32 {
+        self.turret_units_hit
+    }
+
+    pub fn record_turret_fire(&mut self, units_hit: u32) {
+        self.turret_fire_count = self.turret_fire_count.saturating_add(1);
+        self.turret_units_hit = self.turret_units_hit.saturating_add(units_hit);
     }
 
     pub fn selections(&self) -> &[HostBattlePlanSelection] {
@@ -339,6 +434,11 @@ impl HostBattlePlanRegistry {
         self.paralyze_count > 0
     }
 
+    /// Residual honesty: Bombardment turret StrategyCenterGun fired at least once.
+    pub fn honesty_turret_fire_ok(&self) -> bool {
+        self.turret_fire_count > 0
+    }
+
     /// Combined host path: selected and applied at least one army buff.
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_select_ok() && self.honesty_buff_ok()
@@ -359,6 +459,21 @@ mod tests {
         assert!((STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR - 2.0).abs() < 0.001);
         assert_eq!(BATTLE_PLAN_PARALYZE_TIME_MS, 5000);
         assert_eq!(BATTLE_PLAN_PARALYZE_FRAMES, 150);
+        assert!((STRATEGY_CENTER_GUN_DAMAGE - 200.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_GUN_PRIMARY_RADIUS - 25.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_GUN_RANGE - 400.0).abs() < 0.001);
+        assert!((STRATEGY_CENTER_GUN_MIN_RANGE - 100.0).abs() < 0.001);
+        assert_eq!(STRATEGY_CENTER_GUN_DELAY_FRAMES, 210);
+        let gun = strategy_center_gun_weapon();
+        assert!((gun.damage - 200.0).abs() < 0.001);
+        assert!((gun.range - 400.0).abs() < 0.001);
+        assert!((gun.min_range - 100.0).abs() < 0.001);
+        assert!((gun.reload_time - 7.0).abs() < 0.001);
+        assert!(strategy_center_gun_in_range(150.0));
+        assert!(!strategy_center_gun_in_range(50.0));
+        assert!(!strategy_center_gun_in_range(500.0));
+        assert!((strategy_center_gun_damage_at(10.0) - 200.0).abs() < 0.001);
+        assert!((strategy_center_gun_damage_at(30.0) - 0.0).abs() < 0.001);
         assert_eq!(battle_plan_paralyze_frames_from_ms(5000), 150);
         assert_eq!(battle_plan_paralyze_until_frame(10), 160);
         assert!(!BATTLE_PLAN_BOMBARDMENT_AUDIO.is_empty());
@@ -462,4 +577,30 @@ mod tests {
             Some(HostBattlePlan::Bombardment)
         );
     }
+    #[test]
+    fn strategy_center_gun_target_gate() {
+        assert!(is_legal_strategy_center_gun_target(
+            true, false, false, false, true, false
+        ));
+        assert!(!is_legal_strategy_center_gun_target(
+            true, true, false, false, true, false
+        )); // same team
+        assert!(!is_legal_strategy_center_gun_target(
+            true, false, false, false, true, true
+        )); // air
+        assert!(!is_legal_strategy_center_gun_target(
+            true, false, true, false, true, false
+        )); // neutral
+    }
+
+    #[test]
+    fn turret_fire_honesty() {
+        let mut reg = HostBattlePlanRegistry::new();
+        assert!(!reg.honesty_turret_fire_ok());
+        reg.record_turret_fire(2);
+        assert!(reg.honesty_turret_fire_ok());
+        assert_eq!(reg.turret_fire_count(), 1);
+        assert_eq!(reg.turret_units_hit(), 2);
+    }
+
 }

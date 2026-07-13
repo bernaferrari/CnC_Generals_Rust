@@ -5049,6 +5049,7 @@ impl GameLogic {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_disabled_emp(self.frame);
                 obj.tick_disabled_paralyzed(self.frame);
+                obj.tick_eject_invulnerable(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
             }
@@ -5218,6 +5219,34 @@ impl GameLogic {
                     continue;
                 }
             }
+            // Strategy Center Bombardment turret residual: StrategyCenterGun auto-fire
+            // only while Bombardment plan is active (C++ enableTurret residual).
+            {
+                use crate::game_logic::host_strategy_center::{
+                    is_strategy_center_template, HostBattlePlan,
+                };
+                let is_sc = is_strategy_center_template(&attacker.template_name)
+                    || attacker.is_kind_of(KindOf::FSStrategyCenter);
+                let sc_auto_ok = is_sc
+                    && attacker.is_constructed()
+                    && attacker.weapon.is_some()
+                    && attacker.can_attack()
+                    && matches!(
+                        attacker.ai_state,
+                        AIState::Idle | AIState::Attacking | AIState::Patrolling
+                    )
+                    && !self.skirmish_ai_auto_engage_paused(attacker.team);
+                if sc_auto_ok {
+                    // Player residual gate: active plan must be Bombardment.
+                    let pid = self.player_id_for_team(attacker.team).unwrap_or(0);
+                    if self.battle_plans.active_plan_for_player(pid)
+                        == Some(HostBattlePlan::Bombardment)
+                    {
+                        self.try_strategy_center_bombardment_turret_fire(attacker_id);
+                        continue;
+                    }
+                }
+            }
             // Sentry Drone residual: with gun upgrade, AutoAcquireEnemiesWhenIdle
             // fires at nearest enemy without manual AttackObject.
             // Fail-closed: not full DeployStyle pack/unpack / turret-only-deployed.
@@ -5325,13 +5354,16 @@ impl GameLogic {
                     {
                         let stealthed_hidden =
                             target.is_effectively_stealthed() && target.team != attacker.team;
+                        // InvulnerableTime residual: enemies treat as ALLIES (skip auto fire).
+                        let invuln_hidden =
+                            target.is_eject_invulnerable() && target.team != attacker.team;
                         let enemy_or_forced = attacker.force_attack || attacker.team != target.team;
-                        let slot = if enemy_or_forced && !stealthed_hidden {
+                        let slot = if enemy_or_forced && !stealthed_hidden && !invuln_hidden {
                             attacker.select_combat_weapon_slot(target, current_time)
                         } else {
                             None
                         };
-                        (slot, enemy_or_forced, stealthed_hidden)
+                        (slot, enemy_or_forced, stealthed_hidden || invuln_hidden)
                     } else {
                         (None, false, false)
                     }
@@ -10562,6 +10594,26 @@ impl GameLogic {
                 object.secondary_weapon = Some(secondary);
             }
 
+            // Strategy Center residual: PRIMARY StrategyCenterGun exists in retail but
+            // AutoChooseSources=PRIMARY NONE and turret starts disabled until Bombardment
+            // (C++ enableTurret). Strip kind-based Weapon::default fallback; Bombardment
+            // residual re-equips StrategyCenterGun. Explicit template primary still keeps.
+            if crate::game_logic::host_strategy_center::is_strategy_center_template(template_name)
+                || object.is_kind_of(KindOf::FSStrategyCenter)
+            {
+                // Fail-closed: strip kind-based Weapon::default unless already
+                // StrategyCenterGun residual (Bombardment mid-game recreate).
+                use crate::game_logic::host_strategy_center::STRATEGY_CENTER_GUN_DAMAGE;
+                let is_gun = object.weapon.as_ref().is_some_and(|w| {
+                    (w.damage - STRATEGY_CENTER_GUN_DAMAGE).abs() < 0.001
+                        && (w.range - 400.0).abs() < 0.001
+                });
+                if !is_gun {
+                    object.weapon = None;
+                    object.secondary_weapon = None;
+                }
+            }
+
             // GLA Quad Cannon residual: force air/ground anti masks on dual weapons.
             // Fail-closed vs full Weapon.ini AntiGround/AntiAirborne parse when store
             // templates leave default GROUND mask on AA secondary.
@@ -11887,6 +11939,14 @@ impl GameLogic {
                             self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos)
                         {
                             self.usa_pilot.record_ejection();
+                            // OCL InvulnerableTime residual (2000ms → 60 frames).
+                            let until = crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(
+                                self.frame,
+                            );
+                            if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+                                pilot.apply_eject_invulnerable(until);
+                            }
+                            self.usa_pilot.record_invulnerable_grant();
                             self.queue_audio_event(
                                 AudioEventRequest::new(PILOT_EJECT_AUDIO)
                                     .with_position(spawn_pos)
@@ -14445,6 +14505,190 @@ impl GameLogic {
     /// Record a residual Overlord BattleBunker exit/evacuate (tests / host path).
     pub fn record_overlord_bunker_residual_exit(&mut self) {
         self.overlord_bunker_residual_exits = self.overlord_bunker_residual_exits.saturating_add(1);
+    }
+
+    /// Residual Strategy Center Bombardment turret fire (StrategyCenterGun).
+    ///
+    /// C++ BattlePlanUpdate::enableTurret(true) residual path:
+    /// PrimaryDamage **200** / radius **25**, range **400**, min **100**,
+    /// Delay **7000**ms (210 frames). Fail-closed: not full turret recenter /
+    /// ScatterRadius / projectile lob matrix.
+    fn try_strategy_center_bombardment_turret_fire(&mut self, center_id: ObjectId) {
+        use crate::game_logic::host_strategy_center::{
+            is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
+            strategy_center_gun_in_range, STRATEGY_CENTER_GUN_FIRE_AUDIO,
+            STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&center_id) else {
+            return;
+        };
+        if !attacker.is_alive()
+            || !attacker.is_constructed()
+            || attacker.weapon.is_none()
+            || !attacker.can_attack()
+        {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let fire_pos = attacker.get_position();
+        let range = weapon.range;
+        let min_range = weapon.min_range;
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == center_id {
+                continue;
+            }
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+            if !is_legal_strategy_center_gun_target(
+                obj.is_alive(),
+                obj.team == team,
+                obj.team == Team::Neutral,
+                obj.status.under_construction,
+                combat_kind,
+                is_air,
+            ) {
+                continue;
+            }
+            // Stealthed + undetected residual: skip.
+            if obj.is_effectively_stealthed() && obj.team != team {
+                continue;
+            }
+            // InvulnerableTime residual pilots: enemies treat as ALLIES (skip).
+            if obj.is_eject_invulnerable() && obj.team != team {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if strategy_center_gun_in_range(dist)
+                && dist >= min_range
+                && dist <= range
+                && best.map(|(_, d)| dist < d).unwrap_or(true)
+            {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let impact = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.get_position())
+            .unwrap_or(fire_pos);
+
+        // Splash residual: intended + PrimaryDamageRadius ring.
+        let impact_xz = (impact.x, impact.z);
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if *id == center_id {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_strategy_center_gun_target(
+                    obj.is_alive(),
+                    obj.team == team,
+                    obj.team == Team::Neutral,
+                    obj.status.under_construction,
+                    combat_kind,
+                    is_air,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = *id == target_id;
+                if is_intended || dist <= STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut hits = 0u32;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        for (id, dist, is_intended) in candidates {
+            let dmg = strategy_center_gun_damage_at(if is_intended { 0.0 } else { dist });
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                // InvulnerableTime residual blocks damage.
+                if obj.is_eject_invulnerable() {
+                    self.usa_pilot.record_invulnerable_block();
+                    continue;
+                }
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    destroy_ids.push((id, Some(team)));
+                }
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&center_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            attacker.target = Some(target_id);
+            attacker.target_location = None;
+            attacker.force_attack = false;
+            attacker.ai_state = AIState::Attacking;
+            attacker.status.attacking = true;
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.battle_plans.record_turret_fire(hits);
+
+        let muzzle_pos = self
+            .objects
+            .get(&center_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            Some(impact),
+            self.frame,
+            center_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(STRATEGY_CENTER_GUN_FIRE_AUDIO)
+                .with_object(center_id)
+                .with_position(muzzle_pos)
+                .with_priority(165),
+        );
     }
 
     /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
@@ -22821,6 +23065,11 @@ impl GameLogic {
         self.battle_plans.honesty_host_path_ok()
     }
 
+    /// Residual honesty: Bombardment turret StrategyCenterGun fired.
+    pub fn honesty_battle_plan_turret_fire_ok(&self) -> bool {
+        self.battle_plans.honesty_turret_fire_ok()
+    }
+
     /// Activate Frenzy / Rage residual: temporary ally attack buff in radius.
     ///
     /// Matches retail SuperweaponFrenzy → Frenzy_InvisibleMarker WeaponBonusUpdate:
@@ -22944,7 +23193,8 @@ impl GameLogic {
     /// - BattlePlanChangeParalyzeTime: DISABLED_PARALYZED for 5000ms (150 frames)
     ///   on legal army members when a plan is activated/changed
     ///
-    /// Fail-closed: not full pack/unpack animation / turret / vision-object path.
+    /// Fail-closed: not full pack/unpack animation / turret recenter / vision-object path.
+    /// Bombardment residual enables StrategyCenterGun turret auto-fire.
     /// Returns true when the residual selection was recorded (even if 0 army buffs).
     pub fn activate_battle_plan(
         &mut self,
@@ -23029,7 +23279,12 @@ impl GameLogic {
                             // Fail-closed: clear residual detect unless template is innate detector.
                             center.is_detector = false;
                         }
-                        _ => {}
+                        crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
+                            // Disable Bombardment turret residual (C++ enableTurret false).
+                            center.weapon = None;
+                            center.secondary_weapon = None;
+                            center.stop_attack();
+                        }
                     }
                 }
             }
@@ -23138,8 +23393,13 @@ impl GameLogic {
                             building_bonus = true;
                         }
                         crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
-                            // Bombardment residual building bonus is turret enable
-                            // (fail-closed animation path) — still count honesty.
+                            // Bombardment residual building bonus: enable StrategyCenterGun
+                            // turret (C++ enableTurret(true)). Fail-closed: not full
+                            // natural-position recenter / pack animation matrix.
+                            center.weapon = Some(
+                                crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
+                            );
+                            center.secondary_weapon = None;
                             building_bonus = true;
                         }
                     }
@@ -24303,9 +24563,33 @@ impl GameLogic {
         self.usa_pilot.honesty_eject_ok()
     }
 
+    /// Residual honesty: OCL InvulnerableTime residual granted on eject.
+    pub fn honesty_pilot_invulnerable_ok(&self) -> bool {
+        self.usa_pilot.honesty_invulnerable_ok()
+    }
+
+    /// Residual honesty: InvulnerableTime blocked at least one damage attempt.
+    pub fn honesty_pilot_invulnerable_block_ok(&self) -> bool {
+        self.usa_pilot.honesty_invulnerable_block_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
+    }
+
+    /// Apply residual damage to an object, honoring InvulnerableTime residual.
+    /// Returns (destroyed, blocked_by_invuln).
+    pub fn apply_host_damage(&mut self, id: ObjectId, damage: f32) -> (bool, bool) {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return (false, false);
+        };
+        if obj.is_eject_invulnerable() {
+            self.usa_pilot.record_invulnerable_block();
+            return (false, true);
+        }
+        let destroyed = obj.take_damage(damage);
+        (destroyed, false)
     }
 
     /// Host GLA Worker residual registry.
@@ -38182,6 +38466,252 @@ mod tests {
             1,
             "unmanned residual must not eject pilot"
         );
+    }
+
+    /// Residual: OCL InvulnerableTime (2000ms → 60 frames) shields ejected pilot.
+    ///
+    /// C++ ObjectCreationList InvulnerableTime → goInvulnerable residual.
+    /// Host residual: damage blocked until timer expires.
+    /// Fail-closed: not full UNDETECTED_DEFECTOR FX flash matrix.
+    #[test]
+    fn eject_pilot_invulnerable_time_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            EJECT_PILOT_INVULNERABLE_FRAMES, EJECT_PILOT_TEMPLATE,
+        };
+
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("humvee");
+
+        {
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_pilot_invulnerable_ok(),
+            "InvulnerableTime residual must grant honesty on eject"
+        );
+
+        let pilot_id = game_logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+            .map(|(id, _)| *id)
+            .expect("ejected pilot");
+
+        {
+            let pilot = game_logic.find_object(pilot_id).expect("pilot");
+            assert!(
+                pilot.is_eject_invulnerable(),
+                "pilot must be invulnerable immediately after eject"
+            );
+            assert_eq!(
+                pilot.status.eject_invulnerable_until_frame,
+                game_logic.frame + EJECT_PILOT_INVULNERABLE_FRAMES,
+                "InvulnerableTime residual until-frame must match 60 frames"
+            );
+        }
+
+        let hp_before = game_logic.find_object(pilot_id).unwrap().health.current;
+        let (destroyed, blocked) = game_logic.apply_host_damage(pilot_id, 50.0);
+        assert!(!destroyed, "invulnerable pilot must not die");
+        assert!(blocked, "InvulnerableTime must block damage");
+        assert!(
+            game_logic.honesty_pilot_invulnerable_block_ok(),
+            "block honesty must record"
+        );
+        let hp_mid = game_logic.find_object(pilot_id).unwrap().health.current;
+        assert!(
+            (hp_mid - hp_before).abs() < 0.001,
+            "HP must be unchanged during InvulnerableTime, got {hp_mid} vs {hp_before}"
+        );
+
+        // Expire InvulnerableTime residual.
+        let expire = game_logic.frame + EJECT_PILOT_INVULNERABLE_FRAMES;
+        game_logic.frame = expire;
+        if let Some(pilot) = game_logic.find_object_mut(pilot_id) {
+            pilot.tick_eject_invulnerable(expire);
+        }
+        assert!(
+            !game_logic
+                .find_object(pilot_id)
+                .unwrap()
+                .is_eject_invulnerable(),
+            "InvulnerableTime must expire after 60 frames"
+        );
+
+        let (destroyed2, blocked2) = game_logic.apply_host_damage(pilot_id, 25.0);
+        assert!(!blocked2, "post-expiry damage must not be blocked");
+        assert!(!destroyed2);
+        let hp_after = game_logic.find_object(pilot_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_mid - 0.5,
+            "post-expiry pilot must take damage"
+        );
+    }
+
+    /// Residual: Bombardment plan enables StrategyCenterGun turret auto-fire.
+    ///
+    /// C++ enableTurret(true) on Bombardment residual:
+    /// PrimaryDamage 200 / r25, range 400, min 100, Delay 7000ms.
+    /// Fail-closed: not full natural-position recenter / pack animation.
+    #[test]
+    fn strategy_center_bombardment_turret_fire_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, STRATEGY_CENTER_GUN_DAMAGE, STRATEGY_CENTER_GUN_MIN_RANGE,
+            STRATEGY_CENTER_GUN_RANGE,
+        };
+
+        let mut game_logic = GameLogic::new();
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        ensure_test_tank_template(&mut game_logic);
+
+        // Ensure USA player exists for player_id_for_team residual gate.
+        if !game_logic.players.contains_key(&0) {
+            game_logic
+                .players
+                .insert(0, Player::new(0, Team::USA, "USA", true));
+        } else if let Some(p) = game_logic.players.get_mut(&0) {
+            p.team = Team::USA;
+        }
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+
+        // Without Bombardment: no StrategyCenterGun residual.
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(sc.weapon.is_none(), "turret disabled without Bombardment");
+        }
+
+        // Enemy in range band (min 100, max 400).
+        let enemy_id = game_logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                Vec3::new(STRATEGY_CENTER_GUN_MIN_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).expect("enemy");
+            e.health.current = e.health.maximum; // full
+        }
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+
+        // Too-close enemy residual (inside min range) must not be preferred when
+        // a legal in-band target exists; still create for range-band honesty.
+        let close_id = game_logic
+            .create_object(
+                "TestTank",
+                Team::GLA,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("close enemy");
+        let close_hp_before = game_logic.find_object(close_id).unwrap().health.current;
+
+        assert!(!game_logic.honesty_battle_plan_turret_fire_ok());
+
+        // Activate Bombardment → equip StrategyCenterGun.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            let w = sc.weapon.as_ref().expect("Bombardment must equip StrategyCenterGun");
+            assert!(
+                (w.damage - STRATEGY_CENTER_GUN_DAMAGE).abs() < 0.001,
+                "StrategyCenterGun damage residual 200"
+            );
+            assert!(
+                (w.range - STRATEGY_CENTER_GUN_RANGE).abs() < 0.001,
+                "StrategyCenterGun range residual 400"
+            );
+            assert!(
+                (w.min_range - STRATEGY_CENTER_GUN_MIN_RANGE).abs() < 0.001,
+                "StrategyCenterGun min range residual 100"
+            );
+        }
+
+        // Fire residual (force readiness: last_fire_time far past).
+        {
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            if let Some(w) = sc.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+            }
+            sc.ai_state = AIState::Idle;
+        }
+        game_logic.try_strategy_center_bombardment_turret_fire(sc_id);
+
+        assert!(
+            game_logic.honesty_battle_plan_turret_fire_ok(),
+            "Bombardment turret residual must record fire honesty"
+        );
+        assert!(game_logic.battle_plans().turret_fire_count() >= 1);
+
+        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            enemy_hp_after < enemy_hp_before - 50.0,
+            "in-range enemy must take StrategyCenterGun residual damage, before={enemy_hp_before} after={enemy_hp_after}"
+        );
+
+        // Close enemy may take splash if within 25 of impact (impact is on far enemy at x=150).
+        // At x=20 vs impact x=150 → no splash. Must remain undamaged by min-range gate.
+        let close_hp_after = game_logic.find_object(close_id).unwrap().health.current;
+        assert!(
+            (close_hp_after - close_hp_before).abs() < 0.001,
+            "min-range residual must not target close enemy as primary"
+        );
+
+        // Switch to HoldTheLine → turret disabled residual.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::HoldTheLine,
+            Some(sc_id),
+        ));
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(
+                sc.weapon.is_none(),
+                "leaving Bombardment must disable StrategyCenterGun residual"
+            );
+        }
     }
 
     /// Residual: Emergency Repair special power heals damaged ally vehicles in radius.
