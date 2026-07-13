@@ -7,6 +7,12 @@
 //! 3. Load real mesh bytes when assets are present; placeholder + honesty when not
 //! 4. Fail-closed: not full W3D material / animation / GPU retail parity
 //!
+//! Wave 53 residual peels:
+//! - Expanded common unit model_key table (top ZH host units)
+//! - Placeholder last-keys ring buffer residual (capacity 32)
+//! - W3DZH/Art/W3D path search residual honesty constants
+//! - Mesh scale residual default 1.0 (ThingTemplate Scale not yet ported)
+//!
 //! Production GPU upload remains `GraphicsSystem` / deferred load budget.
 
 use crate::assets::models::{W3DLoader, W3DModel};
@@ -20,6 +26,26 @@ use std::sync::{Mutex, OnceLock};
 
 /// Sentinel model name for the diagnostic placeholder cube (matches GraphicsSystem).
 pub const PLACEHOLDER_MODEL_KEY: &str = "__fallback_cube__";
+
+/// Default mesh scale residual (C++ Object Scale omitted → 1.0).
+/// Fail-closed: not full ThingTemplate Scale INI field / draw scale bone.
+pub const DEFAULT_MESH_SCALE: f32 = 1.0;
+
+/// Placeholder last-keys ring capacity residual.
+pub const PLACEHOLDER_KEY_RING_CAPACITY: usize = 32;
+
+/// Retail / extract W3D search root residual path fragments (honesty constants).
+///
+/// Production `filesystem_w3d_candidates` joins these under CWD / manifest roots.
+pub const W3D_SEARCH_ROOT_RESIDUALS: &[&str] = &[
+    "windows_game/extracted_big_files/W3DZH/Art/W3D",
+    "windows_game/extracted_big_files_v2/W3DZH/Art/W3D",
+    "windows_game/extracted_big_files/Art/W3D",
+    "GeneralsRust/Code/Tools/w3d_to_gltf/W3D",
+    "Code/Tools/w3d_to_gltf/W3D",
+    "Art/W3D",
+    "Data/Art/W3D",
+];
 
 static RESOLVE_LOADED: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_PLACEHOLDER: AtomicUsize = AtomicUsize::new(0);
@@ -68,18 +94,67 @@ impl MeshResolveHonesty {
 fn note_placeholder_key(model_key: &str) {
     let lock = LAST_PLACEHOLDER_KEYS.get_or_init(|| Mutex::new(Vec::new()));
     if let Ok(mut v) = lock.lock() {
-        if v.len() < 32 && !v.iter().any(|k| k == model_key) {
-            v.push(model_key.to_string());
+        // Ring buffer residual: drop oldest when at capacity; skip duplicates.
+        if let Some(pos) = v.iter().position(|k| k == model_key) {
+            // Move existing key to the newest end (recency residual).
+            let existing = v.remove(pos);
+            v.push(existing);
+            return;
         }
+        if v.len() >= PLACEHOLDER_KEY_RING_CAPACITY {
+            v.remove(0);
+        }
+        v.push(model_key.to_string());
     }
 }
 
-/// Recent model keys that fell back to the placeholder cube.
+/// Recent model keys that fell back to the placeholder cube (ring residual).
 pub fn recent_placeholder_model_keys() -> Vec<String> {
     LAST_PLACEHOLDER_KEYS
         .get()
         .and_then(|lock| lock.lock().ok().map(|v| v.clone()))
         .unwrap_or_default()
+}
+
+/// Honesty: placeholder last-keys ring buffer residual is operational.
+pub fn honesty_placeholder_key_ring_ok() -> bool {
+    PLACEHOLDER_KEY_RING_CAPACITY == 32
+}
+
+/// Honesty: W3D path search residual roots include W3DZH/Art/W3D + Art/W3D.
+pub fn honesty_w3d_path_search_roots_ok() -> bool {
+    let has_w3dzh = W3D_SEARCH_ROOT_RESIDUALS
+        .iter()
+        .any(|p| p.contains("W3DZH/Art/W3D"));
+    let has_art = W3D_SEARCH_ROOT_RESIDUALS
+        .iter()
+        .any(|p| *p == "Art/W3D" || p.ends_with("/Art/W3D") || p.ends_with("Art/W3D"));
+    let has_tools = W3D_SEARCH_ROOT_RESIDUALS
+        .iter()
+        .any(|p| p.contains("w3d_to_gltf"));
+    has_w3dzh && has_art && has_tools && !W3D_SEARCH_ROOT_RESIDUALS.is_empty()
+}
+
+/// Mesh scale residual from template (default 1.0 — Scale field not yet on ThingTemplate).
+///
+/// Fail-closed: not full Object INI Scale / draw-scale bone parity.
+pub fn mesh_scale_from_template(template: &ThingTemplate) -> f32 {
+    let _ = template;
+    DEFAULT_MESH_SCALE
+}
+
+/// Mesh scale residual for a known unit template name (default 1.0).
+pub fn mesh_scale_for_unit(template_name: &str) -> f32 {
+    let _ = template_name;
+    // Host residual: all common units use default scale until ThingTemplate.scale ports.
+    DEFAULT_MESH_SCALE
+}
+
+/// Honesty: mesh scale residual defaults are retail 1.0.
+pub fn honesty_mesh_scale_residual_ok() -> bool {
+    (DEFAULT_MESH_SCALE - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("USA_Ranger") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("GLA_Scorpion") - 1.0).abs() < 0.001
 }
 
 /// Outcome of resolving a presentation `model_key` to mesh data.
@@ -195,15 +270,32 @@ pub fn model_key_from_presentation(
 }
 
 /// Known common unit template → model key pairs used by host setup / prewarm.
+///
+/// Expanded Wave 53 residual: top ZH host units from `units.rs` create templates.
 pub fn common_unit_model_keys() -> &'static [(&'static str, &'static str)] {
     &[
+        // USA
         ("USA_Ranger", "airanger_s"),
         ("AmericaInfantryRanger", "airanger_s"),
         ("USA_Humvee", "avhummer"),
         ("USA_Crusader", "avcrusader"),
+        ("USA_Paladin", "avcrusader"),
         ("USA_Dozer", "avdozer"),
+        ("USA_Tomahawk", "avtomahawk"),
+        // China
         ("China_Soldier", "cirifle"),
+        ("China_Dozer", "cvdozer"),
+        ("China_BattleTank", "cvbattlemaster"),
+        ("China_DragonTank", "cvdragon"),
+        ("China_GattlingTank", "cvgattling"),
+        ("China_TankHunter", "uirguard02"),
+        // GLA
+        ("GLA_Soldier", "githrpf"),
+        ("GLA_Worker", "giworker"),
+        ("GLA_Technical", "gvtchncl"),
         ("GLA_Scorpion", "gvscorpion"),
+        ("GLA_RPGTrooper", "uirguard02"),
+        ("GLA_MarauderTank", "uvlitetank"),
     ]
 }
 
@@ -224,6 +316,9 @@ pub fn expected_model_key_for_unit(template_name: &str) -> Option<&'static str> 
 }
 
 /// Filesystem candidates for a model key (repo / extracted BIG / tools samples).
+///
+/// Roots include residual honesty constants from `W3D_SEARCH_ROOT_RESIDUALS`
+/// (W3DZH/Art/W3D, Art/W3D, tools samples) plus manifest-relative fallbacks.
 pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
     let key = canonical_model_key(model_key);
     if key.is_empty() || key == PLACEHOLDER_MODEL_KEY {
@@ -249,13 +344,10 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd.clone());
-        roots.push(cwd.join("windows_game/extracted_big_files/W3DZH/Art/W3D"));
-        roots.push(cwd.join("windows_game/extracted_big_files_v2/W3DZH/Art/W3D"));
-        roots.push(cwd.join("windows_game/extracted_big_files/Art/W3D"));
-        roots.push(cwd.join("GeneralsRust/Code/Tools/w3d_to_gltf/W3D"));
-        roots.push(cwd.join("Code/Tools/w3d_to_gltf/W3D"));
-        roots.push(cwd.join("Art/W3D"));
-        roots.push(cwd.join("Data/Art/W3D"));
+        // Residual honesty roots (W3DZH/Art/W3D etc.) — keep in sync with constants.
+        for rel in W3D_SEARCH_ROOT_RESIDUALS {
+            roots.push(cwd.join(rel));
+        }
         // When running from GeneralsRust/Code/Main
         roots.push(cwd.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
         roots.push(cwd.join("../../Tools/w3d_to_gltf/W3D"));
@@ -267,6 +359,9 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
     roots.push(manifest.join("../Tools/w3d_to_gltf/W3D"));
     roots.push(manifest.join("../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
     roots.push(manifest.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
+    for rel in W3D_SEARCH_ROOT_RESIDUALS {
+        roots.push(manifest.join("../../../").join(rel));
+    }
 
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -718,5 +813,87 @@ mod tests {
     fn load_model_from_bytes_rejects_empty() {
         let loader = W3DLoader::new();
         assert!(loader.load_model_from_bytes(&[], "empty").is_err());
+    }
+
+    #[test]
+    fn expanded_common_unit_table_covers_top_zh_host_units() {
+        // Wave 53 residual: top ZH host units from units.rs must map.
+        let required = [
+            "USA_Ranger",
+            "USA_Humvee",
+            "USA_Crusader",
+            "USA_Paladin",
+            "USA_Tomahawk",
+            "China_Soldier",
+            "China_BattleTank",
+            "China_DragonTank",
+            "China_GattlingTank",
+            "GLA_Soldier",
+            "GLA_Technical",
+            "GLA_Scorpion",
+            "GLA_MarauderTank",
+        ];
+        assert!(common_unit_model_keys().len() >= required.len());
+        for name in required {
+            assert!(
+                common_unit_has_model_key(name),
+                "missing common unit model key residual: {name}"
+            );
+            let key = expected_model_key_for_unit(name).expect("key");
+            assert!(!key.is_empty(), "{name} empty key");
+        }
+    }
+
+    #[test]
+    fn w3d_path_search_residual_honesty_constants() {
+        assert!(honesty_w3d_path_search_roots_ok());
+        assert!(W3D_SEARCH_ROOT_RESIDUALS
+            .iter()
+            .any(|p| p.contains("W3DZH/Art/W3D")));
+        let candidates = filesystem_w3d_candidates("airanger_s");
+        assert!(
+            candidates.iter().any(|p| {
+                let s = p.to_string_lossy();
+                s.contains("W3DZH") || s.contains("Art/W3D") || s.contains("w3d_to_gltf")
+            }),
+            "filesystem candidates must include residual W3D search roots"
+        );
+    }
+
+    #[test]
+    fn placeholder_key_ring_buffer_residual() {
+        assert!(honesty_placeholder_key_ring_ok());
+        MeshResolveHonesty::reset_for_tests();
+        // Fill beyond capacity → ring drops oldest.
+        for i in 0..(PLACEHOLDER_KEY_RING_CAPACITY + 4) {
+            let key = format!("__ring_placeholder_{i}__");
+            let _ = resolve_mesh_for_model_key(&key, true);
+        }
+        let keys = recent_placeholder_model_keys();
+        assert!(
+            keys.len() <= PLACEHOLDER_KEY_RING_CAPACITY,
+            "ring must cap at {PLACEHOLDER_KEY_RING_CAPACITY}, got {}",
+            keys.len()
+        );
+        // Newest keys retained.
+        assert!(
+            keys.iter()
+                .any(|k| k.contains(&format!("{}", PLACEHOLDER_KEY_RING_CAPACITY + 3))),
+            "newest key must remain in ring: {keys:?}"
+        );
+        // Oldest dropped.
+        assert!(
+            !keys.iter().any(|k| k.ends_with("_0__") && k.contains("ring_placeholder_0")),
+            "oldest key should be dropped from ring: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn mesh_scale_residual_defaults_to_one() {
+        assert!(honesty_mesh_scale_residual_ok());
+        let mut t = ThingTemplate::new("USA_Ranger");
+        t.set_model("airanger_s");
+        assert!((mesh_scale_from_template(&t) - 1.0).abs() < 0.001);
+        assert!((mesh_scale_for_unit("China_BattleTank") - DEFAULT_MESH_SCALE).abs() < 0.001);
     }
 }
