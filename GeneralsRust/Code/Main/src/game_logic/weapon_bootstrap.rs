@@ -47,6 +47,14 @@ pub const HUMVEE_SECONDARY_WEAPON: &str = "HumveeMissileWeapon";
 pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
 pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
 
+/// Retail Nuke Cannon primary / neutron secondary residual weapons.
+pub const NUKE_CANNON_PRIMARY_WEAPON: &str = "NukeCannonGun";
+pub const NUKE_CANNON_NEUTRON_WEAPON: &str = "NukeCannonNeutronWeapon";
+
+/// Retail PointDefenseLaser residual weapons (Paladin / Avenger).
+pub const PALADIN_POINT_DEFENSE_LASER: &str = "PaladinPointDefenseLaser";
+pub const AVENGER_POINT_DEFENSE_LASER: &str = "AvengerPointDefenseLaserOne";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -89,8 +97,15 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             Some(PATRIOT_PRIMARY_WEAPON)
         }
         "China_GattlingCannon" | "ChinaGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
+        "China_NukeCannon"
+        | "ChinaVehicleNukeCannon"
+        | "Nuke_ChinaVehicleNukeCannon"
+        | "TestNukeCannon" => Some(NUKE_CANNON_PRIMARY_WEAPON),
         _ => {
-            // Name residual for Laser/Superweapon general variants.
+            // Name residual for Laser/Superweapon general variants + Nuke Cannon.
+            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
+                return Some(NUKE_CANNON_PRIMARY_WEAPON);
+            }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
     }
@@ -102,7 +117,17 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
     match template_name {
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(RANGER_SECONDARY_WEAPON),
         "USA_Humvee" | "AmericaVehicleHumvee" => Some(HUMVEE_SECONDARY_WEAPON),
-        _ => None,
+        "China_NukeCannon"
+        | "ChinaVehicleNukeCannon"
+        | "Nuke_ChinaVehicleNukeCannon"
+        | "TestNukeCannon" => Some(NUKE_CANNON_NEUTRON_WEAPON),
+        _ => {
+            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
+                Some(NUKE_CANNON_NEUTRON_WEAPON)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -253,6 +278,46 @@ fn seed_known_host_weapons() -> usize {
             primary_damage: 10.0,
             attack_range: 225.0,
             delay_frames: 8,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // ChinaVehicleNukeCannon PRIMARY — NukeCannonGun residual seed.
+        // PrimaryDamage ~200 retail shell; host residual uses 200 / range 350.
+        SeedWeapon {
+            name: NUKE_CANNON_PRIMARY_WEAPON,
+            primary_damage: 200.0,
+            attack_range: 350.0,
+            delay_frames: 300,
+            clip_size: 0,
+            weapon_speed: 200.0,
+        },
+        // NukeCannonNeutronWeapon SECONDARY — PrimaryDamage 1 (blast does work),
+        // AttackRange 350, Delay 10000ms → 300 frames. Blast via host residual.
+        SeedWeapon {
+            name: NUKE_CANNON_NEUTRON_WEAPON,
+            primary_damage: 1.0,
+            attack_range: 350.0,
+            delay_frames: 300,
+            clip_size: 0,
+            weapon_speed: 200.0,
+        },
+        // PaladinPointDefenseLaser — PrimaryDamage 100, AttackRange 65,
+        // DelayBetweenShots 1000ms → 30 frames. Instant laser.
+        SeedWeapon {
+            name: PALADIN_POINT_DEFENSE_LASER,
+            primary_damage: 100.0,
+            attack_range: 65.0,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // AvengerPointDefenseLaserOne — PrimaryDamage 100, AttackRange 100,
+        // DelayBetweenShots 500ms → 15 frames.
+        SeedWeapon {
+            name: AVENGER_POINT_DEFENSE_LASER,
+            primary_damage: 100.0,
+            attack_range: 100.0,
+            delay_frames: 15,
             clip_size: 0,
             weapon_speed: 999_999.0,
         },
@@ -502,9 +567,10 @@ mod tests {
         );
     }
 
-    /// Residual: infantry (non-structure) still uses primary when both ready.
+    /// Residual PreferredAgainst: FlashBang secondary preferred vs infantry when
+    /// secondary damage > primary (Ranger 35 > 5).
     #[test]
-    fn update_combat_uses_primary_vs_infantry_when_both_ready() {
+    fn update_combat_prefers_secondary_damage_vs_infantry() {
         ensure_host_weapon_store();
 
         let mut logic = crate::game_logic::GameLogic::new();
@@ -534,12 +600,13 @@ mod tests {
             .create_object("GLA_Soldier", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
             .expect("infantry");
 
-        let primary_dmg = logic
-            .objects
-            .get(&attacker_id)
-            .and_then(|a| a.weapon.as_ref())
-            .map(|w| w.damage)
-            .unwrap_or(0.0);
+        let (primary_dmg, secondary_dmg) = {
+            let atk = logic.objects.get(&attacker_id).expect("attacker");
+            let p = atk.weapon.as_ref().expect("primary").damage;
+            let s = atk.secondary_weapon.as_ref().expect("secondary").damage;
+            assert!(s > p, "FlashBang secondary must out-damage primary");
+            (p, s)
+        };
 
         {
             let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
@@ -573,8 +640,8 @@ mod tests {
         let dealt = health_before - health_after;
 
         assert!(
-            (dealt - primary_dmg).abs() < 1.0 || (dealt > 0.0 && dealt <= primary_dmg + 0.5),
-            "infantry shot must use primary path: dealt={dealt} primary={primary_dmg}"
+            dealt > primary_dmg + 0.5,
+            "infantry PreferredAgainst residual must use secondary: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
         );
 
         let atk = logic.objects.get(&attacker_id).expect("attacker");
@@ -584,10 +651,13 @@ mod tests {
             .as_ref()
             .map(|w| w.last_fire_time)
             .unwrap_or(0.0);
-        assert!(pri_last > 0.0, "primary must fire vs infantry");
         assert!(
-            (sec_last - 0.0).abs() < f32::EPSILON,
-            "secondary must stay idle vs infantry when primary ready"
+            sec_last > 0.0,
+            "secondary last_fire_time must advance vs infantry PreferredAgainst"
+        );
+        assert!(
+            (pri_last - 0.0).abs() < f32::EPSILON,
+            "primary must stay idle when secondary PreferredAgainst fires"
         );
     }
 

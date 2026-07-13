@@ -26,6 +26,8 @@ pub mod host_propaganda;
 pub mod host_base_defense;
 pub mod host_ecm_jam;
 pub mod host_emp_pulse;
+pub mod host_point_defense;
+pub mod host_neutron_shell;
 pub mod host_paradrop;
 pub mod host_ambush;
 pub mod host_firewall;
@@ -101,6 +103,16 @@ pub use host_ecm_jam::{
 pub use host_emp_pulse::{
     is_legal_emp_disable_target, HostEmpPulse, HostEmpPulseRegistry, EMP_PULSE_ACTIVATE_AUDIO,
     EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+};
+pub use host_point_defense::{
+    is_missile_name_residual, is_point_defense_carrier, is_primary_intercept_target,
+    pdl_delay_frames, pdl_damage, pdl_fire_range, pdl_scan_range, AVENGER_PDL_FIRE_RANGE,
+    PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO,
+};
+pub use host_neutron_shell::{
+    is_nuke_cannon_template, neutron_effect_for_target, should_apply_neutron_blast, NeutronEffect,
+    HOST_NEUTRON_BLAST_RADIUS, NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
+    UPGRADE_CHINA_NEUTRON_SHELLS,
 };
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
