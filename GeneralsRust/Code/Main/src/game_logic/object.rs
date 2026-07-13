@@ -408,8 +408,10 @@ pub struct Object {
     #[serde(default)]
     pub camo_opacity_pulse_phase: f32,
     /// CamoNetting StealthLook residual (host of Drawable::setStealthLook).
-    /// 0=None, 1=VisibleFriendly, 2=VisibleFriendlyDetected, 3=VisibleDetected,
-    /// 4=Invisible. Fail-closed: not full W3D heat-vision second material pass GPU.
+    /// C++ `StealthLookType` / `HostCamoStealthLook` ordinals:
+    /// 0=None, 1=VisibleFriendly, 2=DisguisedEnemy, 3=VisibleDetected,
+    /// 4=VisibleFriendlyDetected, 5=Invisible.
+    /// Fail-closed: not full W3D heat-vision second material pass GPU.
     #[serde(default)]
     pub camo_stealth_look: u8,
     /// Heat-vision second material pass opacity residual (0 or 1 host residual).
