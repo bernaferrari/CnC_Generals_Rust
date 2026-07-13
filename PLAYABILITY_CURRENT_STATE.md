@@ -1,3 +1,49 @@
+## Residual Host Playability — Wave 44: SupW Magenta OuterColor + DeletionUpdate Sleep + GameText MISSING Fetch + DisplayStringManager Link + Anim2D Status/Alpha (2026-07-13)
+**Closed (host-testable residual not covered by wave 43 special/gattling/immortal residual):**
+1. **SupW ParticleUplink magenta OuterColor residual** (`special_power_strikes`):
+   - SupW connector/orbital OuterColor **R:255 G:0 B:255 A:150** (magenta).
+   - Normal residual OuterColor remains blue **R:0 G:0 B:255 A:150**.
+   - Object names SupW_ParticleUplinkCannon_* residual.
+   - Honesty: `honesty_particle_supw_outer_color`.
+   - Fail-closed: not full SupW ThingFactory laser drawable / GPU SegLine submit.
+2. **DeletionUpdate calcSleepDelay residual** (`special_power_strikes`):
+   - TrailRemnant MinLifetime==MaxLifetime **4000** ms → **120** frames fixed.
+   - Random range residual when min≠max; clamp delay **≥1**.
+   - Honesty: `honesty_deletion_update_sleep_delay`.
+   - Fail-closed: not full ThingFactory destroyObject on dieFrame.
+3. **GameText fetch missing-label residual** (`game_text_residual`):
+   - Miss → `MISSING: 'label'` + exists=false; hit → value + exists=true.
+   - Missing-string list de-dupe residual (`m_noStringList`).
+   - Honesty: `honesty_game_text_fetch_missing`.
+   - Fail-closed: not full multi-locale CSF boot UI.
+4. **DisplayStringManager link/unlink residual** (`floating_text_layout`):
+   - Head-insert doubly-linked factory list residual.
+   - Honesty: `honesty_display_string_manager_link`.
+   - Fail-closed: not full W3DDisplayStringManager GPU pool.
+5. **Anim2D status bits + setAlpha residual** (`world_anim_layout`):
+   - NONE/FROZEN/REVERSED/COMPLETE bit flags; set/clear/test residual.
+   - Default alpha **1.0**; draw color alpha = **255 × m_alpha**.
+   - Honesty: `honesty_anim2d_status_alpha`.
+   - Fail-closed: not full Anim2DCollection GPU atlas draw.
+6. Tests (not log-only):
+   - `particle_supw_outer_color_residual_honesty`
+   - `deletion_update_sleep_delay_residual_honesty`
+   - `game_text_fetch_missing_residual_honesty`
+   - `display_string_manager_link_residual_honesty`
+   - `anim2d_status_alpha_residual_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 43: Scud Special + Gattling Params + MissileAI Defaults + ImmortalBody Floor + DisplayString getFont/Draw + Anim2DMode Table (2026-07-13)
 **Closed (host-testable residual not covered by wave 41 launch/anti/getSize residual):**
 1. **ScudStormWeapon special residual** (`special_power_strikes`):
