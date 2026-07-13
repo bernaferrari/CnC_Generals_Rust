@@ -11,6 +11,16 @@
 //!     min 5 / 1000ms)
 //! - AP Bullets residual: damage × 1.25 when upgrade tag present.
 //!
+//! Wave 64 residual pack (retail GLAVehicle.ini / Weapon.ini / Locomotor.ini):
+//! - Body: MaxHealth **180**, Vision **150**, Shroud **300**, BuildCost **500**,
+//!   BuildTime **5**s → **150**f, TurretTurnRate **240**, Locomotor Speed **90**
+//! - TransportContain: Slots **5**, AllowInsideKindOf INFANTRY,
+//!   DamagePercentToUnits **10%**, GoAggressiveOnExit **Yes**,
+//!   PassengersAllowedToFire residual **No**
+//! - Salvage weapon tiers + AP 125% residual (MG/Cannon/RPG)
+//! - Cannon ScatterRadiusVsInfantry **10**; RPG FireSound TunnelRocketWeapon
+//! - VeterancyGainCreate residual: StartingLevel VETERAN + SCIENCE_TechnicalTraining
+//!
 //! Fail-closed honesty:
 //! - Not full SalvageCrate collate / W3D gunner subobject swap matrix
 //! - Not PassengersAllowedToFire (retail Technical passengers do not fire)
@@ -18,6 +28,9 @@
 //! - Not network salvage / transport replication (network deferred)
 
 use super::Weapon;
+
+/// Logic frames per second (host fixed step).
+pub const TECHNICAL_LOGIC_FPS: f32 = 30.0;
 
 /// Retail primary base weapon.
 pub const TECHNICAL_MACHINE_GUN: &str = "TechnicalMachineGunWeapon";
@@ -30,10 +43,20 @@ pub const UPGRADE_GLA_AP_BULLETS: &str = "Upgrade_GLAAPBullets";
 
 /// C++ TransportContain Slots = 5.
 pub const TECHNICAL_TRANSPORT_SLOTS: usize = 5;
+/// Retail AllowInsideKindOf = INFANTRY residual.
+pub const TECHNICAL_ALLOW_INFANTRY_ONLY: bool = true;
+/// Retail DamagePercentToUnits residual (percent).
+pub const TECHNICAL_DAMAGE_PERCENT_TO_UNITS: f32 = 10.0;
+/// Retail GoAggressiveOnExit residual.
+pub const TECHNICAL_GO_AGGRESSIVE_ON_EXIT: bool = true;
+/// Retail PassengersAllowedToFire residual (Technical riders do not fire).
+pub const TECHNICAL_PASSENGERS_ALLOWED_TO_FIRE: bool = false;
 
 /// Tier 0 PrimaryDamage / AttackRange / DelayBetweenShots.
 pub const TECH_MG_DAMAGE: f32 = 10.0;
 pub const TECH_MG_RANGE: f32 = 150.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TECH_MG_DELAY_MS: u32 = 200;
 /// 200ms → 6 frames @ 30 FPS.
 pub const TECH_MG_DELAY_FRAMES: u32 = 6;
 
@@ -41,22 +64,68 @@ pub const TECH_MG_DELAY_FRAMES: u32 = 6;
 pub const TECH_CANNON_DAMAGE: f32 = 45.0;
 pub const TECH_CANNON_RADIUS: f32 = 25.0;
 pub const TECH_CANNON_RANGE: f32 = 150.0;
+/// Retail ScatterRadiusVsInfantry residual (cannon).
+pub const TECH_CANNON_SCATTER_VS_INFANTRY: f32 = 10.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TECH_CANNON_DELAY_MS: u32 = 1000;
 /// 1000ms → 30 frames @ 30 FPS.
 pub const TECH_CANNON_DELAY_FRAMES: u32 = 30;
+/// Retail cannon FireSound residual.
+pub const TECH_CANNON_FIRE_AUDIO: &str = "ScorpionTankWeapon";
 
 /// Tier 2 PrimaryDamage / radius / range / min range / delay.
 pub const TECH_RPG_DAMAGE: f32 = 50.0;
 pub const TECH_RPG_RADIUS: f32 = 5.0;
 pub const TECH_RPG_RANGE: f32 = 150.0;
 pub const TECH_RPG_MIN_RANGE: f32 = 5.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const TECH_RPG_DELAY_MS: u32 = 1000;
 /// 1000ms → 30 frames @ 30 FPS.
 pub const TECH_RPG_DELAY_FRAMES: u32 = 30;
+/// Retail RPG FireSound residual.
+pub const TECH_RPG_FIRE_AUDIO: &str = "TunnelRocketWeapon";
 
 /// AP bullets WeaponBonus DAMAGE 125%.
 pub const TECH_AP_DAMAGE_MULT: f32 = 1.25;
 
 /// Residual fire audio.
 pub const TECH_FIRE_AUDIO: &str = "TechnicalWeapon";
+
+/// Retail ActiveBody MaxHealth residual.
+pub const TECHNICAL_MAX_HEALTH: f32 = 180.0;
+/// Retail VisionRange residual.
+pub const TECHNICAL_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const TECHNICAL_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual (parent GLAVehicleTechnical).
+pub const TECHNICAL_BUILD_COST: u32 = 500;
+/// Retail BuildTime residual (seconds).
+pub const TECHNICAL_BUILD_TIME_SEC: f32 = 5.0;
+/// BuildTime 5s → 150 frames @ 30 FPS.
+pub const TECHNICAL_BUILD_TIME_FRAMES: u32 = 150;
+/// Retail TurretTurnRate residual (deg/sec).
+pub const TECHNICAL_TURRET_TURN_RATE: f32 = 240.0;
+/// Retail TechnicalLocomotor Speed residual.
+pub const TECHNICAL_LOCOMOTOR_SPEED: f32 = 90.0;
+/// Retail TechnicalLocomotor SpeedDamaged residual.
+pub const TECHNICAL_LOCOMOTOR_SPEED_DAMAGED: f32 = 80.0;
+
+/// Retail VeterancyGainCreate StartingLevel residual token.
+pub const TECHNICAL_STARTING_LEVEL: &str = "VETERAN";
+/// Retail SCIENCE_TechnicalTraining residual.
+pub const TECHNICAL_TRAINING_SCIENCE: &str = "SCIENCE_TechnicalTraining";
+/// Retail ExperienceRequired residual (levels 0→1→2→3).
+pub const TECHNICAL_EXPERIENCE_REQUIRED: [u32; 4] = [0, 50, 75, 150];
+/// Retail ExperienceValue residual.
+pub const TECHNICAL_EXPERIENCE_VALUE: [u32; 4] = [25, 25, 50, 100];
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn technical_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / TECHNICAL_LOGIC_FPS)).round() as u32
+}
 
 /// Multi-weapon salvage residual tier (WEAPONSET_CRATEUPGRADE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -220,6 +289,73 @@ pub fn in_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool
     dx * dx + dz * dz <= radius * radius
 }
 
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: salvage weapon tier residual.
+pub fn honesty_technical_weapon_residual_ok() -> bool {
+    TECHNICAL_MACHINE_GUN == "TechnicalMachineGunWeapon"
+        && TECHNICAL_CANNON == "TechnicalCannonWeapon"
+        && TECHNICAL_RPG == "TechnicalRPGWeapon"
+        && (TECH_MG_DAMAGE - 10.0).abs() < 0.01
+        && (TECH_MG_RANGE - 150.0).abs() < 0.01
+        && TECH_MG_DELAY_MS == 200
+        && TECH_MG_DELAY_FRAMES == technical_ms_to_frames(TECH_MG_DELAY_MS)
+        && (TECH_CANNON_DAMAGE - 45.0).abs() < 0.01
+        && (TECH_CANNON_RADIUS - 25.0).abs() < 0.01
+        && (TECH_CANNON_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01
+        && TECH_CANNON_DELAY_MS == 1000
+        && TECH_CANNON_DELAY_FRAMES == technical_ms_to_frames(TECH_CANNON_DELAY_MS)
+        && TECH_CANNON_FIRE_AUDIO == "ScorpionTankWeapon"
+        && (TECH_RPG_DAMAGE - 50.0).abs() < 0.01
+        && (TECH_RPG_RADIUS - 5.0).abs() < 0.01
+        && (TECH_RPG_MIN_RANGE - 5.0).abs() < 0.01
+        && TECH_RPG_DELAY_MS == 1000
+        && TECH_RPG_DELAY_FRAMES == technical_ms_to_frames(TECH_RPG_DELAY_MS)
+        && TECH_RPG_FIRE_AUDIO == "TunnelRocketWeapon"
+        && (TECH_AP_DAMAGE_MULT - 1.25).abs() < 0.001
+        && UPGRADE_GLA_AP_BULLETS == "Upgrade_GLAAPBullets"
+        && TECH_FIRE_AUDIO == "TechnicalWeapon"
+}
+
+/// Wave 64 residual honesty: TransportContain residual.
+pub fn honesty_technical_transport_residual_ok() -> bool {
+    TECHNICAL_TRANSPORT_SLOTS == 5
+        && TECHNICAL_ALLOW_INFANTRY_ONLY
+        && (TECHNICAL_DAMAGE_PERCENT_TO_UNITS - 10.0).abs() < 0.01
+        && TECHNICAL_GO_AGGRESSIVE_ON_EXIT
+        && !TECHNICAL_PASSENGERS_ALLOWED_TO_FIRE
+}
+
+/// Wave 64 residual honesty: body / vision / locomotor residual.
+pub fn honesty_technical_body_residual_ok() -> bool {
+    (TECHNICAL_MAX_HEALTH - 180.0).abs() < 0.01
+        && (TECHNICAL_VISION_RANGE - 150.0).abs() < 0.01
+        && (TECHNICAL_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && TECHNICAL_BUILD_COST == 500
+        && (TECHNICAL_BUILD_TIME_SEC - 5.0).abs() < 0.01
+        && TECHNICAL_BUILD_TIME_FRAMES
+            == (TECHNICAL_BUILD_TIME_SEC * TECHNICAL_LOGIC_FPS).round() as u32
+        && (TECHNICAL_TURRET_TURN_RATE - 240.0).abs() < 0.01
+        && (TECHNICAL_LOCOMOTOR_SPEED - 90.0).abs() < 0.01
+        && (TECHNICAL_LOCOMOTOR_SPEED_DAMAGED - 80.0).abs() < 0.01
+}
+
+/// Wave 64 residual honesty: training / XP residual.
+pub fn honesty_technical_training_residual_ok() -> bool {
+    TECHNICAL_STARTING_LEVEL == "VETERAN"
+        && TECHNICAL_TRAINING_SCIENCE == "SCIENCE_TechnicalTraining"
+        && TECHNICAL_EXPERIENCE_REQUIRED == [0, 50, 75, 150]
+        && TECHNICAL_EXPERIENCE_VALUE == [25, 25, 50, 100]
+}
+
+/// Combined Wave 64 Technical residual honesty pack.
+pub fn honesty_technical_residual_pack_ok() -> bool {
+    honesty_technical_weapon_residual_ok()
+        && honesty_technical_transport_residual_ok()
+        && honesty_technical_body_residual_ok()
+        && honesty_technical_training_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +422,16 @@ mod tests {
     #[test]
     fn transport_slots() {
         assert_eq!(TECHNICAL_TRANSPORT_SLOTS, 5);
+    }
+
+    #[test]
+    fn technical_residual_pack_honesty() {
+        assert_eq!(technical_ms_to_frames(200), 6);
+        assert_eq!(technical_ms_to_frames(1000), 30);
+        assert!(honesty_technical_weapon_residual_ok());
+        assert!(honesty_technical_transport_residual_ok());
+        assert!(honesty_technical_body_residual_ok());
+        assert!(honesty_technical_training_residual_ok());
+        assert!(honesty_technical_residual_pack_ok());
     }
 }

@@ -17,6 +17,16 @@
 //! - Floating cash text residual: host `+$N` presentation at crate pos + Z offset
 //!   (green RGBA) — presentation state, not full InGameUI draw / GameText fetch.
 //!
+//! Wave 64 residual pack (retail Crate.ini / ObjectCreationList.ini honesty):
+//! - SupplyDropZoneCrate: Money **250**, BuildingPickup **Yes**, SupplyLines **+25**,
+//!   ForbiddenKindOf PROJECTILE, KindOf PARACHUTABLE CRATE
+//! - Dollar crate matrix residual: 1000DollarCrate **1000**, 2500DollarCrate **2500**
+//! - Geometry residual BOX **12**/ **12**/ **12** (IsSmall Yes); Physics Mass **75**
+//! - OCL_AmericaSupplyDropZoneCrateDrop residual: Payload **6**, DropDelay **350**ms → **11**f,
+//!   DeliveryDistance **410**, Transport AmericaJetCargoPlane,
+//!   PutInContainer AmericaCrateParachute, ParachuteDirectly **Yes**
+//! - ExecuteAnimation MoneyPickUp residual constants (time/ZRise/fades)
+//!
 //! Fail-closed honesty:
 //! - Not full CrateCollide kindof multi / science gate / ForbidOwnerPlayer matrix
 //! - Not full Anim2DCollection GPU / InGameUI world-anim draw path
@@ -28,11 +38,17 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Logic frames per second (host fixed step).
+pub const MONEY_CRATE_LOGIC_FPS: f32 = 30.0;
+
 /// Retail SupplyDropZoneCrate MoneyProvided.
 pub const SUPPLY_DROP_CRATE_MONEY_PROVIDED: u32 = 250;
 
 /// Retail UpgradedBoost for Upgrade_AmericaSupplyLines.
 pub const SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST: u32 = 25;
+
+/// Retail SupplyDropZoneCrate BuildingPickup residual.
+pub const SUPPLY_DROP_CRATE_BUILDING_PICKUP: bool = true;
 
 /// Residual unit pickup radius (crate GeometryMajorRadius 12 + unit reach).
 pub const MONEY_CRATE_UNIT_PICKUP_RADIUS: f32 = 20.0;
@@ -67,6 +83,70 @@ pub const MONEY_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
 
 /// Residual GameText key honesty for cash gain caption.
 pub const MONEY_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Retail 1000DollarCrate MoneyProvided residual.
+pub const DOLLAR_CRATE_1000_MONEY: u32 = 1000;
+/// Retail 2500DollarCrate MoneyProvided residual.
+pub const DOLLAR_CRATE_2500_MONEY: u32 = 2500;
+/// Retail SupplyDropZoneCrate object name residual.
+pub const SUPPLY_DROP_ZONE_CRATE_OBJECT: &str = "SupplyDropZoneCrate";
+/// Retail 1000DollarCrate object name residual.
+pub const DOLLAR_CRATE_1000_OBJECT: &str = "1000DollarCrate";
+/// Retail 2500DollarCrate object name residual.
+pub const DOLLAR_CRATE_2500_OBJECT: &str = "2500DollarCrate";
+
+/// Retail crate GeometryMajorRadius residual.
+pub const MONEY_CRATE_GEOMETRY_MAJOR_RADIUS: f32 = 12.0;
+/// Retail crate GeometryMinorRadius residual.
+pub const MONEY_CRATE_GEOMETRY_MINOR_RADIUS: f32 = 12.0;
+/// Retail crate GeometryHeight residual.
+pub const MONEY_CRATE_GEOMETRY_HEIGHT: f32 = 12.0;
+/// Retail PhysicsBehavior Mass residual.
+pub const MONEY_CRATE_PHYSICS_MASS: f32 = 75.0;
+/// Retail KindOf residual tokens.
+pub const MONEY_CRATE_KIND_OF: &str = "PARACHUTABLE CRATE";
+
+/// Retail OCL_AmericaSupplyDropZoneCrateDrop name residual.
+pub const MONEY_CRATE_OCL_SUPPLY_DROP: &str = "OCL_AmericaSupplyDropZoneCrateDrop";
+/// Retail OCL Payload count residual.
+pub const MONEY_CRATE_OCL_PAYLOAD_COUNT: u32 = 6;
+/// Retail DeliverPayload DropDelay residual (msec).
+pub const MONEY_CRATE_OCL_DROP_DELAY_MS: u32 = 350;
+/// DropDelay 350ms → 11 frames @ 30 FPS.
+pub const MONEY_CRATE_OCL_DROP_DELAY_FRAMES: u32 = 11;
+/// Retail DeliverPayload DeliveryDistance residual.
+pub const MONEY_CRATE_OCL_DELIVERY_DISTANCE: f32 = 410.0;
+/// Retail DeliverPayload Transport residual.
+pub const MONEY_CRATE_OCL_TRANSPORT: &str = "AmericaJetCargoPlane";
+/// Retail DeliverPayload PutInContainer residual.
+pub const MONEY_CRATE_OCL_PUT_IN_CONTAINER: &str = "AmericaCrateParachute";
+/// Retail DeliverPayload ParachuteDirectly residual.
+pub const MONEY_CRATE_OCL_PARACHUTE_DIRECTLY: bool = true;
+/// Retail DeliverPayload MaxAttempts residual.
+pub const MONEY_CRATE_OCL_MAX_ATTEMPTS: u32 = 4;
+
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+pub fn money_crate_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / MONEY_CRATE_LOGIC_FPS)).round() as u32
+}
+
+/// Retail MoneyProvided residual for a known money-crate object name.
+pub fn money_provided_for_crate_object(name: &str) -> Option<u32> {
+    match name {
+        "SupplyDropZoneCrate" | "TestSupplyDropZoneCrate" => Some(SUPPLY_DROP_CRATE_MONEY_PROVIDED),
+        "1000DollarCrate" => Some(DOLLAR_CRATE_1000_MONEY),
+        "2500DollarCrate" => Some(DOLLAR_CRATE_2500_MONEY),
+        _ => None,
+    }
+}
+
+/// True when residual BuildingPickup is enabled for the named crate object.
+pub fn building_pickup_for_crate_object(name: &str) -> bool {
+    matches!(name, "SupplyDropZoneCrate" | "TestSupplyDropZoneCrate")
+}
 
 /// One residual money crate registered after DeliverPayload spawn / test seed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -437,6 +517,71 @@ impl HostMoneyCrateRegistry {
     }
 }
 
+// --- Wave 64 residual honesty packs ---
+
+/// Wave 64 residual honesty: SupplyDropZoneCrate MoneyCrateCollide residual.
+pub fn honesty_money_crate_supply_drop_residual_ok() -> bool {
+    SUPPLY_DROP_ZONE_CRATE_OBJECT == "SupplyDropZoneCrate"
+        && SUPPLY_DROP_CRATE_MONEY_PROVIDED == 250
+        && SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST == 25
+        && SUPPLY_DROP_CRATE_BUILDING_PICKUP
+        && MONEY_CRATE_FORBIDDEN_KIND_OF == "PROJECTILE"
+        && money_provided_for_crate_object("SupplyDropZoneCrate") == Some(250)
+        && building_pickup_for_crate_object("SupplyDropZoneCrate")
+        && !building_pickup_for_crate_object("1000DollarCrate")
+}
+
+/// Wave 64 residual honesty: dollar crate money matrix residual.
+pub fn honesty_money_crate_dollar_matrix_residual_ok() -> bool {
+    DOLLAR_CRATE_1000_OBJECT == "1000DollarCrate"
+        && DOLLAR_CRATE_2500_OBJECT == "2500DollarCrate"
+        && DOLLAR_CRATE_1000_MONEY == 1000
+        && DOLLAR_CRATE_2500_MONEY == 2500
+        && money_provided_for_crate_object("1000DollarCrate") == Some(1000)
+        && money_provided_for_crate_object("2500DollarCrate") == Some(2500)
+        && money_provided_for_crate_object("UnknownCrate").is_none()
+}
+
+/// Wave 64 residual honesty: geometry / physics residual.
+pub fn honesty_money_crate_geometry_residual_ok() -> bool {
+    (MONEY_CRATE_GEOMETRY_MAJOR_RADIUS - 12.0).abs() < 0.01
+        && (MONEY_CRATE_GEOMETRY_MINOR_RADIUS - 12.0).abs() < 0.01
+        && (MONEY_CRATE_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+        && (MONEY_CRATE_PHYSICS_MASS - 75.0).abs() < 0.01
+        && MONEY_CRATE_KIND_OF == "PARACHUTABLE CRATE"
+        && MONEY_CRATE_UNIT_PICKUP_RADIUS >= MONEY_CRATE_GEOMETRY_MAJOR_RADIUS
+}
+
+/// Wave 64 residual honesty: OCL supply-drop delivery residual.
+pub fn honesty_money_crate_ocl_residual_ok() -> bool {
+    MONEY_CRATE_OCL_SUPPLY_DROP == "OCL_AmericaSupplyDropZoneCrateDrop"
+        && MONEY_CRATE_OCL_PAYLOAD_COUNT == 6
+        && MONEY_CRATE_OCL_DROP_DELAY_MS == 350
+        && MONEY_CRATE_OCL_DROP_DELAY_FRAMES
+            == money_crate_ms_to_frames(MONEY_CRATE_OCL_DROP_DELAY_MS)
+        && (MONEY_CRATE_OCL_DELIVERY_DISTANCE - 410.0).abs() < 0.01
+        && MONEY_CRATE_OCL_TRANSPORT == "AmericaJetCargoPlane"
+        && MONEY_CRATE_OCL_PUT_IN_CONTAINER == "AmericaCrateParachute"
+        && MONEY_CRATE_OCL_PARACHUTE_DIRECTLY
+        && MONEY_CRATE_OCL_MAX_ATTEMPTS == 4
+}
+
+/// Wave 64 residual honesty: MoneyPickUp anim + floating text residual.
+pub fn honesty_money_crate_presentation_residual_ok() -> bool {
+    HostMoneyCrateRegistry::honesty_money_pickup_anim_constants_ok()
+        && HostMoneyCrateRegistry::honesty_money_floating_text_constants_ok()
+        && MONEY_CRATE_PICKUP_AUDIO == "CrateMoney"
+}
+
+/// Combined Wave 64 Money Crate residual honesty pack.
+pub fn honesty_money_crate_residual_pack_ok() -> bool {
+    honesty_money_crate_supply_drop_residual_ok()
+        && honesty_money_crate_dollar_matrix_residual_ok()
+        && honesty_money_crate_geometry_residual_ok()
+        && honesty_money_crate_ocl_residual_ok()
+        && honesty_money_crate_presentation_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +708,16 @@ mod tests {
         assert!(reg.honesty_above_terrain_reject_ok());
         reg.record_forbidden_kindof_reject();
         assert!(reg.forbidden_kindof_rejects > 0);
+    }
+
+    #[test]
+    fn money_crate_residual_pack_honesty() {
+        assert_eq!(money_crate_ms_to_frames(350), 11);
+        assert!(honesty_money_crate_supply_drop_residual_ok());
+        assert!(honesty_money_crate_dollar_matrix_residual_ok());
+        assert!(honesty_money_crate_geometry_residual_ok());
+        assert!(honesty_money_crate_ocl_residual_ok());
+        assert!(honesty_money_crate_presentation_residual_ok());
+        assert!(honesty_money_crate_residual_pack_ok());
     }
 }
