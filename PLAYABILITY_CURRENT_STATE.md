@@ -1,3 +1,58 @@
+## Residual Host Playability — LaserUpdate Client + Medium Connector + Multi-Locale CSF Path + Scud Geometry + Howitzer Lasered OCL (2026-07-13)
+**Closed (host-testable residual not covered by wave 30–31 connector/thrust/loft residual):**
+1. **LaserUpdate client residual** (`special_power_strikes`):
+   - `initLaser` ground-to-orbit + orbit-to-target residual (2 applications).
+   - Orbit altitude residual **500** (Y-up host / C++ Z-up height).
+   - Drawable midpoint residual `(start+end)*0.5`.
+   - WidthGrow sizeDelta widen/decay `m_currentWidthScalar` residual + dirty.
+   - `getCurrentLaserRadius` residual = OuterBeamWidth×0.5 × scalar (peak **13**).
+   - Honesty: `honesty_beam_laser_update_ok`.
+   - Fail-closed: not full LaserUpdate GPU drawable / client shroud path.
+2. **Medium connector soft-edge residual** (`special_power_strikes`):
+   - POSTFIRE Medium intensity NumBeams **4**, Inner **0.4** → Outer **1.2**.
+   - Soft-edge scale/color lerp residual + EXLaser.tga texture honesty.
+   - Honesty: `honesty_beam_connector_medium_soft_edge_ok`.
+   - Fail-closed: not full LaserUpdate drawable matrix / GPU SegLine submit.
+3. **OrbitalLaser VisionRange / ShroudClearing residual** (`special_power_strikes`):
+   - VisionRange **100** / ShroudClearingRange **120** design params residual.
+   - Honesty: `honesty_beam_vision_shroud_ok`.
+   - Fail-closed: not full client FOW reveal grid path.
+4. **ScudStormMissile Geometry residual** (`special_power_strikes`):
+   - Cylinder / GeometryIsSmall / MajorRadius **7** / Height **30** / Mass **500**.
+   - Honesty: `honesty_scud_geometry_ok`.
+   - Fail-closed: not full ThingFactory Object / partition GeometryInfo matrix.
+5. **SpectreHowitzerShell InstantDeath LASERED OCL residual** (`special_power_strikes`):
+   - OCL_GenericMissileDisintegrate residual honesty.
+   - Honesty: extended `honesty_howitzer_shell_dumb_projectile_ok`.
+   - Fail-closed: not full ThingFactory Object / live OCL spawn.
+6. **Multi-locale LanguageId CSF path residual** (`game_text_residual`):
+   - English/German/French/Spanish/Italian residual path table
+     (`Data/<Locale>/generals.csf` + `*ZH` big-file roots).
+   - Optional live multi-locale CSF probe when assets present.
+   - Honesty: `multi_locale_path_ok` / `exercise_multi_locale_csf_residual`.
+   - Fail-closed: not full multi-locale CSF boot UI for all LanguageId assets.
+7. Snapshot/Xfer: medium connector / vision-shroud / LaserUpdate residual fields appended.
+8. Tests (not log-only):
+   - `particle_uplink_laser_update_client_residual_honesty`
+   - `particle_uplink_medium_connector_soft_edge_residual_honesty`
+   - `particle_uplink_orbital_vision_shroud_residual_honesty`
+   - `scud_geometry_residual_honesty`
+   - `spectre_howitzer_shell_lasered_ocl_residual_honesty`
+   - `game_text_residual::*` (**6**)
+   - all `special_power_strikes::` (**55**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Connector Soft Edge + Scud Thrust Wobble + Howitzer Shell Loft Flight (2026-07-13)
 **Closed (host-testable combat residual not covered by wave 29–31 soft-edge/ballistic residual):**
 1. **Intense connector soft-edge + laser segments residual** (`special_power_strikes`):

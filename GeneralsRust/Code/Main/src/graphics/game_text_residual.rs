@@ -7,8 +7,13 @@
 //! - DisplayString monospaced glyph measure residual (8×8 host residual extents)
 //! - Honesty exercise for shell smoke without requiring a live Display surface
 //!
+//! Host residual multi-locale LanguageId CSF path table closed here (fail-closed
+//! vs full runtime boot for every locale asset pack):
+//! - LanguageId residual path table (English/German/French/Spanish/Italian)
+//! - Optional live multi-locale CSF probe when assets present
+//!
 //! Still residual:
-//! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot
+//! - Full multi-locale CSF/STR load for all LanguageId paths at runtime boot UI
 //! - Full DisplayString GPU font raster / WW3D StretchRect submit
 //! - Full Unicode word-wrap + hotkey underline on live InGameUI surface
 
@@ -52,6 +57,12 @@ pub struct GameTextResidualHonesty {
     pub csf_entry_count: u32,
     /// True when live generals.csf was found and used (optional).
     pub live_csf_loaded: bool,
+    /// True when multi-locale LanguageId CSF path residual table is honest.
+    pub multi_locale_path_ok: bool,
+    /// Number of residual LanguageId path entries exercised.
+    pub multi_locale_path_count: u32,
+    /// Number of live multi-locale CSF files found (0 when assets absent).
+    pub multi_locale_live_found: u32,
 }
 
 impl GameTextResidualHonesty {
@@ -61,6 +72,7 @@ impl GameTextResidualHonesty {
             && self.add_cash_template_ok
             && self.printf_format_ok
             && self.display_string_measure_ok
+            && self.multi_locale_path_ok
     }
 }
 
@@ -233,15 +245,75 @@ pub fn build_synthetic_csf(label: &str, text: &str) -> Vec<u8> {
     out
 }
 
-/// Locate English generals.csf in repo assets when present.
-pub fn find_english_csf_path() -> Option<PathBuf> {
-    let relatives = [
-        "windows_game/extracted_big_files/EnglishZH/Data/English/generals.csf",
-        "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.csf",
-        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/generals.csf",
-        "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.csf",
-        "../windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.csf",
+/// Residual LanguageId matching C++ GameText multi-locale path selection.
+///
+/// Fail-closed: host residual path table only (not full GlobalData Language boot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResidualLanguageId {
+    English,
+    German,
+    French,
+    Spanish,
+    Italian,
+}
+
+impl ResidualLanguageId {
+    /// All residual locales with CSF path tables in C++ GameTextManager.
+    pub const ALL: [ResidualLanguageId; 5] = [
+        ResidualLanguageId::English,
+        ResidualLanguageId::German,
+        ResidualLanguageId::French,
+        ResidualLanguageId::Spanish,
+        ResidualLanguageId::Italian,
     ];
+
+    /// Retail language folder name residual (`Data/<Name>/generals.csf`).
+    pub fn folder_name(self) -> &'static str {
+        match self {
+            ResidualLanguageId::English => "English",
+            ResidualLanguageId::German => "German",
+            ResidualLanguageId::French => "French",
+            ResidualLanguageId::Spanish => "Spanish",
+            ResidualLanguageId::Italian => "Italian",
+        }
+    }
+
+    /// Retail ZH big-file language root residual (`EnglishZH`, `GermanZH`, …).
+    pub fn zh_root(self) -> &'static str {
+        match self {
+            ResidualLanguageId::English => "EnglishZH",
+            ResidualLanguageId::German => "GermanZH",
+            ResidualLanguageId::French => "FrenchZH",
+            ResidualLanguageId::Spanish => "SpanishZH",
+            ResidualLanguageId::Italian => "ItalianZH",
+        }
+    }
+}
+
+/// Retail multi-locale CSF relative path residuals for one LanguageId.
+pub fn residual_csf_relatives(language: ResidualLanguageId) -> Vec<String> {
+    let folder = language.folder_name();
+    let root = language.zh_root();
+    let mut paths = vec![
+        format!("windows_game/extracted_big_files/{root}/Data/{folder}/generals.csf"),
+        format!("windows_game/extracted_big_files_v2/{root}/Data/{folder}/generals.csf"),
+    ];
+    // English also has W3DEnglishZH residual pack paths (parity with GameClient).
+    if language == ResidualLanguageId::English {
+        paths.push(
+            "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.csf".to_string(),
+        );
+        paths.push(
+            "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.csf"
+                .to_string(),
+        );
+    }
+    paths
+}
+
+/// Locate residual CSF for a LanguageId when assets are present.
+pub fn find_csf_path_for_language(language: ResidualLanguageId) -> Option<PathBuf> {
+    let relatives = residual_csf_relatives(language);
     let cwd = std::env::current_dir().ok()?;
     let mut candidates = Vec::new();
     for ancestor in cwd.ancestors() {
@@ -253,6 +325,39 @@ pub fn find_english_csf_path() -> Option<PathBuf> {
         candidates.push(Path::new(relative).to_path_buf());
     }
     candidates.into_iter().find(|c| c.is_file())
+}
+
+/// Host residual exercise: multi-locale LanguageId CSF path table honesty.
+///
+/// Always honest with synthetic path-table residual when assets are absent.
+/// Live locale packs are optional probes (do not fail CI without assets).
+pub fn exercise_multi_locale_csf_residual() -> (bool, u32, u32) {
+    let mut path_count = 0u32;
+    let mut live_found = 0u32;
+    for lang in ResidualLanguageId::ALL {
+        let relatives = residual_csf_relatives(lang);
+        // Path table residual honesty: at least one path ends with expected folder/csf.
+        let folder = lang.folder_name();
+        let path_ok = relatives.iter().any(|p| {
+            p.contains(&format!("Data/{folder}/generals.csf"))
+                || (lang == ResidualLanguageId::English && p.contains("Data/English/generals.csf"))
+        });
+        if path_ok && !relatives.is_empty() {
+            path_count = path_count.saturating_add(1);
+        }
+        if find_csf_path_for_language(lang).is_some() {
+            live_found = live_found.saturating_add(1);
+        }
+    }
+    let multi_ok = path_count == ResidualLanguageId::ALL.len() as u32
+        && residual_csf_relatives(ResidualLanguageId::English).len() >= 4
+        && residual_csf_relatives(ResidualLanguageId::German).len() >= 2;
+    (multi_ok, path_count, live_found)
+}
+
+/// Locate English generals.csf in repo assets when present.
+pub fn find_english_csf_path() -> Option<PathBuf> {
+    find_csf_path_for_language(ResidualLanguageId::English)
 }
 
 /// Host-testable residual exercise: STR + CSF + printf + DisplayString measure.
@@ -323,6 +428,9 @@ END
         honesty_display_string_measure(&formatted_caption, measure_width, measure_height)
             && measure_width > 0;
 
+    let (multi_locale_path_ok, multi_locale_path_count, multi_locale_live_found) =
+        exercise_multi_locale_csf_residual();
+
     GameTextResidualExercise {
         honesty: GameTextResidualHonesty {
             str_parse_ok,
@@ -332,6 +440,9 @@ END
             display_string_measure_ok,
             csf_entry_count: csf_map.len() as u32,
             live_csf_loaded,
+            multi_locale_path_ok,
+            multi_locale_path_count,
+            multi_locale_live_found,
         },
         add_cash_template,
         formatted_caption,
@@ -417,7 +528,24 @@ mod tests {
         assert!(ex.honesty.add_cash_template_ok, "template={}", ex.add_cash_template);
         assert!(ex.honesty.printf_format_ok, "caption={}", ex.formatted_caption);
         assert!(ex.honesty.display_string_measure_ok);
+        assert!(ex.honesty.multi_locale_path_ok, "multi-locale path table");
+        assert_eq!(ex.honesty.multi_locale_path_count, 5);
         assert!(ex.honesty.honesty_ok());
         assert_eq!(ex.formatted_caption, "$150");
+    }
+
+    #[test]
+    fn multi_locale_csf_path_residual_table() {
+        assert_eq!(ResidualLanguageId::ALL.len(), 5);
+        assert_eq!(ResidualLanguageId::German.folder_name(), "German");
+        assert_eq!(ResidualLanguageId::French.zh_root(), "FrenchZH");
+        let en = residual_csf_relatives(ResidualLanguageId::English);
+        assert!(en.iter().any(|p| p.contains("EnglishZH")));
+        assert!(en.iter().any(|p| p.contains("W3DEnglishZH")));
+        let de = residual_csf_relatives(ResidualLanguageId::German);
+        assert!(de.iter().any(|p| p.contains("GermanZH/Data/German/generals.csf")));
+        let (ok, count, _live) = exercise_multi_locale_csf_residual();
+        assert!(ok);
+        assert_eq!(count, 5);
     }
 }
