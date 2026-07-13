@@ -11,22 +11,35 @@ fn main() {
         && r.shell_host_playable_ok
         && r.control_bar_layout_ok
         && r.hud_selection_ok
-        && r.screen_skirmish_ok;
+        && r.screen_skirmish_ok
+        && r.dual_tick_presentation_ok
+        && r.minimap_fow_presentation_ok
+        && r.laser_segment_upload_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} hud_sel={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} dual_tick={} hud_sel={} minimap_fow={} laser_upload={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
+            r.control_bar_wnd_validated,
+            r.dual_tick_presentation_ok,
             r.hud_selection_ok,
+            r.minimap_fow_presentation_ok,
+            r.laser_segment_upload_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );
         std::process::exit(0);
     }
     eprintln!(
-        "shell_smoke_gate: FAIL status={} playable_claim={} shell_host_playable_ok={} control_bar={} {}",
-        r.status, r.playable_claim, r.shell_host_playable_ok, r.control_bar_layout_ok, r.detail
+        "shell_smoke_gate: FAIL status={} playable_claim={} shell_host_playable_ok={} control_bar={} dual_tick={} laser={} {}",
+        r.status,
+        r.playable_claim,
+        r.shell_host_playable_ok,
+        r.control_bar_layout_ok,
+        r.dual_tick_presentation_ok,
+        r.laser_segment_upload_ok,
+        r.detail
     );
     std::process::exit(1);
 }
