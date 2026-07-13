@@ -564,11 +564,12 @@ pub struct GameLogic {
     combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
-    /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb / ArtilleryBarrage).
-    /// Queues on DoSpecialPower and completes with area damage — NuclearMissile also
-    /// spawns residual radiation; AnthraxBomb also spawns residual toxin; SpectreGunship
-    /// spawns residual orbit damage ticks; CarpetBomb applies delayed multi-point line
-    /// damage; ArtilleryBarrage applies delayed multi-shell scatter damage.
+    /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb / ArtilleryBarrage /
+    /// CruiseMissile). Queues on DoSpecialPower and completes with area damage —
+    /// NuclearMissile also spawns residual radiation; AnthraxBomb also spawns residual
+    /// toxin; SpectreGunship spawns residual orbit damage ticks; CarpetBomb applies
+    /// delayed multi-point line damage; ArtilleryBarrage applies delayed multi-shell
+    /// scatter damage; CruiseMissile applies delayed loft + MOAB area damage.
     /// Fail-closed vs full retail.
     special_power_strikes: crate::game_logic::special_power_strikes::HostSpecialPowerStrikeRegistry,
 
@@ -3542,9 +3543,10 @@ impl GameLogic {
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
         // ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship /
-        // CarpetBomb strikes (area / line multi-strike damage + nuke radiation /
-        // anthrax toxin / spectre orbit). Fail-closed vs full OCL aircraft /
-        // NeutronMissileUpdate / PoisonField stack / B52 DeliverPayload.
+        // CarpetBomb / ArtilleryBarrage / CruiseMissile strikes (area / line /
+        // multi-shell / loft-MOAB damage + nuke radiation / anthrax toxin /
+        // spectre orbit). Fail-closed vs full OCL aircraft / NeutronMissileUpdate
+        // / PoisonField stack / B52 DeliverPayload / door loft path.
         self.update_special_power_strikes();
 
         // Host America Paradrop residual: spawn infantry after approach delay.
@@ -12972,6 +12974,7 @@ impl GameLogic {
     /// SpectreGunship residual also ticks orbit fields after orbit insertion.
     /// CarpetBomb residual applies multi-point line damage after approach delay.
     /// ArtilleryBarrage residual applies multi-shell scatter damage after delay.
+    /// CruiseMissile residual applies MOAB area damage after loft delay.
     pub fn update_special_power_strikes(&mut self) {
         use crate::game_logic::special_power_strikes::{
             ANTHRAX_TOXIN_AUDIO, NUKE_RADIATION_AUDIO, SPECTRE_ORBIT_AUDIO,
@@ -24865,6 +24868,199 @@ mod tests {
             completed[0].objects_hit
         );
         assert!(completed[0].total_damage_applied > 0.0);
+
+        game_logic.process_destroy_list();
+    }
+
+    /// Residual: SupW_CruiseMissile / SUPERWEAPON_CruiseMissile DoSpecialPower
+    /// queues a delayed loft strike; MOAB area damage applies only after delay.
+    /// Fail-closed: not full NeutronMissileUpdate loft / door animation /
+    /// OCL FireWeapon projectile / MOABFlameWeapon secondary.
+    #[test]
+    fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::special_power_strikes::{
+            HostStrikePhase, HostSuperweaponKind, CRUISE_MISSILE_DAMAGE,
+            CRUISE_MISSILE_IMPACT_DELAY_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let target = Vec3::new(100.0, 0.0, 0.0);
+
+        // player_id 0 maps to Team::USA for ownership validation residual.
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, target)
+            .expect("enemy");
+        let near_enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(140.0, 0.0, 0.0))
+            .expect("near enemy");
+        let far_enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
+            .expect("far enemy");
+        let friend_id = game_logic
+            .create_object("TestTank", Team::USA, target)
+            .expect("friend");
+
+        for id in [enemy_id, near_enemy_id, far_enemy_id, friend_id] {
+            let obj = game_logic.find_object_mut(id).expect("obj");
+            obj.health.current = 500.0;
+            obj.health.maximum = 500.0;
+            obj.thing.template.armor = 0.0;
+        }
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.special_power_cooldown = 10.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CruiseMissile,
+                target: PowerTarget::Location(target),
+            },
+            player_id: 0,
+            command_id: 5,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_queue_ok(HostSuperweaponKind::CruiseMissile),
+            "CruiseMissile must queue a pending host strike"
+        );
+        let caster = game_logic.find_object(caster_id).expect("caster after cmd");
+        assert!(!caster.special_power_ready);
+        assert_eq!(caster.ai_state, AIState::SpecialAbility);
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SuperweaponCruiseMissile"),
+            "activation must queue SuperweaponCruiseMissile audio"
+        );
+
+        // Before impact delay: no damage (loft residual in flight).
+        let health_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let near_health_before = game_logic
+            .find_object(near_enemy_id)
+            .unwrap()
+            .health
+            .current;
+        game_logic.frame = CRUISE_MISSILE_IMPACT_DELAY_FRAMES - 1;
+        game_logic.update_special_power_strikes();
+        assert_eq!(
+            game_logic.find_object(enemy_id).unwrap().health.current,
+            health_before,
+            "no damage before cruise missile impact frame"
+        );
+        assert_eq!(
+            game_logic
+                .find_object(near_enemy_id)
+                .unwrap()
+                .health
+                .current,
+            near_health_before,
+            "no near-radius damage before impact frame"
+        );
+        assert!(!game_logic
+            .special_power_strikes()
+            .honesty_complete_ok(HostSuperweaponKind::CruiseMissile));
+
+        // At impact: MOAB area damage + complete honesty.
+        game_logic.frame = CRUISE_MISSILE_IMPACT_DELAY_FRAMES;
+        game_logic.update_special_power_strikes();
+
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_complete_ok(HostSuperweaponKind::CruiseMissile),
+            "CruiseMissile must complete on impact frame"
+        );
+        assert!(
+            game_logic
+                .special_power_strikes()
+                .honesty_host_path_ok(HostSuperweaponKind::CruiseMissile),
+            "host path honesty requires completed cruise missile strike"
+        );
+
+        let enemy_hp = game_logic.find_object(enemy_id).map(|o| o.health.current);
+        let near_hp = game_logic
+            .find_object(near_enemy_id)
+            .map(|o| o.health.current);
+        // Epicenter residual damage = CRUISE_MISSILE_DAMAGE (2000) — lethal to 500 HP.
+        assert!(
+            enemy_hp.is_none()
+                || enemy_hp == Some(0.0)
+                || game_logic
+                    .find_object(enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy at epicenter must take lethal CruiseMissile residual damage, got {enemy_hp:?}"
+        );
+        assert!(
+            near_hp.is_none()
+                || near_hp.map(|h| h < near_health_before).unwrap_or(false)
+                || near_hp == Some(0.0)
+                || game_logic
+                    .find_object(near_enemy_id)
+                    .map(|o| o.status.destroyed)
+                    .unwrap_or(true),
+            "enemy inside MOAB radius must take CruiseMissile residual damage, got {near_hp:?}"
+        );
+        assert!(
+            game_logic
+                .find_object(friend_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "friendly units must not take CruiseMissile residual damage"
+        );
+        assert!(
+            game_logic
+                .find_object(far_enemy_id)
+                .map(|o| (o.health.current - 500.0).abs() < 0.1)
+                .unwrap_or(false),
+            "enemies outside MOAB radius must be untouched"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "CruiseMissileImpact"),
+            "impact must queue CruiseMissileImpact audio"
+        );
+        assert!(
+            !game_logic
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DeathExplosion)
+                .is_empty(),
+            "impact must register DeathExplosion particle residual"
+        );
+
+        let completed = game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::CruiseMissile);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].phase, HostStrikePhase::Completed);
+        assert!(
+            completed[0].objects_hit >= 1,
+            "cruise missile must hit epicenter enemy, hit={}",
+            completed[0].objects_hit
+        );
+        assert!(
+            completed[0].total_damage_applied >= CRUISE_MISSILE_DAMAGE - 1.0,
+            "damage applied must cover MOAB primary, got {}",
+            completed[0].total_damage_applied
+        );
 
         game_logic.process_destroy_list();
     }
