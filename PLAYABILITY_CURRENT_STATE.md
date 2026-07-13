@@ -1,3 +1,37 @@
+## Residual Host Playability — StealthDetector Enable + BattlePlan Door Animation (2026-07-13)
+**Closed (host-testable Strategy Center StealthDetectorUpdate + pack/unpack door residual):**
+1. **StealthDetectorUpdate residual** (`AmericaStrategyCenter` ModuleTag_16):
+   - DetectionRange **500**, DetectionRate **500**ms → **15** frames,
+     InitiallyDisabled **Yes**.
+   - SearchAndDestroy → `setSDEnabled(true)` residual: `is_detector` + range **500**.
+   - Leaving S&D → `setSDEnabled(false)` residual: clear detector + range.
+   - Host-testable: stealthed enemy at dist 400 detected under S&D; at 600 not;
+     before S&D / after leave not detected.
+   - Fail-closed: VisionObjectName createVisionObject disabled in retail C++
+     (ShroudRevealToAllRange path); not full DetectionRate sleep phasing.
+2. **Pack/unpack door model-condition residual** (`BattlePlanUpdate`):
+   - AnimationTime **7000**ms → **210** frames; TransitionIdleTime **0**.
+   - DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy.
+   - Select → OPENING residual; after 210 frames → WAITING_TO_CLOSE (ACTIVE).
+   - Plan switch → CLOSING residual → IDLE → new OPENING (TransitionIdleTime 0).
+   - Pack/unpack audio residual queued; army setBattlePlan buffs still immediate.
+   - Fail-closed: not full delayed ACTIVE-after-unpack setBattlePlan ordering /
+     Bombardment turret natural-position recenter before pack.
+3. Tests (not log-only):
+   - `strategy_center_stealth_detector_enable_residual`
+   - `strategy_center_battle_plan_door_animation_residual`
+   - module unit tests in `host_strategy_center` (door matrix / stealth honesty /
+     AnimationTime / DetectionRange constants)
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate delayed ACTIVE-after-unpack setBattlePlan ordering
+  (door residual closed 2026-07-13 — army buffs still immediate host residual)
+- Full Bombardment turret natural-position recenter / pitch scan matrix
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Network stealth-detector / door-animation replication (network deferred)
+
 ## Residual Host Playability — Same-Player PartitionFilter + Parachute OpenDist (2026-07-13)
 **Closed (host-testable PilotFindVehicle PartitionFilterPlayer + AmericaParachute OpenDist residual):**
 1. **PartitionFilterPlayer residual** (`PilotFindVehicleUpdate::scanClosestTarget`):
@@ -20,9 +54,12 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+  (host residual closed 2026-07-13 — see StealthDetector Enable + BattlePlan Door Animation;
+  delayed setBattlePlan ordering still open)
 - Full Bombardment turret natural-position recenter / pitch scan matrix
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
-  (createVisionObject disabled in retail C++ — ShroudRevealToAllRange path)
+  (StealthDetector enable host residual closed 2026-07-13 — see StealthDetector + Door section;
+  VisionObjectName still open / createVisionObject disabled in retail C++)
 - Full AmericaParachute sway / pitch-roll / DeliverPayload residual
 - Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
 - Network same-player / parachute-open replication (network deferred)

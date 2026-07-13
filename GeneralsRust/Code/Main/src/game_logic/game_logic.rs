@@ -5042,6 +5042,9 @@ impl GameLogic {
         // non-combat, non-structure objects so frame cost stays reasonable.
         let dense_world = object_ids.len() > 400;
 
+        // BattlePlan pack/unpack door residual (AnimationTime 7000ms → 210 frames).
+        self.tick_battle_plan_door_residuals();
+
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
@@ -23146,6 +23149,43 @@ impl GameLogic {
         self.battle_plans.honesty_turret_fire_ok()
     }
 
+    /// Residual honesty: StealthDetectorUpdate enabled (SearchAndDestroy residual).
+    pub fn honesty_battle_plan_stealth_detector_ok(&self) -> bool {
+        self.battle_plans.honesty_stealth_detector_ok()
+    }
+
+    /// Residual honesty: pack/unpack door residual started.
+    pub fn honesty_battle_plan_door_ok(&self) -> bool {
+        self.battle_plans.honesty_door_residual_ok()
+    }
+
+    /// Residual honesty: door residual reached ACTIVE / WAITING_TO_CLOSE.
+    pub fn honesty_battle_plan_door_active_ok(&self) -> bool {
+        self.battle_plans.honesty_door_active_ok()
+    }
+
+    /// Tick BattlePlanUpdate pack/unpack door residual (AnimationTime frames).
+    ///
+    /// Advances OPENING → WAITING_TO_CLOSE and CLOSING → IDLE → UNPACKING.
+    /// Fail-closed: army setBattlePlan buffs apply immediately on select, not
+    /// deferred until unpack completes (not full delayed ACTIVE matrix).
+    fn tick_battle_plan_door_residuals(&mut self) {
+        let frame = self.frame;
+        let events = self.battle_plans.tick_door_residuals(frame);
+        for (center_id, audio) in events {
+            let pos = self
+                .objects
+                .get(&center_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_position(pos)
+                    .with_priority(170),
+            );
+        }
+    }
+
     /// Activate Frenzy / Rage residual: temporary ally attack buff in radius.
     ///
     /// Matches retail SuperweaponFrenzy → Frenzy_InvisibleMarker WeaponBonusUpdate:
@@ -23265,11 +23305,15 @@ impl GameLogic {
     /// Matches retail BattlePlanUpdate::setBattlePlan → Player::changeBattlePlan:
     /// - Bombardment: BATTLEPLAN_BOMBARDMENT DAMAGE 120% on legal army members
     /// - HoldTheLine: armor damage scalar 0.9 + center max-health ×2 residual
-    /// - SearchAndDestroy: RANGE 120% + sight 1.2; center detect residual
+    /// - SearchAndDestroy: RANGE 120% + sight 1.2; center StealthDetector residual
+    ///   (DetectionRange **500**, InitiallyDisabled until S&D enables module)
     /// - BattlePlanChangeParalyzeTime: DISABLED_PARALYZED for 5000ms (150 frames)
     ///   on legal army members when a plan is activated/changed
+    /// - Pack/unpack door residual: OPENING / WAITING_TO_CLOSE / CLOSING over
+    ///   AnimationTime **7000**ms → **210** frames (buffs still immediate host residual)
     ///
-    /// Fail-closed: not full pack/unpack animation / turret recenter / vision-object path.
+    /// Fail-closed: not full delayed ACTIVE-after-unpack setBattlePlan ordering /
+    /// turret recenter / VisionObjectName path (createVisionObject disabled retail).
     /// Bombardment residual enables StrategyCenterGun turret auto-fire.
     /// Returns true when the residual selection was recorded (even if 0 army buffs).
     pub fn activate_battle_plan(
@@ -23280,7 +23324,9 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::host_strategy_center::{
             battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
-            is_legal_battle_plan_member, is_strategy_center_template, HostBattlePlanSelection,
+            is_legal_battle_plan_member, is_strategy_center_template,
+            strategy_center_stealth_detection_range_when_enabled,
+            strategy_center_stealth_detector_enabled_for_plan, HostBattlePlanSelection,
             STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
             STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
         };
@@ -23323,6 +23369,7 @@ impl GameLogic {
 
         // Reverse previous Strategy Center building residual (max-health / detect).
         // Fail-closed: only undo last recorded selection's center building bonus.
+        let mut disabled_stealth_detector = false;
         if let Some(prev) = self
             .battle_plans
             .selections()
@@ -23348,12 +23395,14 @@ impl GameLogic {
                         }
                         crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
                         {
-                            if center.detection_range > 0.0 {
-                                center.detection_range /= STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR
-                                    .max(0.01);
-                            }
+                            // StealthDetectorUpdate residual: setSDEnabled(false).
+                            // DetectionRange residual was absolute 500 — clear override.
+                            center.detection_range = 0.0;
                             // Fail-closed: clear residual detect unless template is innate detector.
                             center.is_detector = false;
+                            disabled_stealth_detector = true;
+                            // Building vision residual uses detection_range path above (fail-closed).
+                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
                         }
                         crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
                             // Disable Bombardment turret residual (C++ enableTurret false).
@@ -23364,6 +23413,9 @@ impl GameLogic {
                     }
                 }
             }
+        }
+        if disabled_stealth_detector {
+            self.battle_plans.record_stealth_detector_disable();
         }
 
         // Snapshot legal army members.
@@ -23440,6 +23492,7 @@ impl GameLogic {
 
         // Strategy Center building residual bonuses.
         let mut building_bonus = false;
+        let mut enabled_stealth_detector = false;
         if let Some(center_id) = strategy_center_id {
             if let Some(center) = self.objects.get_mut(&center_id) {
                 let is_center = is_strategy_center_template(&center.template_name)
@@ -23461,17 +23514,24 @@ impl GameLogic {
                         }
                         crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy =>
                         {
-                            // StrategyCenterSearchAndDestroySightRangeScalar 2.0 + detect residual.
-                            let base = center.effective_detection_range().max(1.0);
-                            center.detection_range =
-                                base * STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
-                            center.is_detector = true;
+                            // StealthDetectorUpdate residual (ModuleTag_16):
+                            // DetectionRange = 500, InitiallyDisabled = Yes → setSDEnabled(true).
+                            // VisionRange * StrategyCenterSearchAndDestroySightRangeScalar is
+                            // separate (shroud/sight); host residual uses DetectionRange absolute.
+                            if strategy_center_stealth_detector_enabled_for_plan(plan) {
+                                center.detection_range =
+                                    strategy_center_stealth_detection_range_when_enabled();
+                                center.is_detector = true;
+                                enabled_stealth_detector = true;
+                            }
+                            // Building sight residual fail-closed beyond detector enable path.
+                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
                             building_bonus = true;
                         }
                         crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
                             // Bombardment residual building bonus: enable StrategyCenterGun
                             // turret (C++ enableTurret(true)). Fail-closed: not full
-                            // natural-position recenter / pack animation matrix.
+                            // natural-position recenter / delayed pack matrix.
                             center.weapon = Some(
                                 crate::game_logic::host_strategy_center::strategy_center_gun_weapon(),
                             );
@@ -23481,6 +23541,9 @@ impl GameLogic {
                     }
                 }
             }
+        }
+        if enabled_stealth_detector {
+            self.battle_plans.record_stealth_detector_enable();
         }
 
         let selection_id = self.battle_plans.alloc_id();
@@ -23499,6 +23562,22 @@ impl GameLogic {
             building_bonus,
             paralyzed,
         });
+
+        // Pack/unpack door model-condition residual (AnimationTime 7000ms → 210 frames).
+        // Fail-closed: army/building setBattlePlan effects apply immediately above;
+        // door residual tracks OPENING → WAITING_TO_CLOSE → CLOSING independently.
+        if let Some(center_id) = strategy_center_id {
+            if let Some(unpack_or_pack_audio) =
+                self.battle_plans
+                    .begin_door_residual(center_id, player_id, plan, frame)
+            {
+                self.queue_audio_event(
+                    AudioEventRequest::new(unpack_or_pack_audio)
+                        .with_position(audio_pos)
+                        .with_priority(170),
+                );
+            }
+        }
 
         self.queue_audio_event(
             AudioEventRequest::new(audio)
@@ -40602,6 +40681,318 @@ mod tests {
                 sc.weapon.is_none(),
                 "leaving Bombardment must disable StrategyCenterGun residual"
             );
+        }
+    }
+
+    /// Residual: Strategy Center StealthDetectorUpdate enable stack (S&D).
+    ///
+    /// Retail ModuleTag_16: DetectionRange **500**, DetectionRate **500**ms,
+    /// InitiallyDisabled **Yes**. SearchAndDestroy → setSDEnabled(true);
+    /// leaving S&D → setSDEnabled(false). VisionObjectName spawn residual is
+    /// fail-closed (createVisionObject disabled in retail C++).
+    #[test]
+    fn strategy_center_stealth_detector_enable_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, STRATEGY_CENTER_STEALTH_DETECTION_RANGE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::China);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        sc_template.sight_range = 400.0;
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        {
+            // InitiallyDisabled residual: Strategy Center is not a detector until S&D.
+            let sc = game_logic.find_object_mut(sc_id).expect("sc");
+            sc.is_detector = false;
+            sc.detection_range = 0.0;
+            sc.object_type = ObjectType::Building;
+        }
+
+        // Stealthed enemy inside DetectionRange 500.
+        let near_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 0.0))
+            .expect("near stealthed");
+        {
+            let e = game_logic.find_object_mut(near_id).expect("near");
+            e.apply_grant_stealth();
+            assert!(e.is_effectively_stealthed());
+        }
+        // Stealthed enemy outside DetectionRange 500.
+        let far_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(600.0, 0.0, 0.0))
+            .expect("far stealthed");
+        {
+            let e = game_logic.find_object_mut(far_id).expect("far");
+            e.apply_grant_stealth();
+        }
+
+        // Without S&D: detector off → no residual detect.
+        assert!(!game_logic.find_object(sc_id).unwrap().is_detector);
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic
+                .find_object(near_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "InitiallyDisabled residual must not detect before S&D"
+        );
+
+        // Activate SearchAndDestroy → DetectionRange 500 + is_detector.
+        assert!(!game_logic.honesty_battle_plan_stealth_detector_ok());
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::SearchAndDestroy,
+            Some(sc_id),
+        ));
+        assert!(
+            game_logic.honesty_battle_plan_stealth_detector_ok(),
+            "S&D must record StealthDetector enable honesty"
+        );
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(sc.is_detector, "S&D must enable StealthDetector residual");
+            assert!(
+                (sc.detection_range - STRATEGY_CENTER_STEALTH_DETECTION_RANGE).abs() < 0.1,
+                "DetectionRange residual must be 500, got {}",
+                sc.detection_range
+            );
+        }
+
+        game_logic.update_stealth_and_detection();
+        assert!(
+            !game_logic
+                .find_object(near_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "near stealthed enemy must be detected at DetectionRange 500"
+        );
+        assert!(
+            game_logic
+                .find_object(far_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "far stealthed enemy beyond 500 must remain undetected"
+        );
+
+        // Leave S&D → setSDEnabled(false) residual.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        {
+            let sc = game_logic.find_object(sc_id).expect("sc");
+            assert!(!sc.is_detector, "leaving S&D must disable StealthDetector");
+            assert!(
+                sc.detection_range.abs() < 0.1,
+                "leaving S&D must clear DetectionRange residual"
+            );
+        }
+        assert!(
+            game_logic.battle_plans().stealth_detector_disable_count() >= 1,
+            "must record StealthDetector disable honesty"
+        );
+
+        // After disable: clear detected and re-stealth for residual recheck.
+        {
+            let e = game_logic.find_object_mut(near_id).expect("near");
+            e.apply_grant_stealth();
+        }
+        game_logic.update_stealth_and_detection();
+        assert!(
+            game_logic
+                .find_object(near_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "disabled StealthDetector residual must not detect"
+        );
+    }
+
+    /// Residual: BattlePlan pack/unpack door model-condition / 7s animation.
+    ///
+    /// Retail AnimationTime **7000**ms → **210** frames; TransitionIdleTime **0**.
+    /// DOOR_1 Bombardment / DOOR_2 HoldTheLine / DOOR_3 SearchAndDestroy.
+    /// OPENING → WAITING_TO_CLOSE after 210 frames; plan switch → CLOSING then
+    /// new OPENING. Fail-closed: army buffs still apply immediately on select.
+    #[test]
+    fn strategy_center_battle_plan_door_animation_residual() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, HostBattlePlanDoor, HostBattlePlanTransition,
+            BATTLE_PLAN_ANIMATION_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+
+        let sc_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        let ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        {
+            let u = game_logic.find_object_mut(ally_id).expect("ally");
+            u.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert!(!game_logic.honesty_battle_plan_door_ok());
+
+        // First select Bombardment: door OPENING residual + immediate army buffs.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(sc_id),
+        ));
+        assert!(
+            game_logic.honesty_battle_plan_door_ok(),
+            "door residual must start on plan select"
+        );
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+            assert_eq!(state.door, HostBattlePlanDoor::Door1Opening);
+            assert_eq!(
+                state.next_ready_frame,
+                game_logic.frame + BATTLE_PLAN_ANIMATION_FRAMES
+            );
+        }
+        // Fail-closed residual: army buffs apply immediately (not delayed unpack).
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_bombardment,
+            "army buff residual still immediate host path"
+        );
+        assert!(!game_logic.honesty_battle_plan_door_active_ok());
+
+        // Advance AnimationTime frames → WAITING_TO_CLOSE residual.
+        game_logic.frame = game_logic.frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(
+            game_logic.honesty_battle_plan_door_active_ok(),
+            "door residual must reach ACTIVE after AnimationTime"
+        );
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.status, HostBattlePlanTransition::Active);
+            assert_eq!(state.door, HostBattlePlanDoor::Door1WaitingToClose);
+        }
+
+        // Plan switch → PACKING door1 CLOSING residual.
+        let pack_frame = game_logic.frame;
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::HoldTheLine,
+            Some(sc_id),
+        ));
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.status, HostBattlePlanTransition::Packing);
+            assert_eq!(state.door, HostBattlePlanDoor::Door1Closing);
+            assert_eq!(
+                state.next_ready_frame,
+                pack_frame + BATTLE_PLAN_ANIMATION_FRAMES
+            );
+        }
+        // Immediate army buff switch residual (HoldTheLine).
+        assert!(
+            game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .weapon_bonus_battle_plan_hold_the_line
+        );
+
+        // Pack complete (TransitionIdleTime 0) → unpack HoldTheLine DOOR_2 OPENING.
+        game_logic.frame = pack_frame.saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+            assert_eq!(state.door, HostBattlePlanDoor::Door2Opening);
+        }
+
+        // SearchAndDestroy door residual DOOR_3 after Active.
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::SearchAndDestroy,
+            Some(sc_id),
+        ));
+        // Pack HoldTheLine door2 closing first.
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.door, HostBattlePlanDoor::Door2Closing);
+        }
+        game_logic.frame = game_logic
+            .frame
+            .saturating_add(BATTLE_PLAN_ANIMATION_FRAMES);
+        game_logic.tick_battle_plan_door_residuals();
+        {
+            let state = game_logic
+                .battle_plans()
+                .door_state_for_center(sc_id)
+                .expect("door state");
+            assert_eq!(state.status, HostBattlePlanTransition::Unpacking);
+            assert_eq!(state.door, HostBattlePlanDoor::Door3Opening);
         }
     }
 
