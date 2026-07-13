@@ -1,3 +1,110 @@
+## Residual Host Playability — Wave 43: Scud Special + Gattling Params + MissileAI Defaults + ImmortalBody Floor + DisplayString getFont/Draw + Anim2DMode Table (2026-07-13)
+**Closed (host-testable residual not covered by wave 41 launch/anti/getSize residual):**
+1. **ScudStormWeapon special residual** (`special_power_strikes`):
+   - PrimaryDamage **0** / PrimaryDamageRadius **0** / AttackRange **999999**.
+   - DamageType **EXPLOSION** / DeathType **EXPLODED** / WeaponSpeed **99999**.
+   - ScatterRadius **0** / PreAttackType **PER_CLIP** / PreAttackDelay **3000** ms → **90** frames.
+   - ProjectileDetonationFX **ScudStormMissileDetonation** / RadiusDamageAffects ALLIES/ENEMIES/NEUTRALS.
+   - Honesty: `honesty_scud_weapon_special_ok`.
+   - Fail-closed: not full WeaponTemplate store / live pad launch matrix.
+2. **SpectreGattlingGun anti/fire residual** (`special_power_strikes`):
+   - AntiAirborne*/AntiMissile **No**, AntiGround **Yes**, ProjectileObject **NONE**.
+   - PrimaryDamageRadius **0**, DamageType **Gattling**, DeathType **NORMAL**, WeaponSpeed **999999**.
+   - ClipSize **0** / ClipReloadTime **0** / DelayBetweenShots **100** ms / AttackRange **2222**.
+   - Honesty: `honesty_gattling_gun_params_ok`.
+   - Fail-closed: not full WeaponTemplate store / live gattling turret matrix.
+3. **MissileAIUpdate defaults residual** (`special_power_strikes`):
+   - IgnitionDelay **0**, UseWeaponSpeed **No**, DetonateOnNoFuel **No**.
+   - DistanceToTargetForLock **75**, DistanceScatterWhenJammed **75**.
+   - DetonateCallsKill **No**, KillSelfDelay **3** frames (C++ module defaults).
+   - Honesty: `honesty_scud_missile_ai_defaults_ok`.
+   - Fail-closed: not full MissileAIUpdate state machine / live fuel/jam path.
+4. **TrailRemnant ImmortalBody health-floor residual** (`special_power_strikes`):
+   - Floor **1** HP (`internalChangeHealth` clamp) / never-dead residual.
+   - Honesty: `honesty_beam_remnant_immortal_body_ok` / `immortal_body_apply_health_delta`.
+   - Fail-closed: not full ThingFactory ImmortalBody / Object death flag stack.
+5. **DisplayString getFont + draw residual** (`floating_text_layout`):
+   - getFont identity residual; draw empty early-out; default drop **(1,1)**.
+   - Shadow-then-text order residual (`shadow_x = x+xDrop`); pos/color rebuild dirty.
+   - Honesty: get_font / draw residual tests.
+   - Fail-closed: not full Render2DSentence GPU StretchRect / hotkey underline.
+6. **Anim2DMode full residual table** (`world_anim_layout`):
+   - Discriminants INVALID=0..PING_PONG_BACKWARDS=6 + Anim2DModeNames[] residual.
+   - Default template mode LOOP; MoneyPickUp AnimationMode LOOP residual.
+   - Honesty: `honesty_anim2d_mode_table` / anim2d_mode_table_residual_honesty.
+   - Fail-closed: not full ONCE/PING_PONG live Anim2D reverse state machine / GPU atlas.
+7. Snapshot/Xfer: scud special/defaults + gattling gun params + remnant immortal residual fields.
+8. Tests (not log-only):
+   - `scud_weapon_special_residual_honesty`
+   - `spectre_gattling_gun_params_residual_honesty`
+   - `scud_missile_ai_defaults_residual_honesty`
+   - `particle_uplink_remnant_immortal_body_residual_honesty`
+   - `display_string_get_font_residual_honesty` / `display_string_draw_residual_honesty`
+   - `anim2d_mode_table_residual_honesty`
+   - all `special_power_strikes::` (**81**) green
+   - floating_text (**16**) + world_anim (**7**) + game_text (**7**) green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 42: ScudStormWeapon Special + SpectreGattlingGun Params + DisplayString getFont/draw + Anim2D Mode Residual (2026-07-13)
+**Closed (host-testable residual not covered by wave 41 launch/anti/getSize residual):**
+1. **ScudStormWeapon special residual** (`special_power_strikes`):
+   - PrimaryDamage **0**, PrimaryDamageRadius **0**, AttackRange **999999**.
+   - DamageType **EXPLOSION**, DeathType **EXPLODED**, WeaponSpeed **99999**.
+   - ScatterRadius **0**, PreAttackType **PER_CLIP**, PreAttackDelay **3000** ms → **90** frames.
+   - Honesty: `honesty_scud_weapon_special_ok` (application counter on impact wave).
+   - Fail-closed: not full WeaponTemplate store / live pad launch matrix.
+2. **SpectreGattlingGun anti/fire residual** (`special_power_strikes`):
+   - AntiAirborneVehicle/Infantry **No**, AntiSmallMissile/AntiBallisticMissile **No**.
+   - AntiGround **Yes**, ProjectileObject **NONE**, PrimaryDamageRadius **0**.
+   - DamageType **Gattling**, DeathType **NORMAL**, WeaponSpeed **999999**, AttackRange **2222**.
+   - FireFX / VeterancyFireFX residual, ClipSize **0**, ClipReloadTime **0**, DelayBetweenShots **100** ms.
+   - Honesty: `honesty_gattling_gun_params_ok` (application counter on gattling tick).
+   - Fail-closed: not full WeaponTemplate anti matrix / live hitscan aim.
+3. **DisplayString getFont / draw residual** (`floating_text_layout`):
+   - getFont identity residual.
+   - draw empty early-out; default drop shadow **(1,1)**; rebuild on text/font/pos/color dirty.
+   - draw_with_drop explicit offset residual.
+   - Honesty: get_font / draw residual tests.
+   - Fail-closed: not full FontCharsClass / WW3D StretchRect / live hotkey underline draw.
+4. **Anim2D mode residual** (`world_anim_layout`):
+   - ONCE / ONCE_BACKWARDS / LOOP / LOOP_BACKWARDS / PING_PONG / PING_PONG_BACKWARDS.
+   - Host `anim2d_try_next_frame` matches C++ `Anim2D::tryNextFrame` residual.
+   - Honesty: `honesty_anim2d_mode_residual` + unit test.
+   - Fail-closed: not full Anim2DCollection GPU texture atlas / WW3D Image draw.
+5. Snapshot/Xfer: scud weapon special default + gattling gun params residual fields appended.
+6. Tests (not log-only):
+   - `scud_weapon_special_residual_honesty`
+   - `spectre_gattling_gun_params_residual_honesty`
+   - `display_string_get_font_residual_honesty`
+   - `display_string_draw_residual_honesty`
+   - `anim2d_mode_residual_honesty`
+   - all `special_power_strikes::` green
+   - residual_honesty suite green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 41: ScudStormWeapon Launch + Howitzer Gun Anti + DisplayString getSize/WordWrap/Hotkey/Clip + Multi-locale STR Paths (2026-07-13)
 **Closed (host-testable residual not covered by wave 39 death-damage/fire-params/remnant residual):**
 1. **ScudStormWeapon launch residual** (`special_power_strikes`):
