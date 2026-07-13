@@ -274,6 +274,11 @@ pub struct Player {
     /// C++ Player::m_cashBountyPercent — fraction of victim build cost awarded on kill.
     /// 0.0 = disabled; retail tiers 0.05 / 0.10 / 0.20.
     pub cash_bounty_percent: f32,
+    /// Radar residual count (C++ Player::m_radarCount).
+    /// Providers: CommandCenter / RadarVan residual ownership path.
+    pub radar_count: i32,
+    /// True when radar is disabled by script/power residual (C++ m_radarDisabled).
+    pub radar_disabled: bool,
 }
 
 impl Player {
@@ -305,7 +310,24 @@ impl Player {
             start_position: -1,
             alliance_team: -1,
             cash_bounty_percent: 0.0,
+            radar_count: 0,
+            radar_disabled: false,
         }
+    }
+
+    /// C++ Player::hasRadar residual: radar_count > 0 && !radar_disabled.
+    pub fn has_radar(&self) -> bool {
+        self.radar_count > 0 && !self.radar_disabled
+    }
+
+    /// C++ Player::addRadar residual (disable_proof ignored fail-closed).
+    pub fn add_radar(&mut self, _disable_proof: bool) {
+        self.radar_count = self.radar_count.saturating_add(1);
+    }
+
+    /// C++ Player::removeRadar residual.
+    pub fn remove_radar(&mut self, _disable_proof: bool) {
+        self.radar_count = (self.radar_count - 1).max(0);
     }
 
     /// C++ Player::getCashBounty().
@@ -721,6 +743,10 @@ pub struct GameLogic {
     /// Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
     /// Fail-closed: not full unpack/pack state machine / variation / floating text.
     hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
+
+    /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
+    /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
+    host_radar: crate::game_logic::host_radar::HostRadarRegistry,
 
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
@@ -1569,6 +1595,7 @@ impl GameLogic {
             black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry::new(),
             oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry::new(),
             hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry::new(),
+            host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
             inferno_fire_zones:
@@ -1737,6 +1764,7 @@ impl GameLogic {
         self.black_markets.clear();
         self.oil_derricks.clear();
         self.hacker_income.clear();
+        self.host_radar.clear();
         self.car_bomb.clear();
         self.fire_walls.clear();
         self.inferno_fire_zones.clear();
@@ -3709,6 +3737,9 @@ impl GameLogic {
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
         self.update_hacker_income();
+        // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
+        // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
+        self.update_player_radar();
         self.update_power_disabled_state();
 
         // -----------------------------------------------------------------------
@@ -6976,6 +7007,66 @@ impl GameLogic {
         self.hacker_income.stop_hacking(hacker_id);
     }
 
+    /// CommandCenter / RadarVan radar-online residual (C++ Player::hasRadar).
+    ///
+    /// Retail: America CC GrantUpgradeCreate Upgrade_AmericaRadar + RadarUpgrade;
+    /// China CC RadarUpgrade (researched); GLA RadarVan GrantUpgradeCreate
+    /// Upgrade_GLARadar + RadarUpgrade DisableProof.
+    /// Residual: owning any alive constructed CC or RadarVan sets player
+    /// radar_count and has_radar. Fail-closed vs full RadarUpgrade module matrix,
+    /// power-brownout removeRadar, capture transfer, and Fake CC (skipped).
+    fn update_player_radar(&mut self) {
+        use crate::game_logic::host_radar::{
+            is_legal_radar_provider, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
+        };
+        use std::collections::HashMap;
+
+        // Count residual radar providers per team.
+        let mut providers_by_team: HashMap<Team, u32> = HashMap::new();
+        for obj in self.objects.values() {
+            if !is_legal_radar_provider(
+                obj.is_alive(),
+                obj.is_constructed() && !obj.status.under_construction,
+                obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter),
+                &obj.template_name,
+            ) {
+                continue;
+            }
+            if obj.team == Team::Neutral {
+                continue;
+            }
+            *providers_by_team.entry(obj.team).or_insert(0) += 1;
+        }
+
+        // Apply radar_count recompute per player (absolute set, not delta).
+        let player_ids: Vec<u32> = self.players.keys().copied().collect();
+        let mut transition_events: Vec<(u32, bool, bool)> = Vec::new();
+        for pid in player_ids {
+            let Some(player) = self.players.get_mut(&pid) else {
+                continue;
+            };
+            let count = providers_by_team.get(&player.team).copied().unwrap_or(0);
+            let had = player.has_radar();
+            player.radar_count = count as i32;
+            let has_now = player.has_radar();
+            transition_events.push((count, had, has_now));
+        }
+
+        for (count, had, has_now) in transition_events {
+            let (came_online, went_offline) =
+                self.host_radar.record_player_radar(count, had, has_now);
+            if came_online {
+                self.queue_audio_event(
+                    AudioEventRequest::new(RADAR_ONLINE_AUDIO).with_priority(130),
+                );
+            } else if went_offline {
+                self.queue_audio_event(
+                    AudioEventRequest::new(RADAR_OFFLINE_AUDIO).with_priority(130),
+                );
+            }
+        }
+    }
+
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
     /// whether their owning player has sufficient power.
@@ -9621,6 +9712,12 @@ impl GameLogic {
         self.hacker_income.cash_total()
     }
 
+    /// Residual CommandCenter / RadarVan radar-online honesty.
+    /// Fail-closed: not full RadarUpgrade/RadarUpdate module matrix.
+    pub fn honesty_radar_online_ok(&self) -> bool {
+        self.host_radar.honesty_ok()
+    }
+
     /// Residual garrison honesty: successful structure enter count.
     pub fn garrison_residual_enters(&self) -> u32 {
         self.garrison_residual_enters
@@ -11655,6 +11752,16 @@ impl GameLogic {
         &self,
     ) -> &crate::game_logic::host_hacker_income::HostHackerIncomeRegistry {
         &self.hacker_income
+    }
+
+    /// Host CommandCenter / RadarVan radar residual registry.
+    pub fn host_radar(&self) -> &crate::game_logic::host_radar::HostRadarRegistry {
+        &self.host_radar
+    }
+
+    /// Residual honesty: player radar came online via CC / RadarVan ownership.
+    pub fn honesty_radar_provider_online_ok(&self) -> bool {
+        self.host_radar.honesty_online_ok()
     }
 
     /// Residual honesty: Black Lotus disable-vehicle hack completed at least once.
@@ -16744,7 +16851,16 @@ impl GameLogic {
         ui_state.cinematic_letterbox = self.cinematic_letterbox;
         ui_state.cinematic_text = self.cinematic_text.as_ref().map(|(text, _)| text.clone());
         ui_state.military_caption = self.military_caption.as_ref().map(|(text, _)| text.clone());
-        ui_state.radar_enabled = self.radar_forced || self.radar_enabled;
+        // C++ W3DControlBar / ControlBarCallback:
+        // isRadarForced() || (!isRadarHidden() && player->hasRadar())
+        // radar_enabled here is script "not hidden"; has_radar is ownership residual.
+        let local_has_radar = self
+            .local_player_id()
+            .and_then(|id| self.get_player(id))
+            .map(|p| p.has_radar())
+            .unwrap_or(false);
+        ui_state.radar_enabled =
+            self.radar_forced || (self.radar_enabled && local_has_radar);
         ui_state.radar_forced = self.radar_forced;
         ui_state.objectives = self.mission_objectives.clone();
         ui_state
@@ -20869,6 +20985,155 @@ mod tests {
             enemy_after.health.current < enemy_hp_before || enemy_after.status.destroyed,
             "remote detonate must damage nearby enemy (before={enemy_hp_before}, after={})",
             enemy_after.health.current
+        );
+    }
+
+    /// Residual: owning a CommandCenter enables player radar (minimap online).
+    /// Fail-closed: not full RadarUpgrade grant / RadarUpdate extend animation.
+    #[test]
+    fn command_center_radar_residual_enables_player_has_radar() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_command_center_template(&mut game_logic);
+
+        // Before CC: no radar.
+        game_logic.update_player_radar();
+        let before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.has_radar())
+            .unwrap_or(true);
+        assert!(!before, "player must not have radar without CommandCenter");
+        assert!(!game_logic.honesty_radar_online_ok());
+
+        let cc_id = game_logic
+            .create_object(
+                "TestCommandCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("command center");
+        if let Some(obj) = game_logic.find_object_mut(cc_id) {
+            obj.status.under_construction = false;
+            obj.construction_percent = 1.0;
+        }
+
+        game_logic.update_player_radar();
+        let after = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| (p.has_radar(), p.radar_count))
+            .expect("player");
+        assert!(after.0, "player radar state must become true when CC present");
+        assert!(after.1 >= 1, "radar_count must reflect CC provider");
+        assert!(
+            game_logic.honesty_radar_online_ok(),
+            "radar online residual honesty"
+        );
+        assert!(
+            game_logic.host_radar().max_provider_count >= 1,
+            "provider honesty"
+        );
+
+        // UI: forced off + script radar not hidden + local has_radar → radar online.
+        game_logic.radar_forced = false;
+        game_logic.radar_enabled = true;
+        let ui = game_logic.update_ui_state(0);
+        assert!(
+            ui.radar_enabled,
+            "minimap/radar UI online when local player has CC radar"
+        );
+
+        // Destroy CC → radar offline.
+        if let Some(obj) = game_logic.find_object_mut(cc_id) {
+            obj.status.destroyed = true;
+            obj.health.current = 0.0;
+        }
+        game_logic.update_player_radar();
+        let offline = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.has_radar())
+            .unwrap_or(true);
+        assert!(!offline, "radar offline when CC destroyed");
+        let ui_off = game_logic.update_ui_state(0);
+        assert!(
+            !ui_off.radar_enabled,
+            "minimap/radar UI offline without provider (unless forced)"
+        );
+    }
+
+    /// Residual: RadarVan also grants player radar (GLA path).
+    #[test]
+    fn radar_van_residual_enables_player_has_radar() {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        if !game_logic.templates.contains_key("TestRadarVan") {
+            let mut t = ThingTemplate::new("TestRadarVan");
+            t.add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(300.0)
+                .set_cost(500, 0);
+            game_logic.templates.insert("TestRadarVan".to_string(), t);
+        }
+
+        let van_id = game_logic
+            .create_object("TestRadarVan", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("radar van");
+        if let Some(obj) = game_logic.find_object_mut(van_id) {
+            obj.status.under_construction = false;
+            obj.construction_percent = 1.0;
+        }
+
+        game_logic.update_player_radar();
+        assert!(
+            game_logic
+                .get_player_mut_by_team(Team::GLA)
+                .map(|p| p.has_radar())
+                .unwrap_or(false),
+            "RadarVan residual must enable player has_radar"
+        );
+        assert!(game_logic.host_radar().online_transitions >= 1);
+    }
+
+    /// Residual: Fake command centers do not grant radar.
+    #[test]
+    fn fake_command_center_does_not_grant_radar() {
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+        if !game_logic.templates.contains_key("FakeGLACommandCenter") {
+            let mut t = ThingTemplate::new("FakeGLACommandCenter");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::CommandCenter)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(500.0);
+            game_logic
+                .templates
+                .insert("FakeGLACommandCenter".to_string(), t);
+        }
+
+        let fake_id = game_logic
+            .create_object(
+                "FakeGLACommandCenter",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("fake cc");
+        if let Some(obj) = game_logic.find_object_mut(fake_id) {
+            obj.status.under_construction = false;
+            obj.construction_percent = 1.0;
+        }
+
+        game_logic.update_player_radar();
+        assert!(
+            !game_logic
+                .get_player_mut_by_team(Team::GLA)
+                .map(|p| p.has_radar())
+                .unwrap_or(true),
+            "Fake CC must not enable radar residual"
         );
     }
 
