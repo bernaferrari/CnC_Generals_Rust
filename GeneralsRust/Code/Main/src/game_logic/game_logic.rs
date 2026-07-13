@@ -915,6 +915,14 @@ pub struct GameLogic {
     gattling_tank_residual_ramp_fast: u32,
     gattling_tank_residual_chain_gun_upgrades: u32,
 
+    /// Host residual: China Gattling Cannon structure continuous-fire ramp honesty.
+    /// Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
+    gattling_building_residual_ground_fires: u32,
+    gattling_building_residual_aa_fires: u32,
+    gattling_building_residual_ramp_mean: u32,
+    gattling_building_residual_ramp_fast: u32,
+    gattling_building_residual_chain_gun_upgrades: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1823,6 +1831,11 @@ impl GameLogic {
             gattling_tank_residual_ramp_mean: 0,
             gattling_tank_residual_ramp_fast: 0,
             gattling_tank_residual_chain_gun_upgrades: 0,
+            gattling_building_residual_ground_fires: 0,
+            gattling_building_residual_aa_fires: 0,
+            gattling_building_residual_ramp_mean: 0,
+            gattling_building_residual_ramp_fast: 0,
+            gattling_building_residual_chain_gun_upgrades: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -2051,6 +2064,11 @@ impl GameLogic {
         self.gattling_tank_residual_ramp_mean = 0;
         self.gattling_tank_residual_ramp_fast = 0;
         self.gattling_tank_residual_chain_gun_upgrades = 0;
+        self.gattling_building_residual_ground_fires = 0;
+        self.gattling_building_residual_aa_fires = 0;
+        self.gattling_building_residual_ramp_mean = 0;
+        self.gattling_building_residual_ramp_fast = 0;
+        self.gattling_building_residual_chain_gun_upgrades = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -9054,6 +9072,25 @@ impl GameLogic {
                 object.continuous_fire_victim = 0;
             }
 
+            // Host residual: China Gattling Cannon structure dual ground/AA + continuous-fire ramp.
+            // Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
+            if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
+                use crate::game_logic::host_base_defense::{
+                    gattling_building_air_weapon, gattling_building_ground_weapon,
+                    gattling_building_has_chain_guns,
+                };
+                use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+                let chain = gattling_building_has_chain_guns(&object.applied_upgrades);
+                object.weapon =
+                    Some(gattling_building_ground_weapon(GattlingFireLevel::Base, chain));
+                object.secondary_weapon =
+                    Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
+                object.continuous_fire_consecutive = 0;
+                object.continuous_fire_level = 0;
+                object.continuous_fire_coast_until_frame = 0;
+                object.continuous_fire_victim = 0;
+            }
+
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
                 object.is_detector = true;
@@ -12237,8 +12274,19 @@ impl GameLogic {
     /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
     /// structures acquire nearest enemy in weapon range and deal damage without
     /// a manual AttackObject order.
-    /// Fail-closed: not full AutoAcquire LOS / continuous-fire / multi-slot matrix.
+    ///
+    /// China Gattling Cannon residual adds:
+    /// - dual-slot air/ground chooser (`GattlingBuildingGun` / `GunAir`)
+    /// - continuous-fire ramp (One=1 / Two=5 / Coast=2000ms)
+    /// - Chain Guns PLAYER_UPGRADE damage × 1.25
+    ///
+    /// Fail-closed: not full AutoAcquire LOS / turret pitch / CONTINUOUS_FIRE anim.
     fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
+        use crate::game_logic::host_base_defense::{
+            is_gattling_cannon_structure, preferred_gattling_building_slot,
+            GATTLING_BUILDING_FIRE_AUDIO,
+        };
+
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&defense_id) else {
@@ -12251,19 +12299,27 @@ impl GameLogic {
         {
             return;
         }
-        let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
+        let is_gattling = is_gattling_cannon_structure(&attacker.template_name);
+        let team = attacker.team;
+        let fire_pos = attacker.get_position();
+        let ground_range = attacker.weapon.as_ref().map(|w| w.range).unwrap_or(0.0);
+        let air_range = attacker
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.range)
+            .unwrap_or(0.0);
+        // Scan range residual: gattling uses max(primary, secondary) so AA can acquire
+        // out to 400 while ground stays at 225.
+        let scan_range = if is_gattling {
+            ground_range.max(air_range)
+        } else {
+            ground_range
         };
-        if !Object::weapon_ready(weapon, current_time) {
+        if scan_range <= 0.0 {
             return;
         }
 
-        let team = attacker.team;
-        let range = weapon.range;
-        let damage = weapon.damage;
-        let fire_pos = attacker.get_position();
-
-        let mut best: Option<(ObjectId, f32)> = None;
+        let mut best: Option<(ObjectId, f32, bool)> = None;
         for (id, obj) in &self.objects {
             if *id == defense_id {
                 continue;
@@ -12286,15 +12342,70 @@ impl GameLogic {
             if obj.is_effectively_stealthed() && obj.team != team {
                 continue;
             }
+            let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
             let dist = fire_pos.distance(obj.get_position());
-            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
-                best = Some((*id, dist));
+            let in_range = if is_gattling {
+                if is_air {
+                    dist <= air_range.max(ground_range)
+                } else {
+                    dist <= ground_range
+                }
+            } else {
+                dist <= scan_range
+            };
+            if in_range && best.map(|(_, d, _)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist, is_air));
             }
         }
 
-        let Some((target_id, _)) = best else {
+        let Some((target_id, _, target_is_air)) = best else {
             return;
         };
+
+        let slot = if is_gattling {
+            preferred_gattling_building_slot(target_is_air)
+        } else {
+            0
+        };
+
+        // Readiness residual: use the slot that will fire.
+        let ready = {
+            let Some(attacker) = self.objects.get(&defense_id) else {
+                return;
+            };
+            if slot == 1 {
+                attacker
+                    .secondary_weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time))
+            } else {
+                attacker
+                    .weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time))
+            }
+        };
+        if !ready {
+            return;
+        }
+
+        let damage = {
+            let Some(attacker) = self.objects.get(&defense_id) else {
+                return;
+            };
+            if slot == 1 {
+                attacker
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0)
+            } else {
+                attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0)
+            }
+        };
+        if damage <= 0.0 {
+            return;
+        }
 
         let mut destroyed = false;
         let mut kill_xp = 0.0;
@@ -12307,7 +12418,11 @@ impl GameLogic {
         }
 
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
-            if let Some(w) = attacker.weapon.as_mut() {
+            if slot == 1 {
+                if let Some(w) = attacker.secondary_weapon.as_mut() {
+                    w.last_fire_time = current_time;
+                }
+            } else if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
             }
             // Track engagement for UI / subsequent frames without requiring
@@ -12327,6 +12442,11 @@ impl GameLogic {
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
+        // Continuous-fire ramp residual for structure gattling.
+        if is_gattling {
+            self.advance_gattling_building_continuous_fire(defense_id, Some(target_id), slot);
+        }
+
         // Muzzle + audio residual (shared combat honesty).
         let muzzle_pos = self
             .objects
@@ -12344,8 +12464,13 @@ impl GameLogic {
             defense_id,
             Some(target_id),
         );
+        let audio = if is_gattling {
+            GATTLING_BUILDING_FIRE_AUDIO
+        } else {
+            "WeaponFire"
+        };
         self.queue_audio_event(
-            AudioEventRequest::new("WeaponFire")
+            AudioEventRequest::new(audio)
                 .with_object(defense_id)
                 .with_position(muzzle_pos)
                 .with_priority(160),
@@ -12918,6 +13043,38 @@ impl GameLogic {
 
     pub fn gattling_tank_residual_ramp_fast(&self) -> u32 {
         self.gattling_tank_residual_ramp_fast
+    }
+
+    /// Residual honesty: China Gattling Cannon structure path exercised.
+    pub fn honesty_gattling_building_ok(&self) -> bool {
+        self.gattling_building_residual_ground_fires > 0
+            || self.gattling_building_residual_aa_fires > 0
+            || self.gattling_building_residual_ramp_mean > 0
+            || self.gattling_building_residual_ramp_fast > 0
+            || self.gattling_building_residual_chain_gun_upgrades > 0
+    }
+
+    /// Residual honesty: structure continuous-fire ramp reached MEAN or FAST.
+    pub fn honesty_gattling_building_ramp_ok(&self) -> bool {
+        self.gattling_building_residual_ramp_mean > 0
+            || self.gattling_building_residual_ramp_fast > 0
+    }
+
+    /// Residual honesty: structure AA secondary residual fire.
+    pub fn honesty_gattling_building_aa_ok(&self) -> bool {
+        self.gattling_building_residual_aa_fires > 0
+    }
+
+    pub fn gattling_building_residual_ground_fires(&self) -> u32 {
+        self.gattling_building_residual_ground_fires
+    }
+
+    pub fn gattling_building_residual_aa_fires(&self) -> u32 {
+        self.gattling_building_residual_aa_fires
+    }
+
+    pub fn gattling_building_residual_ramp_fast(&self) -> u32 {
+        self.gattling_building_residual_ramp_fast
     }
 
     /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
@@ -13886,8 +14043,13 @@ impl GameLogic {
         true
     }
 
-    /// Apply Chain Guns residual to a Gattling Tank (PLAYER_UPGRADE damage residual).
+    /// Apply Chain Guns residual to a Gattling Tank or Gattling Cannon structure
+    /// (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_base_defense::{
+            gattling_building_air_weapon, gattling_building_ground_weapon,
+            is_gattling_cannon_structure,
+        };
         use crate::game_logic::host_gattling_tank::{
             gattling_air_weapon, gattling_ground_weapon, is_gattling_tank_template,
             GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS,
@@ -13895,18 +14057,121 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_gattling_tank_template(&obj.template_name) {
+        let is_tank = is_gattling_tank_template(&obj.template_name);
+        let is_building = is_gattling_cannon_structure(&obj.template_name);
+        if !is_tank && !is_building {
             return false;
         }
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
-        obj.weapon = Some(gattling_ground_weapon(level, true));
-        obj.secondary_weapon = Some(gattling_air_weapon(level, true));
-        self.gattling_tank_residual_chain_gun_upgrades = self
-            .gattling_tank_residual_chain_gun_upgrades
-            .saturating_add(1);
+        if is_tank {
+            obj.weapon = Some(gattling_ground_weapon(level, true));
+            obj.secondary_weapon = Some(gattling_air_weapon(level, true));
+            self.gattling_tank_residual_chain_gun_upgrades = self
+                .gattling_tank_residual_chain_gun_upgrades
+                .saturating_add(1);
+        } else {
+            obj.weapon = Some(gattling_building_ground_weapon(level, true));
+            obj.secondary_weapon = Some(gattling_building_air_weapon(level, true));
+            self.gattling_building_residual_chain_gun_upgrades = self
+                .gattling_building_residual_chain_gun_upgrades
+                .saturating_add(1);
+        }
         true
+    }
+
+    /// Advance structure Gattling Cannon continuous-fire ramp residual after a shot.
+    fn advance_gattling_building_continuous_fire(
+        &mut self,
+        attacker_id: ObjectId,
+        target_id: Option<ObjectId>,
+        slot: u8,
+    ) {
+        use crate::game_logic::host_base_defense::{
+            gattling_building_air_weapon, gattling_building_coast_until_after_shot,
+            gattling_building_ground_weapon, gattling_building_has_chain_guns,
+            gattling_building_on_shot_fired, GATTLING_BUILDING_RAPID_FIRE_AUDIO,
+        };
+        use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+
+        let frame = self.frame;
+        let Some(obj) = self.objects.get_mut(&attacker_id) else {
+            return;
+        };
+        let prev_level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
+        let prev_consec = obj.continuous_fire_consecutive;
+        let prev_victim = if obj.continuous_fire_victim == 0 {
+            None
+        } else {
+            Some(obj.continuous_fire_victim)
+        };
+        let new_victim = target_id.map(|id| id.0);
+        let coast_until = obj.continuous_fire_coast_until_frame;
+
+        let (new_level, consecutive, entered_fast) = gattling_building_on_shot_fired(
+            prev_level,
+            prev_consec,
+            prev_victim,
+            new_victim,
+            frame,
+            coast_until,
+        );
+
+        let chain = gattling_building_has_chain_guns(&obj.applied_upgrades);
+        obj.continuous_fire_level = new_level.as_u8();
+        obj.continuous_fire_consecutive = consecutive;
+        obj.continuous_fire_victim = new_victim.unwrap_or(0);
+        obj.continuous_fire_coast_until_frame =
+            gattling_building_coast_until_after_shot(frame, new_level);
+
+        // Rebind weapons with ramped reload residual.
+        if let Some(w) = obj.weapon.as_mut() {
+            let refreshed = gattling_building_ground_weapon(new_level, chain);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = false;
+            w.can_target_ground = true;
+        }
+        if let Some(w) = obj.secondary_weapon.as_mut() {
+            let refreshed = gattling_building_air_weapon(new_level, chain);
+            w.damage = refreshed.damage;
+            w.range = refreshed.range;
+            w.reload_time = refreshed.reload_time;
+            w.can_target_air = true;
+            w.can_target_ground = false;
+        }
+
+        let pos = obj.get_position();
+
+        if slot == 1 {
+            self.gattling_building_residual_aa_fires = self
+                .gattling_building_residual_aa_fires
+                .saturating_add(1);
+        } else {
+            self.gattling_building_residual_ground_fires = self
+                .gattling_building_residual_ground_fires
+                .saturating_add(1);
+        }
+        if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
+            self.gattling_building_residual_ramp_mean = self
+                .gattling_building_residual_ramp_mean
+                .saturating_add(1);
+        }
+        let became_fast = entered_fast
+            || (new_level == GattlingFireLevel::Fast && prev_level != GattlingFireLevel::Fast);
+        if became_fast {
+            self.gattling_building_residual_ramp_fast = self
+                .gattling_building_residual_ramp_fast
+                .saturating_add(1);
+            self.queue_audio_event(
+                AudioEventRequest::new(GATTLING_BUILDING_RAPID_FIRE_AUDIO)
+                    .with_object(attacker_id)
+                    .with_position(pos)
+                    .with_priority(140),
+            );
+        }
     }
 
     /// Advance Gattling continuous-fire ramp residual after a successful shot.
@@ -39994,7 +40259,8 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .add_kind_of(KindOf::FSBaseDefense)
             .set_health(500.0)
-            .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON);
+            .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_SECONDARY_WEAPON);
         game_logic
             .templates
             .insert("China_GattlingCannon".to_string(), gattling_tpl);
@@ -40009,6 +40275,10 @@ mod tests {
         {
             let g = game_logic.find_object_mut(gattling_id).unwrap();
             assert!(g.weapon.is_some(), "Gattling must bind residual weapon");
+            assert!(
+                g.secondary_weapon.is_some(),
+                "Gattling structure must bind AA secondary residual"
+            );
             if let Some(w) = g.weapon.as_mut() {
                 w.last_fire_time = -10.0;
             }
@@ -40037,6 +40307,183 @@ mod tests {
         assert!(
             game_logic.honesty_base_defense_fire_ok(),
             "base-defense residual honesty"
+        );
+    }
+
+    /// Residual: China Gattling Cannon continuous-fire ramp + AA secondary + Chain Guns.
+    #[test]
+    fn gattling_building_residual_ramp_fire_rate_and_aa() {
+        use crate::game_logic::host_base_defense::{
+            is_gattling_cannon_structure, GATTLING_BUILDING_AIR_DAMAGE,
+            GATTLING_BUILDING_GROUND_DAMAGE, GATTLING_BUILDING_GROUND_RANGE,
+            GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut gattling_tpl = crate::game_logic::ThingTemplate::new("China_GattlingCannon");
+        gattling_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(500.0)
+            .set_primary_weapon_name(GATTLING_BUILDING_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(GATTLING_BUILDING_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("China_GattlingCannon".to_string(), gattling_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        let gattling_id = game_logic
+            .create_object(
+                "China_GattlingCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("gattling cannon");
+        let base_reload = {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            assert!(is_gattling_cannon_structure(&g.template_name));
+            let prim = g.weapon.as_ref().expect("ground gun");
+            assert!((prim.damage - GATTLING_BUILDING_GROUND_DAMAGE).abs() < 0.01);
+            assert!((prim.range - GATTLING_BUILDING_GROUND_RANGE).abs() < 1.0);
+            assert!(prim.can_target_ground);
+            assert!(!prim.can_target_air);
+            let sec = g.secondary_weapon.as_ref().expect("aa gun");
+            assert!(sec.can_target_air);
+            assert!(!sec.can_target_ground);
+            assert!((sec.damage - GATTLING_BUILDING_AIR_DAMAGE).abs() < 0.01);
+            assert_eq!(g.continuous_fire_level, 0);
+            prim.reload_time
+        };
+
+        // Chain Guns residual → damage × 1.25.
+        assert!(game_logic.apply_gattling_chain_guns_upgrade(gattling_id));
+        {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            let prim = g.weapon.as_ref().expect("chained ground");
+            assert!(
+                (prim.damage - GATTLING_BUILDING_GROUND_DAMAGE * 1.25).abs() < 0.01,
+                "chain guns residual 125% damage, got {}",
+                prim.damage
+            );
+        }
+
+        // Fire repeatedly at same ground target to ramp continuous fire residual.
+        // Building One=1 → MEAN on shot 2; Two=5 → FAST on shot 6.
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        for i in 0..8u32 {
+            {
+                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                // Keep residual auto-fire path Idle/Attacking without manual AttackObject.
+                if let Some(w) = g.weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                    w.reload_time = 0.05;
+                }
+                if let Some(w) = g.secondary_weapon.as_mut() {
+                    w.last_fire_time = 0.0;
+                    w.reload_time = 1000.0;
+                }
+            }
+            game_logic.set_current_frame(30 + (i as u64) * 15);
+            game_logic.update_combat(&[gattling_id, enemy], LOGIC_FRAME_TIMESTEP);
+        }
+
+        assert!(
+            game_logic.gattling_building_residual_ground_fires() > 0,
+            "gattling building ground residual honesty"
+        );
+        assert!(
+            game_logic.honesty_gattling_building_ramp_ok(),
+            "gattling building continuous-fire ramp residual honesty must reach MEAN or FAST"
+        );
+        {
+            let g = game_logic.find_object(gattling_id).expect("gattling");
+            assert!(
+                g.continuous_fire_level >= GattlingFireLevel::Mean.as_u8(),
+                "after multi-shot residual must be MEAN or FAST, level={}",
+                g.continuous_fire_level
+            );
+            let prim = g.weapon.as_ref().expect("ramped gun");
+            // MEAN reload 4/30≈0.133, FAST 2/30≈0.067 — both < base 8/30≈0.267
+            assert!(
+                prim.reload_time < base_reload - 0.05,
+                "ramped fire residual faster than base (base={base_reload} now={})",
+                prim.reload_time
+            );
+        }
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "ground residual must deal damage"
+        );
+
+        // AA secondary residual vs aircraft.
+        let air = game_logic
+            .create_object("TestAircraft", Team::GLA, Vec3::new(100.0, 50.0, 0.0))
+            .expect("aircraft");
+        let air_hp_before = game_logic
+            .find_object(air)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        // Remove ground enemy so auto-acquire prefers air.
+        game_logic.mark_object_for_destruction(enemy, None);
+        game_logic.process_destroy_list();
+        for i in 0..6u32 {
+            {
+                let g = game_logic.find_object_mut(gattling_id).unwrap();
+                if let Some(w) = g.secondary_weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                    w.reload_time = 0.05;
+                }
+                if let Some(w) = g.weapon.as_mut() {
+                    w.last_fire_time = 0.0;
+                    w.reload_time = 1000.0;
+                }
+            }
+            game_logic.set_current_frame(500 + (i as u64) * 10);
+            game_logic.update_combat(&[gattling_id, air], LOGIC_FRAME_TIMESTEP);
+        }
+        let air_hp_after = game_logic
+            .find_object(air)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "AA secondary residual must damage aircraft (before={air_hp_before} after={air_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_gattling_building_aa_ok(),
+            "gattling building AA residual honesty"
+        );
+        assert!(
+            game_logic.honesty_gattling_building_ok(),
+            "gattling building overall residual honesty"
         );
     }
 

@@ -141,8 +141,29 @@
 - Full FiringTracker model-condition CONTINUOUS_FIRE_* animation / VoiceRapidFire full matrix
 - Listening Outpost residual (closed 2026-07-13 — detect+transport)
 - Overlord/Helix gattling payload residual (closed 2026-07-13 — portable addon path)
-- Building Gattling continuous-fire ramp (structure uses base-defense residual without full ramp)
+- Building Gattling continuous-fire ramp residual closed 2026-07-13 (see section below)
 - Network flame / continuous-fire replication (network deferred)
+
+## Residual Host Playability — China Gattling Cannon Structure Ramp (2026-07-13)
+**Closed (host-testable structure gattling continuous-fire + AA + Chain Guns residual):**
+1. **Gattling Cannon residual** (`ChinaGattlingCannon` / China_ / Nuke_ / Tank_ / Infa_):
+   - PRIMARY `GattlingBuildingGun` (10 / 225 / 250ms → 8 frames).
+   - SECONDARY `GattlingBuildingGunAir` (5 / 400 / AA only).
+   - Continuous-fire ramp residual (`FiringTracker` ContinuousFireOne=**1** / Two=**5** /
+     Coast=**2000**ms → 60 frames):
+     - Base delay **8** frames → MEAN **4** (200% RoF) → FAST **2** (300% RoF).
+   - Chain Guns PLAYER_UPGRADE residual (`Upgrade_ChinaChainGuns`): damage × **1.25**.
+   - Auto-acquire residual (base-defense path) uses air/ground slot chooser.
+   - Honesty: `honesty_gattling_building_ok` / ramp / aa / ground_fires / ramp_fast.
+2. Tests (not log-only):
+   - `gattling_building_residual_ramp_fire_rate_and_aa`
+   - `base_defense_residual_gattling_auto_fires_without_attack_object` (updated)
+   - module unit tests in `host_base_defense.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full CONTINUOUS_FIRE_* model-condition animation / turret pitch / VoiceRapidFire full matrix
+- Full AssistedTargetingModule Patriot assist clips / PointDefenseLaser for structure
+- Network structure continuous-fire / chain-gun replication (network deferred)
 
 ## Residual Host Playability — GLA Marauder + Combat Cycle (2026-07-13)
 **Closed (host-testable GLA Marauder salvage fire-rate + Combat Cycle rider weapon residual):**
