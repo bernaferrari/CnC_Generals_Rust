@@ -97,6 +97,16 @@ pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
 /// Retail Helix PRIMARY minigun residual weapon.
 pub const HELIX_MINIGUN_WEAPON: &str = "HelixMinigunWeapon";
 
+/// Retail China MiG napalm / BlackNapalm / Nuke MiG residual weapons.
+pub const NAPALM_MISSILE_WEAPON: &str = "NapalmMissileWeapon";
+pub const BLACK_NAPALM_MISSILE_WEAPON: &str = "BlackNapalmMissileWeapon";
+pub const NUKE_MIG_MISSILE_WEAPON: &str = "Nuke_MiGMissileWeapon";
+pub const NUKE_NUKE_MISSILE_WEAPON: &str = "Nuke_NukeMissileWeapon";
+
+/// Retail America Fire Base howitzer residual weapon.
+pub const FIRE_BASE_HOWITZER_WEAPON: &str = "FireBaseHowitzerGun";
+
+
 /// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
 pub const SENTRY_DRONE_GUN_WEAPON: &str = "SentryDroneGun";
 
@@ -309,6 +319,22 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
         | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_PRIMARY_WEAPON),
+        
+        // China MiG residual napalm missiles.
+        "ChinaJetMIG"
+        | "China_MiG"
+        | "TestMiG"
+        | "Tank_ChinaJetMIG"
+        | "Infa_ChinaJetMIG"
+        | "Boss_JetMIG" => Some(NAPALM_MISSILE_WEAPON),
+        "Nuke_ChinaJetMIG" => Some(NUKE_MIG_MISSILE_WEAPON),
+        // America Fire Base residual howitzer.
+        "AmericaFireBase"
+        | "USA_FireBase"
+        | "TestFireBase"
+        | "AirF_AmericaFireBase"
+        | "SupW_AmericaFireBase"
+        | "Lazr_AmericaFireBase" => Some(FIRE_BASE_HOWITZER_WEAPON),
         // China Helix residual primary minigun.
         "ChinaVehicleHelix"
         | "China_Helix"
@@ -1029,6 +1055,54 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 2,
             weapon_speed: 1000.0,
+        },
+        
+        // NapalmMissileWeapon PRIMARY — PrimaryDamage 75, Range 320, min 80,
+        // Delay 300ms → 9 frames. ClipSize 2. FireField residual on impact.
+        SeedWeapon {
+            name: NAPALM_MISSILE_WEAPON,
+            primary_damage: 75.0,
+            attack_range: 320.0,
+            delay_frames: 9,
+            clip_size: 2,
+            weapon_speed: 1000.0,
+        },
+        // BlackNapalmMissileWeapon — same primary, upgraded secondary/field residual.
+        SeedWeapon {
+            name: BLACK_NAPALM_MISSILE_WEAPON,
+            primary_damage: 75.0,
+            attack_range: 320.0,
+            delay_frames: 9,
+            clip_size: 2,
+            weapon_speed: 1000.0,
+        },
+        // Nuke_MiGMissileWeapon — PrimaryDamage 100 residual.
+        SeedWeapon {
+            name: NUKE_MIG_MISSILE_WEAPON,
+            primary_damage: 100.0,
+            attack_range: 320.0,
+            delay_frames: 9,
+            clip_size: 2,
+            weapon_speed: 1000.0,
+        },
+        // Nuke_NukeMissileWeapon — PrimaryDamage 150 residual.
+        SeedWeapon {
+            name: NUKE_NUKE_MISSILE_WEAPON,
+            primary_damage: 150.0,
+            attack_range: 320.0,
+            delay_frames: 9,
+            clip_size: 2,
+            weapon_speed: 1000.0,
+        },
+        // FireBaseHowitzerGun PRIMARY — PrimaryDamage 75, Range 275, min 50,
+        // Delay 2000ms → 60 frames.
+        SeedWeapon {
+            name: FIRE_BASE_HOWITZER_WEAPON,
+            primary_damage: 75.0,
+            attack_range: 275.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 300.0,
         },
         // RaptorJetMissileWeapon PRIMARY — PrimaryDamage 100, Range 320, min 100,
         // Delay 150ms → 5 frames. ClipSize 4 honesty.
