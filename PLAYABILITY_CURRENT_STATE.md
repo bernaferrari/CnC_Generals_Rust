@@ -1,3 +1,33 @@
+## Residual Host Playability — SCIENCE_StealthFighter Gate + Chem/Demo Death Weapons (2026-07-13)
+**Closed (host-testable Stealth Fighter science production gate + Chem/Demo death-weapon residual):**
+1. **SCIENCE_StealthFighter production gate residual**:
+   - `enqueue_production` denies science-gated Stealth Fighter without unlock
+     (`AmericaJetStealthFighter` / SupW_/Lazr_/USA_ — **not** `AirF_*`).
+   - `unlock_team_science` / `PurchaseScience` records unlock honesty.
+   - Successful enqueue + production spawn record residual honesty.
+   - Honesty: `honesty_stealth_fighter_science_*` / host path.
+2. **Chem / Demo Terrorist death-weapon residual**:
+   - Standard: SuicideDynamitePack **500**/r**18** + **300**/r**50**
+   - Chem Beta baseline: same rings + MediumPoisonFieldUpgraded residual
+   - Chem Gamma (`Chem_Upgrade_GLAAnthraxGamma` tag): Primary **600** + gamma poison field
+   - Demo (`Demo_*`): Primary **700** (no poison)
+3. **Chem / Demo DemoTrap death-weapon residual**:
+   - Standard: DemoTrapDetonationWeapon **600**/r**25** (legacy falloff residual)
+   - Chem Beta/Gamma: Primary **250**/r**25** + Secondary **100**/r**50** + poison field
+   - Demo: Primary **700**/r**25** + Secondary **500**/r**50** (no poison)
+4. Tests (not log-only):
+   - `stealth_fighter_science_production_gate_residual`
+   - `chem_terrorist_gamma_and_demo_death_weapon_residual`
+   - `chem_demo_trap_gamma_and_demo_he_residual`
+   - module unit tests in `host_stealth_fighter` / `host_terrorist` / `host_mines`
+
+**Still residual (fail-closed, not claimed):**
+- Full PrerequisiteSciences rank tree / control-bar science visibility matrix
+- Full SlowDeath SUICIDED fling / OCL poison particle bone matrix
+- Full Demo_SuicideDynamitePackPlusFire salvage fire-field matrix
+- Full DemoTrapUpdate weapon-slot mode / PreAttack scoop animation
+- Network science-gate / death-weapon replication (network deferred)
+
 ## Residual Host Playability — Chem Anthrax Gamma + GLA CamoNetting (2026-07-13)
 **Closed (host-testable Anthrax Gamma toxin combat + CamoNetting structure stealth residual):**
 1. **Anthrax Gamma residual** (`Chem_Upgrade_GLAAnthraxGamma` / `Upgrade_GLAAnthraxGamma`):
@@ -23,7 +53,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full gamma particle bones / PlusOne-Two anthrax salvage weapon-set matrix
 - Full CamoNetting sub-object net visual / structure attack reveal matrix
-- Full Chem_DemoTrap / Terrorist suicide gamma death-weapon matrix
+- Full Chem_DemoTrap / Terrorist suicide gamma death-weapon matrix (host residual closed 2026-07-13 — see SCIENCE_StealthFighter Gate + Chem/Demo Death Weapons section)
 - Network anthrax / camo-netting replication (network deferred)
 
 ## Residual Host Playability — SupW EMP Patriot + GLA Saboteur (2026-07-13)
@@ -201,7 +231,7 @@
    - existing `bunker_buster_residual_kills_garrison_and_damages_bunker` still green
 
 **Still residual (fail-closed, not claimed):**
-- Full SCIENCE_StealthFighter production enqueue gate residual (module helpers present; host queue wiring fail-closed)
+- Full SCIENCE_StealthFighter production enqueue gate residual (host residual closed 2026-07-13 — see SCIENCE_StealthFighter Gate section; full rank tree still open)
 - Full JetAIUpdate RETURN_TO_BASE / ClipReload airfield rearm matrix
 - Full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser (host collapses tertiary rocket pods into secondary)
 - Full ScatterTarget / 20-rocket volley spacing / JetAIUpdate turret matrix
