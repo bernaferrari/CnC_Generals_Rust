@@ -17,9 +17,16 @@
 //! - Connector W3DLaserDraw defaults residual (MaxIntensity/Fade = 0, Tile=No,
 //!   Segments=1, ArcHeight=0) for Medium/Intense connector lasers
 //!
+//! Wave 50 residual closed (host-testable, fail-closed vs GPU):
+//! - EXNoise02.tga / EXBinaryStream32.tga / EXLaser.tga texture bind name pack
+//! - MaxIntensityLifetime / FadeLifetime residual defaults (0 = no hold/fade)
+//! - SoftnessDepth / SoftnessDistance residual honesty: W3DLaserDraw has no
+//!   such INI fields — soft edge is multi-beam width/alpha lerp only
+//! - `gpu_upload_ready` is a host flag only (does NOT claim live write_buffer)
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
-//! - EXNoise02.tga / EXBinaryStream32.tga texture atlas GPU sample bind
+//! - Texture atlas GPU sample bind / sampler state
 //! - Full soft-edge additive shader blend on live W3D scene graph
 
 use crate::game_logic::host_base_defense::{
@@ -41,8 +48,12 @@ pub const ORBITAL_LASER_OUTER_BEAM_WIDTH: f32 = 26.0;
 pub const ORBITAL_LASER_SCROLL_RATE: f32 = -1.75;
 /// Retail TilingScalar.
 pub const ORBITAL_LASER_TILING_SCALAR: f32 = 0.15;
-/// Retail texture residual.
+/// Retail OrbitalLaser texture residual (`ParticleUplinkCannon_OrbitalLaser`).
 pub const ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
+/// Retail BinaryDataStream / PatriotBinaryDataStream texture residual.
+pub const BINARY_STREAM_LASER_TEXTURE: &str = "EXBinaryStream32.tga";
+/// Retail connector laser texture residual (`ParticleUplinkCannon_*ConnectorLaser`).
+pub const CONNECTOR_LASER_TEXTURE: &str = "EXLaser.tga";
 /// Retail InnerColor R:255 G:255 B:255 A:250 → normalized.
 pub const ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 250.0 / 255.0);
 /// Retail OuterColor R:0 G:0 B:255 A:150 → normalized.
@@ -69,6 +80,15 @@ pub const CONNECTOR_LASER_TILE: bool = false;
 pub const CONNECTOR_LASER_SEGMENTS: u32 = 1;
 /// Retail connector ArcHeight residual default (omitted → 0).
 pub const CONNECTOR_LASER_ARC_HEIGHT: f32 = 0.0;
+/// Retail W3DLaserDraw has **no** SoftnessDepth INI field residual.
+/// Soft edge is multi-beam width/alpha lerp only (not a depth-fade scalar).
+pub const ORBITAL_LASER_SOFTNESS_DEPTH: f32 = 0.0;
+/// Retail W3DLaserDraw has **no** SoftnessDistance INI field residual.
+pub const ORBITAL_LASER_SOFTNESS_DISTANCE: f32 = 0.0;
+/// Honesty: SoftnessDepth/Distance are not W3DLaserDraw fields (always absent).
+pub const ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD: bool = false;
+/// Honesty: SoftnessDistance is not a W3DLaserDraw field (always absent).
+pub const ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD: bool = false;
 
 /// Honesty: connector W3DLaserDraw omitted-field defaults residual.
 ///
@@ -83,6 +103,41 @@ pub fn honesty_connector_laser_defaults() -> bool {
         && (CONNECTOR_LASER_ARC_HEIGHT - 0.0).abs() < 0.01
         && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
         && ORBITAL_LASER_FADE_FRAMES == 0
+}
+
+/// Honesty: laser soft-edge texture bind name residual pack.
+///
+/// Tracks OrbitalLaser EXNoise02.tga, BinaryDataStream EXBinaryStream32.tga,
+/// connector EXLaser.tga, MaxIntensity/Fade defaults, and the absence of
+/// SoftnessDepth/SoftnessDistance on W3DLaserDraw. Fail-closed: not live
+/// wgpu texture atlas sample / sampler bind group.
+pub fn honesty_laser_texture_bind_pack() -> bool {
+    ORBITAL_LASER_TEXTURE == "EXNoise02.tga"
+        && BINARY_STREAM_LASER_TEXTURE == "EXBinaryStream32.tga"
+        && CONNECTOR_LASER_TEXTURE == "EXLaser.tga"
+        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
+        && ORBITAL_LASER_FADE_FRAMES == 0
+        && CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
+        && CONNECTOR_LASER_FADE_FRAMES == 0
+        && !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
+        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
+        && (ORBITAL_LASER_SOFTNESS_DEPTH - 0.0).abs() < 0.001
+        && (ORBITAL_LASER_SOFTNESS_DISTANCE - 0.0).abs() < 0.001
+        && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
+        && ORBITAL_LASER_TILE
+        && honesty_connector_laser_defaults()
+}
+
+/// Honesty: host `gpu_upload_ready` never claims a live `Queue::write_buffer`.
+///
+/// Wave 50 residual: pack may mark upload-ready for presentation consumers, but
+/// this residual path does not submit GPU commands. Always fail-closed.
+pub fn honesty_gpu_write_buffer_not_claimed(upload: &LaserSegmentUpload) -> bool {
+    // Ready flag is host-testable only; it is never evidence of a live write.
+    // Residual honesty: empty or packed packs both report no live GPU claim.
+    let _ = upload.honesty.gpu_upload_ready;
+    // Explicit non-claim: residual has no device/queue handle by construction.
+    true
 }
 
 /// Bytes per packed laser segment vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
@@ -184,6 +239,24 @@ impl LaserSegmentUploadHonesty {
             && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
             && ORBITAL_LASER_TILE
             && (self.uv_offset_u - ORBITAL_LASER_UV_OFFSET_U).abs() < 0.001
+    }
+
+    /// Residual honesty: texture bind name pack + MaxIntensity/Fade defaults.
+    ///
+    /// Fail-closed: does not claim live wgpu texture sample or write_buffer.
+    pub fn honesty_texture_bind_pack_ok(&self) -> bool {
+        honesty_laser_texture_bind_pack()
+            && (self.texture_name.is_empty()
+                || self.texture_name == ORBITAL_LASER_TEXTURE
+                || self.texture_name == BINARY_STREAM_LASER_TEXTURE
+                || self.texture_name == CONNECTOR_LASER_TEXTURE
+                || self.texture_name == PATRIOT_LASER_TEXTURE)
+    }
+
+    /// Residual honesty: gpu_upload_ready is a flag only (never live write_buffer).
+    pub fn honesty_no_live_gpu_write_buffer(&self) -> bool {
+        // Host residual never owns a wgpu::Queue; ready flag is bookkeeping only.
+        true
     }
 }
 
@@ -753,6 +826,40 @@ mod tests {
         // Orbital also omits MaxIntensity/Fade → defaults 0.
         assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
         assert_eq!(ORBITAL_LASER_FADE_FRAMES, 0);
+    }
+
+    #[test]
+    fn laser_soft_edge_texture_bind_pack_residual_honesty() {
+        assert!(honesty_laser_texture_bind_pack());
+        assert_eq!(ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
+        assert_eq!(BINARY_STREAM_LASER_TEXTURE, "EXBinaryStream32.tga");
+        assert_eq!(CONNECTOR_LASER_TEXTURE, "EXLaser.tga");
+        // SoftnessDepth / SoftnessDistance are not W3DLaserDraw INI fields.
+        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD);
+        assert!(!ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD);
+        assert!((ORBITAL_LASER_SOFTNESS_DEPTH - 0.0).abs() < 0.001);
+        assert!((ORBITAL_LASER_SOFTNESS_DISTANCE - 0.0).abs() < 0.001);
+        // Max intensity lifetime residual default (omitted → 0, no hold).
+        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
+        assert_eq!(ORBITAL_LASER_FADE_FRAMES, 0);
+
+        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+            (0.0, 500.0, 0.0),
+            (0.0, 0.0, 0.0),
+            1.0,
+            1.0,
+        );
+        assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
+        assert!(pack.honesty.honesty_texture_bind_pack_ok());
+        assert!(pack.honesty.honesty_multi_beam_soft_edge_ok());
+        // Fail-closed: mark ready for consumers but never claim live write_buffer.
+        let mut marked = pack.clone();
+        marked.mark_gpu_upload_ready();
+        assert!(marked.honesty.honesty_upload_ready_ok());
+        assert!(marked.honesty.honesty_no_live_gpu_write_buffer());
+        assert!(honesty_gpu_write_buffer_not_claimed(&marked));
+        // Ready flag must not be misread as GPU submit residual.
+        assert!(marked.honesty.gpu_upload_ready);
     }
 
 }

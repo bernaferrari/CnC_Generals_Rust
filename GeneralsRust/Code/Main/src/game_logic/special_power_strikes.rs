@@ -147,6 +147,17 @@
 //! ManualDriving 20/40 / DoubleClick 15 frames); SupW PointDefenseDroneLaserBeam
 //! LifetimeUpdate Min=Max 95 ms → ceil → 3 frames; PUC FlammableUpdate residual
 //! (AflameDuration 5000 ms / DamageAmount 5 / DamageDelay 500 ms).
+//! Wave 50 residual closed: PUC OuterNodes flare residual pack honesty
+//! (OuterNode Light/Medium/Intense + LaserBaseReadyToFire + Medium/Intense
+//! connector laser names; pack armed on beam STATUS_FIRING spawn);
+//! PUC SlowDeath / InstantDeath residual pack (DestructionDelay 2000 ms → 60
+//! frames; INITIAL FX_ParticleUplinkDeathInitial / OCL_SDILinkLasers; FINAL
+//! FX_StructureMediumDeath / OCL_ParticleUplinkDeathFinal; InstantDeath
+//! UNDER_CONSTRUCTION OCL_ABPowerPlantExplode + FX_StructureMediumDeath);
+//! Gattling ContinuousFire WeaponBonus ROF application counters (MEAN 200% /
+//! FAST 300% residual tick applications); laser soft-edge texture bind pack
+//! residual lives in graphics/laser_segment_upload (EXNoise02 / EXBinaryStream32
+//! + MaxIntensity/Fade defaults; fail-closed vs live wgpu write_buffer).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -724,6 +735,31 @@ pub const PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT: f32 = 5.0;
 pub const PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
 /// AflameDamageDelay 500 ms → 15 frames @ 30 FPS.
 pub const PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES: u32 = (500 * 30) / 1000;
+
+// --- AmericaParticleUplinkCannon SlowDeath / InstantDeath residual ---
+// Retail FactionBuilding.ini ModuleTag_18 / ModuleTag_19 on complete vs
+// under-construction building death paths.
+
+/// Retail SlowDeathBehavior ExemptStatus residual (skip when under construction).
+pub const PARTICLE_UPLINK_SLOW_DEATH_EXEMPT_STATUS: &str = "UNDER_CONSTRUCTION";
+/// Retail SlowDeathBehavior DestructionDelay residual (msec).
+pub const PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_MS: u32 = 2000;
+/// DestructionDelay 2000 ms → 60 frames @ 30 FPS.
+pub const PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_FRAMES: u32 = (2000 * 30) / 1000;
+/// Retail SlowDeath INITIAL FX residual.
+pub const PARTICLE_UPLINK_SLOW_DEATH_FX_INITIAL: &str = "FX_ParticleUplinkDeathInitial";
+/// Retail SlowDeath INITIAL OCL residual.
+pub const PARTICLE_UPLINK_SLOW_DEATH_OCL_INITIAL: &str = "OCL_SDILinkLasers";
+/// Retail SlowDeath FINAL FX residual.
+pub const PARTICLE_UPLINK_SLOW_DEATH_FX_FINAL: &str = "FX_StructureMediumDeath";
+/// Retail SlowDeath FINAL OCL residual.
+pub const PARTICLE_UPLINK_SLOW_DEATH_OCL_FINAL: &str = "OCL_ParticleUplinkDeathFinal";
+/// Retail InstantDeath RequiredStatus residual (under construction only).
+pub const PARTICLE_UPLINK_INSTANT_DEATH_REQUIRED_STATUS: &str = "UNDER_CONSTRUCTION";
+/// Retail InstantDeath OCL residual (under construction explode).
+pub const PARTICLE_UPLINK_INSTANT_DEATH_OCL: &str = "OCL_ABPowerPlantExplode";
+/// Retail InstantDeath FX residual.
+pub const PARTICLE_UPLINK_INSTANT_DEATH_FX: &str = "FX_StructureMediumDeath";
 
 /// C++ `ConvertDurationFromMsecsToFrames` residual (logic clock @ 30 FPS).
 ///
@@ -1806,6 +1842,71 @@ pub fn honesty_particle_uplink_flammable() -> bool {
         && PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES == 15
         && duration_ms_to_logic_frames(5000) == 150
         && duration_ms_to_logic_frames(500) == 15
+}
+
+/// Honesty: PUC OuterNodes flare particle system residual pack.
+///
+/// Retail FactionBuilding.ini ParticleUplinkCannonUpdate:
+/// OuterNodesLight/Medium/Intense + LaserBaseLightFlare + Connector laser names.
+/// Fail-closed: not full ParticleSystemManager spawn / W3D bone-world FX attach.
+pub fn honesty_particle_outer_node_flare_pack() -> bool {
+    PARTICLE_OUTER_NODE_LIGHT_FLARE == "ParticleUplinkCannon_OuterNodeLightFlare"
+        && PARTICLE_OUTER_NODE_MEDIUM_FLARE == "ParticleUplinkCannon_OuterNodeMediumFlare"
+        && PARTICLE_OUTER_NODE_INTENSE_FLARE == "ParticleUplinkCannon_OuterNodeIntenseFlare"
+        && PARTICLE_LASER_BASE_READY_FLARE == "ParticleUplinkCannon_LaserBaseReadyToFire"
+        && PARTICLE_CONNECTOR_MEDIUM_LASER == "ParticleUplinkCannon_MediumConnectorLaser"
+        && PARTICLE_CONNECTOR_INTENSE_LASER == "ParticleUplinkCannon_IntenseConnectorLaser"
+        && PARTICLE_ORBITAL_LASER_NAME == "ParticleUplinkCannon_OrbitalLaser"
+        && PARTICLE_OUTER_EFFECT_NUM_BONES == 5
+        && ParticleIntensity::Light.outer_flare_name() == PARTICLE_OUTER_NODE_LIGHT_FLARE
+        && ParticleIntensity::Medium.outer_flare_name() == PARTICLE_OUTER_NODE_MEDIUM_FLARE
+        && ParticleIntensity::Intense.outer_flare_name() == PARTICLE_OUTER_NODE_INTENSE_FLARE
+        && ParticleIntensity::None.outer_flare_name().is_empty()
+        && ParticleIntensity::Medium.connector_laser_name() == PARTICLE_CONNECTOR_MEDIUM_LASER
+        && ParticleIntensity::Intense.connector_laser_name() == PARTICLE_CONNECTOR_INTENSE_LASER
+        && ParticleIntensity::Light.connector_laser_name().is_empty()
+}
+
+/// Honesty: PUC SlowDeath / InstantDeath residual pack (FactionBuilding.ini).
+///
+/// Complete building: SlowDeath ExemptStatus UNDER_CONSTRUCTION, DestructionDelay
+/// 2000 ms → 60 frames, INITIAL FX/OCL then FINAL FX/OCL. Under construction:
+/// InstantDeath RequiredStatus UNDER_CONSTRUCTION + OCL_ABPowerPlantExplode.
+/// Fail-closed: not full SlowDeathBehavior multi-stage / Object die matrix.
+pub fn honesty_particle_uplink_death_pack() -> bool {
+    PARTICLE_UPLINK_SLOW_DEATH_EXEMPT_STATUS == "UNDER_CONSTRUCTION"
+        && PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_MS == 2000
+        && PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_FRAMES == 60
+        && duration_ms_to_logic_frames(2000) == 60
+        && PARTICLE_UPLINK_SLOW_DEATH_FX_INITIAL == "FX_ParticleUplinkDeathInitial"
+        && PARTICLE_UPLINK_SLOW_DEATH_OCL_INITIAL == "OCL_SDILinkLasers"
+        && PARTICLE_UPLINK_SLOW_DEATH_FX_FINAL == "FX_StructureMediumDeath"
+        && PARTICLE_UPLINK_SLOW_DEATH_OCL_FINAL == "OCL_ParticleUplinkDeathFinal"
+        && PARTICLE_UPLINK_INSTANT_DEATH_REQUIRED_STATUS == "UNDER_CONSTRUCTION"
+        && PARTICLE_UPLINK_INSTANT_DEATH_OCL == "OCL_ABPowerPlantExplode"
+        && PARTICLE_UPLINK_INSTANT_DEATH_FX == "FX_StructureMediumDeath"
+        // InstantDeath and SlowDeath FINAL share StructureMediumDeath FX residual.
+        && PARTICLE_UPLINK_INSTANT_DEATH_FX == PARTICLE_UPLINK_SLOW_DEATH_FX_FINAL
+}
+
+/// Honesty: SpectreGattlingGun ContinuousFire WeaponBonus ROF residual constants.
+///
+/// Retail WeaponBonus: CONTINUOUS_FIRE_MEAN RATE_OF_FIRE **200%**,
+/// CONTINUOUS_FIRE_FAST RATE_OF_FIRE **300%**; ContinuousFireOne=1 / Two=2.
+/// Fail-closed: not full FiringTracker WeaponBonusConditionFlags combat matrix.
+pub fn honesty_gattling_weapon_bonus_rof() -> bool {
+    SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE == 1
+        && SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO == 2
+        && (SPECTRE_GATTLING_ROF_MEAN - 2.0).abs() < 0.01
+        && (SPECTRE_GATTLING_ROF_FAST - 3.0).abs() < 0.01
+        && SpectreGattlingFireStage::Normal.rate_of_fire() == 1.0
+        && (SpectreGattlingFireStage::Mean.rate_of_fire() - 2.0).abs() < 0.01
+        && (SpectreGattlingFireStage::Fast.rate_of_fire() - 3.0).abs() < 0.01
+        // Base 3 frames / 200% → floor(1.5)=1; / 300% → floor(1.0)=1.
+        && spectre_gattling_interval_frames(0) == 3
+        && spectre_gattling_interval_frames(1) == 3
+        && spectre_gattling_interval_frames(2) == 1
+        && spectre_gattling_interval_frames(3) == 1
 }
 
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
@@ -3620,6 +3721,14 @@ pub struct HostSpectreOrbitField {
     /// Honesty: SpectreGattlingGun anti/fire residual applications.
     #[serde(default)]
     pub gattling_gun_params_applications: u32,
+    /// Honesty: ContinuousFire WeaponBonus MEAN ROF residual applications
+    /// (ticks that used RATE_OF_FIRE 200% interval residual).
+    #[serde(default)]
+    pub gattling_rof_mean_applications: u32,
+    /// Honesty: ContinuousFire WeaponBonus FAST ROF residual applications
+    /// (ticks that used RATE_OF_FIRE 300% interval residual).
+    #[serde(default)]
+    pub gattling_rof_fast_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -4019,6 +4128,14 @@ pub struct HostParticleBeamField {
     /// Honesty: ScorchMarkScalar residual pack armed (scorch radius formula).
     #[serde(default)]
     pub scorch_scalar_pack_armed: u32,
+    /// Honesty: OuterNodes Light/Medium/Intense + LaserBase + connector name pack
+    /// armed at STATUS_FIRING residual (FactionBuilding.ini particle systems).
+    #[serde(default)]
+    pub outer_node_flare_pack_armed: u32,
+    /// Honesty: PUC SlowDeath / InstantDeath residual pack armed (building death
+    /// design params; fail-closed vs live SlowDeathBehavior Object die).
+    #[serde(default)]
+    pub death_pack_armed: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -5759,6 +5876,8 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_gun_fire_params_applications: 0,
             howitzer_gun_anti_params_applications: 0,
             gattling_gun_params_applications: 0,
+            gattling_rof_mean_applications: 0,
+            gattling_rof_fast_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5999,6 +6118,16 @@ impl HostSpecialPowerStrikeRegistry {
                 field.gattling_gun_params_applications = field
                     .gattling_gun_params_applications
                     .saturating_add(1);
+                // ContinuousFire WeaponBonus ROF residual applications: the interval
+                // just computed used MEAN (200%) or FAST (300%) when consecutive
+                // crosses One/Two thresholds (exclusive `>`).
+                if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO {
+                    field.gattling_rof_fast_applications =
+                        field.gattling_rof_fast_applications.saturating_add(1);
+                } else if field.gattling_consecutive > SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE {
+                    field.gattling_rof_mean_applications =
+                        field.gattling_rof_mean_applications.saturating_add(1);
+                }
                 field.gattling_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.gattling_fire_level;
@@ -6088,6 +6217,17 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: gattling continuous-fire ramp reached MEAN or FAST.
     pub fn honesty_gattling_continuous_fire_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| f.gattling_fire_level >= 1)
+    }
+
+    /// Residual honesty: ContinuousFire WeaponBonus ROF residual applications.
+    ///
+    /// MEAN (200%) and FAST (300%) application counters must have been recorded
+    /// on at least one orbit field. Fail-closed: not full WeaponBonusConditionFlags.
+    pub fn honesty_gattling_weapon_bonus_rof_ok(&self) -> bool {
+        honesty_gattling_weapon_bonus_rof()
+            && self.orbit_fields.iter().any(|f| {
+                f.gattling_rof_mean_applications > 0 && f.gattling_rof_fast_applications > 0
+            })
     }
 
     /// Residual honesty: howitzer continuous-fire ramp reached MEAN or FAST.
@@ -6406,6 +6546,10 @@ impl HostSpecialPowerStrikeRegistry {
             sound_residual_pack_armed: 1,
             // ScorchMarkScalar + TotalScorchMarks residual pack armed at spawn.
             scorch_scalar_pack_armed: 1,
+            // OuterNodes Light/Medium/Intense + LaserBase + connector name pack.
+            outer_node_flare_pack_armed: 1,
+            // SlowDeath / InstantDeath residual pack design params armed.
+            death_pack_armed: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -8002,6 +8146,30 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: PUC FlammableUpdate residual constants.
     pub fn honesty_particle_uplink_flammable_ok(&self) -> bool {
         honesty_particle_uplink_flammable()
+    }
+
+    /// Residual honesty: OuterNodes flare residual pack armed on beam spawn.
+    ///
+    /// Tracks Light/Medium/Intense outer-node flare names + LaserBaseReadyToFire
+    /// + connector laser names. Fail-closed: not full ParticleSystemManager attach.
+    pub fn honesty_beam_outer_node_flare_pack_ok(&self) -> bool {
+        honesty_particle_outer_node_flare_pack()
+            && self
+                .beam_fields
+                .iter()
+                .any(|f| f.outer_node_flare_pack_armed >= 1)
+    }
+
+    /// Residual honesty: PUC SlowDeath / InstantDeath residual pack constants.
+    ///
+    /// When a beam field is present, also requires death_pack_armed. Pure constant
+    /// pack remains honest without a live building Object die path.
+    pub fn honesty_particle_uplink_death_pack_ok(&self) -> bool {
+        let constants = honesty_particle_uplink_death_pack();
+        if self.beam_fields.is_empty() {
+            return constants;
+        }
+        constants && self.beam_fields.iter().any(|f| f.death_pack_armed >= 1)
     }
 
     /// Residual honesty: RevealRange residual applied at least once with scorch.
@@ -9666,35 +9834,41 @@ mod tests {
         let field_id = reg.orbit_fields()[0].id;
         let spawn = reg.orbit_fields()[0].spawn_frame;
 
-        // Tick 1: base interval scheduled after.
+        // Tick 1: base interval scheduled after (no ROF bonus application).
         reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
         {
             let f = &reg.orbit_fields()[0];
             assert_eq!(f.gattling_consecutive, 1);
             assert_eq!(f.howitzer_consecutive, 1);
             assert_eq!(f.gattling_fire_level, 0);
+            assert_eq!(f.gattling_rof_mean_applications, 0);
+            assert_eq!(f.gattling_rof_fast_applications, 0);
             assert_eq!(f.next_gattling_tick_frame, spawn + 3);
             assert_eq!(f.next_tick_frame, spawn + 9);
         }
 
-        // Tick 2 at spawn+3: consecutive → MEAN for gattling.
+        // Tick 2 at spawn+3: consecutive → MEAN for gattling (WeaponBonus 200%).
         reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 3);
         {
             let f = &reg.orbit_fields()[0];
             assert_eq!(f.gattling_consecutive, 2);
             assert_eq!(f.gattling_fire_level, 1);
+            assert_eq!(f.gattling_rof_mean_applications, 1);
+            assert_eq!(f.gattling_rof_fast_applications, 0);
             assert_eq!(f.next_gattling_tick_frame, spawn + 3 + 1);
             // Howitzer not due at +3 (next is spawn+9).
             assert_eq!(f.howitzer_consecutive, 1);
         }
         assert!(reg.honesty_gattling_continuous_fire_ok());
 
-        // Third gattling tick → FAST + VoiceRapidFire residual cue.
+        // Third gattling tick → FAST + VoiceRapidFire residual cue (WeaponBonus 300%).
         reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
         {
             let f = &reg.orbit_fields()[0];
             assert_eq!(f.gattling_consecutive, 3);
             assert_eq!(f.gattling_fire_level, 2);
+            assert_eq!(f.gattling_rof_mean_applications, 1);
+            assert_eq!(f.gattling_rof_fast_applications, 1);
             assert!(f.rapid_fire_voice_cues >= 1);
         }
         assert!(reg.honesty_voice_rapid_fire_ok());
@@ -9702,6 +9876,8 @@ mod tests {
         assert!(reg.honesty_model_condition_continuous_fire_ok());
         assert!(reg.orbit_fields()[0].model_condition_mean_sets >= 1);
         assert!(reg.orbit_fields()[0].model_condition_fast_sets >= 1);
+        assert!(honesty_gattling_weapon_bonus_rof());
+        assert!(reg.honesty_gattling_weapon_bonus_rof_ok());
 
         // Advance howitzer to MEAN at spawn+9.
         reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 9);
@@ -12429,5 +12605,154 @@ mod tests {
         assert_eq!(duration_ms_to_logic_frames(500), 15);
         let reg = HostSpecialPowerStrikeRegistry::new();
         assert!(reg.honesty_particle_uplink_flammable_ok());
+    }
+
+    #[test]
+    fn particle_uplink_outer_node_flare_pack_residual_honesty() {
+        assert!(honesty_particle_outer_node_flare_pack());
+        assert_eq!(
+            PARTICLE_OUTER_NODE_LIGHT_FLARE,
+            "ParticleUplinkCannon_OuterNodeLightFlare"
+        );
+        assert_eq!(
+            PARTICLE_OUTER_NODE_MEDIUM_FLARE,
+            "ParticleUplinkCannon_OuterNodeMediumFlare"
+        );
+        assert_eq!(
+            PARTICLE_OUTER_NODE_INTENSE_FLARE,
+            "ParticleUplinkCannon_OuterNodeIntenseFlare"
+        );
+        assert_eq!(
+            PARTICLE_LASER_BASE_READY_FLARE,
+            "ParticleUplinkCannon_LaserBaseReadyToFire"
+        );
+        assert_eq!(
+            PARTICLE_CONNECTOR_MEDIUM_LASER,
+            "ParticleUplinkCannon_MediumConnectorLaser"
+        );
+        assert_eq!(
+            PARTICLE_CONNECTOR_INTENSE_LASER,
+            "ParticleUplinkCannon_IntenseConnectorLaser"
+        );
+        assert_eq!(PARTICLE_OUTER_EFFECT_NUM_BONES, 5);
+        // Intensity → flare name residual table.
+        assert_eq!(
+            ParticleIntensity::Intense.outer_flare_name(),
+            PARTICLE_OUTER_NODE_INTENSE_FLARE
+        );
+        assert_eq!(
+            ParticleIntensity::Intense.connector_laser_name(),
+            PARTICLE_CONNECTOR_INTENSE_LASER
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_beam_outer_node_flare_pack_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.outer_node_flare_pack_armed, 1);
+            assert_eq!(f.outer_node_systems_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+            assert_eq!(f.outer_intensity, ParticleIntensity::Intense);
+            assert_eq!(f.laser_base_flare_created, 1);
+            assert_eq!(f.connector_lasers_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+        }
+        assert!(reg.honesty_beam_outer_node_flare_pack_ok());
+    }
+
+    #[test]
+    fn particle_uplink_slow_death_instant_death_residual_honesty() {
+        assert!(honesty_particle_uplink_death_pack());
+        assert_eq!(
+            PARTICLE_UPLINK_SLOW_DEATH_EXEMPT_STATUS,
+            "UNDER_CONSTRUCTION"
+        );
+        assert_eq!(PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_MS, 2000);
+        assert_eq!(PARTICLE_UPLINK_SLOW_DEATH_DESTRUCTION_DELAY_FRAMES, 60);
+        assert_eq!(duration_ms_to_logic_frames(2000), 60);
+        assert_eq!(
+            PARTICLE_UPLINK_SLOW_DEATH_FX_INITIAL,
+            "FX_ParticleUplinkDeathInitial"
+        );
+        assert_eq!(PARTICLE_UPLINK_SLOW_DEATH_OCL_INITIAL, "OCL_SDILinkLasers");
+        assert_eq!(
+            PARTICLE_UPLINK_SLOW_DEATH_FX_FINAL,
+            "FX_StructureMediumDeath"
+        );
+        assert_eq!(
+            PARTICLE_UPLINK_SLOW_DEATH_OCL_FINAL,
+            "OCL_ParticleUplinkDeathFinal"
+        );
+        assert_eq!(
+            PARTICLE_UPLINK_INSTANT_DEATH_REQUIRED_STATUS,
+            "UNDER_CONSTRUCTION"
+        );
+        assert_eq!(
+            PARTICLE_UPLINK_INSTANT_DEATH_OCL,
+            "OCL_ABPowerPlantExplode"
+        );
+        assert_eq!(PARTICLE_UPLINK_INSTANT_DEATH_FX, "FX_StructureMediumDeath");
+
+        // Constant pack honesty without a beam field.
+        let empty = HostSpecialPowerStrikeRegistry::new();
+        assert!(empty.honesty_particle_uplink_death_pack_ok());
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.death_pack_armed, 1);
+        }
+        assert!(reg.honesty_particle_uplink_death_pack_ok());
+    }
+
+    #[test]
+    fn spectre_gattling_weapon_bonus_rof_application_residual_honesty() {
+        assert!(honesty_gattling_weapon_bonus_rof());
+        assert_eq!(SPECTRE_GATTLING_CONTINUOUS_FIRE_ONE, 1);
+        assert_eq!(SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO, 2);
+        assert!((SPECTRE_GATTLING_ROF_MEAN - 2.0).abs() < 0.01);
+        assert!((SPECTRE_GATTLING_ROF_FAST - 3.0).abs() < 0.01);
+        assert_eq!(SpectreGattlingFireStage::Mean.tick_interval_frames(), 1);
+        assert_eq!(SpectreGattlingFireStage::Fast.tick_interval_frames(), 1);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_gattling_weapon_bonus_rof_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+
+        // Base → MEAN → FAST WeaponBonus ROF residual applications.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 3);
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_rof_mean_applications, 1);
+            assert_eq!(f.gattling_rof_fast_applications, 1);
+            assert_eq!(f.gattling_fire_level, 2);
+            assert!(f.gattling_ticks >= 3);
+        }
+        assert!(reg.honesty_gattling_weapon_bonus_rof_ok());
     }
 }
