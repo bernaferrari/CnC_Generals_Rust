@@ -1,3 +1,56 @@
+## Residual Host Playability — CreateAtEdge Flight + Crate Bone Attach + Money Floating Text (2026-07-13)
+**Closed (host-testable CreateAtEdge cargo-plane flight + AmericaCrateParachute bones + floating cash text residual):**
+1. **CreateAtEdge AmericaJetCargoPlane flight residual** (`host_deliver_payload`):
+   - Edge spawn residual via closest-edge on residual map extent (XZ) at
+     PreferredHeight **100** (StartAtPreferredHeight **Yes**).
+   - B52Locomotor Speed **125**/sec → **~4.167**/frame approach toward target.
+   - `isCloseEnoughToTarget` residual: DeliveryDistance **410** (+ PreOpen when inbound).
+   - Flight phases: EdgeSpawn → Approaching → InDeliveryBand → DoorOpening →
+     Delivering → Departing/Complete.
+   - Door residual: DoorDelay → MODELCONDITION `DOOR_1_OPENING` / `AVCargoPln_A2`.
+   - Honesty: model `AVCargoPln`, ExitBone `WeaponA01`, ExitPitchRate **30**,
+     StartAtMaxSpeed **Yes**, MaxAttempts **4**.
+   - Host-testable: edge spawn Y=100; approach into band; door open; complete departs.
+   - Fail-closed: not full aircraft Object / pathfinder re-approach / calcMinTurnRadius
+     / off-map recover / W3D door GPU.
+2. **AmericaCrateParachute bone attach residual** (`host_deliver_payload`):
+   - PARA_COG / PARA_ATTCH pristine bone residual (GeometryHeight **10** layout).
+   - Crate hang height-fallback: SupplyDropZoneCrate GeometryHeight **12** (no PARA_MAN).
+   - Open-chute sway residual about PARA_COG (presentation; logic hang unswayed).
+   - Built each open-chute residual tick for cargo crates.
+   - Host-testable: COG above ATTCH; hang below origin; open sway non-zero.
+   - Fail-closed: not full W3D pristine bone extract / container Object GPU.
+3. **Money floating cash text residual** (`host_money_crate`):
+   - Host `+$N` presentation at crate pos + Z offset **20** (green RGBA 0,255,0,255).
+   - GameText key honesty `GUI:AddCash` (caption not fully localized).
+   - Recorded on unit MoneyCrateCollide residual collect (with MoneyPickUp Anim2D).
+   - Host-testable: floating text on pickup; amount/color/key constants.
+   - Fail-closed: not full InGameUI draw / Unicode GameText / EVA voice events.
+4. Tests (not log-only):
+   - `create_at_edge_closest_edge_and_preferred_height`
+   - `is_close_enough_delivery_band_inbound_preopen`
+   - `cargo_plane_flight_create_at_edge_approach_and_door`
+   - `crate_parachute_bone_attach_residual`
+   - updated `supply_drop_zone_residual_credits_cash_on_interval` (CreateAtEdge + bones)
+   - updated `money_crate_collide_unit_pickup_residual` (floating text)
+   - updated `money_crate_above_terrain_and_forbidden_kindof_residual` (bones + float)
+   - host_money_crate floating text unit tests
+
+**Still residual (fail-closed, not claimed):**
+- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate pathfinder
+  re-approach / calcMinTurnRadius / off-map recover (edge spawn + approach band +
+  door residual closed 2026-07-13)
+- Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
+  supply OCL has none)
+- Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
+  (PARA_COG/PARA_ATTCH host residual closed 2026-07-13)
+- Full CollideModule partition / Anim2DCollection GPU / InGameUI floating text draw
+  (MoneyPickUp + floating cash presentation residual closed 2026-07-13)
+- Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
+- Full W3D pristine bone extract for cargo plane doors (DOOR_1 condition residual closed)
+- Network DeliverPayload / MoneyCrate / CreateAtEdge flight replication
+  (network deferred)
+
 ## Residual Host Playability — Crate Parachute Fall + MoneyPickUp Anim2D + Carpet DropVariance (2026-07-13)
 **Closed (host-testable AmericaCrateParachute fall-physics + MoneyPickUp Anim2D + CarpetBomb DropVariance residual):**
 1. **AmericaCrateParachute cargo fall-physics residual** (`host_deliver_payload`):
@@ -38,20 +91,21 @@
    - host_money_crate MoneyPickUp unit tests
 
 **Still residual (fail-closed, not claimed):**
-- Full CreateAtEdge AmericaJetCargoPlane Object / DeliverPayloadAIUpdate flight
-  state machine / approach geometry (constants + DoorDelay/DropDelay stagger +
-  crate parachute fall residual closed 2026-07-13)
+- Full CreateAtEdge AmericaJetCargoPlane Object / pathfinder re-approach /
+  calcMinTurnRadius / off-map recover (edge spawn + DeliveryDistance band + door
+  residual closed 2026-07-13 — see CreateAtEdge Flight + Crate Bone Attach section)
 - Full DropVariance RNG stream for non-carpet OCLs (carpet residual closed;
   supply OCL has none)
-- Full AmericaCrateParachute container Object / W3D bone attach matrix
-  (OpenDist freefall/open/land host residual closed 2026-07-13)
-- Full CollideModule partition / Anim2DCollection GPU / EVA floating text
-  (MoneyPickUp presentation + ForbiddenKindOf PROJECTILE + above-terrain host
-  residual closed 2026-07-13)
+- Full AmericaCrateParachute container Object / W3D pristine bone extract GPU
+  (OpenDist freefall/open/land + PARA_COG/PARA_ATTCH host residual closed 2026-07-13
+  — see CreateAtEdge Flight + Crate Bone Attach section)
+- Full CollideModule partition / Anim2DCollection GPU / InGameUI floating text draw
+  (MoneyPickUp + floating cash + ForbiddenKindOf + above-terrain residual closed
+  2026-07-13 — see CreateAtEdge Flight + Crate Bone Attach section)
 - Full Campaign.ini parse into Main manager (seeded residual table closed 2026-07-13)
-- Full W3D pristine bone extract for cargo plane doors
-- Network DeliverPayload / MoneyCrate / carpet DropVariance replication
-  (network deferred)
+- Full W3D door GPU for cargo plane (DOOR_1 condition residual closed 2026-07-13)
+- Network DeliverPayload / MoneyCrate / CreateAtEdge / carpet DropVariance
+  replication (network deferred)
 
 ## Residual Host Playability — DropDelay Stagger + MoneyCrateCollide + Campaign.ini Table (2026-07-13)
 **Closed (host-testable DeliverPayload DropDelay stagger + MoneyCrateCollide + Campaign.ini residual):**
@@ -2576,10 +2630,11 @@
 **Closed (host-testable campaign residual):**
 1. `golden_campaign` / `golden_campaign_gate` — SinglePlayer start, CampaignManager
    start/complete, mission `victory_rule` override (`nounits` via
-   `victory_rules_for_map`), host-safe map `load_map` (Lone Eagle), logic frames
-   advance, mission script counter ticks without panic.
-2. Real campaign map **script decode**: MD_USA01 `load_map_scripts` → 291 scripts
-   proven on residual path (`campaign_scripts_resolved` / `script_count`).
+   `victory_rules_for_map`), logic frames advance, mission script counter ticks
+   without panic.
+2. Real campaign map **script decode + install**: MD_USA01 `load_map` /
+   `initialize_scripts` → 291 scripts decoded; dense lists installed under budget
+   + heavy-utility skip (`mission_scripts_installed_count` honesty).
 3. Sample mission seeds use retail map identities (`MD_USA01`, `GC_ChemGeneral`)
    instead of placeholder `usa_mission_01`.
 4. Wired into `release_candidate` (`campaign_runtime_ok`) and `behavior_gate`.
@@ -2590,23 +2645,32 @@
      (`with_script_engine_mut` / `with_script_engine_ref`) + dense-script budget
      + decorative AI skip on large worlds.
    - Object spawn was already fine (~0.6s for 2846 placements / ~2429 spawned).
-   - `GEN_CAMPAIGN_FULL_LOAD=1` loads MD_USA01 and flips
-     `retail_campaign_map_loaded=true`; default gate stays host-safe (fast).
-6. Honesty flags:
+6. **Default retail campaign map load (2026-07-13 residual):**
+   - Default residual prefers MD_*/GC_* `load_map` when assets resolve
+     (`retail_campaign_map_loaded=true`).
+   - Opt-out: `GEN_CAMPAIGN_HOST_SAFE=1` or `GEN_CAMPAIGN_FULL_LOAD=0` → Lone Eagle.
+   - `GEN_CAMPAIGN_FULL_LOAD=1` remains explicit force (legacy).
+7. **Mission objectives residual (2026-07-13):**
+   - Path-stem match (`map_name_matches_mission` / `find_mission_for_map`) so
+     `.../MD_USA01.map` resolves CampaignManager mission metadata.
+   - Residual primary objectives seeded; honesty:
+     `objectives_loaded`, `objective_count`, `objectives_from_campaign`.
+8. Honesty flags:
    - `campaign_playable_claim=true` — SP path advances with scripts/victory (not full
      retail mission playthrough)
-   - `retail_campaign_map_loaded` — true under `GEN_CAMPAIGN_FULL_LOAD=1` when
-     retail MD_*/GC_* `load_map` succeeds; false by default (host-safe map)
+   - `retail_campaign_map_loaded` — true by default when retail MD_*/GC_* load
+     succeeds; false under host-safe opt-out or missing assets
+   - `mission_scripts_installed_count` / `objectives_from_campaign` — install +
+     objective residual honesty (not full cinematic / score-screen claim)
 
 **Still residual (fail-closed, not claimed):**
-- Default gate still uses host-safe map (Lone Eagle) for speed; full retail load is
-  opt-in (`GEN_CAMPAIGN_FULL_LOAD=1`) rather than always-on
 - Dense campaign script evaluation is budgeted (24/frame when ≥48 scripts), not
   full same-frame C++ parity for all 291 scripts
 - End-to-end mission objective completion / cinematic / score-screen campaign flow
 - Full Campaign.ini INI parse into Main `CampaignManager` (seeded USA MD_USA01–05 +
   CHALLENGE_0 residual table closed 2026-07-13 — see DropDelay Stagger + MoneyCrateCollide
   + Campaign.ini Table section; GameClient manager already loads INI)
+- Live retail mission playthrough with all script actions / EVA / camera chains
 
 ## Residual Host Playability — Special Power Superweapon Host Path (2026-07-12)
 **Closed (host-testable DoSpecialPower → queue → impact complete path):**

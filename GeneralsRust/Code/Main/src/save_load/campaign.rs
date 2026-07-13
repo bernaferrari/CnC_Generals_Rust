@@ -123,6 +123,47 @@ pub struct MissionObjective {
     pub reward: Option<ObjectiveReward>,
 }
 
+/// Match a loaded map path/name against a mission's `map_name` field.
+///
+/// Accepts exact (case-insensitive) matches and path-stem matches so
+/// `MD_USA01` resolves `.../Maps/MD_USA01/MD_USA01.map` and vice versa.
+pub fn map_name_matches_mission(query: &str, mission_map: &str) -> bool {
+    if query.is_empty() || mission_map.is_empty() {
+        return false;
+    }
+    if query.eq_ignore_ascii_case(mission_map) {
+        return true;
+    }
+    let stem = |s: &str| -> String {
+        std::path::Path::new(s)
+            .file_stem()
+            .and_then(|x| x.to_str())
+            .unwrap_or(s)
+            .to_ascii_uppercase()
+    };
+    let q = stem(query);
+    let m = stem(mission_map);
+    if !q.is_empty() && q == m {
+        return true;
+    }
+    // Path contains short mission map token as a path segment / basename.
+    let upper_q = query.replace('\\', "/").to_ascii_uppercase();
+    let upper_m = mission_map.replace('\\', "/").to_ascii_uppercase();
+    if upper_q.contains(&format!("/{m}/"))
+        || upper_q.ends_with(&format!("/{m}.MAP"))
+        || upper_q.ends_with(&format!("/{m}"))
+    {
+        return true;
+    }
+    if upper_m.contains(&format!("/{q}/"))
+        || upper_m.ends_with(&format!("/{q}.MAP"))
+        || upper_m.ends_with(&format!("/{q}"))
+    {
+        return true;
+    }
+    false
+}
+
 /// Types of mission objectives
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ObjectiveType {
@@ -332,6 +373,48 @@ impl CampaignManager {
         self.load_player_progress()?;
 
         Ok(())
+    }
+
+    /// Find a mission definition for a loaded map path or short name.
+    ///
+    /// Preference order:
+    /// 1. Exact map_name match with objectives
+    /// 2. Exact map_name match without objectives
+    /// 3. Stem/path match with objectives
+    /// 4. Stem/path match without objectives
+    ///
+    /// Exact-first keeps path-registered residual missions (victory_rule /
+    /// objectives) ahead of short-name Campaign.ini table entries.
+    pub fn find_mission_for_map(&self, map_name: &str) -> Option<&MissionInfo> {
+        let mut exact_with_obj: Option<&MissionInfo> = None;
+        let mut exact: Option<&MissionInfo> = None;
+        let mut stem_with_obj: Option<&MissionInfo> = None;
+        let mut stem: Option<&MissionInfo> = None;
+        for mission in self.mission_definitions.values() {
+            let has_objectives = !mission.primary_objectives.is_empty()
+                || !mission.secondary_objectives.is_empty()
+                || !mission.bonus_objectives.is_empty();
+            if mission.map_name.eq_ignore_ascii_case(map_name) {
+                if has_objectives {
+                    if exact_with_obj.is_none() {
+                        exact_with_obj = Some(mission);
+                    }
+                } else if exact.is_none() {
+                    exact = Some(mission);
+                }
+                continue;
+            }
+            if map_name_matches_mission(map_name, &mission.map_name) {
+                if has_objectives {
+                    if stem_with_obj.is_none() {
+                        stem_with_obj = Some(mission);
+                    }
+                } else if stem.is_none() {
+                    stem = Some(mission);
+                }
+            }
+        }
+        exact_with_obj.or(exact).or(stem_with_obj).or(stem)
     }
 
     /// Start a new campaign
