@@ -1,5 +1,29 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Cash Bounty on Kill (2026-07-12)
+**Closed (host-testable kill with cash_bounty_percent → killer cash increases):**
+1. **GLA SCIENCE_CashBounty residual** (`Player::doBountyForKill` + CashBountyPower):
+   - Player holds `cash_bounty_percent` (default 0; tiers 5% / 10% / 20%).
+   - `SCIENCE_CashBounty1/2/3` unlock (or `set_player_cash_bounty`) raises percent.
+   - On enemy kill (`record_destruction` after combat): awards
+     `ceil(victim_build_cost * cash_bounty_percent)` to killer supplies.
+   - Skips under-construction, same-team, Neutral, and zero-percent cases.
+2. Honesty (`host_cash_bounty.rs` + GameLogic):
+   - `cash_bounty.bounty_kills` / `bounty_earned_total` / `max_bounty_percent`
+   - `honesty_cash_bounty_ok` / `honesty_cash_bounty_award_ok` / `cash_bounty_earned_total`
+3. Tests (not log-only):
+   - `cash_bounty_increases_cash_on_enemy_kill`
+   - `cash_bounty_zero_percent_does_not_award`
+   - `cash_bounty_science_unlock_sets_percent`
+   - unit tests in `host_cash_bounty.rs`
+4. Engine parity: GameLogic `Player::do_bounty_for_kill` also `score_keeper.add_money_earned`.
+
+**Still residual (fail-closed, not claimed):**
+- Full CashBountyPower palace module + RequiredScience gate matrix
+- Floating text / InGameUI AddCash over killer
+- calcCostToBuild faction handicap matrix (uses template build_cost)
+- Network bounty replication (network deferred)
+
 ## Residual Host Playability — Propaganda / Speaker Tower (2026-07-12)
 **Closed (host-testable damaged ally near tower → HP recovers + ENTHUSIASTIC buff):**
 1. **China Speaker Tower / PropagandaTower residual** (`PropagandaTowerBehavior`):
