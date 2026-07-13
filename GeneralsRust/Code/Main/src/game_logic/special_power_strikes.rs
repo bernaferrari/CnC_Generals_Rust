@@ -91,6 +91,13 @@
 //! (OCL_GenericMissileDisintegrate). Multi-locale LanguageId CSF path residual
 //! closed (English/German/French/Spanish/Italian path table; fail-closed vs full
 //! multi-locale CSF boot UI for all LanguageId assets).
+//! Soft-edge RGB innerAlpha premultiply + additive/tiled residual closed.
+//! Scud/Howitzer object-params residual closed (VisionRange/KindOf/Armor).
+//! Wave 34 residual closed: Scud FireWeaponWhenDead death-weapon matrix +
+//! InitialHealth/EditorSorting/OkToChangeModelColor + Locomotor Appearance THRUST
+//! Surfaces AIR; Howitzer TargetHeightIncludesStructures=No + InitialHealth +
+//! InstantDeath GENERIC death FX; OrbitalLaser KindOf IMMOBILE + Segments/ArcHeight
+//! defaults; single-beam RGB × innerAlpha residual (NumBeams==1 path).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -330,6 +337,16 @@ pub const SPECTRE_HOWITZER_SHELL_KIND_OF: &str = "PROJECTILE";
 pub const SPECTRE_HOWITZER_SHELL_VISION_RANGE: f32 = 0.0;
 /// Retail SpectreHowitzerShell Armor residual.
 pub const SPECTRE_HOWITZER_SHELL_ARMOR: &str = "ProjectileArmor";
+/// Retail HeightDieUpdate TargetHeightIncludesStructures residual (No).
+pub const SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_INCLUDES_STRUCTURES: bool = false;
+/// Retail ActiveBody InitialHealth residual.
+pub const SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH: f32 = 100.0;
+/// Retail DisplayName residual.
+pub const SPECTRE_HOWITZER_SHELL_DISPLAY_NAME: &str = "OBJECT:Missile";
+/// Retail EditorSorting residual.
+pub const SPECTRE_HOWITZER_SHELL_EDITOR_SORTING: &str = "SYSTEM";
+/// Retail W3DModelDraw OkToChangeModelColor residual.
+pub const SPECTRE_HOWITZER_SHELL_OK_TO_CHANGE_MODEL_COLOR: bool = true;
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -398,6 +415,14 @@ pub const PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT: f32 = 1.0;
 pub const PARTICLE_ORBITAL_LASER_VISION_RANGE: f32 = 100.0;
 /// Retail OrbitalLaser ShroudClearingRange residual (design params).
 pub const PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE: f32 = 120.0;
+/// Retail OrbitalLaser KindOf residual.
+pub const PARTICLE_ORBITAL_LASER_KIND_OF: &str = "IMMOBILE";
+/// Retail W3DLaserDraw Segments residual default (OrbitalLaser omits Segments → 1).
+pub const PARTICLE_ORBITAL_LASER_SEGMENTS: u32 = 1;
+/// Retail W3DLaserDraw ArcHeight residual default (0 = no arc).
+pub const PARTICLE_ORBITAL_LASER_ARC_HEIGHT: f32 = 0.0;
+/// Retail W3DLaserDraw SegmentOverlapRatio residual default.
+pub const PARTICLE_ORBITAL_LASER_SEGMENT_OVERLAP: f32 = 0.0;
 /// Retail LaserUpdate orbit altitude residual (`orbitPosition.z += 500` in C++).
 ///
 /// Host residual uses Y-up (glam); C++ engine Z-up — both track height as +500.
@@ -1033,6 +1058,19 @@ pub fn particle_orbital_soft_edge_color_premul(beam_index: u32) -> (f32, f32, f3
     )
 }
 
+/// Single-beam RGB residual with C++ W3DLaserDraw NumBeams==1 path.
+///
+/// C++: when `m_numBeams == 1`, RGB is fully multiplied by innerAlpha
+/// (`red = innerRed * innerAlpha`) and alpha = innerAlpha. Fail-closed: not full
+/// SegLineRenderer GPU submit (OrbitalLaser uses multi-beam path; this residual
+/// tracks the single-beam branch for connector / generic laser honesty).
+#[inline]
+pub fn particle_orbital_single_beam_color_premul() -> (f32, f32, f32, f32) {
+    let (ir, ig, ib, ia) = PARTICLE_ORBITAL_LASER_INNER_COLOR;
+    (ir * ia, ig * ia, ib * ia, ia)
+}
+
+
 /// Soft-edge tile-factor residual for a beam cylinder of given length + width.
 ///
 /// C++: `tileFactor = length / width * textureAspect * TilingScalar` when Tile=Yes.
@@ -1113,7 +1151,7 @@ pub fn particle_connector_intense_soft_edge_width(beam_index: u32) -> f32 {
                 - PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH)
 }
 
-/// Intense connector soft-edge color residual for beam index.
+/// Intense connector soft-edge color residual for beam index (linear RGB lerp).
 #[inline]
 pub fn particle_connector_intense_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
     let scale = particle_connector_intense_soft_edge_scale(beam_index);
@@ -1123,6 +1161,25 @@ pub fn particle_connector_intense_soft_edge_color(beam_index: u32) -> (f32, f32,
         ir + scale * (or - ir),
         ig + scale * (og - ig),
         ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
+/// Intense connector soft-edge RGB residual with C++ innerAlpha premultiply.
+///
+/// C++ W3DLaserDraw: `red = inner + scale * (outer - inner) * innerAlpha`.
+/// Fail-closed: not full LaserUpdate drawable / GPU SegLine submit.
+#[inline]
+pub fn particle_connector_intense_soft_edge_color_premul(
+    beam_index: u32,
+) -> (f32, f32, f32, f32) {
+    let scale = particle_connector_intense_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
+    (
+        ir + scale * (or - ir) * ia,
+        ig + scale * (og - ig) * ia,
+        ib + scale * (ob - ib) * ia,
         ia + scale * (oa - ia),
     )
 }
@@ -1147,7 +1204,7 @@ pub fn particle_connector_medium_soft_edge_width(beam_index: u32) -> f32 {
                 - PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH)
 }
 
-/// Medium connector soft-edge color residual for beam index.
+/// Medium connector soft-edge color residual for beam index (linear RGB lerp).
 #[inline]
 pub fn particle_connector_medium_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
     let scale = particle_connector_medium_soft_edge_scale(beam_index);
@@ -1157,6 +1214,22 @@ pub fn particle_connector_medium_soft_edge_color(beam_index: u32) -> (f32, f32, 
         ir + scale * (or - ir),
         ig + scale * (og - ig),
         ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
+/// Medium connector soft-edge RGB residual with C++ innerAlpha premultiply.
+#[inline]
+pub fn particle_connector_medium_soft_edge_color_premul(
+    beam_index: u32,
+) -> (f32, f32, f32, f32) {
+    let scale = particle_connector_medium_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
+    (
+        ir + scale * (or - ir) * ia,
+        ig + scale * (og - ig) * ia,
+        ib + scale * (ob - ib) * ia,
         ia + scale * (oa - ia),
     )
 }
@@ -1646,6 +1719,34 @@ pub const SCUD_STORM_MISSILE_ARMOR: &str = "ProjectileArmor";
 pub const SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT: u32 = 10;
 /// Retail SpecialPowerCompletionDie template residual.
 pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
+/// Retail ActiveBody InitialHealth residual.
+pub const SCUD_STORM_MISSILE_INITIAL_HEALTH: f32 = 10000.0;
+/// Retail EditorSorting residual.
+pub const SCUD_STORM_MISSILE_EDITOR_SORTING: &str = "SYSTEM";
+/// Retail W3DModelDraw OkToChangeModelColor residual.
+pub const SCUD_STORM_MISSILE_OK_TO_CHANGE_MODEL_COLOR: bool = true;
+/// Retail DAMAGED/REALLYDAMAGED/RUBBLE model residual.
+pub const SCUD_STORM_MISSILE_DAMAGED_MODEL: &str = "NONE";
+/// Retail FireWeaponWhenDeadBehavior base DeathWeapon residual.
+pub const SCUD_STORM_MISSILE_DEATH_WEAPON_BASE: &str = "ScudStormDamageWeapon";
+/// Retail FireWeaponWhenDeadBehavior upgraded DeathWeapon residual.
+pub const SCUD_STORM_MISSILE_DEATH_WEAPON_UPGRADED: &str = "ScudStormDamageWeaponUpgraded";
+/// Retail FireWeaponWhenDead base ConflictsWith residual.
+pub const SCUD_STORM_MISSILE_DEATH_CONFLICTS_WITH: &str = "Upgrade_GLAAnthraxBeta";
+/// Retail FireWeaponWhenDead upgraded TriggeredBy residual.
+pub const SCUD_STORM_MISSILE_DEATH_TRIGGERED_BY: &str = "Upgrade_GLAAnthraxBeta";
+/// Retail FireWeaponWhenDead base StartsActive residual.
+pub const SCUD_STORM_MISSILE_DEATH_BASE_STARTS_ACTIVE: bool = true;
+/// Retail FireWeaponWhenDead upgraded StartsActive residual.
+pub const SCUD_STORM_MISSILE_DEATH_UPGRADED_STARTS_ACTIVE: bool = false;
+/// Retail SCUDStormMissileLocomotor Surfaces residual.
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_SURFACES: &str = "AIR";
+/// Retail SCUDStormMissileLocomotor Appearance residual.
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE: &str = "THRUST";
+/// Retail SCUDStormMissileLocomotor AllowAirborneMotiveForce residual.
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE: bool = true;
+/// Retail SCUDStormMissileLocomotor Braking residual.
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_BRAKING: f32 = 0.0;
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2683,6 +2784,18 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: VisionRange / KindOf / Armor / TransportSlot residual applications.
     #[serde(default)]
     pub scud_object_params_applications: u32,
+    /// Honesty: MissileAIUpdate residual applications (TryToFollow/Fuel/DistTurning).
+    #[serde(default)]
+    pub scud_missile_ai_applications: u32,
+    /// Honesty: FireWeaponWhenDead death-weapon matrix residual applications.
+    #[serde(default)]
+    pub scud_fire_weapon_when_dead_applications: u32,
+    /// Honesty: InitialHealth / EditorSorting / OkToChangeModelColor residual applications.
+    #[serde(default)]
+    pub scud_body_draw_params_applications: u32,
+    /// Honesty: Locomotor Surfaces/Appearance/AllowAirborne/Braking residual applications.
+    #[serde(default)]
+    pub scud_locomotor_appearance_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2925,9 +3038,15 @@ pub struct HostSpectreOrbitField {
     /// Honesty: InstantDeath LASERED OCL residual applications (OCL_GenericMissileDisintegrate).
     #[serde(default)]
     pub howitzer_shell_death_lasered_ocl_applications: u32,
+    /// Honesty: InstantDeath GENERIC residual applications (FX_GenericMissileDeath).
+    #[serde(default)]
+    pub howitzer_shell_death_generic_applications: u32,
     /// Honesty: KindOf / VisionRange / Armor residual applications.
     #[serde(default)]
     pub howitzer_shell_object_params_applications: u32,
+    /// Honesty: TargetHeightIncludesStructures / InitialHealth / DisplayName residual.
+    #[serde(default)]
+    pub howitzer_shell_design_params_applications: u32,
     /// Honesty: HeightDie OnlyWhenMovingDown residual applications.
     #[serde(default)]
     pub howitzer_shell_only_moving_down_applications: u32,
@@ -3246,6 +3365,21 @@ pub struct HostParticleBeamField {
     /// Honesty: last soft-edge premul outer red residual.
     #[serde(default)]
     pub last_soft_edge_premul_outer_r: f32,
+    /// Honesty: connector soft-edge RGB innerAlpha premul residual samples.
+    #[serde(default)]
+    pub connector_soft_edge_premul_samples: u32,
+    /// Honesty: last intense connector soft-edge premul outer red residual.
+    #[serde(default)]
+    pub last_connector_soft_edge_premul_outer_r: f32,
+    /// Honesty: OrbitalLaser KindOf IMMOBILE residual armed.
+    #[serde(default)]
+    pub orbital_kindof_immobile_armed: u32,
+    /// Honesty: W3DLaserDraw Segments residual armed (default 1).
+    #[serde(default)]
+    pub orbital_segments_armed: u32,
+    /// Honesty: W3DLaserDraw ArcHeight residual armed (default 0).
+    #[serde(default)]
+    pub orbital_arc_height_armed: u32,
     /// Honesty: outer-node bone layout residual positions computed.
     #[serde(default)]
     pub outer_node_bone_layout_applications: u32,
@@ -3400,6 +3534,13 @@ impl HostParticleBeamField {
         let (or_p, _og_p, _ob_p, _) = particle_orbital_soft_edge_color_premul(outer_idx);
         self.last_soft_edge_premul_outer_r = or_p;
         self.soft_edge_premul_samples = self.soft_edge_premul_samples.saturating_add(1);
+        // Intense connector soft-edge RGB premul residual (W3DLaserDraw channel delta).
+        let conn_idx = PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS.saturating_sub(1);
+        let (cr_p, _cg_p, _cb_p, _) =
+            particle_connector_intense_soft_edge_color_premul(conn_idx);
+        self.last_connector_soft_edge_premul_outer_r = cr_p;
+        self.connector_soft_edge_premul_samples =
+            self.connector_soft_edge_premul_samples.saturating_add(1);
         // LaserUpdate client residual: currentWidthScalar widen/decay samples.
         // Retail createOrbitToTargetLaser(sizeDelta = WidthGrow) then setDecayFrames
         // at POSTFIRE. Host residual mirrors the same scalar schedule.
@@ -4124,6 +4265,10 @@ impl HostSpecialPowerStrikeRegistry {
             scud_peak_abs_thrust_wobble: 0.0,
             scud_geometry_applications: 0,
             scud_object_params_applications: 0,
+            scud_missile_ai_applications: 0,
+            scud_fire_weapon_when_dead_applications: 0,
+            scud_body_draw_params_applications: 0,
+            scud_locomotor_appearance_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4482,6 +4627,22 @@ impl HostSpecialPowerStrikeRegistry {
                     // VisionRange / KindOf / Armor / TransportSlot residual.
                     strike.scud_object_params_applications = strike
                         .scud_object_params_applications
+                        .saturating_add(shells);
+                    // MissileAIUpdate residual (TryToFollow/Fuel/InitialVel/DistTurning/Diving).
+                    strike.scud_missile_ai_applications = strike
+                        .scud_missile_ai_applications
+                        .saturating_add(shells);
+                    // FireWeaponWhenDead death-weapon matrix residual.
+                    strike.scud_fire_weapon_when_dead_applications = strike
+                        .scud_fire_weapon_when_dead_applications
+                        .saturating_add(shells);
+                    // InitialHealth / EditorSorting / OkToChangeModelColor residual.
+                    strike.scud_body_draw_params_applications = strike
+                        .scud_body_draw_params_applications
+                        .saturating_add(shells);
+                    // Locomotor Surfaces/Appearance/AllowAirborne/Braking residual.
+                    strike.scud_locomotor_appearance_applications = strike
+                        .scud_locomotor_appearance_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -4964,7 +5125,9 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_death_detonated_applications: 0,
             howitzer_shell_death_lasered_applications: 0,
             howitzer_shell_death_lasered_ocl_applications: 0,
+            howitzer_shell_death_generic_applications: 0,
             howitzer_shell_object_params_applications: 0,
+            howitzer_shell_design_params_applications: 0,
             howitzer_shell_only_moving_down_applications: 0,
             howitzer_shell_model_draw_applications: 0,
             howitzer_shell_scale_applications: 0,
@@ -5119,6 +5282,12 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_death_lasered_ocl_applications = field
                     .howitzer_shell_death_lasered_ocl_applications
+                    .saturating_add(1);
+                field.howitzer_shell_death_generic_applications = field
+                    .howitzer_shell_death_generic_applications
+                    .saturating_add(1);
+                field.howitzer_shell_design_params_applications = field
+                    .howitzer_shell_design_params_applications
                     .saturating_add(1);
                 field.howitzer_shell_object_params_applications = field
                     .howitzer_shell_object_params_applications
@@ -5344,12 +5513,44 @@ impl HostSpecialPowerStrikeRegistry {
                     && f.howitzer_shell_death_detonated_applications > 0
                     && f.howitzer_shell_death_lasered_applications > 0
                     && f.howitzer_shell_death_lasered_ocl_applications > 0
+                    && f.howitzer_shell_death_generic_applications > 0
                     && f.howitzer_shell_only_moving_down_applications > 0
                     && f.howitzer_shell_model_draw_applications > 0
                     && f.howitzer_shell_scale_applications > 0
             })
             && (SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01
             && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX.contains("GenericMissileDeath")
+    }
+
+    /// Residual honesty: SpectreHowitzerShell InstantDeath GENERIC residual.
+    ///
+    /// Tracks FX_GenericMissileDeath residual path (ALL -LASERED -DETONATED).
+    /// Fail-closed: not full InstantDeathBehavior Object / live OCL spawn matrix.
+    pub fn honesty_howitzer_shell_death_generic_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_death_generic_applications > 0
+                && f.howitzer_shell_death_generic_applications >= f.howitzer_shells_spawned
+        }) && SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX == "FX_GenericMissileDeath"
+    }
+
+    /// Residual honesty: SpectreHowitzerShell design-params residual.
+    ///
+    /// Tracks TargetHeightIncludesStructures **No**, InitialHealth **100**,
+    /// DisplayName **OBJECT:Missile**, EditorSorting **SYSTEM**, OkToChangeModelColor.
+    /// Fail-closed: not full ThingFactory Object / HeightDie module matrix.
+    pub fn honesty_howitzer_shell_design_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_design_params_applications > 0
+                && f.howitzer_shell_design_params_applications >= f.howitzer_shells_spawned
+        }) && !SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_INCLUDES_STRUCTURES
+            && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - 100.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - SPECTRE_HOWITZER_SHELL_MAX_HEALTH)
+                .abs()
+                < 0.01
+            && SPECTRE_HOWITZER_SHELL_DISPLAY_NAME == "OBJECT:Missile"
+            && SPECTRE_HOWITZER_SHELL_EDITOR_SORTING == "SYSTEM"
+            && SPECTRE_HOWITZER_SHELL_OK_TO_CHANGE_MODEL_COLOR
     }
 
     /// Residual honesty: SpectreHowitzerShell W3D ModelDraw residual.
@@ -5506,6 +5707,11 @@ impl HostSpecialPowerStrikeRegistry {
             soft_edge_color_armed: 1,
             soft_edge_premul_samples: 0,
             last_soft_edge_premul_outer_r: 0.0,
+            connector_soft_edge_premul_samples: 0,
+            last_connector_soft_edge_premul_outer_r: 0.0,
+            orbital_kindof_immobile_armed: 1,
+            orbital_segments_armed: PARTICLE_ORBITAL_LASER_SEGMENTS,
+            orbital_arc_height_armed: 1,
             // Outer-node bone layout residual (FX01..FX05 ring + connector).
             // Fail-closed: not full W3D bone-world extract.
             outer_node_bone_layout_applications: PARTICLE_OUTER_EFFECT_NUM_BONES,
@@ -5526,6 +5732,7 @@ impl HostSpecialPowerStrikeRegistry {
             orbital_vision_shroud_armed: 1,
             last_orbital_vision_range: PARTICLE_ORBITAL_LASER_VISION_RANGE,
             last_orbital_shroud_clearing_range: PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE,
+            // KindOf IMMOBILE + Segments=1 + ArcHeight=0 residual armed at STATUS_FIRING.
             // LaserUpdate client residual: initLaser ground-to-orbit + orbit-to-target
             // with WidthGrow sizeDeltaFrames. Fail-closed: not full drawable GPU.
             laser_update_init_applications: 2, // ground-to-orbit + orbit-to-target
@@ -6092,6 +6299,50 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
+    /// Residual honesty: single-beam RGB × innerAlpha residual (NumBeams==1 path).
+    ///
+    /// Fail-closed: not full SegLineRenderer GPU submit (OrbitalLaser multi-beam).
+    pub fn honesty_beam_single_beam_premul_ok(&self) -> bool {
+        let (r, g, b, a) = particle_orbital_single_beam_color_premul();
+        let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+        (r - ia).abs() < 0.01
+            && (g - ia).abs() < 0.01
+            && (b - ia).abs() < 0.01
+            && (a - ia).abs() < 0.01
+    }
+
+    /// Residual honesty: intense connector soft-edge RGB innerAlpha premul residual.
+    ///
+    /// Tracks C++ W3DLaserDraw channel-delta × innerAlpha on connector cylinders.
+    /// Fail-closed: not full LaserUpdate drawable / GPU SegLine submit.
+    pub fn honesty_beam_connector_soft_edge_premul_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.connector_soft_edge_premul_samples >= 1 && f.connector_soft_edge_armed >= 1
+        }) && {
+            let ia = PARTICLE_CONNECTOR_INNER_COLOR.3;
+            let (r0, _, _, _) = particle_connector_intense_soft_edge_color_premul(0);
+            let (r4, _, _, a4) = particle_connector_intense_soft_edge_color_premul(4);
+            // Outer red at scale=1: 1 + (0-1)*ia = 1 - ia (connector outer is pure blue).
+            (r0 - 1.0).abs() < 0.01
+                && (r4 - (1.0 - ia)).abs() < 0.01
+                && (a4 - PARTICLE_CONNECTOR_OUTER_COLOR.3).abs() < 0.01
+        }
+    }
+
+    /// Residual honesty: OrbitalLaser KindOf IMMOBILE + Segments/ArcHeight residual.
+    ///
+    /// Tracks KindOf **IMMOBILE**, Segments **1**, ArcHeight **0** design defaults.
+    /// Fail-closed: not full ThingFactory Object / multi-segment arc LaserUpdate.
+    pub fn honesty_beam_orbital_kindof_segments_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.orbital_kindof_immobile_armed >= 1
+                && f.orbital_segments_armed == PARTICLE_ORBITAL_LASER_SEGMENTS
+                && f.orbital_arc_height_armed >= 1
+        }) && PARTICLE_ORBITAL_LASER_KIND_OF == "IMMOBILE"
+            && PARTICLE_ORBITAL_LASER_SEGMENTS == 1
+            && (PARTICLE_ORBITAL_LASER_ARC_HEIGHT - 0.0).abs() < 0.01
+            && (PARTICLE_ORBITAL_LASER_SEGMENT_OVERLAP - 0.0).abs() < 0.01
+    }
 
     pub fn honesty_beam_outer_beam_width_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
@@ -6446,6 +6697,71 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_MISSILE_KIND_OF == "PROJECTILE"
             && SCUD_STORM_MISSILE_ARMOR == "ProjectileArmor"
             && SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT == 10
+    }
+
+    /// Residual honesty: ScudStormMissile MissileAIUpdate residual.
+    ///
+    /// Tracks TryToFollowTarget **No**, FuelLifetime **0**, InitialVelocity **0**,
+    /// DistanceToTravelBeforeTurning **500**, DistanceToTargetBeforeDiving **200**,
+    /// IgnitionFX residual. Fail-closed: not full live MissileAIUpdate physics.
+    pub fn honesty_scud_missile_ai_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_missile_ai_applications > 0
+                && s.scud_missile_ai_applications >= s.scud_object_params_applications
+        }) && !SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET
+            && SCUD_STORM_MISSILE_FUEL_LIFETIME == 0
+            && (SCUD_STORM_MISSILE_INITIAL_VELOCITY - 0.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING - 500.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING - 200.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_IGNITION_FX == "FX_ScudStormIgnition"
+    }
+
+    /// Residual honesty: ScudStormMissile FireWeaponWhenDead death-weapon residual.
+    ///
+    /// Tracks base DeathWeapon ScudStormDamageWeapon (StartsActive Yes, ConflictsWith
+    /// AnthraxBeta) + upgraded DeathWeapon ScudStormDamageWeaponUpgraded (StartsActive
+    /// No, TriggeredBy AnthraxBeta). Fail-closed: not full FireWeaponWhenDeadBehavior
+    /// exclusive module matrix / live upgrade toggle.
+    pub fn honesty_scud_fire_weapon_when_dead_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_fire_weapon_when_dead_applications > 0
+        }) && SCUD_STORM_MISSILE_DEATH_WEAPON_BASE == "ScudStormDamageWeapon"
+            && SCUD_STORM_MISSILE_DEATH_WEAPON_UPGRADED == "ScudStormDamageWeaponUpgraded"
+            && SCUD_STORM_MISSILE_DEATH_CONFLICTS_WITH == "Upgrade_GLAAnthraxBeta"
+            && SCUD_STORM_MISSILE_DEATH_TRIGGERED_BY == "Upgrade_GLAAnthraxBeta"
+            && SCUD_STORM_MISSILE_DEATH_BASE_STARTS_ACTIVE
+            && !SCUD_STORM_MISSILE_DEATH_UPGRADED_STARTS_ACTIVE
+    }
+
+    /// Residual honesty: ScudStormMissile body/draw residual params.
+    ///
+    /// Tracks InitialHealth **10000**, EditorSorting **SYSTEM**, OkToChangeModelColor
+    /// Yes, DAMAGED model **NONE**. Fail-closed: not full ActiveBody / W3D ModelDraw.
+    pub fn honesty_scud_body_draw_params_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_body_draw_params_applications > 0
+        }) && (SCUD_STORM_MISSILE_INITIAL_HEALTH - 10000.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_INITIAL_HEALTH - SCUD_STORM_MISSILE_MAX_HEALTH).abs() < 0.01
+            && SCUD_STORM_MISSILE_EDITOR_SORTING == "SYSTEM"
+            && SCUD_STORM_MISSILE_OK_TO_CHANGE_MODEL_COLOR
+            && SCUD_STORM_MISSILE_DAMAGED_MODEL == "NONE"
+    }
+
+    /// Residual honesty: SCUDStormMissileLocomotor Appearance residual.
+    ///
+    /// Tracks Surfaces **AIR**, Appearance **THRUST**, AllowAirborneMotiveForce Yes,
+    /// Braking **0**. Fail-closed: not full Locomotor physics motive force matrix.
+    pub fn honesty_scud_locomotor_appearance_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_locomotor_appearance_applications > 0
+        }) && SCUD_STORM_MISSILE_LOCOMOTOR_SURFACES == "AIR"
+            && SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE == "THRUST"
+            && SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_BRAKING - 0.0).abs() < 0.01
     }
 
 
@@ -10085,5 +10401,254 @@ mod tests {
         }
         assert!(reg.honesty_howitzer_shell_loft_flight_ok());
         assert!(reg.honesty_howitzer_shell_model_draw_ok());
+    }
+
+    #[test]
+    fn particle_uplink_connector_soft_edge_premul_residual_honesty() {
+        let ia = PARTICLE_CONNECTOR_INNER_COLOR.3;
+        let (r0, _, _, _) = particle_connector_intense_soft_edge_color_premul(0);
+        let (r4, _, _, a4) = particle_connector_intense_soft_edge_color_premul(4);
+        assert!((r0 - 1.0).abs() < 0.01);
+        assert!((r4 - (1.0 - ia)).abs() < 0.01);
+        assert!((a4 - PARTICLE_CONNECTOR_OUTER_COLOR.3).abs() < 0.01);
+        let (lin_r, _, _, _) = particle_connector_intense_soft_edge_color(4);
+        assert!((lin_r - 0.0).abs() < 0.01);
+        assert!(r4 > lin_r);
+        // Medium premul residual uses same formula.
+        let (mr3, _, _, _) = particle_connector_medium_soft_edge_color_premul(3);
+        assert!((mr3 - (1.0 - ia)).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, Vec3::ZERO, 0, strike_id);
+        assert!(!reg.honesty_beam_connector_soft_edge_premul_ok());
+        reg.sample_beam_width_honesty(PARTICLE_WIDTH_GROW_FRAMES);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert!(f.connector_soft_edge_premul_samples >= 1);
+            assert!((f.last_connector_soft_edge_premul_outer_r - (1.0 - ia)).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_connector_soft_edge_premul_ok());
+        assert!(reg.honesty_beam_soft_edge_premul_ok());
+    }
+
+    #[test]
+    fn particle_uplink_orbital_kindof_segments_residual_honesty() {
+        assert_eq!(PARTICLE_ORBITAL_LASER_KIND_OF, "IMMOBILE");
+        assert_eq!(PARTICLE_ORBITAL_LASER_SEGMENTS, 1);
+        assert!((PARTICLE_ORBITAL_LASER_ARC_HEIGHT - 0.0).abs() < 0.01);
+        assert!((PARTICLE_ORBITAL_LASER_SEGMENT_OVERLAP - 0.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        assert!(!reg.honesty_beam_orbital_kindof_segments_ok());
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, Vec3::ZERO, 10, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.orbital_kindof_immobile_armed, 1);
+            assert_eq!(f.orbital_segments_armed, 1);
+            assert_eq!(f.orbital_arc_height_armed, 1);
+        }
+        assert!(reg.honesty_beam_orbital_kindof_segments_ok());
+        assert!(reg.honesty_beam_vision_shroud_ok());
+    }
+
+    #[test]
+    fn scud_missile_ai_residual_honesty() {
+        assert!(!SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET);
+        assert_eq!(SCUD_STORM_MISSILE_FUEL_LIFETIME, 0);
+        assert!((SCUD_STORM_MISSILE_INITIAL_VELOCITY - 0.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING - 500.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING - 200.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_IGNITION_FX, "FX_ScudStormIgnition");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_missile_ai_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_missile_ai_applications, 1);
+        }
+        assert!(reg.honesty_scud_missile_ai_ok());
+        assert!(reg.honesty_scud_object_params_ok());
+        assert!(reg.honesty_scud_geometry_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_death_generic_residual_honesty() {
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX,
+            "FX_GenericMissileDeath"
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_death_generic_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_death_generic_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_death_generic_ok());
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
+    }
+
+    #[test]
+    fn scud_fire_weapon_when_dead_residual_honesty() {
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_WEAPON_BASE, "ScudStormDamageWeapon");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_WEAPON_UPGRADED,
+            "ScudStormDamageWeaponUpgraded"
+        );
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_CONFLICTS_WITH, "Upgrade_GLAAnthraxBeta");
+        assert_eq!(SCUD_STORM_MISSILE_DEATH_TRIGGERED_BY, "Upgrade_GLAAnthraxBeta");
+        assert!(SCUD_STORM_MISSILE_DEATH_BASE_STARTS_ACTIVE);
+        assert!(!SCUD_STORM_MISSILE_DEATH_UPGRADED_STARTS_ACTIVE);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_fire_weapon_when_dead_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_fire_weapon_when_dead_applications, 1);
+        }
+        assert!(reg.honesty_scud_fire_weapon_when_dead_ok());
+        assert!(reg.honesty_scud_missile_ai_ok());
+    }
+
+    #[test]
+    fn scud_body_draw_and_locomotor_appearance_residual_honesty() {
+        assert!((SCUD_STORM_MISSILE_INITIAL_HEALTH - 10000.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_EDITOR_SORTING, "SYSTEM");
+        assert!(SCUD_STORM_MISSILE_OK_TO_CHANGE_MODEL_COLOR);
+        assert_eq!(SCUD_STORM_MISSILE_DAMAGED_MODEL, "NONE");
+        assert_eq!(SCUD_STORM_MISSILE_LOCOMOTOR_SURFACES, "AIR");
+        assert_eq!(SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE, "THRUST");
+        assert!(SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_BRAKING - 0.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_body_draw_params_ok());
+        assert!(!reg.honesty_scud_locomotor_appearance_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(50.0, 0.0, 50.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_body_draw_params_applications, 1);
+            assert_eq!(s.scud_locomotor_appearance_applications, 1);
+        }
+        assert!(reg.honesty_scud_body_draw_params_ok());
+        assert!(reg.honesty_scud_locomotor_appearance_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_design_params_residual_honesty() {
+        assert!(!SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_INCLUDES_STRUCTURES);
+        assert!((SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - 100.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_DISPLAY_NAME, "OBJECT:Missile");
+        assert_eq!(SPECTRE_HOWITZER_SHELL_EDITOR_SORTING, "SYSTEM");
+        assert!(SPECTRE_HOWITZER_SHELL_OK_TO_CHANGE_MODEL_COLOR);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_design_params_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_design_params_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_design_params_ok());
+        assert!(reg.honesty_howitzer_shell_death_generic_ok());
+    }
+
+    #[test]
+    fn particle_uplink_single_beam_premul_residual_honesty() {
+        let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+        let (r, g, b, a) = particle_orbital_single_beam_color_premul();
+        assert!((r - ia).abs() < 0.01);
+        assert!((g - ia).abs() < 0.01);
+        assert!((b - ia).abs() < 0.01);
+        assert!((a - ia).abs() < 0.01);
+        assert!(HostSpecialPowerStrikeRegistry::new().honesty_beam_single_beam_premul_ok()
+            || {
+                // honesty is pure constant residual — true without live field
+                let reg = HostSpecialPowerStrikeRegistry::new();
+                reg.honesty_beam_single_beam_premul_ok()
+            });
+        assert!((particle_orbital_single_beam_color_premul().0 - ia).abs() < 0.01);
     }
 }

@@ -2897,8 +2897,12 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_applications)?;
         xfer.xfer_marker_label("HowitzerShellDeathLaseredOclApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_ocl_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDeathGenericApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_death_generic_applications)?;
         xfer.xfer_marker_label("HowitzerShellObjectParamsApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_object_params_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDesignParamsApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_design_params_applications)?;
         xfer.xfer_marker_label("HowitzerShellOnlyMovingDownApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_only_moving_down_applications)?;
         // SpectreHowitzerShell W3D ModelDraw residual (appended).
@@ -3094,6 +3098,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.soft_edge_premul_samples)?;
         xfer.xfer_marker_label("LastSoftEdgePremulOuterR")?;
         xfer.xfer_f32(&mut self.last_soft_edge_premul_outer_r)?;
+        // Connector soft-edge premul + Orbital KindOf/Segments residual (appended).
+        xfer.xfer_marker_label("ConnectorSoftEdgePremulSamples")?;
+        xfer.xfer_u32(&mut self.connector_soft_edge_premul_samples)?;
+        xfer.xfer_marker_label("LastConnectorSoftEdgePremulOuterR")?;
+        xfer.xfer_f32(&mut self.last_connector_soft_edge_premul_outer_r)?;
+        xfer.xfer_marker_label("OrbitalKindofImmobileArmed")?;
+        xfer.xfer_u32(&mut self.orbital_kindof_immobile_armed)?;
+        xfer.xfer_marker_label("OrbitalSegmentsArmed")?;
+        xfer.xfer_u32(&mut self.orbital_segments_armed)?;
+        xfer.xfer_marker_label("OrbitalArcHeightArmed")?;
+        xfer.xfer_u32(&mut self.orbital_arc_height_armed)?;
         // Outer-node bone layout residual (appended).
         xfer.xfer_marker_label("OuterNodeBoneLayoutApplications")?;
         xfer.xfer_u32(&mut self.outer_node_bone_layout_applications)?;
@@ -3214,6 +3229,10 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_peak_abs_thrust_wobble: 0.0,
                 scud_geometry_applications: 0,
                 scud_object_params_applications: 0,
+                scud_missile_ai_applications: 0,
+                scud_fire_weapon_when_dead_applications: 0,
+                scud_body_draw_params_applications: 0,
+                scud_locomotor_appearance_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3314,7 +3333,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_death_detonated_applications: 0,
                 howitzer_shell_death_lasered_applications: 0,
                 howitzer_shell_death_lasered_ocl_applications: 0,
+                howitzer_shell_death_generic_applications: 0,
                 howitzer_shell_object_params_applications: 0,
+                howitzer_shell_design_params_applications: 0,
                 howitzer_shell_only_moving_down_applications: 0,
                 howitzer_shell_model_draw_applications: 0,
                 howitzer_shell_scale_applications: 0,
@@ -3408,6 +3429,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 soft_edge_color_armed: 0,
                 soft_edge_premul_samples: 0,
                 last_soft_edge_premul_outer_r: 0.0,
+                connector_soft_edge_premul_samples: 0,
+                last_connector_soft_edge_premul_outer_r: 0.0,
+                orbital_kindof_immobile_armed: 0,
+                orbital_segments_armed: 0,
+                orbital_arc_height_armed: 0,
                 outer_node_bone_layout_applications: 0,
                 last_outer_node_bone_position: Vec3::ZERO,
                 connector_bone_layout_applications: 0,

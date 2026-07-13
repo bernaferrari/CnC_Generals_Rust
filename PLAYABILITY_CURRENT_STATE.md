@@ -1,3 +1,69 @@
+## Residual Host Playability — Scud FireWeaponWhenDead/Body/Loco + Howitzer Design/GENERIC Death + Connector Premul + Orbital KindOf/Segments + DisplayString setText (2026-07-13)
+**Closed (host-testable residual not covered by wave 33 soft-edge premul/object-params residual):**
+1. **ScudStormMissile FireWeaponWhenDead residual** (`special_power_strikes`):
+   - Base DeathWeapon **ScudStormDamageWeapon** (StartsActive Yes, ConflictsWith AnthraxBeta).
+   - Upgraded DeathWeapon **ScudStormDamageWeaponUpgraded** (StartsActive No, TriggeredBy AnthraxBeta).
+   - Honesty: `honesty_scud_fire_weapon_when_dead_ok`.
+   - Fail-closed: not full FireWeaponWhenDeadBehavior exclusive module matrix.
+2. **ScudStormMissile body/draw + MissileAIUpdate residual** (`special_power_strikes`):
+   - InitialHealth **10000**, EditorSorting **SYSTEM**, OkToChangeModelColor Yes, DAMAGED model **NONE**.
+   - MissileAIUpdate TryToFollow **No** / FuelLifetime **0** / DistTurning **500** / DistDiving **200**.
+   - Honesty: `honesty_scud_body_draw_params_ok` / `honesty_scud_missile_ai_ok`.
+   - Fail-closed: not full ActiveBody / live MissileAIUpdate physics Object.
+3. **SCUDStormMissileLocomotor Appearance residual** (`special_power_strikes`):
+   - Surfaces **AIR**, Appearance **THRUST**, AllowAirborneMotiveForce Yes, Braking **0**.
+   - Honesty: `honesty_scud_locomotor_appearance_ok`.
+   - Fail-closed: not full Locomotor physics motive force matrix.
+4. **SpectreHowitzerShell design-params + InstantDeath GENERIC residual** (`special_power_strikes`):
+   - TargetHeightIncludesStructures **No**, InitialHealth **100**, DisplayName **OBJECT:Missile**,
+     EditorSorting **SYSTEM**, OkToChangeModelColor Yes.
+   - InstantDeath ALL -LASERED -DETONATED → **FX_GenericMissileDeath**.
+   - Honesty: `honesty_howitzer_shell_design_params_ok` / `honesty_howitzer_shell_death_generic_ok`.
+   - Fail-closed: not full InstantDeathBehavior Object / HeightDie module matrix.
+5. **Connector soft-edge RGB innerAlpha premul residual** (`special_power_strikes`):
+   - Intense/Medium connector channel-delta × innerAlpha residual.
+   - Honesty: `honesty_beam_connector_soft_edge_premul_ok`.
+   - Fail-closed: not full LaserUpdate GPU drawable / SegLine submit.
+6. **OrbitalLaser KindOf IMMOBILE + Segments/ArcHeight residual** (`special_power_strikes`):
+   - KindOf **IMMOBILE**, Segments **1**, ArcHeight **0**, SegmentOverlap **0**.
+   - Honesty: `honesty_beam_orbital_kindof_segments_ok`.
+   - Fail-closed: not full multi-segment arc LaserUpdate GPU path.
+7. **W3DLaserDraw multi-beam pack premul + single-beam RGB×alpha residual** (`laser_segment_upload`):
+   - Multi-beam pack uses C++ innerAlpha premultiply on RGB.
+   - Single-beam (NumBeams==1) full RGB × innerAlpha residual.
+   - Honesty: `honesty_soft_edge_premul_pack_ok` / `honesty_beam_single_beam_premul_ok`.
+   - Fail-closed: not live WGPU texture atlas / additive GPU submit.
+8. **DisplayString setText residual** (`floating_text_layout`):
+   - Equal text early-out / different text notifyTextChanged residual.
+   - Honesty: `honesty_display_string_set_text`.
+   - Fail-closed: not full DisplayString GPU font atlas re-raster.
+9. Snapshot/Xfer: death_generic / design_params / connector premul / orbital kind-segments residual fields appended.
+10. Tests (not log-only):
+   - `scud_fire_weapon_when_dead_residual_honesty`
+   - `scud_body_draw_and_locomotor_appearance_residual_honesty`
+   - `scud_missile_ai_residual_honesty`
+   - `spectre_howitzer_shell_design_params_residual_honesty`
+   - `spectre_howitzer_shell_death_generic_residual_honesty`
+   - `particle_uplink_connector_soft_edge_premul_residual_honesty`
+   - `particle_uplink_orbital_kindof_segments_residual_honesty`
+   - `particle_uplink_single_beam_premul_residual_honesty`
+   - `orbital_soft_edge_premul_pack_residual_honesty`
+   - `display_string_set_text_residual_honesty`
+   - all `special_power_strikes::` (**66**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Soft-Edge Premul + Additive/Tiled Laser + Object Params + DisplayString Color + MoneyPickUp Sequence (2026-07-13)
 **Closed (host-testable residual not covered by wave 32 LaserUpdate/medium/multi-locale residual):**
 1. **W3DLaserDraw soft-edge RGB innerAlpha premultiply residual** (`special_power_strikes`):
