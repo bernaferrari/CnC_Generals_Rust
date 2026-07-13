@@ -1,3 +1,38 @@
+## Residual Host Playability — GLA Rocket Buggy / Quad Cannon / SCUD (2026-07-13)
+**Closed (host-testable GLA combat vehicle residuals):**
+1. **Rocket Buggy residual** (`GLAVehicleRocketBuggy` / Chem_/Demo_/Slth_):
+   - Seeds `BuggyRocketWeapon` (range **300**, min **50**, dmg **20**, clip **6**).
+   - Fire residual: intended target PrimaryDamage; units in SecondaryDamageRadius
+     **10** take SecondaryDamage **5** splash.
+   - `ScatterRadiusVsInfantry` residual (deterministic miss vs infantry).
+   - Honesty: `honesty_rocket_buggy_ok` / fires / units_hit / scatter_misses.
+2. **Quad Cannon residual** (`GLAVehicleQuadCannon`):
+   - PRIMARY `QuadCannonGun` ground (range **150**, dmg **10**, no air).
+   - SECONDARY `QuadCannonGunAir` AA (range **350**, dmg **5**, AntiGround=No).
+   - Chooser residual: airborne → secondary; ground → primary.
+   - Multi-barrel salvage tier residual (`apply_quad_cannon_barrel_tier` 0/1/2
+     fire-rate + weapon-name residual).
+   - Honesty: ground_fires / aa_fires / barrel_upgrades.
+3. **SCUD launcher residual** (`GLAVehicleScudLauncher`):
+   - PRIMARY explosive area (300/50 + 50/100), range **350**, min **200**.
+   - SECONDARY toxin area (200/30 + 25/60) + **MediumPoisonField** DoT
+     (2 dmg / radius 80 / 30s / 500ms ticks).
+   - PreferredAgainst residual: secondary vs infantry (toxin).
+   - Honesty: `honesty_scud_area_ok` / `honesty_scud_toxin_ok` /
+     `honesty_scud_launcher_ok`.
+4. Tests (not log-only):
+   - `rocket_buggy_residual_long_range_splash`
+   - `quad_cannon_residual_anti_air_and_multi_barrel`
+   - `scud_launcher_residual_area_and_toxin`
+   - module unit tests in `host_rocket_buggy.rs` / `host_quad_cannon.rs` /
+     `host_scud_launcher.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full projectile lob / MissileCallsOnDie / PreAttack PER_SHOT animation matrix
+- Full SalvageCrate W3D turret subobject swap / AP rocket mult matrix
+- Full Anthrax Beta upgraded poison particle / gamma field matrix
+- Network weapon / toxin replication (network deferred)
+
 ## Residual Host Playability — Bomb Truck Disguise + GLA Camouflage (2026-07-12)
 **Closed (host-testable disguise + Camouflage stealth upgrade):**
 1. **Bomb Truck disguise residual** (`SpecialAbilityDisguiseAsVehicle` /
@@ -36,7 +71,6 @@
 - Full drawable indicator-color night/day matrix for disguised players
 - Full 2500ms StealthDelay re-cloak timer / FriendlyOpacity pulse for Camouflage
 - Bomb truck FireWeaponWhenDead upgrade matrix (HE/Bio/Anthrax) detonation residual
-- Rocket Buggy / Quad Cannon / SCUD launcher host residual polish (not this slice)
 - Network disguise / camouflage replication (network deferred)
 
 ## Residual Host Playability — GLA Tunnel Network Enter/Exit (2026-07-12)

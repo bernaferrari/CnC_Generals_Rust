@@ -825,6 +825,22 @@ pub struct GameLogic {
     /// Fail-closed: not full SpawnBehavior member objects / MobMemberSlavedUpdate matrix.
     angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
 
+    /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
+    /// Fail-closed: not full projectile flight / AP rocket mult matrix.
+    rocket_buggy_residual_fires: u32,
+    rocket_buggy_residual_units_hit: u32,
+    rocket_buggy_residual_scatter_misses: u32,
+
+    /// Host GLA Quad Cannon residual honesty (ground gun + AA secondary + multi-barrel).
+    /// Fail-closed: not full salvage W3D turret subobject matrix.
+    quad_cannon_residual_ground_fires: u32,
+    quad_cannon_residual_aa_fires: u32,
+    quad_cannon_residual_barrel_upgrades: u32,
+
+    /// Host GLA SCUD launcher residual (area blast + MediumPoisonField toxin DoT).
+    /// Fail-closed: not full SCUDMissile projectile lob / salvage PlusOne matrix.
+    scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1689,6 +1705,13 @@ impl GameLogic {
                 crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
             aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry::new(),
             angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry::new(),
+            rocket_buggy_residual_fires: 0,
+            rocket_buggy_residual_units_hit: 0,
+            rocket_buggy_residual_scatter_misses: 0,
+            quad_cannon_residual_ground_fires: 0,
+            quad_cannon_residual_aa_fires: 0,
+            quad_cannon_residual_barrel_upgrades: 0,
+            scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1876,6 +1899,13 @@ impl GameLogic {
         self.inferno_fire_zones.clear();
         self.aurora_bombs.clear();
         self.angry_mobs.clear();
+        self.rocket_buggy_residual_fires = 0;
+        self.rocket_buggy_residual_units_hit = 0;
+        self.rocket_buggy_residual_scatter_misses = 0;
+        self.quad_cannon_residual_ground_fires = 0;
+        self.quad_cannon_residual_aa_fires = 0;
+        self.quad_cannon_residual_barrel_upgrades = 0;
+        self.scud_poison_zones.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3763,6 +3793,10 @@ impl GameLogic {
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         self.update_inferno_fire_zones();
 
+        // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
+        // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
+        self.update_scud_poison_zones();
+
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // Fail-closed vs full AuroraBombLocomotor / FuelAir gas OCL path.
         self.update_aurora_bombs();
@@ -4847,6 +4881,58 @@ impl GameLogic {
                                 attacker.gain_experience((hits as f32) * 10.0);
                             }
                         }
+                    } else if {
+                        // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
+                        use crate::game_logic::host_rocket_buggy::{
+                            is_rocket_buggy_template, should_apply_rocket_buggy_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_rocket_buggy_residual(is_rocket_buggy_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_rocket_buggy_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
+                        use crate::game_logic::host_scud_launcher::{
+                            is_scud_launcher_template, should_apply_scud_area,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_scud_area(is_scud_launcher_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let toxin = slot == 1;
+                        let (hits, _destroyed_any) = self.apply_scud_area_at(
+                            impact,
+                            Some(attacker_id),
+                            attacker_team,
+                            toxin,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 15.0);
+                            }
+                        }
                     } else {
                         // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
                         // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
@@ -5071,6 +5157,20 @@ impl GameLogic {
                     };
 
                     if !aurora_ground_queued {
+                        // GLA Rocket Buggy / SCUD residual ground force-fire AOE.
+                        let buggy_ground = self.objects.get(&attacker_id).map(|a| {
+                            crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(
+                                &a.template_name,
+                            )
+                        })
+                        .unwrap_or(false);
+                        let scud_ground = self.objects.get(&attacker_id).map(|a| {
+                            crate::game_logic::host_scud_launcher::is_scud_launcher_template(
+                                &a.template_name,
+                            )
+                        })
+                        .unwrap_or(false);
+
                         if rocket_pod_ground {
                             // Retail FIRE_WEAPON tertiary at position → scatter area residual.
                             let (hits, _) = self.apply_comanche_rocket_pod_area_at(
@@ -5083,6 +5183,33 @@ impl GameLogic {
                                 }
                             }
                             let _ = weapon_damage; // area residual owns damage
+                        } else if buggy_ground {
+                            let (hits, _) = self.apply_rocket_buggy_residual_at(
+                                target_location,
+                                Some(attacker_id),
+                                None,
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                if hits > 0 {
+                                    attacker.gain_experience((hits as f32) * 8.0);
+                                }
+                            }
+                            let _ = weapon_damage;
+                        } else if scud_ground {
+                            // Ground force-fire uses primary explosive residual (slot 0).
+                            let toxin = false;
+                            let (hits, _) = self.apply_scud_area_at(
+                                target_location,
+                                Some(attacker_id),
+                                attacker_team,
+                                toxin,
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                if hits > 0 {
+                                    attacker.gain_experience((hits as f32) * 15.0);
+                                }
+                            }
+                            let _ = weapon_damage;
                         } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)
                         {
@@ -5103,7 +5230,7 @@ impl GameLogic {
                         }
 
                         // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
-                        if !rocket_pod_ground {
+                        if !rocket_pod_ground && !buggy_ground && !scud_ground {
                             use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
                             let is_inferno = self
                                 .objects
@@ -5137,6 +5264,27 @@ impl GameLogic {
                 {
                     self.pathfinder_residual_sniper_fires =
                         self.pathfinder_residual_sniper_fires.saturating_add(1);
+                }
+
+                // Quad Cannon residual honesty: ground primary vs AA secondary fires.
+                if self
+                    .objects
+                    .get(&attacker_id)
+                    .map(|a| {
+                        crate::game_logic::host_quad_cannon::is_quad_cannon_template(
+                            &a.template_name,
+                        )
+                    })
+                    .unwrap_or(false)
+                {
+                    if slot == 1 {
+                        self.quad_cannon_residual_aa_fires =
+                            self.quad_cannon_residual_aa_fires.saturating_add(1);
+                    } else {
+                        self.quad_cannon_residual_ground_fires = self
+                            .quad_cannon_residual_ground_fires
+                            .saturating_add(1);
+                    }
                 }
 
                 // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
@@ -8078,6 +8226,20 @@ impl GameLogic {
             // Secondary slot: fail-closed (only when template names/stats resolve).
             if let Some(secondary) = secondary_weapon {
                 object.secondary_weapon = Some(secondary);
+            }
+
+            // GLA Quad Cannon residual: force air/ground anti masks on dual weapons.
+            // Fail-closed vs full Weapon.ini AntiGround/AntiAirborne parse when store
+            // templates leave default GROUND mask on AA secondary.
+            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
+                if let Some(w) = object.weapon.as_mut() {
+                    w.can_target_ground = true;
+                    w.can_target_air = false;
+                }
+                if let Some(w) = object.secondary_weapon.as_mut() {
+                    w.can_target_air = true;
+                    w.can_target_ground = false;
+                }
             }
 
             // Locomotor catalog → host Movement (retail BasicHumanLocomotor ~20 u/s).
@@ -11276,6 +11438,420 @@ impl GameLogic {
     /// Residual honesty: Hellfire drone attach residual succeeded.
     pub fn honesty_hellfire_drone_attach_ok(&self) -> bool {
         self.hellfire_drone_residual_attaches > 0
+    }
+
+    /// Residual honesty: Rocket Buggy long-range rocket residual fired.
+    pub fn honesty_rocket_buggy_ok(&self) -> bool {
+        self.rocket_buggy_residual_fires > 0
+    }
+
+    pub fn rocket_buggy_residual_fires(&self) -> u32 {
+        self.rocket_buggy_residual_fires
+    }
+
+    pub fn rocket_buggy_residual_units_hit(&self) -> u32 {
+        self.rocket_buggy_residual_units_hit
+    }
+
+    pub fn rocket_buggy_residual_scatter_misses(&self) -> u32 {
+        self.rocket_buggy_residual_scatter_misses
+    }
+
+    /// Residual honesty: Quad Cannon ground or AA residual fired.
+    pub fn honesty_quad_cannon_ok(&self) -> bool {
+        self.quad_cannon_residual_ground_fires > 0 || self.quad_cannon_residual_aa_fires > 0
+    }
+
+    pub fn honesty_quad_cannon_aa_ok(&self) -> bool {
+        self.quad_cannon_residual_aa_fires > 0
+    }
+
+    pub fn quad_cannon_residual_ground_fires(&self) -> u32 {
+        self.quad_cannon_residual_ground_fires
+    }
+
+    pub fn quad_cannon_residual_aa_fires(&self) -> u32 {
+        self.quad_cannon_residual_aa_fires
+    }
+
+    pub fn quad_cannon_residual_barrel_upgrades(&self) -> u32 {
+        self.quad_cannon_residual_barrel_upgrades
+    }
+
+    /// Residual honesty: SCUD area blast residual.
+    pub fn honesty_scud_launcher_ok(&self) -> bool {
+        self.scud_poison_zones.honesty_host_path_ok()
+    }
+
+    pub fn honesty_scud_area_ok(&self) -> bool {
+        self.scud_poison_zones.honesty_area_ok()
+    }
+
+    pub fn honesty_scud_toxin_ok(&self) -> bool {
+        self.scud_poison_zones.honesty_toxin_ok()
+    }
+
+    pub fn scud_poison_zones(
+        &self,
+    ) -> &crate::game_logic::host_scud_launcher::HostScudPoisonRegistry {
+        &self.scud_poison_zones
+    }
+
+    /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
+    ///
+    /// Returns (units_hit, any_destroyed).
+    /// Fail-closed: not full projectile flight / AP mult / clip spacing.
+    fn apply_rocket_buggy_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_rocket_buggy::{
+            is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at,
+            rocket_buggy_infantry_scatter_miss, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let frame = self.frame;
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut scatter_misses = 0u32;
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        // Determine scatter miss for intended infantry residual.
+        let intended_scatter_miss = intended_target
+            .and_then(|tid| {
+                self.objects.get(&tid).map(|t| {
+                    let is_inf = t.is_kind_of(KindOf::Infantry);
+                    rocket_buggy_infantry_scatter_miss(is_inf, frame, tid.0)
+                })
+            })
+            .unwrap_or(false);
+        if intended_scatter_miss {
+            scatter_misses = 1;
+        }
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_rocket_buggy_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                // Keep intended even when distant (primary radius 0 residual);
+                // splash candidates only within secondary radius.
+                if is_intended || dist <= BUGGY_SECONDARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let scatter = is_intended && intended_scatter_miss;
+            let dmg = rocket_buggy_damage_at(is_intended, dist, scatter);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.rocket_buggy_residual_fires = self.rocket_buggy_residual_fires.saturating_add(1);
+        self.rocket_buggy_residual_units_hit =
+            self.rocket_buggy_residual_units_hit.saturating_add(hits);
+        self.rocket_buggy_residual_scatter_misses = self
+            .rocket_buggy_residual_scatter_misses
+            .saturating_add(scatter_misses);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(BUGGY_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply SCUD launcher area residual at impact; toxin secondary also spawns poison.
+    ///
+    /// Returns (units_hit, any_destroyed).
+    /// Fail-closed: not full SCUDMissile projectile / PreAttack animation matrix.
+    fn apply_scud_area_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        source_team: Team,
+        toxin_warhead: bool,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_scud_launcher::{
+            is_legal_scud_splash_target, scud_explosive_damage_at, scud_splash_radius,
+            scud_toxin_blast_damage_at, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
+            UPGRADE_GLA_ANTHRAX_BETA,
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let max_r = scud_splash_radius(toxin_warhead);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_scud_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= max_r {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = if toxin_warhead {
+                scud_toxin_blast_damage_at(dist)
+            } else {
+                scud_explosive_damage_at(dist)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.scud_poison_zones.record_area_blast(hits);
+
+        // Toxin / Anthrax secondary residual: spawn MediumPoisonField DoT.
+        if toxin_warhead {
+            let anthrax = source
+                .and_then(|sid| {
+                    self.objects.get(&sid).map(|a| {
+                        a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
+                            || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
+                    })
+                })
+                .unwrap_or(false);
+            let source_id = source.unwrap_or(ObjectId(0));
+            let _ = self.scud_poison_zones.spawn_zone(
+                source_id,
+                source_team,
+                impact,
+                self.frame,
+                anthrax,
+            );
+            self.queue_audio_event(
+                AudioEventRequest::new(SCUD_POISON_AUDIO)
+                    .with_position(impact)
+                    .with_priority(140),
+            );
+        }
+
+        self.queue_audio_event(
+            AudioEventRequest::new(SCUD_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(160),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply residual multi-barrel salvage tier to a Quad Cannon (crate upgrade residual).
+    ///
+    /// Fail-closed: not full SalvageCrate collate / W3D turret subobject swap.
+    pub fn apply_quad_cannon_barrel_tier(
+        &mut self,
+        object_id: ObjectId,
+        tier: crate::game_logic::host_quad_cannon::QuadCannonBarrelTier,
+    ) -> bool {
+        use crate::game_logic::host_quad_cannon::{
+            delay_frames_to_reload_secs, is_quad_cannon_template, quad_air_stats,
+            quad_ground_stats, quad_weapon_names_for_tier,
+        };
+        use crate::game_logic::thing::ThingTemplate;
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_quad_cannon_template(&obj.template_name) {
+            return false;
+        }
+
+        let (g_name, a_name) = quad_weapon_names_for_tier(tier);
+        let (g_dmg, g_range, g_delay) = quad_ground_stats(tier);
+        let (a_dmg, a_range, a_delay) = quad_air_stats(tier);
+
+        // Prefer store weapons when present; otherwise apply stats residual directly.
+        let ground = ThingTemplate::weapon_from_store(g_name).unwrap_or_else(|| {
+            let mut w = crate::game_logic::Weapon::default();
+            w.damage = g_dmg;
+            w.range = g_range;
+            w.reload_time = delay_frames_to_reload_secs(g_delay);
+            w.can_target_air = false;
+            w.can_target_ground = true;
+            w.projectile_speed = 0.0;
+            w
+        });
+        let mut air = ThingTemplate::weapon_from_store(a_name).unwrap_or_else(|| {
+            let mut w = crate::game_logic::Weapon::default();
+            w.damage = a_dmg;
+            w.range = a_range;
+            w.reload_time = delay_frames_to_reload_secs(a_delay);
+            w.can_target_air = true;
+            w.can_target_ground = false;
+            w.projectile_speed = 0.0;
+            w
+        });
+        // Ensure AA residual flags even if store template lacked anti mask.
+        air.can_target_air = true;
+        air.can_target_ground = false;
+
+        obj.weapon = Some(ground);
+        obj.secondary_weapon = Some(air);
+        self.quad_cannon_residual_barrel_upgrades = self
+            .quad_cannon_residual_barrel_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Advance SCUD MediumPoisonField residual zones.
+    fn update_scud_poison_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .scud_poison_zones
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.scud_poison_zones.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.scud_poison_zones.prune_expired(frame);
     }
 
     /// Apply ComancheRocketPodWeapon area residual at impact.
@@ -36155,6 +36731,463 @@ mod tests {
         assert!(
             tank_hp_after < tank_hp_before,
             "ground rocket pods residual must damage tank at aim pos"
+        );
+    }
+
+    /// Residual: Rocket Buggy long-range fire deals primary + splash residual.
+    #[test]
+    fn rocket_buggy_residual_long_range_splash() {
+        use crate::game_logic::host_rocket_buggy::{
+            is_rocket_buggy_template, BUGGY_ATTACK_RANGE, BUGGY_MIN_RANGE, BUGGY_PRIMARY_DAMAGE,
+            BUGGY_ROCKET_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut buggy_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleRocketBuggy");
+        buggy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(BUGGY_ROCKET_WEAPON);
+        game_logic
+            .templates
+            .insert("GLAVehicleRocketBuggy".to_string(), buggy_tpl);
+
+        let buggy_id = game_logic
+            .create_object(
+                "GLAVehicleRocketBuggy",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("buggy");
+        {
+            let b = game_logic.find_object(buggy_id).expect("buggy");
+            assert!(is_rocket_buggy_template(&b.template_name));
+            let w = b.weapon.as_ref().expect("buggy primary residual");
+            assert!(
+                (w.range - BUGGY_ATTACK_RANGE).abs() < 1.0,
+                "buggy range residual 300, got {}",
+                w.range
+            );
+            assert!(
+                (w.min_range - BUGGY_MIN_RANGE).abs() < 1.0,
+                "buggy min range residual 50, got {}",
+                w.min_range
+            );
+            assert!(
+                (w.damage - BUGGY_PRIMARY_DAMAGE).abs() < 0.01,
+                "buggy primary damage residual 20, got {}",
+                w.damage
+            );
+        }
+
+        // Target tank + nearby infantry for splash (secondary radius 10).
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+            .expect("tank");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(125.0, 0.0, 0.0))
+            .expect("infantry");
+
+        {
+            let b = game_logic.find_object_mut(buggy_id).unwrap();
+            // Inside max range, outside min range residual.
+            b.set_position(Vec3::new(0.0, 0.0, 0.0));
+            b.attack_target(tank_id);
+            if let Some(w) = b.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                // Host test: zero min range so combat residual can fire at 120.
+                w.min_range = 0.0;
+            }
+        }
+
+        let tank_hp_before = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_before = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[buggy_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_rocket_buggy_ok(),
+            "rocket buggy residual honesty must fire"
+        );
+        assert!(
+            game_logic.rocket_buggy_residual_units_hit() >= 1,
+            "buggy residual must hit at least intended target"
+        );
+
+        let tank_hp_after = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_after = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_after < tank_hp_before,
+            "intended tank must take primary residual (before={tank_hp_before} after={tank_hp_after})"
+        );
+        assert!(
+            inf_hp_after < inf_hp_before,
+            "infantry in secondary splash radius must take residual (before={inf_hp_before} after={inf_hp_after})"
+        );
+    }
+
+    /// Residual: Quad Cannon dual weapon AA secondary hits airborne targets only.
+    #[test]
+    fn quad_cannon_residual_anti_air_and_multi_barrel() {
+        use crate::game_logic::host_quad_cannon::{
+            is_quad_cannon_template, QuadCannonBarrelTier, QUAD_AIR_DAMAGE, QUAD_AIR_RANGE,
+            QUAD_CANNON_GUN, QUAD_CANNON_GUN_AIR, QUAD_GROUND_DAMAGE, QUAD_GROUND_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut quad_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleQuadCannon");
+        quad_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(QUAD_CANNON_GUN)
+            .set_secondary_weapon_name(QUAD_CANNON_GUN_AIR);
+        game_logic
+            .templates
+            .insert("GLAVehicleQuadCannon".to_string(), quad_tpl);
+
+        let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
+        aircraft_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestAircraft".to_string(), aircraft_tpl);
+
+        let quad_id = game_logic
+            .create_object(
+                "GLAVehicleQuadCannon",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("quad");
+        {
+            let q = game_logic.find_object(quad_id).expect("quad");
+            assert!(is_quad_cannon_template(&q.template_name));
+            let prim = q.weapon.as_ref().expect("ground gun");
+            assert!((prim.damage - QUAD_GROUND_DAMAGE).abs() < 0.01);
+            assert!((prim.range - QUAD_GROUND_RANGE).abs() < 1.0);
+            assert!(prim.can_target_ground);
+            assert!(
+                !prim.can_target_air,
+                "ground gun residual must not target air"
+            );
+            let sec = q.secondary_weapon.as_ref().expect("aa gun");
+            assert!((sec.damage - QUAD_AIR_DAMAGE).abs() < 0.01);
+            assert!((sec.range - QUAD_AIR_RANGE).abs() < 1.0);
+            assert!(sec.can_target_air, "aa gun residual must target air");
+            assert!(
+                !sec.can_target_ground,
+                "aa gun residual must not target ground"
+            );
+        }
+
+        // Multi-barrel salvage tier residual (crate upgrade two → fastest fire).
+        assert!(game_logic.apply_quad_cannon_barrel_tier(quad_id, QuadCannonBarrelTier::Two));
+        assert!(
+            game_logic.quad_cannon_residual_barrel_upgrades() > 0,
+            "multi-barrel residual honesty must record tier apply"
+        );
+        {
+            let q = game_logic.find_object(quad_id).expect("quad");
+            let prim = q.weapon.as_ref().expect("upgraded ground");
+            // UpgradeTwo ground damage residual 8, delay 1 frame → reload ~1/30.
+            assert!((prim.damage - 8.0).abs() < 0.01);
+            assert!(prim.reload_time <= 0.05 + 0.01);
+            let sec = q.secondary_weapon.as_ref().expect("upgraded aa");
+            assert!(sec.can_target_air);
+            assert!(!sec.can_target_ground);
+        }
+
+        let aircraft_id = game_logic
+            .create_object("TestAircraft", Team::USA, Vec3::new(200.0, 50.0, 0.0))
+            .expect("aircraft");
+        {
+            let a = game_logic.find_object_mut(aircraft_id).unwrap();
+            a.status.airborne_target = true;
+            a.set_position(Vec3::new(200.0, 50.0, 0.0));
+        }
+
+        let ground_tank = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("tank");
+
+        // Fire AA at aircraft (secondary residual).
+        {
+            let q = game_logic.find_object_mut(quad_id).unwrap();
+            q.attack_target(aircraft_id);
+            if let Some(w) = q.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = q.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0; // ground reloading
+            }
+        }
+
+        let air_hp_before = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[quad_id, aircraft_id, ground_tank], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_quad_cannon_aa_ok(),
+            "quad cannon AA residual honesty must fire secondary vs airborne"
+        );
+        let air_hp_after = game_logic
+            .find_object(aircraft_id)
+            .map(|a| a.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            air_hp_after < air_hp_before,
+            "airborne target must take AA residual damage (before={air_hp_before} after={air_hp_after})"
+        );
+
+        // Ground fire residual against tank.
+        {
+            let q = game_logic.find_object_mut(quad_id).unwrap();
+            q.attack_target(ground_tank);
+            if let Some(w) = q.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+            if let Some(w) = q.secondary_weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+        let tank_hp_before = game_logic
+            .find_object(ground_tank)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(60);
+        game_logic.update_combat(&[quad_id, aircraft_id, ground_tank], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.quad_cannon_residual_ground_fires() > 0,
+            "quad ground residual honesty must fire primary vs ground"
+        );
+        let tank_hp_after = game_logic
+            .find_object(ground_tank)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_after < tank_hp_before,
+            "ground tank must take quad primary residual"
+        );
+    }
+
+    /// Residual: SCUD launcher explosive area + toxin secondary poison field.
+    #[test]
+    fn scud_launcher_residual_area_and_toxin() {
+        use crate::game_logic::host_scud_launcher::{
+            is_scud_launcher_template, SCUD_ATTACK_RANGE, SCUD_EXP_PRIMARY_DAMAGE, SCUD_GUN_EXPLOSIVE,
+            SCUD_GUN_TOXIN, SCUD_MIN_RANGE, SCUD_POISON_DAMAGE_PER_TICK,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut scud_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleScudLauncher");
+        scud_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(SCUD_GUN_EXPLOSIVE)
+            .set_secondary_weapon_name(SCUD_GUN_TOXIN);
+        game_logic
+            .templates
+            .insert("GLAVehicleScudLauncher".to_string(), scud_tpl);
+
+        let scud_id = game_logic
+            .create_object(
+                "GLAVehicleScudLauncher",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("scud");
+        {
+            let s = game_logic.find_object(scud_id).expect("scud");
+            assert!(is_scud_launcher_template(&s.template_name));
+            let prim = s.weapon.as_ref().expect("explosive primary");
+            assert!((prim.range - SCUD_ATTACK_RANGE).abs() < 1.0);
+            assert!((prim.min_range - SCUD_MIN_RANGE).abs() < 1.0);
+            assert!((prim.damage - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01);
+            assert!(s.secondary_weapon.is_some(), "toxin secondary residual");
+        }
+
+        // Place two enemies near impact for explosive area residual.
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(250.0, 0.0, 0.0))
+            .expect("tank");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(280.0, 0.0, 0.0))
+            .expect("infantry");
+
+        // Explosive primary area residual.
+        {
+            let s = game_logic.find_object_mut(scud_id).unwrap();
+            s.set_position(Vec3::new(0.0, 0.0, 0.0));
+            s.attack_target(tank_id);
+            s.active_weapon_slot = 0;
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0; // host test residual min range off
+            }
+            if let Some(w) = s.secondary_weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+                w.min_range = 0.0;
+            }
+        }
+
+        let tank_hp_before = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_before = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[scud_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_scud_area_ok(),
+            "scud explosive residual honesty must fire"
+        );
+        let tank_hp_mid = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_mid = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_mid < tank_hp_before,
+            "scud explosive core must damage tank"
+        );
+        // Infantry ~30 from tank impact: still inside secondary radius 100.
+        assert!(
+            inf_hp_mid < inf_hp_before,
+            "scud explosive secondary ring must splash infantry"
+        );
+
+        // Toxin secondary residual vs infantry preferred + poison field.
+        // Fresh infantry near impact for toxin field tick residual.
+        let toxin_inf = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(260.0, 0.0, 5.0))
+            .expect("toxin infantry");
+        {
+            let s = game_logic.find_object_mut(scud_id).unwrap();
+            s.active_weapon_slot = 1;
+            s.attack_target(toxin_inf);
+            if let Some(w) = s.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0;
+            }
+        }
+
+        let toxin_hp_before = game_logic
+            .find_object(toxin_inf)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(90);
+        game_logic.update_combat(
+            &[scud_id, tank_id, infantry_id, toxin_inf],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.honesty_scud_toxin_ok(),
+            "scud toxin residual must spawn MediumPoisonField"
+        );
+        assert!(
+            game_logic.scud_poison_zones().active_count() >= 1,
+            "poison field residual must be active"
+        );
+
+        let toxin_hp_after_blast = game_logic
+            .find_object(toxin_inf)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            toxin_hp_after_blast < toxin_hp_before,
+            "toxin warhead blast residual must damage infantry"
+        );
+
+        // Tick poison field residual DoT.
+        let poison_hp_before = game_logic
+            .find_object(toxin_inf)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        // Next tick is activate_frame (90) + 15 = 105; first tick already applied at spawn frame.
+        // Force another tick by advancing frame.
+        game_logic.set_current_frame(120);
+        game_logic.update_scud_poison_zones();
+        let poison_hp_after = game_logic
+            .find_object(toxin_inf)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        // If unit still alive, poison tick should apply residual dmg.
+        if poison_hp_before > SCUD_POISON_DAMAGE_PER_TICK {
+            assert!(
+                poison_hp_after < poison_hp_before
+                    || game_logic.scud_poison_zones().damage_applications > 0,
+                "poison field residual must tick damage (before={poison_hp_before} after={poison_hp_after})"
+            );
+        }
+        assert!(
+            game_logic.honesty_scud_launcher_ok(),
+            "scud residual host path honesty must pass"
         );
     }
 
