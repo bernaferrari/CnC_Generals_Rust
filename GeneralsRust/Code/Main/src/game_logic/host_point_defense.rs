@@ -5,20 +5,33 @@
 //!   interceptable missiles / projectiles in residual fire range and destroy
 //!   them without a manual AttackObject order (C++ PointDefenseLaserUpdate
 //!   scan + fire path).
-//! - Retail Paladin: WeaponTemplate PaladinPointDefenseLaser, AttackRange 65,
-//!   DelayBetweenShots 1000ms, PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
-//!   ScanRange 120. Avenger dual lasers: AttackRange 100, Delay 500ms each.
-//! - Retail King Raptor (AirF_AmericaJetRaptor): dual PointDefenseLaserUpdate
-//!   modules (AirF_RaptorPointDefenseLaser + AirF_PointDefenseLaser), each
-//!   AttackRange 65 / Delay 250ms / PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
-//!   ScanRange 200. Residual collapses dual lasers into one fire stream.
+//! - Retail Paladin: WeaponTemplate PaladinPointDefenseLaser, AttackRange **65**,
+//!   DelayBetweenShots **1000**ms, PrimaryDamage **100**, ScanRange **120**,
+//!   ScanRate **500**ms, PredictTargetVelocityFactor **3.0**,
+//!   PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
+//!   SecondaryTargetTypes INFANTRY.
+//! - Avenger dual lasers: AttackRange **100**, Delay **500**ms each,
+//!   ScanRange **200**, ScanRate 0 / 100ms, Predict **1.0** (no Secondary).
+//! - King Raptor (AirF_AmericaJetRaptor): dual modules
+//!   (AirF_RaptorPointDefenseLaser ScanRate **10** + AirF_PointDefenseLaser
+//!   ScanRate **0**), AttackRange **65** / Delay **250**ms / ScanRange **200**,
+//!   Predict **2.0** / **1.0**. Residual collapses dual lasers into one stream.
+//! - Combat Chinook: ScanRange **250**, ScanRate **33**ms, Predict **1.0**.
 //!
 //! Fail-closed honesty:
-//! - Not full PointDefenseLaserUpdate velocity prediction / scan-rate matrix
-//! - Not full KindOf mask Primary/SecondaryTargetTypes beyond residual names
+//! - Not full PointDefenseLaserUpdate live velocity-prediction seeker math
+//! - Not full KindOf bitmask Primary/SecondaryTargetTypes beyond residual names
 //! - Not full laser beam drawable / FireFX particle attach bone path
 //! - Not full TERTIARY WeaponStore allocateNewWeapon path
 //! - Not network PDL replication (network deferred)
+
+/// Logic frames per second residual.
+pub const PDL_LOGIC_FPS: f32 = 30.0;
+
+/// Retail PrimaryTargetTypes residual name list (all carriers).
+pub const PDL_PRIMARY_TARGET_TYPES: &[&str] = &["BALLISTIC_MISSILE", "SMALL_MISSILE"];
+/// Retail Paladin SecondaryTargetTypes residual name list.
+pub const PDL_SECONDARY_TARGET_TYPES: &[&str] = &["INFANTRY"];
 
 /// Retail PaladinPointDefenseLaser AttackRange residual.
 pub const PALADIN_PDL_FIRE_RANGE: f32 = 65.0;
@@ -26,15 +39,40 @@ pub const PALADIN_PDL_FIRE_RANGE: f32 = 65.0;
 /// Retail Paladin PointDefenseLaserUpdate ScanRange residual.
 pub const PALADIN_PDL_SCAN_RANGE: f32 = 120.0;
 
+/// Retail Paladin PointDefenseLaserUpdate ScanRate residual (msec).
+pub const PALADIN_PDL_SCAN_RATE_MS: u32 = 500;
+/// ScanRate 500ms → 15 frames @ 30 FPS.
+pub const PALADIN_PDL_SCAN_RATE_FRAMES: u32 = 15;
+
+/// Retail Paladin PredictTargetVelocityFactor residual.
+pub const PALADIN_PDL_VELOCITY_PREDICT: f32 = 3.0;
+
 /// Retail PaladinPointDefenseLaser PrimaryDamage residual.
 pub const PALADIN_PDL_DAMAGE: f32 = 100.0;
 
+/// Retail PaladinPointDefenseLaser DelayBetweenShots residual (msec).
+pub const PALADIN_PDL_DELAY_MS: u32 = 1000;
 /// Retail PaladinPointDefenseLaser DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const PALADIN_PDL_DELAY_FRAMES: u32 = 30;
 
 /// Retail AvengerPointDefenseLaser AttackRange residual.
 pub const AVENGER_PDL_FIRE_RANGE: f32 = 100.0;
 
+/// Retail Avenger PointDefenseLaserUpdate ScanRange residual (both lasers).
+pub const AVENGER_PDL_SCAN_RANGE: f32 = 200.0;
+
+/// Retail Avenger laser-one ScanRate residual (msec; 0 = every frame).
+pub const AVENGER_PDL_SCAN_RATE_LASER_ONE_MS: u32 = 0;
+/// Retail Avenger laser-two ScanRate residual (msec).
+pub const AVENGER_PDL_SCAN_RATE_LASER_TWO_MS: u32 = 100;
+/// Residual host scan cadence: min non-zero stream = 100ms → 3 frames.
+pub const AVENGER_PDL_SCAN_RATE_FRAMES: u32 = 3;
+
+/// Retail Avenger PredictTargetVelocityFactor residual.
+pub const AVENGER_PDL_VELOCITY_PREDICT: f32 = 1.0;
+
+/// Retail Avenger dual-laser DelayBetweenShots residual (msec each).
+pub const AVENGER_PDL_DELAY_MS: u32 = 500;
 /// Retail Avenger dual-laser DelayBetweenShots 500ms → 15 frames.
 /// Residual collapses two lasers into one fire stream with Avenger delay.
 pub const AVENGER_PDL_DELAY_FRAMES: u32 = 15;
@@ -48,9 +86,26 @@ pub const KING_RAPTOR_PDL_FIRE_RANGE: f32 = 65.0;
 /// Retail King Raptor PointDefenseLaserUpdate ScanRange residual.
 pub const KING_RAPTOR_PDL_SCAN_RANGE: f32 = 200.0;
 
+/// Retail AirF_RaptorPointDefenseLaser ScanRate residual (msec).
+pub const KING_RAPTOR_PDL_SCAN_RATE_RAPTOR_MS: u32 = 10;
+/// Retail AirF_PointDefenseLaser ScanRate residual (msec; 0 = every frame).
+pub const KING_RAPTOR_PDL_SCAN_RATE_AIRF_MS: u32 = 0;
+/// Residual host scan cadence: min non-zero stream = 10ms → 0 frames (round) /
+/// host uses every-frame residual when < 1 frame (see `pdl_scan_rate_frames`).
+pub const KING_RAPTOR_PDL_SCAN_RATE_FRAMES: u32 = 0;
+
+/// Retail AirF_RaptorPointDefenseLaser PredictTargetVelocityFactor.
+pub const KING_RAPTOR_PDL_VELOCITY_PREDICT_RAPTOR: f32 = 2.0;
+/// Retail AirF_PointDefenseLaser PredictTargetVelocityFactor (King Raptor dual).
+pub const KING_RAPTOR_PDL_VELOCITY_PREDICT_AIRF: f32 = 1.0;
+/// Host residual collapses dual lasers → use higher Predict factor (**2.0**).
+pub const KING_RAPTOR_PDL_VELOCITY_PREDICT: f32 = 2.0;
+
 /// Retail AirF_RaptorPointDefenseLaser PrimaryDamage residual.
 pub const KING_RAPTOR_PDL_DAMAGE: f32 = 100.0;
 
+/// Retail dual lasers DelayBetweenShots residual (msec each).
+pub const KING_RAPTOR_PDL_DELAY_MS: u32 = 250;
 /// Retail dual lasers DelayBetweenShots 250ms each → residual collapse to ~4 frames.
 /// (Two independent 250ms streams ≈ one shot every ~125ms @ 30 FPS.)
 pub const KING_RAPTOR_PDL_DELAY_FRAMES: u32 = 4;
@@ -58,18 +113,36 @@ pub const KING_RAPTOR_PDL_DELAY_FRAMES: u32 = 4;
 /// Retail AirF_AmericaVehicleChinook PointDefenseLaserUpdate ScanRange residual.
 pub const COMBAT_CHINOOK_PDL_SCAN_RANGE: f32 = 250.0;
 
+/// Retail Combat Chinook PointDefenseLaserUpdate ScanRate residual (msec).
+pub const COMBAT_CHINOOK_PDL_SCAN_RATE_MS: u32 = 33;
+/// ScanRate 33ms → 1 frame @ 30 FPS.
+pub const COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES: u32 = 1;
+
+/// Retail Combat Chinook PredictTargetVelocityFactor residual.
+pub const COMBAT_CHINOOK_PDL_VELOCITY_PREDICT: f32 = 1.0;
+
 /// Retail AirF_PointDefenseLaser AttackRange residual (Combat Chinook single laser).
 pub const COMBAT_CHINOOK_PDL_FIRE_RANGE: f32 = 65.0;
 
 /// Retail AirF_PointDefenseLaser PrimaryDamage residual.
 pub const COMBAT_CHINOOK_PDL_DAMAGE: f32 = 100.0;
 
+/// Retail AirF_PointDefenseLaser DelayBetweenShots residual (msec).
+pub const COMBAT_CHINOOK_PDL_DELAY_MS: u32 = 250;
 /// Retail AirF_PointDefenseLaser DelayBetweenShots 250ms → ~8 frames @ 30 FPS
 /// (single laser; not dual-stream collapse).
 pub const COMBAT_CHINOOK_PDL_DELAY_FRAMES: u32 = 8;
 
 /// Activate / intercept audio residual (FXList WeaponFX_PaladinPointDefenseLaser).
 pub const PDL_INTERCEPT_AUDIO: &str = "PaladinPointDefenseLaserPulse";
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn pdl_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / PDL_LOGIC_FPS)).round() as u32
+}
 
 /// Whether template is a residual King Raptor (Air Force General jet with PDL).
 ///
@@ -162,17 +235,49 @@ pub fn pdl_fire_range(template_name: &str) -> f32 {
     }
 }
 
-/// Residual scan range (slightly larger than fire range; Paladin retail 120).
+/// Residual scan range (retail PointDefenseLaserUpdate ScanRange).
 pub fn pdl_scan_range(template_name: &str) -> f32 {
     if is_combat_chinook_pdl_carrier(template_name) {
         COMBAT_CHINOOK_PDL_SCAN_RANGE
     } else if is_king_raptor_carrier(template_name) {
         KING_RAPTOR_PDL_SCAN_RANGE
     } else if is_avenger_carrier(template_name) {
-        // Avenger has no separate ScanRange in residual; use fire range * 1.2.
-        AVENGER_PDL_FIRE_RANGE * 1.2
+        AVENGER_PDL_SCAN_RANGE
     } else {
         PALADIN_PDL_SCAN_RANGE
+    }
+}
+
+/// Residual ScanRate in logic frames (PointDefenseLaserUpdate ScanRate msec).
+///
+/// 0 msec = every frame residual. Dual-laser carriers collapse to the faster
+/// non-zero stream when present (Avenger laser-two **100**ms, King Raptor
+/// Raptor laser **10**ms → 0 frames round → every-frame residual).
+pub fn pdl_scan_rate_frames(template_name: &str) -> u32 {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES
+    } else if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_SCAN_RATE_FRAMES
+    } else if is_avenger_carrier(template_name) {
+        AVENGER_PDL_SCAN_RATE_FRAMES
+    } else {
+        PALADIN_PDL_SCAN_RATE_FRAMES
+    }
+}
+
+/// Residual PredictTargetVelocityFactor (host intercept lead honesty).
+///
+/// Fail-closed: constant exposed for residual math; full C++ velocity seeker
+/// not simulated in host intercept destroy path.
+pub fn pdl_velocity_predict(template_name: &str) -> f32 {
+    if is_combat_chinook_pdl_carrier(template_name) {
+        COMBAT_CHINOOK_PDL_VELOCITY_PREDICT
+    } else if is_king_raptor_carrier(template_name) {
+        KING_RAPTOR_PDL_VELOCITY_PREDICT
+    } else if is_avenger_carrier(template_name) {
+        AVENGER_PDL_VELOCITY_PREDICT
+    } else {
+        PALADIN_PDL_VELOCITY_PREDICT
     }
 }
 
@@ -200,6 +305,51 @@ pub fn pdl_delay_frames(template_name: &str) -> u32 {
     } else {
         PALADIN_PDL_DELAY_FRAMES
     }
+}
+
+/// Whether residual carrier uses Paladin-style SecondaryTargetTypes = INFANTRY.
+///
+/// Retail: Paladin has Secondary INFANTRY; Avenger / King Raptor / Combat Chinook
+/// list only PrimaryTargetTypes (no secondary infantry intercept residual).
+pub fn pdl_has_secondary_infantry(template_name: &str) -> bool {
+    if is_avenger_carrier(template_name)
+        || is_king_raptor_carrier(template_name)
+        || is_combat_chinook_pdl_carrier(template_name)
+    {
+        return false;
+    }
+    // Paladin family residual (default point-defense carrier).
+    is_point_defense_carrier(template_name)
+}
+
+/// Wave 49 residual honesty: ScanRate / ScanRange / VelocityPredict / weapon pack.
+pub fn honesty_point_defense_residual_ok() -> bool {
+    PDL_PRIMARY_TARGET_TYPES == ["BALLISTIC_MISSILE", "SMALL_MISSILE"]
+        && PDL_SECONDARY_TARGET_TYPES == ["INFANTRY"]
+        && (PALADIN_PDL_FIRE_RANGE - 65.0).abs() < 0.01
+        && (PALADIN_PDL_SCAN_RANGE - 120.0).abs() < 0.01
+        && PALADIN_PDL_SCAN_RATE_MS == 500
+        && PALADIN_PDL_SCAN_RATE_FRAMES == pdl_ms_to_frames(PALADIN_PDL_SCAN_RATE_MS)
+        && (PALADIN_PDL_VELOCITY_PREDICT - 3.0).abs() < 0.01
+        && (PALADIN_PDL_DAMAGE - 100.0).abs() < 0.01
+        && PALADIN_PDL_DELAY_MS == 1000
+        && PALADIN_PDL_DELAY_FRAMES == pdl_ms_to_frames(PALADIN_PDL_DELAY_MS)
+        && (AVENGER_PDL_FIRE_RANGE - 100.0).abs() < 0.01
+        && (AVENGER_PDL_SCAN_RANGE - 200.0).abs() < 0.01
+        && AVENGER_PDL_SCAN_RATE_LASER_ONE_MS == 0
+        && AVENGER_PDL_SCAN_RATE_LASER_TWO_MS == 100
+        && AVENGER_PDL_SCAN_RATE_FRAMES == pdl_ms_to_frames(AVENGER_PDL_SCAN_RATE_LASER_TWO_MS)
+        && (AVENGER_PDL_VELOCITY_PREDICT - 1.0).abs() < 0.01
+        && AVENGER_PDL_DELAY_MS == 500
+        && AVENGER_PDL_DELAY_FRAMES == pdl_ms_to_frames(AVENGER_PDL_DELAY_MS)
+        && (KING_RAPTOR_PDL_SCAN_RANGE - 200.0).abs() < 0.01
+        && KING_RAPTOR_PDL_SCAN_RATE_RAPTOR_MS == 10
+        && KING_RAPTOR_PDL_SCAN_RATE_AIRF_MS == 0
+        && (KING_RAPTOR_PDL_VELOCITY_PREDICT - 2.0).abs() < 0.01
+        && (COMBAT_CHINOOK_PDL_SCAN_RANGE - 250.0).abs() < 0.01
+        && COMBAT_CHINOOK_PDL_SCAN_RATE_MS == 33
+        && COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES == pdl_ms_to_frames(COMBAT_CHINOOK_PDL_SCAN_RATE_MS)
+        && (COMBAT_CHINOOK_PDL_VELOCITY_PREDICT - 1.0).abs() < 0.01
 }
 
 /// Whether residual target is a primary intercept candidate (missile / projectile).
@@ -379,5 +529,46 @@ mod tests {
         assert_eq!(intercept_priority(true, true), Some(0));
         assert_eq!(intercept_priority(false, true), Some(1));
         assert_eq!(intercept_priority(false, false), None);
+    }
+
+    /// Wave 49: ScanRate / ScanRange / VelocityPredict / target-type residual honesty.
+    #[test]
+    fn point_defense_scan_predict_residual_honesty() {
+        assert!(honesty_point_defense_residual_ok());
+        assert_eq!(pdl_ms_to_frames(500), 15);
+        assert_eq!(pdl_ms_to_frames(100), 3);
+        assert_eq!(pdl_ms_to_frames(33), 1);
+        assert_eq!(pdl_ms_to_frames(10), 0);
+        assert_eq!(pdl_ms_to_frames(0), 0);
+
+        // Avenger ScanRange residual = retail **200** (not fire*1.2).
+        assert!((pdl_scan_range("USA_Avenger") - AVENGER_PDL_SCAN_RANGE).abs() < 0.01);
+        assert!((pdl_scan_range("USA_Paladin") - PALADIN_PDL_SCAN_RANGE).abs() < 0.01);
+        assert!((pdl_scan_range("AirF_AmericaJetRaptor") - KING_RAPTOR_PDL_SCAN_RANGE).abs() < 0.01);
+        assert!(
+            (pdl_scan_range("AirF_AmericaVehicleChinook") - COMBAT_CHINOOK_PDL_SCAN_RANGE).abs()
+                < 0.01
+        );
+
+        assert_eq!(pdl_scan_rate_frames("USA_Paladin"), 15);
+        assert_eq!(pdl_scan_rate_frames("USA_Avenger"), 3);
+        assert_eq!(pdl_scan_rate_frames("AirF_AmericaJetRaptor"), 0);
+        assert_eq!(pdl_scan_rate_frames("AirF_AmericaVehicleChinook"), 1);
+
+        assert!((pdl_velocity_predict("USA_Paladin") - 3.0).abs() < 0.01);
+        assert!((pdl_velocity_predict("USA_Avenger") - 1.0).abs() < 0.01);
+        assert!((pdl_velocity_predict("AirF_AmericaJetRaptor") - 2.0).abs() < 0.01);
+        assert!((pdl_velocity_predict("AirF_AmericaVehicleChinook") - 1.0).abs() < 0.01);
+
+        assert!(pdl_has_secondary_infantry("USA_Paladin"));
+        assert!(!pdl_has_secondary_infantry("USA_Avenger"));
+        assert!(!pdl_has_secondary_infantry("AirF_AmericaJetRaptor"));
+        assert!(!pdl_has_secondary_infantry("AirF_AmericaVehicleChinook"));
+
+        assert_eq!(PDL_PRIMARY_TARGET_TYPES.len(), 2);
+        assert_eq!(PDL_SECONDARY_TARGET_TYPES.len(), 1);
+        assert!((pdl_damage("USA_Paladin") - 100.0).abs() < 0.01);
+        assert_eq!(pdl_delay_frames("USA_Paladin"), 30);
+        assert_eq!(pdl_delay_frames("USA_Avenger"), 15);
     }
 }

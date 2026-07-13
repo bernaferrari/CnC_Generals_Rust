@@ -9,7 +9,9 @@
 //!   Delay **500**ms → 15 frames, ClipSize **4** honesty (ClipReload 15000ms fail-closed).
 //! - `Upgrade_ComancheRocketPods` research replaces residual SECONDARY with
 //!   `ComancheRocketPodWeapon` (retail WeaponSet TERTIARY + WeaponSetUpgrade):
-//!   Primary **30**/r**5** + Secondary **10**/r**40**, ClipSize **20**, Delay **200**ms.
+//!   Primary **30**/r**5** + Secondary **10**/r**40**, ClipSize **20**, Delay **200**ms,
+//!   ClipReloadTime **30000**ms → **900** frames, ScatterTargetScalar **50**,
+//!   **20** ScatterTarget residual clip offsets.
 //!   Host residual collapses TERTIARY into secondary slot (fail-closed vs full 3-slot).
 //! - Retail command button `Command_AmericaVehicleComancheFireRocketPods` is
 //!   FIRE_WEAPON at position (NEED_TARGET_POS); host residual uses secondary
@@ -18,7 +20,7 @@
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser matrix (host only
 //!   carries primary + secondary; rocket pods occupy secondary residual when upgraded)
-//! - Not full ScatterTarget clip pattern / 20-rocket volley spacing
+//! - Not full projectile spawn per ScatterTarget offset / GameLogicRandom shuffle
 //! - Not full JetAIUpdate turret move-and-fire matrix
 //! - Not dual-volley antitank ClipSize cadence matrix
 //! - Not network upgrade / clip replication (network deferred)
@@ -78,10 +80,79 @@ pub const ROCKET_POD_SECONDARY_DAMAGE: f32 = 10.0;
 pub const ROCKET_POD_SECONDARY_RADIUS: f32 = 40.0;
 /// Retail ComancheRocketPodWeapon AttackRange.
 pub const ROCKET_POD_ATTACK_RANGE: f32 = 200.0;
+/// Retail DelayBetweenShots residual (msec).
+pub const ROCKET_POD_DELAY_MS: u32 = 200;
 /// Retail DelayBetweenShots 200ms → 6 frames @ 30 FPS.
 pub const ROCKET_POD_DELAY_FRAMES: u32 = 6;
+/// Retail ClipSize residual (20 rockets per volley).
+pub const ROCKET_POD_CLIP_SIZE: u32 = 20;
+/// Retail ClipReloadTime residual (msec).
+pub const ROCKET_POD_CLIP_RELOAD_MS: u32 = 30_000;
+/// ClipReloadTime 30000ms → 900 frames @ 30 FPS.
+pub const ROCKET_POD_CLIP_RELOAD_FRAMES: u32 = 900;
+/// Retail ScatterTargetScalar residual (replaces ScatterRadius for table scale).
+pub const ROCKET_POD_SCATTER_TARGET_SCALAR: f32 = 50.0;
+/// Retail ScatterRadius residual (0; table drives offsets).
+pub const ROCKET_POD_SCATTER_RADIUS: f32 = 0.0;
 /// Residual audio event name.
 pub const ROCKET_POD_AUDIO: &str = "ComancheRocketPodWeaponSound";
+
+/// Retail ComancheRocketPodWeapon ScatterTarget residual table (ClipSize **20**).
+///
+/// Offsets are unit-normalized; multiply by `ROCKET_POD_SCATTER_TARGET_SCALAR`
+/// for world residual. Host residual: deterministic index into table by shot
+/// ordinal (fail-closed vs full C++ clip shuffle).
+pub const ROCKET_POD_SCATTER_TARGETS: &[(f32, f32)] = &[
+    (0.000, 0.133),
+    (0.133, -0.200),
+    (-0.067, 0.667),
+    (0.300, 0.300),
+    (0.767, 0.000),
+    (0.500, -0.567),
+    (-0.333, -0.800),
+    (-0.600, -0.1333),
+    (-0.567, 0.433),
+    (0.000, 0.133),
+    (0.133, -0.200),
+    (-0.067, 0.667),
+    (0.300, 0.300),
+    (0.767, 0.000),
+    (0.500, -0.567),
+    (-0.333, -0.800),
+    (-0.600, -0.1333),
+    (-0.567, 0.433),
+    (0.000, 0.133),
+    (0.133, -0.200),
+];
+
+/// ScatterTarget residual world offset for shot index within a clip.
+pub fn rocket_pod_scatter_offset(shot_index: u32) -> (f32, f32) {
+    if ROCKET_POD_SCATTER_TARGETS.is_empty() {
+        return (0.0, 0.0);
+    }
+    let idx = (shot_index as usize) % ROCKET_POD_SCATTER_TARGETS.len();
+    let (nx, ny) = ROCKET_POD_SCATTER_TARGETS[idx];
+    (
+        nx * ROCKET_POD_SCATTER_TARGET_SCALAR,
+        ny * ROCKET_POD_SCATTER_TARGET_SCALAR,
+    )
+}
+
+/// Wave 49 residual honesty: clip size + scatter table + reload pack.
+pub fn honesty_comanche_rocket_pod_clip_residual_ok() -> bool {
+    ROCKET_POD_CLIP_SIZE == 20
+        && ROCKET_POD_SCATTER_TARGETS.len() == ROCKET_POD_CLIP_SIZE as usize
+        && (ROCKET_POD_SCATTER_TARGET_SCALAR - 50.0).abs() < 0.01
+        && (ROCKET_POD_SCATTER_RADIUS - 0.0).abs() < 0.01
+        && ROCKET_POD_CLIP_RELOAD_MS == 30_000
+        && ROCKET_POD_CLIP_RELOAD_FRAMES == 900
+        && ROCKET_POD_DELAY_MS == 200
+        && ROCKET_POD_DELAY_FRAMES == 6
+        && (ROCKET_POD_PRIMARY_DAMAGE - 30.0).abs() < 0.01
+        && (ROCKET_POD_SECONDARY_DAMAGE - 10.0).abs() < 0.01
+        && (ROCKET_POD_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (ROCKET_POD_SECONDARY_RADIUS - 40.0).abs() < 0.01
+}
 
 /// Whether template is a residual Comanche that receives rocket pods / combat residual.
 ///
@@ -197,7 +268,7 @@ pub fn comanche_rocket_pod_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(ROCKET_POD_DELAY_FRAMES),
         last_fire_time: 0.0,
-        ammo: Some(20),
+        ammo: Some(ROCKET_POD_CLIP_SIZE),
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 99999.0,
@@ -346,5 +417,28 @@ mod tests {
     fn radius_2d_check() {
         assert!(in_radius_2d((0.0, 0.0), (30.0, 0.0), 40.0));
         assert!(!in_radius_2d((0.0, 0.0), (50.0, 0.0), 40.0));
+    }
+
+    /// Wave 49: ClipSize **20** + ScatterTargetScalar **50** residual honesty.
+    #[test]
+    fn comanche_rocket_pod_scatter_clip_residual_honesty() {
+        assert!(honesty_comanche_rocket_pod_clip_residual_ok());
+        assert_eq!(ROCKET_POD_CLIP_SIZE, 20);
+        assert_eq!(ROCKET_POD_SCATTER_TARGETS.len(), 20);
+        assert_eq!(ROCKET_POD_CLIP_RELOAD_FRAMES, 900);
+        let pods = comanche_rocket_pod_weapon();
+        assert_eq!(pods.ammo, Some(ROCKET_POD_CLIP_SIZE));
+        // Shot 0: (0, 0.133) * 50 = (0, 6.65)
+        let (ox, oy) = rocket_pod_scatter_offset(0);
+        assert!((ox - 0.0).abs() < 0.01);
+        assert!((oy - 0.133 * 50.0).abs() < 0.01);
+        // Shot 4: (0.767, 0) * 50
+        let (ox4, oy4) = rocket_pod_scatter_offset(4);
+        assert!((ox4 - 0.767 * 50.0).abs() < 0.01);
+        assert!((oy4 - 0.0).abs() < 0.01);
+        // Wraps at ClipSize.
+        let a = rocket_pod_scatter_offset(0);
+        let b = rocket_pod_scatter_offset(20);
+        assert!((a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01);
     }
 }
