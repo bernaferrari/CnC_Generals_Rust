@@ -14732,43 +14732,79 @@ impl GameLogic {
         let fire_pos = attacker.get_position();
         let range = weapon.range;
         let min_range = weapon.min_range;
+        // Ownership: while mood flag is set and mood target is still legal/in-range,
+        // prefer that engagee over a full nearest-enemy re-scan (keeps flag vs target
+        // in sync). Otherwise fire path owns acquisition and clears mood flag below.
+        let mood_prefer = if attacker.turret_mood_target {
+            attacker.target
+        } else {
+            None
+        };
 
         let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in &self.objects {
-            if *id == center_id {
-                continue;
+        if let Some(mid) = mood_prefer {
+            if let Some(obj) = self.objects.get(&mid) {
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let dist = fire_pos.distance(obj.get_position());
+                if is_legal_strategy_center_gun_target(
+                    obj.is_alive(),
+                    obj.team == team,
+                    obj.team == Team::Neutral,
+                    obj.status.under_construction,
+                    combat_kind,
+                    is_air,
+                ) && !(obj.is_effectively_stealthed() && obj.team != team)
+                    && !(obj.is_eject_invulnerable() && obj.team != team)
+                    && strategy_center_gun_in_range(dist)
+                    && dist >= min_range
+                    && dist <= range
+                {
+                    best = Some((mid, dist));
+                }
             }
-            let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Infantry)
-                || obj.is_kind_of(KindOf::Vehicle)
-                || obj.is_kind_of(KindOf::Aircraft);
-            let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-            if !is_legal_strategy_center_gun_target(
-                obj.is_alive(),
-                obj.team == team,
-                obj.team == Team::Neutral,
-                obj.status.under_construction,
-                combat_kind,
-                is_air,
-            ) {
-                continue;
-            }
-            // Stealthed + undetected residual: skip.
-            if obj.is_effectively_stealthed() && obj.team != team {
-                continue;
-            }
-            // InvulnerableTime residual pilots: enemies treat as ALLIES (skip).
-            if obj.is_eject_invulnerable() && obj.team != team {
-                continue;
-            }
-            let dist = fire_pos.distance(obj.get_position());
-            if strategy_center_gun_in_range(dist)
-                && dist >= min_range
-                && dist <= range
-                && best.map(|(_, d)| dist < d).unwrap_or(true)
-            {
-                best = Some((*id, dist));
+        }
+        if best.is_none() {
+            for (id, obj) in &self.objects {
+                if *id == center_id {
+                    continue;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                if !is_legal_strategy_center_gun_target(
+                    obj.is_alive(),
+                    obj.team == team,
+                    obj.team == Team::Neutral,
+                    obj.status.under_construction,
+                    combat_kind,
+                    is_air,
+                ) {
+                    continue;
+                }
+                // Stealthed + undetected residual: skip.
+                if obj.is_effectively_stealthed() && obj.team != team {
+                    continue;
+                }
+                // InvulnerableTime residual pilots: enemies treat as ALLIES (skip).
+                if obj.is_eject_invulnerable() && obj.team != team {
+                    continue;
+                }
+                let dist = fire_pos.distance(obj.get_position());
+                if strategy_center_gun_in_range(dist)
+                    && dist >= min_range
+                    && dist <= range
+                    && best.map(|(_, d)| dist < d).unwrap_or(true)
+                {
+                    best = Some((*id, dist));
+                }
             }
         }
 
@@ -14846,6 +14882,14 @@ impl GameLogic {
         if let Some(attacker) = self.objects.get_mut(&center_id) {
             if let Some(w) = attacker.weapon.as_mut() {
                 w.last_fire_time = current_time;
+            }
+            // Mood ownership residual: keep mood flag only when fire engages the
+            // same mood-acquired target; otherwise fire owns acquisition (clear flag).
+            if attacker.turret_mood_target && attacker.target != Some(target_id) {
+                attacker.turret_mood_target = false;
+            } else if !attacker.turret_mood_target {
+                // Non-mood fire residual: ensure flag stays clear.
+                attacker.turret_mood_target = false;
             }
             attacker.target = Some(target_id);
             attacker.target_location = None;
@@ -23813,7 +23857,9 @@ impl GameLogic {
     /// C++ `TurretAI::friend_checkForIdleMoodTarget` residual:
     /// - When idle, acquire nearest legal enemy in StrategyCenterGun range band
     /// - Aim pitch/yaw at target (FirePitch **45**), flag `m_targetWasSetByIdleMood`
-    /// - When mood target dies / leaves range, clear target so idle-scan resumes
+    /// - While held: re-aim each frame; clear when dead / OOR / illegal (team/air/UC)
+    /// - Fire residual ownership: bombardment fire clears mood flag if it engages
+    ///   a different target (see `try_strategy_center_bombardment_turret_fire`)
     fn tick_strategy_center_turret_mood_target(&mut self) {
         use crate::game_logic::host_strategy_center::{
             is_strategy_center_template, strategy_center_gun_in_range,
@@ -23849,28 +23895,51 @@ impl GameLogic {
             }
             let team = obj.team;
             let fire_pos = obj.get_position();
-            let busy = obj.status.attacking
-                || matches!(
-                    obj.ai_state,
-                    AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                );
-            // Clear stale mood target residual first.
-            if obj.turret_mood_target {
+            let has_mood = obj.turret_mood_target;
+            // "Busy" for acquire: only non-mood attacking (pack recenter / explicit
+            // non-mood attack). Mood-set Attacking is the hold state, not busy.
+            let busy_non_mood = !has_mood
+                && (obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    ));
+
+            // Hold / clear / re-aim mood target residual.
+            if has_mood {
                 let tgt = obj.target;
-                let (alive, in_range) = if let Some(tid) = tgt {
+                let mut clear = tgt.is_none();
+                let mut aim_xz: Option<(f32, f32)> = None;
+                if let Some(tid) = tgt {
                     if let Some(t) = self.objects.get(&tid) {
                         let tp = t.get_position();
                         let dx = tp.x - fire_pos.x;
                         let dz = tp.z - fire_pos.z;
                         let dist = (dx * dx + dz * dz).sqrt();
-                        (t.is_alive(), strategy_center_gun_in_range(dist))
+                        let is_air =
+                            t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target;
+                        let legal = strategy_center_mood_target_enemy_legal(
+                            t.is_alive(),
+                            t.team == team,
+                            t.team == Team::Neutral,
+                            t.status.under_construction,
+                            is_air,
+                            dist,
+                        );
+                        let in_range = strategy_center_gun_in_range(dist);
+                        clear = strategy_center_mood_target_should_clear(
+                            true,
+                            t.is_alive(),
+                            in_range,
+                        ) || !legal;
+                        if !clear {
+                            aim_xz = Some((tp.x, tp.z));
+                        }
                     } else {
-                        (false, false)
+                        clear = true;
                     }
-                } else {
-                    (false, false)
-                };
-                if strategy_center_mood_target_should_clear(true, alive, in_range) {
+                }
+                if clear {
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.target = None;
                         o.turret_mood_target = false;
@@ -23880,11 +23949,21 @@ impl GameLogic {
                         }
                     }
                     clears = clears.saturating_add(1);
+                } else if let Some((tx, tz)) = aim_xz {
+                    // C++ AIM continuous aim residual while mood target held.
+                    let (aim_a, aim_p) =
+                        strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                    if let Some(o) = self.objects.get_mut(&cid) {
+                        o.turret_angle_deg = aim_a;
+                        o.turret_pitch_deg = aim_p;
+                        o.ai_state = AIState::Attacking;
+                        o.status.attacking = true;
+                    }
                 }
-                continue; // hold mood target or just cleared; no re-acquire this frame
+                continue; // no re-acquire this frame while mood flag set
             }
 
-            if !strategy_center_mood_target_eligible(true, true, busy, false) {
+            if !strategy_center_mood_target_eligible(true, true, busy_non_mood, has_mood) {
                 continue;
             }
 
@@ -26465,6 +26544,10 @@ impl GameLogic {
 
     /// HiveStructureBody residual with optional shooter for getClosestSlave.
     ///
+    /// **Host API residual only** (not live skirmish `Object::take_damage` path):
+    /// combat/AOE still hits structure HP via armor residual. Call this API for
+    /// SMALL_ARMS/SNIPER-style propagate tests and host residual wiring.
+    ///
     /// `shooter_xz`: world (x, z) of damage source. When set, residual damages
     /// the closest physical slave slot (C++ `getClosestSlave(shooter->pos)`).
     pub fn apply_host_hive_damage_from(
@@ -26512,23 +26595,21 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     return (false, false);
                 };
-                // Ensure roster initialized if only mirrors were set by older residual.
-                if obj.hive_slave_count > 0 && !obj.hive_slaves.iter().any(|s| s.alive) {
-                    obj.hive_slaves =
-                        crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
-                    // Apply mirror count/hp into first-alive slots.
-                    let n = (obj.hive_slave_count as usize).min(3);
-                    for (i, slot) in obj.hive_slaves.iter_mut().enumerate() {
-                        if i < n {
-                            slot.alive = true;
-                            slot.hp = if i == 0 {
-                                obj.hive_slave_hp.max(0.0)
-                            } else {
-                                crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH
-                            };
-                        } else {
-                            slot.alive = false;
-                            slot.hp = 0.0;
+                // Roster is source of truth. Align alive count to mirror only when
+                // an external residual path wrote count alone (preserve per-slot HP).
+                {
+                    use crate::game_logic::host_base_defense::{
+                        align_hive_roster_to_count, count_alive_hive_slaves,
+                    };
+                    let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
+                    if roster_alive != obj.hive_slave_count {
+                        align_hive_roster_to_count(&mut obj.hive_slaves, obj.hive_slave_count);
+                        // If mirror said one active partial HP and we just revived
+                        // first slot from empty, apply mirror HP to first alive.
+                        if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0 {
+                            if let Some(slot) = obj.hive_slaves.iter_mut().find(|s| s.alive) {
+                                slot.hp = obj.hive_slave_hp;
+                            }
                         }
                     }
                 }
@@ -26620,9 +26701,8 @@ impl GameLogic {
     pub fn update_stinger_hive_respawns(&mut self) {
         use crate::game_logic::host_base_defense::{
             count_alive_hive_slaves, is_stinger_site_structure, next_stinger_slave_respawn_frame,
-            respawn_one_hive_slave, should_respawn_stinger_slave, stinger_spawn_point_offsets,
-            sync_hive_slave_mirrors, ResidualHiveSlave, STINGER_SOLDIER_MAX_HEALTH,
-            STINGER_SPAWN_NUMBER,
+            respawn_one_hive_slave, should_respawn_stinger_slave, sync_hive_slave_mirrors,
+            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
         };
 
         let frame = self.frame;
@@ -26631,34 +26711,17 @@ impl GameLogic {
             if !is_stinger_site_structure(&obj.template_name) || !obj.is_alive() {
                 continue;
             }
-            // Keep physical roster aligned with legacy count mirror when tests
-            // or older residual paths mutate count alone.
-            let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
-            if roster_alive != obj.hive_slave_count {
-                let offs = stinger_spawn_point_offsets();
-                let n = (obj.hive_slave_count as usize).min(3);
-                for i in 0..3 {
-                    if i < n {
-                        obj.hive_slaves[i] = ResidualHiveSlave {
-                            hp: if i == 0 {
-                                obj.hive_slave_hp.max(STINGER_SOLDIER_MAX_HEALTH * 0.01)
-                            } else {
-                                STINGER_SOLDIER_MAX_HEALTH
-                            },
-                            offset_x: offs[i].0,
-                            offset_z: offs[i].1,
-                            alive: true,
-                        };
-                        if i == 0 && obj.hive_slave_hp > 0.0 {
-                            obj.hive_slaves[i].hp = obj.hive_slave_hp;
+            // Roster is source of truth; align only when mirror count diverges
+            // (tests / legacy paths). Does not clobber HP of already-alive slots.
+            {
+                use crate::game_logic::host_base_defense::align_hive_roster_to_count;
+                let roster_alive = count_alive_hive_slaves(&obj.hive_slaves);
+                if roster_alive != obj.hive_slave_count {
+                    align_hive_roster_to_count(&mut obj.hive_slaves, obj.hive_slave_count);
+                    if roster_alive == 0 && obj.hive_slave_count > 0 && obj.hive_slave_hp > 0.0 {
+                        if let Some(slot) = obj.hive_slaves.iter_mut().find(|s| s.alive) {
+                            slot.hp = obj.hive_slave_hp;
                         }
-                    } else {
-                        obj.hive_slaves[i] = ResidualHiveSlave {
-                            hp: 0.0,
-                            offset_x: offs[i].0,
-                            offset_z: offs[i].1,
-                            alive: false,
-                        };
                     }
                 }
             }
@@ -54365,7 +54428,9 @@ mod tests {
 
         // Reset structure HP for swallow honesty.
         {
+            use crate::game_logic::host_base_defense::clear_hive_slave_roster;
             let s = game_logic.find_object_mut(stinger_id).unwrap();
+            clear_hive_slave_roster(&mut s.hive_slaves);
             s.hive_slave_count = 0;
             s.hive_slave_hp = 0.0;
             s.health.current = 1000.0;
@@ -54388,9 +54453,14 @@ mod tests {
 
         // HitStructure residual damages building even with slaves restored.
         {
+            use crate::game_logic::host_base_defense::{
+                align_hive_roster_to_count, sync_hive_slave_mirrors,
+            };
             let s = game_logic.find_object_mut(stinger_id).unwrap();
-            s.hive_slave_count = 3;
-            s.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            align_hive_roster_to_count(&mut s.hive_slaves, 3);
+            let (c, h) = sync_hive_slave_mirrors(&s.hive_slaves);
+            s.hive_slave_count = c;
+            s.hive_slave_hp = h.max(STINGER_SOLDIER_MAX_HEALTH);
             s.health.current = 1000.0;
         }
         let _ = game_logic.apply_host_hive_damage(
@@ -54406,7 +54476,9 @@ mod tests {
 
         // SPAWNS_ARE_THE_WEAPONS residual: 0 soldiers cannot fire.
         {
+            use crate::game_logic::host_base_defense::clear_hive_slave_roster;
             let s = game_logic.find_object_mut(stinger_id).unwrap();
+            clear_hive_slave_roster(&mut s.hive_slaves);
             s.hive_slave_count = 0;
             s.hive_slave_hp = 0.0;
             if let Some(w) = s.weapon.as_mut() {
@@ -54440,9 +54512,14 @@ mod tests {
 
         // SpawnReplaceDelay residual respawn.
         {
+            use crate::game_logic::host_base_defense::{
+                align_hive_roster_to_count, sync_hive_slave_mirrors,
+            };
             let s = game_logic.find_object_mut(stinger_id).unwrap();
-            s.hive_slave_count = 2;
-            s.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
+            align_hive_roster_to_count(&mut s.hive_slaves, 2);
+            let (c, h) = sync_hive_slave_mirrors(&s.hive_slaves);
+            s.hive_slave_count = c;
+            s.hive_slave_hp = h.max(STINGER_SOLDIER_MAX_HEALTH);
             s.hive_slave_respawn_frame = 10;
         }
         game_logic.frame = 10;
@@ -54856,10 +54933,10 @@ mod tests {
             );
         }
         assert!(
-            game_logic.honesty_camo_netting_heat_vision_ok()
-                || game_logic.camo_netting_heat_vision_count() >= 1,
+            game_logic.honesty_camo_netting_heat_vision_ok(),
             "CamoNetting heat-vision residual honesty"
         );
+        assert!(game_logic.camo_netting_heat_vision_count() >= 1);
     }
 
     /// Residual: USA Patriot AA secondary residual vs aircraft.
