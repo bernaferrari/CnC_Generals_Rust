@@ -235,6 +235,15 @@ pub struct Object {
     pub weapon_bonus_enthusiastic: bool,
     pub weapon_bonus_subliminal: bool,
 
+    /// Host residual HORDE weapon bonus (C++ WEAPONBONUSCONDITION_HORDE via HordeUpdate).
+    /// Fail-closed: not full RubOffRadius honorary / terrain-decal flag matrix.
+    #[serde(default)]
+    pub weapon_bonus_horde: bool,
+    /// Host residual NATIONALISM weapon bonus (only while in horde + upgrade).
+    /// Fail-closed: not full Fanaticism infantry-general branch.
+    #[serde(default)]
+    pub weapon_bonus_nationalism: bool,
+
     /// Host residual Frenzy / Rage temporary attack buff
     /// (C++ WEAPONBONUSCONDITION_FRENZY_ONE/TWO/THREE via doTempWeaponBonus).
     /// Fail-closed: not full WeaponBonusConditionFlags matrix / TempWeaponBonusHelper Xfer.
@@ -431,6 +440,8 @@ impl Object {
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_horde: false,
+            weapon_bonus_nationalism: false,
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,
@@ -525,6 +536,8 @@ impl Object {
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
+            weapon_bonus_horde: false,
+            weapon_bonus_nationalism: false,
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,

@@ -1,3 +1,27 @@
+## Residual Host Playability — China Battlemaster (2026-07-13)
+**Closed (host-testable China Battlemaster main gun + Uranium + horde/nationalism residual):**
+1. **Battlemaster residual** (`ChinaTankBattleMaster` / `China_BattlemasterTank` / Tank_/Nuke_):
+   - PRIMARY `BattleMasterTankGun` residual: PrimaryDamage **60** / radius **5** /
+     AttackRange **150** / Delay **2000**ms (60 frames) / WeaponSpeed 400.
+   - Fire residual: intended + PrimaryDamageRadius **5** splash take full PrimaryDamage.
+   - Uranium Shells PLAYER_UPGRADE residual (`Upgrade_ChinaUraniumShells`):
+     WeaponBonus DAMAGE **125%** → PrimaryDamage **75**.
+   - Horde residual (`HordeUpdate` ExactMatch allies Radius **75** Count **5**):
+     WeaponBonus HORDE RATE_OF_FIRE **150%** → delay floor(60/1.5)=**40** frames.
+   - Nationalism residual (`Upgrade_Nationalism` while in horde):
+     additional RATE_OF_FIRE **125%** (stacks) → delay floor(60/1.875)=**32** frames.
+   - Honesty: `honesty_battlemaster_ok` / uranium / horde / nationalism / fires.
+2. Tests (not log-only):
+   - `battlemaster_residual_gun_uranium_and_horde_nationalism`
+   - module unit tests in `host_battlemaster.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
+- Full Fanaticism infantry-general nationalism branch
+- Full Nuclear Tanks death weapon / NuclearBattleMasterLocomotor residual
+- Full SCIENCE_BattlemasterTraining elite spawn residual
+- Network uranium / horde replication (network deferred)
+
 ## Residual Host Playability — Helix NapalmBomb + Bomb Truck HE/Bio (2026-07-13)
 **Closed (host-testable Helix NapalmBomb special power + Bomb Truck detonation residual):**
 1. **Helix NapalmBomb residual** (`SpecialAbilityHelixNapalmBomb` /
