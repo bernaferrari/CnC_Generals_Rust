@@ -15,7 +15,7 @@
 //! - Not full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
 //! - Not full Fanaticism infantry-general nationalism branch
 //! - Not full Nuclear Tanks death weapon / locomotor upgrade residual
-//! - Not SCIENCE_BattlemasterTraining elite spawn residual
+//! - SCIENCE_BattlemasterTraining ELITE spawn residual closed in host_unit_training
 //! - Not network uranium / horde replication (network deferred)
 
 use super::Weapon;
