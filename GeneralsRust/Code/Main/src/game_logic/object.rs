@@ -940,7 +940,13 @@ impl Object {
     /// Slot: `0` = primary, `1` = secondary.
     /// Rules:
     /// - Player lock (`active_weapon_slot == 1`): prefer secondary when ready + in range.
-    /// - Structures: prefer secondary when its damage is better (or primary cannot fire).
+    /// - PreferredAgainst residual (damage + kind heuristic, not full INI matrix):
+    ///   - Structures: prefer secondary when damage ≥ primary (or primary cannot fire).
+    ///   - Infantry: prefer secondary when damage > primary (FlashBang residual).
+    ///   - Vehicles: prefer secondary when damage > primary (TOW residual).
+    ///   - Neutron residual: active secondary with neutron upgrade vs infantry/vehicle
+    ///     prefers secondary when player locked or secondary is the only ready slot;
+    ///     also when primary cannot fire and secondary is ready.
     /// - Else primary when ready + in range; else secondary (alternate fire residual).
     pub fn select_combat_weapon_slot(
         &self,
@@ -971,16 +977,29 @@ impl Object {
 
         let target_is_structure = target.object_type == ObjectType::Building
             || target.is_kind_of(KindOf::Structure);
+        let target_is_infantry = target.is_kind_of(KindOf::Infantry);
+        let target_is_vehicle = target.is_kind_of(KindOf::Vehicle)
+            && !target.is_kind_of(KindOf::Aircraft);
 
-        if target_is_structure && secondary_ok {
-            let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
-            let secondary_damage = self
-                .secondary_weapon
-                .as_ref()
-                .map(|w| w.damage)
-                .unwrap_or(0.0);
-            // Prefer secondary vs structures when damage is better, or primary cannot fire.
-            if secondary_damage >= primary_damage || !primary_ok {
+        let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
+        let secondary_damage = self
+            .secondary_weapon
+            .as_ref()
+            .map(|w| w.damage)
+            .unwrap_or(0.0);
+
+        if secondary_ok {
+            // PreferredAgainst residual by target kind + relative damage.
+            if target_is_structure && (secondary_damage >= primary_damage || !primary_ok) {
+                return Some(1);
+            }
+            if target_is_infantry && (secondary_damage > primary_damage || !primary_ok) {
+                // FlashBang residual (35 > 5). Neutron secondary damage is 1.0 so
+                // only wins here when primary cannot fire unless slot-locked.
+                return Some(1);
+            }
+            if target_is_vehicle && (secondary_damage > primary_damage || !primary_ok) {
+                // TOW residual (30 > 10 Humvee gun).
                 return Some(1);
             }
         }

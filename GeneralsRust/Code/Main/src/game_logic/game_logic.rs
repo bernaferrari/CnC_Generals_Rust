@@ -647,6 +647,18 @@ pub struct GameLogic {
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
     base_defense_residual_fires: u32,
 
+    /// Host PointDefenseLaser residual honesty (Paladin / Avenger intercept).
+    /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction matrix.
+    point_defense_residual_intercepts: u32,
+    /// Per-carrier next ready frame for residual PDL shot delay.
+    point_defense_next_ready_frame: HashMap<ObjectId, u32>,
+
+    /// Host Neutron Shell residual honesty (Nuke Cannon secondary blast).
+    /// Fail-closed: not full DumbProjectileBehavior / NeutronBlastBehavior modules.
+    neutron_shell_residual_blasts: u32,
+    neutron_shell_residual_infantry_kills: u32,
+    neutron_shell_residual_vehicles_unmanned: u32,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -1485,6 +1497,11 @@ impl GameLogic {
             ecm_residual_jams: 0,
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             base_defense_residual_fires: 0,
+            point_defense_residual_intercepts: 0,
+            point_defense_next_ready_frame: HashMap::new(),
+            neutron_shell_residual_blasts: 0,
+            neutron_shell_residual_infantry_kills: 0,
+            neutron_shell_residual_vehicles_unmanned: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1641,6 +1658,11 @@ impl GameLogic {
         self.ecm_residual_jams = 0;
         self.emp_pulses.clear();
         self.base_defense_residual_fires = 0;
+        self.point_defense_residual_intercepts = 0;
+        self.point_defense_next_ready_frame.clear();
+        self.neutron_shell_residual_blasts = 0;
+        self.neutron_shell_residual_infantry_kills = 0;
+        self.neutron_shell_residual_vehicles_unmanned = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -3489,6 +3511,10 @@ impl GameLogic {
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
         self.update_ecm_jam_field();
 
+        // Host PointDefenseLaser residual: Paladin / Avenger intercept missiles.
+        // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
+        self.update_point_defense_intercept();
+
         // Host China EMP Pulse residual: DISABLED_EMP timers tick on objects in AI pass.
         // Activation is event-driven via DoSpecialPower (no continuous field).
 
@@ -4418,7 +4444,38 @@ impl GameLogic {
                     }
 
                     fired_slot = Some(slot);
-                    if let Some(target) = self.objects.get_mut(&target_id) {
+
+                    // Neutron shell residual: Nuke Cannon secondary applies blast
+                    // (kill infantry / unman vehicles) instead of HP take_damage.
+                    let neutron_blast = {
+                        use crate::game_logic::host_neutron_shell::{
+                            is_nuke_cannon_template, should_apply_neutron_blast,
+                            UPGRADE_CHINA_NEUTRON_SHELLS,
+                        };
+                        self.objects.get(&attacker_id).map(|a| {
+                            should_apply_neutron_blast(
+                                a.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
+                                    || a.has_upgrade_tag("Upgrade_ChinaNeutronShells"),
+                                slot,
+                                is_nuke_cannon_template(&a.template_name),
+                            )
+                        })
+                        .unwrap_or(false)
+                    };
+
+                    if neutron_blast {
+                        let impact = target_position;
+                        let (ik, vu, _vk) =
+                            self.apply_neutron_blast_at(impact, attacker_team, Some(attacker_id), true);
+                        // Stop attack after residual blast shot (slow reload residual).
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            // Award residual XP for infantry kills / unmans.
+                            let xp = (ik as f32) * 20.0 + (vu as f32) * 30.0;
+                            if xp > 0.0 {
+                                attacker.gain_experience(xp);
+                            }
+                        }
+                    } else if let Some(target) = self.objects.get_mut(&target_id) {
                         let destroyed = target.take_damage(weapon_damage);
                         if destroyed {
                             // C++ parity: XP is based on victim's ExperienceValue.
@@ -6202,6 +6259,9 @@ impl GameLogic {
             HostUpgradeKind::SupplyLines => {
                 self.apply_supply_lines_tags_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::NeutronShells => {
+                self.apply_neutron_shells_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -6284,6 +6344,35 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Equip Neutron Shell secondary on team Nuke Cannons + apply upgrade tag.
+    fn apply_neutron_shells_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
+        use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, NUKE_CANNON_NEUTRON_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+        let secondary = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_neutron_shell_unit_template(&obj.template_name) {
+                continue;
+            }
+            if let Some(ref w) = secondary {
+                // Always re-bind neutron secondary residual so stats stay correct.
+                obj.secondary_weapon = Some(w.clone());
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
             affected = affected.saturating_add(1);
         }
         affected
@@ -9087,6 +9176,321 @@ impl GameLogic {
     /// Residual honesty counter: base-defense auto-fire residual shots.
     pub fn base_defense_residual_fires(&self) -> u32 {
         self.base_defense_residual_fires
+    }
+
+    /// Host PointDefenseLaser residual: Paladin / Avenger destroy nearest
+    /// interceptable missile/projectile (primary) or damage infantry (secondary)
+    /// in residual fire range without a manual AttackObject order.
+    ///
+    /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction,
+    /// TERTIARY WeaponStore allocate, or laser drawable path.
+    pub fn update_point_defense_intercept(&mut self) {
+        use crate::game_logic::host_point_defense::{
+            in_pdl_range_2d, intercept_priority, is_point_defense_carrier,
+            is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
+            pdl_delay_frames, pdl_fire_range, PDL_INTERCEPT_AUDIO,
+        };
+
+        // Snapshot carriers first (immutable pass).
+        let carriers: Vec<(ObjectId, String, Team, glam::Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                // C++ PointDefenseLaserUpdate is independent of primary WeaponSet:
+                // only requires carrier alive / not effectively dead / not disabled.
+                if !obj.is_alive() || obj.is_disabled() {
+                    return None;
+                }
+                if !is_point_defense_carrier(&obj.template_name) {
+                    return None;
+                }
+                // Under construction / unmanned residual: no laser.
+                if obj.status.under_construction || obj.status.disabled_unmanned {
+                    return None;
+                }
+                // Weapons jam residual: cannot fire laser either.
+                if obj.status.weapons_jammed {
+                    return None;
+                }
+                Some((
+                    *id,
+                    obj.template_name.clone(),
+                    obj.team,
+                    obj.get_position(),
+                ))
+            })
+            .collect();
+
+        if carriers.is_empty() {
+            return;
+        }
+
+        let frame = self.frame;
+        let mut intercepts_this_pass = 0u32;
+
+        for (carrier_id, template_name, team, carrier_pos) in carriers {
+            let ready_frame = self
+                .point_defense_next_ready_frame
+                .get(&carrier_id)
+                .copied()
+                .unwrap_or(0);
+            if frame < ready_frame {
+                continue;
+            }
+
+            let fire_range = pdl_fire_range(&template_name);
+            let damage = pdl_damage(&template_name);
+            let delay = pdl_delay_frames(&template_name);
+            let carrier_xz = (carrier_pos.x, carrier_pos.z);
+
+            // Find best target: primary missiles first, then secondary infantry.
+            // Prefer closer targets within same priority band.
+            let mut best: Option<(ObjectId, u8, f32)> = None;
+            for (tid, target) in &self.objects {
+                if *tid == carrier_id || !target.is_alive() {
+                    continue;
+                }
+                let same_team = target.team == team;
+                let is_primary = is_primary_intercept_target(
+                    target.is_kind_of(KindOf::Projectile)
+                        || target.object_type == ObjectType::Projectile,
+                    target.is_alive(),
+                    same_team,
+                    &target.template_name,
+                );
+                let is_secondary = is_secondary_intercept_target(
+                    target.is_kind_of(KindOf::Infantry),
+                    target.is_alive(),
+                    same_team,
+                    target.status.under_construction,
+                );
+                let Some(prio) = intercept_priority(is_primary, is_secondary) else {
+                    continue;
+                };
+                let tpos = target.get_position();
+                if !in_pdl_range_2d(carrier_xz, (tpos.x, tpos.z), fire_range) {
+                    continue;
+                }
+                let dist = carrier_pos.distance(tpos);
+                let better = match best {
+                    None => true,
+                    Some((_, bp, bd)) => prio < bp || (prio == bp && dist < bd),
+                };
+                if better {
+                    best = Some((*tid, prio, dist));
+                }
+            }
+
+            let Some((target_id, prio, _)) = best else {
+                continue;
+            };
+
+            // Primary missiles / projectiles: destroy residual (laser one-shots).
+            // Secondary infantry: apply PDL damage residual.
+            let mut destroyed = false;
+            let mut impact_pos = carrier_pos;
+            if prio == 0 {
+                if let Some(target) = self.objects.get_mut(&target_id) {
+                    impact_pos = target.get_position();
+                    // Instant destroy residual for interceptable missiles.
+                    let _ = target.take_damage(target.health.current.max(damage));
+                    destroyed = !target.is_alive() || target.health.current <= 0.0;
+                    if !destroyed {
+                        // Force kill residual if armor residual blocked full clear.
+                        destroyed = target.take_damage(damage * 10.0);
+                    }
+                }
+            } else if let Some(target) = self.objects.get_mut(&target_id) {
+                impact_pos = target.get_position();
+                destroyed = target.take_damage(damage);
+            }
+
+            self.point_defense_next_ready_frame
+                .insert(carrier_id, frame.saturating_add(delay));
+            intercepts_this_pass = intercepts_this_pass.saturating_add(1);
+            self.point_defense_residual_intercepts =
+                self.point_defense_residual_intercepts.saturating_add(1);
+
+            if destroyed {
+                self.mark_object_for_destruction(target_id, Some(team));
+            }
+
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                carrier_pos,
+                Some(impact_pos),
+                frame,
+                carrier_id,
+                Some(target_id),
+            );
+            self.queue_audio_event(
+                AudioEventRequest::new(PDL_INTERCEPT_AUDIO)
+                    .with_object(carrier_id)
+                    .with_position(carrier_pos)
+                    .with_priority(150),
+            );
+        }
+
+        if intercepts_this_pass > 0 {
+            log::debug!(
+                "PointDefenseLaser residual: {} intercept(s) this pass (total={})",
+                intercepts_this_pass,
+                self.point_defense_residual_intercepts
+            );
+        }
+    }
+
+    /// Residual honesty: at least one PDL intercept residual shot.
+    pub fn honesty_point_defense_intercept_ok(&self) -> bool {
+        self.point_defense_residual_intercepts > 0
+    }
+
+    /// Residual honesty counter: PDL intercept residual shots.
+    pub fn point_defense_residual_intercepts(&self) -> u32 {
+        self.point_defense_residual_intercepts
+    }
+
+    /// Residual honesty: at least one neutron shell blast residual applied.
+    pub fn honesty_neutron_shell_ok(&self) -> bool {
+        self.neutron_shell_residual_blasts > 0
+    }
+
+    /// Residual honesty counter: neutron shell blasts.
+    pub fn neutron_shell_residual_blasts(&self) -> u32 {
+        self.neutron_shell_residual_blasts
+    }
+
+    /// Residual honesty counter: infantry killed by neutron residual.
+    pub fn neutron_shell_residual_infantry_kills(&self) -> u32 {
+        self.neutron_shell_residual_infantry_kills
+    }
+
+    /// Residual honesty counter: vehicles unmanned by neutron residual.
+    pub fn neutron_shell_residual_vehicles_unmanned(&self) -> u32 {
+        self.neutron_shell_residual_vehicles_unmanned
+    }
+
+    /// Apply NeutronBlast residual at world impact: kill infantry + unman vehicles
+    /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
+    ///
+    /// Fail-closed: not full AffectAirborne / ally Relationship matrix.
+    fn apply_neutron_blast_at(
+        &mut self,
+        impact: glam::Vec3,
+        caster_team: Team,
+        caster_id: Option<ObjectId>,
+        affect_allies: bool,
+    ) -> (u32, u32, u32) {
+        use crate::game_logic::host_neutron_shell::{
+            in_neutron_blast_radius_2d, is_legal_neutron_blast_target, neutron_effect_for_target,
+            NeutronEffect, HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO,
+        };
+
+        let center = (impact.x, impact.z);
+        let radius = HOST_NEUTRON_BLAST_RADIUS;
+        let mut infantry_kills = 0u32;
+        let mut vehicles_unmanned = 0u32;
+        let mut vehicle_kills = 0u32;
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+
+        let candidates: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if caster_id == Some(*id) {
+                    return None;
+                }
+                if !obj.is_alive() {
+                    return None;
+                }
+                let pos = obj.get_position();
+                if !in_neutron_blast_radius_2d(center, (pos.x, pos.z), radius) {
+                    return None;
+                }
+                let same_team = obj.team == caster_team;
+                if !is_legal_neutron_blast_target(
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                    obj.is_kind_of(KindOf::Structure),
+                    false, // drone residual not modeled on host KindOf
+                    obj.status.airborne_target,
+                    false, // AffectAirborne = No for NeutronCannonShell residual
+                    same_team,
+                    affect_allies,
+                ) {
+                    return None;
+                }
+                Some(*id)
+            })
+            .collect();
+
+        for id in candidates {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let effect = neutron_effect_for_target(
+                obj.is_kind_of(KindOf::Infantry),
+                obj.is_kind_of(KindOf::Vehicle),
+                false,
+                &obj.template_name,
+            );
+            match effect {
+                NeutronEffect::KillInfantry => {
+                    // Residual: kill infantry (take full health damage).
+                    let _ = obj.take_damage(obj.health.current.max(1.0) * 10.0);
+                    if !obj.is_alive() || obj.health.current <= 0.0 {
+                        infantry_kills = infantry_kills.saturating_add(1);
+                        destroy_ids.push(id);
+                    } else {
+                        // Force kill residual.
+                        let _ = obj.take_damage(999_999.0);
+                        infantry_kills = infantry_kills.saturating_add(1);
+                        destroy_ids.push(id);
+                    }
+                }
+                NeutronEffect::UnmanVehicle => {
+                    obj.apply_kill_pilot_unmanned();
+                    // C++ NeutronBlastBehavior: setTeam(neutral) residual.
+                    obj.team = Team::Neutral;
+                    vehicles_unmanned = vehicles_unmanned.saturating_add(1);
+                }
+                NeutronEffect::KillVehicle => {
+                    let _ = obj.take_damage(obj.health.current.max(1.0) * 10.0);
+                    vehicle_kills = vehicle_kills.saturating_add(1);
+                    destroy_ids.push(id);
+                }
+                NeutronEffect::None => {}
+            }
+        }
+
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(caster_team));
+        }
+
+        self.neutron_shell_residual_blasts =
+            self.neutron_shell_residual_blasts.saturating_add(1);
+        self.neutron_shell_residual_infantry_kills = self
+            .neutron_shell_residual_infantry_kills
+            .saturating_add(infantry_kills);
+        self.neutron_shell_residual_vehicles_unmanned = self
+            .neutron_shell_residual_vehicles_unmanned
+            .saturating_add(vehicles_unmanned);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(NEUTRON_SHELL_AUDIO)
+                .with_position(impact)
+                .with_priority(155),
+        );
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            impact,
+            Some(impact),
+            self.frame,
+            caster_id.unwrap_or(ObjectId(0)),
+            None,
+        );
+
+        (infantry_kills, vehicles_unmanned, vehicle_kills)
     }
 
     /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
@@ -24990,6 +25394,397 @@ mod tests {
         assert!(
             !game_logic.honesty_base_defense_fire_ok(),
             "fail-closed: barracks must not set base-defense residual honesty"
+        );
+    }
+
+    /// Residual: Paladin PointDefenseLaser intercepts enemy missile without AttackObject.
+    #[test]
+    fn point_defense_laser_residual_intercepts_missile() {
+        use crate::game_logic::host_point_defense::{
+            is_point_defense_carrier, PALADIN_PDL_FIRE_RANGE,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut paladin_tpl = crate::game_logic::ThingTemplate::new("USA_Paladin");
+        paladin_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(600.0)
+            .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Paladin".to_string(), paladin_tpl);
+
+        let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+        missile_tpl
+            .add_kind_of(KindOf::Projectile)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(50.0);
+        game_logic
+            .templates
+            .insert("TestMissile".to_string(), missile_tpl);
+
+        let paladin_id = game_logic
+            .create_object("USA_Paladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("paladin");
+        // Missile inside Paladin residual fire range (65).
+        let missile_id = game_logic
+            .create_object(
+                "TestMissile",
+                Team::GLA,
+                Vec3::new(PALADIN_PDL_FIRE_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("missile");
+
+        {
+            let p = game_logic.find_object(paladin_id).expect("paladin");
+            assert!(
+                is_point_defense_carrier(&p.template_name),
+                "USA_Paladin must classify as PDL carrier"
+            );
+            assert!(p.can_attack(), "Paladin must be able to attack residual");
+        }
+        assert!(
+            game_logic
+                .find_object(missile_id)
+                .map(|m| m.is_alive())
+                .unwrap_or(false),
+            "missile must start alive"
+        );
+        assert!(!game_logic.honesty_point_defense_intercept_ok());
+
+        game_logic.frame = 1;
+        game_logic.update_point_defense_intercept();
+
+        assert!(
+            game_logic.honesty_point_defense_intercept_ok(),
+            "PDL residual honesty must record intercept"
+        );
+        assert!(
+            game_logic.point_defense_residual_intercepts() > 0,
+            "intercept counter must advance"
+        );
+        // Missile should be destroyed / marked for destruction residual.
+        let missile_gone = game_logic.find_object(missile_id).map(|m| !m.is_alive()).unwrap_or(true)
+            || game_logic
+                .find_object(missile_id)
+                .map(|m| m.health.current <= 0.0)
+                .unwrap_or(true);
+        // mark_object_for_destruction may leave object until cleanup; health must be zeroed.
+        if let Some(m) = game_logic.find_object(missile_id) {
+            assert!(
+                !m.is_alive() || m.health.current <= 0.0,
+                "missile must be dead after PDL intercept (hp={})",
+                m.health.current
+            );
+        } else {
+            assert!(missile_gone, "missile removed after intercept");
+        }
+
+        // Reload residual: second shot not instant on same frame window.
+        let intercepts_after_first = game_logic.point_defense_residual_intercepts();
+        game_logic.frame = 2;
+        // Spawn another missile in range.
+        let missile2 = game_logic
+            .create_object(
+                "TestMissile",
+                Team::China,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("missile2");
+        game_logic.update_point_defense_intercept();
+        assert_eq!(
+            game_logic.point_defense_residual_intercepts(),
+            intercepts_after_first,
+            "PDL must respect residual delay before next shot"
+        );
+        assert!(
+            game_logic
+                .find_object(missile2)
+                .map(|m| m.is_alive())
+                .unwrap_or(false),
+            "second missile survives during reload residual"
+        );
+
+        // After Paladin delay frames, intercept again.
+        game_logic.frame = 1 + crate::game_logic::host_point_defense::PALADIN_PDL_DELAY_FRAMES;
+        game_logic.update_point_defense_intercept();
+        assert!(
+            game_logic.point_defense_residual_intercepts() > intercepts_after_first,
+            "PDL must fire again after residual delay"
+        );
+    }
+
+    /// Residual: non-PDL unit does not intercept missiles.
+    #[test]
+    fn point_defense_laser_residual_skips_non_carrier() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+        missile_tpl
+            .add_kind_of(KindOf::Projectile)
+            .set_health(50.0);
+        game_logic
+            .templates
+            .insert("TestMissile".to_string(), missile_tpl);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        let _missile_id = game_logic
+            .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("missile");
+        {
+            let t = game_logic.find_object_mut(tank_id).unwrap();
+            t.weapon = Some(Weapon {
+                damage: 50.0,
+                range: 100.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_point_defense_intercept();
+        assert!(
+            !game_logic.honesty_point_defense_intercept_ok(),
+            "fail-closed: ordinary tank must not PDL-intercept"
+        );
+    }
+
+    /// Residual: Upgrade_ChinaNeutronShells equips Nuke Cannon secondary + blast kills infantry / unmans vehicles.
+    #[test]
+    fn neutron_shell_residual_upgrade_and_blast() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_neutron_shell::{
+            is_nuke_cannon_template, UPGRADE_CHINA_NEUTRON_SHELLS,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, NUKE_CANNON_PRIMARY_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::China, "China", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // Nuke cannon without secondary — unlock must equip it.
+        let mut cannon_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleNukeCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name(NUKE_CANNON_PRIMARY_WEAPON);
+        // Intentionally no secondary_weapon_name — research unlocks it.
+        game_logic
+            .templates
+            .insert("ChinaVehicleNukeCannon".to_string(), cannon_tpl);
+
+        let warfactory_id = game_logic
+            .create_object("TestBarracks", Team::China, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("producer");
+
+        let cannon_id = game_logic
+            .create_object(
+                "ChinaVehicleNukeCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("nuke cannon");
+        {
+            let c = game_logic.find_object(cannon_id).expect("cannon");
+            assert!(is_nuke_cannon_template(&c.template_name));
+            assert!(
+                c.secondary_weapon.is_none(),
+                "pre-upgrade nuke cannon must lack neutron secondary"
+            );
+        }
+
+        // Place infantry + vehicle near impact (within blast radius 70).
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("infantry");
+        let vehicle_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(210.0, 0.0, 0.0))
+            .expect("vehicle");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_CHINA_NEUTRON_SHELLS.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![warfactory_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::NeutronShells),
+            "neutron shells upgrade must queue residual"
+        );
+
+        game_logic.update();
+
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::NeutronShells),
+            "neutron shells upgrade must complete residual"
+        );
+        {
+            let c = game_logic.find_object(cannon_id).expect("cannon");
+            assert!(
+                c.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS),
+                "cannon must receive neutron shells upgrade tag"
+            );
+            assert!(
+                c.secondary_weapon.is_some(),
+                "cannon must equip neutron secondary after upgrade"
+            );
+            let sec = c.secondary_weapon.as_ref().unwrap();
+            assert!(
+                (sec.range - 350.0).abs() < 1.0,
+                "neutron secondary range residual 350, got {}",
+                sec.range
+            );
+        }
+
+        // Fire secondary at infantry location (slot lock residual).
+        {
+            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            c.active_weapon_slot = 1;
+            c.attack_target(infantry_id);
+            if let Some(w) = c.secondary_weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                // Fail-closed residual min range 0 for host tests.
+                w.min_range = 0.0;
+            }
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0; // primary reloading
+            }
+            // Place cannon in range of infantry for combat residual.
+            c.set_position(Vec3::new(180.0, 0.0, 0.0));
+        }
+
+        let vehicle_hp_before = game_logic
+            .find_object(vehicle_id)
+            .map(|v| v.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(90);
+        game_logic.update_combat(&[cannon_id, infantry_id, vehicle_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_neutron_shell_ok(),
+            "neutron blast residual honesty must fire"
+        );
+        assert!(
+            game_logic.neutron_shell_residual_infantry_kills() > 0,
+            "neutron residual must kill infantry in blast"
+        );
+        assert!(
+            game_logic.neutron_shell_residual_vehicles_unmanned() > 0,
+            "neutron residual must unman vehicle in blast"
+        );
+
+        // Infantry dead residual.
+        if let Some(inf) = game_logic.find_object(infantry_id) {
+            assert!(
+                !inf.is_alive() || inf.health.current <= 0.0,
+                "infantry must die to neutron residual"
+            );
+        }
+        // Vehicle unmanned, HP preserved residual.
+        let vehicle = game_logic.find_object(vehicle_id).expect("vehicle");
+        assert!(
+            vehicle.is_unmanned(),
+            "vehicle must be unmanned by neutron residual"
+        );
+        assert!(
+            (vehicle.health.current - vehicle_hp_before).abs() < 0.01
+                || vehicle.health.current >= vehicle_hp_before - 0.01,
+            "unmanned residual must not strip vehicle HP (before={vehicle_hp_before} after={})",
+            vehicle.health.current
+        );
+        assert_eq!(
+            vehicle.team,
+            Team::Neutral,
+            "unmanned vehicle residual becomes Neutral"
+        );
+    }
+
+    /// Residual: primary Nuke Cannon shell still uses normal HP damage (no blast).
+    #[test]
+    fn neutron_shell_residual_primary_does_not_blast() {
+        use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+
+        let mut cannon_tpl = crate::game_logic::ThingTemplate::new("TestNukeCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(400.0)
+            .set_primary_weapon_name(super::weapon_bootstrap::NUKE_CANNON_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(super::weapon_bootstrap::NUKE_CANNON_NEUTRON_WEAPON);
+        game_logic
+            .templates
+            .insert("TestNukeCannon".to_string(), cannon_tpl);
+
+        let cannon_id = game_logic
+            .create_object("TestNukeCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("cannon");
+        {
+            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            c.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
+            c.active_weapon_slot = 0; // primary
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("infantry");
+        {
+            let c = game_logic.find_object_mut(cannon_id).unwrap();
+            c.attack_target(infantry_id);
+        }
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[cannon_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            !game_logic.honesty_neutron_shell_ok(),
+            "primary slot must not apply neutron blast residual"
+        );
+        // Infantry may take primary damage but not forced blast kill of nearby only.
+        assert_eq!(
+            game_logic.neutron_shell_residual_blasts(),
+            0,
+            "primary fire must not increment neutron blast counter"
         );
     }
 }

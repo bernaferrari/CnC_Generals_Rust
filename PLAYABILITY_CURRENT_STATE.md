@@ -1,5 +1,60 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — PointDefenseLaser Intercept (2026-07-12)
+**Closed (host-testable Paladin/Avenger auto-destroy nearby enemy missiles):**
+1. **PointDefenseLaser residual** (`PointDefenseLaserUpdate` host path):
+   - `GameLogic::update_point_defense_intercept` each frame (from `update_simulation`).
+   - Carriers: name residual `paladin` / `avenger` (incl. general variants / TestPaladin).
+   - Primary targets: `KindOf::Projectile` or missile name residual
+     (`missile` / `rocket` / `scud` / `tomahawk` / `TestMissile`); skips
+     MissileDefender / Patriot Battery / Stinger Site false positives.
+   - Secondary residual: enemy infantry in fire range (Paladin SecondaryTargetTypes).
+   - Stats residual: Paladin range 65 / delay 30 frames / dmg 100;
+     Avenger range 100 / delay 15 frames / dmg 100.
+2. Honesty counters:
+   - `point_defense_residual_intercepts`
+   - `honesty_point_defense_intercept_ok`
+3. Tests (not log-only):
+   - `point_defense_laser_residual_intercepts_missile`
+   - `point_defense_laser_residual_skips_non_carrier`
+   - unit tests in `host_point_defense.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full PointDefenseLaserUpdate velocity prediction / scan-rate matrix
+- Full KindOf BALLISTIC_MISSILE SMALL_MISSILE mask parse path
+- Full TERTIARY WeaponStore allocateNewWeapon + laser beam drawable FX
+- Network PDL replication (network deferred)
+
+## Residual Host Playability — Neutron Shells (2026-07-12)
+**Closed (host-testable Upgrade_ChinaNeutronShells → Nuke Cannon secondary blast):**
+1. **Neutron shell residual** (`Upgrade_ChinaNeutronShells` + `NeutronBlastBehavior`):
+   - QueueUpgrade complete equips Nuke Cannon SECONDARY `NukeCannonNeutronWeapon`
+     (range 350, dmg 1 seed; blast does the work).
+   - Combat secondary fire (`active_weapon_slot == 1` or only-ready secondary)
+     applies residual blast radius 70 at impact:
+     - Infantry killed
+     - Vehicles unmanned + Neutral (HP preserved; combat-bike residual killed)
+   - Primary NukeCannonGun still uses normal HP damage (no blast).
+2. Honesty counters:
+   - `neutron_shell_residual_blasts` / `infantry_kills` / `vehicles_unmanned`
+   - `honesty_neutron_shell_ok`
+3. PreferredAgainst AutoChoose residual expansion:
+   - Secondary preferred vs infantry when secondary damage > primary (FlashBang)
+   - Secondary preferred vs vehicles when secondary damage > primary (TOW)
+   - Structures path unchanged (secondary damage ≥ primary)
+4. Tests (not log-only):
+   - `neutron_shell_residual_upgrade_and_blast`
+   - `neutron_shell_residual_primary_does_not_blast`
+   - `update_combat_prefers_secondary_damage_vs_infantry`
+   - unit tests in `host_neutron_shell.rs` / `host_upgrades` classification
+
+**Still residual (fail-closed, not claimed):**
+- Full DumbProjectileBehavior bezier flight / min-range deploy matrix
+- Full AffectAirborne / ally Relationship / contained-passenger kill matrix
+- Full WeaponSet command-button toggle UI parity beyond `active_weapon_slot`
+- Full INI PreferredAgainst / AutoChoose tables beyond damage+kind residual
+- Network neutron replication (network deferred)
+
 ## Residual Host Playability — Cash Bounty on Kill (2026-07-12)
 **Closed (host-testable kill with cash_bounty_percent → killer cash increases):**
 1. **GLA SCIENCE_CashBounty residual** (`Player::doBountyForKill` + CashBountyPower):
