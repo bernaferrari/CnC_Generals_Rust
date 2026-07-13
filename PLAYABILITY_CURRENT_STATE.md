@@ -1,3 +1,33 @@
+## Residual Host Playability — GLA Scorpion + USA Tomahawk (2026-07-13)
+**Closed (host-testable Scorpion gun/salvage/rocket + Tomahawk dual-radius residual):**
+1. **Scorpion residual** (`GLATankScorpion` / `GLA_ScorpionTank` / Chem_/Demo_/Slth_):
+   - PRIMARY `ScorpionTankGun` residual: PrimaryDamage **20** / radius **5** /
+     range **150** / Delay **1000**ms (30 frames).
+   - Salvage residual (CRATEUPGRADE): gun damage **20** → **25** (`ScorpionTankGunPlusOne`;
+     PlusTwo keeps PlusOne gun — no further primary bonus).
+   - `Upgrade_GLAScorpionRocket` PLAYER_UPGRADE residual equips SECONDARY
+     `ScorpionMissileWeapon`: Primary **100**/r**5** + Secondary **80**/r**25**,
+     min **40**, ClipReload **15000**ms (450 frames).
+   - AP Rockets PLAYER_UPGRADE residual (`Upgrade_GLAAPRockets`): missile rings × **1.25**.
+   - Honesty: `honesty_scorpion_ok` / rocket / missile / fires.
+2. **Tomahawk residual** (`AmericaVehicleTomahawk` / `USA_Tomahawk` / SupW_):
+   - PRIMARY `TomahawkMissileWeapon` residual: Primary **150**/r**10** +
+     Secondary **50**/r**25**, range **350**, min **100**, ClipReload **7000**ms
+     (210 frames).
+   - Dual-radius splash residual on fire (intended + primary/secondary rings).
+   - Honesty: `honesty_tomahawk_ok` / fires / units_hit.
+3. Tests (not log-only):
+   - `scorpion_residual_gun_salvage_and_rocket`
+   - `tomahawk_residual_dual_radius_missile`
+   - module unit tests in `host_scorpion.rs` / `host_tomahawk.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SalvageCrate W3D turret / missile-rack subobject swap matrix
+- Full ClipSize=2 DelayBetweenShots 200ms dual-volley cadence for rocket+tier2
+- Full TomahawkMissile projectile lob / CapableOfFollowingWaypoints path
+- Full PreAttackDelay PER_SHOT anim / hide-show missile bone matrix
+- Network scorpion rocket / tomahawk replication (network deferred)
+
 ## Residual Host Playability — USA Pilot + GLA WorkerShoes (2026-07-13)
 **Closed (host-testable Pilot recrew + WorkerShoes residual):**
 1. **USA Pilot residual** (`AmericaInfantryPilot` / AirF_ / CINE_ / TestPilot):
