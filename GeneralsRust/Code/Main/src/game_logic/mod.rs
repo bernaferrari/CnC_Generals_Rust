@@ -47,6 +47,8 @@ pub mod host_inferno_cannon;
 pub mod host_aurora_bomb;
 pub mod host_battle_bus;
 pub mod host_cleanup_area;
+pub mod host_comanche_rocket_pods;
+pub mod host_sentry_drone;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -223,6 +225,16 @@ pub use host_cleanup_area::{
     in_cleanup_radius_2d, is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaRegistry,
     CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
     HOST_CLEANUP_AREA_RADIUS, HOST_CLEANUP_MAX_MOVE_DISTANCE, HOST_CLEANUP_SCAN_RANGE,
+};
+pub use host_comanche_rocket_pods::{
+    is_comanche_template, rocket_pod_damage_at_distance, rocket_pod_ground_fire_active,
+    should_apply_rocket_pod_area_attack, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
+    ROCKET_POD_ATTACK_RANGE, ROCKET_POD_PRIMARY_DAMAGE, ROCKET_POD_SECONDARY_DAMAGE,
+    ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS,
+};
+pub use host_sentry_drone::{
+    is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,
+    SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
