@@ -117,7 +117,14 @@ pub fn is_china_infantry_horde_unit(template_name: &str) -> bool {
     {
         return false;
     }
-    n.contains("tankhunter") || n.contains("tank_hunter") || n == "testtankhunter"
+    if n.contains("tankhunter") || n.contains("tank_hunter") || n == "testtankhunter" {
+        return true;
+    }
+    // MiniGunner residual shares China infantry HordeUpdate params.
+    n.contains("minigunner")
+        || n.contains("mini_gunner")
+        || n == "testminigunner"
+        || n == "china_minigunner"
 }
 
 /// Combined ROF multiplier residual (HORDE * NATIONALISM when both active).
