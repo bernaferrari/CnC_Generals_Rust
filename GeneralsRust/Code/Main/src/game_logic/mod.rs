@@ -71,6 +71,8 @@ pub mod host_red_guard;
 pub mod host_tank_hunter;
 pub mod host_gla_rebel;
 pub mod host_rpg_trooper;
+pub mod host_terrorist;
+pub mod host_missile_defender;
 pub mod host_combat_cycle;
 pub mod host_dragon_tank;
 pub mod host_gattling_tank;
@@ -334,6 +336,18 @@ pub use host_rpg_trooper::{
     is_rpg_trooper_template, rpg_trooper_weapon, should_apply_rpg_trooper_residual,
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
     UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS,
+};
+pub use host_terrorist::{
+    is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
+    terrorist_suicide_weapon, SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
+    SUICIDE_DYNAMITE_PRIMARY_RADIUS, SUICIDE_DYNAMITE_SECONDARY_DAMAGE,
+    SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
+};
+pub use host_missile_defender::{
+    is_missile_defender_template, missile_defender_laser_guided_weapon,
+    missile_defender_primary_weapon, should_apply_missile_defender_residual,
+    MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_GUIDED_WEAPON, MISSILE_DEFENDER_MISSILE_WEAPON,
+    MISSILE_DEFENDER_PRIMARY_RANGE,
 };
 pub use host_combat_cycle::{
     combat_cycle_weapon_for_rider, default_spawn_rider, default_spawn_rider_for_template,
