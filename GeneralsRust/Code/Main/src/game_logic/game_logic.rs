@@ -7780,6 +7780,9 @@ impl GameLogic {
             let weapon = template.resolve_primary_weapon();
             let secondary_weapon = template.resolve_secondary_weapon();
             let movement_stats = template.resolve_movement();
+            // Sentry residual: detect explicit template primary before move.
+            let sentry_had_explicit_primary = template.primary_weapon.is_some()
+                || template.primary_weapon_name.is_some();
             let mut object = Object::new(template, id, team);
             object.set_position(position);
             let starts_under_construction = object.status.under_construction;
@@ -7827,6 +7830,12 @@ impl GameLogic {
                 // Innate stealth residual (StealthUpdate InnateStealth = Yes).
                 object.status.stealthed = true;
                 object.stealth_breaks_on_attack = true;
+                // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
+                // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
+                // Explicit template primary_weapon(_name) still keeps a bound gun (test/seed).
+                if !sentry_had_explicit_primary {
+                    object.weapon = None;
+                }
             }
 
             self.objects.insert(id, object);

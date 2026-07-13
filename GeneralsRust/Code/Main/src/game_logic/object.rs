@@ -1111,6 +1111,15 @@ impl Object {
             return None;
         }
 
+        // Comanche Rocket Pods residual: retail AutoChooseSources = TERTIARY NONE.
+        // Host secondary carries pods after upgrade; never auto-choose unless
+        // player locks active_weapon_slot == 1 (FIRE_WEAPON residual).
+        let rocket_pods_manual_only = crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
+            &self.template_name,
+        ) && (self.has_upgrade_tag(
+            crate::game_logic::host_comanche_rocket_pods::UPGRADE_COMANCHE_ROCKET_PODS,
+        ) || self.has_upgrade_tag("Upgrade_ComancheRocketPods"));
+
         let target_is_structure = target.object_type == ObjectType::Building
             || target.is_kind_of(KindOf::Structure);
         let target_is_infantry = target.is_kind_of(KindOf::Infantry);
@@ -1124,7 +1133,7 @@ impl Object {
             .map(|w| w.damage)
             .unwrap_or(0.0);
 
-        if secondary_ok {
+        if secondary_ok && !rocket_pods_manual_only {
             // PreferredAgainst residual by target kind + relative damage.
             if target_is_structure && (secondary_damage >= primary_damage || !primary_ok) {
                 return Some(1);
@@ -1141,9 +1150,10 @@ impl Object {
         }
 
         // Default / alternate: primary first, then secondary if only it is ready.
+        // Rocket pods: never fall back to secondary without slot lock.
         if primary_ok {
             Some(0)
-        } else if secondary_ok {
+        } else if secondary_ok && !rocket_pods_manual_only {
             Some(1)
         } else {
             None
