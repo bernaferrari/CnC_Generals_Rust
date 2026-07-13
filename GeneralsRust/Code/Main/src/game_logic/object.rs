@@ -266,6 +266,18 @@ pub struct Object {
     /// Host residual: America Humvee TransportContain (Slots=5 + passengers fire).
     #[serde(default)]
     pub is_humvee_transport: bool,
+
+    /// Host residual: China Listening Outpost TransportContain (Slots=2 + fire +
+    /// armed-riders dummy + stealth detector 300 + InnateStealth).
+    /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
+    #[serde(default)]
+    pub is_listening_outpost_transport: bool,
+
+    /// Host residual: China Troop Crawler TransportContain (Slots=8 + assault deploy).
+    /// Passengers exit to fight (do not fire from inside). Fail-closed vs full
+    /// AssaultTransportAIUpdate wounded-retrieve / multi-exit path matrix.
+    #[serde(default)]
+    pub is_troop_crawler_transport: bool,
 }
 
 /// AI behavior states
@@ -409,6 +421,8 @@ impl Object {
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             is_humvee_transport: false,
+            is_listening_outpost_transport: false,
+            is_troop_crawler_transport: false,
         }
     }
 
@@ -498,6 +512,8 @@ impl Object {
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             is_humvee_transport: false,
+            is_listening_outpost_transport: false,
+            is_troop_crawler_transport: false,
         }
     }
 
@@ -1769,6 +1785,24 @@ impl Object {
         self.is_humvee_transport
     }
 
+    /// Install residual China Troop Crawler transport:
+    /// C++ TransportContain Slots=8, AllowInsideKindOf=INFANTRY,
+    /// InitialPayload Redguard×8, GoAggressiveOnExit residual (exit-to-fight).
+    /// Passengers do **not** fire from inside (`PassengersAllowedToFire` unset).
+    /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
+    pub fn install_troop_crawler_transport(&mut self) {
+        self.is_troop_crawler_transport = true;
+        self.max_transport =
+            crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = false;
+        self.armed_riders_upgrade_weapon_set = false;
+    }
+
+    /// True when this vehicle is a China Troop Crawler residual transport.
+    pub fn is_troop_crawler_style_container(&self) -> bool {
+        self.is_troop_crawler_transport
+    }
+
     /// Install residual Air Force Combat Chinook transport:
     /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
     /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY VEHICLE.
@@ -1790,6 +1824,39 @@ impl Object {
     /// True when this vehicle is an AirF Combat Chinook residual transport.
     pub fn is_combat_chinook_style_container(&self) -> bool {
         self.is_combat_chinook_transport
+    }
+
+    /// Install residual China Listening Outpost transport + detect residual:
+    /// C++ TransportContain Slots=2, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY,
+    /// StealthDetectorUpdate DetectionRange=300, InnateStealth=Yes.
+    /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
+    pub fn install_listening_outpost_transport(&mut self) {
+        self.is_listening_outpost_transport = true;
+        self.max_transport =
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+        // Detector residual (DetectionRange = 300).
+        self.is_detector = true;
+        self.detection_range =
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
+        // Innate stealth residual; uncloaks while MOVING.
+        self.status.stealthed = true;
+        self.innate_stealth = true;
+        self.stealth_breaks_on_move = true;
+        // Fire does not break stealth on the vehicle itself (passengers fire residual).
+        self.stealth_breaks_on_attack = false;
+        // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
+        self.weapon = None;
+        self.weapon_set_player_upgrade = false;
+        // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
+        self.thing.template.add_kind_of(KindOf::Attackable);
+    }
+
+    /// True when this vehicle is a China Listening Outpost residual transport.
+    pub fn is_listening_outpost_style_container(&self) -> bool {
+        self.is_listening_outpost_transport
     }
 
     /// Residual transport capacity (vehicles). Overlord bunker residual wins,
