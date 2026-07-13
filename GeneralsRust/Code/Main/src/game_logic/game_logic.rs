@@ -25028,6 +25028,8 @@ impl GameLogic {
 
     /// Pause skirmish AI for `player_id` and clear that team's combat targets so
     /// residual unit AI does not keep counterfiring after the manager pause.
+    /// Also cancels production queues on that team so barracks/factories do not
+    /// keep spawning units during a golden map clear while AI is paused.
     /// Used by golden map clear (AI rebuild off + no structure auto-engage).
     pub fn pause_skirmish_ai_and_clear_combat(&mut self, player_id: u32) {
         self.set_ai_active(player_id, false);
@@ -25041,12 +25043,27 @@ impl GameLogic {
             .filter(|o| o.team == team && o.is_alive())
             .map(|o| o.id)
             .collect();
+        // Cancel production first (needs building_data); then clear combat state.
+        for id in ids.iter().copied() {
+            let _ = self.cancel_all_production(id);
+        }
         for id in ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.stop_attack();
                 obj.target = None;
                 obj.target_location = None;
                 obj.force_attack = false;
+                // Halt workers/dozers mid-rebuild so paused AI does not finish distant CCs.
+                if obj.is_kind_of(KindOf::Worker) || obj.template_name.contains("Dozer") {
+                    obj.stop_moving();
+                    obj.movement.target_position = None;
+                    if matches!(
+                        obj.ai_state,
+                        AIState::Moving | AIState::Constructing | AIState::Repairing
+                    ) {
+                        obj.ai_state = AIState::Idle;
+                    }
+                }
                 if matches!(
                     obj.ai_state,
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
