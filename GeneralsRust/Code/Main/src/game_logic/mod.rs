@@ -37,6 +37,7 @@ pub mod host_gps_scrambler;
 pub mod host_leaflet_drop;
 pub mod host_sneak_attack;
 pub mod host_point_defense;
+pub mod host_microwave;
 pub mod host_neutron_shell;
 pub mod host_bunker_buster;
 pub mod host_paradrop;
@@ -393,6 +394,11 @@ pub struct ObjectStatus {
     /// Fail-closed: continuous aura (not full subdual damage accumulate/heal).
     #[serde(default)]
     pub weapons_jammed: bool,
+    /// C++ DISABLED_SUBDUED residual on structures cooked by Microwave Tank
+    /// (MicrowaveTankBuildingDisabler / SUBDUAL_BUILDING). Full disable while cooked
+    /// (production / powered functions stop). Fail-closed continuous while attacking.
+    #[serde(default)]
+    pub disabled_subdued: bool,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual (ConvertToCarBombCrateCollide).
     /// Vehicle uses SuicideCarBomb weapon set residual and detonates on attack fire.
     #[serde(default)]
