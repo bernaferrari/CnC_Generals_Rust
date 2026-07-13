@@ -15,10 +15,11 @@
 //! # Special-power strike residual (2026-07-12)
 //!
 //! Host `HostSpecialPowerStrikeRegistry` queues DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile / AnthraxBomb impacts with a multi-frame
-//! delay (nuke also spawns residual radiation; anthrax also spawns residual
-//! toxin). Without snapshot persistence, save mid-flight
-//! dropped the pending strike and impact never fired after load.
+//! ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb
+//! impacts with a multi-frame delay (nuke also spawns residual radiation;
+//! anthrax also spawns residual toxin; carpet bomb multi-point line damage).
+//! Without snapshot persistence, save mid-flight dropped the pending strike
+//! and impact never fired after load.
 //!
 //! Closed residual layout:
 //! - `WorldSnapshot.special_power_strikes` stores `next_id` + all strike records
@@ -2624,6 +2625,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::NuclearMissile => 4,
             HostSuperweaponKind::AnthraxBomb => 5,
             HostSuperweaponKind::SpectreGunship => 6,
+            HostSuperweaponKind::CarpetBomb => 7,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -2634,6 +2636,7 @@ impl XferData for HostSuperweaponKind {
             4 => HostSuperweaponKind::NuclearMissile,
             5 => HostSuperweaponKind::AnthraxBomb,
             6 => HostSuperweaponKind::SpectreGunship,
+            7 => HostSuperweaponKind::CarpetBomb,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"

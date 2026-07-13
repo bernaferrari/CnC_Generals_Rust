@@ -246,6 +246,11 @@ pub enum DropTarget {
 pub enum SpecialPowerType {
     Airstrike,
     Artillery,
+    /// Carpet Bomb residual (SPECIAL_CARPET_BOMB / SuperweaponCarpetBomb family).
+    /// Delayed bomber approach then multi-point line/area explosive damage
+    /// (`CarpetBombWeapon` residual along drop line).
+    /// Fail-closed: not full B52/ChinaJet OCL DeliverPayload / DropVariance /
+    /// staggered DropDelay / science-tier upgrade path.
     CarpetBomb,
     ClusterMines,
     DaisyCutter,
