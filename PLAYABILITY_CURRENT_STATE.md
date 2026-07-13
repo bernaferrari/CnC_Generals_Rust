@@ -1,3 +1,60 @@
+## Residual Host Playability — Wave 65: ThingFactory object packs + CSF load residual peel (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **ScudStormMissile ThingFactory residual pack** (`special_power_strikes`):
+   - Physics Mass **500**, TransportSlotCount **10**, ShroudClearingRange **0**,
+     ArmorSet ProjectileArmor / DamageFX **None**, SpecialPowerCompletionDie
+     **SuperweaponScudStorm**, HeightDie TargetHeightIncludesStructures **Yes**
+     (TargetHeight **15**, OnlyWhenMovingDown, SnapToGroundOnDeath, InitialDelay
+     **1000**ms→**30**f), DAMAGED/REALLYDAMAGED/RUBBLE model **NONE**,
+     model UBScudStrm_M, Geometry Cylinder r**7**/h**30**, MaxHealth **10000**.
+   - Honesty: `honesty_scud_storm_missile_thing_factory_pack`.
+   - Fail-closed: not full ThingFactory Object / live MissileAIUpdate physics flight.
+2. **SpectreHowitzerShell ThingFactory residual pack** (`special_power_strikes`):
+   - InstantDeath death-type residual table:
+     DETONATED `NONE +DETONATED` / FX_NukeGLA;
+     LASERED `NONE +LASERED` / FX_GenericMissileDisintegrate +
+     OCL_GenericMissileDisintegrate;
+     GENERIC `ALL -LASERED -DETONATED` / FX_GenericMissileDeath.
+   - Scale **0.6**, Geometry Cylinder r**4**/h**4**, Shadow **SHADOW_DECAL**,
+     model AVSpectreShell1, Mass **1**, MaxHealth **100**.
+   - Honesty: `honesty_spectre_howitzer_shell_thing_factory_pack`.
+   - Fail-closed: not full InstantDeathBehavior Object / W3D ModelDraw shell drawable.
+3. **TrailRemnant ThingFactory residual pack** (`special_power_strikes`):
+   - KindOf residual pack: **NO_COLLIDE UNATTACKABLE IMMOBILE** (individual bit
+     residual honesty) + ImmortalBody MaxHealth/InitialHealth **50** +
+     FireWeaponUpdate/DeletionUpdate module presence + ImmortalBody floor **1**.
+   - Honesty: `honesty_trail_remnant_thing_factory_pack`.
+   - Fail-closed: not full ThingFactory ImmortalBody / live DeletionUpdate destroy.
+4. **English CSF pack load residual peel** (`game_text_residual`):
+   - Attempt load of English CSF pack path residual under windows_game when present.
+   - Label-count residual honesty when live file parses (retail pack is large).
+   - Missing asset → empty table honesty (label_count **0**, not boot UI claim).
+   - Honesty: `load_english_csf_pack_residual` / `honesty_english_csf_pack_load`.
+   - Fail-closed: not full multi-locale CSF boot UI for all LanguageId at runtime.
+5. **OuterBeamWidth multi-beam residual pack** (`laser_segment_upload`):
+   - NumBeams **12**, OuterBeamWidth **26**, InnerBeamWidth **0.6**,
+     ScrollRate **-1.75**, TilingScalar **0.15**, Tile **Yes**, EXNoise02.tga,
+     additive shader + TILED_TEXTURE_MAP; SoftnessDepth/Distance absent.
+   - Honesty: `honesty_outer_beam_width_multi_beam_pack`.
+   - Fail-closed: not full GPU soft-edge texture atlas / write_buffer submit.
+6. Tests / gates (not log-only):
+   - `scud_storm_missile_thing_factory_pack_wave65_honesty`
+   - `spectre_howitzer_shell_thing_factory_pack_wave65_honesty`
+   - `trail_remnant_thing_factory_pack_wave65_honesty`
+   - `english_csf_pack_load_residual_wave65_honesty`
+   - `outer_beam_width_multi_beam_pack_wave65_honesty`
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full TrailRemnant ThingFactory ImmortalBody / live DeletionUpdate module stack
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas sample bind
+- Actual `wgpu::Queue::write_buffer` against a live device/pipeline
+- Network residual replication (network deferred)
 ## Residual Host Playability — Wave 62: strategy_center + unit_training + upgrades + sneak_attack residual packs (2026-07-13)
 
 **Closed (host-testable residual peels):**
