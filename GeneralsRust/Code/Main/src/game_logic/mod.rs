@@ -69,6 +69,8 @@ pub mod host_dragon_tank;
 pub mod host_gattling_tank;
 pub mod host_listening_outpost;
 pub mod host_troop_crawler;
+pub mod host_overlord_addons;
+pub mod host_nuke_cannon;
 pub mod terrain;
 pub mod thing;
 pub mod units;
@@ -327,6 +329,18 @@ pub use host_troop_crawler::{
     HostTroopCrawlerRegistry, TROOP_CRAWLER_ASSAULT_RANGE, TROOP_CRAWLER_ASSAULT_WEAPON,
     TROOP_CRAWLER_DETECTION_RANGE, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
     TROOP_CRAWLER_TRANSPORT_SLOTS, TROOP_CRAWLER_VISION_RANGE,
+};
+pub use host_overlord_addons::{
+    is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,
+    overlord_gattling_air_weapon, should_apply_overlord_gattling_residual,
+    HostOverlordAddonRegistry, HELIX_TRANSPORT_SLOTS, OVERLORD_GATTLING_AIR_DAMAGE,
+    OVERLORD_GATTLING_GROUND_DAMAGE, OVERLORD_PROPAGANDA_RADIUS, UPGRADE_HELIX_GATTLING,
+    UPGRADE_HELIX_PROPAGANDA, UPGRADE_OVERLORD_GATTLING, UPGRADE_OVERLORD_PROPAGANDA,
+};
+pub use host_nuke_cannon::{
+    is_nuke_cannon_template as is_nuke_cannon_primary_template, nuke_cannon_primary_damage_at,
+    should_apply_nuke_cannon_primary, HostNukeCannonRegistry, MEDIUM_RADIATION_DAMAGE_PER_TICK,
+    MEDIUM_RADIATION_RADIUS, NUKE_CANNON_PRIMARY_DAMAGE, NUKE_CANNON_PRIMARY_RADIUS,
 };
 pub use game_logic::*;
 pub use mission_scripts::*;
