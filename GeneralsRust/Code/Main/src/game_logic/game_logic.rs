@@ -5048,6 +5048,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.tick_disabled_hacked(self.frame);
                 obj.tick_disabled_emp(self.frame);
+                obj.tick_disabled_paralyzed(self.frame);
                 obj.tick_weapon_bonus_frenzy(self.frame);
                 obj.tick_faerie_fire(self.frame);
             }
@@ -11844,6 +11845,55 @@ impl GameLogic {
                         let _ = self.apply_demo_suicide_bomb_death_at(
                             event.id, obj.team, death_pos,
                         );
+                    }
+                }
+
+                // USA EjectPilotDie residual: spawn AmericaInfantryPilot on vehicle death.
+                // Fail-closed: ground OCL only (not full parachute air path / invuln timer).
+                {
+                    use crate::game_logic::host_usa_pilot::{
+                        can_eject_pilot_on_death, is_eject_pilot_eligible_template,
+                        EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+                    };
+                    let is_vehicle = obj.is_kind_of(KindOf::Vehicle)
+                        || obj.object_type == ObjectType::Vehicle;
+                    let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
+                        || obj.object_type == ObjectType::Aircraft;
+                    let under_construction = obj.status.under_construction
+                        || obj.construction_percent + 0.001 < 1.0;
+                    if can_eject_pilot_on_death(
+                        is_eject_pilot_eligible_template(&obj.template_name),
+                        obj.is_unmanned(),
+                        under_construction,
+                        is_vehicle,
+                        is_aircraft,
+                    ) {
+                        let pilot_team = obj.team;
+                        // Ensure pilot template exists for residual spawn.
+                        if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
+                            let mut pilot_tpl =
+                                crate::game_logic::ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+                            pilot_tpl
+                                .add_kind_of(KindOf::Infantry)
+                                .add_kind_of(KindOf::Selectable)
+                                .set_health(100.0);
+                            self.templates
+                                .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
+                        }
+                        // Offset slightly so pilot is not buried under death debris residual.
+                        let spawn_pos =
+                            death_pos + Vec3::new(2.0, 0.0, 2.0);
+                        if let Some(pilot_id) =
+                            self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos)
+                        {
+                            self.usa_pilot.record_ejection();
+                            self.queue_audio_event(
+                                AudioEventRequest::new(PILOT_EJECT_AUDIO)
+                                    .with_position(spawn_pos)
+                                    .with_priority(170),
+                            );
+                            let _ = pilot_id;
+                        }
                     }
                 }
 
@@ -22761,6 +22811,11 @@ impl GameLogic {
         self.battle_plans.honesty_buff_ok()
     }
 
+    /// Residual honesty: BattlePlanChangeParalyze residual applied at least once.
+    pub fn honesty_battle_plan_paralyze_ok(&self) -> bool {
+        self.battle_plans.honesty_paralyze_ok()
+    }
+
     /// Combined host path honesty for Strategy Center battle-plan residual.
     pub fn honesty_battle_plan_ok(&self) -> bool {
         self.battle_plans.honesty_host_path_ok()
@@ -22886,8 +22941,10 @@ impl GameLogic {
     /// - Bombardment: BATTLEPLAN_BOMBARDMENT DAMAGE 120% on legal army members
     /// - HoldTheLine: armor damage scalar 0.9 + center max-health ×2 residual
     /// - SearchAndDestroy: RANGE 120% + sight 1.2; center detect residual
+    /// - BattlePlanChangeParalyzeTime: DISABLED_PARALYZED for 5000ms (150 frames)
+    ///   on legal army members when a plan is activated/changed
     ///
-    /// Fail-closed: not full pack/unpack animation / 5000ms paralyze / turret path.
+    /// Fail-closed: not full pack/unpack animation / turret / vision-object path.
     /// Returns true when the residual selection was recorded (even if 0 army buffs).
     pub fn activate_battle_plan(
         &mut self,
@@ -22896,13 +22953,14 @@ impl GameLogic {
         strategy_center_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_strategy_center::{
-            is_dozer_template_name, is_drone_template_name, is_legal_battle_plan_member,
-            is_strategy_center_template, HostBattlePlanSelection,
+            battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
+            is_legal_battle_plan_member, is_strategy_center_template, HostBattlePlanSelection,
             STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
             STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
         };
 
         let frame = self.frame;
+        let paralyze_until = battle_plan_paralyze_until_frame(frame);
 
         // Team residual from strategy center or player_id fallback.
         let team = strategy_center_id
@@ -22914,8 +22972,12 @@ impl GameLogic {
                 _ => Team::Neutral,
             });
 
+        // C++ BattlePlanUpdate: paralyze only on transition through PLANSTATUS_NONE
+        // (pack before a *change*). First residual select has no prior plan → no paralyze.
+        let had_prior_plan = self.battle_plans.active_plan_for_player(player_id).is_some();
+
         // Clear previous residual battle-plan bonuses on same-team units first
-        // (plan switch residual; full 5000ms paralyze fail-closed).
+        // (plan switch residual; BattlePlanChangeParalyze applied after buffs when switching).
         let previous_ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -23026,8 +23088,9 @@ impl GameLogic {
             .collect();
 
         let mut buffs: u32 = 0;
-        for (id, _, _, _, _, _, _, _) in candidates {
-            let Some(target) = self.objects.get_mut(&id) else {
+        let mut paralyzed: u32 = 0;
+        for (id, _, _, _, _, _, _, _) in &candidates {
+            let Some(target) = self.objects.get_mut(id) else {
                 continue;
             };
             if !target.is_alive() {
@@ -23035,6 +23098,13 @@ impl GameLogic {
             }
             target.apply_battle_plan_bonus(plan);
             buffs = buffs.saturating_add(1);
+            // C++ BattlePlanUpdate::paralyzeTroop on PLANSTATUS_NONE transition:
+            // setDisabledUntil(DISABLED_PARALYZED, now + BattlePlanChangeParalyzeTime).
+            // Host residual: only when switching from a prior active plan.
+            if had_prior_plan {
+                target.apply_disabled_paralyzed(paralyze_until);
+                paralyzed = paralyzed.saturating_add(1);
+            }
         }
 
         // Strategy Center building residual bonuses.
@@ -23091,6 +23161,7 @@ impl GameLogic {
             strategy_center_id,
             buffs,
             building_bonus,
+            paralyzed,
         });
 
         self.queue_audio_event(
@@ -24225,6 +24296,11 @@ impl GameLogic {
     /// Residual honesty: pilot recrew with veterancy transfer observed.
     pub fn honesty_pilot_veterancy_transfer_ok(&self) -> bool {
         self.usa_pilot.honesty_veterancy_transfer_ok()
+    }
+
+    /// Residual honesty: EjectPilotDie pilot spawn observed.
+    pub fn honesty_pilot_eject_ok(&self) -> bool {
+        self.usa_pilot.honesty_eject_ok()
     }
 
     /// Combined USA Pilot residual honesty.
@@ -37780,8 +37856,12 @@ mod tests {
             "SearchAndDestroy residual must enable Strategy Center stealth detect"
         );
         // Range residual: ally can hit target beyond base 100 range up to 120.
+        // Plan-switch BattlePlanChangeParalyze residual freezes troops for 150 frames;
+        // clear for combat observation of RANGE residual (paralyze tested separately).
         {
             let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.status.disabled_paralyzed = false;
+            ally.status.disabled_paralyzed_until_frame = 0;
             ally.weapon = Some(Weapon {
                 damage: 20.0,
                 range: 100.0,
@@ -37809,6 +37889,298 @@ mod tests {
         assert!(
             sn_dealt > 0.5,
             "SearchAndDestroy residual RANGE 120% must allow fire at 110 (> base 100), dealt {sn_dealt}"
+        );
+    }
+
+    /// Residual: BattlePlanChangeParalyzeTime freezes legal army members on plan *switch*.
+    ///
+    /// C++ BattlePlanUpdate::paralyzeTroop on PLANSTATUS_NONE transition:
+    /// DISABLED_PARALYZED for 5000 ms (150 frames). First select does not paralyze;
+    /// changing plan does. Fail-closed: not full pack/unpack animation order.
+    #[test]
+    fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, BATTLE_PLAN_PARALYZE_FRAMES,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_aircraft_template(&mut game_logic);
+
+        let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
+        sc_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSStrategyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaStrategyCenter".to_string(), sc_template);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        let center_id = game_logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        let ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("infantry");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+        let aircraft_id = game_logic
+            .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("aircraft");
+        for id in [ally_id, infantry_id, enemy_id, aircraft_id] {
+            let u = game_logic.find_object_mut(id).expect("unit");
+            u.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        // First select: buffs apply, no BattlePlanChangeParalyze residual.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::Bombardment,
+            Some(center_id)
+        ));
+        assert!(!game_logic.honesty_battle_plan_paralyze_ok());
+        assert_eq!(game_logic.battle_plans().paralyze_count(), 0);
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "first select must not paralyze army"
+        );
+
+        // Plan switch: DISABLED_PARALYZED for 150 frames on legal members.
+        assert!(game_logic.activate_battle_plan(
+            0,
+            HostBattlePlan::HoldTheLine,
+            Some(center_id)
+        ));
+        assert!(
+            game_logic.honesty_battle_plan_paralyze_ok(),
+            "plan change must record BattlePlanChangeParalyze honesty"
+        );
+        assert!(game_logic.battle_plans().paralyze_count() >= 2);
+        {
+            let ally = game_logic.find_object(ally_id).expect("ally");
+            assert!(ally.is_paralyzed_disabled(), "ally tank must be paralyzed");
+            assert!(ally.is_disabled());
+            assert_eq!(
+                ally.status.disabled_paralyzed_until_frame,
+                game_logic.frame + BATTLE_PLAN_PARALYZE_FRAMES
+            );
+        }
+        assert!(
+            game_logic
+                .find_object(infantry_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "ally infantry must be paralyzed"
+        );
+        assert!(
+            !game_logic
+                .find_object(enemy_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "enemy must not be paralyzed"
+        );
+        assert!(
+            !game_logic
+                .find_object(aircraft_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "aircraft InvalidMember must not be paralyzed"
+        );
+
+        // Observable: paralyzed unit cannot fire residual.
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+            ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        }
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+            enemy.thing.template.armor = 0.0;
+        }
+        game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        let enemy_hp_mid = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            (enemy_hp_before - enemy_hp_mid).abs() < 0.05,
+            "paralyzed residual must block ally fire, dealt {}",
+            enemy_hp_before - enemy_hp_mid
+        );
+
+        // Expire DISABLED_PARALYZED residual after 150 frames.
+        game_logic.frame = game_logic.frame.saturating_add(BATTLE_PLAN_PARALYZE_FRAMES);
+        let expire_frame = game_logic.frame;
+        if let Some(ally) = game_logic.find_object_mut(ally_id) {
+            ally.tick_disabled_paralyzed(expire_frame);
+        }
+        assert!(
+            !game_logic
+                .find_object(ally_id)
+                .unwrap()
+                .is_paralyzed_disabled(),
+            "paralyze must expire after BattlePlanChangeParalyzeTime"
+        );
+
+        // After expiry, fire residual works again (HoldTheLine has no damage mult).
+        {
+            let ally = game_logic.find_object_mut(ally_id).expect("ally");
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+            ally.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+        game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
+        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            enemy_hp_after < enemy_hp_mid - 0.5,
+            "after paralyze expiry ally must fire again"
+        );
+    }
+
+    /// Residual: EjectPilotDie spawns AmericaInfantryPilot when eligible USA vehicle dies.
+    ///
+    /// C++ EjectPilotDie → OCL_EjectPilotOnGround ObjectNames = AmericaInfantryPilot.
+    /// Fail-closed: not full parachute air OCL / invulnerable timer matrix.
+    #[test]
+    fn eject_pilot_die_spawns_pilot_on_vehicle_death_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            is_eject_pilot_eligible_template, EJECT_PILOT_TEMPLATE,
+        };
+
+        let mut game_logic = GameLogic::new();
+
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+        assert!(is_eject_pilot_eligible_template("AmericaVehicleHumvee"));
+
+        // Ineligible control (TestTank has no EjectPilotDie residual).
+        ensure_test_tank_template(&mut game_logic);
+
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("humvee");
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 100.0))
+            .expect("tank");
+
+        assert!(!game_logic.honesty_pilot_eject_ok());
+        assert_eq!(game_logic.usa_pilot_residual().ejections, 0);
+
+        // Destroy eligible Humvee → pilot spawn residual.
+        {
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        assert!(
+            game_logic.honesty_pilot_eject_ok(),
+            "EjectPilotDie residual must record eject honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().ejections, 1);
+        assert!(
+            game_logic.honesty_pilot_ok(),
+            "eject path counts as pilot residual honesty"
+        );
+
+        // Pilot must exist on same team near death pos.
+        let pilots: Vec<_> = game_logic
+            .objects
+            .values()
+            .filter(|o| {
+                o.is_alive()
+                    && o.template_name == EJECT_PILOT_TEMPLATE
+                    && o.team == Team::USA
+            })
+            .collect();
+        assert_eq!(pilots.len(), 1, "exactly one pilot must eject");
+        let pilot = pilots[0];
+        assert_eq!(
+            pilot.experience.level,
+            crate::game_logic::VeterancyLevel::Veteran,
+            "ejected pilot residual starts VETERAN"
+        );
+        let pos = pilot.get_position();
+        assert!(
+            (pos.x - 52.0).abs() < 1.0 && (pos.z - 52.0).abs() < 1.0,
+            "pilot residual spawns near death position, got {pos:?}"
+        );
+
+        // Ineligible vehicle death must not eject.
+        {
+            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            let _ = t.take_damage(t.max_health * 2.0);
+            t.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(tank_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            1,
+            "TestTank has no EjectPilotDie residual"
+        );
+
+        // Unmanned eligible vehicle must not eject (no pilot left).
+        let humvee2 = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(200.0, 0.0, 200.0),
+            )
+            .expect("humvee2");
+        {
+            let h = game_logic.find_object_mut(humvee2).expect("humvee2");
+            h.apply_kill_pilot_unmanned();
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee2, Some(Team::GLA));
+        game_logic.process_destroy_list();
+        assert_eq!(
+            game_logic.usa_pilot_residual().ejections,
+            1,
+            "unmanned residual must not eject pilot"
         );
     }
 

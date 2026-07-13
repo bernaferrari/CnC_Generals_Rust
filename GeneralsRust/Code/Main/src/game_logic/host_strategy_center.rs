@@ -14,9 +14,13 @@
 //!   - HoldTheLine max-health scalar **2.0** (PRESERVE_RATIO residual)
 //!   - SearchAndDestroy building sight scalar **2.0** + stealth detect residual
 //!
+//! - **BattlePlanChangeParalyzeTime residual**: on plan change (including first
+//!   residual select), legal army members receive DISABLED_PARALYZED for
+//!   **5000 ms → 150 frames** (retail BattlePlanChangeParalyzeTime).
+//!
 //! Fail-closed honesty:
 //! - Not full BattlePlanUpdate pack/unpack animation / door model-condition matrix
-//! - Not full 5000ms army paralyze on plan change matrix
+//! - Not full pack→NONE→unpack transition ordering (host paralyzes on activate)
 //! - Not full turret enable/recenter for Bombardment residual path
 //! - Not full StealthDetectorUpdate enable/disable module stack beyond residual flag
 //! - Not full vision object (VisionObjectName) spawn residual
@@ -43,11 +47,33 @@ pub const STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR: f32 = 2.0;
 /// Retail StrategyCenterSearchAndDestroySightRangeScalar.
 pub const STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR: f32 = 2.0;
 
+/// Retail BattlePlanChangeParalyzeTime (ms).
+pub const BATTLE_PLAN_PARALYZE_TIME_MS: u32 = 5000;
+
+/// Logic frames per second (host fixed step).
+pub const BATTLE_PLAN_LOGIC_FPS: f32 = 30.0;
+
+/// Retail BattlePlanChangeParalyzeTime → frames at 30 FPS (5000 / (1000/30) = 150).
+pub const BATTLE_PLAN_PARALYZE_FRAMES: u32 = 150;
+
 /// Residual announcement audio (pack/unpack sounds fail-closed).
 pub const BATTLE_PLAN_BOMBARDMENT_AUDIO: &str = "StrategyCenter_BombardmentPlanAnnouncement";
 pub const BATTLE_PLAN_HOLD_THE_LINE_AUDIO: &str = "StrategyCenter_HoldTheLineAnnouncement";
 pub const BATTLE_PLAN_SEARCH_AND_DESTROY_AUDIO: &str =
     "StrategyCenter_SearchAndDestroyAnnouncement";
+
+/// Convert BattlePlanChangeParalyzeTime ms → logic frames (30 FPS residual).
+pub fn battle_plan_paralyze_frames_from_ms(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) / (1000.0 / BATTLE_PLAN_LOGIC_FPS)).round() as u32
+}
+
+/// Absolute host frame when DISABLED_PARALYZED residual expires.
+pub fn battle_plan_paralyze_until_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(BATTLE_PLAN_PARALYZE_FRAMES.max(1))
+}
 
 /// USA Strategy Center battle plan residual kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -199,6 +225,9 @@ pub struct HostBattlePlanSelection {
     pub buffs: u32,
     /// Strategy Center building residual applied (max-health / detect / sight).
     pub building_bonus: bool,
+    /// Same-team legal army members that received DISABLED_PARALYZED residual.
+    #[serde(default)]
+    pub paralyzed: u32,
 }
 
 /// Host residual registry for Strategy Center battle plans.
@@ -215,6 +244,9 @@ pub struct HostBattlePlanRegistry {
     pub buff_count: u32,
     /// Total building residual grants.
     pub building_bonus_count: u32,
+    /// Total army members hit by BattlePlanChangeParalyze residual.
+    #[serde(default)]
+    pub paralyze_count: u32,
 }
 
 impl HostBattlePlanRegistry {
@@ -236,6 +268,10 @@ impl HostBattlePlanRegistry {
 
     pub fn building_bonus_count(&self) -> u32 {
         self.building_bonus_count
+    }
+
+    pub fn paralyze_count(&self) -> u32 {
+        self.paralyze_count
     }
 
     pub fn selections(&self) -> &[HostBattlePlanSelection] {
@@ -278,6 +314,7 @@ impl HostBattlePlanRegistry {
         if selection.building_bonus {
             self.building_bonus_count = self.building_bonus_count.saturating_add(1);
         }
+        self.paralyze_count = self.paralyze_count.saturating_add(selection.paralyzed);
         self.set_active_plan(selection.player_id, selection.plan);
         self.selections.push(selection);
         // Keep bookkeeping bounded (residual, not full history Xfer).
@@ -295,6 +332,11 @@ impl HostBattlePlanRegistry {
     /// Residual honesty: at least one unit received army residual bonuses.
     pub fn honesty_buff_ok(&self) -> bool {
         self.buff_count > 0
+    }
+
+    /// Residual honesty: BattlePlanChangeParalyze applied to at least one unit.
+    pub fn honesty_paralyze_ok(&self) -> bool {
+        self.paralyze_count > 0
     }
 
     /// Combined host path: selected and applied at least one army buff.
@@ -315,6 +357,10 @@ mod tests {
         assert!((SEARCH_AND_DESTROY_SIGHT_RANGE_SCALAR - 1.2).abs() < 0.001);
         assert!((STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR - 2.0).abs() < 0.001);
         assert!((STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR - 2.0).abs() < 0.001);
+        assert_eq!(BATTLE_PLAN_PARALYZE_TIME_MS, 5000);
+        assert_eq!(BATTLE_PLAN_PARALYZE_FRAMES, 150);
+        assert_eq!(battle_plan_paralyze_frames_from_ms(5000), 150);
+        assert_eq!(battle_plan_paralyze_until_frame(10), 160);
         assert!(!BATTLE_PLAN_BOMBARDMENT_AUDIO.is_empty());
         assert!(!BATTLE_PLAN_HOLD_THE_LINE_AUDIO.is_empty());
         assert!(!BATTLE_PLAN_SEARCH_AND_DESTROY_AUDIO.is_empty());
@@ -401,13 +447,16 @@ mod tests {
             strategy_center_id: None,
             buffs: 2,
             building_bonus: true,
+            paralyzed: 2,
         });
         assert!(reg.honesty_select_ok());
         assert!(reg.honesty_buff_ok());
+        assert!(reg.honesty_paralyze_ok());
         assert!(reg.honesty_host_path_ok());
         assert_eq!(reg.selection_count(), 1);
         assert_eq!(reg.buff_count(), 2);
         assert_eq!(reg.building_bonus_count(), 1);
+        assert_eq!(reg.paralyze_count(), 2);
         assert_eq!(
             reg.active_plan_for_player(0),
             Some(HostBattlePlan::Bombardment)
