@@ -850,6 +850,20 @@ pub struct GameLogic {
     /// Host residual: GLA Toxin Tractor stream/spray/death poison fields.
     toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry,
 
+    /// Host residual: GLA Marauder salvage fire-rate tiers honesty.
+    /// Fail-closed: not full SalvageCrate W3D turret subobject matrix.
+    marauder_residual_fires: u32,
+    marauder_residual_units_hit: u32,
+    marauder_residual_weapon_upgrades: u32,
+
+    /// Host residual: GLA Combat Cycle rider weapon switch honesty.
+    /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
+    combat_cycle_residual_fires: u32,
+    combat_cycle_residual_units_hit: u32,
+    combat_cycle_residual_rider_switches: u32,
+    combat_cycle_residual_loads: u32,
+    combat_cycle_residual_suicides: u32,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1727,6 +1741,14 @@ impl GameLogic {
             technical_residual_loads: 0,
             technical_residual_unloads: 0,
             toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry::new(),
+            marauder_residual_fires: 0,
+            marauder_residual_units_hit: 0,
+            marauder_residual_weapon_upgrades: 0,
+            combat_cycle_residual_fires: 0,
+            combat_cycle_residual_units_hit: 0,
+            combat_cycle_residual_rider_switches: 0,
+            combat_cycle_residual_loads: 0,
+            combat_cycle_residual_suicides: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1927,6 +1949,14 @@ impl GameLogic {
         self.technical_residual_loads = 0;
         self.technical_residual_unloads = 0;
         self.toxin_tractor.clear();
+        self.marauder_residual_fires = 0;
+        self.marauder_residual_units_hit = 0;
+        self.marauder_residual_weapon_upgrades = 0;
+        self.combat_cycle_residual_fires = 0;
+        self.combat_cycle_residual_units_hit = 0;
+        self.combat_cycle_residual_rider_switches = 0;
+        self.combat_cycle_residual_loads = 0;
+        self.combat_cycle_residual_suicides = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -4986,6 +5016,56 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // GLA Marauder residual: salvage fire-rate tiers + small splash.
+                        use crate::game_logic::host_marauder::{
+                            is_marauder_template, should_apply_marauder_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_marauder_residual(is_marauder_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_marauder_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
+                    } else if {
+                        // GLA Combat Cycle residual: rider weapon fire / suicide residual.
+                        use crate::game_logic::host_combat_cycle::{
+                            is_combat_cycle_template, should_apply_combat_cycle_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_combat_cycle_residual(is_combat_cycle_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
                         // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
                         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
                         self.objects
@@ -6133,6 +6213,7 @@ impl GameLogic {
                         container_is_overlord_bunker,
                         container_is_battle_bus,
                         container_is_technical,
+                        container_is_combat_cycle,
                         container_is_combat_chinook,
                         container_is_tunnel_network,
                         container_is_alive,
@@ -6152,6 +6233,7 @@ impl GameLogic {
                                 && container.overlord_bunker_slot_capacity() > 0,
                             container.is_battle_bus_style_container(),
                             container.is_technical_style_container(),
+                            container.is_combat_cycle_style_container(),
                             container.is_combat_chinook_style_container(),
                             container.is_tunnel_network_style_container(),
                             container.is_alive(),
@@ -6196,7 +6278,8 @@ impl GameLogic {
                     } else if (container_is_structure
                         || container_is_overlord_bunker
                         || container_is_battle_bus
-                        || container_is_technical)
+                        || container_is_technical
+                        || container_is_combat_cycle)
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -6335,6 +6418,10 @@ impl GameLogic {
                     } else if container_is_technical {
                         // GLA Technical residual load (Slots=5 infantry; no passenger fire).
                         self.record_technical_residual_load();
+                    } else if container_is_combat_cycle {
+                        // GLA Combat Cycle residual load (Slots=1) + rider weapon switch.
+                        self.record_combat_cycle_residual_load();
+                        self.refresh_combat_cycle_rider_weapon(container_id);
                     } else if container_is_combat_chinook {
                         // AirF Combat Chinook residual load (Slots=8 + passenger fire).
                         self.record_combat_chinook_residual_load();
@@ -8378,6 +8465,19 @@ impl GameLogic {
             // Fail-closed: not chassis reskin / PassengersAllowedToFire.
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 object.install_technical_transport();
+            }
+
+            // Host residual: GLA Combat Cycle RiderChangeContain Slots=1 + rider weapon.
+            // Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
+            if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
+                object.install_combat_cycle_transport();
+                // Retail InitialPayload residual: spawn with default rider weapon bound.
+                let rider = crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
+                    template_name,
+                );
+                object.combat_cycle_rider = rider.as_u8();
+                object.weapon =
+                    crate::game_logic::host_combat_cycle::combat_cycle_weapon_for_rider(rider);
             }
 
             // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10).
@@ -11699,6 +11799,63 @@ impl GameLogic {
         &self.toxin_tractor
     }
 
+    /// Residual honesty: Marauder fire-rate salvage residual fired or upgraded.
+    pub fn honesty_marauder_ok(&self) -> bool {
+        self.marauder_residual_fires > 0 || self.marauder_residual_weapon_upgrades > 0
+    }
+
+    pub fn honesty_marauder_weapon_upgrade_ok(&self) -> bool {
+        self.marauder_residual_weapon_upgrades > 0
+    }
+
+    pub fn marauder_residual_fires(&self) -> u32 {
+        self.marauder_residual_fires
+    }
+
+    pub fn marauder_residual_units_hit(&self) -> u32 {
+        self.marauder_residual_units_hit
+    }
+
+    pub fn marauder_residual_weapon_upgrades(&self) -> u32 {
+        self.marauder_residual_weapon_upgrades
+    }
+
+    /// Residual honesty: Combat Cycle rider weapon residual path.
+    pub fn honesty_combat_cycle_ok(&self) -> bool {
+        self.combat_cycle_residual_fires > 0
+            || self.combat_cycle_residual_rider_switches > 0
+            || self.combat_cycle_residual_loads > 0
+            || self.combat_cycle_residual_suicides > 0
+    }
+
+    pub fn honesty_combat_cycle_rider_switch_ok(&self) -> bool {
+        self.combat_cycle_residual_rider_switches > 0
+    }
+
+    pub fn honesty_combat_cycle_fire_ok(&self) -> bool {
+        self.combat_cycle_residual_fires > 0
+    }
+
+    pub fn combat_cycle_residual_fires(&self) -> u32 {
+        self.combat_cycle_residual_fires
+    }
+
+    pub fn combat_cycle_residual_units_hit(&self) -> u32 {
+        self.combat_cycle_residual_units_hit
+    }
+
+    pub fn combat_cycle_residual_rider_switches(&self) -> u32 {
+        self.combat_cycle_residual_rider_switches
+    }
+
+    pub fn combat_cycle_residual_loads(&self) -> u32 {
+        self.combat_cycle_residual_loads
+    }
+
+    pub fn combat_cycle_residual_suicides(&self) -> u32 {
+        self.combat_cycle_residual_suicides
+    }
+
     /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
     ///
     /// Returns (units_hit, any_destroyed).
@@ -12268,6 +12425,536 @@ impl GameLogic {
     /// Record Technical residual passenger unload honesty.
     pub fn record_technical_residual_unload(&mut self) {
         self.technical_residual_unloads = self.technical_residual_unloads.saturating_add(1);
+    }
+
+    /// Infer Marauder salvage tier from residual weapon reload / upgrade tags.
+    fn marauder_tier_from_object(
+        obj: &Object,
+    ) -> crate::game_logic::host_marauder::MarauderWeaponTier {
+        use crate::game_logic::host_marauder::MarauderWeaponTier;
+        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO")
+            || obj.has_upgrade_tag("MarauderCrateUpgradeTwo")
+        {
+            return MarauderWeaponTier::Two;
+        }
+        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE")
+            || obj.has_upgrade_tag("MarauderCrateUpgradeOne")
+        {
+            return MarauderWeaponTier::One;
+        }
+        // Infer from reload residual when tags absent (faster = higher tier).
+        if let Some(w) = obj.weapon.as_ref() {
+            // Tier2 ~23/30s, Tier1 ~45/30s, Base ~60/30s.
+            if w.reload_time <= (23.0 / 30.0) + 0.02 {
+                return MarauderWeaponTier::Two;
+            }
+            if w.reload_time <= (45.0 / 30.0) + 0.02 {
+                return MarauderWeaponTier::One;
+            }
+        }
+        MarauderWeaponTier::Base
+    }
+
+    /// Apply residual salvage fire-rate tier to a Marauder (crate upgrade residual).
+    ///
+    /// Fail-closed: not full SalvageCrate collate / W3D turret subobject swap.
+    pub fn apply_marauder_weapon_tier(
+        &mut self,
+        object_id: ObjectId,
+        tier: crate::game_logic::host_marauder::MarauderWeaponTier,
+    ) -> bool {
+        use crate::game_logic::host_marauder::{
+            delay_frames_to_reload_secs, is_marauder_template, marauder_weapon_for_tier,
+            marauder_weapon_name_for_tier, marauder_weapon_stats,
+        };
+        use crate::game_logic::thing::ThingTemplate;
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_marauder_template(&obj.template_name) {
+            return false;
+        }
+
+        let name = marauder_weapon_name_for_tier(tier);
+        let (dmg, range, delay, _splash, speed) = marauder_weapon_stats(tier);
+        let mut weapon = ThingTemplate::weapon_from_store(name)
+            .unwrap_or_else(|| marauder_weapon_for_tier(tier));
+        weapon.damage = dmg;
+        weapon.range = range;
+        weapon.min_range = 0.0;
+        weapon.reload_time = delay_frames_to_reload_secs(delay);
+        weapon.projectile_speed = speed;
+        weapon.can_target_ground = true;
+        weapon.can_target_air = false;
+        obj.weapon = Some(weapon);
+
+        obj.applied_upgrades
+            .remove("WEAPONSET_CRATEUPGRADE_ONE");
+        obj.applied_upgrades
+            .remove("WEAPONSET_CRATEUPGRADE_TWO");
+        match tier {
+            crate::game_logic::host_marauder::MarauderWeaponTier::One => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
+            }
+            crate::game_logic::host_marauder::MarauderWeaponTier::Two => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
+            }
+            crate::game_logic::host_marauder::MarauderWeaponTier::Base => {}
+        }
+
+        self.marauder_residual_weapon_upgrades = self
+            .marauder_residual_weapon_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Marauder residual fire (primary on intended + small splash radius).
+    fn apply_marauder_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_marauder::{
+            is_legal_marauder_splash_target, is_marauder_template, marauder_splash_damage_at,
+            MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
+        };
+
+        // Fire-rate tier residual is encoded on the weapon; damage is constant across tiers.
+        let _tier = source
+            .and_then(|sid| self.objects.get(&sid))
+            .map(Self::marauder_tier_from_object);
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_marauder_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= MARAUDER_SPLASH_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = marauder_splash_damage_at(is_intended, dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.marauder_residual_fires = self.marauder_residual_fires.saturating_add(1);
+        self.marauder_residual_units_hit =
+            self.marauder_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(MARAUDER_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_marauder_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Record Combat Cycle residual rider load honesty.
+    pub fn record_combat_cycle_residual_load(&mut self) {
+        self.combat_cycle_residual_loads = self.combat_cycle_residual_loads.saturating_add(1);
+    }
+
+    /// Apply residual rider weapon switch to a Combat Cycle (RiderChangeContain residual).
+    ///
+    /// Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
+    pub fn apply_combat_cycle_rider(
+        &mut self,
+        object_id: ObjectId,
+        rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
+    ) -> bool {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_weapon_for_rider, is_combat_cycle_template,
+        };
+        use crate::game_logic::thing::ThingTemplate;
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_combat_cycle_template(&obj.template_name) {
+            return false;
+        }
+        if !obj.is_combat_cycle_style_container() {
+            obj.install_combat_cycle_transport();
+        }
+
+        obj.combat_cycle_rider = rider.as_u8();
+        if let Some(name) =
+            crate::game_logic::host_combat_cycle::combat_cycle_weapon_name_for_rider(rider)
+        {
+            let mut weapon = ThingTemplate::weapon_from_store(name)
+                .or_else(|| combat_cycle_weapon_for_rider(rider));
+            if let Some(ref mut w) = weapon {
+                // Force residual stats from host residual table.
+                if let Some(stats) = combat_cycle_weapon_for_rider(rider) {
+                    w.damage = stats.damage;
+                    w.range = stats.range;
+                    w.min_range = stats.min_range;
+                    w.reload_time = stats.reload_time;
+                    w.can_target_air = stats.can_target_air;
+                    w.can_target_ground = stats.can_target_ground;
+                    w.projectile_speed = stats.projectile_speed;
+                    w.ammo = stats.ammo;
+                }
+            }
+            obj.weapon = weapon;
+        } else {
+            obj.weapon = None;
+            obj.secondary_weapon = None;
+        }
+
+        self.combat_cycle_residual_rider_switches = self
+            .combat_cycle_residual_rider_switches
+            .saturating_add(1);
+        true
+    }
+
+    /// Refresh Combat Cycle weapon from current occupant residual.
+    ///
+    /// Empty bike → PRIMARY NONE; single rider → rider weapon residual.
+    pub fn refresh_combat_cycle_rider_weapon(&mut self, container_id: ObjectId) {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_weapon_for_rider, is_combat_cycle_template, rider_from_template_name,
+            CombatCycleRider,
+        };
+
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !is_combat_cycle_template(&container.template_name)
+            && !container.is_combat_cycle_style_container()
+        {
+            return;
+        }
+        let occupants = container.contained_units();
+        let rider = if let Some(first) = occupants.first() {
+            self.objects
+                .get(first)
+                .map(|o| rider_from_template_name(&o.template_name))
+                .unwrap_or(CombatCycleRider::None)
+        } else if container.combat_cycle_rider > 0 {
+            // Spawn InitialPayload residual without a live occupant object:
+            // keep current rider class when no occupants tracked yet.
+            CombatCycleRider::from_u8(container.combat_cycle_rider)
+        } else {
+            CombatCycleRider::None
+        };
+
+        // When occupants present, force rider from them; when empty and no
+        // spawn residual, clear weapon.
+        let rider = if occupants.is_empty() && container.combat_cycle_rider == 0 {
+            CombatCycleRider::None
+        } else if !occupants.is_empty() {
+            rider
+        } else {
+            // Occupants empty but spawn rider still set: keep spawn residual.
+            CombatCycleRider::from_u8(container.combat_cycle_rider)
+        };
+
+        let _ = combat_cycle_weapon_for_rider(rider);
+        let _ = self.apply_combat_cycle_rider(container_id, rider);
+    }
+
+    /// Apply Combat Cycle residual fire (rider weapon or suicide area).
+    fn apply_combat_cycle_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_combat_cycle::{
+            combat_cycle_audio_for_rider, is_legal_combat_cycle_target, is_terrorist_suicide_rider,
+            rpg_splash_damage_at, suicide_bike_damage_at, CombatCycleRider, RPG_DAMAGE, RPG_SPLASH,
+            SUICIDE_SECONDARY_RADIUS,
+        };
+
+        let (source_team, rider, bike_pos) = source
+            .and_then(|sid| {
+                self.objects.get(&sid).map(|o| {
+                    (
+                        o.team,
+                        CombatCycleRider::from_u8(o.combat_cycle_rider),
+                        o.get_position(),
+                    )
+                })
+            })
+            .unwrap_or((Team::Neutral, CombatCycleRider::None, impact));
+
+        // Infer rebel when rider unset but weapon residual looks like MG.
+        let rider = if matches!(rider, CombatCycleRider::None) {
+            if let Some(sid) = source {
+                if let Some(o) = self.objects.get(&sid) {
+                    if let Some(w) = o.weapon.as_ref() {
+                        if (w.damage - 8.0).abs() < 0.5 {
+                            CombatCycleRider::Rebel
+                        } else if (w.damage - 40.0).abs() < 0.5 {
+                            CombatCycleRider::TunnelDefender
+                        } else if (w.damage - 180.0).abs() < 1.0 {
+                            CombatCycleRider::JarmenKell
+                        } else if w.damage >= 500.0 {
+                            CombatCycleRider::Terrorist
+                        } else {
+                            rider
+                        }
+                    } else {
+                        rider
+                    }
+                } else {
+                    rider
+                }
+            } else {
+                rider
+            }
+        } else {
+            rider
+        };
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let mut destroy_self = false;
+
+        if is_terrorist_suicide_rider(rider) {
+            // SuicideBikeBomb residual around bike position.
+            let center = bike_pos;
+            let candidates: Vec<(ObjectId, f32)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if source == Some(*id) {
+                        return None;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_combat_cycle_target(
+                        obj.is_alive(),
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    let dist = {
+                        let dx = center.x - pos.x;
+                        let dz = center.z - pos.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    if dist <= SUICIDE_SECONDARY_RADIUS {
+                        Some((*id, dist))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for (id, dist) in candidates {
+                let dmg = suicide_bike_damage_at(dist);
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let destroyed = obj.take_damage(dmg);
+                    hits = hits.saturating_add(1);
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((id, Some(source_team)));
+                    }
+                }
+            }
+            destroy_self = true;
+            self.combat_cycle_residual_suicides =
+                self.combat_cycle_residual_suicides.saturating_add(1);
+        } else if matches!(rider, CombatCycleRider::TunnelDefender) {
+            // RPG splash residual.
+            let impact_xz = (impact.x, impact.z);
+            let candidates: Vec<(ObjectId, f32, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if source == Some(*id) {
+                        return None;
+                    }
+                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                        || obj.is_kind_of(KindOf::Structure)
+                        || obj.is_kind_of(KindOf::Infantry)
+                        || obj.is_kind_of(KindOf::Vehicle)
+                        || obj.is_kind_of(KindOf::Aircraft);
+                    if !is_legal_combat_cycle_target(
+                        obj.is_alive(),
+                        false,
+                        obj.status.under_construction,
+                        combat_kind,
+                    ) {
+                        return None;
+                    }
+                    let pos = obj.get_position();
+                    let dist = {
+                        let dx = impact_xz.0 - pos.x;
+                        let dz = impact_xz.1 - pos.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    let is_intended = intended_target == Some(*id);
+                    if is_intended || dist <= RPG_SPLASH {
+                        Some((*id, dist, is_intended))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for (id, dist, is_intended) in candidates {
+                let dmg = rpg_splash_damage_at(is_intended, dist);
+                if dmg <= 0.0 {
+                    continue;
+                }
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let destroyed = obj.take_damage(dmg);
+                    hits = hits.saturating_add(1);
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((id, Some(source_team)));
+                    }
+                }
+            }
+            let _ = RPG_DAMAGE;
+        } else {
+            // Direct residual hit (Rebel MG / Kell sniper).
+            if let Some(tid) = intended_target {
+                let dmg = source
+                    .and_then(|sid| self.objects.get(&sid))
+                    .and_then(|o| o.weapon.as_ref())
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0);
+                if dmg > 0.0 {
+                    if let Some(obj) = self.objects.get_mut(&tid) {
+                        if is_legal_combat_cycle_target(
+                            obj.is_alive(),
+                            false,
+                            obj.status.under_construction,
+                            true,
+                        ) {
+                            let destroyed = obj.take_damage(dmg);
+                            hits = hits.saturating_add(1);
+                            if destroyed {
+                                any_destroyed = true;
+                                destroy_ids.push((tid, Some(source_team)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+        if destroy_self {
+            if let Some(sid) = source {
+                self.mark_object_for_destruction(sid, Some(source_team));
+            }
+        }
+
+        self.combat_cycle_residual_fires = self.combat_cycle_residual_fires.saturating_add(1);
+        self.combat_cycle_residual_units_hit =
+            self.combat_cycle_residual_units_hit.saturating_add(hits);
+
+        if let Some(audio) = combat_cycle_audio_for_rider(rider) {
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_position(impact)
+                    .with_priority(150),
+            );
+        }
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
     }
 
     /// Apply Toxin Tractor primary stream residual (poison damage radius).
@@ -39180,6 +39867,304 @@ mod tests {
                 .map(|r| r.status.stealthed)
                 .unwrap_or(false),
             "idle camouflage residual must re-cloak rebel"
+        );
+    }
+
+    /// Residual: GLA Marauder salvage fire-rate tiers (same dmg, faster reload).
+    #[test]
+    fn marauder_residual_salvage_fire_rate_tiers() {
+        use crate::game_logic::host_marauder::{
+            is_marauder_template, MarauderWeaponTier, MARAUDER_DAMAGE, MARAUDER_RANGE,
+            MARAUDER_TANK_GUN,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut marauder_tpl = crate::game_logic::ThingTemplate::new("GLATankMarauder");
+        marauder_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0)
+            .set_primary_weapon_name(MARAUDER_TANK_GUN);
+        game_logic
+            .templates
+            .insert("GLATankMarauder".to_string(), marauder_tpl);
+
+        let marauder_id = game_logic
+            .create_object(
+                "GLATankMarauder",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("marauder");
+        let base_reload = {
+            let m = game_logic.find_object(marauder_id).expect("marauder");
+            assert!(is_marauder_template(&m.template_name));
+            let prim = m.weapon.as_ref().expect("gun");
+            assert!((prim.damage - MARAUDER_DAMAGE).abs() < 0.01);
+            assert!((prim.range - MARAUDER_RANGE).abs() < 1.0);
+            prim.reload_time
+        };
+
+        // Salvage tier two residual → same damage, faster fire.
+        assert!(game_logic.apply_marauder_weapon_tier(marauder_id, MarauderWeaponTier::Two));
+        assert!(
+            game_logic.honesty_marauder_weapon_upgrade_ok(),
+            "marauder salvage fire-rate upgrade residual honesty"
+        );
+        {
+            let m = game_logic.find_object(marauder_id).expect("marauder");
+            let prim = m.weapon.as_ref().expect("upgraded gun");
+            assert!(
+                (prim.damage - MARAUDER_DAMAGE).abs() < 0.01,
+                "marauder salvage residual keeps PrimaryDamage 60"
+            );
+            assert!(
+                prim.reload_time < base_reload - 0.05,
+                "tier two must fire faster than base (base={base_reload} tier2={})",
+                prim.reload_time
+            );
+            // 23 frames @ 30 FPS ≈ 0.766s
+            assert!(
+                (prim.reload_time - (23.0 / 30.0)).abs() < 0.05,
+                "tier two reload residual ~23 frames"
+            );
+        }
+
+        // Fire residual splash vs intended + nearby.
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        let splash_inf = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let m = game_logic.find_object_mut(marauder_id).unwrap();
+            m.attack_target(enemy);
+            if let Some(w) = m.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[marauder_id, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.marauder_residual_fires() > 0,
+            "marauder residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_marauder_ok(),
+            "marauder residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "marauder residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "marauder radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+    }
+
+    /// Residual: GLA Combat Cycle rider weapon switch + residual fire.
+    #[test]
+    fn combat_cycle_residual_rider_weapon_switch() {
+        use crate::game_logic::host_combat_cycle::{
+            is_combat_cycle_template, CombatCycleRider, COMBAT_CYCLE_TRANSPORT_SLOTS,
+            KELL_DAMAGE, REBEL_BIKER_MG, REBEL_MG_DAMAGE, RPG_DAMAGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut bike_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleCombatBike");
+        bike_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(REBEL_BIKER_MG);
+        game_logic
+            .templates
+            .insert("GLAVehicleCombatBike".to_string(), bike_tpl);
+
+        // Rider templates for switch residual.
+        for (name, kinds) in [
+            ("GLAInfantryRebel", true),
+            ("GLAInfantryTunnelDefender", true),
+            ("GLAInfantryJarmenKell", true),
+            ("GLAInfantryWorker", true),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(100.0);
+            let _ = kinds;
+            game_logic.templates.insert(name.to_string(), tpl);
+        }
+
+        let bike_id = game_logic
+            .create_object(
+                "GLAVehicleCombatBike",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("bike");
+        {
+            let b = game_logic.find_object(bike_id).expect("bike");
+            assert!(is_combat_cycle_template(&b.template_name));
+            assert!(b.is_combat_cycle_style_container());
+            assert_eq!(b.transport_capacity(), COMBAT_CYCLE_TRANSPORT_SLOTS);
+            assert!(!b.passengers_allowed_to_fire);
+            // InitialPayload residual: Rebel MG bound.
+            let prim = b.weapon.as_ref().expect("default rebel weapon");
+            assert!((prim.damage - REBEL_MG_DAMAGE).abs() < 0.01);
+            assert_eq!(
+                b.combat_cycle_rider,
+                CombatCycleRider::Rebel.as_u8()
+            );
+        }
+
+        // Switch residual: TunnelDefender RPG.
+        assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::TunnelDefender));
+        assert!(
+            game_logic.honesty_combat_cycle_rider_switch_ok(),
+            "combat cycle rider switch residual honesty"
+        );
+        {
+            let b = game_logic.find_object(bike_id).expect("bike");
+            let prim = b.weapon.as_ref().expect("rpg");
+            assert!((prim.damage - RPG_DAMAGE).abs() < 0.5);
+            assert!(prim.can_target_air, "RPG residual targets air");
+            assert!((prim.min_range - 5.0).abs() < 0.1);
+        }
+
+        // Switch residual: Jarmen Kell sniper.
+        assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::JarmenKell));
+        {
+            let b = game_logic.find_object(bike_id).expect("bike");
+            let prim = b.weapon.as_ref().expect("sniper");
+            assert!((prim.damage - KELL_DAMAGE).abs() < 1.0);
+            assert!((prim.range - 225.0).abs() < 1.0);
+        }
+
+        // Worker residual: no combat weapon (PRIMARY NONE).
+        assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Worker));
+        {
+            let b = game_logic.find_object(bike_id).expect("bike");
+            assert!(
+                b.weapon.is_none(),
+                "worker rider residual must clear combat weapon"
+            );
+        }
+
+        // Restore Rebel and fire residual.
+        assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Rebel));
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let b = game_logic.find_object_mut(bike_id).unwrap();
+            b.attack_target(enemy);
+            if let Some(w) = b.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(&[bike_id, enemy], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_combat_cycle_fire_ok(),
+            "combat cycle residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_combat_cycle_ok(),
+            "combat cycle residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "combat cycle rebel residual must damage target (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+
+        // Live rider load residual: enter with TunnelDefender switches weapon.
+        let rpg_rider = game_logic
+            .create_object(
+                "GLAInfantryTunnelDefender",
+                Team::GLA,
+                Vec3::new(1.0, 0.0, 0.0),
+            )
+            .expect("rpg rider");
+        // Empty spawn rider slot first by clearing occupants and applying None.
+        // Capacity is 1; spawn residual may not have live occupant. Force empty then enter.
+        {
+            let b = game_logic.find_object_mut(bike_id).unwrap();
+            // Clear residual spawn rider so refresh uses live occupant.
+            b.combat_cycle_rider = 0;
+            b.occupants.clear();
+            b.weapon = None;
+        }
+        {
+            let unit = game_logic.find_object_mut(rpg_rider).unwrap();
+            unit.target = Some(bike_id);
+            unit.ai_state = AIState::Entering;
+        }
+        game_logic.update_ai(&[rpg_rider, bike_id], 1.0 / 30.0);
+        {
+            let b = game_logic.find_object(bike_id).expect("bike");
+            assert!(
+                b.contained_units().contains(&rpg_rider),
+                "combat cycle must load single rider residual"
+            );
+            assert_eq!(b.transport_count(), 1);
+            let prim = b.weapon.as_ref().expect("rpg after load");
+            assert!(
+                (prim.damage - RPG_DAMAGE).abs() < 0.5,
+                "enter residual must switch to TunnelDefender RPG weapon"
+            );
+        }
+        assert!(
+            game_logic.combat_cycle_residual_loads() >= 1,
+            "combat cycle load residual honesty"
         );
     }
 }
