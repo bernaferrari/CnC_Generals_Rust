@@ -374,8 +374,9 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .set_health(500.0)
         .set_cost(800, -2)
         .set_model("nbgattling_a1") // China gattling cannon model
-        // Residual auto-fire: bind retail Gattling building primary.
-        .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON);
+        // Residual auto-fire: bind retail Gattling building primary + AA secondary.
+        .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_SECONDARY_WEAPON);
     templates.insert("China_GattlingCannon".to_string(), china_gattling);
 
     // Additional GLA Buildings

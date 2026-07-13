@@ -167,8 +167,12 @@ pub use host_propaganda::{
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
 };
 pub use host_base_defense::{
-    is_base_defense_structure, is_legal_base_defense_target, primary_weapon_name_for_defense,
-    GATTLING_BUILDING_PRIMARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+    gattling_building_air_weapon, gattling_building_ground_weapon, is_base_defense_structure,
+    is_gattling_cannon_structure, is_legal_base_defense_target, preferred_gattling_building_slot,
+    primary_weapon_name_for_defense, secondary_weapon_name_for_defense,
+    GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
+    GATTLING_BUILDING_GROUND_DAMAGE, GATTLING_BUILDING_GROUND_RANGE,
+    GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
 };
 pub use host_ecm_jam::{
     is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS,

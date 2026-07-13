@@ -48,6 +48,8 @@ pub const HUMVEE_SECONDARY_WEAPON: &str = "HumveeMissileWeapon";
 /// Retail base-defense primary weapons (Patriot / Gattling structure residual).
 pub const PATRIOT_PRIMARY_WEAPON: &str = "PatriotMissileWeapon";
 pub const GATTLING_BUILDING_PRIMARY_WEAPON: &str = "GattlingBuildingGun";
+/// Retail China Gattling Cannon secondary AA residual.
+pub const GATTLING_BUILDING_SECONDARY_WEAPON: &str = "GattlingBuildingGunAir";
 
 /// Retail Nuke Cannon primary / neutron secondary residual weapons.
 pub const NUKE_CANNON_PRIMARY_WEAPON: &str = "NukeCannonGun";
@@ -207,7 +209,12 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "USA_Patriot" | "USA_PatriotMissile" | "AmericaPatriotBattery" | "PatriotMissile" => {
             Some(PATRIOT_PRIMARY_WEAPON)
         }
-        "China_GattlingCannon" | "ChinaGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
+        "China_GattlingCannon"
+        | "ChinaGattlingCannon"
+        | "Nuke_ChinaGattlingCannon"
+        | "Tank_ChinaGattlingCannon"
+        | "Infa_ChinaGattlingCannon"
+        | "TestGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
         "China_NukeCannon"
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
@@ -498,6 +505,10 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
             {
                 Some(TOXIN_TRUCK_SPRAYER)
+            } else if crate::game_logic::host_base_defense::is_gattling_cannon_structure(
+                template_name,
+            ) {
+                Some(GATTLING_BUILDING_SECONDARY_WEAPON)
             } else {
                 // Comanche rocket pods are upgrade-gated (fail-closed at spawn).
                 None
@@ -652,6 +663,16 @@ fn seed_known_host_weapons() -> usize {
             name: GATTLING_BUILDING_PRIMARY_WEAPON,
             primary_damage: 10.0,
             attack_range: 225.0,
+            delay_frames: 8,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // ChinaGattlingCannon SECONDARY AA — PrimaryDamage 5, AttackRange 400,
+        // DelayBetweenShots 250ms → 8 frames. Continuous-fire ramp shares structure residual.
+        SeedWeapon {
+            name: GATTLING_BUILDING_SECONDARY_WEAPON,
+            primary_damage: 5.0,
+            attack_range: 400.0,
             delay_frames: 8,
             clip_size: 0,
             weapon_speed: 999_999.0,
