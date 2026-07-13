@@ -1,3 +1,63 @@
+## Residual Host Playability — Wave 58: host_humvee + host_tomahawk + host_combat_chinook + host_battle_bus residual peels (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / host_colonel_burton / host_hero_abilities):**
+1. **Humvee residual pack** (`host_humvee`):
+   - PRIMARY HumveeGun: **10**/r**150**/Delay **200**ms → **6**f / Speed **600**.
+   - Ground TOW HumveeMissileWeapon: **30**/r**5**/range **150**, Delay **1000**ms → **30**f +
+     ClipReload **2000**ms → **60**f = cycle **90**f; Projectile HumveeMissile;
+     Upgrade_AmericaTOWMissile residual honesty.
+   - Air TOW HumveeMissileWeaponAir: **50**/r**5**/range **320**, cycle **90**f,
+     Projectile PatriotMissile; pre-TOW AirDummy **0.0001**/r**320**.
+   - TransportContain Slots **5**, ExitDelay **250**ms → **8**f, ExitPaths **3**,
+     DamagePercentToUnits **100%**, PassengersAllowedToFire **Yes**, infantry-only.
+   - Body MaxHealth **240**, Vision **150**, Shroud **320**, BuildCost **700**,
+     TurretTurnRate **180**, Recenter **5000**ms → **150**f, Locomotor Speed **60**.
+2. **Tomahawk residual pack** (`host_tomahawk`):
+   - Weapon dual-radius retained (**150**/r**10** + **50**/r**25**, range **350**,
+     min **100**, ClipReload **7000**ms → **210**f, PreAttack **250**ms → **8**f).
+   - Missile loft residual: FuelLifetime **4000**ms → **120**f, InitialVelocity **50**,
+     DistanceToTravelBeforeTurning **80**, DistanceToTargetBeforeDiving **100**,
+     DistanceToTargetForLock **10**, PreferredHeight **120**, Damping **0.7**.
+   - TomahawkMissileLocomotor: Speed **200**, MinSpeed **100**, Accel **675**,
+     TurnRate **540**, MaxThrustAngle **45**.
+   - Launcher FirePitch **70**, TurretTurn/Pitch **60**, MaxHealth **180**,
+     Vision **180**, Shroud **200**, BuildCost **1200**, vehicle Speed **30**.
+3. **Combat Chinook residual pack** (`host_combat_chinook`):
+   - Transport: Slots **8**, ExitDelay **100**ms → **3**f, ExitPaths **1**,
+     Allow INFANTRY+VEHICLE, Forbid AIRCRAFT+HUGE_VEHICLE, ArmedRiders **Yes**.
+   - Passenger "minigun enable": ListeningOutpostUpgradedDummyWeapon **0.1**/r**90**/
+     Delay **1000**ms → **30**f AntiAir **Yes**.
+   - PointDefenseLaser residual: AirF_PointDefenseLaser **100**/r**65**,
+     Delay **250**ms → **8**f, ScanRange **250**, ScanRate **33**ms → **1**f.
+   - ChinookAIUpdate: MaxBoxes **8**, NumRopes **4**, PerRopeDelay **900–1500**ms →
+     **27–45**f, RappelSpeed **30**, MinDropHeight **40**, RopeFinalHeight **10**,
+     Supply delays **3000/1250**ms → **90/38**f, UpgradedSupplyBoost **60**.
+   - Body MaxHealth **350**, Vision **300**, Shroud **600**, BuildCost **1200**,
+     Locomotor Speed **150**, PreferredHeight **100**.
+4. **Battle Bus residual pack** (`host_battle_bus`):
+   - Transport: Slots **8**, ExitDelay **250**ms → **8**f, ExitPaths **5**,
+     infantry-only, WeaponBonusPassedToPassengers **Yes**, DelayExitInAir **Yes**.
+   - PassengerDummy **0.001**/r**90**/Delay **10000**ms → **300**f;
+     BattleBusDummyWeapon AA **0.0001**/r**320**/Delay **500**ms → **15**f.
+   - BattleBusSlowDeath suicide/detonate residual: ThrowForce **100**,
+     PercentDamageToPassengers **50%**, EmptyHulkDestructionDelay **1000**ms → **30**f,
+     ProbabilityModifier **5**, DestructionDelayVariance **200**ms → **6**f,
+     FX/OCL StartUndeath + HitGround + Final detonate residual names.
+   - UndeadBody MaxHealth **400** / SecondLife **650**, Vision **150**, Shroud **200**,
+     BuildCost **1000**, Locomotor Speed **70**.
+5. Honesty packs + module tests (not log-only):
+   - `honesty_humvee_residual_pack_ok` / `humvee_residual_pack_honesty_wave58`
+   - `honesty_tomahawk_residual_pack_ok` / `tomahawk_residual_pack_honesty_wave58`
+   - `honesty_combat_chinook_residual_pack_ok` / `combat_chinook_residual_pack_honesty_wave58`
+   - `honesty_battle_bus_residual_pack_ok` / `battle_bus_residual_pack_honesty_wave58`
+
+**Still residual (fail-closed, not claimed):**
+- Full WeaponSet PLAYER_UPGRADE visual turret swap (Humvee TOW model)
+- Full TomahawkMissile projectile lob / waypoint path Object
+- Full ChinookAIUpdate ropes / rappel / combat-drop clear matrix
+- Full BattleBusSlowDeathBehavior SECOND_LIFE structure hulk undeath Object
+- Full PointDefenseLaserUpdate velocity prediction live matrix
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 56: CarpetBomb/Cruise/Artillery residual deepen (2026-07-13)
 **Closed (host-testable residual in `special_power_strikes`):**
 1. **CarpetBomb residual pack deepen**:
