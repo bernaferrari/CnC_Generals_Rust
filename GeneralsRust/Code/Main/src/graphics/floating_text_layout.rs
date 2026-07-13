@@ -15,6 +15,9 @@
 //! - DisplayString setText residual (notifyTextChanged when text differs)
 //! - DisplayString setFont residual (equal font early-out / m_fontChanged)
 //! - DisplayString getTextLength residual (UnicodeString length = char count)
+//! - DisplayString getText / reset residual (identity text / clear text+font, no notify)
+//! - DisplayString appendChar / removeLastChar residual (mutate + notifyTextChanged)
+//! - DisplayString getWidth residual (monospaced charPos width; skip `\n`)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -125,6 +128,106 @@ pub fn display_string_get_text_length(text: &str) -> u32 {
 /// Honesty: getTextLength residual matches char count.
 pub fn honesty_display_string_get_text_length(text: &str, length: u32) -> bool {
     display_string_get_text_length(text) == length
+}
+
+/// DisplayString `getText` residual: return current residual text string.
+///
+/// C++ `DisplayString::getText` → `m_textString`. Host residual is identity.
+/// Fail-closed vs live UnicodeString wide-char storage.
+#[inline]
+pub fn display_string_get_text(text: &str) -> &str {
+    text
+}
+
+/// Honesty: getText residual matches stored residual text.
+pub fn honesty_display_string_get_text(text: &str, got: &str) -> bool {
+    display_string_get_text(text) == got
+}
+
+/// DisplayString `reset` residual: clear text + clear font; does **not** notify.
+///
+/// C++ `DisplayString::reset`: `m_textString.clear(); m_font = NULL;` — no
+/// `notifyTextChanged()`. Host residual returns empty text/font and `changed=false`.
+/// Fail-closed vs full DisplayStringManager free/reuse pool.
+#[inline]
+pub fn display_string_reset_residual() -> (String, String, bool) {
+    (String::new(), String::new(), false)
+}
+
+/// Honesty: reset residual clears text/font without notify residual.
+pub fn honesty_display_string_reset(text: &str, font: &str, notified: bool) -> bool {
+    text.is_empty() && font.is_empty() && !notified
+}
+
+/// DisplayString `appendChar` residual: append one char and notifyTextChanged.
+///
+/// C++ always concat + notify (no early-out). Fail-closed vs live font re-raster.
+#[inline]
+pub fn display_string_append_char(text: &str, c: char) -> (String, bool) {
+    let mut out = text.to_string();
+    out.push(c);
+    (out, true)
+}
+
+/// Honesty: appendChar residual mutates text and notifies.
+pub fn honesty_display_string_append_char(
+    previous: &str,
+    c: char,
+    result: &str,
+    notified: bool,
+) -> bool {
+    let (expected, expect_notify) = display_string_append_char(previous, c);
+    result == expected.as_str() && notified == expect_notify
+}
+
+/// DisplayString `removeLastChar` residual: pop last char and notifyTextChanged.
+///
+/// C++ always `removeLastChar` + notify. Empty string residual stays empty but
+/// still notifies (matches C++ call order). Fail-closed vs live font re-raster.
+#[inline]
+pub fn display_string_remove_last_char(text: &str) -> (String, bool) {
+    if text.is_empty() {
+        return (String::new(), true);
+    }
+    let mut out = text.to_string();
+    out.pop();
+    (out, true)
+}
+
+/// Honesty: removeLastChar residual mutates text and notifies.
+pub fn honesty_display_string_remove_last_char(
+    previous: &str,
+    result: &str,
+    notified: bool,
+) -> bool {
+    let (expected, expect_notify) = display_string_remove_last_char(previous);
+    result == expected.as_str() && notified == expect_notify
+}
+
+/// DisplayString `getWidth` residual: monospaced width up to `char_pos` chars.
+///
+/// C++ `W3DDisplayString::getWidth(charPos)`: walk glyphs, skip `\\n`, stop at
+/// `charPos` (`-1` = all). Host residual uses 8px monospaced glyph spacing.
+/// Fail-closed vs live FontCharsClass::Get_Char_Spacing.
+#[inline]
+pub fn display_string_get_width(text: &str, char_pos: i32) -> u32 {
+    let mut width = 0u32;
+    let mut count = 0i32;
+    for ch in text.chars() {
+        if char_pos >= 0 && count >= char_pos {
+            break;
+        }
+        if ch != '\n' {
+            width = width.saturating_add(8);
+        }
+        count = count.saturating_add(1);
+    }
+    width
+}
+
+/// Honesty: getWidth residual matches monospaced charPos walk.
+pub fn honesty_display_string_get_width(text: &str, char_pos: i32, width: u32) -> bool {
+    display_string_get_width(text, char_pos) == width
 }
 
 /// Floats per packed layout entry:
@@ -515,6 +618,55 @@ mod tests {
         // Measure residual width tracks glyph width × length.
         let (w, _) = crate::graphics::game_text_residual::measure_display_string_residual("+$150");
         assert_eq!(w, display_string_get_text_length("+$150") * 8);
+    }
+
+    #[test]
+    fn display_string_get_text_and_reset_residual_honesty() {
+        assert_eq!(display_string_get_text("+$150"), "+$150");
+        assert!(honesty_display_string_get_text("+$150", "+$150"));
+        assert_eq!(display_string_get_text(""), "");
+        assert!(honesty_display_string_get_text("", ""));
+
+        let (text, font, notified) = display_string_reset_residual();
+        assert!(honesty_display_string_reset(&text, &font, notified));
+        assert!(text.is_empty() && font.is_empty() && !notified);
+    }
+
+    #[test]
+    fn display_string_append_remove_char_residual_honesty() {
+        let (appended, notified) = display_string_append_char("+$15", '0');
+        assert_eq!(appended, "+$150");
+        assert!(notified);
+        assert!(honesty_display_string_append_char("+$15", '0', "+$150", true));
+        assert!(!honesty_display_string_append_char("+$15", '0', "+$15", true));
+
+        let (removed, notified) = display_string_remove_last_char("+$150");
+        assert_eq!(removed, "+$15");
+        assert!(notified);
+        assert!(honesty_display_string_remove_last_char("+$150", "+$15", true));
+
+        // Empty remove still notifies (C++ call order residual).
+        let (empty, notified) = display_string_remove_last_char("");
+        assert!(empty.is_empty() && notified);
+        assert!(honesty_display_string_remove_last_char("", "", true));
+    }
+
+    #[test]
+    fn display_string_get_width_residual_honesty() {
+        // Full string monospaced residual.
+        assert_eq!(display_string_get_width("+$150", -1), 5 * 8);
+        assert!(honesty_display_string_get_width("+$150", -1, 40));
+        // Partial charPos residual.
+        assert_eq!(display_string_get_width("+$150", 2), 2 * 8);
+        assert!(honesty_display_string_get_width("+$150", 2, 16));
+        // Newline does not contribute width residual.
+        assert_eq!(display_string_get_width("A\nB", -1), 2 * 8);
+        assert!(honesty_display_string_get_width("A\nB", -1, 16));
+        assert_eq!(display_string_get_width("", -1), 0);
+        assert!(honesty_display_string_get_width("", 0, 0));
+        // Full width matches measure residual for ASCII captions (no newlines).
+        let (mw, _) = crate::graphics::game_text_residual::measure_display_string_residual("+$150");
+        assert_eq!(mw, display_string_get_width("+$150", -1));
     }
 
 }

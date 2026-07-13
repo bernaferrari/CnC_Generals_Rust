@@ -2930,6 +2930,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_damage_fx_applications)?;
         xfer.xfer_marker_label("HowitzerGunAimParamsApplications")?;
         xfer.xfer_u32(&mut self.howitzer_gun_aim_params_applications)?;
+        xfer.xfer_marker_label("HowitzerGunFireParamsApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_gun_fire_params_applications)?;
         Ok(())
     }
 }
@@ -3252,6 +3254,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_destroy_die_locomotor_name_applications: 0,
                 scud_death_fire_ocl_applications: 0,
                 scud_locomotor_speed_table_applications: 0,
+                scud_death_damage_table_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3367,6 +3370,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_locomotor_template_applications: 0,
                 howitzer_shell_damage_fx_applications: 0,
                 howitzer_gun_aim_params_applications: 0,
+                howitzer_gun_fire_params_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3510,6 +3514,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 parent_beam_id: 0,
                 parent_strike_id: 0,
                 remnant_object_params_applications: 0,
+                remnant_fire_deletion_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
@@ -3550,6 +3555,9 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantF
         // TrailRemnant KindOf / ImmortalBody residual (appended).
         xfer.xfer_marker_label("RemnantObjectParamsApplications")?;
         xfer.xfer_u32(&mut self.remnant_object_params_applications)?;
+        // TrailRemnant FireWeaponUpdate + DeletionUpdate residual (appended).
+        xfer.xfer_marker_label("RemnantFireDeletionApplications")?;
+        xfer.xfer_u32(&mut self.remnant_fire_deletion_applications)?;
         Ok(())
     }
 }
