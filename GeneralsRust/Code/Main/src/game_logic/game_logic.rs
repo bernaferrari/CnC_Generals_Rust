@@ -664,6 +664,14 @@ pub struct GameLogic {
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
 
+    /// Host Emergency Repair residual — SingleBurst ally vehicle heal in radius.
+    /// Fail-closed: not full OCL RepairVehicles invisible marker / RepairCloud path.
+    emergency_repairs: crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry,
+
+    /// Host GLA GPS Scrambler residual — GrantStealth ally vehicles/infantry in radius.
+    /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
+    gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
+
     /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
     base_defense_residual_fires: u32,
@@ -1525,6 +1533,10 @@ impl GameLogic {
             ecm_residual_jams: 0,
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry::new(),
+            emergency_repairs:
+                crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry::new(),
+            gps_scramblers:
+                crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry::new(),
             base_defense_residual_fires: 0,
             point_defense_residual_intercepts: 0,
             point_defense_next_ready_frame: HashMap::new(),
@@ -10472,6 +10484,281 @@ impl GameLogic {
 
         self.queue_audio_event(
             AudioEventRequest::new(FRENZY_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            location,
+            frame,
+            caster_id,
+            None,
+        );
+
+        true
+    }
+
+    /// Host Emergency Repair residual registry (activate + honesty).
+    pub fn emergency_repairs(
+        &self,
+    ) -> &crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry {
+        &self.emergency_repairs
+    }
+
+    /// Residual honesty: Emergency Repair activated at least once.
+    pub fn honesty_emergency_repair_activate_ok(&self) -> bool {
+        self.emergency_repairs.honesty_activate_ok()
+    }
+
+    /// Residual honesty: Emergency Repair healed at least one vehicle.
+    pub fn honesty_emergency_repair_heal_ok(&self) -> bool {
+        self.emergency_repairs.honesty_heal_ok()
+    }
+
+    /// Combined host path honesty for Emergency Repair residual.
+    pub fn honesty_emergency_repair_ok(&self) -> bool {
+        self.emergency_repairs.honesty_host_path_ok()
+    }
+
+    /// Activate Emergency Repair residual: SingleBurst heal of ally vehicles in radius.
+    ///
+    /// Matches retail SuperweaponEmergencyRepair → RepairVehiclesInArea_InvisibleMarker:
+    /// - Radius residual 100 (RadiusCursorRadius / AutoHealBehavior Radius)
+    /// - HealingAmount 100/200/300 by level (Level1/2/3)
+    /// - KindOf VEHICLE, same-team residual, damaged only
+    ///
+    /// Fail-closed: not full OCL marker / science upgrade matrix / RepairCloud particles.
+    /// Returns true when the residual activation was recorded (even if 0 targets).
+    pub fn activate_emergency_repair(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
+    ) -> bool {
+        use crate::game_logic::host_emergency_repair::{
+            in_emergency_repair_radius_2d, is_legal_emergency_repair_target, HostEmergencyRepair,
+            EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
+        };
+
+        let frame = self.frame;
+        let heal_amount = level.heal_amount();
+        let center = (location.x, location.z);
+
+        let caster_team = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .unwrap_or_else(|| match player_id {
+                0 => Team::USA,
+                1 => Team::China,
+                2 => Team::GLA,
+                _ => Team::Neutral,
+            });
+
+        let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let pos = obj.get_position();
+                if !in_emergency_repair_radius_2d(
+                    center,
+                    (pos.x, pos.z),
+                    HOST_EMERGENCY_REPAIR_RADIUS,
+                ) {
+                    return None;
+                }
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                let same_team = obj.team == caster_team;
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                let is_damaged = obj.health.current + 0.01 < obj.health.maximum;
+                Some((*id, is_vehicle, same_team, under_construction, is_damaged))
+            })
+            .collect();
+
+        let mut heals: u32 = 0;
+        let mut heal_amount_total: f32 = 0.0;
+        for (id, is_vehicle, same_team, under_construction, is_damaged) in candidates {
+            if !is_legal_emergency_repair_target(
+                is_vehicle,
+                true,
+                same_team,
+                under_construction,
+                is_damaged,
+            ) {
+                continue;
+            }
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let before = target.health.current;
+            target.heal(heal_amount);
+            let restored = (target.health.current - before).max(0.0);
+            if restored > 0.01 {
+                heals = heals.saturating_add(1);
+                heal_amount_total += restored;
+            }
+        }
+
+        let entry_id = self.emergency_repairs.alloc_id();
+        self.emergency_repairs.record_activation(HostEmergencyRepair {
+            id: entry_id,
+            player_id,
+            location,
+            radius: HOST_EMERGENCY_REPAIR_RADIUS,
+            level,
+            activate_frame: frame,
+            caster_id,
+            heals,
+            heal_amount_total,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(EMERGENCY_REPAIR_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            location,
+            frame,
+            caster_id,
+            None,
+        );
+
+        true
+    }
+
+    /// Host GPS Scrambler residual registry (activate + honesty).
+    pub fn gps_scramblers(
+        &self,
+    ) -> &crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry {
+        &self.gps_scramblers
+    }
+
+    /// Residual honesty: GPS Scrambler activated at least once.
+    pub fn honesty_gps_scrambler_activate_ok(&self) -> bool {
+        self.gps_scramblers.honesty_activate_ok()
+    }
+
+    /// Residual honesty: GPS Scrambler granted stealth at least once.
+    pub fn honesty_gps_scrambler_grant_ok(&self) -> bool {
+        self.gps_scramblers.honesty_grant_ok()
+    }
+
+    /// Combined host path honesty for GPS Scrambler residual.
+    pub fn honesty_gps_scrambler_ok(&self) -> bool {
+        self.gps_scramblers.honesty_host_path_ok()
+    }
+
+    /// Activate GPS Scrambler residual: GrantStealth to ally vehicles/infantry in radius.
+    ///
+    /// Matches retail SuperweaponGPSScrambler → GPSScrambler_InvisibleMarker:
+    /// - FinalRadius residual 100 (RadiusCursorRadius / GrantStealth FinalRadius)
+    /// - KindOf VEHICLE | INFANTRY, same-team residual
+    /// - receiveGrant → STEALTHED + clear DETECTED
+    /// - Skips bomb-truck disguise residual by name (C++ canDisguise skip)
+    ///
+    /// Fail-closed: not full OCL marker grow-radius scan / StealthUpdate framesGranted
+    /// / particle / flashAsSelected drawable path.
+    /// Returns true when the residual activation was recorded (even if 0 targets).
+    pub fn activate_gps_scrambler(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_gps_scrambler::{
+            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name, is_legal_gps_scrambler_target,
+            HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
+        };
+
+        let frame = self.frame;
+        let center = (location.x, location.z);
+
+        let caster_team = caster_id
+            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
+            .unwrap_or_else(|| match player_id {
+                0 => Team::USA,
+                1 => Team::China,
+                2 => Team::GLA,
+                _ => Team::Neutral,
+            });
+
+        let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                // Residual: never grant to the invisible marker/caster building itself
+                // when it is a structure (command center). Units at caster pos still ok.
+                let pos = obj.get_position();
+                if !in_gps_scrambler_radius_2d(center, (pos.x, pos.z), HOST_GPS_SCRAMBLER_RADIUS) {
+                    return None;
+                }
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                let is_infantry = obj.is_kind_of(KindOf::Infantry);
+                let same_team = obj.team == caster_team;
+                let under_construction =
+                    obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
+                let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                Some((
+                    *id,
+                    is_vehicle,
+                    is_infantry,
+                    same_team,
+                    under_construction,
+                    is_disguise,
+                ))
+            })
+            .collect();
+
+        let mut grants: u32 = 0;
+        for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in candidates {
+            if !is_legal_gps_scrambler_target(
+                is_vehicle,
+                is_infantry,
+                true,
+                same_team,
+                under_construction,
+                is_disguise,
+            ) {
+                continue;
+            }
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            if !target.is_alive() {
+                continue;
+            }
+            let was_stealthed = target.is_effectively_stealthed();
+            target.apply_grant_stealth();
+            // Count new grants and refreshes as residual grant events for honesty.
+            if !was_stealthed || target.is_effectively_stealthed() {
+                grants = grants.saturating_add(1);
+            }
+        }
+
+        let entry_id = self.gps_scramblers.alloc_id();
+        self.gps_scramblers.record_activation(HostGpsScrambler {
+            id: entry_id,
+            player_id,
+            location,
+            radius: HOST_GPS_SCRAMBLER_RADIUS,
+            activate_frame: frame,
+            caster_id,
+            grants,
+        });
+
+        self.queue_audio_event(
+            AudioEventRequest::new(GPS_SCRAMBLER_ACTIVATE_AUDIO)
                 .with_position(location)
                 .with_priority(180),
         );
@@ -20765,6 +21052,402 @@ mod tests {
         assert!(
             game_logic.find_object(caster_id).unwrap().is_frenzy_buffed(),
             "caster ally in radius must receive Frenzy residual"
+        );
+    }
+
+    /// Residual: Emergency Repair special power heals damaged ally vehicles in radius.
+    ///
+    /// C++ SuperweaponEmergencyRepair → SUPERWEAPON_RepairVehicles1 →
+    /// RepairVehiclesInArea_InvisibleMarker_Level1 AutoHealBehavior SingleBurst
+    /// HealingAmount=100 / Radius=100 / KindOf=VEHICLE.
+    /// Fail-closed: not full OCL marker / RepairCloud / science tier matrix.
+    #[test]
+    fn emergency_repair_residual_heals_damaged_ally_vehicles() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_emergency_repair::{
+            HostEmergencyRepairLevel, HOST_EMERGENCY_REPAIR_RADIUS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        // Caster + ally on USA (Emergency Repair is multi-faction residual).
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 500.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        let ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally");
+        let full_hp_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("full hp ally");
+        let far_ally_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far ally");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("enemy");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(25.0, 0.0, 0.0))
+            .expect("infantry");
+
+        // Damage targets so SingleBurst heal is observable.
+        for id in [ally_id, far_ally_id, enemy_id, infantry_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.health.current = unit.health.maximum * 0.25;
+        }
+
+        let ally_hp_before = game_logic.find_object(ally_id).unwrap().health.current;
+        let far_hp_before = game_logic.find_object(far_ally_id).unwrap().health.current;
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let infantry_hp_before = game_logic.find_object(infantry_id).unwrap().health.current;
+        let full_hp_before = game_logic.find_object(full_hp_id).unwrap().health.current;
+
+        assert!(!game_logic.honesty_emergency_repair_ok());
+        assert_eq!(game_logic.emergency_repairs().activation_count(), 0);
+
+        let impact = Vec3::new(0.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::EmergencyRepair,
+                target: PowerTarget::Location(impact),
+            },
+            player_id: 0,
+            command_id: 91,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_emergency_repair_activate_ok(),
+            "Emergency Repair residual must record activation honesty"
+        );
+        assert!(
+            game_logic.honesty_emergency_repair_heal_ok(),
+            "Emergency Repair residual must record heal honesty"
+        );
+        assert!(
+            game_logic.honesty_emergency_repair_ok(),
+            "Emergency Repair host residual path honesty"
+        );
+        assert_eq!(game_logic.emergency_repairs().activation_count(), 1);
+        assert!(
+            (game_logic.emergency_repairs().activations()[0].radius - HOST_EMERGENCY_REPAIR_RADIUS)
+                .abs()
+                < 0.01,
+            "retail residual radius 100"
+        );
+        assert_eq!(
+            game_logic.emergency_repairs().activations()[0].level,
+            HostEmergencyRepairLevel::One
+        );
+
+        let ally_hp_after = game_logic.find_object(ally_id).unwrap().health.current;
+        let restored = ally_hp_after - ally_hp_before;
+        assert!(
+            (restored - HostEmergencyRepairLevel::One.heal_amount()).abs() < 0.05
+                || restored > 0.0 && ally_hp_after >= game_logic.find_object(ally_id).unwrap().health.maximum - 0.01,
+            "in-radius damaged ally vehicle must receive Level1 heal (+100), restored={restored}"
+        );
+        assert!(
+            (restored - 100.0).abs() < 0.05,
+            "Level1 residual HealingAmount must be 100, got {restored}"
+        );
+
+        // Full-HP ally: no heal (not damaged residual).
+        let full_hp_after = game_logic.find_object(full_hp_id).unwrap().health.current;
+        assert!(
+            (full_hp_after - full_hp_before).abs() < 0.01,
+            "full-HP ally must not receive Emergency Repair residual"
+        );
+
+        // Out-of-radius ally: unaffected.
+        let far_hp_after = game_logic.find_object(far_ally_id).unwrap().health.current;
+        assert!(
+            (far_hp_after - far_hp_before).abs() < 0.01,
+            "out-of-radius ally must not receive Emergency Repair residual"
+        );
+
+        // Enemy residual: not healed (same-team filter).
+        let enemy_hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            (enemy_hp_after - enemy_hp_before).abs() < 0.01,
+            "enemy must not receive Emergency Repair residual"
+        );
+
+        // Infantry residual: KindOf VEHICLE only.
+        let infantry_hp_after = game_logic.find_object(infantry_id).unwrap().health.current;
+        assert!(
+            (infantry_hp_after - infantry_hp_before).abs() < 0.01,
+            "infantry must not receive Emergency Repair residual"
+        );
+    }
+
+    /// Emergency Repair is not a superweapon residual strike (separate heal residual path).
+    #[test]
+    fn emergency_repair_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+            caster.health.current = caster.health.maximum * 0.5;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::EmergencyRepair,
+                target: PowerTarget::Location(Vec3::new(0.0, 0.0, 0.0)),
+            },
+            player_id: 0,
+            command_id: 92,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "EmergencyRepair must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_emergency_repair_activate_ok(),
+            "EmergencyRepair residual must record activation honesty"
+        );
+    }
+
+    /// Residual: GPS Scrambler grants STEALTHED to ally vehicles/infantry in radius.
+    ///
+    /// C++ SuperweaponGPSScrambler → SUPERWEAPON_GPSScrambler →
+    /// GPSScrambler_InvisibleMarker GrantStealthBehavior receiveGrant on
+    /// VEHICLE|INFANTRY allies (FinalRadius=100). Stealthed units are not
+    /// enemy-targetable until attack breaks stealth.
+    /// Fail-closed: not full OCL grow-radius pulse / particle / StealthUpdate module.
+    #[test]
+    fn gps_scrambler_residual_grants_stealth_to_ally_units() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+        use crate::game_logic::host_gps_scrambler::HOST_GPS_SCRAMBLER_RADIUS;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        // Caster + ally on GLA (retail GPS Scrambler faction residual).
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(500.0, 0.0, 500.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        let ally_vehicle_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ally vehicle");
+        let ally_infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("ally infantry");
+        let far_ally_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(400.0, 0.0, 0.0))
+            .expect("far ally");
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(15.0, 0.0, 0.0))
+            .expect("enemy");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(25.0, 0.0, 0.0))
+            .expect("barracks");
+
+        // Bind residual weapons so stealth break-on-attack is measurable.
+        for id in [ally_vehicle_id, enemy_id] {
+            let unit = game_logic.find_object_mut(id).expect("unit");
+            unit.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+        }
+
+        assert!(!game_logic.honesty_gps_scrambler_ok());
+        assert_eq!(game_logic.gps_scramblers().activation_count(), 0);
+        assert!(!game_logic
+            .find_object(ally_vehicle_id)
+            .unwrap()
+            .is_effectively_stealthed());
+
+        let impact = Vec3::new(0.0, 0.0, 0.0);
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::GpsScrambler,
+                target: PowerTarget::Location(impact),
+            },
+            player_id: 2,
+            command_id: 93,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic.honesty_gps_scrambler_activate_ok(),
+            "GPS Scrambler residual must record activation honesty"
+        );
+        assert!(
+            game_logic.honesty_gps_scrambler_grant_ok(),
+            "GPS Scrambler residual must record grant honesty"
+        );
+        assert!(
+            game_logic.honesty_gps_scrambler_ok(),
+            "GPS Scrambler host residual path honesty"
+        );
+        assert_eq!(game_logic.gps_scramblers().activation_count(), 1);
+        assert!(
+            (game_logic.gps_scramblers().activations()[0].radius - HOST_GPS_SCRAMBLER_RADIUS).abs()
+                < 0.01,
+            "retail residual radius 100"
+        );
+
+        // In-radius ally vehicle + infantry: STEALTHED residual.
+        let ally_v = game_logic
+            .find_object(ally_vehicle_id)
+            .expect("ally vehicle");
+        assert!(
+            ally_v.is_effectively_stealthed(),
+            "in-radius ally vehicle must receive GPS Scrambler residual stealth"
+        );
+        assert!(ally_v.status.stealthed);
+        assert!(!ally_v.status.detected);
+
+        let ally_i = game_logic
+            .find_object(ally_infantry_id)
+            .expect("ally infantry");
+        assert!(
+            ally_i.is_effectively_stealthed(),
+            "in-radius ally infantry must receive GPS Scrambler residual stealth"
+        );
+
+        // Out-of-radius ally: unaffected.
+        let far = game_logic.find_object(far_ally_id).expect("far");
+        assert!(
+            !far.is_effectively_stealthed(),
+            "out-of-radius ally must not receive GPS Scrambler residual"
+        );
+
+        // Enemy residual: not stealthed (same-team filter).
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            !enemy.is_effectively_stealthed(),
+            "enemy must not receive GPS Scrambler residual"
+        );
+
+        // Structure residual: KindOf VEHICLE|INFANTRY only.
+        let barracks = game_logic.find_object(barracks_id).expect("barracks");
+        assert!(
+            !barracks.is_effectively_stealthed(),
+            "structure must not receive GPS Scrambler residual"
+        );
+
+        // Observable combat effect: stealthed ally is not enemy-targetable.
+        assert!(
+            !ally_v.is_targetable_by_enemy_of(Team::USA),
+            "GPS-scramble stealthed ally must not be enemy-targetable"
+        );
+        assert!(
+            !ally_v.is_visible_to_team(Team::USA),
+            "GPS-scramble stealthed ally must not be visible to enemy"
+        );
+        // Own team still sees residual.
+        assert!(ally_v.is_visible_to_team(Team::GLA));
+
+        // Attack breaks stealth (STEALTH_NOT_WHILE_ATTACKING residual).
+        {
+            let ally = game_logic
+                .find_object_mut(ally_vehicle_id)
+                .expect("ally vehicle");
+            ally.target = Some(enemy_id);
+            ally.ai_state = AIState::Attacking;
+            ally.status.attacking = true;
+            ally.set_position(Vec3::new(10.0, 0.0, 0.0));
+        }
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
+        }
+        game_logic.update_combat(&[ally_vehicle_id, enemy_id], 1.0 / 30.0);
+        let after_fire = game_logic
+            .find_object(ally_vehicle_id)
+            .expect("ally vehicle");
+        assert!(
+            !after_fire.is_effectively_stealthed(),
+            "firing must break GPS Scrambler residual stealth"
+        );
+    }
+
+    /// GPS Scrambler is not a superweapon residual strike (separate stealth residual path).
+    #[test]
+    fn gps_scrambler_does_not_queue_superweapon_strike() {
+        use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let caster_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        {
+            let caster = game_logic.find_object_mut(caster_id).expect("caster");
+            caster.special_power_ready = true;
+            caster.special_power_cooldown_remaining = 0.0;
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::GpsScrambler,
+                target: PowerTarget::Location(Vec3::new(0.0, 0.0, 0.0)),
+            },
+            player_id: 2,
+            command_id: 94,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![caster_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert_eq!(
+            game_logic.special_power_strikes().strike_count(),
+            0,
+            "GpsScrambler must not enqueue superweapon residual strikes"
+        );
+        assert!(!game_logic.find_object(caster_id).unwrap().special_power_ready);
+        assert!(
+            game_logic.honesty_gps_scrambler_activate_ok(),
+            "GpsScrambler residual must record activation honesty"
+        );
+        assert!(
+            game_logic
+                .find_object(caster_id)
+                .unwrap()
+                .is_effectively_stealthed(),
+            "caster vehicle in radius must receive GPS Scrambler residual"
         );
     }
 

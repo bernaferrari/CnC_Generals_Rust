@@ -27,6 +27,8 @@ pub mod host_base_defense;
 pub mod host_ecm_jam;
 pub mod host_emp_pulse;
 pub mod host_frenzy;
+pub mod host_emergency_repair;
+pub mod host_gps_scrambler;
 pub mod host_leaflet_drop;
 pub mod host_sneak_attack;
 pub mod host_point_defense;
@@ -112,6 +114,14 @@ pub use host_emp_pulse::{
 pub use host_frenzy::{
     is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry,
     FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS,
+};
+pub use host_emergency_repair::{
+    is_legal_emergency_repair_target, HostEmergencyRepair, HostEmergencyRepairLevel,
+    HostEmergencyRepairRegistry, EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
+};
+pub use host_gps_scrambler::{
+    is_legal_gps_scrambler_target, HostGpsScrambler, HostGpsScramblerRegistry,
+    GPS_SCRAMBLER_ACTIVATE_AUDIO, HOST_GPS_SCRAMBLER_RADIUS,
 };
 pub use host_leaflet_drop::{
     is_legal_leaflet_disable_target, HostLeafletDropKind, HostLeafletDropMission,
