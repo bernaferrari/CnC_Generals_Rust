@@ -117,7 +117,9 @@ impl ThingTemplate {
     }
 
     /// Resolve weapon for a newly created combat unit:
-    /// 1) explicit host stats, 2) WeaponStore by name, 3) kind-based default fallback.
+    /// 1) explicit host stats, 2) WeaponStore by primary_weapon_name,
+    /// 3) host residual map by template name (`primary_weapon_name_for_unit`),
+    /// 4) kind-based default fallback (fail-open last resort for Attackable kinds).
     pub fn resolve_primary_weapon(&self) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
@@ -128,6 +130,15 @@ impl ThingTemplate {
             // loads extracted Weapon.ini when present — see weapon_bootstrap.rs.
             let _ = super::weapon_bootstrap::ensure_host_weapon_store();
             if let Some(w) = Self::weapon_from_store(name) {
+                return Some(w);
+            }
+        }
+        // Host residual map: templates often omit primary_weapon_name (units.rs /
+        // setup_templates gaps) but have a known retail weapon for the unit name.
+        // Prefer store residual over kind-based Weapon::default().
+        if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name) {
+            let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+            if let Some(w) = Self::weapon_from_store(wname) {
                 return Some(w);
             }
         }
@@ -144,7 +155,8 @@ impl ThingTemplate {
 
     /// Resolve secondary weapon for a newly created combat unit.
     /// Fail-closed (not full WeaponSet):
-    /// 1) explicit host stats, 2) WeaponStore by name.
+    /// 1) explicit host stats, 2) WeaponStore by secondary_weapon_name,
+    /// 3) host residual map by template name (`secondary_weapon_name_for_unit`).
     /// No kind-based `Weapon::default()` fallback — units without SECONDARY stay unarmed there.
     pub fn resolve_secondary_weapon(&self) -> Option<Weapon> {
         if let Some(w) = &self.secondary_weapon {
@@ -153,6 +165,13 @@ impl ThingTemplate {
         if let Some(name) = self.secondary_weapon_name.as_deref() {
             let _ = super::weapon_bootstrap::ensure_host_weapon_store();
             if let Some(w) = Self::weapon_from_store(name) {
+                return Some(w);
+            }
+        }
+        // Host residual map: secondary slot by unit template name when not set.
+        if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(&self.name) {
+            let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+            if let Some(w) = Self::weapon_from_store(wname) {
                 return Some(w);
             }
         }
@@ -319,6 +338,56 @@ mod weapon_resolve_tests {
         let mut t = ThingTemplate::new("BareInfantry");
         t.add_kind_of(KindOf::Infantry);
         assert!(t.resolve_secondary_weapon().is_none());
+    }
+
+    #[test]
+    fn unit_name_residual_map_binds_without_explicit_weapon_name() {
+        // units.rs / setup_templates often omit primary_weapon_name; residual map
+        // must still prefer retail store stats over kind-based Weapon::default.
+        let mut technical = ThingTemplate::new("GLA_Technical");
+        technical
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        let tw = technical
+            .resolve_primary_weapon()
+            .expect("technical residual weapon");
+        assert!(
+            (tw.damage - Weapon::default().damage).abs() > 0.01,
+            "GLA_Technical must not fall through to Weapon::default (got dmg={})",
+            tw.damage
+        );
+        // Retail TechnicalMachineGunWeapon PrimaryDamage 10.
+        assert!((tw.damage - 10.0).abs() < 0.01);
+        assert!((tw.range - 150.0).abs() < 0.01);
+
+        let mut battle = ThingTemplate::new("China_BattleTank");
+        battle
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        let bw = battle
+            .resolve_primary_weapon()
+            .expect("battlemaster residual weapon");
+        assert!(
+            (bw.damage - Weapon::default().damage).abs() > 0.01,
+            "China_BattleTank must not fall through to Weapon::default (got dmg={})",
+            bw.damage
+        );
+        // Retail BattleMasterTankGun PrimaryDamage 60.
+        assert!((bw.damage - 60.0).abs() < 0.01);
+        assert!((bw.range - 150.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn secondary_unit_name_residual_map_binds_ranger_flashbang() {
+        let mut t = ThingTemplate::new("USA_Ranger");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable);
+        // No secondary_weapon_name set — residual map by template name.
+        let w = t
+            .resolve_secondary_weapon()
+            .expect("ranger residual secondary");
+        assert!((w.damage - 35.0).abs() < 0.01);
+        assert!((w.range - 175.0).abs() < 0.01);
     }
 
     #[test]

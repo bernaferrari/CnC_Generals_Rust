@@ -84,6 +84,7 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(200.0)
         .set_cost(400, 0)
         .set_model("gvtchncl") // GLA Technical vehicle
+        .set_primary_weapon_name(super::weapon_bootstrap::TECHNICAL_MACHINE_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
     templates.insert("GLA_Technical".to_string(), gla_technical);
 
@@ -98,6 +99,30 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR)
         .set_primary_weapon_name(super::weapon_bootstrap::SCORPION_TANK_GUN);
     templates.insert("GLA_Scorpion".to_string(), gla_scorpion);
+
+    let mut gla_rpg = ThingTemplate::new("GLA_RPGTrooper");
+    gla_rpg
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(60.0)
+        .set_cost(100, 0)
+        .set_model("uirguard02")
+        .set_primary_weapon_name(super::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
+    templates.insert("GLA_RPGTrooper".to_string(), gla_rpg);
+
+    let mut gla_marauder = ThingTemplate::new("GLA_MarauderTank");
+    gla_marauder
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(450.0)
+        .set_cost(1400, 0)
+        .set_model("uvlitetank")
+        .set_primary_weapon_name(super::weapon_bootstrap::MARAUDER_TANK_GUN)
+        .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
+    templates.insert("GLA_MarauderTank".to_string(), gla_marauder);
 
     // USA Units
     let mut usa_ranger = ThingTemplate::new("USA_Ranger");
@@ -147,6 +172,29 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     templates.insert("USA_Crusader".to_string(), usa_crusader);
 
+    let mut usa_paladin = ThingTemplate::new("USA_Paladin");
+    usa_paladin
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(700.0)
+        .set_cost(1800, 0)
+        .set_model("avcrusader")
+        .set_primary_weapon_name(super::weapon_bootstrap::PALADIN_TANK_GUN)
+        .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
+    templates.insert("USA_Paladin".to_string(), usa_paladin);
+
+    let mut usa_tomahawk = ThingTemplate::new("USA_Tomahawk");
+    usa_tomahawk
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_cost(1200, 0)
+        .set_model("avtomahawk")
+        .set_primary_weapon_name(super::weapon_bootstrap::TOMAHAWK_MISSILE_WEAPON);
+    templates.insert("USA_Tomahawk".to_string(), usa_tomahawk);
+
     // China Units
     let mut china_soldier = ThingTemplate::new("China_Soldier");
     china_soldier
@@ -177,8 +225,44 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(500.0)
         .set_cost(1000, 0)
         .set_model("cvbattlemaster") // China Battle Master tank
+        .set_primary_weapon_name(super::weapon_bootstrap::BATTLE_MASTER_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::BATTLE_MASTER_LOCOMOTOR);
     templates.insert("China_BattleTank".to_string(), china_battletank);
+
+    let mut china_dragon = ThingTemplate::new("China_DragonTank");
+    china_dragon
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(280.0)
+        .set_cost(800, 0)
+        .set_model("cvdragon")
+        .set_primary_weapon_name(super::weapon_bootstrap::DRAGON_TANK_FLAME_WEAPON);
+    templates.insert("China_DragonTank".to_string(), china_dragon);
+
+    let mut china_gattling = ThingTemplate::new("China_GattlingTank");
+    china_gattling
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(240.0)
+        .set_cost(800, 0)
+        .set_model("cvgattling")
+        .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_TANK_GUN)
+        .set_secondary_weapon_name(super::weapon_bootstrap::GATTLING_TANK_GUN_AIR);
+    templates.insert("China_GattlingTank".to_string(), china_gattling);
+
+    let mut china_tank_hunter = ThingTemplate::new("China_TankHunter");
+    china_tank_hunter
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_cost(110, 0)
+        .set_model("uirguard02")
+        .set_primary_weapon_name(super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON)
+        .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
+    templates.insert("China_TankHunter".to_string(), china_tank_hunter);
 
     templates
 }
