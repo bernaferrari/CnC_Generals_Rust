@@ -48462,9 +48462,9 @@ mod tests {
         assert!(
             game_logic
                 .find_object(friend_id)
-                .map(|o| (o.health.current - 500.0).abs() < 0.1)
-                .unwrap_or(false),
-            "friendly units must not take DaisyCutter residual damage"
+                .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                .unwrap_or(true),
+            "friendly units take DaisyCutter residual damage (RadiusDamageAffects ALLIES)"
         );
         assert!(
             game_logic
@@ -48754,9 +48754,9 @@ mod tests {
         assert!(
             game_logic
                 .find_object(friend_id)
-                .map(|o| (o.health.current - 500.0).abs() < 0.1)
-                .unwrap_or(false),
-            "friendly units must not take CarpetBomb residual damage"
+                .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                .unwrap_or(true),
+            "friendly units take CarpetBomb residual damage (RadiusDamageAffects ALLIES)"
         );
         assert!(
             game_logic
@@ -48981,9 +48981,9 @@ mod tests {
         assert!(
             game_logic
                 .find_object(friend_id)
-                .map(|o| (o.health.current - 500.0).abs() < 0.1)
-                .unwrap_or(false),
-            "friendly units must not take ArtilleryBarrage residual damage"
+                .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                .unwrap_or(true),
+            "friendly units take ArtilleryBarrage residual damage (RadiusDamageAffects ALLIES)"
         );
         assert!(
             game_logic
@@ -49174,9 +49174,9 @@ mod tests {
         assert!(
             game_logic
                 .find_object(friend_id)
-                .map(|o| (o.health.current - 500.0).abs() < 0.1)
-                .unwrap_or(false),
-            "friendly units must not take CruiseMissile residual damage"
+                .map(|o| o.health.current < 500.0 || o.status.destroyed)
+                .unwrap_or(true),
+            "friendly units take CruiseMissile residual damage (RadiusDamageAffects ALLIES)"
         );
         assert!(
             game_logic
