@@ -3,10 +3,12 @@
 1. **Physical SpawnBehavior slave roster + getClosestSlave residual** (GLAStingerSite):
    - SpawnNumber **3** residual slots at SpawnPoint bone offsets (radius **12**, 120° ring).
    - Per-slave HP residual (MaxHealth **100**); `getClosestSlave` picks nearest alive
-     slot to shooter world XZ for HiveStructureBody propagate.
+     slot to shooter world XZ for HiveStructureBody propagate via **host API**
+     (`apply_host_hive_damage_from`) — not live skirmish `Object::take_damage` combat.
    - Kill marks slot dead; SpawnReplaceDelay respawn revives first dead slot.
    - Host-testable: closest-slot damage; independent HP; kill + respawn schedule.
-   - Fail-closed: not full GLAInfantryStingerSoldier Object / AI / W3D bone attach.
+   - Fail-closed: not full GLAInfantryStingerSoldier Object / AI / W3D bone attach;
+     live combat still structure HP until damage-class routing is wired.
 2. **W3DLaserDraw arc segment residual** (PatriotBinaryDataStream):
    - Cosine arc sample residual: mid peak = ArcHeight **30**, endpoints **0**.
    - Segments **20** residual segment endpoints host-sampled (C++ doDrawModule).
