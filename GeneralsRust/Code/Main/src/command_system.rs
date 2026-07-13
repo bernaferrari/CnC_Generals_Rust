@@ -322,6 +322,12 @@ pub enum SpecialPowerType {
     /// Delayed tunnel structure spawn at target + residual shockwave damage.
     /// Fail-closed: not full OCL Start animation / multi-shockwave / TunnelContain path.
     SneakAttack,
+    /// USA Superweapon General Cruise Missile residual
+    /// (SUPR_SPECIAL_CRUISE_MISSILE / SupW_CruiseMissile / SUPERWEAPON_CruiseMissile).
+    /// Delayed loft-to-target strike with `MOABDetonationWeapon` area damage.
+    /// Fail-closed: not full NeutronMissileUpdate loft / door animation /
+    /// OCL FireWeapon projectile path / MOABFlameWeapon secondary.
+    CruiseMissile,
     Invalid,
 }
 
