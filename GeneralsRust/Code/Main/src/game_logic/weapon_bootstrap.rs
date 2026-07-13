@@ -740,10 +740,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Tank_ChinaGattlingCannon"
         | "Infa_ChinaGattlingCannon"
         | "TestGattlingCannon" => Some(GATTLING_BUILDING_SECONDARY_WEAPON),
-        "China_NukeCannon"
-        | "ChinaVehicleNukeCannon"
-        | "Nuke_ChinaVehicleNukeCannon"
-        | "TestNukeCannon" => Some(NUKE_CANNON_NEUTRON_WEAPON),
+        // Neutron shells are PLAYER_UPGRADE residual (Upgrade_ChinaNeutronShells) —
+        // not bound at create; research equips secondary (parity with rocket pods).
         // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
         // Comanche residual SECONDARY anti-tank until rocket-pods upgrade replaces slot.
         "AmericaVehicleComanche"
@@ -786,9 +784,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "TestMiniGunner"
         | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN_AIR),
         _ => {
-            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
-                Some(NUKE_CANNON_NEUTRON_WEAPON)
-            } else if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
+            // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
+            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 Some(QUAD_CANNON_GUN_AIR)
             } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
                 template_name,
