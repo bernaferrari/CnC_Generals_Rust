@@ -555,6 +555,13 @@ pub struct GameLogic {
     repair_residual_structure_heals: u32,
     repair_residual_vehicle_heals: u32,
 
+    /// Host infantry heal residual honesty counters.
+    /// Fail-closed: not full AutoHealBehavior sole-benefactor / vehicle radius matrix.
+    /// ambulance: radius AutoHeal infantry HP ticks (AmericaVehicleMedic residual).
+    /// heal_pad: SeekingHealing HP ticks at HealPad.
+    heal_residual_ambulance_heals: u32,
+    heal_residual_heal_pad_heals: u32,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -1378,6 +1385,8 @@ impl GameLogic {
             repair_residual_structure_commands: 0,
             repair_residual_structure_heals: 0,
             repair_residual_vehicle_heals: 0,
+            heal_residual_ambulance_heals: 0,
+            heal_residual_heal_pad_heals: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1522,6 +1531,8 @@ impl GameLogic {
         self.repair_residual_structure_commands = 0;
         self.repair_residual_structure_heals = 0;
         self.repair_residual_vehicle_heals = 0;
+        self.heal_residual_ambulance_heals = 0;
+        self.heal_residual_heal_pad_heals = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -3352,6 +3363,10 @@ impl GameLogic {
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         self.update_mines_and_demo_traps();
 
+        // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
+        // Fail-closed vs full AutoHealBehavior sole-benefactor / vehicle matrix.
+        self.update_ambulance_auto_heal(dt);
+
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL RadarVanPing lifetime modules.
         self.update_radar_scans();
@@ -5029,7 +5044,9 @@ impl GameLogic {
 
                     // Pad/airfield/war-factory residual: heal self over time while docked in range.
                     // C++ RepairDockUpdate::action TimeForFullHeal residual (flat host rate).
+                    // HealPad SeekingHealing residual records heal honesty separately.
                     let mut vehicle_healed = false;
+                    let mut heal_pad_healed = false;
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         let rate = match state {
                             AIState::SeekingRepair => REPAIR_RATE,
@@ -5042,6 +5059,9 @@ impl GameLogic {
                         if healed && matches!(state, AIState::SeekingRepair) {
                             vehicle_healed = true;
                         }
+                        if healed && matches!(state, AIState::SeekingHealing) {
+                            heal_pad_healed = true;
+                        }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
                         } else {
@@ -5050,6 +5070,9 @@ impl GameLogic {
                     }
                     if vehicle_healed {
                         self.record_vehicle_repair_residual_heal();
+                    }
+                    if heal_pad_healed {
+                        self.record_heal_pad_residual_heal();
                     }
                 }
                 state @ (AIState::Entering | AIState::Docking) => {
@@ -8736,6 +8759,140 @@ impl GameLogic {
     /// Combined host repair residual path honesty (structure or vehicle pad).
     pub fn honesty_repair_ok(&self) -> bool {
         self.honesty_structure_repair_ok() || self.honesty_vehicle_repair_ok()
+    }
+
+    /// Residual ambulance AutoHeal infantry HP ticks applied.
+    pub fn heal_residual_ambulance_heals(&self) -> u32 {
+        self.heal_residual_ambulance_heals
+    }
+
+    /// Residual HealPad SeekingHealing HP ticks applied.
+    pub fn heal_residual_heal_pad_heals(&self) -> u32 {
+        self.heal_residual_heal_pad_heals
+    }
+
+    /// Record an ambulance radius AutoHeal infantry HP tick.
+    pub fn record_ambulance_residual_heal(&mut self) {
+        self.heal_residual_ambulance_heals =
+            self.heal_residual_ambulance_heals.saturating_add(1);
+    }
+
+    /// Record a HealPad SeekingHealing HP tick.
+    pub fn record_heal_pad_residual_heal(&mut self) {
+        self.heal_residual_heal_pad_heals =
+            self.heal_residual_heal_pad_heals.saturating_add(1);
+    }
+
+    /// Residual ambulance infantry heal honesty: at least one radius AutoHeal tick.
+    /// Fail-closed: not full sole-benefactor / vehicle AutoHeal ModuleTag_23 parity.
+    pub fn honesty_ambulance_heal_ok(&self) -> bool {
+        self.heal_residual_ambulance_heals > 0
+    }
+
+    /// Residual HealPad infantry heal honesty: at least one SeekingHealing tick.
+    pub fn honesty_heal_pad_ok(&self) -> bool {
+        self.heal_residual_heal_pad_heals > 0
+    }
+
+    /// Combined host infantry heal residual honesty (ambulance radius or HealPad).
+    pub fn honesty_heal_ok(&self) -> bool {
+        self.honesty_ambulance_heal_ok() || self.honesty_heal_pad_ok()
+    }
+
+    /// Host USA Ambulance AutoHeal residual: heal damaged ally infantry in radius.
+    ///
+    /// C++ AutoHealBehavior ModuleTag_22 on AmericaVehicleMedic:
+    /// HealingAmount=4, HealingDelay=1000ms, Radius=100, KindOf=INFANTRY, StartsActive=Yes.
+    /// Fail-closed: continuous flat rate, same-team only (not full ally relationship filter),
+    /// infantry only (not vehicle ModuleTag_23), no sole-benefactor exclusivity.
+    pub fn update_ambulance_auto_heal(&mut self, dt: f32) {
+        use crate::game_logic::host_heal::{
+            in_heal_radius_2d, is_ambulance_healer, is_legal_ambulance_infantry_heal_target,
+            HOST_AMBULANCE_HEAL_RADIUS, HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
+        };
+
+        if dt <= 0.0 {
+            return;
+        }
+
+        let heal_amount = HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC * dt;
+        if heal_amount <= 0.0 {
+            return;
+        }
+
+        // Snapshot healers: alive ambulance/medic residual units.
+        let healers: Vec<(ObjectId, Team, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !is_ambulance_healer(&obj.template_name) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z))
+            })
+            .collect();
+
+        if healers.is_empty() {
+            return;
+        }
+
+        // Snapshot damaged ally infantry candidates.
+        let candidates: Vec<(ObjectId, Team, f32, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || !obj.is_kind_of(KindOf::Infantry) {
+                    return None;
+                }
+                let damaged = obj.health.current + 0.01 < obj.health.maximum;
+                if !damaged {
+                    return None;
+                }
+                let pos = obj.get_position();
+                Some((*id, obj.team, pos.x, pos.z, true))
+            })
+            .collect();
+
+        if candidates.is_empty() {
+            return;
+        }
+
+        // Apply heals (may stack if multiple ambulances — fail-closed vs sole-benefactor).
+        let mut heal_ticks: u32 = 0;
+        for (healer_id, healer_team, hx, hz) in &healers {
+            for (target_id, target_team, tx, tz, _) in &candidates {
+                if !is_legal_ambulance_infantry_heal_target(
+                    true,
+                    true,
+                    true,
+                    *healer_team == *target_team,
+                    *healer_id == *target_id,
+                ) {
+                    continue;
+                }
+                if !in_heal_radius_2d((*hx, *hz), (*tx, *tz), HOST_AMBULANCE_HEAL_RADIUS) {
+                    continue;
+                }
+                if let Some(target) = self.objects.get_mut(target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let before = target.health.current;
+                    if before + 0.01 >= target.health.maximum {
+                        continue;
+                    }
+                    target.heal(heal_amount);
+                    if target.health.current > before + 0.0001 {
+                        heal_ticks = heal_ticks.saturating_add(1);
+                    }
+                }
+            }
+        }
+
+        for _ in 0..heal_ticks {
+            self.record_ambulance_residual_heal();
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -15418,6 +15575,277 @@ mod tests {
             game_logic.honesty_vehicle_repair_ok(),
             "vehicle repair residual honesty"
         );
+    }
+
+    /// Residual E2E: damaged infantry near USA Ambulance recovers HP over time.
+    /// C++ AmericaVehicleMedic AutoHealBehavior ModuleTag_22 (INFANTRY, Radius=100).
+    /// Fail-closed: not sole-benefactor / vehicle AutoHeal ModuleTag_23 / embark regen.
+    #[test]
+    fn ambulance_auto_heal_residual_recovers_infantry_hp() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut ambulance_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleMedic");
+        ambulance_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0)
+            .set_cost(600, 0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleMedic".to_string(), ambulance_tpl);
+
+        let ambulance_id = game_logic
+            .create_object(
+                "AmericaVehicleMedic",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ambulance");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("infantry");
+
+        {
+            let infantry = game_logic
+                .find_object_mut(infantry_id)
+                .expect("infantry");
+            let _ = infantry.take_damage(40.0);
+            assert!(
+                infantry.health.current + 0.01 < infantry.health.maximum,
+                "infantry must be damaged before ambulance heal"
+            );
+        }
+        let before = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+
+        assert_eq!(game_logic.heal_residual_ambulance_heals(), 0);
+        assert!(!game_logic.honesty_ambulance_heal_ok());
+        assert!(!game_logic.honesty_heal_ok());
+
+        // Several logic frames of residual AutoHeal (no command required — StartsActive).
+        for _ in 0..30 {
+            game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        }
+
+        let after = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+        assert!(
+            after > before,
+            "ambulance AutoHeal residual must restore infantry HP (before={before}, after={after})"
+        );
+        assert!(
+            game_logic.heal_residual_ambulance_heals() > 0,
+            "must record ambulance heal honesty ticks"
+        );
+        assert!(
+            game_logic.honesty_ambulance_heal_ok(),
+            "ambulance heal residual honesty path"
+        );
+        assert!(game_logic.honesty_heal_ok(), "combined heal honesty");
+
+        // Ambulance itself still present (not self-healed as infantry residual).
+        assert!(
+            game_logic
+                .find_object(ambulance_id)
+                .map(|a| a.is_alive())
+                .unwrap_or(false),
+            "ambulance must remain alive"
+        );
+    }
+
+    /// Residual: infantry outside ambulance radius is not healed; walk-in recovers HP.
+    #[test]
+    fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut ambulance_tpl = crate::game_logic::ThingTemplate::new("USA_Ambulance");
+        ambulance_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0)
+            .set_cost(600, 0);
+        game_logic
+            .templates
+            .insert("USA_Ambulance".to_string(), ambulance_tpl);
+
+        let _ambulance_id = game_logic
+            .create_object("USA_Ambulance", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ambulance");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("infantry");
+        {
+            let infantry = game_logic
+                .find_object_mut(infantry_id)
+                .expect("infantry");
+            let _ = infantry.take_damage(30.0);
+        }
+        let before = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+
+        // Out of residual radius (100): no heal.
+        for _ in 0..15 {
+            game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        }
+        let mid = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+        assert!(
+            (mid - before).abs() < 0.01,
+            "out-of-range infantry must not receive ambulance heal"
+        );
+        assert!(!game_logic.honesty_ambulance_heal_ok());
+
+        // Move into radius.
+        {
+            let infantry = game_logic
+                .find_object_mut(infantry_id)
+                .expect("infantry");
+            infantry.set_position(Vec3::new(30.0, 0.0, 0.0));
+        }
+        for _ in 0..30 {
+            game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        }
+        let after = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+        assert!(
+            after > before,
+            "in-range infantry must recover HP from ambulance residual"
+        );
+        assert!(game_logic.honesty_ambulance_heal_ok());
+    }
+
+    /// Residual: enemy infantry near ambulance is not healed (same-team residual filter).
+    #[test]
+    fn ambulance_auto_heal_residual_skips_enemy_infantry() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut ambulance_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleMedic");
+        ambulance_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(240.0)
+            .set_cost(600, 0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleMedic".to_string(), ambulance_tpl);
+
+        let _ambulance_id = game_logic
+            .create_object(
+                "AmericaVehicleMedic",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ambulance");
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy infantry");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            let _ = enemy.take_damage(40.0);
+        }
+        let before = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+
+        for _ in 0..30 {
+            game_logic.update_ambulance_auto_heal(1.0 / 30.0);
+        }
+        let after = game_logic
+            .find_object(enemy_id)
+            .expect("enemy")
+            .health
+            .current;
+        assert!(
+            (after - before).abs() < 0.01,
+            "enemy infantry must not be healed by USA ambulance residual"
+        );
+        assert!(!game_logic.honesty_ambulance_heal_ok());
+    }
+
+    /// Residual: HealPad GetHealed recovers infantry HP and records heal-pad honesty.
+    #[test]
+    fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_heal_pad_template(&mut game_logic);
+
+        let heal_pad_id = game_logic
+            .create_object("TestHealPad", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("heal pad");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("infantry");
+        {
+            let infantry = game_logic
+                .find_object_mut(infantry_id)
+                .expect("infantry");
+            let _ = infantry.take_damage(40.0);
+        }
+        let before = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+
+        assert!(!game_logic.honesty_heal_pad_ok());
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::GetHealed {
+                target_id: heal_pad_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![infantry_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        {
+            let infantry = game_logic.find_object(infantry_id).expect("infantry");
+            assert_eq!(infantry.ai_state, AIState::SeekingHealing);
+            assert_eq!(infantry.target, Some(heal_pad_id));
+        }
+
+        for _ in 0..30 {
+            game_logic.update_ai(&[heal_pad_id, infantry_id], 1.0 / 30.0);
+        }
+
+        let after = game_logic
+            .find_object(infantry_id)
+            .expect("infantry")
+            .health
+            .current;
+        assert!(
+            after > before,
+            "HealPad SeekingHealing residual must restore infantry HP (before={before}, after={after})"
+        );
+        assert!(
+            game_logic.heal_residual_heal_pad_heals() > 0,
+            "must record heal-pad honesty ticks"
+        );
+        assert!(game_logic.honesty_heal_pad_ok());
+        assert!(game_logic.honesty_heal_ok());
     }
 
     #[test]

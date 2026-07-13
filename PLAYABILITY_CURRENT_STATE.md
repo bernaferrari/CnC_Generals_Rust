@@ -1,5 +1,31 @@
 # GeneralsRust Playability State (2026-04-02)
 
+## Residual Host Playability — Ambulance / Infantry Heal (2026-07-12)
+**Closed (host-testable damage → nearby ambulance / HealPad → infantry HP recovers):**
+1. **USA Ambulance AutoHeal** (`AmericaVehicleMedic` residual):
+   - `GameLogic::update_ambulance_auto_heal` each frame (from `update_simulation`).
+   - Heals damaged **same-team infantry** within residual radius 100 at 4 HP/sec
+     (C++ AutoHealBehavior ModuleTag_22: HealingAmount=4 / Delay=1000ms / KindOf=INFANTRY).
+   - Name residual: template contains `ambulance` / `vehiclemedic` / ends with `medic`.
+2. **HealPad command path** (`CommandType::GetHealed` → `AIState::SeekingHealing`):
+   - Existing support-state dock heal now records `heal_residual_heal_pad_heals` honesty.
+3. Honesty counters (`host_heal.rs` + GameLogic):
+   - `heal_residual_ambulance_heals` / `heal_residual_heal_pad_heals`
+   - `honesty_ambulance_heal_ok` / `honesty_heal_pad_ok` / `honesty_heal_ok`
+4. Tests (not log-only):
+   - `ambulance_auto_heal_residual_recovers_infantry_hp`
+   - `ambulance_auto_heal_residual_out_of_range_then_in_range`
+   - `ambulance_auto_heal_residual_skips_enemy_infantry`
+   - `heal_pad_seeking_healing_residual_recovers_infantry_hp`
+   - unit tests in `host_heal.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full sole-benefactor exclusivity / multi-ambulance reject
+- Vehicle AutoHeal ModuleTag_23 (VEHICLE, ForbiddenKindOf=AIRCRAFT, SkipSelf)
+- TransportContain HealthRegen%PerSec while embarked
+- Particle / world-anim heal pulse FX
+- Network heal replication (network deferred)
+
 ## Residual Host Playability — Structure / Vehicle Repair (2026-07-12)
 **Closed (host-testable damage → Repair / GetRepaired → HP recovers):**
 1. **Dozer structure repair** (`CommandType::Repair`):

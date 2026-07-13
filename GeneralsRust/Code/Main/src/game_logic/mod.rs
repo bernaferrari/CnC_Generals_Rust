@@ -19,6 +19,7 @@ pub mod host_spy_satellite;
 pub mod host_cia_intelligence;
 pub mod host_hero_abilities;
 pub mod host_repair;
+pub mod host_heal;
 pub mod host_paradrop;
 pub mod host_firewall;
 pub mod terrain;
@@ -62,6 +63,10 @@ pub use host_cia_intelligence::{
 };
 pub use host_hero_abilities::{
     HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
+};
+pub use host_heal::{
+    is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
+    HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
 };
 pub use host_paradrop::{
     HostParadropKind, HostParadropMission, HostParadropPhase, HostParadropRegistry,
