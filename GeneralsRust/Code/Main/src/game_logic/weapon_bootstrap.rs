@@ -94,6 +94,9 @@ pub const COMANCHE_PRIMARY_WEAPON: &str = "Comanche20mmCannonWeapon";
 pub const COMANCHE_ANTITANK_WEAPON: &str = "ComancheAntiTankMissileWeapon";
 pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
 
+/// Retail Helix PRIMARY minigun residual weapon.
+pub const HELIX_MINIGUN_WEAPON: &str = "HelixMinigunWeapon";
+
 /// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
 pub const SENTRY_DRONE_GUN_WEAPON: &str = "SentryDroneGun";
 
@@ -306,6 +309,13 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
         | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_PRIMARY_WEAPON),
+        // China Helix residual primary minigun.
+        "ChinaVehicleHelix"
+        | "China_Helix"
+        | "Nuke_ChinaVehicleHelix"
+        | "Infa_ChinaVehicleHelix"
+        | "Tank_ChinaVehicleHelix"
+        | "TestHelix" => Some(HELIX_MINIGUN_WEAPON),
         // Pathfinder sniper residual.
         "AmericaInfantryPathfinder"
         | "USA_Pathfinder"
@@ -482,6 +492,9 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 return Some(COMANCHE_PRIMARY_WEAPON);
             }
+            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
+                return Some(HELIX_MINIGUN_WEAPON);
+            }
             if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
                 return Some(PATHFINDER_SNIPER_WEAPON);
             }
@@ -539,9 +552,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
                 return Some(TERRORIST_SUICIDE_WEAPON);
             }
-            if crate::game_logic::host_missile_defender::is_missile_defender_template(
-                template_name,
-            ) {
+            if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
+            {
                 return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
             }
             if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
@@ -1046,7 +1058,6 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 999_999.0,
         },
-
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
         // AttackRange 125. KILL_GARRISONED residual via host combat path.
         SeedWeapon {
@@ -1063,6 +1074,16 @@ fn seed_known_host_weapons() -> usize {
             name: COMANCHE_PRIMARY_WEAPON,
             primary_damage: 6.0,
             attack_range: 200.0,
+            delay_frames: 3,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // HelixMinigunWeapon PRIMARY — PrimaryDamage 6, AttackRange 115,
+        // DelayBetweenShots 100ms → 3 frames @ 30 FPS. Intended-only residual.
+        SeedWeapon {
+            name: HELIX_MINIGUN_WEAPON,
+            primary_damage: 6.0,
+            attack_range: 115.0,
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
