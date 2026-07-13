@@ -1,4 +1,4 @@
-## Residual Host Playability — ScudStormWeapon Launch + Howitzer Gun Anti + DisplayString getSize/WordWrap/Hotkey/Clip + Multi-locale STR Paths (2026-07-13)
+## Residual Host Playability — Wave 41: ScudStormWeapon Launch + Howitzer Gun Anti + DisplayString getSize/WordWrap/Hotkey/Clip + Multi-locale STR Paths (2026-07-13)
 **Closed (host-testable residual not covered by wave 39 death-damage/fire-params/remnant residual):**
 1. **ScudStormWeapon launch residual** (`special_power_strikes`):
    - ClipSize **9**, ClipReloadTime **10000** ms → **300** frames, AutoReloadsClip **Yes**.
@@ -6,14 +6,14 @@
    - ProjectileCollidesWith **STRUCTURES**, ProjectileObject **ScudStormMissile**.
    - DelayBetweenShots Min/Max **100**/**1000** ms → **3**/**30** frames.
    - Death weapon ClipReloadTime **0** residual.
-   - Honesty: `honesty_scud_weapon_launch_ok`.
+   - Honesty: `honesty_scud_weapon_launch_ok` (application counter on impact wave).
    - Fail-closed: not full WeaponTemplate store / live pad reload matrix.
 2. **SpectreHowitzerGun anti residual** (`special_power_strikes`):
    - AntiAirborneVehicle/Infantry **No**, AntiSmallMissile/AntiBallisticMissile **No**.
    - AntiGround **Yes**, ProjectileObject **SpectreHowitzerShell**.
    - ContinuousFireCoast **2000** ms, ContinuousFireOne/Two **1**/**2**.
    - VeterancyFireFX residual (HEROIC GenericTankGunNoTracer).
-   - Honesty: `honesty_howitzer_gun_anti_params_ok`.
+   - Honesty: `honesty_howitzer_gun_anti_params_ok` (application counter on orbit tick).
    - Fail-closed: not full WeaponTemplate anti matrix / live turret aim.
 3. **DisplayString getSize / setWordWrap / setWordWrapCentered / setUseHotkey / setClipRegion residual** (`floating_text_layout`):
    - getSize monospaced width×height; empty/no-font → 0×0.
@@ -35,10 +35,10 @@
    - `display_string_set_word_wrap_residual_honesty`
    - `display_string_set_use_hotkey_and_clip_residual_honesty`
    - `multi_locale_str_path_residual_table` (10 locales)
-   - all `special_power_strikes::` green
-   - graphics residual tests green
-   - golden_skirmish_gate --frames 8 → `playable_claim=true`
-   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+   - all `special_power_strikes::` (**77**) green
+   - residual_honesty suite (**70**) green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
 
 **Still residual (fail-closed, not claimed):**
 - Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
