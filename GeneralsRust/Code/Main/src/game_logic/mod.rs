@@ -70,6 +70,7 @@ pub mod host_red_guard;
 pub mod host_repair;
 pub mod host_rocket_buggy;
 pub mod host_rpg_trooper;
+pub mod host_saboteur;
 pub mod host_scorpion;
 pub mod host_scud_launcher;
 pub mod host_sentry_drone;
@@ -135,17 +136,19 @@ pub use host_avenger::{
 pub use host_base_defense::{
     gattling_building_air_weapon, gattling_building_ground_weapon, is_base_defense_structure,
     is_dual_slot_base_defense, is_gattling_cannon_structure, is_laser_patriot_template,
-    is_legal_base_defense_target, is_patriot_battery_structure, is_stinger_site_structure,
-    patriot_air_weapon, patriot_air_weapon_for_template, patriot_ground_weapon,
-    patriot_ground_weapon_for_template, preferred_dual_defense_slot,
-    preferred_gattling_building_slot, primary_weapon_name_for_defense,
-    secondary_weapon_name_for_defense, stinger_air_weapon, stinger_ground_weapon,
-    GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
-    GATTLING_BUILDING_GROUND_DAMAGE, GATTLING_BUILDING_GROUND_RANGE,
-    GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON,
-    LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON,
-    LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
-    STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
+    is_legal_base_defense_target, is_legal_supw_patriot_emp_target, is_patriot_battery_structure,
+    is_stinger_site_structure, is_supw_patriot_template, patriot_air_weapon,
+    patriot_air_weapon_for_template, patriot_ground_weapon, patriot_ground_weapon_for_template,
+    preferred_dual_defense_slot, preferred_gattling_building_slot,
+    primary_weapon_name_for_defense, secondary_weapon_name_for_defense, stinger_air_weapon,
+    stinger_ground_weapon, supw_patriot_emp_until_frame, GATTLING_BUILDING_AIR_DAMAGE,
+    GATTLING_BUILDING_BASE_DELAY_FRAMES, GATTLING_BUILDING_GROUND_DAMAGE,
+    GATTLING_BUILDING_GROUND_RANGE, GATTLING_BUILDING_PRIMARY_WEAPON,
+    GATTLING_BUILDING_SECONDARY_WEAPON, LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE,
+    LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+    PATRIOT_SECONDARY_WEAPON, STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
+    SUPW_PATRIOT_AIR_DAMAGE, SUPW_PATRIOT_EMP_DURATION_FRAMES, SUPW_PATRIOT_EMP_RADIUS,
+    SUPW_PATRIOT_GROUND_DAMAGE, SUPW_PATRIOT_PRIMARY_WEAPON, SUPW_PATRIOT_SECONDARY_WEAPON,
 };
 pub use host_battle_bus::{
     battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
@@ -380,6 +383,10 @@ pub use host_rpg_trooper::{
     is_rpg_trooper_template, rpg_trooper_weapon, should_apply_rpg_trooper_residual,
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
     UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS,
+};
+pub use host_saboteur::{
+    classify_sabotage_target, is_saboteur_template, HostSaboteurRegistry, SaboteurEffectKind,
+    SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO,
 };
 pub use host_sentry_drone::{
     is_sentry_drone_template, sentry_detection_range, sentry_spawn_is_detector,

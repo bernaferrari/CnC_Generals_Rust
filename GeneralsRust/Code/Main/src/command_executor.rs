@@ -1979,6 +1979,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_sabotage(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.get_object(target_id) {
                 Some(target) => (
@@ -2000,7 +2001,14 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .get_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.can_move() && unit.team != target_team)
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.can_move()
+                        && unit.team != target_team
+                        && crate::game_logic::host_saboteur::is_saboteur_template(
+                            &unit.template_name,
+                        )
+                })
                 .unwrap_or(false);
             if !can_issue {
                 continue;

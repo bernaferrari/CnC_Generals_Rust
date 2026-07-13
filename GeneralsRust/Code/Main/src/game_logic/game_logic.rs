@@ -850,6 +850,9 @@ pub struct GameLogic {
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
     car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
+    /// Host GLA Saboteur structure sabotage residual (power/cash/factory/superweapon).
+    /// Fail-closed: not full BuildingPickup CrateCollide / EVA floating-text matrix.
+    saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry,
     /// USA Pilot recrew residual honesty.
     usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry,
     /// GLA Worker / WorkerShoes residual honesty.
@@ -1109,6 +1112,8 @@ pub struct GameLogic {
     /// Fail-closed: not full AssistedTargetingModule assist clips.
     patriot_residual_ground_fires: u32,
     patriot_residual_aa_fires: u32,
+    /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
+    supw_patriot_emp_residual_grants: u32,
 
     /// Game paused state
     is_paused: bool,
@@ -1972,6 +1977,7 @@ impl GameLogic {
                 crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
+            saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry::new(),
             usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry::new(),
             gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry::new(),
             bomb_truck_disguise:
@@ -2108,6 +2114,7 @@ impl GameLogic {
             stinger_site_residual_ap_rockets_upgrades: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
+            supw_patriot_emp_residual_grants: 0,
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -2293,6 +2300,7 @@ impl GameLogic {
         self.supply_drop_zones.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
+        self.saboteur.clear();
         self.usa_pilot.clear();
         self.gla_worker.clear();
         self.bomb_truck_disguise.clear();
@@ -2424,6 +2432,7 @@ impl GameLogic {
         self.stinger_site_residual_ap_rockets_upgrades = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
+        self.supw_patriot_emp_residual_grants = 0;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -8329,15 +8338,129 @@ impl GameLogic {
                             self.mark_object_for_destruction(object_id, Some(team));
                         }
                         PendingSpecialAbility::Sabotage { .. } => {
-                            let destroyed = self
+                            // C++ Sabotage*CrateCollide residual: type-specific structure
+                            // sabotage; saboteur consumed on success (mobile crate).
+                            use crate::game_logic::host_saboteur::{
+                                classify_sabotage_target, is_saboteur_template, SaboteurEffectKind,
+                                SABOTEUR_CASH_STEAL_AUDIO, SABOTEUR_RESET_TIMER_AUDIO,
+                                SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO,
+                            };
+                            let saboteur_ok = self
                                 .objects
-                                .get_mut(&special_target_id)
-                                .map(|target| target.take_damage(target.max_health * 0.5))
+                                .get(&object_id)
+                                .map(|o| is_saboteur_template(&o.template_name))
                                 .unwrap_or(false);
-                            if destroyed {
-                                self.mark_object_for_destruction(special_target_id, Some(team));
-                            }
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                            let effect = self.objects.get(&special_target_id).and_then(|t| {
+                                classify_sabotage_target(
+                                    &t.template_name,
+                                    t.is_kind_of(KindOf::FSPower),
+                                    t.is_kind_of(KindOf::PowerPlant),
+                                    t.is_kind_of(KindOf::FSSupplyCenter),
+                                    t.is_kind_of(KindOf::SupplyCenter),
+                                    t.is_kind_of(KindOf::FSBarracks),
+                                    t.is_kind_of(KindOf::FSWarFactory),
+                                    t.is_kind_of(KindOf::FSAirfield),
+                                    t.is_kind_of(KindOf::FSSuperweapon),
+                                    t.is_kind_of(KindOf::FSStrategyCenter),
+                                    t.is_kind_of(KindOf::CommandCenter),
+                                    t.is_kind_of(KindOf::FSInternetCenter),
+                                    t.is_kind_of(KindOf::FSFake),
+                                )
+                            });
+                            if saboteur_ok {
+                                if let Some(kind) = effect {
+                                    let mut cash_stolen = 0u32;
+                                    match kind {
+                                        SaboteurEffectKind::PowerPlant => {
+                                            let until = self.frame.saturating_add(
+                                                crate::game_logic::host_saboteur::SABOTEUR_POWER_DURATION_FRAMES,
+                                            );
+                                            if let Some(player) =
+                                                self.get_player_mut_by_team(target_team)
+                                            {
+                                                player.power_sabotaged_till_frame = until;
+                                            }
+                                        }
+                                        SaboteurEffectKind::SupplyCenter => {
+                                            cash_stolen = self.steal_cash_from_team(
+                                                target_team,
+                                                team,
+                                                SABOTEUR_STEAL_CASH_AMOUNT,
+                                            );
+                                        }
+                                        SaboteurEffectKind::MilitaryFactory
+                                        | SaboteurEffectKind::InternetCenter => {
+                                            if let Some(until) =
+                                                kind.disabled_hacked_until(self.frame)
+                                            {
+                                                if let Some(target) =
+                                                    self.objects.get_mut(&special_target_id)
+                                                {
+                                                    target.apply_disabled_hacked(until);
+                                                }
+                                            }
+                                        }
+                                        SaboteurEffectKind::SuperweaponOrCommand => {
+                                            if let Some(target) =
+                                                self.objects.get_mut(&special_target_id)
+                                            {
+                                                // C++ startPowerRecharge residual: force full recharge.
+                                                target.special_power_ready = false;
+                                                if target.special_power_cooldown <= 0.0 {
+                                                    target.special_power_cooldown = 10.0;
+                                                }
+                                                target.special_power_cooldown_remaining =
+                                                    target.special_power_cooldown;
+                                            }
+                                        }
+                                        SaboteurEffectKind::FakeBuilding => {
+                                            let destroyed = self
+                                                .objects
+                                                .get_mut(&special_target_id)
+                                                .map(|target| {
+                                                    target.take_damage(target.max_health)
+                                                })
+                                                .unwrap_or(false);
+                                            if destroyed {
+                                                self.mark_object_for_destruction(
+                                                    special_target_id,
+                                                    Some(team),
+                                                );
+                                            }
+                                        }
+                                    }
+                                    self.saboteur.record(kind, cash_stolen);
+                                    let audio = if kind.steals_cash() {
+                                        SABOTEUR_CASH_STEAL_AUDIO
+                                    } else if kind.resets_special_power() {
+                                        SABOTEUR_RESET_TIMER_AUDIO
+                                    } else {
+                                        SABOTEUR_SUCCESS_AUDIO
+                                    };
+                                    self.queue_audio_event(
+                                        AudioEventRequest::new(audio)
+                                            .with_object(special_target_id)
+                                            .with_position(target_position)
+                                            .with_priority(170),
+                                    );
+                                    let msg = localization::localize(
+                                        "hud.saboteur.complete",
+                                        "Building sabotaged",
+                                    );
+                                    self.queue_radar_message_for_team(team, msg);
+                                    // C++ CrateCollide: destroy saboteur (mobile crate).
+                                    if let Some(sab) = self.objects.get_mut(&object_id) {
+                                        sab.status.destroyed = true;
+                                    }
+                                    self.mark_object_for_destruction(object_id, Some(team));
+                                    self.saboteur.record_consumed();
+                                } else if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    // Fail-closed: non-matching structure — cancel residual.
+                                    obj.stop_moving();
+                                    obj.set_target(None);
+                                }
+                            } else if let Some(obj) = self.objects.get_mut(&object_id) {
+                                // Fail-closed: non-saboteur cannot complete residual.
                                 obj.stop_moving();
                                 obj.set_target(None);
                             }
@@ -14279,10 +14402,91 @@ impl GameLogic {
                 self.patriot_residual_ground_fires =
                     self.patriot_residual_ground_fires.saturating_add(1);
             }
+            // Superweapon General EMP Patriot residual: EMPPatriotEffectSpheroid on impact.
+            // Fail-closed: not full OCL spheroid drawable / assist clip matrix.
+            if crate::game_logic::host_base_defense::is_supw_patriot_template(&template_name) {
+                self.apply_supw_patriot_emp_residual_at(
+                    impact_pos.unwrap_or(fire_pos),
+                    defense_id,
+                    team,
+                );
+            }
         }
         if is_tunnel {
             // TunnelNetworkGun residual honesty (base-defense auto-fire path).
             self.tunnel_network.record_gun_fire(true);
+        }
+    }
+
+    /// SupW Patriot EMP residual: DISABLED_EMP for legal victims in EffectRadius 10.
+    ///
+    /// Retail EMPPatriotEffectSpheroid EMPUpdate residual (DisabledDuration 10000 ms).
+    /// DoesNotAffectMyOwnBuildings residual skips own faction structures.
+    fn apply_supw_patriot_emp_residual_at(
+        &mut self,
+        impact: glam::Vec3,
+        source_id: ObjectId,
+        source_team: Team,
+    ) {
+        use crate::game_logic::host_base_defense::{
+            is_legal_supw_patriot_emp_target, supw_patriot_emp_until_frame, SUPW_PATRIOT_EMP_AUDIO,
+            SUPW_PATRIOT_EMP_RADIUS,
+        };
+        use crate::game_logic::host_emp_pulse::is_emp_hardened_name;
+
+        let until = supw_patriot_emp_until_frame(self.frame);
+        let radius = SUPW_PATRIOT_EMP_RADIUS;
+        let victims: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if *id == source_id || !obj.is_alive() {
+                    return None;
+                }
+                let dx = obj.get_position().x - impact.x;
+                let dz = obj.get_position().z - impact.z;
+                if (dx * dx + dz * dz).sqrt() > radius {
+                    return None;
+                }
+                let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                let is_aircraft =
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                let is_own_structure = is_structure && obj.team == source_team;
+                let is_faction_structure = is_structure
+                    && (obj.team == Team::USA
+                        || obj.team == Team::China
+                        || obj.team == Team::GLA);
+                if !is_legal_supw_patriot_emp_target(
+                    is_vehicle,
+                    is_aircraft,
+                    is_faction_structure,
+                    is_own_structure,
+                    true,
+                    obj.status.under_construction,
+                    is_emp_hardened_name(&obj.template_name),
+                ) {
+                    return None;
+                }
+                Some(*id)
+            })
+            .collect();
+        let mut any = false;
+        for vid in victims {
+            if let Some(v) = self.objects.get_mut(&vid) {
+                v.apply_disabled_emp(until);
+                any = true;
+            }
+        }
+        if any {
+            self.supw_patriot_emp_residual_grants =
+                self.supw_patriot_emp_residual_grants.saturating_add(1);
+            self.queue_audio_event(
+                AudioEventRequest::new(SUPW_PATRIOT_EMP_AUDIO)
+                    .with_object(source_id)
+                    .with_position(impact)
+                    .with_priority(165),
+            );
         }
     }
 
@@ -15397,6 +15601,15 @@ impl GameLogic {
 
     pub fn patriot_residual_aa_fires(&self) -> u32 {
         self.patriot_residual_aa_fires
+    }
+
+    /// Residual honesty: SupW EMP Patriot applied DISABLED_EMP at least once.
+    pub fn honesty_supw_patriot_emp_ok(&self) -> bool {
+        self.supw_patriot_emp_residual_grants > 0
+    }
+
+    pub fn supw_patriot_emp_residual_grants(&self) -> u32 {
+        self.supw_patriot_emp_residual_grants
     }
 
     /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
@@ -23658,6 +23871,31 @@ impl GameLogic {
     /// Host car-bomb / hijack residual registry (honesty counters).
     pub fn car_bomb_residual(&self) -> &crate::game_logic::host_car_bomb::HostCarBombRegistry {
         &self.car_bomb
+    }
+
+    /// Host GLA Saboteur residual registry (honesty counters).
+    pub fn saboteur_residual(&self) -> &crate::game_logic::host_saboteur::HostSaboteurRegistry {
+        &self.saboteur
+    }
+
+    /// Residual honesty: at least one structure sabotage completed.
+    pub fn honesty_saboteur_ok(&self) -> bool {
+        self.saboteur.honesty_any_ok()
+    }
+
+    /// Residual honesty: power-plant brownout applied.
+    pub fn honesty_saboteur_power_ok(&self) -> bool {
+        self.saboteur.honesty_power_ok()
+    }
+
+    /// Residual honesty: supply cash steal applied.
+    pub fn honesty_saboteur_cash_ok(&self) -> bool {
+        self.saboteur.honesty_cash_ok()
+    }
+
+    /// Residual honesty: military factory disable applied.
+    pub fn honesty_saboteur_military_ok(&self) -> bool {
+        self.saboteur.honesty_military_ok()
     }
 
     /// Residual honesty: at least one hijack transferred a vehicle.
@@ -34010,28 +34248,73 @@ mod tests {
         assert!(hijacker.status.destroyed);
     }
 
+    fn ensure_test_saboteur_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("GLAInfantrySaboteur") {
+            return;
+        }
+        let mut t = ThingTemplate::new("GLAInfantrySaboteur");
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0)
+            .set_cost(800, 0);
+        game_logic
+            .templates
+            .insert("GLAInfantrySaboteur".to_string(), t);
+    }
+
+    fn ensure_test_power_plant_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("AmericaPowerPlant") {
+            return;
+        }
+        let mut t = ThingTemplate::new("AmericaPowerPlant");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::FSPower)
+            .add_kind_of(KindOf::PowerPlant)
+            .set_health(1500.0);
+        game_logic
+            .templates
+            .insert("AmericaPowerPlant".to_string(), t);
+    }
+
+    fn ensure_test_war_factory_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("AmericaWarFactory") {
+            return;
+        }
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::FSWarFactory)
+            .set_health(2000.0);
+        game_logic
+            .templates
+            .insert("AmericaWarFactory".to_string(), t);
+    }
+
+    /// Residual: GLA Saboteur power-plant brownout after reach (consumed).
     #[test]
     fn sabotage_command_applies_only_after_unit_reaches_target() {
         let mut game_logic = GameLogic::new();
-        ensure_test_tank_template(&mut game_logic);
-        ensure_test_structure_template(&mut game_logic);
+        ensure_test_saboteur_template(&mut game_logic);
+        ensure_test_power_plant_template(&mut game_logic);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
 
         let saboteur_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(150.0, 0.0, 0.0))
+            .create_object(
+                "GLAInfantrySaboteur",
+                Team::GLA,
+                Vec3::new(150.0, 0.0, 0.0),
+            )
             .expect("saboteur should be created");
         let target_id = game_logic
-            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object("AmericaPowerPlant", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("target should be created");
-
-        let initial_health = game_logic
-            .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::Sabotage { target_id },
-            player_id: 0,
+            player_id: 2,
             command_id: 1,
             timestamp: std::time::SystemTime::now(),
             selected_units: vec![saboteur_id],
@@ -34039,26 +34322,18 @@ mod tests {
         });
         game_logic.process_commands();
 
-        let target_after_command = game_logic
-            .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
+        // Not yet: out of range.
+        assert!(!game_logic.honesty_saboteur_power_ok());
         assert_eq!(
-            target_after_command, initial_health,
-            "sabotage should not damage immediately on command issue"
+            game_logic
+                .get_player_mut_by_team(Team::USA)
+                .map(|p| p.power_sabotaged_till_frame)
+                .unwrap_or(0),
+            0
         );
 
         game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
-        let target_after_far_update = game_logic
-            .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
-        assert_eq!(
-            target_after_far_update, initial_health,
-            "sabotage should still be pending while saboteur is out of range"
-        );
+        assert!(!game_logic.honesty_saboteur_power_ok());
 
         {
             let saboteur = game_logic
@@ -34068,34 +34343,49 @@ mod tests {
             saboteur.ai_state = AIState::SpecialAbility;
             saboteur.target = Some(target_id);
         }
+        game_logic.frame = 30;
         game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
 
-        let target_after_contact = game_logic
-            .find_object(target_id)
-            .expect("target should exist")
-            .health
-            .current;
         assert!(
-            target_after_contact < initial_health,
-            "sabotage should apply once saboteur reaches target"
+            game_logic.honesty_saboteur_power_ok(),
+            "power sabotage residual must apply on reach"
         );
+        let until = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.power_sabotaged_till_frame)
+            .unwrap_or(0);
+        assert!(
+            until > 30,
+            "power_sabotaged_till_frame must be set (until={until})"
+        );
+        // Saboteur consumed residual.
+        let sab_alive = game_logic
+            .find_object(saboteur_id)
+            .map(|s| s.is_alive() && !s.status.destroyed)
+            .unwrap_or(false);
+        assert!(!sab_alive, "saboteur must be consumed on success");
     }
 
     #[test]
     fn sabotage_command_rejects_non_structure_targets() {
         let mut game_logic = GameLogic::new();
+        ensure_test_saboteur_template(&mut game_logic);
         ensure_test_tank_template(&mut game_logic);
 
         let saboteur_id = game_logic
-            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .create_object(
+                "GLAInfantrySaboteur",
+                Team::GLA,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
             .expect("saboteur should be created");
         let target_id = game_logic
-            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("target should be created");
 
         game_logic.queue_command(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::Sabotage { target_id },
-            player_id: 0,
+            player_id: 2,
             command_id: 1,
             timestamp: std::time::SystemTime::now(),
             selected_units: vec![saboteur_id],
@@ -34108,6 +34398,85 @@ mod tests {
             .expect("saboteur should exist");
         assert_ne!(saboteur.ai_state, AIState::SpecialAbility);
         assert_ne!(saboteur.target, Some(target_id));
+    }
+
+    /// Residual: Saboteur military factory DISABLED_HACKED residual.
+    #[test]
+    fn saboteur_military_factory_residual_disables_production() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_saboteur_template(&mut game_logic);
+        ensure_test_war_factory_template(&mut game_logic);
+
+        let saboteur_id = game_logic
+            .create_object(
+                "GLAInfantrySaboteur",
+                Team::GLA,
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .expect("saboteur");
+        let target_id = game_logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("factory");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Sabotage { target_id },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![saboteur_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        {
+            let s = game_logic.find_object_mut(saboteur_id).unwrap();
+            s.set_position(Vec3::new(1.0, 0.0, 0.0));
+            s.ai_state = AIState::SpecialAbility;
+            s.target = Some(target_id);
+        }
+        game_logic.frame = 10;
+        game_logic.update_ai(&[saboteur_id, target_id], 1.0 / 60.0);
+
+        assert!(
+            game_logic.honesty_saboteur_military_ok(),
+            "military factory sabotage residual honesty"
+        );
+        let factory = game_logic.find_object(target_id).expect("factory");
+        assert!(
+            factory.is_hacked_disabled() || factory.status.disabled_hacked,
+            "factory must be DISABLED_HACKED residual"
+        );
+        assert!(
+            factory.status.disabled_hacked_until_frame > 10,
+            "disable timer residual"
+        );
+    }
+
+    /// Residual: non-saboteur unit cannot issue Sabotage residual (fail-closed).
+    #[test]
+    fn sabotage_command_rejects_non_saboteur_units() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_power_plant_template(&mut game_logic);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("tank");
+        let target_id = game_logic
+            .create_object("AmericaPowerPlant", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("plant");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Sabotage { target_id },
+            player_id: 2,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![tank_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        let tank = game_logic.find_object(tank_id).expect("tank");
+        assert_ne!(tank.ai_state, AIState::SpecialAbility);
+        assert!(!game_logic.honesty_saboteur_ok());
     }
 
     #[test]
@@ -56225,6 +56594,152 @@ mod tests {
         assert!(
             game_logic.honesty_booby_trap_ok(),
             "booby trap host path honesty"
+        );
+    }
+
+    /// Residual: Superweapon General EMP Patriot dual-slot + DISABLED_EMP sphere.
+    #[test]
+    fn supw_patriot_emp_residual_dual_slot_and_disable() {
+        use crate::game_logic::host_base_defense::{
+            is_supw_patriot_template, SUPW_PATRIOT_AIR_DAMAGE, SUPW_PATRIOT_GROUND_DAMAGE,
+            SUPW_PATRIOT_GROUND_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+
+        let mut pat_tpl = crate::game_logic::ThingTemplate::new("SupW_AmericaPatriotBattery");
+        pat_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("SupW_AmericaPatriotBattery".to_string(), pat_tpl);
+
+        let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
+        enemy_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(500.0);
+        game_logic
+            .templates
+            .insert("TestTank".to_string(), enemy_tpl);
+
+        let mut air_tpl = crate::game_logic::ThingTemplate::new("TestJet");
+        air_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        game_logic.templates.insert("TestJet".to_string(), air_tpl);
+
+        let pat_id = game_logic
+            .create_object(
+                "SupW_AmericaPatriotBattery",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("supw patriot");
+        if let Some(p) = game_logic.find_object_mut(pat_id) {
+            p.status.under_construction = false;
+            p.construction_percent = 100.0;
+        }
+
+        {
+            let p = game_logic.find_object(pat_id).expect("patriot");
+            assert!(is_supw_patriot_template(&p.template_name));
+            let g = p.weapon.as_ref().expect("SupW ground residual");
+            assert!(
+                (g.damage - SUPW_PATRIOT_GROUND_DAMAGE).abs() < 0.5,
+                "SupW Patriot ground 15, got {}",
+                g.damage
+            );
+            assert!(
+                (g.range - SUPW_PATRIOT_GROUND_RANGE).abs() < 1.0,
+                "SupW ground range 275, got {}",
+                g.range
+            );
+            let a = p.secondary_weapon.as_ref().expect("SupW AA residual");
+            assert!(
+                (a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.5,
+                "SupW Patriot AA 30, got {}",
+                a.damage
+            );
+            assert!(a.can_target_air);
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let air_id = game_logic
+            .create_object("TestJet", Team::GLA, Vec3::new(0.0, 250.0, 0.0))
+            .expect("air");
+        if let Some(a) = game_logic.find_object_mut(air_id) {
+            a.status.airborne_target = true;
+        }
+
+        let hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        {
+            let p = game_logic.find_object_mut(pat_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            if let Some(w) = p.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 30;
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_after = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after < hp_before,
+            "SupW Patriot ground residual must damage (before={hp_before} after={hp_after})"
+        );
+        let enemy = game_logic.find_object(enemy_id).expect("enemy");
+        assert!(
+            enemy.is_emp_disabled() || enemy.status.disabled_emp,
+            "SupW EMP residual must DISABLED_EMP the hit vehicle"
+        );
+        assert!(
+            game_logic.honesty_supw_patriot_emp_ok(),
+            "EMP grant honesty"
+        );
+        assert!(
+            game_logic.patriot_residual_ground_fires > 0
+                || game_logic.base_defense_residual_fires() > 0,
+            "patriot residual fire honesty"
+        );
+
+        // AA residual path: move ground enemy away.
+        if let Some(e) = game_logic.find_object_mut(enemy_id) {
+            e.set_position(Vec3::new(5000.0, 0.0, 0.0));
+        }
+        let air_hp_before = game_logic.find_object(air_id).unwrap().health.current;
+        {
+            let p = game_logic.find_object_mut(pat_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+            if let Some(w) = p.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        game_logic.frame = 90;
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let air_hp_after = game_logic.find_object(air_id).unwrap().health.current;
+        assert!(
+            air_hp_after < air_hp_before,
+            "SupW Patriot AA residual must damage aircraft (before={air_hp_before} after={air_hp_after})"
+        );
+        let jet = game_logic.find_object(air_id).expect("jet");
+        assert!(
+            jet.is_emp_disabled() || jet.status.disabled_emp,
+            "SupW EMP residual must DISABLED_EMP aircraft"
         );
     }
 }

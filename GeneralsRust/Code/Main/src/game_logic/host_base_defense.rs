@@ -11,6 +11,9 @@
 //!   - Laser General residual: `Lazr_PatriotMissileWeapon` (dmg **40** / r**3**)
 //!     + air residual `Lazr_PatriotMissileWeaponAir` (dmg **35** / r**3** / range **350**)
 //!     (retail SECONDARY assist slot collapsed; TERTIARY air → residual secondary)
+//!   - Superweapon General residual: `SupW_PatriotMissileWeapon` (dmg **15** /
+//!     range **275**) + air `SupW_PatriotMissileWeaponAir` (dmg **30** / range **400**)
+//!     + EMPPatriotEffectSpheroid residual (DISABLED_EMP **10000** ms / r**10**)
 //!   - `GattlingBuildingGun` (dmg 10, range 225) + SECONDARY `GattlingBuildingGunAir`
 //!     (dmg 5, range 400, AA only)
 //!   - Stinger residual (SPAWNS_ARE_THE_WEAPONS abstraction): structure fires
@@ -29,6 +32,7 @@
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //! - Not full Lazr Patriot AssistedTargetingModule SECONDARY assist clip matrix
+//! - Not full SupW assist clip / RequestAssistRange matrix (EMP residual is impact-only)
 //! - Not full SpawnBehavior / HiveStructureBody / Stinger soldier death matrix
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
 //! - Not full AssistedTargetingModule Patriot assist clips / RequestAssistRange
@@ -47,19 +51,31 @@ pub const PATRIOT_SECONDARY_WEAPON: &str = "PatriotMissileWeaponAir";
 pub const LAZR_PATRIOT_PRIMARY_WEAPON: &str = "Lazr_PatriotMissileWeapon";
 /// Retail Laser General Patriot AA residual (TERTIARY → residual secondary slot).
 pub const LAZR_PATRIOT_SECONDARY_WEAPON: &str = "Lazr_PatriotMissileWeaponAir";
+/// Retail Superweapon General Patriot primary residual (EMP missiles).
+pub const SUPW_PATRIOT_PRIMARY_WEAPON: &str = "SupW_PatriotMissileWeapon";
+/// Retail Superweapon General Patriot AA residual.
+pub const SUPW_PATRIOT_SECONDARY_WEAPON: &str = "SupW_PatriotMissileWeaponAir";
 
 /// Retail PatriotMissileWeapon PrimaryDamage.
 pub const PATRIOT_GROUND_DAMAGE: f32 = 30.0;
 /// Retail Lazr_PatriotMissileWeapon PrimaryDamage residual.
 pub const LAZR_PATRIOT_GROUND_DAMAGE: f32 = 40.0;
+/// Retail SupW_PatriotMissileWeapon PrimaryDamage residual.
+pub const SUPW_PATRIOT_GROUND_DAMAGE: f32 = 15.0;
 /// Retail PatriotMissileWeapon AttackRange.
 pub const PATRIOT_GROUND_RANGE: f32 = 225.0;
+/// Retail SupW_PatriotMissileWeapon AttackRange residual.
+pub const SUPW_PATRIOT_GROUND_RANGE: f32 = 275.0;
 /// Retail PatriotMissileWeaponAir PrimaryDamage.
 pub const PATRIOT_AIR_DAMAGE: f32 = 25.0;
 /// Retail Lazr_PatriotMissileWeaponAir PrimaryDamage residual.
 pub const LAZR_PATRIOT_AIR_DAMAGE: f32 = 35.0;
+/// Retail SupW_PatriotMissileWeaponAir PrimaryDamage residual.
+pub const SUPW_PATRIOT_AIR_DAMAGE: f32 = 30.0;
 /// Retail PatriotMissileWeaponAir AttackRange.
 pub const PATRIOT_AIR_RANGE: f32 = 350.0;
+/// Retail SupW_PatriotMissileWeaponAir AttackRange residual.
+pub const SUPW_PATRIOT_AIR_RANGE: f32 = 400.0;
 /// Retail Patriot DelayBetweenShots 250ms → 8 frames @ 30 FPS (in-clip).
 pub const PATRIOT_DELAY_FRAMES: u32 = 8;
 /// Retail Patriot ClipReloadTime 2000ms → 60 frames residual between clips.
@@ -69,6 +85,14 @@ pub const PATRIOT_CLIP_RELOAD_FRAMES: u32 = 60;
 pub const PATRIOT_FIRE_AUDIO: &str = "PatriotBatteryWeapon";
 /// Residual Laser General Patriot fire audio honesty.
 pub const LAZR_PATRIOT_FIRE_AUDIO: &str = "Lazr_WeaponFX_LaserCrusader";
+
+// --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
+/// Retail EMPPatriotEffectSpheroid EffectRadius residual.
+pub const SUPW_PATRIOT_EMP_RADIUS: f32 = 10.0;
+/// Retail EMPPatriotEffectSpheroid DisabledDuration 10000 ms → 300 frames @ 30 FPS.
+pub const SUPW_PATRIOT_EMP_DURATION_FRAMES: u32 = 300;
+/// Residual EMP impact audio honesty.
+pub const SUPW_PATRIOT_EMP_AUDIO: &str = "EMPPulseWhoosh";
 
 /// Retail Stinger soldier primary (structure residual abstraction).
 pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
@@ -182,6 +206,8 @@ pub fn is_patriot_battery_structure(template_name: &str) -> bool {
             | "patriotmissile"
             | "testpatriot"
             | "testlazrpatriot"
+            | "testsupwpatriot"
+            | "testemppatriot"
     ) || (n.contains("patriot")
         && (n.contains("battery")
             || n.contains("system")
@@ -190,7 +216,9 @@ pub fn is_patriot_battery_structure(template_name: &str) -> bool {
             || n.starts_with("lazr_")
             || n.starts_with("airf_")
             || n.starts_with("supw_")
-            || n.starts_with("testlazr")))
+            || n.starts_with("testlazr")
+            || n.starts_with("testsupw")
+            || n.starts_with("testemp")))
 }
 
 /// Whether template is a residual GLA Stinger Site (SPAWNS_ARE_THE_WEAPONS residual).
@@ -280,11 +308,56 @@ pub fn is_laser_patriot_template(template_name: &str) -> bool {
         || n == "testlazrpatriot"
 }
 
+/// Whether template is a Superweapon General EMP Patriot residual (SupW_ prefix).
+///
+/// Fail-closed: name residual (not full general production gate / EMP drawable).
+pub fn is_supw_patriot_template(template_name: &str) -> bool {
+    if !is_patriot_battery_structure(template_name) {
+        return false;
+    }
+    let n = template_name.to_ascii_lowercase();
+    n.starts_with("supw_")
+        || n.contains("supw_patriot")
+        || n.contains("supw_america")
+        || n == "testsupwpatriot"
+        || n == "testemppatriot"
+}
+
+/// Absolute frame when SupW Patriot EMP residual expires.
+pub fn supw_patriot_emp_until_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(SUPW_PATRIOT_EMP_DURATION_FRAMES)
+}
+
+/// Whether residual target is legal for SupW Patriot EMP disable residual.
+///
+/// Retail EMPPatriotEffectSpheroid EMPUpdate: vehicles / faction structures /
+/// SPAWNS_ARE_THE_WEAPONS; DoesNotAffectMyOwnBuildings residual skips own structures.
+pub fn is_legal_supw_patriot_emp_target(
+    is_vehicle: bool,
+    is_aircraft: bool,
+    is_faction_structure: bool,
+    is_own_structure: bool,
+    is_alive: bool,
+    under_construction: bool,
+    is_emp_hardened: bool,
+) -> bool {
+    if !is_alive || under_construction || is_emp_hardened {
+        return false;
+    }
+    // Own buildings not disabled residual (DoesNotAffectMyOwnBuildings = Yes).
+    if is_own_structure {
+        return false;
+    }
+    is_vehicle || is_aircraft || is_faction_structure
+}
+
 /// Retail-ish residual weapon name for known host base-defense templates.
 pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
     if is_patriot_battery_structure(template_name) {
         Some(if is_laser_patriot_template(template_name) {
             LAZR_PATRIOT_PRIMARY_WEAPON
+        } else if is_supw_patriot_template(template_name) {
+            SUPW_PATRIOT_PRIMARY_WEAPON
         } else {
             PATRIOT_PRIMARY_WEAPON
         })
@@ -306,6 +379,8 @@ pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static
     } else if is_patriot_battery_structure(template_name) {
         Some(if is_laser_patriot_template(template_name) {
             LAZR_PATRIOT_SECONDARY_WEAPON
+        } else if is_supw_patriot_template(template_name) {
+            SUPW_PATRIOT_SECONDARY_WEAPON
         } else {
             PATRIOT_SECONDARY_WEAPON
         })
@@ -392,13 +467,20 @@ pub fn patriot_air_weapon() -> Weapon {
 /// Build residual Patriot ground Weapon for a specific battery template.
 pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
     let laser = is_laser_patriot_template(template_name);
+    let supw = is_supw_patriot_template(template_name);
     Weapon {
         damage: if laser {
             LAZR_PATRIOT_GROUND_DAMAGE
+        } else if supw {
+            SUPW_PATRIOT_GROUND_DAMAGE
         } else {
             PATRIOT_GROUND_DAMAGE
         },
-        range: PATRIOT_GROUND_RANGE,
+        range: if supw {
+            SUPW_PATRIOT_GROUND_RANGE
+        } else {
+            PATRIOT_GROUND_RANGE
+        },
         min_range: 0.0,
         // Fail-closed: effective cadence ≈ clip reload (ClipSize residual not full matrix).
         // Lazr ClipSize=3 residual collapses to same clip-reload honesty as stock.
@@ -416,13 +498,20 @@ pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
 /// Build residual Patriot AA Weapon for a specific battery template.
 pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
     let laser = is_laser_patriot_template(template_name);
+    let supw = is_supw_patriot_template(template_name);
     Weapon {
         damage: if laser {
             LAZR_PATRIOT_AIR_DAMAGE
+        } else if supw {
+            SUPW_PATRIOT_AIR_DAMAGE
         } else {
             PATRIOT_AIR_DAMAGE
         },
-        range: PATRIOT_AIR_RANGE,
+        range: if supw {
+            SUPW_PATRIOT_AIR_RANGE
+        } else {
+            PATRIOT_AIR_RANGE
+        },
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(PATRIOT_CLIP_RELOAD_FRAMES),
         last_fire_time: 0.0,
@@ -720,12 +809,21 @@ mod tests {
             Some(LAZR_PATRIOT_SECONDARY_WEAPON)
         );
         assert_eq!(
+            primary_weapon_name_for_defense("SupW_AmericaPatriotBattery"),
+            Some(SUPW_PATRIOT_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_defense("SupW_AmericaPatriotBattery"),
+            Some(SUPW_PATRIOT_SECONDARY_WEAPON)
+        );
+        assert_eq!(
             primary_weapon_name_for_defense("GLATunnelNetwork"),
             Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN)
         );
         assert_eq!(primary_weapon_name_for_defense("USA_Ranger"), None);
         assert!(is_dual_slot_base_defense("USA_Patriot"));
         assert!(is_dual_slot_base_defense("Lazr_AmericaPatriotBattery"));
+        assert!(is_dual_slot_base_defense("SupW_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("GLA_StingerSite"));
         assert!(is_dual_slot_base_defense("China_GattlingCannon"));
         assert!(!is_dual_slot_base_defense("USA_Barracks"));
@@ -744,6 +842,30 @@ mod tests {
         assert!(a.can_target_air);
         let stock = patriot_ground_weapon();
         assert!((stock.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
+    }
+
+    #[test]
+    fn supw_patriot_emp_weapon_stats() {
+        assert!(is_supw_patriot_template("SupW_AmericaPatriotBattery"));
+        assert!(is_supw_patriot_template("TestSupWPatriot"));
+        assert!(is_supw_patriot_template("TestEmpPatriot"));
+        assert!(!is_supw_patriot_template("AmericaPatriotBattery"));
+        assert!(!is_supw_patriot_template("Lazr_AmericaPatriotBattery"));
+        let g = patriot_ground_weapon_for_template("SupW_AmericaPatriotBattery");
+        assert!((g.damage - SUPW_PATRIOT_GROUND_DAMAGE).abs() < 0.01);
+        assert!((g.range - SUPW_PATRIOT_GROUND_RANGE).abs() < 0.01);
+        let a = patriot_air_weapon_for_template("SupW_AmericaPatriotBattery");
+        assert!((a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.01);
+        assert!((a.range - SUPW_PATRIOT_AIR_RANGE).abs() < 0.01);
+        assert!(a.can_target_air);
+        assert_eq!(supw_patriot_emp_until_frame(10), 310);
+        assert_eq!(SUPW_PATRIOT_EMP_RADIUS, 10.0);
+        assert!(is_legal_supw_patriot_emp_target(
+            true, false, false, false, true, false, false
+        ));
+        assert!(!is_legal_supw_patriot_emp_target(
+            false, false, true, true, true, false, false
+        )); // own building
     }
 
     #[test]
