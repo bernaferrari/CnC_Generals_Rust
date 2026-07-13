@@ -17,6 +17,7 @@ pub mod host_cash_bounty;
 pub mod host_black_market;
 pub mod host_oil_derrick;
 pub mod host_hacker_income;
+pub mod host_supply_drop_zone;
 pub mod host_mines;
 pub mod host_radar;
 pub mod host_radar_scan;
@@ -85,6 +86,14 @@ pub use host_hacker_income::{
     is_legal_hacker_income_source, HostHackerIncomeRegistry, HACKER_CASH_INTERVAL_FAST_FRAMES,
     HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_PING_AUDIO, HACKER_CASH_REGULAR,
     HACKER_XP_PER_CASH_UPDATE,
+};
+pub use host_supply_drop_zone::{
+    drop_cash_amount, drop_interval_frames_from_ms, is_legal_supply_drop_zone_income_source,
+    is_supply_drop_zone_structure, is_supply_drop_zone_template, HostSupplyDropZoneRegistry,
+    SUPPLY_DROP_ZONE_CRATE_COUNT, SUPPLY_DROP_ZONE_DELAY_MS, SUPPLY_DROP_ZONE_DROP_AUDIO,
+    SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
+    SUPPLY_DROP_ZONE_INTERVAL_FRAMES, SUPPLY_DROP_ZONE_MONEY_PER_CRATE,
+    SUPPLY_DROP_ZONE_SUPPLY_LINES_BOOST_PER_CRATE,
 };
 pub use host_mines::{
     can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
