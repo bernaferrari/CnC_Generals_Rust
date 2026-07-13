@@ -75,32 +75,27 @@ pub const OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE: f32 = 0.3;
 /// (fail-closed host residual; TechOilDerrick footprint proxy).
 pub const OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS: f32 = 25.0;
 
-/// Deterministic residual structure floating-text scatter (C++ GameClientRandomValue
+/// Residual structure floating-text scatter (C++ GameClientRandomValue
 /// ± width/depth for KINDOF_STRUCTURE). Returns host XZ offset.
 ///
-/// Fail-closed vs full GameClientRandomValue stream / GeometryInfo matrix.
+/// Uses pure ADC RandomValue algorithm seeded by `seed` (object_id + frame) so
+/// re-query is stable and matches C++ integer client stream math
+/// (`GameClientRandomValue(-width, width)` with Real→Int truncation).
+/// Live deposit paths also have `client_stream_structure_scatter` for global
+/// stream residual honesty.
+///
+/// Fail-closed vs full GeometryInfo major/minor matrix / live DisplayString GPU.
 pub fn structure_floating_text_scatter(
     seed: u32,
     major_radius: f32,
     minor_radius: f32,
 ) -> (f32, f32) {
-    let width = (major_radius * OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
-    let depth = (minor_radius * OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
-    if width <= 0.0 && depth <= 0.0 {
-        return (0.0, 0.0);
-    }
-    let phase = (seed as f32 + 1.0) * 0.618_033_988_7;
-    let dx = if width > 0.0 {
-        (phase.fract() * 2.0 - 1.0) * width
-    } else {
-        0.0
-    };
-    let dz = if depth > 0.0 {
-        ((phase + 0.37).fract() * 2.0 - 1.0) * depth
-    } else {
-        0.0
-    };
-    (dx, dz)
+    super::host_rng_residual::pure_client_structure_scatter(
+        seed,
+        major_radius,
+        minor_radius,
+        OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE,
+    )
 }
 
 /// Convert deposit timing milliseconds to logic frames (30 FPS residual).
@@ -558,13 +553,22 @@ mod tests {
     fn structure_geometry_scatter_residual() {
         assert!((OIL_DERRICK_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001);
         let (dx, dz) = structure_floating_text_scatter(0, 50.0, 40.0);
-        // ±0.3 * major/minor → within ±15 / ±12.
+        // ±0.3 * major/minor → within ±15 / ±12 (integer GameClientRandomValue residual).
         assert!(dx.abs() <= 15.0 + 0.001);
         assert!(dz.abs() <= 12.0 + 0.001);
-        assert!(dx != 0.0 || dz != 0.0, "non-zero scatter expected for r>0");
+        // Across a few seeds, residual must produce at least one non-zero axis draw.
+        let mut any_nonzero = dx != 0.0 || dz != 0.0;
+        for seed in 1..32u32 {
+            let (x, z) = structure_floating_text_scatter(seed, 50.0, 40.0);
+            if x != 0.0 || z != 0.0 {
+                any_nonzero = true;
+                break;
+            }
+        }
+        assert!(any_nonzero, "non-zero scatter expected for r>0 across seeds");
         let zero = structure_floating_text_scatter(1, 0.0, 0.0);
         assert_eq!(zero, (0.0, 0.0));
-        // Deterministic for same seed.
+        // Deterministic for same seed (pure ADC residual).
         let a = structure_floating_text_scatter(7, 25.0, 25.0);
         let b = structure_floating_text_scatter(7, 25.0, 25.0);
         assert_eq!(a, b);

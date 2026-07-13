@@ -4,12 +4,13 @@
 //! Host residual closed here (fail-closed vs full retail DisplayString GPU draw):
 //! - Move-up offset from `PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED` (C++ default 1.0)
 //! - Timeout / vanish residual from retail DEFAULT_FLOATING_TEXT_TIMEOUT (10 frames)
+//! - GameText `GUI:AddCash` caption residual (`+$N` format parity with host text)
 //! - Honesty counters for texts / active / bytes packed
 //! - Deterministic pack order for dual-tick presentation consumers
 //!
 //! Still residual:
 //! - Actual font raster / DisplayString GPU submit
-//! - Unicode GameText localization (`GUI:AddCash` → localized caption)
+//! - Full CSF/STR Unicode GameText table load for all locales
 //! - Full vanish-rate alpha blend on live Display surface
 
 use crate::presentation_frame::{
@@ -17,6 +18,32 @@ use crate::presentation_frame::{
     PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED, PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
     PRESENTATION_FLOATING_TEXT_VANISH_RATE,
 };
+
+/// Retail GameText key for cash gain floating captions.
+pub const GUI_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Residual GameText resolution for `GUI:AddCash` captions.
+///
+/// C++: `moneyString.format(TheGameText->fetch("GUI:AddCash"), amount)`.
+/// English retail resolves to a `+$N` style caption. Host residual formats
+/// `+$amount` (ASCII) when the key is `GUI:AddCash` and falls back to the
+/// already-frozen presentation `text` otherwise.
+///
+/// Fail-closed vs full CSF/STR Unicode localization table load.
+pub fn resolve_add_cash_caption(text_key: &str, amount: u32, frozen_text: &str) -> String {
+    if text_key == GUI_ADD_CASH_KEY {
+        format!("+${amount}")
+    } else if !frozen_text.is_empty() {
+        frozen_text.to_string()
+    } else {
+        format!("+${amount}")
+    }
+}
+
+/// Honesty: key is retail `GUI:AddCash` and caption matches residual format.
+pub fn honesty_add_cash_caption(text_key: &str, amount: u32, caption: &str) -> bool {
+    text_key == GUI_ADD_CASH_KEY && caption == format!("+${amount}")
+}
 
 /// Floats per packed layout entry:
 /// pos.xyz + lift_y + color.rgba + alpha + amount + age_frames + timeout_frames = 12 × f32.
@@ -38,6 +65,10 @@ pub struct FloatingTextLayoutEntry {
     pub amount: f32,
     pub age_frames: f32,
     pub timeout_frames: f32,
+    /// Residual GameText caption (`+$N` for GUI:AddCash).
+    pub caption: String,
+    /// Retail GameText key residual (`GUI:AddCash`).
+    pub text_key: String,
 }
 
 impl FloatingTextLayoutEntry {
@@ -75,6 +106,8 @@ pub struct FloatingTextLayoutHonesty {
     pub move_up_speed: f32,
     pub vanish_rate: f32,
     pub timeout_frames: u32,
+    /// True when all packed entries resolve GUI:AddCash caption residual.
+    pub game_text_caption_ok: bool,
 }
 
 impl FloatingTextLayoutHonesty {
@@ -95,6 +128,10 @@ impl FloatingTextLayoutHonesty {
             && (self.vanish_rate - PRESENTATION_FLOATING_TEXT_VANISH_RATE).abs() < 0.001
             && self.timeout_frames == PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES
     }
+
+    pub fn honesty_game_text_caption_ok(&self) -> bool {
+        self.game_text_caption_ok
+    }
 }
 
 /// Packed floating text layout payload ready for dual-tick UI consumers.
@@ -114,6 +151,7 @@ impl FloatingTextLayout {
             layout_bytes: Vec::new(),
             honesty: FloatingTextLayoutHonesty {
                 cpu_pack_ok: true,
+                game_text_caption_ok: true,
                 move_up_speed: PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED,
                 vanish_rate: PRESENTATION_FLOATING_TEXT_VANISH_RATE,
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
@@ -144,6 +182,7 @@ impl FloatingTextLayout {
 
         let mut entries = Vec::with_capacity(texts.len());
         let mut active = 0u32;
+        let mut caption_ok = true;
         for t in texts {
             let age = logic_frame.saturating_sub(t.spawn_frame);
             let timeout = PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES;
@@ -163,6 +202,16 @@ impl FloatingTextLayout {
             if age < timeout {
                 active = active.saturating_add(1);
             }
+            let caption = resolve_add_cash_caption(&t.text_key, t.amount, &t.text);
+            if !honesty_add_cash_caption(&t.text_key, t.amount, &caption)
+                && t.text_key == GUI_ADD_CASH_KEY
+            {
+                caption_ok = false;
+            }
+            if t.text_key != GUI_ADD_CASH_KEY {
+                // Non-AddCash keys still pack; mark caption residual incomplete.
+                caption_ok = caption_ok && !t.text_key.is_empty();
+            }
             let c = t.color_rgba;
             entries.push(FloatingTextLayoutEntry {
                 position: [t.position.x, t.position.y, t.position.z],
@@ -177,6 +226,8 @@ impl FloatingTextLayout {
                 amount: t.amount as f32,
                 age_frames: age as f32,
                 timeout_frames: timeout as f32,
+                caption,
+                text_key: t.text_key.clone(),
             });
         }
 
@@ -186,6 +237,16 @@ impl FloatingTextLayout {
         }
         let layout_bytes = f32_slice_to_bytes(&floats);
         let texts_packed = entries.len() as u32;
+        // Empty of non-AddCash failures: when packing GUI:AddCash entries, require
+        // residual caption format; empty list is honest success.
+        let game_text_caption_ok = if texts_packed == 0 {
+            true
+        } else {
+            caption_ok
+                && entries
+                    .iter()
+                    .all(|e| honesty_add_cash_caption(&e.text_key, e.amount as u32, &e.caption))
+        };
         Self {
             honesty: FloatingTextLayoutHonesty {
                 texts_packed,
@@ -198,6 +259,7 @@ impl FloatingTextLayout {
                 move_up_speed: PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED,
                 vanish_rate: PRESENTATION_FLOATING_TEXT_VANISH_RATE,
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
+                game_text_caption_ok,
             },
             entries,
             layout_bytes,
@@ -246,11 +308,14 @@ mod tests {
         );
         assert!(pack.honesty.honesty_cpu_pack_ok());
         assert!(pack.honesty.honesty_geometry_ok());
+        assert!(pack.honesty.honesty_game_text_caption_ok());
         assert_eq!(pack.honesty.texts_packed, 1);
         assert_eq!(pack.honesty.active_packed, 1);
         assert_eq!(pack.honesty.world_anims_observed, 1);
         assert_eq!(pack.entries[0].lift_y, 3.0 * PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED);
         assert!((pack.entries[0].alpha - 1.0).abs() < 0.001);
+        assert_eq!(pack.entries[0].caption, "+$150");
+        assert_eq!(pack.entries[0].text_key, GUI_ADD_CASH_KEY);
         assert_eq!(
             pack.layout_bytes.len(),
             FLOATING_TEXT_LAYOUT_BYTES
@@ -258,6 +323,12 @@ mod tests {
         let mut marked = pack;
         marked.mark_gpu_upload_ready();
         assert!(marked.honesty.honesty_upload_ready_ok());
+    }
+
+    #[test]
+    fn resolve_add_cash_caption_residual() {
+        assert_eq!(resolve_add_cash_caption(GUI_ADD_CASH_KEY, 200, ""), "+$200");
+        assert!(honesty_add_cash_caption(GUI_ADD_CASH_KEY, 200, "+$200"));
     }
 
     #[test]

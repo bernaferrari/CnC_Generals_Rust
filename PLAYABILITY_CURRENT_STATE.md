@@ -1,3 +1,98 @@
+## Residual Host Playability — RNG Streams + Presentation Caption/WorldAnim (2026-07-13)
+**Closed (host-testable presentation/RNG residual not covered by wave 24–25 combat residual):**
+1. **GameLogic/GameClient RandomValue ADC stream residual** (`host_rng_residual`):
+   - Local `HostRandomState` matches C++ `RandomValue.cpp` add-with-carry algorithm.
+   - Pure index-seeded residual for re-query-stable combat scatter/delay:
+     WeaponErrorRadius, DelayDelivery, DropVariance, Scud DelayBetweenShots.
+   - Live client/logic stream residual helpers + honesty exercise
+     (`exercise_host_rng_residual`) verifying pure ADC parity, stream separation,
+     seed CRC, structure scatter + error-radius stream draws.
+   - Presentation structure scatter (oil derrick / black market / Internet Center)
+     uses pure ADC `GameClientRandomValue` integer residual (±0.3 major/minor).
+   - GameClient `client_random_value` rewired from `thread_rng` to Common client stream.
+2. **GameText `GUI:AddCash` caption residual** (`floating_text_layout`):
+   - `resolve_add_cash_caption` → `+$N` format parity with host frozen text.
+   - Layout entries carry caption + text_key; honesty `game_text_caption_ok`.
+3. **MoneyPickUp Anim2D world-anim CPU layout residual** (`world_anim_layout`):
+   - Pack presentation world anims with Z-rise / display-time / fade residual.
+   - Honesty: `world_anim_layout_ok` on shell smoke (empty + synthetic).
+4. Shell smoke residual flags:
+   - `rng_stream_residual_ok`, `game_text_caption_ok`, `world_anim_layout_ok`
+5. Tests (not log-only):
+   - `host_rng_residual::*` (4)
+   - `floating_text_layout::*` (4) including caption residual
+   - `world_anim_layout::*` (2)
+   - updated structure scatter / weapon_error / drop_variance residual honesty
+   - all `special_power_strikes::` (**40**)
+   - shell_smoke (4)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full once-at-queue global GameLogic stream storage for multi-strike OCL draws
+- Full GameLogic crate helper seed unified with Common stream
+- Full CSF/STR Unicode GameText table load for all locales
+- Full Anim2DCollection GPU / DisplayString font raster draw
+- Full ScudStormMissile / SpectreHowitzerShell ThingFactory Object paths
+- Full W3D bone-extract outer-node / connector LaserUpdate drawables
+- Full OuterBeamWidth × scalar GPU laser radius
+- Network residual replication (network deferred)
+
+## Residual Host Playability — OuterBeamWidth + Scud MissileAI Loft + Howitzer DumbProjectile (2026-07-13)
+**Closed (host-testable modules/powers residual not covered by wave 25 intensity/PreAttack/shell spawn):**
+1. **Particle Uplink OuterBeamWidth × width_scalar residual** (`special_power_strikes` /
+   `W3DLaserDraw` / `LaserUpdate::getCurrentLaserRadius`):
+   - Retail OrbitalLaser OuterBeamWidth **26.0**, InnerBeamWidth **0.6**, NumBeams **12**,
+     ScrollRate **-1.75**, TilingScalar **0.15**, Texture `EXNoise02.tga`.
+   - Retail `getLaserTemplateWidth() = OuterBeamWidth * 0.5` → peak laser r **13.0**;
+     retail damage formula `laserRadius × DamageRadiusScalar(3.4)` → peak **44.2**.
+   - Host combat residual still caps at `PARTICLE_BEAM_RADIUS` **50** × width_scalar
+     (fail-closed vs flipping combat radius mid-parity).
+   - Draw width residual: OuterBeamWidth × width_scalar (peak **26**).
+   - Connector OuterBeamWidth residual: Medium **1.2** / Intense **2.0**.
+   - Honesty: `honesty_beam_outer_beam_width_ok` (peak draw/laser/retail-damage samples).
+2. **ScudStormMissile MissileAIUpdate loft residual** (`special_power_strikes` /
+   `ScudStormMissile` Object):
+   - TryToFollowTarget **No**, FuelLifetime **0** (infinite), InitialVelocity **0**,
+     DistanceToTravelBeforeTurning **500**, DistanceToTargetBeforeDiving **200**.
+   - HeightDie TargetHeight **15.0** / InitialDelay **30**f / structures included.
+   - Locomotor Speed **300**, PreferredHeight **240**, damping **0.7**, Mass **500**.
+   - IgnitionFX `FX_ScudStormIgnition`, FireSound `ScudStormLaunch`,
+     Exhaust `ScudMissileExhaust`, SpecialPowerCompletionDie `SuperweaponScudStorm`.
+   - Per-missile wave counters: loft / ignition / launch sound / exhaust / HeightDie /
+     completion residual.
+   - Honesty: `honesty_scud_missile_loft_ok`.
+   - Fail-closed: not full ThingFactory projectile Object / live MissileAIUpdate flight.
+3. **SpectreHowitzerShell DumbProjectile residual** (`special_power_strikes` /
+   `SpectreHowitzerShell` Object):
+   - DumbProjectileBehavior + Physics Mass **1.0** + GeometryHeight **4.0** +
+     Model `AVSpectreShell1` residual honesty per howitzer tick.
+   - HeightDie OnlyWhenMovingDown residual; InstantDeath DETONATED (`FX_NukeGLA`)
+     + LASERED (`FX_GenericMissileDisintegrate`) path residual counters.
+   - Honesty: `honesty_howitzer_shell_dumb_projectile_ok` (extends shell spawn honesty).
+   - Fail-closed: not full W3D shell drawable / live Physics / ThingFactory Object.
+4. Snapshot/Xfer: OuterBeamWidth residual fields on `HostParticleBeamField`;
+   DumbProjectile residual fields on `HostSpectreOrbitField`.
+5. Tests (not log-only):
+   - `particle_uplink_outer_beam_width_retail_radius_residual_honesty`
+   - `scud_storm_missile_loft_residual_honesty`
+   - updated `spectre_howitzer_shell_projectile_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam` (OuterBeam matrix)
+   - all `special_power_strikes::` (**40**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate PreferredHeight spring
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate drawable objects
+- Full OuterBeamWidth multi-beam NumBeams GPU laser / texture scroll submit
+  (host residual tracks draw width + retail formula; combat still r50)
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Full Anim2DCollection GPU / world-anim draw path
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — PUC Intensity + Scud PreAttack + SpectreHowitzerShell (2026-07-13)
 **Closed (host-testable modules/powers residual not covered by wave 22–23):**
 1. **Particle Uplink intensity schedule residual** (`special_power_strikes` /
