@@ -42,7 +42,11 @@
 //!   with PitchRateMax/RollRateMax **60** deg/s → **π/90** rad/frame seed band,
 //!   Pitch/RollStiffness **0.02**, Pitch/RollDamping **0.01**, LowAltitudeDamping
 //!   **0.2** below **20** height (ALTITUDE_DAMP_START). Deterministic host seed
-//!   (±half max rate). Fail-closed: not full bone PARA_COG/rider sway matrices.
+//!   (±half max rate).
+//! - **Bone PARA_COG / PARA_ATTCH / PARA_MAN residual**: host pristine bone
+//!   offsets (GeometryHeight **10** layout) + calcSwayMtx residual for rider
+//!   logic attach + presentation sway about PARA_COG. Fail-closed: not full
+//!   W3D pristine bone extract / DeliverPayload cargo plane path.
 //!
 //! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
 //!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
@@ -55,8 +59,8 @@
 //!   player / host Neutral unmanned with matching `unmanned_owner_team`.
 //!
 //! Fail-closed honesty:
-//! - Not full AmericaParachute bone PARA_COG / rider sway / DeliverPayload matrix
-//!   (pitch/roll spring-damper host residual closed 2026-07-13)
+//! - Not full W3D pristine bone extract / DeliverPayload cargo plane path
+//!   (PARA_COG host offset + calcSwayMtx residual closed 2026-07-13)
 //! - AutoFindHealingUpdate AlwaysHeal busy-interrupt path is **dead code in retail
 //!   C++** (`return UPDATE_SLEEP_NONE` before AlwaysHeal check) — host residual
 //!   intentionally matches idle-only (AlwaysHeal constant retained for honesty).
@@ -251,6 +255,161 @@ pub fn tick_parachute_sway(
     (p, r, pr, rr)
 }
 
+// --- AmericaParachute bone PARA_COG / PARA_ATTCH / PARA_MAN residual ---
+
+/// Retail AmericaParachute model `PMparacht_SKNc` pristine bone name residual.
+pub const PARACHUTE_BONE_PARA_COG: &str = "PARA_COG";
+/// Retail parachute attach bone (rider hang point on chute).
+pub const PARACHUTE_BONE_PARA_ATTCH: &str = "PARA_ATTCH";
+/// Retail rider attach bone (PARA_MAN on infantry drawable; falls back to height).
+pub const PARACHUTE_BONE_PARA_MAN: &str = "PARA_MAN";
+
+/// Host residual pristine bone offsets when W3D bones are unavailable.
+///
+/// C++ uses `getPristineBonePositions`; missing bones zero / height-fallback.
+/// Host residual uses stable geometry from AmericaParachute GeometryHeight **10**
+/// and GeometryMajorRadius **15** so sway/rider matrices are host-testable.
+///
+/// Layout (object-local, +Z up in C++; host residual uses +Y up):
+/// - PARA_COG: sway pivot near chute canopy center
+/// - PARA_ATTCH: hang point below COG
+/// - PARA_MAN: rider attach relative to rider origin (height of infantry)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostParachuteBoneOffsets {
+    /// Object-local PARA_COG (sway pivot).
+    pub para_cog: (f32, f32, f32),
+    /// Object-local PARA_ATTCH (rider hang on chute).
+    pub para_attch: (f32, f32, f32),
+    /// Rider-local PARA_MAN (or height fallback).
+    pub para_man: (f32, f32, f32),
+}
+
+/// Retail AmericaParachute GeometryHeight residual.
+pub const PARACHUTE_GEOMETRY_HEIGHT: f32 = 10.0;
+/// Retail AmericaParachute GeometryMajorRadius residual.
+pub const PARACHUTE_GEOMETRY_MAJOR_RADIUS: f32 = 15.0;
+/// Host residual infantry height for PARA_MAN height-fallback (typical soldier).
+pub const PARACHUTE_RIDER_HEIGHT_FALLBACK: f32 = 8.0;
+
+/// Host residual pristine bone offsets (no W3D asset).
+///
+/// PARA_COG at canopy (~0.7×GeometryHeight above origin), PARA_ATTCH lower
+/// (~0.2×height), PARA_MAN at rider height fallback.
+pub fn parachute_host_bone_offsets() -> HostParachuteBoneOffsets {
+    HostParachuteBoneOffsets {
+        // Host Y-up: canopy above origin.
+        para_cog: (0.0, PARACHUTE_GEOMETRY_HEIGHT * 0.7, 0.0),
+        para_attch: (0.0, PARACHUTE_GEOMETRY_HEIGHT * 0.2, 0.0),
+        para_man: (0.0, PARACHUTE_RIDER_HEIGHT_FALLBACK, 0.0),
+    }
+}
+
+/// C++ ParachuteContain::updateOffsetsFromBones residual (object-local).
+///
+/// Returns `(rider_attach_offset, rider_sway_offset, para_sway_offset)` in
+/// object-local space (host Y-up). Rider attach = para_attch − para_man;
+/// rider sway pivot relative = para_cog − rider_attach.
+pub fn parachute_offsets_from_bones(
+    bones: HostParachuteBoneOffsets,
+) -> ((f32, f32, f32), (f32, f32, f32), (f32, f32, f32)) {
+    let para_sway = bones.para_cog;
+    let rider_attach = (
+        bones.para_attch.0 - bones.para_man.0,
+        bones.para_attch.1 - bones.para_man.1,
+        bones.para_attch.2 - bones.para_man.2,
+    );
+    let rider_sway = (
+        para_sway.0 - rider_attach.0,
+        para_sway.1 - rider_attach.1,
+        para_sway.2 - rider_attach.2,
+    );
+    (rider_attach, rider_sway, para_sway)
+}
+
+/// C++ `ParachuteContain::calcSwayMtx` residual: rotate around offset pivot.
+///
+/// Applies roll about X then pitch about Y (C++ In_Place_Pre_Rotate_X/Y) to a
+/// point expressed in object-local space relative to the pivot offset.
+/// Returns the delta that should be applied to the object/rider position for
+/// presentation (instance-matrix residual without full Mat4).
+pub fn parachute_sway_point_delta(
+    offset: (f32, f32, f32),
+    pitch: f32,
+    roll: f32,
+    local_point: (f32, f32, f32),
+) -> (f32, f32, f32) {
+    // Translate to pivot-local, rotate roll(X) then pitch(Y), translate back.
+    let px = local_point.0 - offset.0;
+    let py = local_point.1 - offset.1;
+    let pz = local_point.2 - offset.2;
+    // Roll about X (host X axis): affects Y/Z.
+    let (sr, cr) = roll.sin_cos();
+    let y1 = py * cr - pz * sr;
+    let z1 = py * sr + pz * cr;
+    let x1 = px;
+    // Pitch about Y (host Y axis): affects X/Z — C++ Pre_Rotate_Y uses pitch.
+    // In C++ Z-up, Pre_Rotate_Y(pitch) tilts around world-Y. Host Y-up maps
+    // C++ Y→host Z and C++ Z→host Y, so C++ Pre_Rotate_Y ≈ host rotate about Z.
+    // Keep C++ axis names on host-mapped coords: pitch about "lateral" axis.
+    // Practical residual: pitch tilts X/Y in host Y-up (forward/up plane).
+    let (sp, cp) = pitch.sin_cos();
+    let x2 = x1 * cp + y1 * sp;
+    let y2 = -x1 * sp + y1 * cp;
+    let z2 = z1;
+    let out = (x2 + offset.0, y2 + offset.1, z2 + offset.2);
+    (
+        out.0 - local_point.0,
+        out.1 - local_point.1,
+        out.2 - local_point.2,
+    )
+}
+
+/// Rider world residual position from parachute object + bone offsets.
+///
+/// C++ `positionRider`: rider.pos = para.pos + rider_attach_offset (no sway on
+/// logic position; sway is drawable instance matrix). Host residual also
+/// returns sway-applied presentation position for open-chute drawable parity.
+pub fn parachute_rider_logic_position(
+    para_pos: (f32, f32, f32),
+    rider_attach: (f32, f32, f32),
+) -> (f32, f32, f32) {
+    (
+        para_pos.0 + rider_attach.0,
+        para_pos.1 + rider_attach.1,
+        para_pos.2 + rider_attach.2,
+    )
+}
+
+/// Presentation residual: rider logic pos + sway delta about rider_sway pivot.
+pub fn parachute_rider_presentation_position(
+    para_pos: (f32, f32, f32),
+    rider_attach: (f32, f32, f32),
+    rider_sway: (f32, f32, f32),
+    pitch: f32,
+    roll: f32,
+) -> (f32, f32, f32) {
+    let logic = parachute_rider_logic_position(para_pos, rider_attach);
+    // Sway rotates the attach point about the rider sway pivot in object space.
+    // Local attach point relative to parachute origin is rider_attach.
+    let delta = parachute_sway_point_delta(rider_sway, pitch, roll, rider_attach);
+    (logic.0 + delta.0, logic.1 + delta.1, logic.2 + delta.2)
+}
+
+/// Chute drawable presentation residual: identity when freefall / closed;
+/// sway about PARA_COG when open.
+pub fn parachute_chute_presentation_delta(
+    para_sway: (f32, f32, f32),
+    pitch: f32,
+    roll: f32,
+    chute_open: bool,
+) -> (f32, f32, f32) {
+    if !chute_open {
+        return (0.0, 0.0, 0.0);
+    }
+    // Origin (0,0,0) rotated about para_sway pivot → delta for instance matrix.
+    parachute_sway_point_delta(para_sway, pitch, roll, (0.0, 0.0, 0.0))
+}
+
 /// Convert InvulnerableTime ms → logic frames (30 FPS residual).
 pub fn eject_pilot_invulnerable_frames_from_ms(ms: u32) -> u32 {
     if ms == 0 {
@@ -374,10 +533,7 @@ pub fn meets_eject_pilot_veterancy_gate(level: VeterancyLevel) -> bool {
 /// C++ DieMuxData::isDieApplicable → getDamageTypeFlag(m_deathTypes, deathType).
 /// DEATH_CRUSHED / DEATH_SPLATTED do not eject (crushed under tank / splat).
 pub fn meets_eject_pilot_death_types_gate(death_type: HostDeathType) -> bool {
-    !matches!(
-        death_type,
-        HostDeathType::Crushed | HostDeathType::Splatted
-    )
+    !matches!(death_type, HostDeathType::Crushed | HostDeathType::Splatted)
 }
 
 /// Retail `ExemptStatus = HIJACKED` residual gate.
@@ -890,13 +1046,11 @@ impl HostUsaPilotRegistry {
     }
 
     pub fn record_find_vehicle_collide_reject(&mut self) {
-        self.find_vehicle_collide_rejects =
-            self.find_vehicle_collide_rejects.saturating_add(1);
+        self.find_vehicle_collide_rejects = self.find_vehicle_collide_rejects.saturating_add(1);
     }
 
     pub fn record_find_vehicle_player_reject(&mut self) {
-        self.find_vehicle_player_rejects =
-            self.find_vehicle_player_rejects.saturating_add(1);
+        self.find_vehicle_player_rejects = self.find_vehicle_player_rejects.saturating_add(1);
     }
 
     pub fn record_parachute_open(&mut self) {
@@ -1109,10 +1263,14 @@ mod tests {
         assert!(is_eject_pilot_eligible_template("AmericaTankMicrowave"));
         assert!(is_eject_pilot_eligible_template("SupW_AmericaTankCrusader"));
         assert!(is_eject_pilot_eligible_template("Lazr_AmericaTankPaladin"));
-        assert!(is_eject_pilot_eligible_template("AirF_AmericaVehicleHumvee"));
+        assert!(is_eject_pilot_eligible_template(
+            "AirF_AmericaVehicleHumvee"
+        ));
         assert!(is_eject_pilot_eligible_template("TestEjectVehicle"));
         assert!(!is_eject_pilot_eligible_template("AmericaVehicleDozer"));
-        assert!(!is_eject_pilot_eligible_template("AmericaVehicleScoutDrone"));
+        assert!(!is_eject_pilot_eligible_template(
+            "AmericaVehicleScoutDrone"
+        ));
         assert!(!is_eject_pilot_eligible_template("AmericaInfantryPilot"));
         assert!(!is_eject_pilot_eligible_template("AmericaJetRaptor"));
         assert!(!is_eject_pilot_eligible_template("TestTank"));
@@ -1202,9 +1360,7 @@ mod tests {
         // Rookie + Heroic pilot levels (3) → ok.
         assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 3));
 
-        assert!(is_pilot_find_vehicle_collide_target(
-            true, true, true, true
-        ));
+        assert!(is_pilot_find_vehicle_collide_target(true, true, true, true));
         assert!(!is_pilot_find_vehicle_collide_target(
             true, true, true, false
         ));
@@ -1220,18 +1376,10 @@ mod tests {
 
     #[test]
     fn pilot_find_vehicle_gates() {
-        assert!(pilot_find_vehicle_scan_eligible(
-            true, true, true, true
-        ));
-        assert!(!pilot_find_vehicle_scan_eligible(
-            true, true, true, false
-        )); // human
-        assert!(!pilot_find_vehicle_scan_eligible(
-            true, true, false, true
-        )); // not idle
-        assert!(!pilot_find_vehicle_scan_eligible(
-            false, true, true, true
-        )); // not pilot
+        assert!(pilot_find_vehicle_scan_eligible(true, true, true, true));
+        assert!(!pilot_find_vehicle_scan_eligible(true, true, true, false)); // human
+        assert!(!pilot_find_vehicle_scan_eligible(true, true, false, true)); // not idle
+        assert!(!pilot_find_vehicle_scan_eligible(false, true, true, true)); // not pilot
 
         assert!(vehicle_meets_pilot_find_min_health(50.0, 100.0, 0.5));
         assert!(vehicle_meets_pilot_find_min_health(100.0, 100.0, 0.5));
@@ -1279,21 +1427,29 @@ mod tests {
         assert!(!auto_find_healing_scan_eligible(true, true, true, false)); // human
         assert!(!auto_find_healing_scan_eligible(true, true, false, true)); // not idle
         assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // no module
-        // AlwaysHeal busy-interrupt is dead code in retail C++ — host residual closed as idle-only.
+                                                                            // AlwaysHeal busy-interrupt is dead code in retail C++ — host residual closed as idle-only.
         assert!(!auto_find_healing_always_heal_busy_interrupt_live());
         assert!((AUTO_FIND_HEALING_ALWAYS_HEAL - 0.25).abs() < 0.001);
 
         assert!(is_auto_find_healing_template("AmericaInfantryPilot"));
         assert!(is_auto_find_healing_template("AmericaInfantryRanger"));
-        assert!(is_auto_find_healing_template("AmericaInfantryMissileDefender"));
+        assert!(is_auto_find_healing_template(
+            "AmericaInfantryMissileDefender"
+        ));
         assert!(is_auto_find_healing_template("AmericaInfantryPathfinder"));
-        assert!(is_auto_find_healing_template("AmericaInfantryColonelBurton"));
+        assert!(is_auto_find_healing_template(
+            "AmericaInfantryColonelBurton"
+        ));
         assert!(is_auto_find_healing_template("AirF_AmericaInfantryRanger"));
         assert!(is_auto_find_healing_template("TestRanger"));
         assert!(!is_auto_find_healing_template("GLAInfantryRebel"));
         assert!(!is_auto_find_healing_template("ChinaInfantryRedguard"));
-        assert!(!is_auto_find_healing_template("RangerFlashBangGrenadeWeapon"));
-        assert!(!is_auto_find_healing_template("Upgrade_AmericaRangerFlashBangGrenade"));
+        assert!(!is_auto_find_healing_template(
+            "RangerFlashBangGrenadeWeapon"
+        ));
+        assert!(!is_auto_find_healing_template(
+            "Upgrade_AmericaRangerFlashBangGrenade"
+        ));
 
         assert!(health_needs_auto_find_healing(85.0, 100.0, 0.85));
         assert!(health_needs_auto_find_healing(50.0, 100.0, 0.85));
@@ -1394,8 +1550,14 @@ mod tests {
             parachute_initial_roll_rate(),
             100.0, // high altitude → no low-alt damp
         );
-        assert!(p1.abs() > 1e-6, "pitch residual must leave zero after one step");
-        assert!(r1.abs() > 1e-6, "roll residual must leave zero after one step");
+        assert!(
+            p1.abs() > 1e-6,
+            "pitch residual must leave zero after one step"
+        );
+        assert!(
+            r1.abs() > 1e-6,
+            "roll residual must leave zero after one step"
+        );
         // Low-altitude damping residual damps rates more aggressively.
         let (_, _, pr_hi, _) = tick_parachute_sway(0.0, 0.0, rate_max, 0.0, 100.0);
         let (_, _, pr_lo, _) = tick_parachute_sway(0.0, 0.0, rate_max, 0.0, 10.0);
@@ -1416,9 +1578,55 @@ mod tests {
             rr = nrr;
         }
         assert!(p.is_finite() && r.is_finite() && pr.is_finite() && rr.is_finite());
-        assert!(p.abs() < 2.0 && r.abs() < 2.0, "sway residual must stay bounded");
+        assert!(
+            p.abs() < 2.0 && r.abs() < 2.0,
+            "sway residual must stay bounded"
+        );
         // Silence unused warning for intermediate rate after one high step.
         let _ = (pr1, rr1);
+
+        // Bone PARA_COG / PARA_ATTCH / PARA_MAN residual matrix.
+        assert_eq!(PARACHUTE_BONE_PARA_COG, "PARA_COG");
+        assert_eq!(PARACHUTE_BONE_PARA_ATTCH, "PARA_ATTCH");
+        assert_eq!(PARACHUTE_BONE_PARA_MAN, "PARA_MAN");
+        assert!((PARACHUTE_GEOMETRY_HEIGHT - 10.0).abs() < 0.001);
+        assert!((PARACHUTE_GEOMETRY_MAJOR_RADIUS - 15.0).abs() < 0.001);
+        let bones = parachute_host_bone_offsets();
+        assert!(bones.para_cog.1 > bones.para_attch.1, "COG above ATTCH");
+        let (rider_attach, rider_sway, para_sway) = parachute_offsets_from_bones(bones);
+        // Rider hangs below chute attach by PARA_MAN height.
+        assert!(
+            rider_attach.1 < 0.0,
+            "rider attach Y residual below chute origin (got {})",
+            rider_attach.1
+        );
+        assert!((para_sway.1 - bones.para_cog.1).abs() < 0.001);
+        let para_pos = (100.0_f32, 200.0, 0.0);
+        let logic = parachute_rider_logic_position(para_pos, rider_attach);
+        assert!((logic.0 - 100.0).abs() < 0.001);
+        assert!((logic.1 - (200.0 + rider_attach.1)).abs() < 0.001);
+        // Non-zero pitch/roll presentation sway residual moves rider off logic pos.
+        let pitch = 0.1_f32;
+        let roll = -0.05_f32;
+        let pres =
+            parachute_rider_presentation_position(para_pos, rider_attach, rider_sway, pitch, roll);
+        let dx = pres.0 - logic.0;
+        let dy = pres.1 - logic.1;
+        let dz = pres.2 - logic.2;
+        let d2 = (dx * dx + dy * dy + dz * dz).sqrt();
+        assert!(
+            d2 > 1e-4,
+            "open-chute presentation sway residual must displace rider (d={d2})"
+        );
+        // Closed chute: presentation delta zero.
+        let closed = parachute_chute_presentation_delta(para_sway, pitch, roll, false);
+        assert_eq!(closed, (0.0, 0.0, 0.0));
+        let open_delta = parachute_chute_presentation_delta(para_sway, pitch, roll, true);
+        let od = open_delta.0.abs() + open_delta.1.abs() + open_delta.2.abs();
+        assert!(od > 1e-4, "open chute COG sway residual must be non-zero");
+        // Identity sway (pitch=roll=0) → zero delta.
+        let id = parachute_sway_point_delta(para_sway, 0.0, 0.0, (0.0, 0.0, 0.0));
+        assert!(id.0.abs() < 1e-6 && id.1.abs() < 1e-6 && id.2.abs() < 1e-6);
     }
 
     #[test]
