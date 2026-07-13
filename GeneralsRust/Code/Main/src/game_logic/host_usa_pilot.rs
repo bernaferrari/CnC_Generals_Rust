@@ -1,4 +1,4 @@
-//! Host USA Pilot residual (eject recrew of unmanned vehicles).
+//! Host USA Pilot residual (eject recrew of unmanned vehicles + EjectPilotDie).
 //!
 //! Residual slice (playability):
 //! - `AmericaInfantryPilot` / AirF_ / CINE_ / TestPilot enter unmanned ground
@@ -7,11 +7,16 @@
 //!   veterancy (retail `VeterancyCrateCollide` IsPilot + AddsOwnerVeterancy),
 //!   consume pilot.
 //! - Pilots spawn residual at least VETERAN (VeterancyGainCreate StartingLevel).
+//! - **EjectPilotDie residual**: eligible USA ground vehicles (Humvee / Tomahawk /
+//!   Crusader / Paladin / Avenger / Microwave + general variants) spawn
+//!   `AmericaInfantryPilot` on death via OCL_EjectPilotOnGround residual path.
+//!   Fail-closed: unmanned vehicles do not eject (no pilot left).
 //!
 //! Fail-closed honesty:
-//! - Not full EjectPilotDie air/ground OCL parachute spawn matrix
+//! - Not full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
 //! - Not full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
 //! - Not full AutoFindHealingUpdate hospital path residual
+//! - Not full InvulnerableTime post-eject invulnerability matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
 
 use super::VeterancyLevel;
@@ -19,6 +24,12 @@ use serde::{Deserialize, Serialize};
 
 /// Retail pilot template family residual.
 pub const PILOT_RECREW_AUDIO: &str = "PilotEnterVehicle";
+
+/// Retail OCL_EjectPilotOnGround / OCL_EjectPilotViaParachute ObjectNames residual.
+pub const EJECT_PILOT_TEMPLATE: &str = "AmericaInfantryPilot";
+
+/// Residual eject audio (VoiceEject / SoundEject fail-closed host cue).
+pub const PILOT_EJECT_AUDIO: &str = "VoiceEject";
 
 /// Whether template is a residual USA Pilot infantry.
 ///
@@ -58,6 +69,77 @@ pub fn is_pilot_template(template_name: &str) -> bool {
 /// Residual pilot starting veterancy (VeterancyGainCreate StartingLevel = VETERAN).
 pub fn pilot_default_veterancy() -> VeterancyLevel {
     VeterancyLevel::Veteran
+}
+
+/// Whether template is a residual USA vehicle with EjectPilotDie module.
+///
+/// Retail AmericaVehicle.ini / general variants: Humvee, Tomahawk, Crusader,
+/// Paladin, Avenger, Microwave. Fail-closed name residual (not full DieMux).
+pub fn is_eject_pilot_eligible_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    // Exclude drones / hulks / weapons / infantry pilots themselves.
+    if n.contains("drone")
+        || n.contains("weapon")
+        || n.contains("projectile")
+        || n.contains("missile")
+        || n.contains("debris")
+        || n.contains("hulk")
+        || n.contains("dead")
+        || n.starts_with("upgrade")
+        || n.contains("infantry")
+        || n.contains("pilot")
+        || n.contains("dozer")
+        || n.contains("sentry")
+        || n.contains("chinook")
+        || n.contains("comanche")
+        || n.contains("raptor")
+        || n.contains("stealthfighter")
+        || n.contains("aurora")
+        || n.contains("jet")
+        || n.contains("helicopter")
+    {
+        return false;
+    }
+    // Explicit residual test / shorthand names.
+    if n == "testejectvehicle"
+        || n == "testejectpilotvehicle"
+        || n == "goldenhumvee"
+        || n == "usa_humvee"
+        || n == "usa_crusader"
+        || n == "usa_paladin"
+        || n == "usa_tomahawk"
+        || n == "usa_avenger"
+        || n == "usa_microwave"
+    {
+        return true;
+    }
+    n.contains("humvee")
+        || n.contains("tomahawk")
+        || n.contains("tankcrusader")
+        || n.contains("tankpaladin")
+        || n.contains("tankavenger")
+        || n.contains("tankmicrowave")
+        || (n.contains("crusader") && n.contains("tank"))
+        || (n.contains("paladin") && n.contains("tank"))
+        || (n.contains("avenger") && n.contains("tank"))
+        || (n.contains("microwave") && (n.contains("tank") || n.contains("vehicle")))
+}
+
+/// Whether residual EjectPilotDie should fire on death.
+///
+/// Fail-closed: eligible template, not unmanned, not under construction,
+/// vehicle kind residual (not structure).
+pub fn can_eject_pilot_on_death(
+    is_eligible_template: bool,
+    is_unmanned: bool,
+    under_construction: bool,
+    is_vehicle: bool,
+    is_aircraft: bool,
+) -> bool {
+    is_eligible_template && !is_unmanned && !under_construction && is_vehicle && !is_aircraft
 }
 
 /// Rank for residual veterancy transfer (higher wins).
@@ -102,13 +184,16 @@ pub fn merged_recrew_veterancy(
     }
 }
 
-/// Host residual honesty counters for USA Pilot recrew.
+/// Host residual honesty counters for USA Pilot recrew + EjectPilotDie.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostUsaPilotRegistry {
     /// Successful unmanned-vehicle recrews (pilot consumed).
     pub recrews: u32,
     /// Veterancy promotions applied onto recrewed vehicles.
     pub veterancy_transfers: u32,
+    /// Successful EjectPilotDie residual pilot spawns on vehicle death.
+    #[serde(default)]
+    pub ejections: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -127,6 +212,10 @@ impl HostUsaPilotRegistry {
         }
     }
 
+    pub fn record_ejection(&mut self) {
+        self.ejections = self.ejections.saturating_add(1);
+    }
+
     /// Residual honesty: at least one recrew completed.
     pub fn honesty_recrew_ok(&self) -> bool {
         self.recrews > 0
@@ -137,9 +226,14 @@ impl HostUsaPilotRegistry {
         self.recrews > 0 && self.veterancy_transfers > 0
     }
 
-    /// Combined pilot residual honesty.
+    /// Residual honesty: at least one EjectPilotDie pilot spawn.
+    pub fn honesty_eject_ok(&self) -> bool {
+        self.ejections > 0
+    }
+
+    /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
-        self.honesty_recrew_ok()
+        self.honesty_recrew_ok() || self.honesty_eject_ok()
     }
 }
 
@@ -203,5 +297,45 @@ mod tests {
         assert!(reg.honesty_pilot_ok());
         assert_eq!(reg.recrews, 1);
         assert_eq!(reg.veterancy_transfers, 1);
+    }
+
+    #[test]
+    fn eject_pilot_template_matrix() {
+        assert!(is_eject_pilot_eligible_template("AmericaVehicleHumvee"));
+        assert!(is_eject_pilot_eligible_template("AmericaVehicleTomahawk"));
+        assert!(is_eject_pilot_eligible_template("AmericaTankCrusader"));
+        assert!(is_eject_pilot_eligible_template("AmericaTankPaladin"));
+        assert!(is_eject_pilot_eligible_template("AmericaTankAvenger"));
+        assert!(is_eject_pilot_eligible_template("AmericaTankMicrowave"));
+        assert!(is_eject_pilot_eligible_template("SupW_AmericaTankCrusader"));
+        assert!(is_eject_pilot_eligible_template("Lazr_AmericaTankPaladin"));
+        assert!(is_eject_pilot_eligible_template("AirF_AmericaVehicleHumvee"));
+        assert!(is_eject_pilot_eligible_template("TestEjectVehicle"));
+        assert!(!is_eject_pilot_eligible_template("AmericaVehicleDozer"));
+        assert!(!is_eject_pilot_eligible_template("AmericaVehicleScoutDrone"));
+        assert!(!is_eject_pilot_eligible_template("AmericaInfantryPilot"));
+        assert!(!is_eject_pilot_eligible_template("AmericaJetRaptor"));
+        assert!(!is_eject_pilot_eligible_template("TestTank"));
+        assert!(!is_eject_pilot_eligible_template("GLATankScorpion"));
+    }
+
+    #[test]
+    fn eject_on_death_gate() {
+        assert!(can_eject_pilot_on_death(true, false, false, true, false));
+        assert!(!can_eject_pilot_on_death(true, true, false, true, false)); // unmanned
+        assert!(!can_eject_pilot_on_death(true, false, true, true, false)); // construction
+        assert!(!can_eject_pilot_on_death(false, false, false, true, false)); // ineligible
+        assert!(!can_eject_pilot_on_death(true, false, false, false, false)); // not vehicle
+        assert!(!can_eject_pilot_on_death(true, false, false, true, true)); // aircraft
+    }
+
+    #[test]
+    fn eject_honesty_alone_is_pilot_ok() {
+        let mut reg = HostUsaPilotRegistry::new();
+        assert!(!reg.honesty_pilot_ok());
+        reg.record_ejection();
+        assert!(reg.honesty_eject_ok());
+        assert!(reg.honesty_pilot_ok());
+        assert_eq!(reg.ejections, 1);
     }
 }

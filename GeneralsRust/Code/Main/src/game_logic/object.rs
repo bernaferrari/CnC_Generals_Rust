@@ -722,6 +722,7 @@ impl Object {
             || self.status.disabled_unmanned
             || self.status.disabled_hacked
             || self.status.disabled_emp
+            || self.status.disabled_paralyzed
             || self.status.disabled_subdued
             || self.status.under_construction
     }
@@ -739,6 +740,11 @@ impl Object {
     /// C++ DISABLED_EMP residual (EMPUpdate / SuperweaponEMPPulse).
     pub fn is_emp_disabled(&self) -> bool {
         self.status.disabled_emp
+    }
+
+    /// C++ DISABLED_PARALYZED residual (BattlePlanChangeParalyzeTime).
+    pub fn is_paralyzed_disabled(&self) -> bool {
+        self.status.disabled_paralyzed
     }
 
     /// Host ECM / jammer residual: weapons cannot fire while in jam radius.
@@ -797,6 +803,8 @@ impl Object {
         self.status.disabled_hacked_until_frame = 0;
         self.status.disabled_emp = false;
         self.status.disabled_emp_until_frame = 0;
+        self.status.disabled_paralyzed = false;
+        self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
         self.status.moving = false;
         self.stop_moving();
@@ -826,6 +834,8 @@ impl Object {
         self.status.disabled_hacked_until_frame = 0;
         self.status.disabled_emp = false;
         self.status.disabled_emp_until_frame = 0;
+        self.status.disabled_paralyzed = false;
+        self.status.disabled_paralyzed_until_frame = 0;
         self.status.attacking = false;
         self.status.moving = false;
         self.stop_moving();
@@ -895,6 +905,34 @@ impl Object {
         {
             self.status.disabled_emp = false;
             self.status.disabled_emp_until_frame = 0;
+        }
+    }
+
+    /// Apply DISABLED_PARALYZED residual until `until_frame` (absolute host logic frame).
+    /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
+    /// Refresh extends the timer if a later expiry is provided.
+    pub fn apply_disabled_paralyzed(&mut self, until_frame: u32) {
+        self.status.disabled_paralyzed = true;
+        if until_frame > self.status.disabled_paralyzed_until_frame {
+            self.status.disabled_paralyzed_until_frame = until_frame;
+        }
+        self.status.attacking = false;
+        self.status.moving = false;
+        self.stop_moving();
+        self.target = None;
+        self.target_location = None;
+        self.force_attack = false;
+        self.ai_state = AIState::Idle;
+    }
+
+    /// Expire DISABLED_PARALYZED when the host frame passes the residual timer.
+    pub fn tick_disabled_paralyzed(&mut self, current_frame: u32) {
+        if self.status.disabled_paralyzed
+            && self.status.disabled_paralyzed_until_frame > 0
+            && current_frame >= self.status.disabled_paralyzed_until_frame
+        {
+            self.status.disabled_paralyzed = false;
+            self.status.disabled_paralyzed_until_frame = 0;
         }
     }
 

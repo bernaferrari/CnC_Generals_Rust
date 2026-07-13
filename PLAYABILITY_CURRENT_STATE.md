@@ -1,3 +1,32 @@
+## Residual Host Playability — BattlePlan Paralyze + EjectPilotDie (2026-07-13)
+**Closed (host-testable BattlePlanChangeParalyzeTime + USA EjectPilotDie residual):**
+1. **BattlePlanChangeParalyze residual** (`BattlePlanUpdate` / Strategy Center):
+   - First plan select: army residual bonuses only (no paralyze — matches C++
+     PLANSTATUS_NONE only on pack-for-change).
+   - Plan **switch**: legal army members receive DISABLED_PARALYZED for
+     **5000 ms → 150 frames** (`BattlePlanChangeParalyzeTime`).
+   - Paralyzed units cannot move/attack until timer expires (`tick_disabled_paralyzed`).
+   - Fail-closed: not full pack/unpack door animation / turret recenter matrix.
+2. **EjectPilotDie residual** (`EjectPilotDie` / OCL_EjectPilotOnGround):
+   - Eligible USA ground vehicles (Humvee / Tomahawk / Crusader / Paladin /
+     Avenger / Microwave + general variants) spawn `AmericaInfantryPilot` on death.
+   - Pilot residual starts **VETERAN**; can recrew via existing pilot residual path.
+   - Fail-closed: unmanned vehicles do **not** eject; aircraft air-parachute OCL
+     not claimed (ground residual only).
+3. Tests (not log-only):
+   - `strategy_center_battle_plan_paralyze_residual_on_plan_change`
+   - `eject_pilot_die_spawns_pilot_on_vehicle_death_residual`
+   - module unit tests in `host_strategy_center` / `host_usa_pilot`
+
+**Still residual (fail-closed, not claimed):**
+- Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
+- Full Bombardment turret enable / recenter natural-position residual path
+- Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
+- Full EjectPilotDie air OCL parachute / isSignificantlyAboveTerrain matrix
+- Full InvulnerableTime post-eject invulnerability matrix
+- Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+- Network battle-plan paralyze / eject-pilot replication (network deferred)
+
 ## Residual Host Playability — Demo PlusFire SUICIDED + CommandSetUpgrade (2026-07-13)
 **Closed (host-testable Demo_SuicideDynamitePackPlusFire intentional suicide + CommandSetUpgrade residual):**
 1. **PlusFire SUICIDED residual** (`Demo_SuicideDynamitePackPlusFire`):
@@ -229,6 +258,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full BattlePlanUpdate pack/unpack door model-condition / 7s animation matrix
 - Full 5000ms army BattlePlanChangeParalyzeTime on plan change
+  (host residual closed 2026-07-13 — see BattlePlan Paralyze + EjectPilotDie section)
 - Full Bombardment turret enable / recenter natural-position residual path
 - Full StealthDetectorUpdate module enable stack / VisionObjectName spawn residual
 - Network battle-plan replication (network deferred)
@@ -441,6 +471,8 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full EjectPilotDie air/ground OCL parachute spawn matrix
+  (host ground residual closed 2026-07-13 — see BattlePlan Paralyze + EjectPilotDie section;
+  air parachute / invuln timer still open)
 - Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
 - Full AutoFindHealingUpdate hospital path residual
 - Full WorkerAIUpdate BoredTime/Range auto-task matrix

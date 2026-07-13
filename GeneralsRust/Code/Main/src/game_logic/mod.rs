@@ -245,10 +245,11 @@ pub use host_frenzy::{
     HOST_FRENZY_RADIUS,
 };
 pub use host_strategy_center::{
+    battle_plan_paralyze_frames_from_ms, battle_plan_paralyze_until_frame,
     is_legal_battle_plan_member, is_strategy_center_template, HostBattlePlan,
-    HostBattlePlanRegistry, HostBattlePlanSelection, BOMBARDMENT_DAMAGE_MULT,
-    HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR, SEARCH_AND_DESTROY_RANGE_MULT,
-    SEARCH_AND_DESTROY_SIGHT_RANGE_SCALAR,
+    HostBattlePlanRegistry, HostBattlePlanSelection, BATTLE_PLAN_PARALYZE_FRAMES,
+    BATTLE_PLAN_PARALYZE_TIME_MS, BOMBARDMENT_DAMAGE_MULT, HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR,
+    SEARCH_AND_DESTROY_RANGE_MULT, SEARCH_AND_DESTROY_SIGHT_RANGE_SCALAR,
 };
 pub use host_gattling_tank::{
     gattling_air_weapon, gattling_delay_frames_for_level, gattling_ground_weapon,
@@ -470,8 +471,9 @@ pub use host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
 };
 pub use host_usa_pilot::{
-    is_pilot_template, is_recrewable_unmanned_vehicle, should_recrew_on_enter,
-    HostUsaPilotRegistry, PILOT_RECREW_AUDIO,
+    can_eject_pilot_on_death, is_eject_pilot_eligible_template, is_pilot_template,
+    is_recrewable_unmanned_vehicle, should_recrew_on_enter, HostUsaPilotRegistry,
+    EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_RECREW_AUDIO,
 };
 pub use host_usa_tanks::{
     is_composite_armor_unit_template, is_crusader_template, is_laser_general_tank_template,
@@ -648,6 +650,13 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when DISABLED_EMP expires (0 = inactive).
     #[serde(default)]
     pub disabled_emp_until_frame: u32,
+    /// C++ DISABLED_PARALYZED residual (BattlePlanChangeParalyzeTime).
+    /// Army members freeze on Strategy Center plan change until frame expires.
+    #[serde(default)]
+    pub disabled_paralyzed: bool,
+    /// Absolute host logic frame when DISABLED_PARALYZED expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_paralyzed_until_frame: u32,
     /// Host ECM tank / jammer residual: weapons cannot fire while inside jam radius.
     /// C++ DISABLED_SUBDUED cannot-fire residual (Microwave/ECM vehicle disabler).
     /// Fail-closed: continuous aura (not full subdual damage accumulate/heal).
