@@ -9,6 +9,10 @@
 //! - Honesty counters for texts / active / bytes packed
 //! - Deterministic pack order for dual-tick presentation consumers
 //!
+//! Host residual also closed (fail-closed vs live Display):
+//! - DisplayString color residual normalize u8 RGBA → f32 (0..1)
+//! - Retail green/yellow cash caption color honesty samples
+//!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
 //! - Full multi-locale CSF/STR Unicode GameText table load at boot
@@ -47,6 +51,27 @@ pub fn resolve_add_cash_caption(text_key: &str, amount: u32, frozen_text: &str) 
 /// Honesty: key is retail `GUI:AddCash` and caption matches residual format.
 pub fn honesty_add_cash_caption(text_key: &str, amount: u32, caption: &str) -> bool {
     text_key == GUI_ADD_CASH_KEY && caption == format!("+${amount}")
+}
+
+/// Retail green cash floating text color (Hacker / MoneyCrate residual).
+pub const FLOATING_TEXT_COLOR_GREEN_U8: (u8, u8, u8, u8) = (0, 255, 0, 255);
+/// Retail yellow cash floating text color (CashBounty residual).
+pub const FLOATING_TEXT_COLOR_YELLOW_U8: (u8, u8, u8, u8) = (255, 255, 0, 255);
+
+/// Normalize GameMakeColor u8 RGBA → DisplayString residual f32 color (0..1).
+pub fn normalize_display_string_color(rgba: (u8, u8, u8, u8)) -> [f32; 4] {
+    [
+        rgba.0 as f32 / 255.0,
+        rgba.1 as f32 / 255.0,
+        rgba.2 as f32 / 255.0,
+        rgba.3 as f32 / 255.0,
+    ]
+}
+
+/// Honesty: packed color matches normalized retail residual u8 RGBA.
+pub fn honesty_display_string_color(packed: [f32; 4], rgba: (u8, u8, u8, u8)) -> bool {
+    let expected = normalize_display_string_color(rgba);
+    (0..4).all(|i| (packed[i] - expected[i]).abs() < 0.001)
 }
 
 /// Floats per packed layout entry:
@@ -118,6 +143,8 @@ pub struct FloatingTextLayoutHonesty {
     pub game_text_caption_ok: bool,
     /// True when all packed entries have honest DisplayString measure residual.
     pub display_string_measure_ok: bool,
+    /// True when packed colors match normalized residual RGBA (0..1).
+    pub display_string_color_ok: bool,
 }
 
 impl FloatingTextLayoutHonesty {
@@ -146,6 +173,10 @@ impl FloatingTextLayoutHonesty {
     pub fn honesty_display_string_measure_ok(&self) -> bool {
         self.display_string_measure_ok
     }
+
+    pub fn honesty_display_string_color_ok(&self) -> bool {
+        self.display_string_color_ok
+    }
 }
 
 /// Packed floating text layout payload ready for dual-tick UI consumers.
@@ -167,6 +198,7 @@ impl FloatingTextLayout {
                 cpu_pack_ok: true,
                 game_text_caption_ok: true,
                 display_string_measure_ok: true,
+                display_string_color_ok: true,
                 move_up_speed: PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED,
                 vanish_rate: PRESENTATION_FLOATING_TEXT_VANISH_RATE,
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
@@ -236,12 +268,7 @@ impl FloatingTextLayout {
             entries.push(FloatingTextLayoutEntry {
                 position: [t.position.x, t.position.y, t.position.z],
                 lift_y: lift,
-                color_rgba: [
-                    c.0 as f32 / 255.0,
-                    c.1 as f32 / 255.0,
-                    c.2 as f32 / 255.0,
-                    c.3 as f32 / 255.0,
-                ],
+                color_rgba: normalize_display_string_color(c),
                 alpha,
                 amount: t.amount as f32,
                 age_frames: age as f32,
@@ -278,6 +305,13 @@ impl FloatingTextLayout {
                         && e.measure_width > 0
                 })
         };
+        let display_string_color_ok = if texts_packed == 0 {
+            true
+        } else {
+            entries.iter().all(|e| {
+                e.color_rgba.iter().all(|c| *c >= 0.0 && *c <= 1.0) && e.color_rgba[3] > 0.0
+            })
+        };
         Self {
             honesty: FloatingTextLayoutHonesty {
                 texts_packed,
@@ -292,6 +326,7 @@ impl FloatingTextLayout {
                 timeout_frames: PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
                 game_text_caption_ok,
                 display_string_measure_ok,
+                display_string_color_ok,
             },
             entries,
             layout_bytes,
@@ -377,4 +412,18 @@ mod tests {
         let expected = (1.0 - 5.0 * PRESENTATION_FLOATING_TEXT_VANISH_RATE).clamp(0.0, 1.0);
         assert!((pack.entries[0].alpha - expected).abs() < 0.001);
     }
+
+    #[test]
+    fn display_string_color_residual_normalize() {
+        let green = normalize_display_string_color(FLOATING_TEXT_COLOR_GREEN_U8);
+        assert!((green[1] - 1.0).abs() < 0.001);
+        assert!((green[0] - 0.0).abs() < 0.001);
+        assert!(honesty_display_string_color(green, FLOATING_TEXT_COLOR_GREEN_U8));
+        let yellow = normalize_display_string_color(FLOATING_TEXT_COLOR_YELLOW_U8);
+        assert!((yellow[0] - 1.0).abs() < 0.001 && (yellow[1] - 1.0).abs() < 0.001);
+        assert!(honesty_display_string_color(yellow, FLOATING_TEXT_COLOR_YELLOW_U8));
+        assert_eq!(FLOATING_TEXT_COLOR_GREEN_U8, (0, 255, 0, 255));
+        assert_eq!(FLOATING_TEXT_COLOR_YELLOW_U8, (255, 255, 0, 255));
+    }
+
 }

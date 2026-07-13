@@ -8,6 +8,11 @@
 //! - Multi-beam soft-edge CPU residual (OrbitalLaser NumBeams width/color lerp)
 //! - ScrollRate UV + TilingScalar tile factor residual on multi-beam layers
 //!
+//! Host residual also closed (fail-closed vs live GPU):
+//! - ShaderClass::_PresetAdditiveShader residual name honesty
+//! - SegLineRenderer TILED_TEXTURE_MAP residual when Tile=Yes
+//! - UV_Offset_Rate residual (0, ScrollRate) V-scroll component
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - EXNoise02.tga / EXBinaryStream32.tga texture atlas GPU sample bind
@@ -38,6 +43,14 @@ pub const ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
 pub const ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 250.0 / 255.0);
 /// Retail OuterColor R:0 G:0 B:255 A:150 → normalized.
 pub const ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail W3DLaserDraw additive shader residual (`ShaderClass::_PresetAdditiveShader`).
+pub const ORBITAL_LASER_SHADER: &str = "_PresetAdditiveShader";
+/// Retail SegLineRenderer texture mapping residual when Tile=Yes.
+pub const ORBITAL_LASER_TEXTURE_MAPPING: &str = "TILED_TEXTURE_MAP";
+/// Retail Tile residual (Yes for OrbitalLaser).
+pub const ORBITAL_LASER_TILE: bool = true;
+/// Retail UV offset rate residual: Vector2(0, ScrollRate) — V component only.
+pub const ORBITAL_LASER_UV_OFFSET_U: f32 = 0.0;
 
 /// Bytes per packed laser segment vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
 pub const LASER_VERTEX_FLOATS: usize = 9;
@@ -99,6 +112,14 @@ pub struct LaserSegmentUploadHonesty {
     pub multi_beam_tiling_scalar: f32,
     /// True when multi-beam soft-edge residual was exercised honestly.
     pub multi_beam_soft_edge_ok: bool,
+    /// True when additive shader residual is armed.
+    pub additive_shader_ok: bool,
+    /// True when TILED_TEXTURE_MAP residual is armed (Tile=Yes).
+    pub tiled_texture_map_ok: bool,
+    /// UV offset U residual (always 0 for OrbitalLaser).
+    pub uv_offset_u: f32,
+    /// UV offset V residual (= ScrollRate * elapsed).
+    pub uv_offset_v: f32,
 }
 
 impl LaserSegmentUploadHonesty {
@@ -120,6 +141,16 @@ impl LaserSegmentUploadHonesty {
             && (self.multi_beam_peak_width - ORBITAL_LASER_OUTER_BEAM_WIDTH).abs() < 0.01
             && (self.multi_beam_inner_width - ORBITAL_LASER_INNER_BEAM_WIDTH).abs() < 0.01
             && (self.multi_beam_tiling_scalar - ORBITAL_LASER_TILING_SCALAR).abs() < 0.001
+    }
+
+    /// Residual honesty: additive shader + TILED_TEXTURE_MAP + UV_Offset_Rate.
+    pub fn honesty_additive_tiled_ok(&self) -> bool {
+        self.additive_shader_ok
+            && self.tiled_texture_map_ok
+            && ORBITAL_LASER_SHADER == "_PresetAdditiveShader"
+            && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
+            && ORBITAL_LASER_TILE
+            && (self.uv_offset_u - ORBITAL_LASER_UV_OFFSET_U).abs() < 0.001
     }
 }
 
@@ -301,6 +332,11 @@ impl LaserSegmentUpload {
                 multi_beam_scroll_uv: scroll_uv,
                 multi_beam_tiling_scalar: ORBITAL_LASER_TILING_SCALAR,
                 multi_beam_soft_edge_ok: soft_ok,
+                additive_shader_ok: ORBITAL_LASER_SHADER == "_PresetAdditiveShader",
+                tiled_texture_map_ok: ORBITAL_LASER_TILE
+                    && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP",
+                uv_offset_u: ORBITAL_LASER_UV_OFFSET_U,
+                uv_offset_v: scroll_uv,
             },
         }
     }
@@ -579,4 +615,23 @@ mod tests {
         assert!((layers.last().unwrap().tile_factor - expected_tile).abs() < 0.01);
         assert!(honesty_orbital_multi_beam_layers(&layers));
     }
+
+    #[test]
+    fn orbital_additive_tiled_texture_residual_honesty() {
+        assert_eq!(ORBITAL_LASER_SHADER, "_PresetAdditiveShader");
+        assert_eq!(ORBITAL_LASER_TEXTURE_MAPPING, "TILED_TEXTURE_MAP");
+        assert!(ORBITAL_LASER_TILE);
+        assert!((ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001);
+        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+            (0.0, 0.0, 0.0),
+            (0.0, 100.0, 0.0),
+            1.0,
+            1.0,
+        );
+        assert!(pack.honesty.honesty_multi_beam_soft_edge_ok());
+        assert!(pack.honesty.honesty_additive_tiled_ok());
+        assert!((pack.honesty.uv_offset_v - ORBITAL_LASER_SCROLL_RATE * 1.0).abs() < 0.01);
+        assert_eq!(pack.honesty.texture_name, ORBITAL_LASER_TEXTURE);
+    }
+
 }

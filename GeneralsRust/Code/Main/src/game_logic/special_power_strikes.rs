@@ -324,6 +324,12 @@ pub const SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL: bool = true;
 pub const SPECTRE_HOWITZER_SHELL_SHADOW: &str = "SHADOW_DECAL";
 /// Retail SpectreHowitzerShell Geometry type residual.
 pub const SPECTRE_HOWITZER_SHELL_GEOMETRY: &str = "Cylinder";
+/// Retail SpectreHowitzerShell KindOf residual.
+pub const SPECTRE_HOWITZER_SHELL_KIND_OF: &str = "PROJECTILE";
+/// Retail SpectreHowitzerShell VisionRange residual.
+pub const SPECTRE_HOWITZER_SHELL_VISION_RANGE: f32 = 0.0;
+/// Retail SpectreHowitzerShell Armor residual.
+pub const SPECTRE_HOWITZER_SHELL_ARMOR: &str = "ProjectileArmor";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -995,8 +1001,7 @@ pub fn particle_orbital_soft_edge_alpha(beam_index: u32) -> f32 {
 
 /// Soft-edge RGB residual for beam index (lerps InnerColor → OuterColor).
 ///
-/// C++ multiplies RGB by innerAlpha on the green/blue/red channels when blending;
-/// host residual reports the unpremultiplied color lerp for honesty.
+/// Linear unpremultiplied lerp residual (host honesty / multi-beam pack).
 #[inline]
 pub fn particle_orbital_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
     let scale = particle_orbital_soft_edge_scale(beam_index);
@@ -1006,6 +1011,24 @@ pub fn particle_orbital_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32)
         ir + scale * (or - ir),
         ig + scale * (og - ig),
         ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
+/// Soft-edge RGB residual with C++ W3DLaserDraw innerAlpha premultiply on channel delta.
+///
+/// C++: `red = innerRed + scale * (outerRed - innerRed) * innerAlpha` (same for G/B).
+/// Alpha still lerps InnerColor.A → OuterColor.A without extra premultiply.
+/// Fail-closed: not full SegLineRenderer additive GPU submit.
+#[inline]
+pub fn particle_orbital_soft_edge_color_premul(beam_index: u32) -> (f32, f32, f32, f32) {
+    let scale = particle_orbital_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_ORBITAL_LASER_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_ORBITAL_LASER_OUTER_COLOR;
+    (
+        ir + scale * (or - ir) * ia,
+        ig + scale * (og - ig) * ia,
+        ib + scale * (ob - ib) * ia,
         ia + scale * (oa - ia),
     )
 }
@@ -1611,6 +1634,16 @@ pub const SCUD_STORM_MISSILE_GEOMETRY_HEIGHT: f32 = 30.0;
 pub const SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL: bool = true;
 /// Retail Geometry type residual.
 pub const SCUD_STORM_MISSILE_GEOMETRY: &str = "Cylinder";
+/// Retail VisionRange residual.
+pub const SCUD_STORM_MISSILE_VISION_RANGE: f32 = 300.0;
+/// Retail ShroudClearingRange residual.
+pub const SCUD_STORM_MISSILE_SHROUD_CLEARING_RANGE: f32 = 0.0;
+/// Retail KindOf residual (PROJECTILE).
+pub const SCUD_STORM_MISSILE_KIND_OF: &str = "PROJECTILE";
+/// Retail ArmorSet Armor residual.
+pub const SCUD_STORM_MISSILE_ARMOR: &str = "ProjectileArmor";
+/// Retail TransportSlotCount residual.
+pub const SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT: u32 = 10;
 /// Retail SpecialPowerCompletionDie template residual.
 pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
 
@@ -2647,6 +2680,9 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: Geometry residual applications (Cylinder / IsSmall / major+height / mass).
     #[serde(default)]
     pub scud_geometry_applications: u32,
+    /// Honesty: VisionRange / KindOf / Armor / TransportSlot residual applications.
+    #[serde(default)]
+    pub scud_object_params_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2889,6 +2925,9 @@ pub struct HostSpectreOrbitField {
     /// Honesty: InstantDeath LASERED OCL residual applications (OCL_GenericMissileDisintegrate).
     #[serde(default)]
     pub howitzer_shell_death_lasered_ocl_applications: u32,
+    /// Honesty: KindOf / VisionRange / Armor residual applications.
+    #[serde(default)]
+    pub howitzer_shell_object_params_applications: u32,
     /// Honesty: HeightDie OnlyWhenMovingDown residual applications.
     #[serde(default)]
     pub howitzer_shell_only_moving_down_applications: u32,
@@ -3201,6 +3240,12 @@ pub struct HostParticleBeamField {
     /// Honesty: soft-edge color residual armed (Inner/Outer color constants).
     #[serde(default)]
     pub soft_edge_color_armed: u32,
+    /// Honesty: soft-edge RGB innerAlpha premultiply residual samples.
+    #[serde(default)]
+    pub soft_edge_premul_samples: u32,
+    /// Honesty: last soft-edge premul outer red residual.
+    #[serde(default)]
+    pub last_soft_edge_premul_outer_r: f32,
     /// Honesty: outer-node bone layout residual positions computed.
     #[serde(default)]
     pub outer_node_bone_layout_applications: u32,
@@ -3350,6 +3395,11 @@ impl HostParticleBeamField {
         self.last_soft_edge_tile_factor =
             particle_orbital_soft_edge_tile_factor(1.0, soft_w.max(f32::EPSILON));
         self.soft_edge_samples = self.soft_edge_samples.saturating_add(1);
+        // Soft-edge RGB innerAlpha premultiply residual (W3DLaserDraw channel delta).
+        let (_pr, _pg, _pb, _) = particle_orbital_soft_edge_color_premul(0);
+        let (or_p, _og_p, _ob_p, _) = particle_orbital_soft_edge_color_premul(outer_idx);
+        self.last_soft_edge_premul_outer_r = or_p;
+        self.soft_edge_premul_samples = self.soft_edge_premul_samples.saturating_add(1);
         // LaserUpdate client residual: currentWidthScalar widen/decay samples.
         // Retail createOrbitToTargetLaser(sizeDelta = WidthGrow) then setDecayFrames
         // at POSTFIRE. Host residual mirrors the same scalar schedule.
@@ -4073,6 +4123,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_last_thrust_wobble: 0.0,
             scud_peak_abs_thrust_wobble: 0.0,
             scud_geometry_applications: 0,
+            scud_object_params_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4427,6 +4478,10 @@ impl HostSpecialPowerStrikeRegistry {
                     // Geometry residual (Cylinder / radius / height / mass / max health).
                     strike.scud_geometry_applications = strike
                         .scud_geometry_applications
+                        .saturating_add(shells);
+                    // VisionRange / KindOf / Armor / TransportSlot residual.
+                    strike.scud_object_params_applications = strike
+                        .scud_object_params_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -4909,6 +4964,7 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_death_detonated_applications: 0,
             howitzer_shell_death_lasered_applications: 0,
             howitzer_shell_death_lasered_ocl_applications: 0,
+            howitzer_shell_object_params_applications: 0,
             howitzer_shell_only_moving_down_applications: 0,
             howitzer_shell_model_draw_applications: 0,
             howitzer_shell_scale_applications: 0,
@@ -5063,6 +5119,9 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_death_lasered_ocl_applications = field
                     .howitzer_shell_death_lasered_ocl_applications
+                    .saturating_add(1);
+                field.howitzer_shell_object_params_applications = field
+                    .howitzer_shell_object_params_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -5320,6 +5379,21 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN/FAST residual sets.
     ///
     /// Fail-closed: not full drawable animation state / W3D model condition matrix.
+    /// Residual honesty: SpectreHowitzerShell KindOf / VisionRange / Armor residual.
+    ///
+    /// Tracks KindOf PROJECTILE, VisionRange **0**, Armor ProjectileArmor.
+    /// Fail-closed: not full ThingFactory Object / ArmorSet module matrix.
+    pub fn honesty_howitzer_shell_object_params_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_object_params_applications > 0
+                && f.howitzer_shell_object_params_applications
+                    >= f.howitzer_shells_spawned
+        }) && SPECTRE_HOWITZER_SHELL_KIND_OF == "PROJECTILE"
+            && (SPECTRE_HOWITZER_SHELL_VISION_RANGE - 0.0).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_ARMOR == "ProjectileArmor"
+    }
+
+
     pub fn honesty_model_condition_continuous_fire_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.model_condition_mean_sets > 0 || f.model_condition_fast_sets > 0
@@ -5430,6 +5504,8 @@ impl HostSpecialPowerStrikeRegistry {
             last_soft_edge_outer_alpha: 0.0,
             last_soft_edge_tile_factor: 0.0,
             soft_edge_color_armed: 1,
+            soft_edge_premul_samples: 0,
+            last_soft_edge_premul_outer_r: 0.0,
             // Outer-node bone layout residual (FX01..FX05 ring + connector).
             // Fail-closed: not full W3D bone-world extract.
             outer_node_bone_layout_applications: PARTICLE_OUTER_EFFECT_NUM_BONES,
@@ -5998,6 +6074,25 @@ impl HostSpecialPowerStrikeRegistry {
     /// still uses [`PARTICLE_BEAM_RADIUS`] (50). Fail-closed: not full GPU
     /// multi-beam soft edge / texture atlas submit (NumBeams residual closed
     /// separately via [`honesty_beam_num_beams_scroll_ok`]).
+    /// Residual honesty: soft-edge RGB innerAlpha premultiply residual.
+    ///
+    /// Tracks C++ W3DLaserDraw channel-delta × innerAlpha on outer cylinder.
+    /// Fail-closed: not full SegLineRenderer additive GPU submit.
+    pub fn honesty_beam_soft_edge_premul_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.soft_edge_premul_samples >= 1 && f.soft_edge_color_armed >= 1
+        }) && {
+            let (r0, _, _, _) = particle_orbital_soft_edge_color_premul(0);
+            let (r11, _, _, a11) = particle_orbital_soft_edge_color_premul(11);
+            // Outer red at scale=1: 1.0 + 1.0*(0-1)*ia = 1 - ia
+            let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+            (r0 - 1.0).abs() < 0.01
+                && (r11 - (1.0 - ia)).abs() < 0.01
+                && (a11 - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01
+        }
+    }
+
+
     pub fn honesty_beam_outer_beam_width_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
             f.orbital_laser_draw_params_armed >= 1
@@ -6336,6 +6431,24 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Tracks pad-safe HeightDie InitialDelay loft sample + ground impact.
     /// Fail-closed: not full DumbProjectileBehavior Object / live Physics.
+    /// Residual honesty: ScudStormMissile VisionRange / KindOf / Armor residual.
+    ///
+    /// Tracks VisionRange **300**, ShroudClearingRange **0**, KindOf PROJECTILE,
+    /// Armor ProjectileArmor, TransportSlotCount **10**. Fail-closed: not full
+    /// ThingFactory Object / partition KindOf matrix.
+    pub fn honesty_scud_object_params_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_object_params_applications > 0
+                && s.scud_object_params_applications >= s.scud_geometry_applications
+        }) && (SCUD_STORM_MISSILE_VISION_RANGE - 300.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_SHROUD_CLEARING_RANGE - 0.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_KIND_OF == "PROJECTILE"
+            && SCUD_STORM_MISSILE_ARMOR == "ProjectileArmor"
+            && SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT == 10
+    }
+
+
     pub fn honesty_howitzer_shell_loft_flight_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shell_loft_flight_applications > 0
@@ -9711,6 +9824,100 @@ mod tests {
             assert!((f.last_orbital_shroud_clearing_range - 120.0).abs() < 0.01);
         }
         assert!(reg.honesty_beam_vision_shroud_ok());
+    }
+
+
+    #[test]
+    fn particle_uplink_soft_edge_premul_residual_honesty() {
+        let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+        let (r0, _, _, _) = particle_orbital_soft_edge_color_premul(0);
+        let (r11, _, _, a11) = particle_orbital_soft_edge_color_premul(11);
+        assert!((r0 - 1.0).abs() < 0.01);
+        assert!((r11 - (1.0 - ia)).abs() < 0.01);
+        assert!((a11 - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01);
+        // Premul outer red is less than linear outer red (0.0) wait: linear outer red is 0;
+        // premul outer red = 1 + 1*(0-1)*ia = 1-ia > 0 for ia < 1.
+        let (lin_r, _, _, _) = particle_orbital_soft_edge_color(11);
+        assert!((lin_r - 0.0).abs() < 0.01);
+        assert!(r11 > lin_r);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, Vec3::ZERO, 0, strike_id);
+        assert!(!reg.honesty_beam_soft_edge_premul_ok());
+        reg.sample_beam_width_honesty(PARTICLE_WIDTH_GROW_FRAMES);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert!(f.soft_edge_premul_samples >= 1);
+            assert!((f.last_soft_edge_premul_outer_r - (1.0 - ia)).abs() < 0.01);
+        }
+        assert!(reg.honesty_beam_soft_edge_premul_ok());
+    }
+
+    #[test]
+    fn scud_object_params_residual_honesty() {
+        assert!((SCUD_STORM_MISSILE_VISION_RANGE - 300.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_SHROUD_CLEARING_RANGE - 0.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_KIND_OF, "PROJECTILE");
+        assert_eq!(SCUD_STORM_MISSILE_ARMOR, "ProjectileArmor");
+        assert_eq!(SCUD_STORM_MISSILE_TRANSPORT_SLOT_COUNT, 10);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_object_params_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_object_params_applications, 1);
+        }
+        assert!(reg.honesty_scud_object_params_ok());
+        assert!(reg.honesty_scud_geometry_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_object_params_residual_honesty() {
+        assert_eq!(SPECTRE_HOWITZER_SHELL_KIND_OF, "PROJECTILE");
+        assert!((SPECTRE_HOWITZER_SHELL_VISION_RANGE - 0.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_ARMOR, "ProjectileArmor");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_object_params_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_object_params_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_object_params_ok());
     }
 
     #[test]
