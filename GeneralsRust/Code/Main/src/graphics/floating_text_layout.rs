@@ -27,6 +27,9 @@
 //! - DisplayString draw residual (empty early-out / default drop 1,1 /
 //!   pos+color rebuild dirty residual; fail-closed vs GPU StretchRect)
 //! - DisplayStringManager link/unlink residual (doubly-linked factory list)
+//! - DisplayString `usingResources(frame)` residual (last-used frame stamp on draw)
+//! - DisplayString computeExtents residual empty/no-font → 0,0 honesty
+//! - DisplayString hotkey Build_Sentence residual (`&` letter position extract)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -591,6 +594,222 @@ pub fn honesty_display_string_manager_link() -> bool {
     }
     m.unlink(1);
     m.is_empty()
+}
+
+// ---------------------------------------------------------------------------
+// DisplayString deepen residual (W3DDisplayString.cpp)
+// ---------------------------------------------------------------------------
+
+/// Default last-resource frame residual before any successful draw.
+pub const DISPLAY_STRING_LAST_RESOURCE_FRAME_NONE: u32 = 0;
+
+/// DisplayString `usingResources(frame)` residual: stamp last-used resource frame.
+///
+/// C++ `W3DDisplayString::usingResources(frame)` sets `m_lastResourceFrame = frame`
+/// after a successful draw path. Host residual is pure assignment.
+/// Fail-closed vs live DisplayStringManager resource reclaim.
+#[inline]
+pub fn display_string_using_resources(frame: u32) -> u32 {
+    frame
+}
+
+/// Honesty: usingResources residual stamps the provided frame.
+pub fn honesty_display_string_using_resources(frame: u32, stamped: u32) -> bool {
+    display_string_using_resources(frame) == stamped
+}
+
+/// DisplayString draw residual that also stamps `usingResources` when draw succeeds.
+///
+/// C++ calls `usingResources(TheGameClient->getFrame())` after render when
+/// `TheGameClient` is non-null. Host residual stamps only when `drew == true`
+/// (empty early-out does not use resources).
+#[inline]
+pub fn display_string_draw_using_resources(
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8, u8),
+    drop_color: (u8, u8, u8, u8),
+    prev_x: i32,
+    prev_y: i32,
+    prev_color: (u8, u8, u8, u8),
+    prev_drop_color: (u8, u8, u8, u8),
+    text_or_font_dirty: bool,
+    logic_frame: u32,
+    prev_last_resource_frame: u32,
+) -> (DisplayStringDrawResidual, u32) {
+    let sample = display_string_draw(
+        text,
+        x,
+        y,
+        color,
+        drop_color,
+        prev_x,
+        prev_y,
+        prev_color,
+        prev_drop_color,
+        text_or_font_dirty,
+    );
+    let last = if sample.drew {
+        display_string_using_resources(logic_frame)
+    } else {
+        prev_last_resource_frame
+    };
+    (sample, last)
+}
+
+/// DisplayString hotkey extract residual for Build_Sentence when useHotkey.
+///
+/// C++ `Build_Sentence(..., &m_hotKeyPos.x, &m_hotKeyPos.y)` +
+/// `HotKeyManager::searchHotKey` finds the first `&` and returns the next char.
+/// Host residual:
+/// - `hotkey_char`: the letter after first `&`, or None if absent
+/// - `hotkey_char_index`: index of the hotkey letter in the *rendered* string
+///   (characters after stripping the first `&` marker), or None
+/// - monospaced hotkey screen offset residual: `(index * 8, 0)` when found
+///
+/// Fail-closed vs live Render2DSentence poly / underline GPU draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayStringHotkeyExtractResidual {
+    /// True when useHotkey was requested.
+    pub use_hotkey: bool,
+    /// Hotkey letter residual (first char after first `&`), if any.
+    pub hotkey_char: Option<char>,
+    /// Index of hotkey letter in string with the first `&` marker removed.
+    pub hotkey_char_index: Option<u32>,
+    /// Monospaced Build_Sentence position residual (x, y) for hotkey glyph.
+    pub hotkey_pos: (i32, i32),
+    /// True when a hotkey letter was extracted (matches C++ non-empty m_hotkey).
+    pub found: bool,
+}
+
+/// Extract hotkey letter + monospaced Build_Sentence position residual.
+///
+/// When `use_hotkey` is false, returns empty residual (no parse).
+/// When true, scans for first `&` and returns the following letter position.
+pub fn display_string_hotkey_extract(
+    text: &str,
+    use_hotkey: bool,
+) -> DisplayStringHotkeyExtractResidual {
+    if !use_hotkey {
+        return DisplayStringHotkeyExtractResidual {
+            use_hotkey: false,
+            hotkey_char: None,
+            hotkey_char_index: None,
+            hotkey_pos: (0, 0),
+            found: false,
+        };
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] == '&' {
+            // Hotkey letter is the next char after '&' (C++ searchHotKey).
+            if i + 1 < chars.len() {
+                let letter = chars[i + 1];
+                // Rendered string strips the '&' marker; letter index is i.
+                // Monospaced residual width = 8px (DISPLAY_STRING_GLYPH family).
+                let index = i as u32;
+                let pos_x = (index as i32).saturating_mul(8);
+                return DisplayStringHotkeyExtractResidual {
+                    use_hotkey: true,
+                    hotkey_char: Some(letter),
+                    hotkey_char_index: Some(index),
+                    hotkey_pos: (pos_x, 0),
+                    found: true,
+                };
+            }
+            // Trailing '&' with no letter → not found residual.
+            break;
+        }
+        i += 1;
+    }
+    DisplayStringHotkeyExtractResidual {
+        use_hotkey: true,
+        hotkey_char: None,
+        hotkey_char_index: None,
+        hotkey_pos: (0, 0),
+        found: false,
+    }
+}
+
+/// Honesty: usingResources + computeExtents + hotkey extract residual.
+pub fn honesty_display_string_deepen_residual() -> bool {
+    // usingResources stamp residual.
+    if !honesty_display_string_using_resources(42, 42) {
+        return false;
+    }
+    if display_string_using_resources(0) != 0 {
+        return false;
+    }
+    // draw stamps usingResources only when drew.
+    let (empty, last) = display_string_draw_using_resources(
+        "",
+        0,
+        0,
+        (255, 255, 255, 255),
+        (0, 0, 0, 255),
+        0,
+        0,
+        (0, 0, 0, 0),
+        (0, 0, 0, 0),
+        false,
+        99,
+        DISPLAY_STRING_LAST_RESOURCE_FRAME_NONE,
+    );
+    if empty.drew || last != DISPLAY_STRING_LAST_RESOURCE_FRAME_NONE {
+        return false;
+    }
+    let (drew, last) = display_string_draw_using_resources(
+        "+$100",
+        10,
+        20,
+        (0, 255, 0, 255),
+        (0, 0, 0, 255),
+        10,
+        20,
+        (0, 255, 0, 255),
+        (0, 0, 0, 255),
+        false,
+        77,
+        0,
+    );
+    if !drew.drew || last != 77 {
+        return false;
+    }
+
+    // computeExtents residual already via get_size: empty/no-font → 0,0.
+    if display_string_get_size("", true) != (0, 0) {
+        return false;
+    }
+    if display_string_get_size("X", false) != (0, 0) {
+        return false;
+    }
+    if display_string_get_size("AB", true) != (16, 8) {
+        return false;
+    }
+
+    // Hotkey extract residual.
+    let none = display_string_hotkey_extract("&File", false);
+    if none.use_hotkey || none.found {
+        return false;
+    }
+    let hk = display_string_hotkey_extract("&File", true);
+    if !hk.found || hk.hotkey_char != Some('F') || hk.hotkey_char_index != Some(0) {
+        return false;
+    }
+    if hk.hotkey_pos != (0, 0) {
+        return false;
+    }
+    let mid = display_string_hotkey_extract("O&pen", true);
+    if mid.hotkey_char != Some('p') || mid.hotkey_char_index != Some(1) {
+        return false;
+    }
+    if mid.hotkey_pos != (8, 0) {
+        return false;
+    }
+    let missing = display_string_hotkey_extract("NoHotkey", true);
+    !missing.found && missing.hotkey_char.is_none()
 }
 
 /// Floats per packed layout entry:
@@ -1168,6 +1387,72 @@ mod tests {
         assert_eq!(m.head, Some(10));
         m.unlink(10);
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn display_string_using_resources_and_hotkey_residual_honesty() {
+        assert!(honesty_display_string_deepen_residual());
+        assert_eq!(display_string_using_resources(123), 123);
+        assert!(honesty_display_string_using_resources(7, 7));
+
+        // Empty draw does not stamp usingResources residual.
+        let (empty, last) = display_string_draw_using_resources(
+            "",
+            0,
+            0,
+            (255, 255, 255, 255),
+            (0, 0, 0, 255),
+            0,
+            0,
+            (0, 0, 0, 0),
+            (0, 0, 0, 0),
+            true,
+            50,
+            0,
+        );
+        assert!(!empty.drew);
+        assert_eq!(last, 0);
+
+        // Successful draw stamps logic frame residual.
+        let (drew, last) = display_string_draw_using_resources(
+            "+$100",
+            0,
+            0,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            0,
+            0,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            false,
+            50,
+            0,
+        );
+        assert!(drew.drew);
+        assert_eq!(last, 50);
+
+        // computeExtents residual already covered by get_size: empty/no-font → 0,0.
+        assert_eq!(display_string_get_size("", true), (0, 0));
+        assert_eq!(display_string_get_size("Hi", false), (0, 0));
+        assert_eq!(display_string_get_size("Hi", true), (16, 8));
+
+        // Hotkey Build_Sentence residual: `&` letter position.
+        let hk = display_string_hotkey_extract("&Build", true);
+        assert!(hk.found);
+        assert_eq!(hk.hotkey_char, Some('B'));
+        assert_eq!(hk.hotkey_char_index, Some(0));
+        assert_eq!(hk.hotkey_pos, (0, 0));
+
+        let mid = display_string_hotkey_extract("Re&pair", true);
+        assert_eq!(mid.hotkey_char, Some('p'));
+        assert_eq!(mid.hotkey_char_index, Some(2));
+        assert_eq!(mid.hotkey_pos, (16, 0));
+
+        let off = display_string_hotkey_extract("&File", false);
+        assert!(!off.use_hotkey && !off.found);
+
+        let none = display_string_hotkey_extract("NoAmpersand", true);
+        assert!(!none.found);
     }
 
 }
