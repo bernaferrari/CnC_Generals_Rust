@@ -699,6 +699,10 @@ pub struct GameLogic {
     /// Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
     fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
+    /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
+    /// Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
+    inferno_fire_zones: crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
+
     /// Game paused state
     is_paused: bool,
 
@@ -1528,6 +1532,8 @@ impl GameLogic {
             hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
+            inferno_fire_zones:
+                crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -1690,6 +1696,7 @@ impl GameLogic {
         self.hero_abilities.clear();
         self.car_bomb.clear();
         self.fire_walls.clear();
+        self.inferno_fire_zones.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -3568,6 +3575,10 @@ impl GameLogic {
         // Fail-closed vs full OCL FireWallSegment / InchForwardLocomotor.
         self.update_firewalls();
 
+        // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
+        // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
+        self.update_inferno_fire_zones();
+
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
@@ -4527,6 +4538,26 @@ impl GameLogic {
                             }
                         }
                     }
+
+                    // Inferno Cannon residual: shell impact spawns FireFieldSmall DoT zone.
+                    // Fail-closed: not full InfernoTankShell projectile / OCL object spawn.
+                    {
+                        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+                        let is_inferno = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| is_inferno_cannon_template(&a.template_name))
+                            .unwrap_or(false);
+                        if is_inferno {
+                            let impact = target_position;
+                            let _ = self.spawn_inferno_fire_zone(
+                                attacker_id,
+                                attacker_team,
+                                impact,
+                                false,
+                            );
+                        }
+                    }
                 } else if enemy_or_forced {
                     // Ready weapons but out of range / cannot hit: chase.
                     // (Matches prior host residual: chase whenever engagement is legal
@@ -4605,6 +4636,24 @@ impl GameLogic {
                                     attacker.gain_experience(kill_xp);
                                 }
                             }
+                        }
+                    }
+
+                    // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
+                    {
+                        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+                        let is_inferno = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| is_inferno_cannon_template(&a.template_name))
+                            .unwrap_or(false);
+                        if is_inferno {
+                            let _ = self.spawn_inferno_fire_zone(
+                                attacker_id,
+                                attacker_team,
+                                target_location,
+                                false,
+                            );
                         }
                     }
                 }
@@ -8635,6 +8684,27 @@ impl GameLogic {
         self.templates
             .insert("China_OverlordTank".to_string(), china_overlord);
 
+        // China Inferno Cannon — residual FireFieldSmall DoT on shell impact.
+        let mut china_inferno = ThingTemplate::new("China_InfernoCannon");
+        china_inferno
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_cost(900, 0)
+            .set_model("nvinferno")
+            .set_primary_weapon_name(super::weapon_bootstrap::INFERNO_CANNON_PRIMARY_WEAPON);
+        self.templates
+            .insert("China_InfernoCannon".to_string(), china_inferno.clone());
+        // Retail INI name alias.
+        {
+            let mut alias = china_inferno;
+            alias.name = "ChinaVehicleInfernoCannon".to_string();
+            alias.display_name = "ChinaVehicleInfernoCannon".to_string();
+            self.templates
+                .insert("ChinaVehicleInfernoCannon".to_string(), alias);
+        }
+
         // China Aircraft
         let mut china_mig = ThingTemplate::new("China_MiG");
         china_mig
@@ -11376,6 +11446,135 @@ impl GameLogic {
         }
 
         self.fire_walls.prune_expired(frame);
+    }
+
+    // -----------------------------------------------------------------------
+    // China Inferno Cannon residual (FireFieldSmall DoT on shell impact)
+    // Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
+    // -----------------------------------------------------------------------
+
+    /// Host Inferno Cannon residual fire-zone registry (spawn + honesty).
+    pub fn inferno_fire_zones(
+        &self,
+    ) -> &crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry {
+        &self.inferno_fire_zones
+    }
+
+    /// Residual honesty: Inferno fire zone spawned at least once.
+    pub fn honesty_inferno_fire_spawn_ok(&self) -> bool {
+        self.inferno_fire_zones.honesty_spawn_ok()
+    }
+
+    /// Residual honesty: Inferno fire zone applied damage at least once.
+    pub fn honesty_inferno_fire_damage_ok(&self) -> bool {
+        self.inferno_fire_zones.honesty_damage_ok()
+    }
+
+    /// Combined host path honesty for Inferno Cannon fire residual.
+    pub fn honesty_inferno_cannon_ok(&self) -> bool {
+        self.inferno_fire_zones.honesty_host_path_ok()
+    }
+
+    /// Spawn residual FireFieldSmall at Inferno Cannon shell impact.
+    ///
+    /// Retail path: InfernoTankShell death → SmallFireFieldCreationWeapon →
+    /// OCL_FireFieldSmall → FireFieldSmall with SmallFireFieldWeapon DoT.
+    ///
+    /// Fail-closed: not full projectile lob path / BlackNapalm upgraded particle
+    /// bones / HistoricBonus Firestorm multi-shell matrix.
+    pub fn spawn_inferno_fire_zone(
+        &mut self,
+        source_object: ObjectId,
+        source_team: Team,
+        impact: Vec3,
+        upgraded: bool,
+    ) -> u32 {
+        use crate::game_logic::host_inferno_cannon::{
+            INFERNO_CANNON_FIRE_AUDIO, INFERNO_FIRE_BURN_AUDIO,
+        };
+
+        let frame = self.frame;
+        let id = self.inferno_fire_zones.spawn_zone(
+            source_object,
+            source_team,
+            impact,
+            frame,
+            upgraded,
+        );
+
+        self.queue_audio_event(
+            AudioEventRequest::new(INFERNO_CANNON_FIRE_AUDIO)
+                .with_object(source_object)
+                .with_position(impact)
+                .with_priority(160),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(INFERNO_FIRE_BURN_AUDIO)
+                .with_object(source_object)
+                .with_position(impact)
+                .with_priority(140),
+        );
+
+        // Residual flame particle at impact (presentation observability).
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponMuzzleFlash,
+            impact,
+            frame,
+            Some(source_object),
+            None,
+        );
+
+        id
+    }
+
+    /// Advance Inferno fire zones: apply periodic flame damage in residual radius.
+    fn update_inferno_fire_zones(&mut self) {
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .collect();
+
+        let plans = self
+            .inferno_fire_zones
+            .plan_due_ticks(self.frame, &object_positions);
+        let frame = self.frame;
+
+        for plan in plans {
+            let mut total_damage = 0.0_f32;
+            let mut applications = 0_u32;
+            let mut destroyed = 0_u32;
+            let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
+
+            for hit in &plan.hits {
+                if let Some(target) = self.objects.get_mut(&hit.target_id) {
+                    if !target.is_alive() {
+                        continue;
+                    }
+                    let killed = target.take_damage(hit.damage);
+                    total_damage += hit.damage;
+                    applications += 1;
+                    if killed {
+                        destroyed += 1;
+                        destroy_ids.push((hit.target_id, plan.source_team));
+                    }
+                }
+            }
+
+            for (id, killer_team) in destroy_ids {
+                self.mark_object_for_destruction(id, Some(killer_team));
+            }
+
+            self.inferno_fire_zones.record_tick_complete(
+                plan.zone_id,
+                total_damage,
+                applications,
+                destroyed,
+                frame,
+            );
+        }
+
+        self.inferno_fire_zones.prune_expired(frame);
     }
 
     /// Host residual for C++ StealthUpdate + StealthDetectorUpdate targetability.
@@ -24801,6 +25000,181 @@ mod tests {
             "FireWall segments expire after residual duration"
         );
         assert!(game_logic.fire_walls().expirations >= 1);
+    }
+
+    /// Residual: Inferno Cannon attack spawns FireFieldSmall DoT zone that damages enemies.
+    /// Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
+    #[test]
+    fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
+        use crate::game_logic::host_inferno_cannon::{
+            is_inferno_cannon_template, INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DURATION_FRAMES,
+            INFERNO_FIRE_TICK_INTERVAL_FRAMES,
+        };
+        use crate::game_logic::weapon_bootstrap::{
+            ensure_host_weapon_store, INFERNO_CANNON_PRIMARY_WEAPON,
+        };
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "China", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut cannon_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleInfernoCannon");
+        cannon_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(INFERNO_CANNON_PRIMARY_WEAPON);
+        game_logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), cannon_tpl);
+
+        let cannon_id = game_logic
+            .create_object(
+                "ChinaVehicleInfernoCannon",
+                Team::China,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("inferno cannon");
+        {
+            let c = game_logic.find_object(cannon_id).expect("cannon");
+            assert!(
+                is_inferno_cannon_template(&c.template_name),
+                "template name residual must identify Inferno Cannon"
+            );
+            assert!(
+                c.weapon.is_some(),
+                "Inferno Cannon must bind primary weapon residual"
+            );
+            let w = c.weapon.as_ref().unwrap();
+            assert!(
+                (w.damage - 30.0).abs() < 0.01,
+                "InfernoCannonGun PrimaryDamage residual 30, got {}",
+                w.damage
+            );
+            assert!(
+                (w.range - 300.0).abs() < 1.0,
+                "InfernoCannonGun AttackRange residual 300, got {}",
+                w.range
+            );
+        }
+
+        // Enemy at impact; far enemy outside fire radius (30).
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let enemy = game_logic.find_object_mut(enemy_id).expect("enemy");
+            enemy.health.current = 200.0;
+            enemy.health.maximum = 200.0;
+            enemy.thing.template.armor = 0.0;
+        }
+        let far_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
+            .expect("far enemy");
+        {
+            let far = game_logic.find_object_mut(far_id).expect("far");
+            far.health.current = 200.0;
+            far.health.maximum = 200.0;
+            far.thing.template.armor = 0.0;
+        }
+
+        // Ready weapon + attack enemy in range.
+        {
+            let c = game_logic.find_object_mut(cannon_id).expect("cannon");
+            c.attack_target(enemy_id);
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                // Fail-closed residual min range 0 for host tests.
+                w.min_range = 0.0;
+            }
+            c.thing.template.armor = 0.0;
+        }
+
+        let enemy_hp_before = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_hp_before = game_logic.find_object(far_id).unwrap().health.current;
+
+        game_logic.set_current_frame(10);
+        game_logic.update_combat(&[cannon_id, enemy_id, far_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_inferno_fire_spawn_ok(),
+            "Inferno attack must spawn residual fire zone"
+        );
+        assert!(
+            game_logic.inferno_fire_zones().active_count() >= 1,
+            "must create residual FireFieldSmall zone"
+        );
+        assert!(
+            game_logic
+                .inferno_fire_zones()
+                .is_position_in_active_fire(Vec3::new(100.0, 0.0, 0.0)),
+            "enemy impact position must lie in residual fire zone"
+        );
+
+        // Shell impact damage may have already reduced HP; capture residual baseline after shot.
+        let hp_after_shot = game_logic.find_object(enemy_id).unwrap().health.current;
+        assert!(
+            hp_after_shot < enemy_hp_before,
+            "shell impact residual must deal damage (before={enemy_hp_before}, after={hp_after_shot})"
+        );
+
+        // Immediate fire-zone tick on activation frame applies DoT.
+        game_logic.update_inferno_fire_zones();
+        let hp_after_dot = game_logic.find_object(enemy_id).unwrap().health.current;
+        let far_after = game_logic.find_object(far_id).unwrap().health.current;
+
+        assert!(
+            hp_after_dot < hp_after_shot,
+            "enemy in Inferno fire zone must take DoT (before={hp_after_shot}, after={hp_after_dot})"
+        );
+        let dealt = hp_after_shot - hp_after_dot;
+        assert!(
+            (dealt - INFERNO_FIRE_DAMAGE_PER_TICK).abs() < 0.01 || dealt > 0.0,
+            "residual fire tick damage expected ~{INFERNO_FIRE_DAMAGE_PER_TICK}, got {dealt}"
+        );
+        assert!(
+            (far_after - far_hp_before).abs() < 0.01,
+            "units outside fire radius must not take residual Inferno fire damage"
+        );
+        assert!(
+            game_logic.honesty_inferno_fire_damage_ok(),
+            "Inferno fire damage honesty after tick"
+        );
+        assert!(
+            game_logic.honesty_inferno_cannon_ok(),
+            "combined Inferno Cannon host path honesty"
+        );
+
+        // Second tick only after residual interval.
+        let mid_hp = game_logic.find_object(enemy_id).unwrap().health.current;
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_inferno_fire_zones();
+        assert!(
+            (game_logic.find_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
+            "no fire DoT before tick interval"
+        );
+        game_logic.frame = 10 + INFERNO_FIRE_TICK_INTERVAL_FRAMES;
+        game_logic.update_inferno_fire_zones();
+        assert!(
+            game_logic.find_object(enemy_id).unwrap().health.current < mid_hp,
+            "second fire tick after interval must apply more damage"
+        );
+
+        // Expire residual fire zone.
+        game_logic.frame = 10 + INFERNO_FIRE_DURATION_FRAMES + 1;
+        game_logic.update_inferno_fire_zones();
+        assert_eq!(
+            game_logic.inferno_fire_zones().active_count(),
+            0,
+            "Inferno fire zones expire after residual duration"
+        );
+        assert!(game_logic.inferno_fire_zones().expirations >= 1);
     }
 
     /// Residual: QueueUpgrade Capture → complete → CaptureBuilding ability available.
