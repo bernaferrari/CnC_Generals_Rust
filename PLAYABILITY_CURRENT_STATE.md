@@ -1,3 +1,33 @@
+## Residual Host Playability — USA Pilot + GLA WorkerShoes (2026-07-13)
+**Closed (host-testable Pilot recrew + WorkerShoes residual):**
+1. **USA Pilot residual** (`AmericaInfantryPilot` / AirF_ / CINE_ / TestPilot):
+   - Enter unmanned ground vehicle (DISABLED_UNMANNED residual from snipe/neutron) →
+     recrew: clear unmanned, transfer team to pilot team, merge pilot veterancy
+     (retail `VeterancyCrateCollide` IsPilot + AddsOwnerVeterancy), consume pilot.
+   - Pilots residual-start at VETERAN (`VeterancyGainCreate StartingLevel`).
+   - ForbiddenKindOf residual: Dozer / worker vehicles not recrewed.
+   - Honesty: `honesty_pilot_recrew_ok` / veterancy_transfer / `honesty_pilot_ok`.
+2. **GLA Worker residual** (`GLAInfantryWorker` / Chem_/Slth_/GC_* / GLA_Worker):
+   - `Upgrade_GLAWorkerShoes` PLAYER_UPGRADE residual:
+     - Locomotor residual Speed **25** → **30** (FastHuman → WorkerShoesLocomotor).
+     - WorkerAIUpdate UpgradedSupplyBoost **8** cash per supply drop-off.
+   - Construction / repair / mine-clear already residual (not re-opened).
+   - Honesty: `honesty_worker_shoes_apply_ok` / boost / `honesty_worker_ok`.
+3. Tests (not log-only):
+   - `pilot_recrew_unmanned_vehicle_after_enter_reach`
+   - `pilot_recrew_rejects_manned_vehicle`
+   - `worker_shoes_upgrade_speed_and_supply_boost_residual`
+   - module unit tests in `host_usa_pilot.rs` / `host_gla_worker.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full EjectPilotDie air/ground OCL parachute spawn matrix
+- Full PilotFindVehicleUpdate AI auto-scan / MinHealth enter matrix
+- Full AutoFindHealingUpdate hospital path residual
+- Full WorkerAIUpdate BoredTime/Range auto-task matrix
+- Full SupplyWarehouseActionDelay / SupplyCenterActionDelay timing matrix
+- Full fake-building CommandSetUpgrade residual for Worker
+- Network pilot recrew / WorkerShoes replication (network deferred)
+
 ## Residual Host Playability — USA Ranger + China Hacker DisableBuilding (2026-07-13)
 **Closed (host-testable Ranger rifle/FlashBang splash + Hacker DisableBuilding residual):**
 1. **USA Ranger residual polish** (`AmericaInfantryRanger` / USA_ / AirF_ / Lazr_ / SupW_ / GoldenRanger):

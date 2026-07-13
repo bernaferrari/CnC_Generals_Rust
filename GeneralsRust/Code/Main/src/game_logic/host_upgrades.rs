@@ -9,8 +9,9 @@
 //!   drop-off cash boost (economy residual; C++ Chinook `UpgradedSupplyBoost`)
 //!
 //! Fail-closed: not full science tree, ProductionUpdate build-time parity,
-//! WeaponSetUpgrade module matrix, per-unit INI `UpgradedSupplyBoost` matrix
-//! (Chinook 60 / WorkerShoes / GLA), or multiplayer upgrade replication.
+//! WeaponSetUpgrade module matrix, full per-unit INI `UpgradedSupplyBoost`
+//! matrix (Chinook 60), or multiplayer upgrade replication.
+//! WorkerShoes residual lives in `host_gla_worker` (speed + supply boost 8).
 
 use super::{Team, ObjectId};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,7 @@ pub const UPGRADE_AMERICA_BUNKER_BUSTERS: &str = "Upgrade_AmericaBunkerBusters";
 pub const UPGRADE_COMANCHE_ROCKET_PODS: &str = "Upgrade_ComancheRocketPods";
 pub const UPGRADE_AMERICA_SENTRY_DRONE_GUN: &str = "Upgrade_AmericaSentryDroneGun";
 pub const UPGRADE_AMERICA_COMPOSITE_ARMOR: &str = "Upgrade_AmericaCompositeArmor";
+pub const UPGRADE_GLA_WORKER_SHOES: &str = "Upgrade_GLAWorkerShoes";
 
 /// Residual drop-off cash boost when Supply Lines is unlocked for the player.
 ///
@@ -80,6 +82,8 @@ pub enum HostUpgradeKind {
     Camouflage,
     /// America Composite Armor: +100 MaxHealth on Crusader / Paladin residual.
     CompositeArmor,
+    /// GLA WorkerShoes: speed boost + supply drop-off cash residual.
+    WorkerShoes,
     /// Other / unknown upgrades (unlock flag only).
     Other,
 }
@@ -109,6 +113,8 @@ impl HostUpgradeKind {
             HostUpgradeKind::Camouflage
         } else if n.contains("compositearmor") || n.contains("compositearmour") {
             HostUpgradeKind::CompositeArmor
+        } else if n.contains("workershoes") || n.contains("glaworkershoes") {
+            HostUpgradeKind::WorkerShoes
         } else {
             HostUpgradeKind::Other
         }
@@ -126,6 +132,7 @@ impl HostUpgradeKind {
             HostUpgradeKind::SentryDroneGun => "SentryDroneGun",
             HostUpgradeKind::Camouflage => "Camouflage",
             HostUpgradeKind::CompositeArmor => "CompositeArmor",
+            HostUpgradeKind::WorkerShoes => "WorkerShoes",
             HostUpgradeKind::Other => "Other",
         }
     }
@@ -146,6 +153,7 @@ impl HostUpgradeKind {
             | HostUpgradeKind::SentryDroneGun
             | HostUpgradeKind::Camouflage
             | HostUpgradeKind::CompositeArmor
+            | HostUpgradeKind::WorkerShoes
             | HostUpgradeKind::Other => 1,
         }
     }
@@ -528,6 +536,10 @@ mod tests {
         assert_eq!(
             HostUpgradeKind::from_name(UPGRADE_AMERICA_COMPOSITE_ARMOR),
             HostUpgradeKind::CompositeArmor
+        );
+        assert_eq!(
+            HostUpgradeKind::from_name(UPGRADE_GLA_WORKER_SHOES),
+            HostUpgradeKind::WorkerShoes
         );
         assert_eq!(
             HostUpgradeKind::from_name("Upgrade_ChinaNationalism"),
