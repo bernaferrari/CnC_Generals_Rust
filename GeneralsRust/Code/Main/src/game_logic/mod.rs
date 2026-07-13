@@ -280,8 +280,13 @@ pub use host_hacker_income::{
     HACKER_XP_PER_CASH_UPDATE,
 };
 pub use host_heal::{
-    is_ambulance_healer, is_legal_ambulance_infantry_heal_target, HOST_AMBULANCE_HEAL_RADIUS,
-    HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
+    ambulance_embarked_heal_hp_per_sec, honesty_ambulance_auto_heal_constants_ok,
+    is_ambulance_healer, is_legal_ambulance_infantry_heal_target,
+    is_legal_ambulance_vehicle_heal_target, HostAmbulanceHealExclusivity,
+    AMBULANCE_INFANTRY_HEAL_AMOUNT, AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC,
+    AMBULANCE_TRANSPORT_SLOTS, AMBULANCE_VEHICLE_HEAL_AMOUNT, AMBULANCE_VEHICLE_SKIP_SELF_FOR_HEALING,
+    HOST_AMBULANCE_HEAL_RADIUS, HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
+    HOST_AMBULANCE_VEHICLE_HEAL_HP_PER_SEC,
 };
 pub use host_helix_minigun::{
     helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
@@ -385,8 +390,10 @@ pub use host_radar::{
     is_radar_van_template, HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
 };
 pub use host_radar_scan::{
+    honesty_radar_scan_dynamic_shroud_constants_ok, radar_scan_dynamic_shroud_radius_at_elapsed,
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
-    RADAR_SCAN_RADIUS,
+    RADAR_SCAN_RADIUS, RADAR_SCAN_SHRINK_DELAY_FRAMES, RADAR_SCAN_SHRINK_TIME_FRAMES,
+    RADAR_SCAN_STEALTH_DETECTION_RANGE, RADAR_SCAN_VISION_RANGE, RADAR_VAN_PING_TEMPLATE,
 };
 pub use host_red_guard::{
     is_red_guard_template, red_guard_weapon, should_apply_bayonet_residual,
@@ -417,8 +424,12 @@ pub use host_sneak_attack::{
     SNEAK_ATTACK_SHOCKWAVE_RADIUS, SNEAK_ATTACK_SPAWN_DELAY_FRAMES,
 };
 pub use host_spy_satellite::{
-    HostSpySatellite, HostSpySatelliteRegistry, SPY_SATELLITE_ACTIVATE_AUDIO,
-    SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
+    honesty_spy_satellite_dynamic_shroud_constants_ok,
+    spy_satellite_dynamic_shroud_radius_at_elapsed, HostSpySatellite, HostSpySatelliteRegistry,
+    SPY_SATELLITE_ACTIVATE_AUDIO, SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_GROW_TIME_FRAMES,
+    SPY_SATELLITE_PING_TEMPLATE, SPY_SATELLITE_RADIUS, SPY_SATELLITE_SHRINK_DELAY_FRAMES,
+    SPY_SATELLITE_SHRINK_TIME_FRAMES, SPY_SATELLITE_STEALTH_DETECTION_RANGE,
+    SPY_SATELLITE_VISION_RANGE,
 };
 pub use host_stealth_fighter::{
     is_stealth_fighter_science, is_stealth_fighter_template, player_may_produce_stealth_aircraft,
