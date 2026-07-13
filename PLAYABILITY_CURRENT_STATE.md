@@ -1,3 +1,54 @@
+## Residual Host Playability — Wave 48: Ambulance Vehicle AutoHeal + SpySatellite/RadarVan DynamicShroud (2026-07-13)
+**Closed (host-testable residual outside special_power_strikes / graphics):**
+1. **Ambulance vehicle AutoHeal residual** (`host_heal`):
+   - ModuleTag_23 AmericaVehicleMedic: HealingAmount **5**, HealingDelay **1000**ms,
+     Radius **100**, KindOf=VEHICLE, ForbiddenKindOf=AIRCRAFT, SkipSelfForHealing=Yes.
+   - ModuleTag_22 infantry residual retained: amount **4** / delay **1000**ms / radius **100**.
+   - `is_legal_ambulance_vehicle_heal_target` residual (vehicle && !aircraft).
+   - TransportContain residual: Slots **3**, HealthRegen%PerSec **25** while embarked,
+     DamagePercentToUnits **10%**.
+   - Sole-benefactor residual map (ObjectId → healer_id, first-healer-wins per pulse).
+   - `update_ambulance_auto_heal` applies infantry + ground-vehicle heals with exclusivity.
+   - Honesty: `honesty_ambulance_auto_heal_constants_ok` / vehicle legality matrix /
+     transport regen / sole-benefactor exclusivity tests.
+   - Fail-closed: not full multi-module pulse phase / particle pulse FX / network.
+2. **SpySatellite DynamicShroud residual** (`host_spy_satellite`):
+   - OCL SpySatellitePing: VisionRange **300**, FinalVision **0**.
+   - GrowDelay **0** / GrowTime **1000**ms→**30**f / GrowInterval **10**ms→**1**f.
+   - ShrinkDelay **10000**ms→**300**f / ShrinkTime **5000**ms→**150**f /
+     ChangeInterval **80**ms→**3**f.
+   - DeletionUpdate lifetime **13000**ms→**390**f retained.
+   - StealthDetector DetectionRate **500**ms→**15**f; DetectionRange 0 → VisionRange **300**.
+   - Grow/sustain/shrink radius curve residual + activate application counters.
+   - Honesty: `honesty_spy_satellite_dynamic_shroud_constants_ok` /
+     `honesty_dynamic_shroud_host_path_ok` / grow-shrink curve tests.
+   - Fail-closed: not full OCL Object spawn / GridDecalTemplate GPU / setShroudClearingRange.
+3. **RadarVanPing DynamicShroud residual** (`host_radar_scan`, parallel peel):
+   - VisionRange **150**, FinalVision **0**, no grow (instant full).
+   - ShrinkDelay **7500**ms→**225**f / ShrinkTime **2500**ms→**75**f /
+     ChangeInterval **50**ms→**2**f.
+   - StealthDetector DetectionRate **500**ms→**15**f; range = VisionRange **150**.
+   - Honesty: `honesty_radar_scan_dynamic_shroud_constants_ok` / shrink curve residual.
+   - Fail-closed: not full OCL RadarVanPing Object / grid decal GPU.
+4. Tests (not log-only):
+   - `ambulance_vehicle_auto_heal_constants_residual_honesty`
+   - `legal_vehicle_heal_target_matrix_vehicle_vs_infantry_vs_aircraft`
+   - `ambulance_transport_health_regen_residual_honesty`
+   - `sole_benefactor_first_healer_wins_residual_honesty`
+   - `spy_satellite_dynamic_shroud_constants_residual_honesty`
+   - `spy_satellite_dynamic_shroud_grow_shrink_curve_residual`
+   - `radar_scan_dynamic_shroud_constants_residual_honesty`
+   - `radar_scan_dynamic_shroud_shrink_curve_residual`
+   - host_heal / host_spy_satellite / host_radar_scan green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-ambulance pulse phase / particle heal FX / TransportContain door matrix
+- Full SpySatellitePing / RadarVanPing Object spawn + setShroudClearingRange live curve
+- Full GridDecalTemplate additive decal GPU path
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 47: DeliverPayload DropVariance + VisiblePayload A10 Rack + Crate Geometry Pack + Patriot PunchThroughScalar (2026-07-13)
 **Closed (host-testable residual outside special_power_strikes / graphics):**
 1. **DropVariance residual** (`host_deliver_payload`):
