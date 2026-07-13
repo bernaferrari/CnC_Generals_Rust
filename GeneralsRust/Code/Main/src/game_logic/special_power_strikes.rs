@@ -40,9 +40,10 @@
 //! Xfer tables. Radiation / toxin / Spectre orbit / PUC beam residual is a
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
 //! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
-//! (host residual; full howitzer projectile Object / model-condition CONTINUOUS_FIRE_*
-//! anim deferred) / ParticleUplinkCannonUpdate outer-node lasers + swath sine
-//! wave + manual driving). CarpetBomb residual is DropDelay-staggered multi-point
+//! (host residual; full howitzer projectile Object deferred; MODELCONDITION
+//! CONTINUOUS_FIRE_* honesty residual closed) / ParticleUplinkCannonUpdate
+//! outer-node lasers + manual driving residual deferred; DamagePulseRemnant
+//! trail residual closed; swath sine residual closed). CarpetBomb residual is DropDelay-staggered multi-point
 //! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
 //! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
 //! with per-shell DelayDelivery stagger and science-tier FormationSize
@@ -312,6 +313,23 @@ pub fn particle_swath_offset(pulses_made_before_this_pulse: u32) -> Vec3 {
 pub fn particle_swath_epicenter(base: Vec3, pulses_made_before_this_pulse: u32) -> Vec3 {
     base + particle_swath_offset(pulses_made_before_this_pulse)
 }
+
+// --- Particle Uplink DamagePulseRemnant trail residual ---
+// Retail DamagePulseRemnantObjectName = ParticleUplinkCannonTrailRemnant
+// (FireWeaponUpdate ParticleUplinkCannonBeamTrailRemnantWeapon + DeletionUpdate).
+
+/// Retail `ParticleUplinkCannonBeamTrailRemnantWeapon` PrimaryDamage.
+pub const PARTICLE_REMNANT_DAMAGE_PER_TICK: f32 = 15.0;
+/// Retail PrimaryDamageRadius.
+pub const PARTICLE_REMNANT_RADIUS: f32 = 10.0;
+/// Retail DelayBetweenShots 250 ms → 7 frames @ 30 FPS ((250*30)/1000).
+pub const PARTICLE_REMNANT_TICK_INTERVAL_FRAMES: u32 = (250 * 30) / 1000;
+/// Retail DeletionUpdate Min/MaxLifetime 4000 ms → 120 frames.
+pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 = (4000 * 30) / 1000;
+/// Retail remnant Object template name residual (honesty).
+pub const PARTICLE_REMNANT_OBJECT_NAME: &str = "ParticleUplinkCannonTrailRemnant";
+/// Retail remnant weapon name residual (honesty).
+pub const PARTICLE_REMNANT_WEAPON_NAME: &str = "ParticleUplinkCannonBeamTrailRemnantWeapon";
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -1451,6 +1469,15 @@ pub struct HostSpectreOrbitField {
     /// Honesty: VoiceRapidFire residual cues when entering FAST (gattling or howitzer).
     #[serde(default)]
     pub rapid_fire_voice_cues: u32,
+    /// Honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN residual sets (FiringTracker::speedUp).
+    #[serde(default)]
+    pub model_condition_mean_sets: u32,
+    /// Honesty: MODELCONDITION_CONTINUOUS_FIRE_FAST residual sets (FiringTracker::speedUp).
+    #[serde(default)]
+    pub model_condition_fast_sets: u32,
+    /// Honesty: MODELCONDITION_CONTINUOUS_FIRE_SLOW residual sets (FiringTracker::coolDown).
+    #[serde(default)]
+    pub model_condition_slow_sets: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -1601,6 +1628,64 @@ pub struct HostParticleBeamTickPlan {
     pub hits: Vec<HostParticleBeamDamageHit>,
 }
 
+/// Residual DamagePulseRemnant trail field (`ParticleUplinkCannonTrailRemnant`).
+///
+/// Retail: each beam damage pulse spawns an immortal remnant Object with
+/// FireWeaponUpdate (PrimaryDamage 15 / radius 10 / DelayBetweenShots 250 ms)
+/// and DeletionUpdate lifetime 4000 ms. Host residual is a compact field that
+/// ticks residual PARTICLE_BEAM damage at the pulse epicenter (fail-closed vs
+/// full ThingFactory Object / ImmortalBody / DeletionUpdate module stack).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostParticleRemnantField {
+    pub id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    /// Pulse epicenter residual (swath position at spawn).
+    pub position: Vec3,
+    pub spawn_frame: u32,
+    pub expires_frame: u32,
+    /// Next absolute frame at which remnant damage ticks apply.
+    pub next_tick_frame: u32,
+    /// Total residual remnant damage applied across all ticks.
+    pub total_damage_applied: f32,
+    /// Number of distinct damage applications (object×tick).
+    pub damage_applications: u32,
+    /// Objects destroyed by this residual remnant field.
+    pub objects_destroyed: u32,
+    /// Parent ParticleCannon beam field id (0 if spawned without a beam).
+    pub parent_beam_id: u32,
+    /// Parent ParticleCannon strike id (0 if unknown).
+    pub parent_strike_id: u32,
+}
+
+impl HostParticleRemnantField {
+    pub fn is_expired(&self, current_frame: u32) -> bool {
+        current_frame >= self.expires_frame
+    }
+
+    pub fn is_due_tick(&self, current_frame: u32) -> bool {
+        !self.is_expired(current_frame) && current_frame >= self.next_tick_frame
+    }
+}
+
+/// Damage application plan for a single remnant trail victim this tick.
+#[derive(Debug, Clone, Copy)]
+pub struct HostParticleRemnantDamageHit {
+    pub target_id: ObjectId,
+    pub damage: f32,
+    pub field_id: u32,
+}
+
+/// Result of resolving one remnant trail field's damage tick.
+#[derive(Debug, Clone)]
+pub struct HostParticleRemnantTickPlan {
+    pub field_id: u32,
+    pub source_object: ObjectId,
+    pub source_team: super::Team,
+    pub position: Vec3,
+    pub hits: Vec<HostParticleRemnantDamageHit>,
+}
+
 /// Host registry of superweapon strikes that queue and complete.
 #[derive(Debug, Clone, Default)]
 pub struct HostSpecialPowerStrikeRegistry {
@@ -1646,6 +1731,15 @@ pub struct HostSpecialPowerStrikeRegistry {
     beam_fields_spawned_total: u32,
     /// Lifetime beam damage applications (honesty after field expiry).
     beam_damage_applications_total: u32,
+    /// Active residual Particle Uplink DamagePulseRemnant trail fields.
+    remnant_fields: Vec<HostParticleRemnantField>,
+    next_remnant_id: u32,
+    /// Remnant fields spawned this frame (honesty / presentation drain).
+    remnant_spawned_this_frame: Vec<u32>,
+    /// Lifetime count of remnant fields spawned (survives prune; honesty).
+    remnant_fields_spawned_total: u32,
+    /// Lifetime remnant damage applications (honesty after field expiry).
+    remnant_damage_applications_total: u32,
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -1675,6 +1769,11 @@ impl HostSpecialPowerStrikeRegistry {
             beam_spawned_this_frame: Vec::new(),
             beam_fields_spawned_total: 0,
             beam_damage_applications_total: 0,
+            remnant_fields: Vec::new(),
+            next_remnant_id: 1,
+            remnant_spawned_this_frame: Vec::new(),
+            remnant_fields_spawned_total: 0,
+            remnant_damage_applications_total: 0,
         }
     }
 
@@ -1703,6 +1802,11 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_beam_id = 1;
         self.beam_fields_spawned_total = 0;
         self.beam_damage_applications_total = 0;
+        self.remnant_fields.clear();
+        self.remnant_spawned_this_frame.clear();
+        self.next_remnant_id = 1;
+        self.remnant_fields_spawned_total = 0;
+        self.remnant_damage_applications_total = 0;
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -1712,6 +1816,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.toxin_spawned_this_frame.clear();
         self.orbit_spawned_this_frame.clear();
         self.beam_spawned_this_frame.clear();
+        self.remnant_spawned_this_frame.clear();
     }
 
     /// Allocator cursor for next strike id (survives save/load).
@@ -1775,6 +1880,20 @@ impl HostSpecialPowerStrikeRegistry {
         &self.beam_spawned_this_frame
     }
 
+    /// Allocator cursor for next Particle Uplink remnant field id (save/load).
+    pub fn next_remnant_id(&self) -> u32 {
+        self.next_remnant_id
+    }
+
+    /// Active residual Particle Uplink DamagePulseRemnant trail fields.
+    pub fn remnant_fields(&self) -> &[HostParticleRemnantField] {
+        &self.remnant_fields
+    }
+
+    pub fn remnant_spawned_this_frame(&self) -> &[u32] {
+        &self.remnant_spawned_this_frame
+    }
+
     /// Replace registry contents from a save/load snapshot.
     ///
     /// Frame-local presentation drains (`activated_this_frame` /
@@ -1789,6 +1908,10 @@ impl HostSpecialPowerStrikeRegistry {
         self.restore_from_snapshot_with_residuals(
             next_id,
             strikes,
+            1,
+            Vec::new(),
+            0,
+            0,
             1,
             Vec::new(),
             0,
@@ -1837,6 +1960,10 @@ impl HostSpecialPowerStrikeRegistry {
             Vec::new(),
             0,
             0,
+            1,
+            Vec::new(),
+            0,
+            0,
         );
     }
 
@@ -1863,6 +1990,10 @@ impl HostSpecialPowerStrikeRegistry {
         beam_fields: impl IntoIterator<Item = HostParticleBeamField>,
         beam_fields_spawned_total: u32,
         beam_damage_applications_total: u32,
+        next_remnant_id: u32,
+        remnant_fields: impl IntoIterator<Item = HostParticleRemnantField>,
+        remnant_fields_spawned_total: u32,
+        remnant_damage_applications_total: u32,
     ) {
         self.clear();
         let mut max_id = 0_u32;
@@ -1908,6 +2039,15 @@ impl HostSpecialPowerStrikeRegistry {
         self.next_beam_id = next_beam_id.max(max_beam.saturating_add(1)).max(1);
         self.beam_fields_spawned_total = beam_fields_spawned_total.max(max_beam);
         self.beam_damage_applications_total = beam_damage_applications_total;
+
+        let mut max_rem = 0_u32;
+        for field in remnant_fields {
+            max_rem = max_rem.max(field.id);
+            self.remnant_fields.push(field);
+        }
+        self.next_remnant_id = next_remnant_id.max(max_rem.saturating_add(1)).max(1);
+        self.remnant_fields_spawned_total = remnant_fields_spawned_total.max(max_rem);
+        self.remnant_damage_applications_total = remnant_damage_applications_total;
     }
 
     pub fn radiation_fields_spawned_total(&self) -> u32 {
@@ -1940,6 +2080,14 @@ impl HostSpecialPowerStrikeRegistry {
 
     pub fn beam_damage_applications_total(&self) -> u32 {
         self.beam_damage_applications_total
+    }
+
+    pub fn remnant_fields_spawned_total(&self) -> u32 {
+        self.remnant_fields_spawned_total
+    }
+
+    pub fn remnant_damage_applications_total(&self) -> u32 {
+        self.remnant_damage_applications_total
     }
 
     pub fn strike_count(&self) -> usize {
@@ -2740,6 +2888,9 @@ impl HostSpecialPowerStrikeRegistry {
             gattling_coast_applications: 0,
             howitzer_coast_applications: 0,
             rapid_fire_voice_cues: 0,
+            model_condition_mean_sets: 0,
+            model_condition_fast_sets: 0,
+            model_condition_slow_sets: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -2867,6 +3018,15 @@ impl HostSpecialPowerStrikeRegistry {
                 if prev_level < 2 && field.howitzer_fire_level == 2 {
                     field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
                 }
+                // MODELCONDITION_CONTINUOUS_FIRE_* residual (FiringTracker::speedUp).
+                if prev_level < 1 && field.howitzer_fire_level >= 1 {
+                    field.model_condition_mean_sets =
+                        field.model_condition_mean_sets.saturating_add(1);
+                }
+                if prev_level < 2 && field.howitzer_fire_level == 2 {
+                    field.model_condition_fast_sets =
+                        field.model_condition_fast_sets.saturating_add(1);
+                }
             }
             if current_frame >= field.next_gattling_tick_frame {
                 field.gattling_consecutive = field.gattling_consecutive.saturating_add(1);
@@ -2884,6 +3044,15 @@ impl HostSpecialPowerStrikeRegistry {
                 // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
                 if prev_level < 2 && field.gattling_fire_level == 2 {
                     field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
+                }
+                // MODELCONDITION_CONTINUOUS_FIRE_* residual (FiringTracker::speedUp).
+                if prev_level < 1 && field.gattling_fire_level >= 1 {
+                    field.model_condition_mean_sets =
+                        field.model_condition_mean_sets.saturating_add(1);
+                }
+                if prev_level < 2 && field.gattling_fire_level == 2 {
+                    field.model_condition_fast_sets =
+                        field.model_condition_fast_sets.saturating_add(1);
                 }
             }
             self.orbit_damage_applications_total = self
@@ -2906,6 +3075,11 @@ impl HostSpecialPowerStrikeRegistry {
                 field.gattling_fire_level,
                 field.gattling_consecutive,
             ) {
+                // MODELCONDITION_CONTINUOUS_FIRE_SLOW residual on coolDown.
+                if field.gattling_fire_level > 0 {
+                    field.model_condition_slow_sets =
+                        field.model_condition_slow_sets.saturating_add(1);
+                }
                 field.gattling_consecutive = consec;
                 field.gattling_fire_level = level;
                 field.gattling_coast_until_frame = 0;
@@ -2918,6 +3092,10 @@ impl HostSpecialPowerStrikeRegistry {
                 field.howitzer_fire_level,
                 field.howitzer_consecutive,
             ) {
+                if field.howitzer_fire_level > 0 {
+                    field.model_condition_slow_sets =
+                        field.model_condition_slow_sets.saturating_add(1);
+                }
                 field.howitzer_consecutive = consec;
                 field.howitzer_fire_level = level;
                 field.howitzer_coast_until_frame = 0;
@@ -2962,6 +3140,20 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn honesty_voice_rapid_fire_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| f.rapid_fire_voice_cues > 0)
             && SPECTRE_VOICE_RAPID_FIRE_AUDIO.contains("Rapid")
+    }
+
+    /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN/FAST residual sets.
+    ///
+    /// Fail-closed: not full drawable animation state / W3D model condition matrix.
+    pub fn honesty_model_condition_continuous_fire_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.model_condition_mean_sets > 0 || f.model_condition_fast_sets > 0
+        })
+    }
+
+    /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_SLOW residual on coolDown.
+    pub fn honesty_model_condition_slow_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| f.model_condition_slow_sets > 0)
     }
 
     /// Drop expired Spectre orbit fields.
@@ -3013,7 +3205,8 @@ impl HostSpecialPowerStrikeRegistry {
     /// objects in [`PARTICLE_BEAM_RADIUS`] around the residual swath epicenter,
     /// excluding the source launcher and same-team friendlies (host strike
     /// convention). Fail-closed vs full building→target rotation matrix /
-    /// manual beam driving / remnant trail objects / laser width grow matrix.
+    /// manual beam driving / laser width grow matrix. DamagePulseRemnant trail
+    /// residual spawns on each completed pulse ([`spawn_remnant_field`]).
     pub fn plan_due_beam_ticks(
         &self,
         current_frame: u32,
@@ -3057,6 +3250,9 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Record Particle Uplink beam pulse results and advance next_tick_frame.
+    ///
+    /// Also spawns a DamagePulseRemnant trail residual at the pulse swath
+    /// epicenter (retail ParticleUplinkCannonTrailRemnant).
     pub fn record_beam_tick_complete(
         &mut self,
         field_id: u32,
@@ -3065,6 +3261,7 @@ impl HostSpecialPowerStrikeRegistry {
         objects_destroyed: u32,
         current_frame: u32,
     ) {
+        let mut spawn_remnant: Option<(ObjectId, super::Team, Vec3, u32, u32)> = None;
         if let Some(field) = self.beam_fields.iter_mut().find(|f| f.id == field_id) {
             // Swath residual honesty for the pulse that just applied.
             let epicenter = particle_swath_epicenter(field.position, field.pulses_made);
@@ -3089,12 +3286,123 @@ impl HostSpecialPowerStrikeRegistry {
             self.beam_damage_applications_total = self
                 .beam_damage_applications_total
                 .saturating_add(applications);
+            // DamagePulseRemnant residual at this pulse's swath epicenter.
+            spawn_remnant = Some((
+                field.source_object,
+                field.source_team,
+                epicenter,
+                field.id,
+                field.parent_strike_id,
+            ));
+        }
+        if let Some((source, team, pos, beam_id, strike_id)) = spawn_remnant {
+            self.spawn_remnant_field(source, team, pos, current_frame, beam_id, strike_id);
+        }
+    }
+
+    /// Spawn a residual DamagePulseRemnant trail field at `position`.
+    pub fn spawn_remnant_field(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_beam_id: u32,
+        parent_strike_id: u32,
+    ) -> u32 {
+        let id = self.next_remnant_id;
+        self.next_remnant_id = self.next_remnant_id.saturating_add(1).max(1);
+        let field = HostParticleRemnantField {
+            id,
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            expires_frame: spawn_frame.saturating_add(PARTICLE_REMNANT_DURATION_FRAMES),
+            // First tick on spawn frame (retail FireWeaponUpdate residual).
+            next_tick_frame: spawn_frame,
+            total_damage_applied: 0.0,
+            damage_applications: 0,
+            objects_destroyed: 0,
+            parent_beam_id,
+            parent_strike_id,
+        };
+        self.remnant_fields.push(field);
+        self.remnant_spawned_this_frame.push(id);
+        self.remnant_fields_spawned_total = self.remnant_fields_spawned_total.saturating_add(1);
+        id
+    }
+
+    /// Build remnant trail damage plans for all fields whose tick frame arrived.
+    ///
+    /// Retail RadiusDamageAffects ALLIES ENEMIES NEUTRALS — host residual damages
+    /// all living objects in radius except the source launcher (same as toxin /
+    /// poison field residual). Fail-closed vs full Object / ImmortalBody stack.
+    pub fn plan_due_remnant_ticks(
+        &self,
+        current_frame: u32,
+        object_positions: &[(ObjectId, Vec3, super::Team, bool)],
+    ) -> Vec<HostParticleRemnantTickPlan> {
+        let mut plans = Vec::new();
+        for field in &self.remnant_fields {
+            if !field.is_due_tick(current_frame) {
+                continue;
+            }
+            let mut hits = Vec::new();
+            for &(id, pos, _team, alive) in object_positions {
+                if !alive || id == field.source_object {
+                    continue;
+                }
+                let dist = horizontal_distance(pos, field.position);
+                if dist <= PARTICLE_REMNANT_RADIUS {
+                    hits.push(HostParticleRemnantDamageHit {
+                        target_id: id,
+                        damage: PARTICLE_REMNANT_DAMAGE_PER_TICK,
+                        field_id: field.id,
+                    });
+                }
+            }
+            plans.push(HostParticleRemnantTickPlan {
+                field_id: field.id,
+                source_object: field.source_object,
+                source_team: field.source_team,
+                position: field.position,
+                hits,
+            });
+        }
+        plans.sort_by_key(|p| p.field_id);
+        plans
+    }
+
+    /// Record remnant trail tick results and advance next_tick_frame.
+    pub fn record_remnant_tick_complete(
+        &mut self,
+        field_id: u32,
+        total_damage: f32,
+        applications: u32,
+        objects_destroyed: u32,
+        current_frame: u32,
+    ) {
+        if let Some(field) = self.remnant_fields.iter_mut().find(|f| f.id == field_id) {
+            field.total_damage_applied += total_damage;
+            field.damage_applications += applications;
+            field.objects_destroyed += objects_destroyed;
+            field.next_tick_frame =
+                current_frame.saturating_add(PARTICLE_REMNANT_TICK_INTERVAL_FRAMES.max(1));
+            self.remnant_damage_applications_total = self
+                .remnant_damage_applications_total
+                .saturating_add(applications);
         }
     }
 
     /// Drop expired Particle Uplink beam fields.
     pub fn prune_expired_beam(&mut self, current_frame: u32) {
         self.beam_fields.retain(|f| !f.is_expired(current_frame));
+    }
+
+    /// Drop expired DamagePulseRemnant trail fields.
+    pub fn prune_expired_remnant(&mut self, current_frame: u32) {
+        self.remnant_fields.retain(|f| !f.is_expired(current_frame));
     }
 
     /// CleanupArea residual: remove radiation fields whose epicenter is within
@@ -3211,6 +3519,21 @@ impl HostSpecialPowerStrikeRegistry {
                 .beam_fields
                 .iter()
                 .any(|f| f.max_swath_offset > 0.01)
+    }
+
+    /// Residual honesty: DamagePulseRemnant trail residual spawned from beam pulses.
+    pub fn honesty_beam_remnant_ok(&self) -> bool {
+        self.remnant_fields_spawned_total > 0
+            || !self.remnant_fields.is_empty()
+    }
+
+    /// Residual honesty: remnant trail applied damage at least once.
+    pub fn honesty_beam_remnant_damage_ok(&self) -> bool {
+        self.remnant_damage_applications_total > 0
+            || self
+                .remnant_fields
+                .iter()
+                .any(|f| f.damage_applications > 0)
     }
 
     /// Combined host path honesty: a completed strike exists for `kind`.
@@ -4780,6 +5103,9 @@ mod tests {
         }
         assert!(reg.honesty_voice_rapid_fire_ok());
         assert_eq!(SPECTRE_VOICE_RAPID_FIRE_AUDIO, "SpectreGunshipVoiceRapidFire");
+        assert!(reg.honesty_model_condition_continuous_fire_ok());
+        assert!(reg.orbit_fields()[0].model_condition_mean_sets >= 1);
+        assert!(reg.orbit_fields()[0].model_condition_fast_sets >= 1);
 
         // Advance howitzer to MEAN at spawn+9.
         reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 9);
@@ -4852,5 +5178,138 @@ mod tests {
                 coast_until + 1 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES
             );
         }
+        // MODELCONDITION_CONTINUOUS_FIRE_SLOW residual on coolDown.
+        assert!(reg.honesty_model_condition_slow_ok());
+        assert!(
+            reg.orbit_fields()[0].model_condition_slow_sets >= 1,
+            "coolDown must set CONTINUOUS_FIRE_SLOW residual"
+        );
+    }
+
+    #[test]
+    fn particle_uplink_damage_pulse_remnant_residual_honesty() {
+        // Retail remnant weapon / lifetime residual constants.
+        assert!((PARTICLE_REMNANT_DAMAGE_PER_TICK - 15.0).abs() < 0.01);
+        assert!((PARTICLE_REMNANT_RADIUS - 10.0).abs() < 0.01);
+        assert_eq!(PARTICLE_REMNANT_TICK_INTERVAL_FRAMES, 7);
+        assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
+        assert_eq!(PARTICLE_REMNANT_OBJECT_NAME, "ParticleUplinkCannonTrailRemnant");
+        assert_eq!(
+            PARTICLE_REMNANT_WEAPON_NAME,
+            "ParticleUplinkCannonBeamTrailRemnantWeapon"
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert_eq!(reg.beam_fields().len(), 1);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        assert!(reg.remnant_fields().is_empty());
+
+        // Completing a beam pulse spawns one remnant at the pulse swath epicenter.
+        let first_epicenter = particle_swath_epicenter(click, 0);
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, spawn);
+        assert_eq!(reg.remnant_fields().len(), 1);
+        assert_eq!(reg.remnant_fields_spawned_total(), 1);
+        assert!(reg.honesty_beam_remnant_ok());
+        {
+            let r = &reg.remnant_fields()[0];
+            assert_eq!(r.parent_beam_id, field_id);
+            assert_eq!(r.spawn_frame, spawn);
+            assert_eq!(r.expires_frame, spawn + PARTICLE_REMNANT_DURATION_FRAMES);
+            assert_eq!(r.next_tick_frame, spawn);
+            let dx = (r.position.x - first_epicenter.x).abs();
+            let dz = (r.position.z - first_epicenter.z).abs();
+            assert!(dx < 0.01 && dz < 0.01, "remnant at first swath epicenter");
+        }
+
+        // Remnant damages living units in radius 10 (including same-team residual).
+        // First swath epicenter is at x=-100 relative to click.
+        let rem_pos = reg.remnant_fields()[0].position;
+        let objects = vec![
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
+            (ObjectId(2), rem_pos, Team::USA, true), // ally in remnant radius
+            (ObjectId(3), rem_pos + Vec3::new(50.0, 0.0, 0.0), Team::GLA, true),
+        ];
+        let plans = reg.plan_due_remnant_ticks(spawn, &objects);
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].hits.len(), 1);
+        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
+        assert!((plans[0].hits[0].damage - PARTICLE_REMNANT_DAMAGE_PER_TICK).abs() < 0.01);
+        reg.record_remnant_tick_complete(plans[0].field_id, 15.0, 1, 0, spawn);
+        assert!(reg.honesty_beam_remnant_damage_ok());
+        assert_eq!(
+            reg.remnant_fields()[0].next_tick_frame,
+            spawn + PARTICLE_REMNANT_TICK_INTERVAL_FRAMES
+        );
+
+        // Second beam pulse → second remnant (trail residual accumulates).
+        let next = reg.beam_fields()[0].next_tick_frame;
+        reg.record_beam_tick_complete(field_id, 0.0, 0, 0, next);
+        assert_eq!(reg.remnant_fields_spawned_total(), 2);
+        assert_eq!(reg.remnant_fields().len(), 2);
+
+        // Expire remnant after lifetime residual.
+        reg.prune_expired_remnant(spawn + PARTICLE_REMNANT_DURATION_FRAMES);
+        // First remnant expired; second may still be live if spawned later.
+        assert!(
+            reg.remnant_fields()
+                .iter()
+                .all(|f| f.spawn_frame > spawn || f.is_expired(spawn + PARTICLE_REMNANT_DURATION_FRAMES)
+                    || f.expires_frame > spawn + PARTICLE_REMNANT_DURATION_FRAMES)
+                || reg.remnant_fields().len() <= 1
+        );
+    }
+
+    #[test]
+    fn spectre_model_condition_continuous_fire_residual_honesty() {
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+
+        // Base shot: no model-condition residual yet.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
+        assert_eq!(reg.orbit_fields()[0].model_condition_mean_sets, 0);
+        assert_eq!(reg.orbit_fields()[0].model_condition_fast_sets, 0);
+
+        // MEAN residual set on ContinuousFireOne threshold.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 3);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_fire_level, 1);
+            assert!(f.model_condition_mean_sets >= 1);
+        }
+        assert!(reg.honesty_model_condition_continuous_fire_ok());
+
+        // FAST residual set on ContinuousFireTwo threshold.
+        reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn + 4);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.gattling_fire_level, 2);
+            assert!(f.model_condition_fast_sets >= 1);
+            assert!(f.rapid_fire_voice_cues >= 1);
+        }
+
+        // Coast cool-down → CONTINUOUS_FIRE_SLOW residual.
+        let coast_until = reg.orbit_fields()[0].gattling_coast_until_frame;
+        reg.apply_orbit_coast_cooldown(coast_until + 1);
+        assert!(reg.honesty_model_condition_slow_ok());
+        assert!(reg.orbit_fields()[0].model_condition_slow_sets >= 1);
     }
 }

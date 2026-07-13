@@ -165,6 +165,18 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime beam damage applications (honesty after prune).
     #[serde(default)]
     pub beam_damage_applications_total: u32,
+    /// Next residual Particle Uplink remnant field id (DamagePulseRemnant).
+    #[serde(default = "default_next_remnant_id")]
+    pub next_remnant_id: u32,
+    /// Active residual Particle Uplink DamagePulseRemnant trail fields.
+    #[serde(default)]
+    pub remnant_fields: Vec<crate::game_logic::special_power_strikes::HostParticleRemnantField>,
+    /// Lifetime remnant fields spawned (honesty after prune).
+    #[serde(default)]
+    pub remnant_fields_spawned_total: u32,
+    /// Lifetime remnant damage applications (honesty after prune).
+    #[serde(default)]
+    pub remnant_damage_applications_total: u32,
 }
 
 fn default_next_radiation_id() -> u32 {
@@ -180,6 +192,10 @@ fn default_next_orbit_id() -> u32 {
 }
 
 fn default_next_beam_id() -> u32 {
+    1
+}
+
+fn default_next_remnant_id() -> u32 {
     1
 }
 
@@ -204,6 +220,10 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             beam_fields: Vec::new(),
             beam_fields_spawned_total: 0,
             beam_damage_applications_total: 0,
+            next_remnant_id: 1,
+            remnant_fields: Vec::new(),
+            remnant_fields_spawned_total: 0,
+            remnant_damage_applications_total: 0,
         }
     }
 }
@@ -2848,6 +2868,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_coast_applications)?;
         xfer.xfer_marker_label("RapidFireVoiceCues")?;
         xfer.xfer_u32(&mut self.rapid_fire_voice_cues)?;
+        // MODELCONDITION_CONTINUOUS_FIRE_* residual bookkeeping (appended).
+        xfer.xfer_marker_label("ModelConditionMeanSets")?;
+        xfer.xfer_u32(&mut self.model_condition_mean_sets)?;
+        xfer.xfer_marker_label("ModelConditionFastSets")?;
+        xfer.xfer_u32(&mut self.model_condition_fast_sets)?;
+        xfer.xfer_marker_label("ModelConditionSlowSets")?;
+        xfer.xfer_u32(&mut self.model_condition_slow_sets)?;
         Ok(())
     }
 }
@@ -3002,6 +3029,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 gattling_coast_applications: 0,
                 howitzer_coast_applications: 0,
                 rapid_fire_voice_cues: 0,
+                model_condition_mean_sets: 0,
+                model_condition_fast_sets: 0,
+                model_condition_slow_sets: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3037,6 +3067,63 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         xfer.xfer_u32(&mut self.beam_fields_spawned_total)?;
         xfer.xfer_marker_label("BeamDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.beam_damage_applications_total)?;
+        // Particle Uplink DamagePulseRemnant trail residual (appended after beam).
+        xfer.xfer_marker_label("NextRemnantId")?;
+        xfer.xfer_u32(&mut self.next_remnant_id)?;
+        xfer.xfer_marker_label("RemnantFields")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.remnant_fields,
+            crate::game_logic::special_power_strikes::HostParticleRemnantField {
+                id: 0,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                position: Vec3::ZERO,
+                spawn_frame: 0,
+                expires_frame: 0,
+                next_tick_frame: 0,
+                total_damage_applied: 0.0,
+                damage_applications: 0,
+                objects_destroyed: 0,
+                parent_beam_id: 0,
+                parent_strike_id: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("RemnantFieldsSpawnedTotal")?;
+        xfer.xfer_u32(&mut self.remnant_fields_spawned_total)?;
+        xfer.xfer_marker_label("RemnantDamageApplicationsTotal")?;
+        xfer.xfer_u32(&mut self.remnant_damage_applications_total)?;
+        Ok(())
+    }
+}
+
+impl XferData for crate::game_logic::special_power_strikes::HostParticleRemnantField {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostParticleRemnantField")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SpawnFrame")?;
+        xfer.xfer_u32(&mut self.spawn_frame)?;
+        xfer.xfer_marker_label("ExpiresFrame")?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer.xfer_marker_label("NextTickFrame")?;
+        xfer.xfer_u32(&mut self.next_tick_frame)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("DamageApplications")?;
+        xfer.xfer_u32(&mut self.damage_applications)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        xfer.xfer_marker_label("ParentBeamId")?;
+        xfer.xfer_u32(&mut self.parent_beam_id)?;
+        xfer.xfer_marker_label("ParentStrikeId")?;
+        xfer.xfer_u32(&mut self.parent_strike_id)?;
         Ok(())
     }
 }
@@ -4579,6 +4666,10 @@ impl SnapshotBuilder {
             beam_fields: reg.beam_fields().to_vec(),
             beam_fields_spawned_total: reg.beam_fields_spawned_total(),
             beam_damage_applications_total: reg.beam_damage_applications_total(),
+            next_remnant_id: reg.next_remnant_id(),
+            remnant_fields: reg.remnant_fields().to_vec(),
+            remnant_fields_spawned_total: reg.remnant_fields_spawned_total(),
+            remnant_damage_applications_total: reg.remnant_damage_applications_total(),
         })
     }
 
@@ -4608,6 +4699,10 @@ impl SnapshotBuilder {
                 snapshot.beam_fields.clone(),
                 snapshot.beam_fields_spawned_total,
                 snapshot.beam_damage_applications_total,
+                snapshot.next_remnant_id,
+                snapshot.remnant_fields.clone(),
+                snapshot.remnant_fields_spawned_total,
+                snapshot.remnant_damage_applications_total,
             );
         Ok(())
     }
