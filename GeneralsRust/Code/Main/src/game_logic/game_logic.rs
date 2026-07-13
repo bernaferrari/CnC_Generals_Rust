@@ -1122,11 +1122,18 @@ pub struct GameLogic {
     stinger_site_residual_ap_rockets_upgrades: u32,
 
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
-    /// Fail-closed: not full AssistedTargetingModule assist clips.
     patriot_residual_ground_fires: u32,
     patriot_residual_aa_fires: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
     supw_patriot_emp_residual_grants: u32,
+    /// AssistedTargetingUpdate residual: RequestAssistRange requests issued.
+    patriot_assist_residual_requests: u32,
+    /// AssistedTargetingUpdate residual: assist weapon shots fired.
+    patriot_assist_residual_fires: u32,
+    /// AssistedTargetingUpdate residual: assistants that accepted a request.
+    patriot_assist_residual_accepts: u32,
+    /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
+    pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
 
     /// Game paused state
     is_paused: bool,
@@ -2133,6 +2140,10 @@ impl GameLogic {
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
             supw_patriot_emp_residual_grants: 0,
+            patriot_assist_residual_requests: 0,
+            patriot_assist_residual_fires: 0,
+            patriot_assist_residual_accepts: 0,
+            pending_patriot_assists: Vec::new(),
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -2454,6 +2465,10 @@ impl GameLogic {
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;
         self.supw_patriot_emp_residual_grants = 0;
+        self.patriot_assist_residual_requests = 0;
+        self.patriot_assist_residual_fires = 0;
+        self.patriot_assist_residual_accepts = 0;
+        self.pending_patriot_assists.clear();
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
@@ -6939,6 +6954,10 @@ impl GameLogic {
                 }
             }
         }
+
+        // AssistedTargeting residual: advance pending Patriot assist clips after
+        // primary fire this combat pass (AssistingClipSize / DelayBetweenShots).
+        self.update_pending_patriot_assists();
     }
 
     fn find_ground_attack_victim(
@@ -15032,7 +15051,7 @@ impl GameLogic {
                     self.patriot_residual_ground_fires.saturating_add(1);
             }
             // Superweapon General EMP Patriot residual: EMPPatriotEffectSpheroid on impact.
-            // Fail-closed: not full OCL spheroid drawable / assist clip matrix.
+            // Fail-closed: not full OCL spheroid drawable matrix.
             if crate::game_logic::host_base_defense::is_supw_patriot_template(&template_name) {
                 self.apply_supw_patriot_emp_residual_at(
                     impact_pos.unwrap_or(fire_pos),
@@ -15040,11 +15059,258 @@ impl GameLogic {
                     team,
                 );
             }
+            // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
+            // equivalent Patriots fire AssistingClipSize assist-weapon shots.
+            // Fail-closed: not full BinaryDataStream laser drawable feedback.
+            if !destroyed {
+                self.process_patriot_assist_request(defense_id, target_id);
+            }
         }
         if is_tunnel {
             // TunnelNetworkGun residual honesty (base-defense auto-fire path).
             self.tunnel_network.record_gun_fire(true);
         }
+    }
+
+    /// C++ Weapon::processRequestAssistance residual for Patriot RequestAssistRange.
+    ///
+    /// Same-team equivalent Patriots within **200** that are free to assist accept
+    /// a clip of **4** assist-weapon shots (range **450**).
+    fn process_patriot_assist_request(&mut self, requester_id: ObjectId, victim_id: ObjectId) {
+        use crate::game_logic::host_base_defense::{
+            is_patriot_battery_structure, is_patriot_free_to_assist, is_within_patriot_assist_weapon_range,
+            is_within_patriot_request_assist_range, patriots_are_assist_equivalent,
+            PendingPatriotAssist, PATRIOT_ASSIST_LASER_AUDIO,
+        };
+
+        let Some(requester) = self.objects.get(&requester_id) else {
+            return;
+        };
+        if !is_patriot_battery_structure(&requester.template_name) {
+            return;
+        }
+        let requester_team = requester.team;
+        let requester_template = requester.template_name.clone();
+        let requester_pos = requester.get_position();
+
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return;
+        };
+        if !victim.is_alive() {
+            return;
+        }
+        let victim_pos = victim.get_position();
+
+        self.patriot_assist_residual_requests =
+            self.patriot_assist_residual_requests.saturating_add(1);
+
+        // Snapshot candidate assistants (avoid borrow issues while mutating pending).
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        let mut candidates: Vec<(ObjectId, String)> = Vec::new();
+        for (id, obj) in &self.objects {
+            if *id == requester_id {
+                continue;
+            }
+            if obj.team != requester_team {
+                continue;
+            }
+            if !is_patriot_battery_structure(&obj.template_name) {
+                continue;
+            }
+            if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
+                continue;
+            }
+            let dist = {
+                let p = obj.get_position();
+                let dx = p.x - requester_pos.x;
+                let dz = p.z - requester_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if !is_within_patriot_request_assist_range(dist) {
+                continue;
+            }
+            let already_assisting = self
+                .pending_patriot_assists
+                .iter()
+                .any(|p| p.assistant_id == *id && p.shots_remaining > 0);
+            let weapon_ready = obj
+                .weapon
+                .as_ref()
+                .is_some_and(|w| Object::weapon_ready(w, current_time));
+            if !is_patriot_free_to_assist(
+                obj.is_alive(),
+                obj.is_constructed(),
+                obj.can_attack(),
+                obj.status.under_construction,
+                already_assisting,
+                weapon_ready,
+            ) {
+                continue;
+            }
+            // Victim must be in assist weapon range from the assistant.
+            let vdist = {
+                let p = obj.get_position();
+                let dx = p.x - victim_pos.x;
+                let dz = p.z - victim_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if !is_within_patriot_assist_weapon_range(vdist) {
+                continue;
+            }
+            candidates.push((*id, obj.template_name.clone()));
+        }
+
+        for (assistant_id, assistant_template) in candidates {
+            self.pending_patriot_assists.push(PendingPatriotAssist::new(
+                assistant_id,
+                victim_id,
+                requester_id,
+                self.frame,
+                assistant_template,
+            ));
+            self.patriot_assist_residual_accepts =
+                self.patriot_assist_residual_accepts.saturating_add(1);
+            // Residual BinaryDataStream laser honesty cue (not full LaserUpdate drawable).
+            if let Some(asst) = self.objects.get(&assistant_id) {
+                let pos = asst.get_position();
+                self.queue_audio_event(
+                    AudioEventRequest::new(PATRIOT_ASSIST_LASER_AUDIO)
+                        .with_object(assistant_id)
+                        .with_position(pos)
+                        .with_priority(140),
+                );
+            }
+        }
+    }
+
+    /// Advance pending Patriot AssistedTargeting residual clips.
+    ///
+    /// Fires one assist-weapon shot per DelayBetweenShots (**8** frames) until
+    /// AssistingClipSize (**4**) is exhausted or victim dies / leaves range.
+    pub fn update_pending_patriot_assists(&mut self) {
+        use crate::game_logic::host_base_defense::{
+            is_within_patriot_assist_weapon_range, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
+            LAZR_PATRIOT_FIRE_AUDIO,
+        };
+
+        if self.pending_patriot_assists.is_empty() {
+            return;
+        }
+
+        let frame = self.frame;
+        let mut keep: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist> = Vec::new();
+        // Drain current pending so we can mutate objects freely.
+        let pending = std::mem::take(&mut self.pending_patriot_assists);
+
+        for mut clip in pending {
+            if clip.shots_remaining == 0 {
+                continue;
+            }
+            // Drop if assistant / victim gone.
+            let Some(assistant) = self.objects.get(&clip.assistant_id) else {
+                continue;
+            };
+            if !assistant.is_alive() || !assistant.can_attack() {
+                continue;
+            }
+            let assistant_team = assistant.team;
+            let assistant_pos = assistant.get_position();
+            let assistant_template = assistant.template_name.clone();
+            let is_laser =
+                crate::game_logic::host_base_defense::is_laser_patriot_template(&assistant_template);
+            let is_supw =
+                crate::game_logic::host_base_defense::is_supw_patriot_template(&assistant_template);
+
+            let Some(victim) = self.objects.get(&clip.victim_id) else {
+                continue;
+            };
+            if !victim.is_alive() {
+                continue;
+            }
+            let victim_pos = victim.get_position();
+            let vdist = {
+                let dx = assistant_pos.x - victim_pos.x;
+                let dz = assistant_pos.z - victim_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if !is_within_patriot_assist_weapon_range(vdist) {
+                // Leave range → cancel remaining clip residual.
+                continue;
+            }
+
+            if frame < clip.next_shot_frame {
+                keep.push(clip);
+                continue;
+            }
+
+            // Fire one assist residual shot.
+            let damage = clip.damage();
+            let mut destroyed = false;
+            let mut kill_xp = 0.0;
+            if let Some(target) = self.objects.get_mut(&clip.victim_id) {
+                destroyed = target.take_damage(damage);
+                if destroyed {
+                    kill_xp = target.thing.template.experience_value
+                        * Self::veterancy_xp_multiplier(target.experience.level);
+                }
+            }
+            if destroyed {
+                self.mark_object_for_destruction(clip.victim_id, Some(assistant_team));
+            }
+            if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
+                // Assist residual marks engagement; keeps primary on clip-reload honesty.
+                if let Some(w) = asst.weapon.as_mut() {
+                    w.last_fire_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                }
+                asst.target = Some(clip.victim_id);
+                asst.ai_state = AIState::Attacking;
+                asst.status.attacking = true;
+                if destroyed {
+                    asst.gain_experience(kill_xp);
+                    asst.stop_attack();
+                }
+            }
+
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                assistant_pos,
+                Some(victim_pos),
+                frame,
+                clip.assistant_id,
+                Some(clip.victim_id),
+            );
+            let audio = if is_laser {
+                LAZR_PATRIOT_FIRE_AUDIO
+            } else {
+                PATRIOT_FIRE_AUDIO
+            };
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_object(clip.assistant_id)
+                    .with_position(assistant_pos)
+                    .with_priority(160),
+            );
+
+            // SupW assist shells also seed EMPPatriotEffectSpheroid residual.
+            if is_supw {
+                self.apply_supw_patriot_emp_residual_at(
+                    victim_pos,
+                    clip.assistant_id,
+                    assistant_team,
+                );
+            }
+
+            self.patriot_assist_residual_fires =
+                self.patriot_assist_residual_fires.saturating_add(1);
+            self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
+
+            clip.shots_remaining = clip.shots_remaining.saturating_sub(1);
+            if clip.shots_remaining > 0 && !destroyed {
+                clip.next_shot_frame = frame.saturating_add(PATRIOT_ASSIST_DELAY_FRAMES);
+                keep.push(clip);
+            }
+        }
+
+        self.pending_patriot_assists = keep;
     }
 
     /// SupW Patriot EMP residual: DISABLED_EMP for legal victims in EffectRadius 10.
@@ -16239,6 +16505,56 @@ impl GameLogic {
 
     pub fn supw_patriot_emp_residual_grants(&self) -> u32 {
         self.supw_patriot_emp_residual_grants
+    }
+
+    /// Residual honesty: AssistedTargetingUpdate request → accept → assist fire.
+    pub fn honesty_patriot_assist_ok(&self) -> bool {
+        self.patriot_assist_residual_requests > 0
+            && self.patriot_assist_residual_accepts > 0
+            && self.patriot_assist_residual_fires > 0
+    }
+
+    pub fn patriot_assist_residual_requests(&self) -> u32 {
+        self.patriot_assist_residual_requests
+    }
+
+    pub fn patriot_assist_residual_fires(&self) -> u32 {
+        self.patriot_assist_residual_fires
+    }
+
+    pub fn patriot_assist_residual_accepts(&self) -> u32 {
+        self.patriot_assist_residual_accepts
+    }
+
+    /// DemoTrapUpdate weapon-slot mode residual (Proximity / Manual / Detonate).
+    ///
+    /// Returns true if mode applied. `DemoTrapMode::Detonate` also triggers
+    /// manual detonation residual (PRIMARY detonation slot).
+    pub fn set_demo_trap_mode(
+        &mut self,
+        trap_id: ObjectId,
+        mode: crate::game_logic::host_mines::DemoTrapMode,
+    ) -> bool {
+        use crate::game_logic::host_mines::HostMineKind;
+        let is_detonate = mode.is_detonate_command();
+        {
+            let Some(obj) = self.objects.get_mut(&trap_id) else {
+                return false;
+            };
+            let Some(md) = obj.mine_data.as_mut() else {
+                return false;
+            };
+            if !matches!(md.kind, HostMineKind::DemoTrap) || md.detonated {
+                return false;
+            }
+            if !md.set_demo_trap_mode(mode) {
+                return false;
+            }
+        }
+        if is_detonate {
+            return self.manual_detonate_mine(trap_id);
+        }
+        true
     }
 
     /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
@@ -51868,6 +52184,348 @@ mod tests {
         assert!(game_logic.honesty_patriot_aa_ok());
         assert!(game_logic.patriot_residual_aa_fires() > 0);
         assert!(game_logic.honesty_base_defense_fire_ok());
+    }
+
+    /// Residual: AssistedTargetingUpdate RequestAssistRange → neighboring Patriot
+    /// fires AssistingClipSize assist-weapon shots (range 450 / clip 4 / delay 8).
+    #[test]
+    fn patriot_assisted_targeting_request_assist_range_residual() {
+        use crate::game_logic::host_base_defense::{
+            PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_PRIMARY_WEAPON,
+            PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+        patriot_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Patriot".to_string(), patriot_tpl);
+
+        // Requester at origin; assistant within RequestAssistRange 200.
+        let requester_id = game_logic
+            .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("requester");
+        let assistant_id = game_logic
+            .create_object(
+                "USA_Patriot",
+                Team::USA,
+                Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+            )
+            .expect("assistant");
+        // Far patriot outside RequestAssistRange — must not assist.
+        let far_id = game_logic
+            .create_object(
+                "USA_Patriot",
+                Team::USA,
+                Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE + 50.0, 0.0, 0.0),
+            )
+            .expect("far");
+        // Enemy in primary range of requester (50 < 225).
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        // Buff enemy HP so assist clip can land multiple shots.
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.health.current = 500.0;
+            e.health.maximum = 500.0;
+            e.max_health = 500.0;
+        }
+        {
+            let p = game_logic.find_object_mut(requester_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        {
+            let p = game_logic.find_object_mut(assistant_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+        {
+            let p = game_logic.find_object_mut(far_id).unwrap();
+            if let Some(w) = p.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+            }
+        }
+
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        // One combat tick: requester primary fire → assist request → first assist shot.
+        game_logic.frame = 1;
+        game_logic.update_combat(
+            &[requester_id, assistant_id, far_id, enemy_id],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.patriot_assist_residual_requests() > 0,
+            "RequestAssistRange residual must issue assist request"
+        );
+        assert!(
+            game_logic.patriot_assist_residual_accepts() >= 1,
+            "near assistant must accept assist residual"
+        );
+        assert!(
+            game_logic.patriot_assist_residual_fires() >= 1,
+            "assist residual must fire at least one assist-weapon shot same frame"
+        );
+
+        // Advance AssistingClipSize shots (DelayBetweenShots 8 frames).
+        for f in 2..(2 + PATRIOT_ASSISTING_CLIP_SIZE * 10) {
+            game_logic.frame = f;
+            // Keep weapons cold so only assist residual continues (no re-request spam).
+            if let Some(p) = game_logic.find_object_mut(requester_id) {
+                if let Some(w) = p.weapon.as_mut() {
+                    w.last_fire_time = f as f32 * LOGIC_FRAME_TIMESTEP;
+                }
+            }
+            game_logic.update_pending_patriot_assists();
+        }
+
+        let enemy_hp_after = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let damage_dealt = enemy_hp_before - enemy_hp_after;
+        // At least one primary (30) + one assist (25); full clip + primary is more.
+        assert!(
+            damage_dealt >= PATRIOT_ASSIST_DAMAGE,
+            "assist residual must contribute damage (dealt={damage_dealt}, before={enemy_hp_before}, after={enemy_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_patriot_assist_ok(),
+            "patriot assist honesty must record request + accept + fire"
+        );
+        // Full clip residual honesty: 4 assist shots when victim survives.
+        assert!(
+            game_logic.patriot_assist_residual_fires() >= PATRIOT_ASSISTING_CLIP_SIZE
+                || enemy_hp_after <= 0.0
+                || !game_logic
+                    .find_object(enemy_id)
+                    .map(|e| e.is_alive())
+                    .unwrap_or(false),
+            "expected AssistingClipSize={} assist fires or victim dead (got {})",
+            PATRIOT_ASSISTING_CLIP_SIZE,
+            game_logic.patriot_assist_residual_fires()
+        );
+        // Far patriot never accepted.
+        assert!(
+            !game_logic
+                .pending_patriot_assists
+                .iter()
+                .any(|p| p.assistant_id == far_id),
+            "far patriot outside RequestAssistRange must not assist"
+        );
+    }
+
+    /// Residual: Lazr Patriot assist damage family (35) + non-equivalent stock reject.
+    #[test]
+    fn lazr_patriot_assist_equivalent_family_residual() {
+        use crate::game_logic::host_base_defense::{
+            is_laser_patriot_template, patriots_are_assist_equivalent, LAZR_PATRIOT_ASSIST_DAMAGE,
+            LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+            PATRIOT_SECONDARY_WEAPON,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut lazr_tpl = crate::game_logic::ThingTemplate::new("TestLazrPatriot");
+        lazr_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(LAZR_PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(LAZR_PATRIOT_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("TestLazrPatriot".to_string(), lazr_tpl);
+
+        let mut stock_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+        stock_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        game_logic
+            .templates
+            .insert("USA_Patriot".to_string(), stock_tpl);
+
+        let lazr_a = game_logic
+            .create_object("TestLazrPatriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("lazr a");
+        let lazr_b = game_logic
+            .create_object("TestLazrPatriot", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("lazr b");
+        let stock = game_logic
+            .create_object("USA_Patriot", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("stock");
+        {
+            let a = game_logic.find_object(lazr_a).unwrap();
+            let b = game_logic.find_object(lazr_b).unwrap();
+            let s = game_logic.find_object(stock).unwrap();
+            assert!(is_laser_patriot_template(&a.template_name));
+            assert!(patriots_are_assist_equivalent(
+                &a.template_name,
+                &b.template_name
+            ));
+            assert!(!patriots_are_assist_equivalent(
+                &a.template_name,
+                &s.template_name
+            ));
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let e = game_logic.find_object_mut(enemy_id).unwrap();
+            e.health.current = 400.0;
+            e.health.maximum = 400.0;
+            e.max_health = 400.0;
+        }
+        for id in [lazr_a, lazr_b, stock] {
+            if let Some(p) = game_logic.find_object_mut(id) {
+                if let Some(w) = p.weapon.as_mut() {
+                    w.last_fire_time = -10.0;
+                }
+            }
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_combat(&[lazr_a, lazr_b, stock, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(game_logic.patriot_assist_residual_accepts() >= 1);
+        // Stock must not accept Lazr assist request.
+        assert!(
+            !game_logic
+                .pending_patriot_assists
+                .iter()
+                .any(|p| p.assistant_id == stock),
+            "stock Patriot must not assist Lazr family residual"
+        );
+        // Lazr assist damage residual honesty via pending clip or fires.
+        if let Some(clip) = game_logic
+            .pending_patriot_assists
+            .iter()
+            .find(|p| p.assistant_id == lazr_b)
+        {
+            assert!((clip.damage() - LAZR_PATRIOT_ASSIST_DAMAGE).abs() < 0.01);
+        } else {
+            // Clip may have completed first shot same frame; still require assist path.
+            assert!(game_logic.patriot_assist_residual_fires() > 0);
+        }
+    }
+
+    /// Residual: DemoTrapUpdate Proximity/Manual weapon-slot mode residual.
+    #[test]
+    fn demo_trap_weapon_slot_mode_residual() {
+        use crate::game_logic::host_mines::{DemoTrapMode, HostMineKind};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let trap_id = game_logic
+            .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+            .expect("trap");
+        {
+            let trap = game_logic.find_object(trap_id).unwrap();
+            let md = trap.mine_data.as_ref().unwrap();
+            assert_eq!(md.kind, HostMineKind::DemoTrap);
+            assert_eq!(md.demo_trap_mode, DemoTrapMode::Proximity);
+            assert!(md.proximity_enabled);
+        }
+
+        // ManualModeWeaponSlot residual: proximity off.
+        assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Manual));
+        {
+            let md = game_logic
+                .find_object(trap_id)
+                .unwrap()
+                .mine_data
+                .as_ref()
+                .unwrap();
+            assert_eq!(md.demo_trap_mode, DemoTrapMode::Manual);
+            assert!(!md.proximity_enabled);
+        }
+
+        let enemy_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("enemy");
+        let enemy_hp_before = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        // Manual mode: enemy in trigger range must NOT proximity-detonate.
+        game_logic.frame = 5;
+        game_logic.update_mines_and_demo_traps();
+        assert!(
+            game_logic.find_object(trap_id).is_some(),
+            "manual-mode trap must survive proximity of enemy"
+        );
+        let enemy_hp_manual = game_logic
+            .find_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            (enemy_hp_manual - enemy_hp_before).abs() < 0.01,
+            "manual mode must not proximity-detonate"
+        );
+
+        // ProximityModeWeaponSlot residual: re-enable scan → detonate.
+        assert!(game_logic.set_demo_trap_mode(trap_id, DemoTrapMode::Proximity));
+        game_logic.frame = 6;
+        game_logic.update_mines_and_demo_traps();
+        assert!(
+            game_logic.mine_residual_proximity_detonations() > 0
+                || game_logic.find_object(trap_id).is_none()
+                || game_logic
+                    .find_object(trap_id)
+                    .and_then(|o| o.mine_data.as_ref())
+                    .map(|d| d.detonated)
+                    .unwrap_or(true),
+            "proximity mode residual must detonate with enemy in range"
+        );
+
+        // Fresh trap: DetonationWeaponSlot residual detonates immediately.
+        let trap2 = game_logic
+            .place_demo_trap(Team::GLA, Vec3::new(200.0, 0.0, 0.0), None)
+            .expect("trap2");
+        assert!(game_logic.set_demo_trap_mode(trap2, DemoTrapMode::Detonate));
+        assert!(
+            game_logic.mine_residual_manual_detonations() > 0
+                || game_logic
+                    .find_object(trap2)
+                    .and_then(|o| o.mine_data.as_ref())
+                    .map(|d| d.detonated)
+                    .unwrap_or(true),
+            "detonation slot residual must manual-detonate"
+        );
     }
 
     /// Residual: China Gattling Cannon auto-fires nearby enemy without AttackObject.
