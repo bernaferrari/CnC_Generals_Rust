@@ -2908,6 +2908,13 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_geometry_applications)?;
         xfer.xfer_marker_label("HowitzerShellMaxHealthApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_max_health_applications)?;
+        // SpectreHowitzerShell loft flight residual (appended).
+        xfer.xfer_marker_label("HowitzerShellLoftFlightApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_loft_flight_applications)?;
+        xfer.xfer_marker_label("HowitzerShellLastLoftHeight")?;
+        xfer.xfer_f32(&mut self.howitzer_shell_last_loft_height)?;
+        xfer.xfer_marker_label("HowitzerShellLoftHeightDieApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_loft_height_die_applications)?;
         Ok(())
     }
 }
@@ -3086,6 +3093,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         self.last_outer_node_bone_position.xfer(xfer)?;
         xfer.xfer_marker_label("ConnectorBoneLayoutApplications")?;
         xfer.xfer_u32(&mut self.connector_bone_layout_applications)?;
+        // Intense connector soft-edge + laser segments residual (appended).
+        xfer.xfer_marker_label("ConnectorSoftEdgeArmed")?;
+        xfer.xfer_u32(&mut self.connector_soft_edge_armed)?;
+        xfer.xfer_marker_label("PeakConnectorSoftEdgeOuterWidth")?;
+        xfer.xfer_f32(&mut self.peak_connector_soft_edge_outer_width)?;
+        xfer.xfer_marker_label("ConnectorLaserSegmentsCreated")?;
+        xfer.xfer_u32(&mut self.connector_laser_segments_created)?;
+        xfer.xfer_marker_label("LastConnectorSegmentStart")?;
+        self.last_connector_segment_start.xfer(xfer)?;
+        xfer.xfer_marker_label("LastConnectorSegmentEnd")?;
+        self.last_connector_segment_end.xfer(xfer)?;
         Ok(())
     }
 }
@@ -3151,6 +3169,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_last_flight_distance: 0.0,
                 scud_peak_flight_distance: 0.0,
                 scud_last_flight_height: 0.0,
+                scud_thrust_wobble_applications: 0,
+                scud_last_thrust_wobble: 0.0,
+                scud_peak_abs_thrust_wobble: 0.0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3256,6 +3277,9 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_shadow_applications: 0,
                 howitzer_shell_geometry_applications: 0,
                 howitzer_shell_max_health_applications: 0,
+                howitzer_shell_loft_flight_applications: 0,
+                howitzer_shell_last_loft_height: 0.0,
+                howitzer_shell_loft_height_die_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3341,6 +3365,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 outer_node_bone_layout_applications: 0,
                 last_outer_node_bone_position: Vec3::ZERO,
                 connector_bone_layout_applications: 0,
+                connector_soft_edge_armed: 0,
+                peak_connector_soft_edge_outer_width: 0.0,
+                connector_laser_segments_created: 0,
+                last_connector_segment_start: Vec3::ZERO,
+                last_connector_segment_end: Vec3::ZERO,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
