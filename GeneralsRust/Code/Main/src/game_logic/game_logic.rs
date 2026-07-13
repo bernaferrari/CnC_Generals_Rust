@@ -893,6 +893,19 @@ pub struct GameLogic {
     marauder_residual_units_hit: u32,
     marauder_residual_weapon_upgrades: u32,
 
+    /// Host residual: GLA Scorpion gun + salvage + rocket secondary honesty.
+    /// Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
+    scorpion_residual_fires: u32,
+    scorpion_residual_units_hit: u32,
+    scorpion_residual_rocket_upgrades: u32,
+    scorpion_residual_salvage_upgrades: u32,
+    scorpion_residual_missile_fires: u32,
+
+    /// Host residual: USA Tomahawk dual-radius missile honesty.
+    /// Fail-closed: not full TomahawkMissile projectile lob / waypoint matrix.
+    tomahawk_residual_fires: u32,
+    tomahawk_residual_units_hit: u32,
+
     /// Host residual: China Battlemaster tank gun + Uranium / horde / nationalism honesty.
     /// Fail-closed: not full HordeUpdate RubOff / Nuclear Tanks death residual.
     battlemaster_residual_fires: u32,
@@ -1900,6 +1913,13 @@ impl GameLogic {
             marauder_residual_fires: 0,
             marauder_residual_units_hit: 0,
             marauder_residual_weapon_upgrades: 0,
+            scorpion_residual_fires: 0,
+            scorpion_residual_units_hit: 0,
+            scorpion_residual_rocket_upgrades: 0,
+            scorpion_residual_salvage_upgrades: 0,
+            scorpion_residual_missile_fires: 0,
+            tomahawk_residual_fires: 0,
+            tomahawk_residual_units_hit: 0,
             battlemaster_residual_fires: 0,
             battlemaster_residual_units_hit: 0,
             battlemaster_residual_uranium_upgrades: 0,
@@ -2175,6 +2195,13 @@ impl GameLogic {
         self.marauder_residual_fires = 0;
         self.marauder_residual_units_hit = 0;
         self.marauder_residual_weapon_upgrades = 0;
+        self.scorpion_residual_fires = 0;
+        self.scorpion_residual_units_hit = 0;
+        self.scorpion_residual_rocket_upgrades = 0;
+        self.scorpion_residual_salvage_upgrades = 0;
+        self.scorpion_residual_missile_fires = 0;
+        self.tomahawk_residual_fires = 0;
+        self.tomahawk_residual_units_hit = 0;
         self.battlemaster_residual_fires = 0;
         self.battlemaster_residual_units_hit = 0;
         self.battlemaster_residual_uranium_upgrades = 0;
@@ -5471,6 +5498,57 @@ impl GameLogic {
                             }
                         }
                     } else if {
+                        // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
+                        use crate::game_logic::host_scorpion::{
+                            is_scorpion_template, should_apply_scorpion_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_scorpion_residual(is_scorpion_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_scorpion_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                            slot,
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 8.0);
+                            }
+                        }
+                    } else if {
+                        // USA Tomahawk residual: dual-radius long-range missile.
+                        use crate::game_logic::host_tomahawk::{
+                            is_tomahawk_template, should_apply_tomahawk_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_tomahawk_residual(is_tomahawk_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_tomahawk_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 15.0);
+                            }
+                        }
+                    } else if {
                         // China Battlemaster residual: tank gun splash + Uranium damage residual.
                         use crate::game_logic::host_battlemaster::{
                             is_battlemaster_template, should_apply_battlemaster_residual,
@@ -6099,6 +6177,12 @@ impl GameLogic {
                             )
                         })
                         .unwrap_or(false);
+                        let tomahawk_ground = self.objects.get(&attacker_id).map(|a| {
+                            crate::game_logic::host_tomahawk::is_tomahawk_template(
+                                &a.template_name,
+                            )
+                        })
+                        .unwrap_or(false);
 
                         if rocket_pod_ground {
                             // Retail FIRE_WEAPON tertiary at position → scatter area residual.
@@ -6132,6 +6216,18 @@ impl GameLogic {
                                 Some(attacker_id),
                                 attacker_team,
                                 toxin,
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                if hits > 0 {
+                                    attacker.gain_experience((hits as f32) * 15.0);
+                                }
+                            }
+                            let _ = weapon_damage;
+                        } else if tomahawk_ground {
+                            let (hits, _) = self.apply_tomahawk_residual_at(
+                                target_location,
+                                Some(attacker_id),
+                                None,
                             );
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                                 if hits > 0 {
@@ -9830,6 +9926,29 @@ impl GameLogic {
                 object.secondary_weapon = Some(patriot_air_weapon());
             }
 
+            // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
+            // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
+            if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
+                use crate::game_logic::host_scorpion::{
+                    has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
+                    salvage_tier_from_upgrades, scorpion_gun_weapon, scorpion_missile_weapon,
+                };
+                let tier = salvage_tier_from_upgrades(&object.applied_upgrades);
+                object.weapon = Some(scorpion_gun_weapon(tier));
+                if has_scorpion_rocket_upgrade(&object.applied_upgrades) {
+                    let ap = has_ap_rockets_upgrade(&object.applied_upgrades);
+                    object.secondary_weapon =
+                        Some(scorpion_missile_weapon(ap, tier.dual_missile_clip()));
+                }
+            }
+
+            // Host residual: USA Tomahawk PRIMARY dual-radius missile.
+            // Fail-closed: not full TomahawkMissile projectile lob / waypoint matrix.
+            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
+                use crate::game_logic::host_tomahawk::tomahawk_weapon;
+                object.weapon = Some(tomahawk_weapon());
+            }
+
             // Host residual: China Red Guard PRIMARY machine gun residual.
             // Fail-closed: bayonet residual applied at fire-time for close infantry.
             if crate::game_logic::host_red_guard::is_red_guard_template(template_name) {
@@ -11853,7 +11972,8 @@ impl GameLogic {
             .set_health(300.0)
             .set_cost(900, 0)
             .set_model("uvscorpion") // GLA Scorpion tank
-            .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
+            .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR)
+            .set_primary_weapon_name(super::weapon_bootstrap::SCORPION_TANK_GUN);
         self.templates
             .insert("GLA_ScorpionTank".to_string(), gla_scorpion);
 
@@ -13832,6 +13952,40 @@ impl GameLogic {
 
     pub fn marauder_residual_weapon_upgrades(&self) -> u32 {
         self.marauder_residual_weapon_upgrades
+    }
+
+    pub fn honesty_scorpion_ok(&self) -> bool {
+        self.scorpion_residual_fires > 0
+            || self.scorpion_residual_rocket_upgrades > 0
+            || self.scorpion_residual_salvage_upgrades > 0
+    }
+
+    pub fn honesty_scorpion_rocket_ok(&self) -> bool {
+        self.scorpion_residual_rocket_upgrades > 0
+    }
+
+    pub fn honesty_scorpion_missile_ok(&self) -> bool {
+        self.scorpion_residual_missile_fires > 0
+    }
+
+    pub fn scorpion_residual_fires(&self) -> u32 {
+        self.scorpion_residual_fires
+    }
+
+    pub fn scorpion_residual_units_hit(&self) -> u32 {
+        self.scorpion_residual_units_hit
+    }
+
+    pub fn honesty_tomahawk_ok(&self) -> bool {
+        self.tomahawk_residual_fires > 0
+    }
+
+    pub fn tomahawk_residual_fires(&self) -> u32 {
+        self.tomahawk_residual_fires
+    }
+
+    pub fn tomahawk_residual_units_hit(&self) -> u32 {
+        self.tomahawk_residual_units_hit
     }
 
     /// Residual honesty: Battlemaster tank gun / Uranium / horde / nationalism residual.
@@ -15857,6 +16011,360 @@ impl GameLogic {
 
         (hits, any_destroyed)
     }
+
+    /// Apply Scorpion salvage gun tier residual (primary damage 20 → 25).
+    pub fn apply_scorpion_salvage_tier(
+        &mut self,
+        object_id: ObjectId,
+        tier: crate::game_logic::host_scorpion::ScorpionSalvageTier,
+    ) -> bool {
+        use crate::game_logic::host_scorpion::{
+            has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, is_scorpion_template,
+            scorpion_gun_weapon, scorpion_missile_weapon, ScorpionSalvageTier,
+        };
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_scorpion_template(&obj.template_name) {
+            return false;
+        }
+
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
+        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
+        match tier {
+            ScorpionSalvageTier::One => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
+            }
+            ScorpionSalvageTier::Two => {
+                obj.applied_upgrades
+                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
+            }
+            ScorpionSalvageTier::Base => {}
+        }
+
+        let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        let mut gun = scorpion_gun_weapon(tier);
+        gun.last_fire_time = last_fire;
+        obj.weapon = Some(gun);
+
+        if has_scorpion_rocket_upgrade(&obj.applied_upgrades) {
+            let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
+            let sec_last = obj
+                .secondary_weapon
+                .as_ref()
+                .map(|w| w.last_fire_time)
+                .unwrap_or(0.0);
+            let mut missile = scorpion_missile_weapon(ap, tier.dual_missile_clip());
+            missile.last_fire_time = sec_last;
+            obj.secondary_weapon = Some(missile);
+        }
+
+        self.scorpion_residual_salvage_upgrades = self
+            .scorpion_residual_salvage_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
+    pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_scorpion::{
+            has_ap_rockets_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
+            scorpion_missile_weapon, UPGRADE_GLA_SCORPION_ROCKET,
+        };
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_scorpion_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_SCORPION_ROCKET.to_string());
+        let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+        let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
+        obj.secondary_weapon = Some(scorpion_missile_weapon(ap, tier.dual_missile_clip()));
+        self.scorpion_residual_rocket_upgrades = self
+            .scorpion_residual_rocket_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
+    pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_scorpion::{
+            has_scorpion_rocket_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
+            scorpion_missile_weapon, UPGRADE_GLA_AP_ROCKETS,
+        };
+
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_scorpion_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+        if has_scorpion_rocket_upgrade(&obj.applied_upgrades) {
+            let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+            let sec_last = obj
+                .secondary_weapon
+                .as_ref()
+                .map(|w| w.last_fire_time)
+                .unwrap_or(0.0);
+            let mut missile = scorpion_missile_weapon(true, tier.dual_missile_clip());
+            missile.last_fire_time = sec_last;
+            obj.secondary_weapon = Some(missile);
+        }
+        true
+    }
+
+    /// Apply Scorpion residual fire (primary gun splash or secondary missile dual-ring).
+    fn apply_scorpion_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+        slot: u8,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_scorpion::{
+            has_ap_rockets_upgrade, is_legal_scorpion_splash_target, is_scorpion_template,
+            salvage_tier_from_upgrades, scorpion_gun_splash_damage_at, scorpion_missile_damage_at,
+            SCORPION_GUN_FIRE_AUDIO, SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_FIRE_AUDIO,
+            SCORPION_MISSILE_SECONDARY_RADIUS,
+        };
+
+        let (source_team, gun_damage, has_ap, is_missile) = {
+            let Some(sid) = source else {
+                return (0, false);
+            };
+            let Some(obj) = self.objects.get(&sid) else {
+                return (0, false);
+            };
+            if !is_scorpion_template(&obj.template_name) {
+                return (0, false);
+            }
+            let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+            let gun_dmg = obj
+                .weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .unwrap_or_else(|| tier.gun_damage());
+            let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
+            (obj.team, gun_dmg, ap, slot == 1)
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let search_radius = if is_missile {
+            SCORPION_MISSILE_SECONDARY_RADIUS
+        } else {
+            SCORPION_GUN_SPLASH_RADIUS
+        };
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_scorpion_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= search_radius {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = if is_missile {
+                scorpion_missile_damage_at(if is_intended { 0.0 } else { dist }, has_ap)
+            } else {
+                scorpion_gun_splash_damage_at(is_intended, dist, gun_damage)
+            };
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.scorpion_residual_fires = self.scorpion_residual_fires.saturating_add(1);
+        self.scorpion_residual_units_hit =
+            self.scorpion_residual_units_hit.saturating_add(hits);
+        if is_missile {
+            self.scorpion_residual_missile_fires = self
+                .scorpion_residual_missile_fires
+                .saturating_add(1);
+        }
+
+        let audio = if is_missile {
+            SCORPION_MISSILE_FIRE_AUDIO
+        } else {
+            SCORPION_GUN_FIRE_AUDIO
+        };
+        self.queue_audio_event(
+            AudioEventRequest::new(audio)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Tomahawk residual fire (dual-radius long-range missile).
+    fn apply_tomahawk_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_tomahawk::{
+            is_legal_tomahawk_splash_target, is_tomahawk_template, tomahawk_damage_at,
+            TOMAHAWK_FIRE_AUDIO, TOMAHAWK_SECONDARY_RADIUS,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_tomahawk_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= TOMAHAWK_SECONDARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = tomahawk_damage_at(if is_intended { 0.0 } else { dist });
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.tomahawk_residual_fires = self.tomahawk_residual_fires.saturating_add(1);
+        self.tomahawk_residual_units_hit =
+            self.tomahawk_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(TOMAHAWK_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_tomahawk_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
 
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
@@ -47613,6 +48121,278 @@ mod tests {
         assert!(
             splash_hp_after < splash_hp_before,
             "marauder radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+    }
+
+    /// Residual: GLA Scorpion gun + salvage damage + rocket dual-radius secondary.
+    #[test]
+    fn scorpion_residual_gun_salvage_and_rocket() {
+        use crate::game_logic::host_scorpion::{
+            is_scorpion_template, ScorpionSalvageTier, SCORPION_GUN_DAMAGE,
+            SCORPION_GUN_DAMAGE_PLUS, SCORPION_RANGE, SCORPION_TANK_GUN,
+            UPGRADE_GLA_SCORPION_ROCKET,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut scorp_tpl = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+        scorp_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(370.0)
+            .set_primary_weapon_name(SCORPION_TANK_GUN);
+        game_logic
+            .templates
+            .insert("GLATankScorpion".to_string(), scorp_tpl);
+
+        let scorp_id = game_logic
+            .create_object(
+                "GLATankScorpion",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("scorpion");
+        {
+            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            assert!(is_scorpion_template(&s.template_name));
+            let prim = s.weapon.as_ref().expect("gun");
+            assert!((prim.damage - SCORPION_GUN_DAMAGE).abs() < 0.01);
+            assert!((prim.range - SCORPION_RANGE).abs() < 1.0);
+            assert!(s.secondary_weapon.is_none(), "no rocket until upgrade");
+        }
+
+        assert!(game_logic.apply_scorpion_salvage_tier(scorp_id, ScorpionSalvageTier::One));
+        {
+            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let prim = s.weapon.as_ref().expect("plus gun");
+            assert!(
+                (prim.damage - SCORPION_GUN_DAMAGE_PLUS).abs() < 0.01,
+                "salvage residual PrimaryDamage 25"
+            );
+        }
+
+        assert!(game_logic.apply_scorpion_rocket_upgrade(scorp_id));
+        assert!(
+            game_logic.honesty_scorpion_rocket_ok(),
+            "scorpion rocket upgrade residual honesty"
+        );
+        {
+            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            assert!(s.has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
+            let sec = s.secondary_weapon.as_ref().expect("missile");
+            assert!((sec.damage - 100.0).abs() < 0.01);
+            assert!((sec.min_range - 40.0).abs() < 0.01);
+            assert!((sec.reload_time - 15.0).abs() < 0.1);
+        }
+
+        assert!(game_logic.apply_scorpion_ap_rockets_upgrade(scorp_id));
+        {
+            let s = game_logic.find_object(scorp_id).expect("scorpion");
+            let sec = s.secondary_weapon.as_ref().expect("ap missile");
+            assert!((sec.damage - 125.0).abs() < 0.01);
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("enemy");
+        let splash_inf = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
+            .expect("splash");
+        {
+            let s = game_logic.find_object_mut(scorp_id).unwrap();
+            s.active_weapon_slot = 0;
+            s.attack_target(enemy);
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let splash_hp_before = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(40);
+        game_logic.update_combat(&[scorp_id, enemy, splash_inf], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.scorpion_residual_fires() > 0,
+            "scorpion residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_scorpion_ok(),
+            "scorpion residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "scorpion gun residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let splash_hp_after = game_logic
+            .find_object(splash_inf)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            splash_hp_after < splash_hp_before,
+            "scorpion gun radius-5 residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
+        );
+
+        let far = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(115.0, 0.0, 0.0))
+            .expect("far splash");
+        {
+            let s = game_logic.find_object_mut(scorp_id).unwrap();
+            s.active_weapon_slot = 1;
+            s.attack_target(enemy);
+            if let Some(w) = s.secondary_weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let far_hp_before = game_logic
+            .find_object(far)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[scorp_id, enemy, far], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.honesty_scorpion_missile_ok(),
+            "scorpion missile residual fire honesty"
+        );
+        let far_hp_after = game_logic
+            .find_object(far)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            far_hp_after < far_hp_before,
+            "scorpion missile secondary ring residual must hit unit at ~15 (before={far_hp_before} after={far_hp_after})"
+        );
+    }
+
+    /// Residual: USA Tomahawk dual-radius long-range missile.
+    #[test]
+    fn tomahawk_residual_dual_radius_missile() {
+        use crate::game_logic::host_tomahawk::{
+            is_tomahawk_template, TOMAHAWK_MIN_RANGE, TOMAHAWK_MISSILE_WEAPON,
+            TOMAHAWK_PRIMARY_DAMAGE, TOMAHAWK_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut tom_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleTomahawk");
+        tom_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0)
+            .set_primary_weapon_name(TOMAHAWK_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaVehicleTomahawk".to_string(), tom_tpl);
+
+        let tom_id = game_logic
+            .create_object(
+                "AmericaVehicleTomahawk",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tomahawk");
+        {
+            let t = game_logic.find_object(tom_id).expect("tomahawk");
+            assert!(is_tomahawk_template(&t.template_name));
+            let prim = t.weapon.as_ref().expect("missile");
+            assert!((prim.damage - TOMAHAWK_PRIMARY_DAMAGE).abs() < 0.01);
+            assert!((prim.range - TOMAHAWK_RANGE).abs() < 1.0);
+            assert!((prim.min_range - TOMAHAWK_MIN_RANGE).abs() < 1.0);
+            assert!((prim.reload_time - 7.0).abs() < 0.1);
+        }
+
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        let near_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(208.0, 0.0, 0.0))
+            .expect("primary ring");
+        let mid_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(218.0, 0.0, 0.0))
+            .expect("secondary ring");
+        {
+            let t = game_logic.find_object_mut(tom_id).unwrap();
+            t.attack_target(enemy);
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let near_hp_before = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let mid_hp_before = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(
+            &[tom_id, enemy, near_splash, mid_splash],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.tomahawk_residual_fires() > 0,
+            "tomahawk residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_tomahawk_ok(),
+            "tomahawk residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 100.0,
+            "tomahawk primary residual ~150 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let near_hp_after = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "tomahawk primary radius residual must hit unit at 8 (before={near_hp_before} after={near_hp_after})"
+        );
+        let mid_hp_after = game_logic
+            .find_object(mid_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            mid_hp_after < mid_hp_before,
+            "tomahawk secondary radius residual must hit unit at 18 (before={mid_hp_before} after={mid_hp_after})"
         );
     }
 

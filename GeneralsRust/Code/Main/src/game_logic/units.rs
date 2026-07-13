@@ -95,7 +95,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .set_health(400.0)
         .set_cost(800, 0)
         .set_model("gvscorpion") // GLA Scorpion tank
-        .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
+        .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR)
+        .set_primary_weapon_name(super::weapon_bootstrap::SCORPION_TANK_GUN);
     templates.insert("GLA_Scorpion".to_string(), gla_scorpion);
 
     // USA Units
