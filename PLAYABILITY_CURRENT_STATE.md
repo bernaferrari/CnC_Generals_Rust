@@ -1,3 +1,58 @@
+## Residual Host Playability — TurretAI Sleep/Passive + PARA_COG Bones + Laser Tile/Line3D (2026-07-13)
+**Closed (host-testable mood matrix + parachute bones + laser texture residual):**
+1. **TurretAI mood matrix Sleep/Passive residual** (Strategy Center Bombardment):
+   - C++ `AttitudeType` / `getMoodMatrixActionAdjustment(MM_Action_Idle)` residual:
+     - **Sleep** → MAA_Affect_Range_IgnoreAll (no idle mood-target acquire)
+     - **Passive** → MAA_Affect_Range_WaitForAttack (only `last_damage_source` retaliate)
+     - **Normal/Alert/Aggressive** → free idle mood-target residual
+   - Object stores `ai_attitude` + `last_damage_source` (BodyModule residual via
+     `take_damage_from`).
+   - Turret bone pitch/yaw drawable residual: host exposes TurretAI angles for
+     presentation consumers (`HostTurretBoneDrawable`).
+   - Host-testable: Sleep blocks acquire; Passive free-acquire blocked; Passive +
+     last damage retaliates + aims FirePitch; bone drawable pitch honesty.
+   - Fail-closed: not full Partition/AI vision mood range matrix / W3D Turret bones.
+2. **AmericaParachute bone PARA_COG / PARA_ATTCH / PARA_MAN residual**:
+   - Host pristine bone offsets from GeometryHeight **10** layout (no W3D extract).
+   - `updateOffsetsFromBones` residual → rider attach + rider/para sway pivots.
+   - `calcSwayMtx` residual: pitch/roll about pivot → rider presentation displace
+     + chute COG sway delta (logic position stays attach offset; sway is drawable).
+   - Host-testable: COG above ATTCH; rider attach below origin; non-zero open sway;
+     closed chute delta zero.
+   - Fail-closed: not full W3D pristine bone extract / DeliverPayload cargo path.
+3. **W3DLaserDraw texture / Line3D residual** (PatriotBinaryDataStream math path):
+   - Texture `EXBinaryStream32.tga`, Tile **Yes**, TilingScalar **0.25**,
+     InnerColor green A**180**.
+   - tileFactor = length/width×aspect×scalar (retail width **4**, aspect **1** →
+     length 100 → **6.25**).
+   - Ground-skim residual: Z = max(z, ground+**2**).
+   - Host builds **20** `HostLaserLine3DSegment` descriptors (width/tile/scroll/points).
+   - Host-testable: tile factor math; skim pad; 20-segment list mid-arc elevated.
+   - Fail-closed: not full WGPU SegLineRenderer / texture upload.
+4. **VisionObjectName residual** (document only):
+   - `strategy_center_vision_object_spawn_enabled_in_retail() == false`
+     (C++ `//createVisionObject();` disabled). No spawn claim.
+5. Tests (not log-only):
+   - `strategy_center_turret_mood_matrix_sleep_passive_residual`
+   - updated `battle_plan_constants_match_retail_residual` (Sleep/Passive/bone/vision)
+   - updated `air_eject_parachute_gates` (PARA_COG bone matrix)
+   - updated `patriot_laser_arc_segment_honesty` (tile/Line3D/skim)
+
+**Still residual (fail-closed, not claimed):**
+- Full Partition filter / AI vision mood range matrix / W3D Turret bone GPU
+  (Sleep/Passive + bone drawable host residual closed 2026-07-13)
+- Full W3DLaserDraw WGPU SegLineRenderer / texture upload for Patriot assist beams
+  (tile factor + Line3D descriptors + ground skim host residual closed 2026-07-13)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++
+  — honesty residual closed 2026-07-13; no spawn claim)
+- Full W3D pristine bone extract / DeliverPayload cargo plane path
+  (PARA_COG host offsets + calcSwayMtx residual closed 2026-07-13)
+- Full physical SpawnBehavior soldier Object / AI / W3D model attach
+  (getClosestSlave + per-slave HP/position host residual closed 2026-07-13)
+- Full CamoNetting sub-object net mesh visual / W3D heat-vision GPU pass
+  (StealthLook + second-pass opacity host residual closed 2026-07-13)
+- Network mood-matrix / PARA_COG / laser-tile replication (network deferred)
+
 ## Residual Host Playability — getClosestSlave + W3DLaser Arc + TurretAI Mood-Target + Camo StealthLook (2026-07-13)
 **Closed (host-testable physical hive slaves + laser arc + mood-target + heat-vision residual):**
 1. **Physical SpawnBehavior slave roster + getClosestSlave residual** (GLAStingerSite):
@@ -13,14 +68,18 @@
    - Cosine arc sample residual: mid peak = ArcHeight **30**, endpoints **0**.
    - Segments **20** residual segment endpoints host-sampled (C++ doDrawModule).
    - Host-testable: mid Z = base + ArcHeight; segment 0 start near base Z.
-   - Fail-closed: not full texture / Line3D GPU draw / ground-height skim.
+   - Fail-closed: not full texture / Line3D GPU draw / ground-height skim
+     (tile/Line3D descriptor + ground skim host residual closed 2026-07-13 — see
+     TurretAI Sleep/Passive + PARA_COG + Laser Tile section).
 3. **TurretAI idle mood-target residual** (Strategy Center Bombardment):
    - `friend_checkForIdleMoodTarget` residual: idle gun acquires enemy in
      StrategyCenterGun range band (min **100** / max **400**), aims FirePitch **45**,
      flags `m_targetWasSetByIdleMood`.
    - Mood target leaving range / dying clears target so IDLESCAN can resume.
    - Host-testable: acquire + aim; out-of-range clear honesty.
-   - Fail-closed: not full mood matrix Sleep/Passive / bone pitch drawable.
+   - Fail-closed: not full mood matrix Sleep/Passive / bone pitch drawable
+     (Sleep/Passive + bone drawable host residual closed 2026-07-13 — see
+     TurretAI Sleep/Passive + PARA_COG + Laser Tile section).
 4. **CamoNetting StealthLook / heat-vision residual**:
    - Host of Drawable::setStealthLook: None / VisibleFriendly /
      VisibleFriendlyDetected / VisibleDetected / Invisible.
@@ -41,12 +100,12 @@
 
 **Still residual (fail-closed, not claimed):**
 - Full TurretAI mood matrix Sleep/Passive / bone pitch drawable matrix
-  (idle mood-target acquire + OOR clear host residual closed 2026-07-13)
+  (host residual closed 2026-07-13 — see TurretAI Sleep/Passive + PARA_COG section)
 - Full W3DLaserDraw texture / Line3D GPU draw for Patriot assist beams
-  (arc segment sample host residual closed 2026-07-13)
+  (tile/Line3D host residual closed 2026-07-13 — see TurretAI Sleep/Passive section)
 - Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
 - Full AmericaParachute bone PARA_COG / DeliverPayload residual
-  (pitch/roll spring-damper host residual closed 2026-07-13)
+  (PARA_COG host residual closed 2026-07-13 — see TurretAI Sleep/Passive section)
 - Full physical SpawnBehavior soldier Object / AI / W3D model attach
   (getClosestSlave + per-slave HP/position host residual closed 2026-07-13)
 - Full CamoNetting sub-object net mesh visual / W3D heat-vision GPU pass

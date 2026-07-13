@@ -399,6 +399,15 @@ pub struct Object {
     /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
     #[serde(default)]
     pub turret_mood_target: bool,
+    /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
+    /// Host residual for TurretAI mood matrix Sleep/Passive gates.
+    /// Ordinals: -2=Sleep, -1=Passive, 0=Normal, 1=Alert, 2=Aggressive.
+    #[serde(default)]
+    pub ai_attitude: i8,
+    /// C++ BodyModule last damage source residual (Passive WaitForAttack).
+    /// Set when damage is applied with a known attacker id.
+    #[serde(default)]
+    pub last_damage_source: Option<ObjectId>,
 
     /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
     /// Fail-closed: not full drawable sub-object camo net mesh visual.
@@ -604,6 +613,8 @@ impl Object {
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
             turret_mood_target: false,
+            ai_attitude: 0, // HostAiAttitude::Normal
+            last_damage_source: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
@@ -730,6 +741,8 @@ impl Object {
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
             turret_mood_target: false,
+            ai_attitude: 0, // HostAiAttitude::Normal
+            last_damage_source: None,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
             camo_stealth_look: 0,
@@ -1517,6 +1530,14 @@ impl Object {
     }
 
     pub fn take_damage(&mut self, damage: f32) -> bool {
+        self.take_damage_from(damage, None)
+    }
+
+    /// Apply damage with optional C++ BodyModule last-damage-source residual.
+    ///
+    /// Passive AI mood (WaitForAttack) uses `last_damage_source` for idle
+    /// mood-target retaliate residual.
+    pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
         if self.status.destroyed {
             return false;
         }
@@ -1528,6 +1549,11 @@ impl Object {
         // C++ StealthForbiddenConditions TAKING_DAMAGE residual (CamoNetting structures).
         if self.stealth_breaks_on_damage && self.status.stealthed {
             self.break_stealth();
+        }
+
+        // BodyModule last damage source residual (Passive WaitForAttack).
+        if let Some(src) = source {
+            self.last_damage_source = Some(src);
         }
 
         // Apply armor reduction
@@ -1547,6 +1573,19 @@ impl Object {
         } else {
             false
         }
+    }
+
+    /// C++ AttitudeType residual (Sleep/Passive/Normal/Alert/Aggressive).
+    pub fn ai_attitude(&self) -> crate::game_logic::host_strategy_center::HostAiAttitude {
+        crate::game_logic::host_strategy_center::HostAiAttitude::from_i8(self.ai_attitude)
+    }
+
+    /// Set C++ AttitudeType residual for TurretAI mood matrix.
+    pub fn set_ai_attitude(
+        &mut self,
+        attitude: crate::game_logic::host_strategy_center::HostAiAttitude,
+    ) {
+        self.ai_attitude = attitude.as_i8();
     }
 
     pub fn heal(&mut self, amount: f32) {
@@ -1716,8 +1755,7 @@ impl Object {
             return false;
         }
 
-        let target_is_air =
-            target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
+        let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
         if target_is_air && !weapon.can_target_air {
             return false;
@@ -1802,11 +1840,7 @@ impl Object {
     ///     prefers secondary when player locked or secondary is the only ready slot;
     ///     also when primary cannot fire and secondary is ready.
     /// - Else primary when ready + in range; else secondary (alternate fire residual).
-    pub fn select_combat_weapon_slot(
-        &self,
-        target: &Object,
-        current_time: f32,
-    ) -> Option<u8> {
+    pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
         let target_faerie = target.is_faerie_fire();
         let primary_ok = self.weapon.as_ref().is_some_and(|w| {
             Self::weapon_ready_vs_target(w, current_time, target_faerie)
@@ -1835,17 +1869,17 @@ impl Object {
         // Comanche Rocket Pods residual: retail AutoChooseSources = TERTIARY NONE.
         // Host secondary carries pods after upgrade; never auto-choose unless
         // player locks active_weapon_slot == 1 (FIRE_WEAPON residual).
-        let rocket_pods_manual_only = crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
-            &self.template_name,
-        ) && (self.has_upgrade_tag(
-            crate::game_logic::host_comanche_rocket_pods::UPGRADE_COMANCHE_ROCKET_PODS,
-        ) || self.has_upgrade_tag("Upgrade_ComancheRocketPods"));
+        let rocket_pods_manual_only =
+            crate::game_logic::host_comanche_rocket_pods::is_comanche_template(&self.template_name)
+                && (self.has_upgrade_tag(
+                    crate::game_logic::host_comanche_rocket_pods::UPGRADE_COMANCHE_ROCKET_PODS,
+                ) || self.has_upgrade_tag("Upgrade_ComancheRocketPods"));
 
-        let target_is_structure = target.object_type == ObjectType::Building
-            || target.is_kind_of(KindOf::Structure);
+        let target_is_structure =
+            target.object_type == ObjectType::Building || target.is_kind_of(KindOf::Structure);
         let target_is_infantry = target.is_kind_of(KindOf::Infantry);
-        let target_is_vehicle = target.is_kind_of(KindOf::Vehicle)
-            && !target.is_kind_of(KindOf::Aircraft);
+        let target_is_vehicle =
+            target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Aircraft);
         let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
         let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
@@ -1857,15 +1891,18 @@ impl Object {
 
         // SCUD residual: PreferredAgainst SECONDARY INFANTRY (toxin warhead)
         // even though secondary primary-damage is lower than explosive.
-        let scud_prefer_toxin = crate::game_logic::host_scud_launcher::scud_prefer_secondary_vs_infantry(
-            crate::game_logic::host_scud_launcher::is_scud_launcher_template(&self.template_name),
-            target_is_infantry,
-        );
+        let scud_prefer_toxin =
+            crate::game_logic::host_scud_launcher::scud_prefer_secondary_vs_infantry(
+                crate::game_logic::host_scud_launcher::is_scud_launcher_template(
+                    &self.template_name,
+                ),
+                target_is_infantry,
+            );
 
         // Quad Cannon residual: airborne targets prefer AA secondary slot.
-        let quad_prefer_aa = crate::game_logic::host_quad_cannon::is_quad_cannon_template(
-            &self.template_name,
-        ) && target_is_air;
+        let quad_prefer_aa =
+            crate::game_logic::host_quad_cannon::is_quad_cannon_template(&self.template_name)
+                && target_is_air;
 
         // Avenger residual: airborne targets prefer air laser secondary.
         let avenger_prefer_aa = crate::game_logic::host_avenger::avenger_prefer_air_laser(
@@ -2212,9 +2249,8 @@ impl Object {
     pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
         self.overlord_bunker_capacity = Some(slots);
         // Exclusive ConflictsWith residual (not Emperor innate propaganda).
-        let emperor = crate::game_logic::host_overlord_addons::is_emperor_template(
-            &self.template_name,
-        );
+        let emperor =
+            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name);
         self.has_overlord_gattling_addon = false;
         if !emperor {
             self.has_overlord_propaganda_addon = false;
@@ -2264,8 +2300,7 @@ impl Object {
     /// Install residual HelixContain transport (Slots=5).
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
-        self.max_transport =
-            crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
+        self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
     }
@@ -2278,9 +2313,7 @@ impl Object {
     /// True when portable / innate propaganda residual is active on this host.
     pub fn has_overlord_propaganda_residual(&self) -> bool {
         self.has_overlord_propaganda_addon
-            || crate::game_logic::host_overlord_addons::is_emperor_template(
-                &self.template_name,
-            )
+            || crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name)
     }
 
     /// Install residual GLA Battle Bus transport:
@@ -2342,8 +2375,7 @@ impl Object {
     /// Fail-closed: not full STATUS_RIDER death OCL / scuttle matrix.
     pub fn install_combat_cycle_transport(&mut self) {
         self.is_combat_cycle_transport = true;
-        self.max_transport =
-            crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
+        self.max_transport = crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
     }
@@ -2376,8 +2408,7 @@ impl Object {
     /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
     pub fn install_troop_crawler_transport(&mut self) {
         self.is_troop_crawler_transport = true;
-        self.max_transport =
-            crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
+        self.max_transport = crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
     }
@@ -2393,8 +2424,7 @@ impl Object {
     /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
     pub fn install_combat_chinook_transport(&mut self) {
         self.is_combat_chinook_transport = true;
-        self.max_transport =
-            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
+        self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = true;
         // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
@@ -2955,4 +2985,3 @@ mod tests {
         assert!(attacker.can_target(&target));
     }
 }
-

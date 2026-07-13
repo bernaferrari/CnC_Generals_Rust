@@ -68,15 +68,21 @@
 //!
 //! - **W3DLaserDraw arc segment residual** (PatriotBinaryDataStream):
 //!   Host samples cosine arc points from start→end using retail ArcHeight **30**
-//!   / Segments **20** (C++ `doDrawModule` mid-peak cos curve). Fail-closed:
-//!   not full texture / Line3D GPU draw.
+//!   / Segments **20** (C++ `doDrawModule` mid-peak cos curve).
+//!
+//! - **W3DLaserDraw texture / Line3D residual** (math path, not GPU):
+//!   Texture `EXBinaryStream32.tga`, Tile **Yes**, TilingScalar **0.25**,
+//!   InnerColor green A**180**, tileFactor = length/width×aspect×scalar,
+//!   ground-skim Z = max(z, ground+**2**). Host builds **20** Line3D segment
+//!   descriptors for presentation consumers. Fail-closed: not full WGPU
+//!   SegLineRenderer / texture upload.
 //!
 //! Fail-closed honesty:
 //! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser beyond air/ground residual
 //!   (assist SECONDARY is residual-separate; host dual-slot still maps AA to residual
 //!   secondary for auto-acquire)
-//! - Not full W3DLaserDraw texture / Line3D GPU draw for assist beams
-//!   (endpoint track + draw-param + arc segment sample host residual closed)
+//! - Not full W3DLaserDraw WGPU SegLineRenderer / texture upload for assist beams
+//!   (endpoint track + draw-param + arc + tile/Line3D descriptor host residual closed)
 //! - Not full SpawnBehavior physical soldier Object / AI / bone matrix
 //!   (getClosestSlave + per-slave HP/position host residual closed)
 //! - Not full PointDefenseLaserUpdate missile intercept matrix
@@ -463,6 +469,126 @@ pub fn patriot_laser_arc_peak_boost(arc_height: f32) -> f32 {
     patriot_laser_arc_z_boost(0.5, arc_height)
 }
 
+// --- W3DLaserDraw texture / Line3D residual honesty (math path, not GPU) ---
+
+/// Retail PatriotBinaryDataStream W3DLaserDraw Texture residual.
+pub const PATRIOT_LASER_TEXTURE: &str = "EXBinaryStream32.tga";
+/// Retail W3DLaserDraw Tile residual (Yes → tile texture along beam).
+pub const PATRIOT_LASER_TILE: bool = true;
+/// Retail InnerColor residual (R:0 G:255 B:0 A:180) as 0..1 components.
+pub const PATRIOT_LASER_INNER_COLOR: (f32, f32, f32, f32) = (0.0, 1.0, 0.0, 180.0 / 255.0);
+/// Host residual texture aspect ratio when the TGA is unavailable.
+///
+/// C++ loads surface width/height; EXBinaryStream32 is typically square → **1.0**.
+pub const PATRIOT_LASER_TEXTURE_ASPECT_RATIO: f32 = 1.0;
+/// C++ ground skim residual: laser Z is max(segmentZ, groundHeight + **2**).
+pub const PATRIOT_LASER_GROUND_SKIM_PAD: f32 = 2.0;
+
+/// C++ W3DLaserDraw tile factor residual:
+/// `tileFactor = length / width * textureAspectRatio * tilingScalar`.
+///
+/// Used by SegLineRenderer Set_Texture_Tile_Factor. Host residual is pure math
+/// for presentation consumers — fail-closed vs full Line3D GPU draw.
+pub fn patriot_laser_texture_tile_factor(
+    segment_length: f32,
+    beam_width: f32,
+    texture_aspect_ratio: f32,
+    tiling_scalar: f32,
+) -> f32 {
+    if beam_width <= f32::EPSILON || segment_length <= 0.0 {
+        return 0.0;
+    }
+    segment_length / beam_width * texture_aspect_ratio * tiling_scalar
+}
+
+/// Retail Patriot residual tile factor for a segment of given length
+/// (InnerBeamWidth **4**, aspect **1**, TilingScalar **0.25**).
+pub fn patriot_laser_tile_factor_for_length(segment_length: f32) -> f32 {
+    patriot_laser_texture_tile_factor(
+        segment_length,
+        PATRIOT_LASER_INNER_BEAM_WIDTH,
+        PATRIOT_LASER_TEXTURE_ASPECT_RATIO,
+        PATRIOT_LASER_TILING_SCALAR,
+    )
+}
+
+/// Segment length residual between two world points.
+pub fn patriot_laser_segment_length(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let dz = b.2 - a.2;
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// C++ ground-skim residual: `MAX(z, groundHeight + 2)`.
+///
+/// Host residual of doDrawModule laser point Z clamp so beams skim rather than
+/// penetrate terrain. Fail-closed: not full terrain sample matrix.
+pub fn patriot_laser_ground_skim_z(segment_z: f32, ground_height: f32) -> f32 {
+    segment_z.max(ground_height + PATRIOT_LASER_GROUND_SKIM_PAD)
+}
+
+/// Sample residual arc segment with ground-skim Z residual applied to both ends.
+pub fn sample_patriot_laser_arc_segment_skimmed(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    segment: u32,
+    segments: u32,
+    arc_height: f32,
+    ground_height_start: f32,
+    ground_height_end: f32,
+) -> ((f32, f32, f32), (f32, f32, f32)) {
+    let (mut s, mut e) = sample_patriot_laser_arc_segment(from, to, segment, segments, arc_height);
+    s.2 = patriot_laser_ground_skim_z(s.2, ground_height_start);
+    e.2 = patriot_laser_ground_skim_z(e.2, ground_height_end);
+    (s, e)
+}
+
+/// Host residual Line3D segment descriptor for presentation (not GPU).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostLaserLine3DSegment {
+    pub start: (f32, f32, f32),
+    pub end: (f32, f32, f32),
+    pub width: f32,
+    pub tile_factor: f32,
+    pub scroll_offset: f32,
+}
+
+/// Build residual Line3D segment descriptors for all PatriotBinaryDataStream segments.
+///
+/// C++ loops `segment = 0..Segments` and configures Line3D width / points / tile.
+/// Host residual returns CPU-side descriptors for presentation consumers.
+pub fn build_patriot_laser_line3d_segments(
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+    arc_height: f32,
+    scroll_offset: f32,
+    ground_height: f32,
+) -> Vec<HostLaserLine3DSegment> {
+    let segs = PATRIOT_LASER_SEGMENTS.max(1);
+    let mut out = Vec::with_capacity(segs as usize);
+    for i in 0..segs {
+        let (s, e) = sample_patriot_laser_arc_segment_skimmed(
+            from,
+            to,
+            i,
+            segs,
+            arc_height,
+            ground_height,
+            ground_height,
+        );
+        let len = patriot_laser_segment_length(s, e);
+        out.push(HostLaserLine3DSegment {
+            start: s,
+            end: e,
+            width: PATRIOT_LASER_INNER_BEAM_WIDTH,
+            tile_factor: patriot_laser_tile_factor_for_length(len),
+            scroll_offset,
+        });
+    }
+    out
+}
+
 // --- SupW EMPPatriotEffectSpheroid residual (ProjectileDetonationOCL) ---
 /// Retail EMPPatriotEffectSpheroid EffectRadius residual.
 pub const SUPW_PATRIOT_EMP_RADIUS: f32 = 10.0;
@@ -624,16 +750,15 @@ pub fn count_alive_hive_slaves(slaves: &[ResidualHiveSlave]) -> u8 {
 
 /// Active residual slave HP (first alive) — mirror for legacy count/hp fields.
 pub fn active_hive_slave_hp(slaves: &[ResidualHiveSlave]) -> f32 {
-    slaves
-        .iter()
-        .find(|s| s.alive)
-        .map(|s| s.hp)
-        .unwrap_or(0.0)
+    slaves.iter().find(|s| s.alive).map(|s| s.hp).unwrap_or(0.0)
 }
 
 /// Sync legacy `(count, hp)` mirrors from residual roster.
 pub fn sync_hive_slave_mirrors(slaves: &[ResidualHiveSlave]) -> (u8, f32) {
-    (count_alive_hive_slaves(slaves), active_hive_slave_hp(slaves))
+    (
+        count_alive_hive_slaves(slaves),
+        active_hive_slave_hp(slaves),
+    )
 }
 
 /// C++ `SpawnBehavior::getClosestSlave` residual — nearest alive slave to world point.
@@ -1908,8 +2033,12 @@ mod tests {
         assert_eq!(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES, 30);
 
         assert!((patriot_assist_damage_for_template("AmericaPatriotBattery") - 25.0).abs() < 0.01);
-        assert!((patriot_assist_damage_for_template("Lazr_AmericaPatriotBattery") - 35.0).abs() < 0.01);
-        assert!((patriot_assist_damage_for_template("SupW_AmericaPatriotBattery") - 25.0).abs() < 0.01);
+        assert!(
+            (patriot_assist_damage_for_template("Lazr_AmericaPatriotBattery") - 35.0).abs() < 0.01
+        );
+        assert!(
+            (patriot_assist_damage_for_template("SupW_AmericaPatriotBattery") - 25.0).abs() < 0.01
+        );
         assert_eq!(
             patriot_assist_weapon_name_for_template("AmericaPatriotBattery"),
             PATRIOT_ASSIST_WEAPON
@@ -1944,7 +2073,9 @@ mod tests {
             "ChinaGattlingCannon"
         ));
 
-        assert!(is_patriot_free_to_assist(true, true, true, false, false, true));
+        assert!(is_patriot_free_to_assist(
+            true, true, true, false, false, true
+        ));
         assert!(!is_patriot_free_to_assist(
             true, true, true, false, true, true
         )); // mid-assist
@@ -2018,15 +2149,19 @@ mod tests {
             (ObjectId(2), (100.0_f32, 0.0, 0.0, true)),
             (ObjectId(3), (60.0_f32, 0.0, 0.0, true)),
         ]);
-        let moved = track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
-        assert!(moved >= 1, "endpoint residual must track moved parent/target");
+        let moved =
+            track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
+        assert!(
+            moved >= 1,
+            "endpoint residual must track moved parent/target"
+        );
         assert!((live[0].from_x - 10.0).abs() < 0.01);
         assert!((live[0].from_z - 5.0).abs() < 0.01);
         assert!((live[1].to_x - 60.0).abs() < 0.01);
         assert!(live[0].endpoint_tracked || live[1].endpoint_tracked);
         // Arc mid residual refreshes with endpoints.
         assert!((live[1].arc_mid_x - 80.0).abs() < 0.01); // mid of 100→60
-        // ScrollRate residual advances each track step.
+                                                          // ScrollRate residual advances each track step.
         assert!((live[0].scroll_offset - PATRIOT_LASER_SCROLL_RATE).abs() < 0.001);
         // Dead target freezes last end residual.
         positions.insert(ObjectId(3), (99.0, 0.0, 0.0, false));
@@ -2210,10 +2345,18 @@ mod tests {
         let to = (100.0_f32, 0.0, 10.0);
         let mid = sample_patriot_laser_arc_point(from, to, 0.5, PATRIOT_LASER_ARC_HEIGHT);
         assert!((mid.0 - 50.0).abs() < 0.01);
-        assert!((mid.2 - (10.0 + 30.0)).abs() < 0.01, "mid Z = base + ArcHeight");
+        assert!(
+            (mid.2 - (10.0 + 30.0)).abs() < 0.01,
+            "mid Z = base + ArcHeight"
+        );
 
-        let (s0, e0) =
-            sample_patriot_laser_arc_segment(from, to, 0, PATRIOT_LASER_SEGMENTS, PATRIOT_LASER_ARC_HEIGHT);
+        let (s0, e0) = sample_patriot_laser_arc_segment(
+            from,
+            to,
+            0,
+            PATRIOT_LASER_SEGMENTS,
+            PATRIOT_LASER_ARC_HEIGHT,
+        );
         assert!((s0.0 - 0.0).abs() < 0.01);
         assert!(e0.0 > s0.0);
         // Last segment ends near target.
@@ -2226,5 +2369,38 @@ mod tests {
         );
         assert!((e_last.0 - 100.0).abs() < 0.5);
         assert!((e_last.2 - 10.0).abs() < 0.5); // end arc boost ~0
+
+        // W3DLaserDraw texture / tile residual honesty.
+        assert_eq!(PATRIOT_LASER_TEXTURE, "EXBinaryStream32.tga");
+        assert!(PATRIOT_LASER_TILE);
+        assert!((PATRIOT_LASER_TILING_SCALAR - 0.25).abs() < 0.001);
+        assert!((PATRIOT_LASER_INNER_COLOR.1 - 1.0).abs() < 0.001); // green
+        assert!((PATRIOT_LASER_INNER_COLOR.3 - 180.0 / 255.0).abs() < 0.001);
+        // tileFactor = length/width * aspect * tilingScalar
+        // length 100, width 4, aspect 1, scalar 0.25 → 100/4 * 1 * 0.25 = 6.25
+        let tf = patriot_laser_texture_tile_factor(100.0, 4.0, 1.0, 0.25);
+        assert!((tf - 6.25).abs() < 0.001);
+        assert!((patriot_laser_tile_factor_for_length(100.0) - 6.25).abs() < 0.001);
+        assert_eq!(patriot_laser_texture_tile_factor(0.0, 4.0, 1.0, 0.25), 0.0);
+        assert_eq!(patriot_laser_texture_tile_factor(10.0, 0.0, 1.0, 0.25), 0.0);
+        // Ground skim residual: low arc endpoint raised to ground+2.
+        assert!((patriot_laser_ground_skim_z(0.0, 0.0) - 2.0).abs() < 0.001);
+        assert!((patriot_laser_ground_skim_z(10.0, 0.0) - 10.0).abs() < 0.001);
+        assert!((patriot_laser_ground_skim_z(1.0, 5.0) - 7.0).abs() < 0.001);
+        // Full Line3D residual segment list (Segments=20).
+        let lines =
+            build_patriot_laser_line3d_segments(from, to, PATRIOT_LASER_ARC_HEIGHT, -0.25, 0.0);
+        assert_eq!(lines.len(), PATRIOT_LASER_SEGMENTS as usize);
+        assert!((lines[0].width - PATRIOT_LASER_INNER_BEAM_WIDTH).abs() < 0.001);
+        assert!((lines[0].scroll_offset - (-0.25)).abs() < 0.001);
+        assert!(lines[0].tile_factor > 0.0);
+        // Endpoints skimmed: start Z at least ground+2.
+        assert!(lines[0].start.2 >= PATRIOT_LASER_GROUND_SKIM_PAD - 0.001);
+        // Mid segment has elevated arc residual.
+        let mid_i = (PATRIOT_LASER_SEGMENTS / 2) as usize;
+        assert!(
+            lines[mid_i].start.2 > lines[0].start.2,
+            "mid segment residual Z must exceed start (arc)"
+        );
     }
 }
