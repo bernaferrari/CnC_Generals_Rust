@@ -31,8 +31,8 @@
 7. Tests / gates (not log-only):
    - carpet/cruise/artillery/nuke/anthrax residual pack wave56 honesty tests
    - special_power_strikes lib: **95** ok
-   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS** (pending gate run)
-   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS** (pending)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true` **PASS**
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true` **PASS**
 
 **Still residual (fail-closed, not claimed):**
 - Full AmericaJetB52 DeliverPayloadAIUpdate pathfinder / flight Object

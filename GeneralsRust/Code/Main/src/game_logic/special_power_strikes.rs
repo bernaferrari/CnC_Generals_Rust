@@ -160,6 +160,23 @@
 //! + MaxIntensity/Fade defaults; fail-closed vs live wgpu write_buffer).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
+//! Wave 56 residual closed: CarpetBomb residual deepen (DropDelay stagger +
+//! DropVariance 30/40/0 + AmericaJetB52 PreferredHeight 100 + science-tier bomb
+//! counts USA15/AirF12/China10 + DeliveryDistance 400/500/350 + FireFX
+//! FX_CarpetBomb honesty + application counters); CruiseMissile/MOAB residual
+//! deepen (NeutronMissileUpdate loft DistanceToTravelBeforeTurning 200 /
+//! SpecialSpeedTime 1500ms→45f / HeightDie InitialDelay 1000ms→30f /
+//! TargetHeight 10 + projectile CruiseMissile + MOABDetonationWeapon damage/
+//! radius/ShockWave + WeaponFX_MOAB_Blast FireFX honesty); ArtilleryBarrage
+//! residual deepen (FormationSize 12/24/36 + DelayDeliveryMin 0 / Max 3000ms→90f
+//! + WeaponErrorRadius 100 + ChinaArtilleryCannon transport / PreferredHeight
+//! 500 / DeliveryDistance 250 honesty); NuclearMissile radiation residual
+//! deepen (SuspendFXDelay 10000ms→300f + FireFX WeaponFX_LargeRadiationFieldWeapon
+//! + DamageType RADIATION + OCL_NukeRadiationField); AnthraxBomb poison residual
+//! deepen (FireFX WeaponFX_LargePoisonFieldWeaponUpgraded + DeathType
+//! POISONED_BETA + WeaponSpeed 600 + OCL_PoisonFieldAnthraxBomb). Fail-closed:
+//! not full B52 pathfinder / NeutronMissileUpdate door/loft physics /
+//! ChinaArtilleryCannon transport Object / HazardousMaterialArmor stack.
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -182,6 +199,34 @@ pub const NUKE_RADIATION_TICK_INTERVAL_FRAMES: u32 = 23;
 pub const NUKE_RADIATION_DURATION_FRAMES: u32 = 900;
 /// Residual ambient cue for the radiation pool.
 pub const NUKE_RADIATION_AUDIO: &str = "RadiationPoolAmbientLoop";
+/// Retail `NukeRadiationFieldWeapon` FireFX residual.
+pub const NUKE_RADIATION_FIRE_FX: &str = "WeaponFX_LargeRadiationFieldWeapon";
+/// Retail `NukeRadiationFieldWeapon` DamageType residual.
+pub const NUKE_RADIATION_DAMAGE_TYPE: &str = "RADIATION";
+/// Retail `NukeRadiationFieldWeapon` DeathType residual.
+pub const NUKE_RADIATION_DEATH_TYPE: &str = "NORMAL";
+/// Retail `NukeRadiationFieldWeapon` WeaponSpeed residual (dist/sec).
+pub const NUKE_RADIATION_WEAPON_SPEED: f32 = 600.0;
+/// Retail `NukeRadiationFieldWeapon` SuspendFXDelay = 10000 ms → 300 frames @ 30 FPS.
+pub const NUKE_RADIATION_SUSPEND_FX_DELAY_MS: u32 = 10000;
+/// SuspendFXDelay frames residual (ceil 10000*30/1000).
+pub const NUKE_RADIATION_SUSPEND_FX_DELAY_FRAMES: u32 = 300;
+/// Retail OCL residual for nuke radiation field spawn.
+pub const NUKE_RADIATION_OCL: &str = "OCL_NukeRadiationField";
+/// Retail object name spawned by OCL_NukeRadiationField.
+pub const NUKE_RADIATION_OBJECT_NAME: &str = "NukeRadiationFieldWeapon";
+/// Retail NukeRadiationFieldWeapon weapon template residual.
+pub const NUKE_RADIATION_WEAPON_NAME: &str = "NukeRadiationFieldWeapon";
+/// Retail NukeRadiationFieldWeapon LifetimeUpdate Min/MaxLifetime msec.
+pub const NUKE_RADIATION_LIFETIME_MS: u32 = 30000;
+/// Retail NukeRadiationFieldWeapon DelayBetweenShots msec residual.
+pub const NUKE_RADIATION_DELAY_BETWEEN_SHOTS_MS: u32 = 750;
+/// Retail NukeRadiationFieldWeapon RadiusDamageAffects residual.
+pub const NUKE_RADIATION_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS NOT_AIRBORNE";
+/// Retail NukeRadiationFieldWeapon MaxHealth residual (field object body).
+pub const NUKE_RADIATION_FIELD_MAX_HEALTH: f32 = 150.0;
+/// Retail NukeRadiationFieldWeapon GeometryMajorRadius residual.
+pub const NUKE_RADIATION_GEOMETRY_MAJOR_RADIUS: f32 = 100.0;
 
 // --- Anthrax toxin residual (retail AnthraxBombPoisonFieldWeapon / LifetimeUpdate) ---
 
@@ -195,6 +240,32 @@ pub const ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES: u32 = 15;
 pub const ANTHRAX_TOXIN_DURATION_FRAMES: u32 = 1800;
 /// Residual ambient cue for the anthrax pool (`PoisonFieldAnthraxBomb.SoundAmbient`).
 pub const ANTHRAX_TOXIN_AUDIO: &str = "AnthraxPoolAmbientLoop";
+/// Retail `AnthraxBombPoisonFieldWeapon` FireFX residual.
+pub const ANTHRAX_TOXIN_FIRE_FX: &str = "WeaponFX_LargePoisonFieldWeaponUpgraded";
+/// Retail `AnthraxBombPoisonFieldWeapon` DamageType residual.
+pub const ANTHRAX_TOXIN_DAMAGE_TYPE: &str = "POISON";
+/// Retail `AnthraxBombPoisonFieldWeapon` DeathType residual.
+pub const ANTHRAX_TOXIN_DEATH_TYPE: &str = "POISONED_BETA";
+/// Retail `AnthraxBombPoisonFieldWeapon` WeaponSpeed residual (dist/sec).
+pub const ANTHRAX_TOXIN_WEAPON_SPEED: f32 = 600.0;
+/// Retail AnthraxBombWeapon FireOCL residual.
+pub const ANTHRAX_TOXIN_OCL: &str = "OCL_PoisonFieldAnthraxBomb";
+/// Retail AnthraxBombWeapon impact blast residual name.
+pub const ANTHRAX_BOMB_WEAPON_NAME: &str = "AnthraxBombWeapon";
+/// Retail AnthraxBombWeapon PrimaryDamage residual (impact blast only).
+pub const ANTHRAX_BOMB_IMPACT_DAMAGE: f32 = 200.0;
+/// Retail AnthraxBombWeapon PrimaryDamageRadius residual.
+pub const ANTHRAX_BOMB_IMPACT_RADIUS: f32 = 100.0;
+/// Retail AnthraxBombPoisonFieldWeapon DelayBetweenShots msec residual.
+pub const ANTHRAX_TOXIN_DELAY_BETWEEN_SHOTS_MS: u32 = 500;
+/// Retail PoisonFieldAnthraxBomb LifetimeUpdate Min/MaxLifetime msec.
+pub const ANTHRAX_TOXIN_LIFETIME_MS: u32 = 60000;
+/// Retail AnthraxBombPoisonFieldWeapon RadiusDamageAffects residual.
+pub const ANTHRAX_TOXIN_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS NOT_AIRBORNE";
+/// Retail AnthraxBombPoisonFieldWeapon AttackRange residual.
+pub const ANTHRAX_TOXIN_ATTACK_RANGE: f32 = 15.0;
+/// Retail AnthraxBombPoisonFieldWeapon MinimumAttackRange residual.
+pub const ANTHRAX_TOXIN_MINIMUM_ATTACK_RANGE: f32 = 10.0;
 
 // --- Spectre Gunship orbit residual (retail SpectreHowitzerGun / OrbitTime) ---
 
@@ -1909,6 +1980,191 @@ pub fn honesty_gattling_weapon_bonus_rof() -> bool {
         && spectre_gattling_interval_frames(3) == 1
 }
 
+/// Honesty: CarpetBomb residual pack deepen (Wave 56).
+///
+/// DropDelay/DropVariance/PreferredHeight/bomb-count tiers/FireFX/DeliveryDistance.
+/// Fail-closed: not full AmericaJetB52 pathfinder / DeliverPayloadAIUpdate flight.
+pub fn honesty_carpet_bomb_residual_pack() -> bool {
+    CARPET_BOMB_COUNT == 15
+        && CARPET_BOMB_COUNT_AIRF == 12
+        && CARPET_BOMB_COUNT_CHINA == 10
+        && CARPET_BOMB_DROP_DELAY_FRAMES == 9
+        && CARPET_BOMB_DROP_DELAY_MS == 300
+        && duration_ms_to_logic_frames(CARPET_BOMB_DROP_DELAY_MS) == CARPET_BOMB_DROP_DELAY_FRAMES
+        && CARPET_BOMB_DROP_DELAY_AIRF_MS == 130
+        && CARPET_BOMB_DROP_DELAY_AIRF_FRAMES == 4
+        && duration_ms_to_logic_frames(CARPET_BOMB_DROP_DELAY_AIRF_MS)
+            == CARPET_BOMB_DROP_DELAY_AIRF_FRAMES
+        && (CARPET_BOMB_DROP_VARIANCE_X - 30.0).abs() < 0.01
+        && (CARPET_BOMB_DROP_VARIANCE_Y - 40.0).abs() < 0.01
+        && (CARPET_BOMB_DROP_VARIANCE_Z - 0.0).abs() < 0.01
+        && (CARPET_BOMB_PREFERRED_HEIGHT - 100.0).abs() < 0.01
+        && (CARPET_BOMB_DELIVERY_DISTANCE - 400.0).abs() < 0.01
+        && (CARPET_BOMB_DELIVERY_DISTANCE_AIRF - 500.0).abs() < 0.01
+        && (CARPET_BOMB_DELIVERY_DISTANCE_CHINA - 350.0).abs() < 0.01
+        && CARPET_BOMB_TRANSPORT == "AmericaJetB52"
+        && CARPET_BOMB_TRANSPORT_AIRF == "AirF_AmericaJetB3"
+        && CARPET_BOMB_TRANSPORT_CHINA == "ChinaJetCarpetBomber"
+        && CARPET_BOMB_FIRE_FX == "FX_CarpetBomb"
+        && CARPET_BOMB_EXPLOSION_AUDIO == "ExplosionCarpetBomb"
+        && CARPET_BOMB_WEAPON_NAME == "CarpetBombWeapon"
+        && CARPET_BOMB_PAYLOAD_OBJECT == "CarpetBomb"
+        && CARPET_BOMB_LOCOMOTOR == "B52Locomotor"
+        && (CARPET_BOMB_LOCOMOTOR_SPEED - 125.0).abs() < 0.01
+        && (CARPET_BOMB_DROP_OFFSET_Z - (-2.0)).abs() < 0.01
+        && CarpetBombFactionTier::America.bomb_count() == 15
+        && CarpetBombFactionTier::AirForce.bomb_count() == 12
+        && CarpetBombFactionTier::China.bomb_count() == 10
+        && CarpetBombFactionTier::America.drop_delay_frames() == 9
+        && CarpetBombFactionTier::AirForce.drop_delay_frames() == 4
+        && CarpetBombFactionTier::China.drop_delay_frames() == 9
+        && (CarpetBombFactionTier::America.line_length() - 14.0 * CARPET_BOMB_SPACING).abs() < 0.01
+        && (CarpetBombFactionTier::AirForce.line_length() - 11.0 * CARPET_BOMB_SPACING).abs()
+            < 0.01
+        && (CarpetBombFactionTier::China.line_length() - 9.0 * CARPET_BOMB_SPACING).abs() < 0.01
+        && CarpetBombFactionTier::from_science_or_ocl_name("AirF_SUPERWEAPON_CarpetBomb")
+            == Some(CarpetBombFactionTier::AirForce)
+        && CarpetBombFactionTier::from_science_or_ocl_name("SUPERWEAPON_ChinaCarpetBomb")
+            == Some(CarpetBombFactionTier::China)
+        && CarpetBombFactionTier::from_science_or_ocl_name("SUPERWEAPON_CarpetBomb")
+            == Some(CarpetBombFactionTier::America)
+}
+
+/// Honesty: CruiseMissile / MOAB residual pack deepen (Wave 56).
+///
+/// Loft SpecialSpeedTime/DistanceToTravelBeforeTurning/HeightDie + projectile
+/// object + MOAB damage/radius/ShockWave/FireFX residual.
+/// Fail-closed: not full NeutronMissileUpdate door/loft physics Object.
+pub fn honesty_cruise_missile_residual_pack() -> bool {
+    CRUISE_MISSILE_PROJECTILE_OBJECT == "CruiseMissile"
+        && CRUISE_MISSILE_WEAPON_NAME == "CruiseMissileWeapon"
+        && CRUISE_MISSILE_OCL == "SUPERWEAPON_CruiseMissile"
+        && CRUISE_MISSILE_DEATH_WEAPON == "MOABDetonationWeapon"
+        && CRUISE_MISSILE_MOAB_FIRE_FX == "WeaponFX_MOAB_Blast"
+        && CRUISE_MISSILE_LAUNCH_FIRE_FX == "WeaponFX_NeutronMissile"
+        && CRUISE_MISSILE_LAUNCH_FX == "FX_NeutronMissileLaunch"
+        && CRUISE_MISSILE_IGNITION_FX == "FX_NeutronMissileIgnition"
+        && CRUISE_MISSILE_EXHAUST == "NeutronMissileExhaust"
+        && (CRUISE_MISSILE_DISTANCE_BEFORE_TURNING - 200.0).abs() < 0.01
+        && CRUISE_MISSILE_SPECIAL_SPEED_TIME_MS == 1500
+        && CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES == 45
+        && duration_ms_to_logic_frames(CRUISE_MISSILE_SPECIAL_SPEED_TIME_MS)
+            == CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES
+        && (CRUISE_MISSILE_SPECIAL_SPEED_HEIGHT - 160.0).abs() < 0.01
+        && (CRUISE_MISSILE_HEIGHT_DIE_TARGET - 10.0).abs() < 0.01
+        && CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_MS == 1000
+        && CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+        && duration_ms_to_logic_frames(CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_MS)
+            == CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES
+        && CRUISE_MISSILE_LOFT_COMPOSITE_FRAMES == 75
+        && (CRUISE_MISSILE_DAMAGE - 2000.0).abs() < 0.1
+        && (CRUISE_MISSILE_RADIUS - 150.0).abs() < 0.1
+        && (MOAB_FLAME_DAMAGE - 5.0).abs() < 0.01
+        && (MOAB_FLAME_RADIUS - 100.0).abs() < 0.1
+        && (MOAB_SHOCKWAVE_AMOUNT - 250.0).abs() < 0.1
+        && (MOAB_SHOCKWAVE_RADIUS - 200.0).abs() < 0.1
+        && (MOAB_SHOCKWAVE_TAPER_OFF - 0.33).abs() < 0.01
+        && MOAB_DAMAGE_TYPE == "EXPLOSION"
+        && MOAB_DEATH_TYPE == "EXPLODED"
+        && MOAB_FLAME_DAMAGE_TYPE == "FLAME"
+        && MOAB_FLAME_DEATH_TYPE == "BURNED"
+        && CRUISE_MISSILE_DOOR_OPEN_TIME_FRAMES == 240
+        && duration_ms_to_logic_frames(CRUISE_MISSILE_DOOR_OPEN_TIME_MS)
+            == CRUISE_MISSILE_DOOR_OPEN_TIME_FRAMES
+        && CRUISE_MISSILE_INITIATE_SOUND == "AirRaidSiren"
+        && (CRUISE_MISSILE_GEOMETRY_MAJOR_RADIUS - 7.0).abs() < 0.01
+        && (CRUISE_MISSILE_GEOMETRY_HEIGHT - 60.0).abs() < 0.01
+        && CRUISE_MISSILE_IMPACT_DELAY_FRAMES == 180
+}
+
+/// Honesty: ArtilleryBarrage residual pack deepen (Wave 56).
+///
+/// FormationSize tiers + DelayDeliveryMin/Max + WeaponErrorRadius +
+/// ChinaArtilleryCannon transport honesty.
+/// Fail-closed: not full ChinaArtilleryCannon DeliverPayload transport Object.
+pub fn honesty_artillery_barrage_residual_pack() -> bool {
+    ARTILLERY_BARRAGE_SHELL_COUNT == 12
+        && ARTILLERY_BARRAGE_SHELL_COUNT_L2 == 24
+        && ARTILLERY_BARRAGE_SHELL_COUNT_L3 == 36
+        && ArtilleryBarrageScienceTier::Level1.formation_size() == 12
+        && ArtilleryBarrageScienceTier::Level2.formation_size() == 24
+        && ArtilleryBarrageScienceTier::Level3.formation_size() == 36
+        && (ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1
+        && ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES == 90
+        && ARTILLERY_BARRAGE_DELAY_DELIVERY_MAX_MS == 3000
+        && duration_ms_to_logic_frames(ARTILLERY_BARRAGE_DELAY_DELIVERY_MAX_MS)
+            == ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        && ARTILLERY_BARRAGE_DELAY_DELIVERY_MIN_FRAMES == 0
+        && ARTILLERY_BARRAGE_TRANSPORT == "ChinaArtilleryCannon"
+        && ARTILLERY_BARRAGE_SHELL_OBJECT == "ChinaArtilleryBarrageShell"
+        && ARTILLERY_BARRAGE_WEAPON_NAME == "ArtilleryBarrageDamageWeapon"
+        && (ARTILLERY_BARRAGE_PREFERRED_HEIGHT - 500.0).abs() < 0.1
+        && (ARTILLERY_BARRAGE_DELIVERY_DISTANCE - 250.0).abs() < 0.1
+        && (ARTILLERY_BARRAGE_DECAL_RADIUS - 125.0).abs() < 0.1
+        && (ARTILLERY_BARRAGE_FORMATION_SPACING - 1.0).abs() < 0.01
+        && (ARTILLERY_BARRAGE_EXIT_PITCH_RATE - 30.0).abs() < 0.01
+        && ARTILLERY_BARRAGE_LOCOMOTOR == "ChinaArtilleryBarrageCannonLocomotor"
+        && (ARTILLERY_BARRAGE_LOCOMOTOR_SPEED - 150.0).abs() < 0.1
+        && ARTILLERY_BARRAGE_FIRE_FX == "FX_ArtilleryBarrage"
+        && ARTILLERY_BARRAGE_INITIATE_SOUND == "FireArtilleryCannonSound"
+        && (ARTILLERY_BARRAGE_DAMAGE - 105.0).abs() < 0.1
+        && (ARTILLERY_BARRAGE_RADIUS - 50.0).abs() < 0.1
+        && (ARTILLERY_BARRAGE_CANNON_MAX_HEALTH - 200.0).abs() < 0.1
+        && ARTILLERY_BARRAGE_CANNON_KIND_OF.contains("EMP_HARDENED")
+        && ARTILLERY_BARRAGE_CANNON_KIND_OF.contains("UNATTACKABLE")
+}
+
+/// Honesty: NuclearMissile radiation field residual pack deepen (Wave 56).
+pub fn honesty_nuke_radiation_residual_pack() -> bool {
+    (NUKE_RADIATION_DAMAGE_PER_TICK - 25.0).abs() < 0.01
+        && (NUKE_RADIATION_RADIUS - 200.0).abs() < 0.1
+        && NUKE_RADIATION_TICK_INTERVAL_FRAMES == 23
+        && NUKE_RADIATION_DURATION_FRAMES == 900
+        && NUKE_RADIATION_FIRE_FX == "WeaponFX_LargeRadiationFieldWeapon"
+        && NUKE_RADIATION_DAMAGE_TYPE == "RADIATION"
+        && NUKE_RADIATION_DEATH_TYPE == "NORMAL"
+        && (NUKE_RADIATION_WEAPON_SPEED - 600.0).abs() < 0.1
+        && NUKE_RADIATION_SUSPEND_FX_DELAY_MS == 10000
+        && NUKE_RADIATION_SUSPEND_FX_DELAY_FRAMES == 300
+        && duration_ms_to_logic_frames(NUKE_RADIATION_SUSPEND_FX_DELAY_MS)
+            == NUKE_RADIATION_SUSPEND_FX_DELAY_FRAMES
+        && NUKE_RADIATION_OCL == "OCL_NukeRadiationField"
+        && NUKE_RADIATION_OBJECT_NAME == "NukeRadiationFieldWeapon"
+        && NUKE_RADIATION_WEAPON_NAME == "NukeRadiationFieldWeapon"
+        && NUKE_RADIATION_LIFETIME_MS == 30000
+        && duration_ms_to_logic_frames(NUKE_RADIATION_LIFETIME_MS) == NUKE_RADIATION_DURATION_FRAMES
+        && NUKE_RADIATION_DELAY_BETWEEN_SHOTS_MS == 750
+        && NUKE_RADIATION_RADIUS_DAMAGE_AFFECTS.contains("NOT_AIRBORNE")
+        && (NUKE_RADIATION_FIELD_MAX_HEALTH - 150.0).abs() < 0.1
+        && (NUKE_RADIATION_GEOMETRY_MAJOR_RADIUS - 100.0).abs() < 0.1
+        && NUKE_RADIATION_AUDIO == "RadiationPoolAmbientLoop"
+}
+
+/// Honesty: AnthraxBomb poison field residual pack deepen (Wave 56).
+pub fn honesty_anthrax_toxin_residual_pack() -> bool {
+    (ANTHRAX_TOXIN_DAMAGE_PER_TICK - 40.0).abs() < 0.01
+        && (ANTHRAX_TOXIN_RADIUS - 300.0).abs() < 0.1
+        && ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES == 15
+        && ANTHRAX_TOXIN_DURATION_FRAMES == 1800
+        && ANTHRAX_TOXIN_FIRE_FX == "WeaponFX_LargePoisonFieldWeaponUpgraded"
+        && ANTHRAX_TOXIN_DAMAGE_TYPE == "POISON"
+        && ANTHRAX_TOXIN_DEATH_TYPE == "POISONED_BETA"
+        && (ANTHRAX_TOXIN_WEAPON_SPEED - 600.0).abs() < 0.1
+        && ANTHRAX_TOXIN_OCL == "OCL_PoisonFieldAnthraxBomb"
+        && ANTHRAX_BOMB_WEAPON_NAME == "AnthraxBombWeapon"
+        && (ANTHRAX_BOMB_IMPACT_DAMAGE - 200.0).abs() < 0.1
+        && (ANTHRAX_BOMB_IMPACT_RADIUS - 100.0).abs() < 0.1
+        && ANTHRAX_TOXIN_DELAY_BETWEEN_SHOTS_MS == 500
+        && duration_ms_to_logic_frames(ANTHRAX_TOXIN_DELAY_BETWEEN_SHOTS_MS)
+            == ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES
+        && ANTHRAX_TOXIN_LIFETIME_MS == 60000
+        && duration_ms_to_logic_frames(ANTHRAX_TOXIN_LIFETIME_MS) == ANTHRAX_TOXIN_DURATION_FRAMES
+        && ANTHRAX_TOXIN_RADIUS_DAMAGE_AFFECTS.contains("NOT_AIRBORNE")
+        && (ANTHRAX_TOXIN_ATTACK_RANGE - 15.0).abs() < 0.01
+        && (ANTHRAX_TOXIN_MINIMUM_ATTACK_RANGE - 10.0).abs() < 0.01
+        && ANTHRAX_TOXIN_AUDIO == "AnthraxPoolAmbientLoop"
+}
+
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
 pub fn honesty_deletion_update_sleep_delay() -> bool {
     PARTICLE_REMNANT_DELETION_MIN_FRAMES == 120
@@ -1975,6 +2231,131 @@ pub const CARPET_BOMB_RADIUS: f32 = 50.0;
 /// Bomber approach residual frames before first bomb DropDelay stagger starts
 /// (fail-closed vs full edge-spawn + transit locomotor).
 pub const CARPET_BOMB_IMPACT_DELAY_FRAMES: u32 = 90;
+/// Retail SUPERWEAPON_CarpetBomb DropDelay msec residual.
+pub const CARPET_BOMB_DROP_DELAY_MS: u32 = 300;
+/// Retail AirF_SUPERWEAPON_CarpetBomb DropDelay = 130 ms → ceil 4 frames @ 30 FPS.
+pub const CARPET_BOMB_DROP_DELAY_AIRF_MS: u32 = 130;
+/// AirF DropDelay frames residual (ceil 130*30/1000 = 4).
+pub const CARPET_BOMB_DROP_DELAY_AIRF_FRAMES: u32 = 4;
+/// Retail AirF_SUPERWEAPON_CarpetBomb Payload count (`Payload = CarpetBomb 12`).
+pub const CARPET_BOMB_COUNT_AIRF: u32 = 12;
+/// Retail SUPERWEAPON_ChinaCarpetBomb / Nuke_ Payload count (`Payload = … 10`).
+pub const CARPET_BOMB_COUNT_CHINA: u32 = 10;
+/// Retail SUPERWEAPON_CarpetBomb DeliveryDistance residual.
+pub const CARPET_BOMB_DELIVERY_DISTANCE: f32 = 400.0;
+/// Retail AirF_SUPERWEAPON_CarpetBomb DeliveryDistance residual.
+pub const CARPET_BOMB_DELIVERY_DISTANCE_AIRF: f32 = 500.0;
+/// Retail SUPERWEAPON_ChinaCarpetBomb DeliveryDistance residual.
+pub const CARPET_BOMB_DELIVERY_DISTANCE_CHINA: f32 = 350.0;
+/// Retail AmericaJetB52 / B52Locomotor PreferredHeight residual.
+pub const CARPET_BOMB_PREFERRED_HEIGHT: f32 = 100.0;
+/// Retail SUPERWEAPON_CarpetBomb Transport residual.
+pub const CARPET_BOMB_TRANSPORT: &str = "AmericaJetB52";
+/// Retail AirF transport residual.
+pub const CARPET_BOMB_TRANSPORT_AIRF: &str = "AirF_AmericaJetB3";
+/// Retail China transport residual.
+pub const CARPET_BOMB_TRANSPORT_CHINA: &str = "ChinaJetCarpetBomber";
+/// Retail CarpetBomb payload object residual.
+pub const CARPET_BOMB_PAYLOAD_OBJECT: &str = "CarpetBomb";
+/// Retail CarpetBombWeapon residual name.
+pub const CARPET_BOMB_WEAPON_NAME: &str = "CarpetBombWeapon";
+/// Retail CarpetBomb FXListDie DeathFX residual.
+pub const CARPET_BOMB_FIRE_FX: &str = "FX_CarpetBomb";
+/// Retail impact audio residual (ExplosionCarpetBomb SoundEffects).
+pub const CARPET_BOMB_EXPLOSION_AUDIO: &str = "ExplosionCarpetBomb";
+/// Retail DeliverPayload DropOffset Z residual.
+pub const CARPET_BOMB_DROP_OFFSET_Z: f32 = -2.0;
+/// Retail SUPERWEAPON_CarpetBomb DeliveryDecalRadius residual.
+pub const CARPET_BOMB_DECAL_RADIUS: f32 = 100.0;
+/// Retail SuperweaponCarpetBomb ReloadTime residual (msec).
+pub const CARPET_BOMB_RELOAD_MS: u32 = 150000;
+/// ReloadTime frames residual (150000 ms → 4500 @ 30 FPS).
+pub const CARPET_BOMB_RELOAD_FRAMES: u32 = 4500;
+/// Retail SuperweaponCarpetBomb RadiusCursorRadius residual.
+pub const CARPET_BOMB_RADIUS_CURSOR: f32 = 100.0;
+/// Retail CarpetBomb SoundFallingFromPlane residual.
+pub const CARPET_BOMB_FALLING_SOUND: &str = "DaisyCutterWeapon";
+/// Retail CarpetBomb model residual.
+pub const CARPET_BOMB_MODEL: &str = "EXCarptBmb";
+/// Retail B52Locomotor template residual.
+pub const CARPET_BOMB_LOCOMOTOR: &str = "B52Locomotor";
+/// Retail B52Locomotor Speed residual (dist/sec).
+pub const CARPET_BOMB_LOCOMOTOR_SPEED: f32 = 125.0;
+
+/// Residual CarpetBomb faction/science tier (bomb count / DropDelay / DeliveryDistance).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum CarpetBombFactionTier {
+    /// USA SUPERWEAPON_CarpetBomb residual (Payload 15 / DropDelay 300 / Dist 400).
+    #[default]
+    America,
+    /// Air Force AirF_SUPERWEAPON_CarpetBomb residual (12 / 130ms / 500).
+    AirForce,
+    /// China SUPERWEAPON_ChinaCarpetBomb residual (10 / 300ms / 350).
+    China,
+}
+
+impl CarpetBombFactionTier {
+    /// Retail Payload bomb count for this faction residual.
+    pub fn bomb_count(self) -> u32 {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_COUNT,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_COUNT_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_COUNT_CHINA,
+        }
+    }
+
+    /// Retail DropDelay frames residual for this faction.
+    pub fn drop_delay_frames(self) -> u32 {
+        match self {
+            CarpetBombFactionTier::America | CarpetBombFactionTier::China => {
+                CARPET_BOMB_DROP_DELAY_FRAMES
+            }
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_DROP_DELAY_AIRF_FRAMES,
+        }
+    }
+
+    /// Retail DeliveryDistance residual for this faction.
+    pub fn delivery_distance(self) -> f32 {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_DELIVERY_DISTANCE,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_DELIVERY_DISTANCE_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_DELIVERY_DISTANCE_CHINA,
+        }
+    }
+
+    /// Retail OCL Transport residual name.
+    pub fn transport(self) -> &'static str {
+        match self {
+            CarpetBombFactionTier::America => CARPET_BOMB_TRANSPORT,
+            CarpetBombFactionTier::AirForce => CARPET_BOMB_TRANSPORT_AIRF,
+            CarpetBombFactionTier::China => CARPET_BOMB_TRANSPORT_CHINA,
+        }
+    }
+
+    /// Host residual line length ≈ (count-1)*spacing (DeliveryDistance flight deferred).
+    pub fn line_length(self) -> f32 {
+        let n = self.bomb_count().max(1);
+        (n as f32 - 1.0) * CARPET_BOMB_SPACING
+    }
+
+    /// Map science/OCL residual name to faction tier.
+    pub fn from_science_or_ocl_name(name: &str) -> Option<Self> {
+        let n: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        if n.contains("airf") {
+            Some(CarpetBombFactionTier::AirForce)
+        } else if n.contains("china") || n.contains("nuke_chinacarpet") {
+            Some(CarpetBombFactionTier::China)
+        } else if n.contains("carpetbomb") {
+            Some(CarpetBombFactionTier::America)
+        } else {
+            None
+        }
+    }
+}
 
 // --- Artillery Barrage scatter multi-shell residual (retail SUPERWEAPON_ArtilleryBarrage1) ---
 
@@ -2060,6 +2441,45 @@ pub const ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES: u32 = 90;
 /// Legacy ring radius used by older residual placement (pre WeaponErrorRadius draw).
 /// Kept for honesty/tests that still reference the constant name.
 pub const ARTILLERY_BARRAGE_RING_RADIUS: f32 = 75.0;
+/// Retail DeliverPayload DelayDeliveryMax msec residual.
+pub const ARTILLERY_BARRAGE_DELAY_DELIVERY_MAX_MS: u32 = 3000;
+/// Retail DelayDeliveryMin residual (not set in INI; C++ only exposes Max; host 0).
+pub const ARTILLERY_BARRAGE_DELAY_DELIVERY_MIN_FRAMES: u32 = 0;
+/// Retail SUPERWEAPON_ArtilleryBarrage Transport residual.
+pub const ARTILLERY_BARRAGE_TRANSPORT: &str = "ChinaArtilleryCannon";
+/// Retail VisiblePayloadTemplateName residual.
+pub const ARTILLERY_BARRAGE_SHELL_OBJECT: &str = "ChinaArtilleryBarrageShell";
+/// Retail VisiblePayloadWeaponTemplate residual.
+pub const ARTILLERY_BARRAGE_WEAPON_NAME: &str = "ArtilleryBarrageDamageWeapon";
+/// Retail ChinaArtilleryBarrageCannonLocomotor PreferredHeight residual.
+pub const ARTILLERY_BARRAGE_PREFERRED_HEIGHT: f32 = 500.0;
+/// Retail DeliverPayload DeliveryDistance residual.
+pub const ARTILLERY_BARRAGE_DELIVERY_DISTANCE: f32 = 250.0;
+/// Retail DeliveryDecalRadius residual.
+pub const ARTILLERY_BARRAGE_DECAL_RADIUS: f32 = 125.0;
+/// Retail FormationSpacing residual.
+pub const ARTILLERY_BARRAGE_FORMATION_SPACING: f32 = 1.0;
+/// Retail ExitPitchRate residual.
+pub const ARTILLERY_BARRAGE_EXIT_PITCH_RATE: f32 = 30.0;
+/// Retail ChinaArtilleryBarrageCannonLocomotor template residual.
+pub const ARTILLERY_BARRAGE_LOCOMOTOR: &str = "ChinaArtilleryBarrageCannonLocomotor";
+/// Retail ChinaArtilleryBarrageCannonLocomotor Speed residual.
+pub const ARTILLERY_BARRAGE_LOCOMOTOR_SPEED: f32 = 150.0;
+/// Retail ProjectileDetonationFX residual.
+pub const ARTILLERY_BARRAGE_FIRE_FX: &str = "FX_ArtilleryBarrage";
+/// Retail SuperweaponArtilleryBarrage InitiateSound residual.
+pub const ARTILLERY_BARRAGE_INITIATE_SOUND: &str = "FireArtilleryCannonSound";
+/// Retail SuperweaponArtilleryBarrage ReloadTime residual (msec).
+pub const ARTILLERY_BARRAGE_RELOAD_MS: u32 = 300000;
+/// ReloadTime frames residual (300000 ms → 9000 @ 30 FPS).
+pub const ARTILLERY_BARRAGE_RELOAD_FRAMES: u32 = 9000;
+/// Retail SuperweaponArtilleryBarrage RadiusCursorRadius residual.
+pub const ARTILLERY_BARRAGE_RADIUS_CURSOR: f32 = 125.0;
+/// Retail ChinaArtilleryCannon MaxHealth residual.
+pub const ARTILLERY_BARRAGE_CANNON_MAX_HEALTH: f32 = 200.0;
+/// Retail ChinaArtilleryCannon KindOf residual (honesty substring).
+pub const ARTILLERY_BARRAGE_CANNON_KIND_OF: &str =
+    "PRELOAD CAN_ATTACK VEHICLE AIRCRAFT UNATTACKABLE IGNORED_IN_GUI EMP_HARDENED";
 
 // --- Cruise Missile residual (retail SupW_CruiseMissile / MOABDetonationWeapon) ---
 
@@ -2082,6 +2502,82 @@ pub const MOAB_FLAME_DAMAGE: f32 = 5.0;
 pub const MOAB_FLAME_RADIUS: f32 = 100.0;
 /// Residual honesty audio / FX label for flame secondary.
 pub const MOAB_FLAME_AUDIO: &str = "FX_MOABIgnite";
+/// Retail CruiseMissileWeapon ProjectileObject residual.
+pub const CRUISE_MISSILE_PROJECTILE_OBJECT: &str = "CruiseMissile";
+/// Retail SUPERWEAPON_CruiseMissile FireWeapon residual name.
+pub const CRUISE_MISSILE_WEAPON_NAME: &str = "CruiseMissileWeapon";
+/// Retail OCL residual for SupW cruise launch.
+pub const CRUISE_MISSILE_OCL: &str = "SUPERWEAPON_CruiseMissile";
+/// Retail FireWeaponWhenDead DeathWeapon residual.
+pub const CRUISE_MISSILE_DEATH_WEAPON: &str = "MOABDetonationWeapon";
+/// Retail MOABDetonationWeapon FireFX residual.
+pub const CRUISE_MISSILE_MOAB_FIRE_FX: &str = "WeaponFX_MOAB_Blast";
+/// Retail CruiseMissileWeapon FireFX residual.
+pub const CRUISE_MISSILE_LAUNCH_FIRE_FX: &str = "WeaponFX_NeutronMissile";
+/// Retail NeutronMissileUpdate LaunchFX residual.
+pub const CRUISE_MISSILE_LAUNCH_FX: &str = "FX_NeutronMissileLaunch";
+/// Retail NeutronMissileUpdate IgnitionFX residual.
+pub const CRUISE_MISSILE_IGNITION_FX: &str = "FX_NeutronMissileIgnition";
+/// Retail CruiseMissileWeapon ProjectileExhaust residual.
+pub const CRUISE_MISSILE_EXHAUST: &str = "NeutronMissileExhaust";
+/// Retail NeutronMissileUpdate DistanceToTravelBeforeTurning residual.
+pub const CRUISE_MISSILE_DISTANCE_BEFORE_TURNING: f32 = 200.0;
+/// Retail NeutronMissileUpdate SpecialSpeedTime = 1500 ms residual.
+pub const CRUISE_MISSILE_SPECIAL_SPEED_TIME_MS: u32 = 1500;
+/// SpecialSpeedTime frames residual (ceil 1500*30/1000 = 45).
+pub const CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES: u32 = 45;
+/// Retail NeutronMissileUpdate SpecialSpeedHeight residual.
+pub const CRUISE_MISSILE_SPECIAL_SPEED_HEIGHT: f32 = 160.0;
+/// Retail NeutronMissileUpdate SpecialJitterDistance residual.
+pub const CRUISE_MISSILE_SPECIAL_JITTER_DISTANCE: f32 = 0.4;
+/// Retail NeutronMissileUpdate TargetFromDirectlyAbove residual.
+pub const CRUISE_MISSILE_TARGET_FROM_ABOVE: f32 = 10.0;
+/// Retail HeightDieUpdate TargetHeight residual.
+pub const CRUISE_MISSILE_HEIGHT_DIE_TARGET: f32 = 10.0;
+/// Retail HeightDieUpdate InitialDelay = 1000 ms residual.
+pub const CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_MS: u32 = 1000;
+/// HeightDie InitialDelay frames residual (1000 ms → 30).
+pub const CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES: u32 = 30;
+/// Retail DeliveryDecalRadius residual on CruiseMissile.
+pub const CRUISE_MISSILE_DECAL_RADIUS: f32 = 210.0;
+/// Retail MissileLauncherBuildingUpdate DoorOpenTime residual (msec).
+pub const CRUISE_MISSILE_DOOR_OPEN_TIME_MS: u32 = 8000;
+/// DoorOpenTime frames residual (8000 ms → 240).
+pub const CRUISE_MISSILE_DOOR_OPEN_TIME_FRAMES: u32 = 240;
+/// Retail DoorWaitOpenTime residual (msec).
+pub const CRUISE_MISSILE_DOOR_WAIT_OPEN_TIME_MS: u32 = 2000;
+/// DoorWaitOpenTime frames residual (2000 ms → 60).
+pub const CRUISE_MISSILE_DOOR_WAIT_OPEN_TIME_FRAMES: u32 = 60;
+/// Retail SupW_CruiseMissile ReloadTime residual (msec).
+pub const CRUISE_MISSILE_RELOAD_MS: u32 = 120000;
+/// ReloadTime frames residual (120000 ms → 3600).
+pub const CRUISE_MISSILE_RELOAD_FRAMES: u32 = 3600;
+/// Retail SupW_CruiseMissile RadiusCursorRadius residual.
+pub const CRUISE_MISSILE_RADIUS_CURSOR: f32 = 210.0;
+/// Retail SupW_CruiseMissile InitiateSound residual.
+pub const CRUISE_MISSILE_INITIATE_SOUND: &str = "AirRaidSiren";
+/// Retail CruiseMissile GeometryMajorRadius residual.
+pub const CRUISE_MISSILE_GEOMETRY_MAJOR_RADIUS: f32 = 7.0;
+/// Retail CruiseMissile GeometryHeight residual.
+pub const CRUISE_MISSILE_GEOMETRY_HEIGHT: f32 = 60.0;
+/// Retail MOABDetonationWeapon ShockWaveAmount residual.
+pub const MOAB_SHOCKWAVE_AMOUNT: f32 = 250.0;
+/// Retail MOABDetonationWeapon ShockWaveRadius residual.
+pub const MOAB_SHOCKWAVE_RADIUS: f32 = 200.0;
+/// Retail MOABDetonationWeapon ShockWaveTaperOff residual.
+pub const MOAB_SHOCKWAVE_TAPER_OFF: f32 = 0.33;
+/// Retail MOABDetonationWeapon DamageType residual.
+pub const MOAB_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail MOABDetonationWeapon DeathType residual.
+pub const MOAB_DEATH_TYPE: &str = "EXPLODED";
+/// Retail MOABFlameWeapon DamageType residual.
+pub const MOAB_FLAME_DAMAGE_TYPE: &str = "FLAME";
+/// Retail MOABFlameWeapon DeathType residual.
+pub const MOAB_FLAME_DEATH_TYPE: &str = "BURNED";
+/// Host residual loft composition: SpecialSpeedTime + HeightDie InitialDelay
+/// (door times deferred; impact delay stays CRUISE_MISSILE_IMPACT_DELAY_FRAMES).
+pub const CRUISE_MISSILE_LOFT_COMPOSITE_FRAMES: u32 =
+    CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES + CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES;
 
 // --- ScudStorm multi-missile residual (retail ScudStormWeapon / ScudStormDamageWeapon) ---
 
@@ -3051,9 +3547,22 @@ pub fn artillery_shell_impact_frame(activate_frame: u32, formation_index: u32) -
 ///
 /// First bomb at approach residual; subsequent bombs every `CARPET_BOMB_DROP_DELAY_FRAMES`.
 pub fn carpet_bomb_impact_frame(activate_frame: u32, bomb_index: u32) -> u32 {
+    carpet_bomb_impact_frame_for_tier(
+        activate_frame,
+        bomb_index,
+        CarpetBombFactionTier::America,
+    )
+}
+
+/// Absolute impact frame for carpet bomb index with faction DropDelay residual.
+pub fn carpet_bomb_impact_frame_for_tier(
+    activate_frame: u32,
+    bomb_index: u32,
+    tier: CarpetBombFactionTier,
+) -> u32 {
     activate_frame
         .saturating_add(CARPET_BOMB_IMPACT_DELAY_FRAMES)
-        .saturating_add(bomb_index.saturating_mul(CARPET_BOMB_DROP_DELAY_FRAMES))
+        .saturating_add(bomb_index.saturating_mul(tier.drop_delay_frames()))
 }
 
 /// Last absolute multi-strike impact frame for a kind (complete residual).
@@ -3069,6 +3578,7 @@ pub fn multi_strike_last_impact_frame(
             .max()
             .unwrap_or_else(|| activate_frame.saturating_add(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES))
     } else if kind.is_line_multi_strike() {
+        // Default America Payload 15 residual (tier-aware path uses ocl_shell_frames).
         carpet_bomb_impact_frame(activate_frame, CARPET_BOMB_COUNT.saturating_sub(1))
     } else if kind.is_scud_multi_strike() {
         scud_missile_impact_frame(activate_frame, SCUD_STORM_MISSILE_COUNT.saturating_sub(1))
@@ -3114,7 +3624,15 @@ pub fn drop_variance_offset(index: u32, var_x: f32, var_y: f32, var_z: f32) -> V
 /// Each point applies retail DropVariance residual (X:30 Y:40 Z:0) via
 /// deterministic host scatter (fail-closed vs GameLogicRandomValueReal).
 pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
-    let count = CARPET_BOMB_COUNT.max(1);
+    carpet_bomb_points_for_tier(target, CarpetBombFactionTier::America)
+}
+
+/// Build residual carpet bomb epicenters for a faction Payload/DropVariance residual.
+///
+/// Retail: USA Payload **15** / AirF **12** / China **10**. DropVariance always
+/// X:30 Y:40 Z:0. PreferredHeight / DeliveryDistance honesty on tier, not path.
+pub fn carpet_bomb_points_for_tier(target: Vec3, tier: CarpetBombFactionTier) -> Vec<Vec3> {
+    let count = tier.bomb_count().max(1);
     let half = (count as f32 - 1.0) * 0.5;
     let mut points = Vec::with_capacity(count as usize);
     for i in 0..count {
@@ -3425,6 +3943,78 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: MissileAIUpdate defaults residual applications.
     #[serde(default)]
     pub scud_missile_ai_defaults_applications: u32,
+    /// CarpetBomb faction residual (USA15 / AirF12 / China10). Default America.
+    #[serde(default)]
+    pub carpet_tier: CarpetBombFactionTier,
+    /// Honesty: CarpetBomb residual pack armed at queue (Wave 56).
+    #[serde(default)]
+    pub carpet_residual_pack_armed: u32,
+    /// Honesty: AmericaJetB52 PreferredHeight residual applications.
+    #[serde(default)]
+    pub carpet_preferred_height_applications: u32,
+    /// Honesty: DropDelay stagger residual applications.
+    #[serde(default)]
+    pub carpet_drop_delay_applications: u32,
+    /// Honesty: DropVariance residual applications.
+    #[serde(default)]
+    pub carpet_drop_variance_applications: u32,
+    /// Honesty: bomb-count / line-length residual applications.
+    #[serde(default)]
+    pub carpet_bomb_count_applications: u32,
+    /// Honesty: FireFX FX_CarpetBomb residual applications (per bomb wave).
+    #[serde(default)]
+    pub carpet_fire_fx_applications: u32,
+    /// Honesty: DeliveryDistance residual applications.
+    #[serde(default)]
+    pub carpet_delivery_distance_applications: u32,
+    /// Honesty: ArtilleryBarrage residual pack armed at queue (Wave 56).
+    #[serde(default)]
+    pub artillery_residual_pack_armed: u32,
+    /// Honesty: ChinaArtilleryCannon transport residual applications.
+    #[serde(default)]
+    pub artillery_cannon_transport_applications: u32,
+    /// Honesty: FormationSize residual applications.
+    #[serde(default)]
+    pub artillery_formation_size_applications: u32,
+    /// Honesty: DelayDeliveryMin/Max residual applications.
+    #[serde(default)]
+    pub artillery_delay_delivery_applications: u32,
+    /// Honesty: WeaponErrorRadius residual applications.
+    #[serde(default)]
+    pub artillery_weapon_error_radius_applications: u32,
+    /// Honesty: PreferredHeight residual applications.
+    #[serde(default)]
+    pub artillery_preferred_height_applications: u32,
+    /// Honesty: shell detonation FireFX residual applications (per shell wave).
+    #[serde(default)]
+    pub artillery_fire_fx_applications: u32,
+    /// Honesty: CruiseMissile residual pack armed at queue (Wave 56).
+    #[serde(default)]
+    pub cruise_residual_pack_armed: u32,
+    /// Honesty: loft residual applications (SpecialSpeedTime / DistanceToTravel).
+    #[serde(default)]
+    pub cruise_loft_applications: u32,
+    /// Honesty: HeightDie residual applications.
+    #[serde(default)]
+    pub cruise_height_die_applications: u32,
+    /// Honesty: projectile object residual applications.
+    #[serde(default)]
+    pub cruise_projectile_applications: u32,
+    /// Honesty: MOABDetonationWeapon residual applications.
+    #[serde(default)]
+    pub cruise_moab_weapon_applications: u32,
+    /// Honesty: MOABFlameWeapon secondary residual applications.
+    #[serde(default)]
+    pub cruise_moab_flame_applications: u32,
+    /// Honesty: MOAB FireFX residual applications.
+    #[serde(default)]
+    pub cruise_moab_fire_fx_applications: u32,
+    /// Honesty: Nuke radiation residual pack applications (on parent strike).
+    #[serde(default)]
+    pub nuke_radiation_residual_pack_applications: u32,
+    /// Honesty: Anthrax toxin residual pack applications (on parent strike).
+    #[serde(default)]
+    pub anthrax_toxin_residual_pack_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3471,6 +4061,15 @@ pub struct HostRadiationField {
     pub objects_destroyed: u32,
     /// Parent NuclearMissile strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Honesty: radiation residual pack armed (SuspendFX / FireFX / OCL).
+    #[serde(default)]
+    pub radiation_residual_pack_armed: u32,
+    /// Honesty: SuspendFXDelay residual applications.
+    #[serde(default)]
+    pub radiation_suspend_fx_applications: u32,
+    /// Honesty: FireFX residual applications.
+    #[serde(default)]
+    pub radiation_fire_fx_applications: u32,
 }
 
 impl HostRadiationField {
@@ -3521,6 +4120,15 @@ pub struct HostToxinField {
     pub objects_destroyed: u32,
     /// Parent strike id (0 if spawned without a strike).
     pub parent_strike_id: u32,
+    /// Honesty: anthrax/scud poison residual pack armed (FireFX / DeathType / OCL).
+    #[serde(default)]
+    pub toxin_residual_pack_armed: u32,
+    /// Honesty: poison FireFX residual applications.
+    #[serde(default)]
+    pub toxin_fire_fx_applications: u32,
+    /// Honesty: DeathType / DamageType residual applications.
+    #[serde(default)]
+    pub toxin_damage_type_applications: u32,
     /// Damage per residual tick (Anthrax 40 / Scud LargePoison 15).
     #[serde(default = "default_toxin_damage_per_tick")]
     pub damage_per_tick: f32,
@@ -4974,13 +5582,40 @@ impl HostSpecialPowerStrikeRegistry {
             scud_weapon_launch_applications: 0,
             scud_weapon_special_applications: 0,
             scud_missile_ai_defaults_applications: 0,
+            carpet_tier: CarpetBombFactionTier::America,
+            carpet_residual_pack_armed: 0,
+            carpet_preferred_height_applications: 0,
+            carpet_drop_delay_applications: 0,
+            carpet_drop_variance_applications: 0,
+            carpet_bomb_count_applications: 0,
+            carpet_fire_fx_applications: 0,
+            carpet_delivery_distance_applications: 0,
+            artillery_residual_pack_armed: 0,
+            artillery_cannon_transport_applications: 0,
+            artillery_formation_size_applications: 0,
+            artillery_delay_delivery_applications: 0,
+            artillery_weapon_error_radius_applications: 0,
+            artillery_preferred_height_applications: 0,
+            artillery_fire_fx_applications: 0,
+            cruise_residual_pack_armed: 0,
+            cruise_loft_applications: 0,
+            cruise_height_die_applications: 0,
+            cruise_projectile_applications: 0,
+            cruise_moab_weapon_applications: 0,
+            cruise_moab_flame_applications: 0,
+            cruise_moab_fire_fx_applications: 0,
+            nuke_radiation_residual_pack_applications: 0,
+            anthrax_toxin_residual_pack_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
         if kind.is_multi_strike() {
-            let points = kind
-                .multi_strike_points_with_tier(target_position, artillery_tier)
-                .unwrap_or_default();
+            let points = if kind.is_line_multi_strike() {
+                carpet_bomb_points_for_tier(target_position, strike.carpet_tier)
+            } else {
+                kind.multi_strike_points_with_tier(target_position, artillery_tier)
+                    .unwrap_or_default()
+            };
             let mut frames = Vec::with_capacity(points.len());
             for i in 0..points.len() as u32 {
                 let shell_frame = if kind.is_scatter_multi_strike() {
@@ -4988,7 +5623,7 @@ impl HostSpecialPowerStrikeRegistry {
                 } else if kind.is_scud_multi_strike() {
                     scud_missile_impact_frame(activate_frame, i)
                 } else {
-                    carpet_bomb_impact_frame(activate_frame, i)
+                    carpet_bomb_impact_frame_for_tier(activate_frame, i, strike.carpet_tier)
                 };
                 frames.push(shell_frame);
             }
@@ -5005,6 +5640,30 @@ impl HostSpecialPowerStrikeRegistry {
             strike.scud_pre_attack_active = true;
             strike.scud_chem_fx_bones = SCUD_STORM_CHEM_FX_BONE_COUNT;
             strike.scud_launch_bone_applications = 1;
+        }
+        // Wave 56: arm CarpetBomb / Artillery / Cruise residual packs at queue.
+        if kind == HostSuperweaponKind::CarpetBomb {
+            strike.carpet_residual_pack_armed = 1;
+            strike.carpet_preferred_height_applications = 1;
+            strike.carpet_drop_delay_applications = 1;
+            strike.carpet_drop_variance_applications = 1;
+            strike.carpet_bomb_count_applications = 1;
+            strike.carpet_delivery_distance_applications = 1;
+        }
+        if kind == HostSuperweaponKind::ArtilleryBarrage {
+            strike.artillery_residual_pack_armed = 1;
+            strike.artillery_cannon_transport_applications = 1;
+            strike.artillery_formation_size_applications = 1;
+            strike.artillery_delay_delivery_applications = 1;
+            strike.artillery_weapon_error_radius_applications = 1;
+            strike.artillery_preferred_height_applications = 1;
+        }
+        if kind == HostSuperweaponKind::CruiseMissile {
+            strike.cruise_residual_pack_armed = 1;
+            strike.cruise_loft_applications = 1;
+            strike.cruise_height_die_applications = 1;
+            strike.cruise_projectile_applications = 1;
+            strike.cruise_moab_weapon_applications = 1;
         }
         self.strikes.insert(id, strike);
         self.activated_this_frame.push(id);
@@ -5074,6 +5733,8 @@ impl HostSpecialPowerStrikeRegistry {
                 // to re-query for older snapshots without ocl_points.
                 let all_points = if !strike.ocl_points.is_empty() {
                     strike.ocl_points.clone()
+                } else if strike.kind.is_line_multi_strike() {
+                    carpet_bomb_points_for_tier(strike.target_position, strike.carpet_tier)
                 } else {
                     strike
                         .kind
@@ -5101,7 +5762,11 @@ impl HostSpecialPowerStrikeRegistry {
                     } else if strike.kind.is_scud_multi_strike() {
                         scud_missile_impact_frame(strike.activate_frame, idx)
                     } else {
-                        carpet_bomb_impact_frame(strike.activate_frame, idx)
+                        carpet_bomb_impact_frame_for_tier(
+                            strike.activate_frame,
+                            idx,
+                            strike.carpet_tier,
+                        )
                     };
                     if shell_frame <= current_frame {
                         due.push(*p);
@@ -5244,6 +5909,38 @@ impl HostSpecialPowerStrikeRegistry {
                 strike.multi_strike_applied = strike
                     .multi_strike_applied
                     .saturating_add(wave_shell_count.max(1));
+                let shells = wave_shell_count.max(1);
+                // Wave 56: CarpetBomb FireFX residual per bomb wave.
+                if strike.kind == HostSuperweaponKind::CarpetBomb {
+                    strike.carpet_fire_fx_applications =
+                        strike.carpet_fire_fx_applications.saturating_add(shells);
+                }
+                // Wave 56: ArtilleryBarrage detonation FX residual per shell wave.
+                if strike.kind == HostSuperweaponKind::ArtilleryBarrage {
+                    strike.artillery_fire_fx_applications = strike
+                        .artillery_fire_fx_applications
+                        .saturating_add(shells);
+                }
+                // Wave 56: CruiseMissile MOAB primary + flame + FireFX residual.
+                if strike.kind == HostSuperweaponKind::CruiseMissile {
+                    strike.cruise_moab_weapon_applications = strike
+                        .cruise_moab_weapon_applications
+                        .saturating_add(1);
+                    strike.cruise_moab_flame_applications = strike
+                        .cruise_moab_flame_applications
+                        .saturating_add(1);
+                    strike.cruise_moab_fire_fx_applications = strike
+                        .cruise_moab_fire_fx_applications
+                        .saturating_add(1);
+                    strike.cruise_loft_applications =
+                        strike.cruise_loft_applications.saturating_add(1);
+                    strike.cruise_height_die_applications = strike
+                        .cruise_height_die_applications
+                        .saturating_add(1);
+                    strike.cruise_projectile_applications = strike
+                        .cruise_projectile_applications
+                        .saturating_add(1);
+                }
                 // ScudStorm: per-missile LargePoisonField residual (each detonation).
                 if strike.kind.spawns_scud_poison_field() {
                     let source = strike.source_object;
@@ -5539,11 +6236,22 @@ impl HostSpecialPowerStrikeRegistry {
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            radiation_residual_pack_armed: 1,
+            radiation_suspend_fx_applications: 1,
+            radiation_fire_fx_applications: 1,
         };
         self.radiation_fields.push(field);
         self.radiation_spawned_this_frame.push(id);
         self.radiation_fields_spawned_total =
             self.radiation_fields_spawned_total.saturating_add(1);
+        // Wave 56: arm parent strike radiation residual pack honesty.
+        if parent_strike_id != 0 {
+            if let Some(s) = self.strikes.get_mut(&parent_strike_id) {
+                s.nuke_radiation_residual_pack_applications = s
+                    .nuke_radiation_residual_pack_applications
+                    .saturating_add(1);
+            }
+        }
         id
     }
 
@@ -5708,6 +6416,9 @@ impl HostSpecialPowerStrikeRegistry {
             damage_applications: 0,
             objects_destroyed: 0,
             parent_strike_id,
+            toxin_residual_pack_armed: 1,
+            toxin_fire_fx_applications: 1,
+            toxin_damage_type_applications: 1,
             damage_per_tick,
             radius,
             tick_interval_frames,
@@ -5715,6 +6426,16 @@ impl HostSpecialPowerStrikeRegistry {
         self.toxin_fields.push(field);
         self.toxin_spawned_this_frame.push(id);
         self.toxin_fields_spawned_total = self.toxin_fields_spawned_total.saturating_add(1);
+        // Wave 56: arm parent AnthraxBomb residual pack honesty (Scud also uses toxin fields).
+        if parent_strike_id != 0 {
+            if let Some(s) = self.strikes.get_mut(&parent_strike_id) {
+                if s.kind == HostSuperweaponKind::AnthraxBomb {
+                    s.anthrax_toxin_residual_pack_applications = s
+                        .anthrax_toxin_residual_pack_applications
+                        .saturating_add(1);
+                }
+            }
+        }
         id
     }
 
@@ -6229,6 +6950,107 @@ impl HostSpecialPowerStrikeRegistry {
                 f.gattling_rof_mean_applications > 0 && f.gattling_rof_fast_applications > 0
             })
     }
+
+    /// Residual honesty: CarpetBomb residual pack (Wave 56) constants + applications.
+    pub fn honesty_carpet_bomb_residual_pack_ok(&self) -> bool {
+        if !honesty_carpet_bomb_residual_pack() {
+            return false;
+        }
+        // Constants-only path when no carpet strike queued.
+        if !self.strikes.values().any(|s| s.kind == HostSuperweaponKind::CarpetBomb) {
+            return true;
+        }
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::CarpetBomb
+                && s.carpet_residual_pack_armed >= 1
+                && s.carpet_preferred_height_applications >= 1
+                && s.carpet_drop_delay_applications >= 1
+                && s.carpet_drop_variance_applications >= 1
+                && s.carpet_bomb_count_applications >= 1
+                && s.carpet_delivery_distance_applications >= 1
+        })
+    }
+
+    /// Residual honesty: CruiseMissile/MOAB residual pack (Wave 56).
+    pub fn honesty_cruise_missile_residual_pack_ok(&self) -> bool {
+        if !honesty_cruise_missile_residual_pack() {
+            return false;
+        }
+        if !self.strikes.values().any(|s| s.kind == HostSuperweaponKind::CruiseMissile) {
+            return true;
+        }
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::CruiseMissile
+                && s.cruise_residual_pack_armed >= 1
+                && s.cruise_loft_applications >= 1
+                && s.cruise_height_die_applications >= 1
+                && s.cruise_projectile_applications >= 1
+                && s.cruise_moab_weapon_applications >= 1
+        })
+    }
+
+    /// Residual honesty: ArtilleryBarrage residual pack (Wave 56).
+    pub fn honesty_artillery_barrage_residual_pack_ok(&self) -> bool {
+        if !honesty_artillery_barrage_residual_pack() {
+            return false;
+        }
+        if !self
+            .strikes
+            .values()
+            .any(|s| s.kind == HostSuperweaponKind::ArtilleryBarrage)
+        {
+            return true;
+        }
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ArtilleryBarrage
+                && s.artillery_residual_pack_armed >= 1
+                && s.artillery_cannon_transport_applications >= 1
+                && s.artillery_formation_size_applications >= 1
+                && s.artillery_delay_delivery_applications >= 1
+                && s.artillery_weapon_error_radius_applications >= 1
+                && s.artillery_preferred_height_applications >= 1
+        })
+    }
+
+    /// Residual honesty: Nuke radiation residual pack (Wave 56).
+    pub fn honesty_nuke_radiation_residual_pack_ok(&self) -> bool {
+        if !honesty_nuke_radiation_residual_pack() {
+            return false;
+        }
+        if self.radiation_fields.is_empty() {
+            return true;
+        }
+        self.radiation_fields.iter().any(|f| {
+            f.radiation_residual_pack_armed >= 1
+                && f.radiation_suspend_fx_applications >= 1
+                && f.radiation_fire_fx_applications >= 1
+        })
+    }
+
+    /// Residual honesty: Anthrax toxin residual pack (Wave 56).
+    pub fn honesty_anthrax_toxin_residual_pack_ok(&self) -> bool {
+        if !honesty_anthrax_toxin_residual_pack() {
+            return false;
+        }
+        // Constants-only path when no anthrax toxin field armed.
+        let anthrax_fields: Vec<_> = self
+            .toxin_fields
+            .iter()
+            .filter(|f| {
+                (f.damage_per_tick - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01
+                    && (f.radius - ANTHRAX_TOXIN_RADIUS).abs() < 0.1
+            })
+            .collect();
+        if anthrax_fields.is_empty() {
+            return true;
+        }
+        anthrax_fields.iter().any(|f| {
+            f.toxin_residual_pack_armed >= 1
+                && f.toxin_fire_fx_applications >= 1
+                && f.toxin_damage_type_applications >= 1
+        })
+    }
+
 
     /// Residual honesty: howitzer continuous-fire ramp reached MEAN or FAST.
     pub fn honesty_howitzer_continuous_fire_ok(&self) -> bool {
@@ -12754,5 +13576,229 @@ mod tests {
             assert!(f.gattling_ticks >= 3);
         }
         assert!(reg.honesty_gattling_weapon_bonus_rof_ok());
+    }
+
+    #[test]
+    fn carpet_bomb_residual_pack_wave56_honesty() {
+        assert!(honesty_carpet_bomb_residual_pack());
+        assert_eq!(CARPET_BOMB_DROP_DELAY_MS, 300);
+        assert_eq!(CARPET_BOMB_DROP_DELAY_FRAMES, 9);
+        assert_eq!(CARPET_BOMB_DROP_DELAY_AIRF_MS, 130);
+        assert_eq!(CARPET_BOMB_DROP_DELAY_AIRF_FRAMES, 4);
+        assert_eq!(duration_ms_to_logic_frames(130), 4);
+        assert!((CARPET_BOMB_PREFERRED_HEIGHT - 100.0).abs() < 0.01);
+        assert!((CARPET_BOMB_DELIVERY_DISTANCE - 400.0).abs() < 0.01);
+        assert_eq!(CARPET_BOMB_FIRE_FX, "FX_CarpetBomb");
+        assert_eq!(CARPET_BOMB_TRANSPORT, "AmericaJetB52");
+        assert_eq!(CarpetBombFactionTier::America.bomb_count(), 15);
+        assert_eq!(CarpetBombFactionTier::AirForce.bomb_count(), 12);
+        assert_eq!(CarpetBombFactionTier::China.bomb_count(), 10);
+        assert_eq!(
+            carpet_bomb_points_for_tier(Vec3::ZERO, CarpetBombFactionTier::AirForce).len(),
+            12
+        );
+        assert_eq!(
+            carpet_bomb_points_for_tier(Vec3::ZERO, CarpetBombFactionTier::China).len(),
+            10
+        );
+        // AirF DropDelay stagger residual: bomb 1 at approach + 4.
+        assert_eq!(
+            carpet_bomb_impact_frame_for_tier(0, 1, CarpetBombFactionTier::AirForce),
+            CARPET_BOMB_IMPACT_DELAY_FRAMES + CARPET_BOMB_DROP_DELAY_AIRF_FRAMES
+        );
+        // America line length residual: (15-1)*25 = 350.
+        assert!(
+            (CarpetBombFactionTier::America.line_length() - 350.0).abs() < 0.01
+        );
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_carpet_bomb_residual_pack_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::CarpetBomb,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(100.0, 0.0, 50.0),
+            0,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.carpet_residual_pack_armed, 1);
+            assert_eq!(s.carpet_preferred_height_applications, 1);
+            assert_eq!(s.carpet_drop_delay_applications, 1);
+            assert_eq!(s.carpet_drop_variance_applications, 1);
+            assert_eq!(s.carpet_bomb_count_applications, 1);
+            assert_eq!(s.carpet_delivery_distance_applications, 1);
+            assert_eq!(s.ocl_points.len() as u32, CARPET_BOMB_COUNT);
+        }
+        assert!(reg.honesty_carpet_bomb_residual_pack_ok());
+        // First bomb wave arms FireFX residual.
+        let _ = reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES, &[]);
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[]);
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.carpet_fire_fx_applications >= 1);
+        }
+    }
+
+    #[test]
+    fn cruise_missile_residual_pack_wave56_honesty() {
+        assert!(honesty_cruise_missile_residual_pack());
+        assert_eq!(CRUISE_MISSILE_PROJECTILE_OBJECT, "CruiseMissile");
+        assert_eq!(CRUISE_MISSILE_DEATH_WEAPON, "MOABDetonationWeapon");
+        assert_eq!(CRUISE_MISSILE_MOAB_FIRE_FX, "WeaponFX_MOAB_Blast");
+        assert_eq!(CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES, 45);
+        assert_eq!(CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES, 30);
+        assert_eq!(CRUISE_MISSILE_LOFT_COMPOSITE_FRAMES, 75);
+        assert!((CRUISE_MISSILE_DISTANCE_BEFORE_TURNING - 200.0).abs() < 0.01);
+        assert!((MOAB_SHOCKWAVE_AMOUNT - 250.0).abs() < 0.1);
+        assert!((MOAB_SHOCKWAVE_RADIUS - 200.0).abs() < 0.1);
+        assert!((MOAB_SHOCKWAVE_TAPER_OFF - 0.33).abs() < 0.01);
+        assert_eq!(duration_ms_to_logic_frames(1500), 45);
+        assert_eq!(duration_ms_to_logic_frames(1000), 30);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_cruise_missile_residual_pack_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::CruiseMissile,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.cruise_residual_pack_armed, 1);
+            assert_eq!(s.cruise_loft_applications, 1);
+            assert_eq!(s.cruise_height_die_applications, 1);
+            assert_eq!(s.cruise_projectile_applications, 1);
+            assert_eq!(s.cruise_moab_weapon_applications, 1);
+        }
+        assert!(reg.honesty_cruise_missile_residual_pack_ok());
+        reg.record_impact_complete(id, 2000.0, 1, 0);
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.cruise_moab_flame_applications >= 1);
+            assert!(s.cruise_moab_fire_fx_applications >= 1);
+            assert!(s.cruise_loft_applications >= 2);
+        }
+    }
+
+    #[test]
+    fn artillery_barrage_residual_pack_wave56_honesty() {
+        assert!(honesty_artillery_barrage_residual_pack());
+        assert_eq!(ARTILLERY_BARRAGE_TRANSPORT, "ChinaArtilleryCannon");
+        assert_eq!(ARTILLERY_BARRAGE_SHELL_OBJECT, "ChinaArtilleryBarrageShell");
+        assert_eq!(ARTILLERY_BARRAGE_DELAY_DELIVERY_MIN_FRAMES, 0);
+        assert_eq!(ARTILLERY_BARRAGE_DELAY_DELIVERY_MAX_MS, 3000);
+        assert_eq!(
+            duration_ms_to_logic_frames(ARTILLERY_BARRAGE_DELAY_DELIVERY_MAX_MS),
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        );
+        assert!((ARTILLERY_BARRAGE_PREFERRED_HEIGHT - 500.0).abs() < 0.1);
+        assert!((ARTILLERY_BARRAGE_DELIVERY_DISTANCE - 250.0).abs() < 0.1);
+        assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
+        assert_eq!(ArtilleryBarrageScienceTier::Level3.formation_size(), 36);
+        assert_eq!(ARTILLERY_BARRAGE_FIRE_FX, "FX_ArtilleryBarrage");
+        assert!(ARTILLERY_BARRAGE_CANNON_KIND_OF.contains("EMP_HARDENED"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_artillery_barrage_residual_pack_ok());
+        let id = reg.queue_with_artillery_tier(
+            HostSuperweaponKind::ArtilleryBarrage,
+            ObjectId(1),
+            Team::China,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+            ArtilleryBarrageScienceTier::Level2,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.artillery_residual_pack_armed, 1);
+            assert_eq!(s.artillery_cannon_transport_applications, 1);
+            assert_eq!(s.artillery_formation_size_applications, 1);
+            assert_eq!(s.artillery_delay_delivery_applications, 1);
+            assert_eq!(s.artillery_weapon_error_radius_applications, 1);
+            assert_eq!(s.artillery_preferred_height_applications, 1);
+            assert_eq!(s.artillery_tier, ArtilleryBarrageScienceTier::Level2);
+            assert_eq!(s.ocl_points.len() as u32, ARTILLERY_BARRAGE_SHELL_COUNT_L2);
+        }
+        assert!(reg.honesty_artillery_barrage_residual_pack_ok());
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[]);
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.artillery_fire_fx_applications >= 1);
+        }
+    }
+
+    #[test]
+    fn nuke_radiation_residual_pack_wave56_honesty() {
+        assert!(honesty_nuke_radiation_residual_pack());
+        assert_eq!(NUKE_RADIATION_FIRE_FX, "WeaponFX_LargeRadiationFieldWeapon");
+        assert_eq!(NUKE_RADIATION_DAMAGE_TYPE, "RADIATION");
+        assert_eq!(NUKE_RADIATION_SUSPEND_FX_DELAY_MS, 10000);
+        assert_eq!(NUKE_RADIATION_SUSPEND_FX_DELAY_FRAMES, 300);
+        assert_eq!(duration_ms_to_logic_frames(10000), 300);
+        assert_eq!(NUKE_RADIATION_OCL, "OCL_NukeRadiationField");
+        assert_eq!(NUKE_RADIATION_OBJECT_NAME, "NukeRadiationFieldWeapon");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_nuke_radiation_residual_pack_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::NuclearMissile,
+            ObjectId(1),
+            Team::China,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 1000.0, 1, 0);
+        assert!(!reg.radiation_fields().is_empty());
+        {
+            let f = &reg.radiation_fields()[0];
+            assert_eq!(f.radiation_residual_pack_armed, 1);
+            assert_eq!(f.radiation_suspend_fx_applications, 1);
+            assert_eq!(f.radiation_fire_fx_applications, 1);
+        }
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.nuke_radiation_residual_pack_applications >= 1);
+        }
+        assert!(reg.honesty_nuke_radiation_residual_pack_ok());
+    }
+
+    #[test]
+    fn anthrax_toxin_residual_pack_wave56_honesty() {
+        assert!(honesty_anthrax_toxin_residual_pack());
+        assert_eq!(ANTHRAX_TOXIN_FIRE_FX, "WeaponFX_LargePoisonFieldWeaponUpgraded");
+        assert_eq!(ANTHRAX_TOXIN_DEATH_TYPE, "POISONED_BETA");
+        assert!((ANTHRAX_TOXIN_WEAPON_SPEED - 600.0).abs() < 0.1);
+        assert_eq!(ANTHRAX_TOXIN_OCL, "OCL_PoisonFieldAnthraxBomb");
+        assert_eq!(ANTHRAX_BOMB_WEAPON_NAME, "AnthraxBombWeapon");
+        assert_eq!(duration_ms_to_logic_frames(500), 15);
+        assert_eq!(duration_ms_to_logic_frames(60000), 1800);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(reg.honesty_anthrax_toxin_residual_pack_ok());
+        let id = reg.queue(
+            HostSuperweaponKind::AnthraxBomb,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 200.0, 1, 0);
+        assert!(!reg.toxin_fields().is_empty());
+        {
+            let f = &reg.toxin_fields()[0];
+            assert_eq!(f.toxin_residual_pack_armed, 1);
+            assert_eq!(f.toxin_fire_fx_applications, 1);
+            assert_eq!(f.toxin_damage_type_applications, 1);
+            assert!((f.damage_per_tick - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01);
+            assert!((f.radius - ANTHRAX_TOXIN_RADIUS).abs() < 0.1);
+        }
+        {
+            let s = reg.get(id).unwrap();
+            assert!(s.anthrax_toxin_residual_pack_applications >= 1);
+        }
+        assert!(reg.honesty_anthrax_toxin_residual_pack_ok());
     }
 }
