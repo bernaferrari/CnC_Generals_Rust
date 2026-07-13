@@ -845,9 +845,14 @@ pub struct GameLogic {
     supply_drop_zones: crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
 
     /// Host DeliverPayload cargo residual (delayed payload spawn at location).
-    /// Fail-closed: not full AmericaJetCargoPlane flight / DeliverPayloadAIUpdate
-    /// state machine / DropDelay stagger / parachute container physics.
+    /// Fail-closed: not full AmericaJetCargoPlane Object / DeliverPayloadAIUpdate
+    /// flight state machine / parachute container physics (DropDelay stagger +
+    /// DropOffset / MaxAttempts / PreOpenDistance constants residual closed).
     host_deliver_payloads: crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry,
+
+    /// Host MoneyCrateCollide residual (unit + BuildingPickup).
+    /// Fail-closed: not full CollideModule partition pair / Anim2D MoneyPickUp.
+    host_money_crates: crate::game_logic::host_money_crate::HostMoneyCrateRegistry,
 
     /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
     /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
@@ -2035,6 +2040,7 @@ impl GameLogic {
                 crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
             host_deliver_payloads:
                 crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry::new(),
+            host_money_crates: crate::game_logic::host_money_crate::HostMoneyCrateRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry::new(),
@@ -2385,6 +2391,7 @@ impl GameLogic {
         self.hacker_income.clear();
         self.supply_drop_zones.clear();
         self.host_deliver_payloads.clear();
+        self.host_money_crates.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
         self.saboteur.clear();
@@ -4366,9 +4373,12 @@ impl GameLogic {
         // Fail-closed vs full OCL cargo plane / parachute payload path.
         self.update_paradrops();
 
-        // Host DeliverPayload cargo residual: delayed spawn of payload units at
-        // location (Supply Drop Zone crates). Fail-closed vs full aircraft flight.
+        // Host DeliverPayload cargo residual: DropDelay-staggered spawn of payload
+        // units at location (Supply Drop Zone crates). Fail-closed vs full aircraft.
         self.update_deliver_payloads();
+
+        // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
+        self.update_money_crate_collides();
 
         // Host GLA Rebel Ambush residual: spawn infantry near target after fade delay.
         // Fail-closed vs full OCL CreateObject / science upgrade tiers.
@@ -10447,11 +10457,14 @@ impl GameLogic {
             .insert(SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string(), t);
     }
 
-    /// Advance pending DeliverPayload cargo missions: spawn payload units and
-    /// credit BuildingPickup residual cash (Supply Drop Zone crates).
+    /// Advance pending DeliverPayload cargo missions with DropDelay stagger.
     ///
-    /// Fail-closed: not full cargo-plane flight / parachute container physics /
-    /// DropDelay per-item stagger (formation simultaneous residual).
+    /// Spawns one payload item per due frame (DoorDelay before first item, then
+    /// DropDelay between items). Registers residual MoneyCrateCollide entries.
+    /// BuildingPickup residual cash is applied on mission complete (zone bulk
+    /// residual) and/or via [`Self::update_money_crate_collides`].
+    ///
+    /// Fail-closed: not full cargo-plane Object flight / parachute container physics.
     pub fn update_deliver_payloads(&mut self) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
         use crate::game_logic::host_supply_drop_zone::{
@@ -10462,15 +10475,14 @@ impl GameLogic {
         self.host_deliver_payloads.clear_frame_events();
         // AmericaParadrop cargo bookkeeping is completed from update_paradrops
         // (infantry spawn ownership). Only spawn-capable kinds resolve here.
-        let plans: Vec<_> = self
+        let item_plans: Vec<_> = self
             .host_deliver_payloads
-            .plan_due_drops(self.frame)
+            .plan_due_item_spawns(self.frame)
             .into_iter()
             .filter(|p| p.kind.spawns_payload_objects())
             .collect();
 
-        for plan in plans {
-            // Spawn residual payload units at formation positions.
+        for plan in item_plans {
             if !self.templates.contains_key(&plan.payload_template) {
                 self.ensure_residual_supply_drop_crate_template();
             }
@@ -10480,23 +10492,43 @@ impl GameLogic {
                 SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
             };
 
-            let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
-            for pos in &plan.spawn_positions {
-                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
-                    spawned.push(id);
-                }
+            let spawned_id =
+                self.create_object(&template_name, plan.source_team, plan.spawn_position);
+            if let Some(id) = spawned_id {
+                // Residual MoneyCrateCollide registration (unit + BuildingPickup).
+                self.host_money_crates.register_supply_drop_crate(id);
+            }
+            self.host_deliver_payloads
+                .record_item_spawned(plan.mission_id, spawned_id);
+
+            // Drop audio / particle on first item of the mission.
+            if plan.item_index == 0 {
+                self.queue_audio_event(
+                    AudioEventRequest::new(plan.kind.drop_audio())
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(130),
+                );
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::DeathExplosion,
+                    plan.target_position,
+                    self.frame,
+                    Some(plan.source_object),
+                    None,
+                );
             }
 
-            // BuildingPickup residual cash for Supply Drop Zone crates.
-            let mut cash_credited = 0_u32;
-            if plan.kind.credits_building_pickup_cash() {
+            // BuildingPickup residual bulk cash when final item lands
+            // (zone path; crates remain for unit MoneyCrateCollide residual
+            // only if not marked paid — mark paid after bulk to avoid double).
+            if plan.is_final_item && plan.kind.credits_building_pickup_cash() {
                 let has_supply_lines = self.players.values().any(|p| {
-                    p.team == plan.source_team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+                    p.team == plan.source_team
+                        && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
                 });
                 let amount = drop_cash_amount(has_supply_lines);
                 let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
-                self.supply_drop_zones
-                    .record_payload_cash(amount, boost);
+                self.supply_drop_zones.record_payload_cash(amount, boost);
                 if let Some(player) = self.get_player_mut_by_team(plan.source_team) {
                     player.resources.supplies = player.resources.supplies.saturating_add(amount);
                     player.statistics.resources_collected = player
@@ -10508,40 +10540,192 @@ impl GameLogic {
                     self.supply_lines_bonus_cash_total =
                         self.supply_lines_bonus_cash_total.saturating_add(boost);
                 }
-                cash_credited = amount;
+                self.host_deliver_payloads
+                    .record_cash_credited(plan.mission_id, amount);
+
+                // Prevent unit MoneyCrateCollide double-credit after zone bulk cash.
+                if let Some(mission) = self.host_deliver_payloads.get(plan.mission_id) {
+                    let ids: Vec<ObjectId> = mission.spawned_payload_ids.clone();
+                    self.host_money_crates
+                        .mark_building_pickup_residual_paid(&ids);
+                }
+
+                log::info!(
+                    "Host DeliverPayload {} mission {} complete at {:?} (items={}, cash={})",
+                    plan.kind.label(),
+                    plan.mission_id,
+                    plan.target_position,
+                    plan.item_index + 1,
+                    amount
+                );
+            } else {
+                log::debug!(
+                    "Host DeliverPayload {} mission {} item {} spawned at {:?}",
+                    plan.kind.label(),
+                    plan.mission_id,
+                    plan.item_index,
+                    plan.spawn_position
+                );
             }
+        }
+    }
 
+    /// Residual MoneyCrateCollide: unit + BuildingPickup cash collect.
+    ///
+    /// Supply Drop Zone cargo crates that already received bulk BuildingPickup
+    /// residual cash are marked paid (no double-credit). Standalone residual
+    /// crates (tests / future map crates) credit MoneyProvided on proximity.
+    ///
+    /// Fail-closed: not full CollideModule partition pairs / Anim2D / EVA text.
+    pub fn update_money_crate_collides(&mut self) {
+        use crate::game_logic::host_money_crate::{
+            HostMoneyCrateRegistry, MONEY_CRATE_BUILDING_PICKUP_RADIUS,
+            MONEY_CRATE_PICKUP_AUDIO, MONEY_CRATE_UNIT_PICKUP_RADIUS,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+
+        let crate_ids = self.host_money_crates.ids();
+        if crate_ids.is_empty() {
+            return;
+        }
+
+        // Snapshot crate positions + entry flags.
+        let mut crates: Vec<(
+            ObjectId,
+            Vec3,
+            bool, // building_pickup
+            bool, // residual paid
+        )> = Vec::new();
+        for id in crate_ids {
+            // Forget destroyed crates.
+            let Some(obj) = self.find_object(id) else {
+                self.host_money_crates.forget(id);
+                continue;
+            };
+            if !obj.is_alive() {
+                self.host_money_crates.forget(id);
+                continue;
+            }
+            let entry = match self.host_money_crates.get(id) {
+                Some(e) => e,
+                None => continue,
+            };
+            if entry.building_pickup_residual_paid || entry.money_provided == 0 {
+                continue;
+            }
+            crates.push((
+                id,
+                obj.get_position(),
+                entry.building_pickup,
+                entry.building_pickup_residual_paid,
+            ));
+        }
+
+        // Snapshot candidate pickers.
+        let pickers: Vec<(ObjectId, Team, Vec3, bool /*structure*/, bool /*constructed*/)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() || obj.team == Team::Neutral {
+                    return None;
+                }
+                // ForbiddenKindOf residual: PROJECTILE
+                if obj.is_kind_of(KindOf::Projectile) {
+                    return None;
+                }
+                let is_structure = obj.is_kind_of(KindOf::Structure)
+                    || obj.object_type == ObjectType::Building;
+                let constructed = obj.is_constructed() && !obj.status.under_construction;
+                Some((*id, obj.team, obj.get_position(), is_structure, constructed))
+            })
+            .collect();
+
+        let mut pickups: Vec<(ObjectId, ObjectId, Team, bool)> = Vec::new();
+        for (crate_id, crate_pos, building_pickup, _paid) in &crates {
+            let mut best: Option<(ObjectId, Team, bool, f32)> = None;
+            for (picker_id, team, picker_pos, is_structure, constructed) in &pickers {
+                if *picker_id == *crate_id {
+                    continue;
+                }
+                let dist = HostMoneyCrateRegistry::horizontal_distance(*crate_pos, *picker_pos);
+                if *is_structure {
+                    if !HostMoneyCrateRegistry::is_legal_building_picker(
+                        true,
+                        false,
+                        true,
+                        *constructed,
+                        *building_pickup,
+                    ) {
+                        continue;
+                    }
+                    if dist > MONEY_CRATE_BUILDING_PICKUP_RADIUS {
+                        continue;
+                    }
+                } else {
+                    if !HostMoneyCrateRegistry::is_legal_unit_picker(true, false, false, false) {
+                        continue;
+                    }
+                    if dist > MONEY_CRATE_UNIT_PICKUP_RADIUS {
+                        continue;
+                    }
+                }
+                if best.as_ref().map(|b| dist < b.3).unwrap_or(true) {
+                    best = Some((*picker_id, *team, *is_structure, dist));
+                }
+            }
+            if let Some((picker_id, team, is_structure, _)) = best {
+                pickups.push((*crate_id, picker_id, team, is_structure));
+            }
+        }
+
+        for (crate_id, picker_id, team, is_structure) in pickups {
+            let Some(entry) = self.host_money_crates.get(crate_id).cloned() else {
+                continue;
+            };
+            let has_supply_lines = self.players.values().any(|p| {
+                p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+            });
+            let (amount, boost) =
+                HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
+            if amount == 0 {
+                continue;
+            }
+            if !self
+                .host_money_crates
+                .record_pickup(crate_id, amount, boost, is_structure)
+            {
+                continue;
+            }
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.resources.supplies = player.resources.supplies.saturating_add(amount);
+                player.statistics.resources_collected = player
+                    .statistics
+                    .resources_collected
+                    .saturating_add(amount);
+            }
+            if boost > 0 {
+                self.supply_lines_bonus_cash_total =
+                    self.supply_lines_bonus_cash_total.saturating_add(boost);
+            }
+            let pos = self
+                .find_object(picker_id)
+                .map(|o| o.get_position())
+                .unwrap_or(Vec3::ZERO);
             self.queue_audio_event(
-                AudioEventRequest::new(plan.kind.drop_audio())
-                    .with_object(plan.source_object)
-                    .with_position(plan.target_position)
-                    .with_priority(130),
+                AudioEventRequest::new(MONEY_CRATE_PICKUP_AUDIO)
+                    .with_object(picker_id)
+                    .with_position(pos)
+                    .with_priority(110),
             );
-            let _ = self.combat_particles.spawn(
-                CombatParticleKind::DeathExplosion,
-                plan.target_position,
-                self.frame,
-                Some(plan.source_object),
-                None,
-            );
-
-            let spawned_count = spawned.len();
-            self.host_deliver_payloads.record_drop_complete(
-                plan.mission_id,
-                spawned,
-                cash_credited,
-            );
-
+            self.destroy_object(crate_id);
             log::info!(
-                "Host DeliverPayload {} mission {} completed at {:?} (spawned={}/{}, cash={})",
-                plan.kind.label(),
-                plan.mission_id,
-                plan.target_position,
-                spawned_count,
-                plan.spawn_positions.len(),
-                cash_credited
+                "Host MoneyCrateCollide residual: crate {:?} → picker {:?} team={:?} amount={} building={}",
+                crate_id,
+                picker_id,
+                team,
+                amount,
+                is_structure
             );
-
         }
     }
 
@@ -14210,7 +14394,7 @@ impl GameLogic {
     }
 
     /// Residual DeliverPayload cargo host path honesty (crates spawned + cash).
-    /// Fail-closed: not full AmericaJetCargoPlane flight / DropDelay stagger.
+    /// Fail-closed: not full AmericaJetCargoPlane Object flight path.
     pub fn honesty_deliver_payload_cargo_ok(&self) -> bool {
         self.host_deliver_payloads.honesty_host_path_ok()
     }
@@ -14219,6 +14403,28 @@ impl GameLogic {
     pub fn honesty_supply_drop_cargo_deliver_payload_ok(&self) -> bool {
         self.host_deliver_payloads
             .honesty_supply_drop_cargo_host_path_ok()
+    }
+
+    /// Residual DropDelay per-item stagger honesty (host DeliverPayload).
+    pub fn honesty_deliver_payload_drop_delay_stagger_ok(&self) -> bool {
+        self.host_deliver_payloads.honesty_drop_delay_stagger_ok()
+    }
+
+    /// Residual MoneyCrateCollide unit pickup honesty.
+    pub fn honesty_money_crate_unit_pickup_ok(&self) -> bool {
+        self.host_money_crates.honesty_unit_pickup_ok()
+    }
+
+    /// Residual MoneyCrateCollide path honesty (unit or building).
+    pub fn honesty_money_crate_collide_ok(&self) -> bool {
+        self.host_money_crates.honesty_money_crate_collide_ok()
+    }
+
+    /// Host MoneyCrateCollide registry (observability / tests).
+    pub fn host_money_crates(
+        &self,
+    ) -> &crate::game_logic::host_money_crate::HostMoneyCrateRegistry {
+        &self.host_money_crates
     }
 
     /// Residual Supply Drop Zone drop count (observability).
@@ -39174,7 +39380,8 @@ mod tests {
     #[test]
     fn supply_drop_zone_residual_credits_cash_on_interval() {
         use crate::game_logic::host_deliver_payload::{
-            HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
+            HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
+            CARGO_PLANE_DOOR_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
             SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
         };
         use crate::game_logic::host_supply_drop_zone::{
@@ -39183,6 +39390,17 @@ mod tests {
         };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
         use crate::game_logic::{KindOf, ThingTemplate};
+
+        let kind = HostDeliverPayloadKind::SupplyDropZoneCrate;
+        // Run DropDelay stagger from first item frame through last item frame.
+        let run_stagger = |gl: &mut GameLogic, activate: u32| {
+            let first = kind.item_drop_frame(activate, 0);
+            let last = kind.mission_complete_frame(activate);
+            for f in first..=last {
+                gl.frame = f;
+                gl.update_deliver_payloads();
+            }
+        };
 
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, Team::USA);
@@ -39224,7 +39442,8 @@ mod tests {
         assert_eq!(mid, cash_before, "no cash before first interval");
 
         // OCL due at 3600: queues cargo flight, no cash / crates yet.
-        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
+        let activate = SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
+        game_logic.frame = activate;
         game_logic.update_supply_drop_zone_drops();
         assert!(
             game_logic.honesty_supply_drop_zone_flight_ok(),
@@ -39256,19 +39475,54 @@ mod tests {
             "flight queue must emit CargoPlaneApproach audio"
         );
 
-        // One frame before drop: still no cash/crates.
-        game_logic.frame =
-            SUPPLY_DROP_ZONE_INTERVAL_FRAMES + CARGO_PLANE_APPROACH_DELAY_FRAMES - 1;
+        // One frame before first item (approach + door delay residual): no crates.
+        let first_item = kind.item_drop_frame(activate, 0);
+        assert_eq!(
+            first_item,
+            activate + CARGO_PLANE_APPROACH_DELAY_FRAMES + CARGO_PLANE_DOOR_DELAY_FRAMES
+        );
+        game_logic.frame = first_item - 1;
         game_logic.update_deliver_payloads();
         assert_eq!(
             game_logic.get_objects().len(),
             objects_before,
-            "still no crates one frame before drop"
+            "still no crates one frame before first DropDelay item"
         );
 
-        // Approach delay complete: spawn 6 crates + BuildingPickup cash.
-        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES + CARGO_PLANE_APPROACH_DELAY_FRAMES;
+        // First item only: 1 crate, no bulk BuildingPickup cash yet.
+        game_logic.frame = first_item;
         game_logic.update_deliver_payloads();
+        assert_eq!(
+            game_logic.get_objects().len(),
+            objects_before + 1,
+            "first DropDelay item must spawn one crate"
+        );
+        let mid_stagger_cash = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            mid_stagger_cash, cash_before,
+            "no bulk BuildingPickup cash until final DropDelay item"
+        );
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "SupplyDropZoneDrop"),
+            "first item must queue SupplyDropZoneDrop audio"
+        );
+
+        // Advance remaining stagger items → full spawn + BuildingPickup cash.
+        let last_item = kind.mission_complete_frame(activate);
+        assert_eq!(
+            last_item,
+            first_item + (SUPPLY_DROP_PAYLOAD_COUNT - 1) * SUPPLY_DROP_DROP_DELAY_FRAMES
+        );
+        for f in (first_item + 1)..=last_item {
+            game_logic.frame = f;
+            game_logic.update_deliver_payloads();
+        }
         let after_drop = game_logic
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
@@ -39276,7 +39530,7 @@ mod tests {
         assert_eq!(
             after_drop,
             cash_before.saturating_add(SUPPLY_DROP_ZONE_DROP_CASH),
-            "supply drop zone must credit residual ${SUPPLY_DROP_ZONE_DROP_CASH}"
+            "supply drop zone must credit residual ${SUPPLY_DROP_ZONE_DROP_CASH} on final item"
         );
         assert!(
             game_logic.honesty_supply_drop_zone_ok(),
@@ -39288,6 +39542,10 @@ mod tests {
             "DeliverPayload cargo host path honesty"
         );
         assert!(game_logic.honesty_deliver_payload_cargo_ok());
+        assert!(
+            game_logic.honesty_deliver_payload_drop_delay_stagger_ok(),
+            "DropDelay stagger honesty"
+        );
         assert_eq!(game_logic.supply_drop_zone_residual_drops(), 1);
         assert_eq!(
             game_logic.supply_drop_zone_residual_cash_total(),
@@ -39308,6 +39566,8 @@ mod tests {
             completed[0].spawned_payload_ids.len(),
             SUPPLY_DROP_PAYLOAD_COUNT as usize
         );
+        assert_eq!(completed[0].items_dropped, SUPPLY_DROP_PAYLOAD_COUNT);
+        assert_eq!(completed[0].max_attempts, 4);
         assert_eq!(completed[0].transport_template, "AmericaJetCargoPlane");
         assert_eq!(completed[0].put_in_container, "AmericaCrateParachute");
         for id in &completed[0].spawned_payload_ids {
@@ -39320,22 +39580,20 @@ mod tests {
                 "spawned residual crate template, got {}",
                 obj.thing.template.name
             );
+            // DropOffset residual Y:-5 applied to spawn.
+            assert!(
+                (obj.get_position().y - (-5.0)).abs() < 0.1,
+                "DropOffset Y residual, got y={}",
+                obj.get_position().y
+            );
         }
-        assert!(
-            game_logic
-                .queued_audio_events
-                .iter()
-                .any(|e| e.event_type == "SupplyDropZoneDrop"),
-            "drop must queue SupplyDropZoneDrop audio"
-        );
 
-        // Second interval: queue flight then complete after approach.
-        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2;
+        // Second interval: queue flight then complete full DropDelay stagger.
+        let activate2 = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2;
+        game_logic.frame = activate2;
         game_logic.update_supply_drop_zone_drops();
         assert_eq!(game_logic.supply_drop_zone_residual_flights(), 2);
-        game_logic.frame =
-            SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2 + CARGO_PLANE_APPROACH_DELAY_FRAMES;
-        game_logic.update_deliver_payloads();
+        run_stagger(&mut game_logic, activate2);
         assert_eq!(game_logic.supply_drop_zone_residual_drops(), 2);
         assert_eq!(
             game_logic.supply_drop_zone_residual_cash_total(),
@@ -39355,11 +39613,10 @@ mod tests {
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
-        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3;
+        let activate3 = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3;
+        game_logic.frame = activate3;
         game_logic.update_supply_drop_zone_drops();
-        game_logic.frame =
-            SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3 + CARGO_PLANE_APPROACH_DELAY_FRAMES;
-        game_logic.update_deliver_payloads();
+        run_stagger(&mut game_logic, activate3);
         let after_sl = game_logic
             .get_player_mut_by_team(Team::USA)
             .map(|p| p.resources.supplies)
@@ -39375,14 +39632,15 @@ mod tests {
         );
     }
 
-    /// Residual: DeliverPayload cargo path constants and under-construction skip
-    /// do not spawn crates or credit cash.
+    /// Residual: DeliverPayload cargo path constants + DropDelay / DoorDelay / MaxAttempts.
     #[test]
     fn deliver_payload_cargo_residual_constants_and_skip() {
         use crate::game_logic::host_deliver_payload::{
-            drop_delay_frames_from_ms, HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
-            SUPPLY_DROP_CARGO_TRANSPORT, SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_MS,
-            SUPPLY_DROP_PAYLOAD_COUNT, SUPPLY_DROP_PUT_IN_CONTAINER,
+            drop_delay_frames_from_ms, residual_allowed_delivery_distance, HostDeliverPayloadKind,
+            CARGO_PLANE_APPROACH_DELAY_FRAMES, CARGO_PLANE_DOOR_DELAY_FRAMES,
+            CARGO_PLANE_DOOR_DELAY_MS, SUPPLY_DROP_CARGO_TRANSPORT, SUPPLY_DROP_DROP_DELAY_FRAMES,
+            SUPPLY_DROP_DROP_DELAY_MS, SUPPLY_DROP_DROP_OFFSET_Y, SUPPLY_DROP_MAX_ATTEMPTS,
+            SUPPLY_DROP_PAYLOAD_COUNT, SUPPLY_DROP_PRE_OPEN_DISTANCE, SUPPLY_DROP_PUT_IN_CONTAINER,
         };
 
         assert_eq!(CARGO_PLANE_APPROACH_DELAY_FRAMES, 90);
@@ -39390,10 +39648,134 @@ mod tests {
         assert_eq!(SUPPLY_DROP_DROP_DELAY_MS, 350);
         assert_eq!(SUPPLY_DROP_DROP_DELAY_FRAMES, 11);
         assert_eq!(drop_delay_frames_from_ms(350), 11);
+        assert_eq!(CARGO_PLANE_DOOR_DELAY_MS, 500);
+        assert_eq!(CARGO_PLANE_DOOR_DELAY_FRAMES, 15);
+        assert_eq!(drop_delay_frames_from_ms(500), 15);
+        assert_eq!(SUPPLY_DROP_MAX_ATTEMPTS, 4);
+        assert!((SUPPLY_DROP_PRE_OPEN_DISTANCE - 0.0).abs() < 0.01);
+        assert!((SUPPLY_DROP_DROP_OFFSET_Y - (-5.0)).abs() < 0.01);
         assert_eq!(SUPPLY_DROP_CARGO_TRANSPORT, "AmericaJetCargoPlane");
         assert_eq!(SUPPLY_DROP_PUT_IN_CONTAINER, "AmericaCrateParachute");
         assert!(HostDeliverPayloadKind::SupplyDropZoneCrate.spawns_payload_objects());
         assert!(!HostDeliverPayloadKind::AmericaParadrop.spawns_payload_objects());
+        assert!(
+            (residual_allowed_delivery_distance(HostDeliverPayloadKind::SupplyDropZoneCrate)
+                - 410.0)
+                .abs()
+                < 0.01
+        );
+        // Stagger frame honesty: first item at approach+door, last at +5*DropDelay.
+        let k = HostDeliverPayloadKind::SupplyDropZoneCrate;
+        assert_eq!(k.item_drop_frame(0, 0), 105);
+        assert_eq!(k.mission_complete_frame(0), 105 + 5 * 11);
+    }
+
+    /// Residual: MoneyCrateCollide unit pickup credits cash and destroys crate.
+    #[test]
+    fn money_crate_collide_unit_pickup_residual() {
+        use crate::game_logic::host_money_crate::{
+            SUPPLY_DROP_CRATE_MONEY_PROVIDED, SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("TestSupplyDropZoneCrate") {
+            let mut t = ThingTemplate::new("TestSupplyDropZoneCrate");
+            t.add_kind_of(KindOf::Resource)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1.0);
+            game_logic
+                .templates
+                .insert("TestSupplyDropZoneCrate".to_string(), t);
+        }
+        if !game_logic.templates.contains_key("TestRanger") {
+            let mut t = ThingTemplate::new("TestRanger");
+            t.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0);
+            game_logic.templates.insert("TestRanger".to_string(), t);
+        }
+
+        let crate_id = game_logic
+            .create_object(
+                "TestSupplyDropZoneCrate",
+                Team::Neutral,
+                Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("crate");
+        game_logic
+            .host_money_crates
+            .register_supply_drop_crate(crate_id);
+
+        let ranger_id = game_logic
+            .create_object("TestRanger", Team::USA, Vec3::new(12.0, 0.0, 10.0))
+            .expect("ranger");
+        let _ = ranger_id;
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        game_logic.update_money_crate_collides();
+        // Destroy list processes on full update; destroy_object queues destruction.
+        // Cash should already be credited.
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after,
+            cash_before.saturating_add(SUPPLY_DROP_CRATE_MONEY_PROVIDED),
+            "unit MoneyCrateCollide must credit MoneyProvided"
+        );
+        assert!(game_logic.honesty_money_crate_unit_pickup_ok());
+        assert!(game_logic.honesty_money_crate_collide_ok());
+        assert!(!game_logic.host_money_crates().contains(crate_id));
+        assert!(
+            game_logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == "CrateMoney"),
+            "pickup must queue CrateMoney audio"
+        );
+
+        // SupplyLines boost residual on second crate.
+        let crate2 = game_logic
+            .create_object(
+                "TestSupplyDropZoneCrate",
+                Team::Neutral,
+                Vec3::new(50.0, 0.0, 50.0),
+            )
+            .expect("crate2");
+        game_logic
+            .host_money_crates
+            .register_supply_drop_crate(crate2);
+        let _r2 = game_logic
+            .create_object("TestRanger", Team::USA, Vec3::new(51.0, 0.0, 50.0))
+            .expect("ranger2");
+        if let Some(player) = game_logic.get_player_mut_by_team(Team::USA) {
+            player.unlock_science(UPGRADE_AMERICA_SUPPLY_LINES);
+        }
+        let cash_mid = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        game_logic.update_money_crate_collides();
+        let cash_sl = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_sl,
+            cash_mid.saturating_add(
+                SUPPLY_DROP_CRATE_MONEY_PROVIDED + SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST
+            )
+        );
+        assert!(game_logic.host_money_crates().honesty_supply_lines_boost_ok());
     }
 
     /// Residual: under-construction / neutral supply drop zone must not credit cash.

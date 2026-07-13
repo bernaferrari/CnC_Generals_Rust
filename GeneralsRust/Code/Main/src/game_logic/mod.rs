@@ -86,6 +86,7 @@ pub mod host_terrorist;
 pub mod host_unit_training;
 pub mod host_demo_suicide_bomb;
 pub mod host_deliver_payload;
+pub mod host_money_crate;
 pub mod host_tomahawk;
 pub mod host_toxin_tractor;
 pub mod host_troop_crawler;
@@ -420,13 +421,20 @@ pub use host_stealth_fighter::{
     STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON, USA_STEALTH_FIGHTER,
 };
 pub use host_deliver_payload::{
-    drop_delay_frames_from_ms, HostDeliverPayloadDropPlan, HostDeliverPayloadKind,
-    HostDeliverPayloadMission, HostDeliverPayloadPhase, HostDeliverPayloadRegistry,
-    CARGO_PLANE_APPROACH_DELAY_FRAMES, PARADROP_CARGO_TRANSPORT, PARADROP_PUT_IN_CONTAINER,
+    drop_delay_frames_from_ms, residual_allowed_delivery_distance, HostDeliverPayloadDropPlan,
+    HostDeliverPayloadItemPlan, HostDeliverPayloadKind, HostDeliverPayloadMission,
+    HostDeliverPayloadPhase, HostDeliverPayloadRegistry, CARGO_PLANE_APPROACH_DELAY_FRAMES,
+    CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_DOOR_DELAY_MS, PARADROP_CARGO_TRANSPORT,
+    PARADROP_MAX_ATTEMPTS, PARADROP_PRE_OPEN_DISTANCE, PARADROP_PUT_IN_CONTAINER,
     SUPPLY_DROP_CARGO_TRANSPORT, SUPPLY_DROP_CRATE_SPACING, SUPPLY_DROP_DELIVERY_DISTANCE,
-    SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_MS, SUPPLY_DROP_PAYLOAD_COUNT,
-    SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE, SUPPLY_DROP_PAYLOAD_TEMPLATE,
-    SUPPLY_DROP_PUT_IN_CONTAINER,
+    SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_DROP_DELAY_MS, SUPPLY_DROP_DROP_OFFSET_Y,
+    SUPPLY_DROP_MAX_ATTEMPTS, SUPPLY_DROP_PAYLOAD_COUNT, SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
+    SUPPLY_DROP_PAYLOAD_TEMPLATE, SUPPLY_DROP_PRE_OPEN_DISTANCE, SUPPLY_DROP_PUT_IN_CONTAINER,
+};
+pub use host_money_crate::{
+    HostMoneyCrateEntry, HostMoneyCratePickup, HostMoneyCrateRegistry, MONEY_CRATE_PICKUP_AUDIO,
+    MONEY_CRATE_BUILDING_PICKUP_RADIUS, MONEY_CRATE_UNIT_PICKUP_RADIUS,
+    SUPPLY_DROP_CRATE_MONEY_PROVIDED, SUPPLY_DROP_CRATE_SUPPLY_LINES_BOOST,
 };
 pub use host_supply_drop_zone::{
     drop_cash_amount, drop_interval_frames_from_ms, is_legal_supply_drop_zone_income_source,
