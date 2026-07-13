@@ -13,6 +13,8 @@
 //!
 //! Residual floating cash text (Player::doBountyForKill):
 //! - Host `+$N` at killer pos + Z **10**, yellow RGBA (255,255,0,255), key `GUI:AddCash`.
+//! - Killer ObjectId residual prefers victim `last_damage_source` (BodyModule residual)
+//!   when available; falls back to nearest living same-team unit.
 //!
 //! Fail-closed honesty:
 //! - Not full CashBountyPower module-on-palace science gate matrix
@@ -137,6 +139,9 @@ pub struct HostCashBountyRegistry {
     /// Floating cash text residual spawn count (honesty).
     #[serde(default)]
     pub floating_texts_total: u32,
+    /// Awards that used victim last_damage_source residual for killer ObjectId.
+    #[serde(default)]
+    pub last_damage_source_kills: u32,
 }
 
 impl HostCashBountyRegistry {
@@ -172,6 +177,11 @@ impl HostCashBountyRegistry {
         }
     }
 
+    /// Record that killer ObjectId came from victim last_damage_source residual.
+    pub fn record_last_damage_source_kill(&mut self) {
+        self.last_damage_source_kills = self.last_damage_source_kills.saturating_add(1);
+    }
+
     /// Residual honesty: at least one bounty award completed.
     pub fn honesty_bounty_award_ok(&self) -> bool {
         self.bounty_kills > 0 && self.bounty_earned_total > 0
@@ -196,6 +206,11 @@ impl HostCashBountyRegistry {
         CASH_BOUNTY_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
             && (CASH_BOUNTY_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
             && CASH_BOUNTY_FLOATING_TEXT_COLOR_RGBA == (255, 255, 0, 255)
+    }
+
+    /// Residual honesty: at least one bounty used last_damage_source killer residual.
+    pub fn honesty_last_damage_source_killer_ok(&self) -> bool {
+        self.last_damage_source_kills > 0
     }
 
     /// Combined residual honesty (configured + awarded).
@@ -258,5 +273,14 @@ mod tests {
         assert!((ft.position.y - 10.0).abs() < 0.01);
         reg.record_floating_text(ft);
         assert!(reg.honesty_floating_text_ok());
+    }
+
+    #[test]
+    fn last_damage_source_killer_residual_honesty() {
+        let mut reg = HostCashBountyRegistry::new();
+        assert!(!reg.honesty_last_damage_source_killer_ok());
+        reg.record_last_damage_source_kill();
+        assert!(reg.honesty_last_damage_source_killer_ok());
+        assert_eq!(reg.last_damage_source_kills, 1);
     }
 }

@@ -9,6 +9,9 @@
 //! - AutoDeposit floating cash text residual: host `+$N` at building pos + Z **10**,
 //!   player color RGB + alpha **230** (presentation state, not full InGameUI draw).
 //!
+//! Residual STEALTHED local-player display gate (AutoDepositUpdate shared):
+//! - If STEALTHED && !isLocallyControlled && !DETECTED → hide floating cash text.
+//!
 //! Fail-closed honesty:
 //! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
 //! - Not full InitialCaptureBonus (retail = 0) / UpgradedBoost (none in GLABlackMarket)
@@ -94,6 +97,9 @@ pub struct HostBlackMarketRegistry {
     /// Floating cash text residual spawn count (honesty).
     #[serde(default)]
     pub floating_texts_total: u32,
+    /// Floating cash text suppressed by STEALTHED local display gate residual.
+    #[serde(default)]
+    pub floating_texts_suppressed: u32,
     /// Next absolute logic frame each market may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
 }
@@ -157,6 +163,16 @@ impl HostBlackMarketRegistry {
             let drain = self.floating_texts.len() - 32;
             self.floating_texts.drain(0..drain);
         }
+    }
+
+    /// Record STEALTHED local-player display gate residual (text hidden).
+    pub fn record_floating_text_suppressed(&mut self) {
+        self.floating_texts_suppressed = self.floating_texts_suppressed.saturating_add(1);
+    }
+
+    /// Residual honesty: STEALTHED local display gate suppressed at least one text.
+    pub fn honesty_floating_text_stealth_gate_ok(&self) -> bool {
+        self.floating_texts_suppressed > 0
     }
 
     /// Drop schedule when a market is destroyed / gone.

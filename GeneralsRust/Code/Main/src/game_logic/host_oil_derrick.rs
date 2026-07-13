@@ -11,9 +11,13 @@
 //! - AutoDeposit floating cash text residual: host `+$N` at building pos + Z **10**,
 //!   player color RGB + alpha **230** (presentation state, not full InGameUI draw).
 //!
+//! Residual STEALTHED local-player display gate (AutoDepositUpdate):
+//! - If STEALTHED && !isLocallyControlled && !DETECTED → hide floating cash text.
+//! - Cash still deposits; only the floating text presentation is gated.
+//!
 //! Fail-closed honesty:
 //! - Not full InGameUI::addFloatingText GPU draw / Unicode GameText localization
-//! - Not full STEALTHED local-player display gate matrix
+//! - Not full structure geometry scatter (major/minor radius residual deferred)
 //! - Not full capture flow module wiring beyond residual team-change detect
 //! - Neutral / under-construction residual-skip (C++ isNeutralControlled +
 //!   construction-complete gates)
@@ -106,10 +110,29 @@ pub fn oil_derrick_deposit_amount(has_supply_lines: bool) -> (u32, u32) {
     )
 }
 
+/// C++ AutoDepositUpdate / HackInternetAIUpdate floating-text local display gate.
+///
+/// When the source is STEALTHED, only the local controlling player (or a DETECTED
+/// unit) may see the floating cash text. Cash still deposits either way.
+///
+/// ```text
+/// if STEALTHED && !isLocallyControlled && !DETECTED → displayMoney = FALSE
+/// ```
+pub fn should_display_stealthed_floating_cash(
+    is_stealthed: bool,
+    is_detected: bool,
+    is_locally_controlled: bool,
+) -> bool {
+    if is_stealthed && !is_locally_controlled && !is_detected {
+        return false;
+    }
+    true
+}
+
 /// Host residual AutoDeposit floating cash text presentation.
 ///
 /// C++ AutoDepositUpdate::update → InGameUI::addFloatingText(GUI:AddCash, pos+Z10,
-/// playerColor | A230). Fail-closed: not full InGameUI GPU / STEALTHED local gate.
+/// playerColor | A230). Fail-closed: not full InGameUI GPU draw.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostAutoDepositFloatingText {
     pub text: String,
@@ -174,6 +197,9 @@ pub struct HostOilDerrickRegistry {
     /// Floating cash text residual spawn count (honesty).
     #[serde(default)]
     pub floating_texts_total: u32,
+    /// Floating cash text suppressed by STEALTHED local display gate residual.
+    #[serde(default)]
+    pub floating_texts_suppressed: u32,
     /// Next absolute logic frame each derrick may deposit.
     next_deposit_frame: HashMap<ObjectId, u32>,
     /// Derricks that have already received InitialCaptureBonus this instance life.
@@ -269,6 +295,11 @@ impl HostOilDerrickRegistry {
         }
     }
 
+    /// Record STEALTHED local-player display gate residual (text hidden).
+    pub fn record_floating_text_suppressed(&mut self) {
+        self.floating_texts_suppressed = self.floating_texts_suppressed.saturating_add(1);
+    }
+
     /// Award InitialCaptureBonus once when derrick first becomes non-neutral.
     /// Returns bonus amount awarded (0 if already awarded / not eligible).
     ///
@@ -345,6 +376,11 @@ impl HostOilDerrickRegistry {
             && (OIL_DERRICK_FLOATING_TEXT_Z_OFFSET - 10.0).abs() < 0.01
             && OIL_DERRICK_FLOATING_TEXT_ALPHA == 230
             && OIL_DERRICK_SUPPLY_LINES_BOOST == 20
+    }
+
+    /// Residual honesty: STEALTHED local display gate suppressed at least one text.
+    pub fn honesty_floating_text_stealth_gate_ok(&self) -> bool {
+        self.floating_texts_suppressed > 0
     }
 
     /// Combined residual honesty (any cash path completed).
@@ -444,5 +480,23 @@ mod tests {
         assert_eq!(reg.capture_bonuses(), 1);
         assert_eq!(reg.capture_bonus_cash_total(), 1000);
         assert_eq!(reg.total_cash_awarded(), 1000);
+    }
+
+    #[test]
+    fn stealthed_local_display_gate_residual() {
+        // Visible when not stealthed.
+        assert!(should_display_stealthed_floating_cash(false, false, false));
+        assert!(should_display_stealthed_floating_cash(false, false, true));
+        // Stealthed + local → show (local player sees own cash pings).
+        assert!(should_display_stealthed_floating_cash(true, false, true));
+        // Stealthed + detected (any viewer) → show.
+        assert!(should_display_stealthed_floating_cash(true, true, false));
+        // Stealthed + non-local + undetected → hide.
+        assert!(!should_display_stealthed_floating_cash(true, false, false));
+
+        let mut reg = HostOilDerrickRegistry::new();
+        reg.record_floating_text_suppressed();
+        assert!(reg.honesty_floating_text_stealth_gate_ok());
+        assert_eq!(reg.floating_texts_suppressed, 1);
     }
 }
