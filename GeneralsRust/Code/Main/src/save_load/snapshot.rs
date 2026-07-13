@@ -15,8 +15,9 @@
 //! # Special-power strike residual (2026-07-12)
 //!
 //! Host `HostSpecialPowerStrikeRegistry` queues DaisyCutter / A10 / ScudStorm /
-//! ParticleCannon / NuclearMissile impacts with a multi-frame delay (nuke also
-//! spawns residual radiation). Without snapshot persistence, save mid-flight
+//! ParticleCannon / NuclearMissile / AnthraxBomb impacts with a multi-frame
+//! delay (nuke also spawns residual radiation; anthrax also spawns residual
+//! toxin). Without snapshot persistence, save mid-flight
 //! dropped the pending strike and impact never fired after load.
 //!
 //! Closed residual layout:
@@ -125,9 +126,25 @@ pub struct SpecialPowerStrikeRegistrySnapshot {
     /// Lifetime radiation damage applications (honesty after prune).
     #[serde(default)]
     pub radiation_damage_applications_total: u32,
+    /// Next residual toxin field id (AnthraxBomb).
+    #[serde(default = "default_next_toxin_id")]
+    pub next_toxin_id: u32,
+    /// Active residual toxin fields (AnthraxBomb impact residual).
+    #[serde(default)]
+    pub toxin_fields: Vec<crate::game_logic::special_power_strikes::HostToxinField>,
+    /// Lifetime toxin fields spawned (honesty after prune).
+    #[serde(default)]
+    pub toxin_fields_spawned_total: u32,
+    /// Lifetime toxin damage applications (honesty after prune).
+    #[serde(default)]
+    pub toxin_damage_applications_total: u32,
 }
 
 fn default_next_radiation_id() -> u32 {
+    1
+}
+
+fn default_next_toxin_id() -> u32 {
     1
 }
 
@@ -140,6 +157,10 @@ impl Default for SpecialPowerStrikeRegistrySnapshot {
             radiation_fields: Vec::new(),
             radiation_fields_spawned_total: 0,
             radiation_damage_applications_total: 0,
+            next_toxin_id: 1,
+            toxin_fields: Vec::new(),
+            toxin_fields_spawned_total: 0,
+            toxin_damage_applications_total: 0,
         }
     }
 }
@@ -230,6 +251,12 @@ pub struct ObjectStatusSnapshot {
     /// C++ DISABLED_UNMANNED residual (Jarmen Kell kill-pilot). Serde default for older snaps.
     #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ OBJECT_STATUS_IS_CARBOMB residual. Serde default for older snaps.
+    #[serde(default)]
+    pub is_carbomb: bool,
+    /// C++ OBJECT_STATUS_HIJACKED residual. Serde default for older snaps.
+    #[serde(default)]
+    pub hijacked: bool,
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
@@ -258,6 +285,8 @@ impl Default for ObjectStatusSnapshot {
             radar_jammed: false,
             disabled_underpowered: false,
             disabled_unmanned: false,
+            is_carbomb: false,
+            hijacked: false,
             special_power_ready: true,
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
@@ -1357,6 +1386,10 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.disabled_underpowered)?;
         xfer.xfer_marker_label("DisabledUnmanned")?;
         xfer.xfer_bool(&mut self.disabled_unmanned)?;
+        xfer.xfer_marker_label("IsCarbomb")?;
+        xfer.xfer_bool(&mut self.is_carbomb)?;
+        xfer.xfer_marker_label("Hijacked")?;
+        xfer.xfer_bool(&mut self.hijacked)?;
         xfer.xfer_marker_label("SpecialPowerReady")?;
         xfer.xfer_bool(&mut self.special_power_ready)?;
         xfer.xfer_marker_label("SpecialPowerCooldown")?;
@@ -2534,6 +2567,7 @@ impl XferData for HostSuperweaponKind {
             HostSuperweaponKind::ScudStorm => 2,
             HostSuperweaponKind::ParticleCannon => 3,
             HostSuperweaponKind::NuclearMissile => 4,
+            HostSuperweaponKind::AnthraxBomb => 5,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -2542,6 +2576,7 @@ impl XferData for HostSuperweaponKind {
             2 => HostSuperweaponKind::ScudStorm,
             3 => HostSuperweaponKind::ParticleCannon,
             4 => HostSuperweaponKind::NuclearMissile,
+            5 => HostSuperweaponKind::AnthraxBomb,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid HostSuperweaponKind discriminant: {other}"
@@ -2632,6 +2667,35 @@ impl XferData for crate::game_logic::special_power_strikes::HostRadiationField {
     }
 }
 
+impl XferData for crate::game_logic::special_power_strikes::HostToxinField {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("HostToxinField")?;
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceTeam")?;
+        self.source_team.xfer(xfer)?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("SpawnFrame")?;
+        xfer.xfer_u32(&mut self.spawn_frame)?;
+        xfer.xfer_marker_label("ExpiresFrame")?;
+        xfer.xfer_u32(&mut self.expires_frame)?;
+        xfer.xfer_marker_label("NextTickFrame")?;
+        xfer.xfer_u32(&mut self.next_tick_frame)?;
+        xfer.xfer_marker_label("TotalDamageApplied")?;
+        xfer.xfer_f32(&mut self.total_damage_applied)?;
+        xfer.xfer_marker_label("DamageApplications")?;
+        xfer.xfer_u32(&mut self.damage_applications)?;
+        xfer.xfer_marker_label("ObjectsDestroyed")?;
+        xfer.xfer_u32(&mut self.objects_destroyed)?;
+        xfer.xfer_marker_label("ParentStrikeId")?;
+        xfer.xfer_u32(&mut self.parent_strike_id)?;
+        Ok(())
+    }
+}
+
 impl XferData for SpecialPowerStrikeRegistrySnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("SpecialPowerStrikeRegistrySnapshot")?;
@@ -2681,6 +2745,31 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
         xfer.xfer_u32(&mut self.radiation_fields_spawned_total)?;
         xfer.xfer_marker_label("RadiationDamageApplicationsTotal")?;
         xfer.xfer_u32(&mut self.radiation_damage_applications_total)?;
+        // AnthraxBomb residual toxin fields (appended after radiation).
+        xfer.xfer_marker_label("NextToxinId")?;
+        xfer.xfer_u32(&mut self.next_toxin_id)?;
+        xfer.xfer_marker_label("ToxinFields")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.toxin_fields,
+            crate::game_logic::special_power_strikes::HostToxinField {
+                id: 0,
+                source_object: ObjectId(0),
+                source_team: Team::Neutral,
+                position: Vec3::ZERO,
+                spawn_frame: 0,
+                expires_frame: 0,
+                next_tick_frame: 0,
+                total_damage_applied: 0.0,
+                damage_applications: 0,
+                objects_destroyed: 0,
+                parent_strike_id: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("ToxinFieldsSpawnedTotal")?;
+        xfer.xfer_u32(&mut self.toxin_fields_spawned_total)?;
+        xfer.xfer_marker_label("ToxinDamageApplicationsTotal")?;
+        xfer.xfer_u32(&mut self.toxin_damage_applications_total)?;
         Ok(())
     }
 }
@@ -3077,6 +3166,8 @@ impl SnapshotBuilder {
             radar_jammed: false,
             disabled_underpowered: object.status.disabled_underpowered,
             disabled_unmanned: object.status.disabled_unmanned,
+            is_carbomb: object.status.is_carbomb,
+            hijacked: object.status.hijacked,
             special_power_ready: object.special_power_ready,
             special_power_cooldown: object.special_power_cooldown,
             special_power_cooldown_remaining: object.special_power_cooldown_remaining,
@@ -3696,6 +3787,8 @@ impl SnapshotBuilder {
         object.status.selected = status.selected;
         object.status.disabled_underpowered = status.disabled_underpowered;
         object.status.disabled_unmanned = status.disabled_unmanned;
+        object.status.is_carbomb = status.is_carbomb;
+        object.status.hijacked = status.hijacked;
 
         object.ai_state = if status.destroyed {
             AIState::Idle
@@ -4154,6 +4247,10 @@ impl SnapshotBuilder {
             radiation_fields: reg.radiation_fields().to_vec(),
             radiation_fields_spawned_total: reg.radiation_fields_spawned_total(),
             radiation_damage_applications_total: reg.radiation_damage_applications_total(),
+            next_toxin_id: reg.next_toxin_id(),
+            toxin_fields: reg.toxin_fields().to_vec(),
+            toxin_fields_spawned_total: reg.toxin_fields_spawned_total(),
+            toxin_damage_applications_total: reg.toxin_damage_applications_total(),
         })
     }
 
@@ -4164,13 +4261,17 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<()> {
         game_logic
             .special_power_strikes_mut()
-            .restore_from_snapshot_with_radiation(
+            .restore_from_snapshot_with_residuals(
                 snapshot.next_id,
                 snapshot.strikes.clone(),
                 snapshot.next_radiation_id,
                 snapshot.radiation_fields.clone(),
                 snapshot.radiation_fields_spawned_total,
                 snapshot.radiation_damage_applications_total,
+                snapshot.next_toxin_id,
+                snapshot.toxin_fields.clone(),
+                snapshot.toxin_fields_spawned_total,
+                snapshot.toxin_damage_applications_total,
             );
         Ok(())
     }
