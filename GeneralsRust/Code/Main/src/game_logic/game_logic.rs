@@ -728,6 +728,16 @@ pub struct GameLogic {
     /// Fail-closed: not full BunkerBusterBehavior crash FX / seismic / shockwave path.
     bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
 
+    /// Host Comanche Rocket Pods residual honesty (area attack when secondary fires).
+    /// Fail-closed: not full ScatterTarget clip / tertiary WeaponSet matrix.
+    comanche_rocket_pod_residual_area_attacks: u32,
+    comanche_rocket_pod_residual_units_hit: u32,
+
+    /// Host Sentry Drone residual honesty (auto-detect spawn + gun auto-fire).
+    /// Fail-closed: not full DeployStyleAIUpdate pack/unpack matrix.
+    sentry_drone_residual_auto_fires: u32,
+    sentry_drone_residual_detects: u32,
+
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
     radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
@@ -1611,6 +1621,10 @@ impl GameLogic {
             neutron_shell_residual_vehicles_unmanned: 0,
             bunker_buster:
                 crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry::new(),
+            comanche_rocket_pod_residual_area_attacks: 0,
+            comanche_rocket_pod_residual_units_hit: 0,
+            sentry_drone_residual_auto_fires: 0,
+            sentry_drone_residual_detects: 0,
             radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry::new(),
             spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry::new(),
             cia_intelligence:
@@ -1788,6 +1802,10 @@ impl GameLogic {
         self.neutron_shell_residual_infantry_kills = 0;
         self.neutron_shell_residual_vehicles_unmanned = 0;
         self.bunker_buster.clear();
+        self.comanche_rocket_pod_residual_area_attacks = 0;
+        self.comanche_rocket_pod_residual_units_hit = 0;
+        self.sentry_drone_residual_auto_fires = 0;
+        self.sentry_drone_residual_detects = 0;
         self.radar_scans.clear();
         self.spy_satellites.clear();
         self.hero_abilities.clear();
@@ -4528,6 +4546,33 @@ impl GameLogic {
                     continue;
                 }
             }
+            // Sentry Drone residual: with gun upgrade, AutoAcquireEnemiesWhenIdle
+            // fires at nearest enemy without manual AttackObject.
+            // Fail-closed: not full DeployStyle pack/unpack / turret-only-deployed.
+            {
+                use crate::game_logic::host_sentry_drone::{
+                    is_sentry_drone_template, sentry_auto_fire_eligible,
+                };
+                let is_sentry = is_sentry_drone_template(&attacker.template_name);
+                let idle_ok = matches!(
+                    attacker.ai_state,
+                    AIState::Idle | AIState::Attacking | AIState::Patrolling
+                );
+                let sentry_auto_ok = sentry_auto_fire_eligible(
+                    is_sentry,
+                    attacker.weapon.is_some(),
+                    attacker.is_alive(),
+                    attacker.can_attack(),
+                    idle_ok,
+                ) && !self.skirmish_ai_auto_engage_paused(attacker.team)
+                    // Only residual-own auto-fire when no explicit player target.
+                    && attacker.target.is_none()
+                    && attacker.target_location.is_none();
+                if sentry_auto_ok {
+                    self.try_sentry_drone_residual_fire(attacker_id);
+                    continue;
+                }
+            }
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
             // Any slot ready on reload timer? If all reloading, skip (no chase).
@@ -4690,6 +4735,32 @@ impl GameLogic {
                                 attacker.gain_experience(xp);
                             }
                         }
+                    } else if {
+                        // Comanche Rocket Pods residual: secondary slot area attack.
+                        use crate::game_logic::host_comanche_rocket_pods::{
+                            is_comanche_template, should_apply_rocket_pod_area_attack,
+                            UPGRADE_COMANCHE_ROCKET_PODS,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_rocket_pod_area_attack(
+                                    is_comanche_template(&a.template_name),
+                                    a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
+                                        || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
+                                    slot,
+                                )
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self
+                            .apply_comanche_rocket_pod_area_at(impact, Some(attacker_id));
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 10.0);
+                            }
+                        }
                     } else {
                         // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
                         // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
@@ -4817,30 +4888,67 @@ impl GameLogic {
             } else if let Some(target_location) = target_location {
                 // Force-attack-ground: consume a shot when the location is in range and apply damage
                 // to the nearest hittable object around the designated impact point.
-                // Fail-closed residual: ground fire still uses primary (secondary ground AOE deferred).
+                // Comanche Rocket Pods residual: secondary ground AOE when slot-locked.
+                // Fail-closed residual: other units still use primary for ground fire.
+                let rocket_pod_ground = {
+                    use crate::game_logic::host_comanche_rocket_pods::{
+                        is_comanche_template, rocket_pod_ground_fire_active,
+                        UPGRADE_COMANCHE_ROCKET_PODS,
+                    };
+                    self.objects.get(&attacker_id).map(|a| {
+                        rocket_pod_ground_fire_active(
+                            is_comanche_template(&a.template_name),
+                            a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
+                                || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
+                            a.secondary_weapon.is_some(),
+                            a.active_weapon_slot,
+                        )
+                    })
+                    .unwrap_or(false)
+                };
+
                 let can_fire_at_location = {
                     if let Some(attacker) = self.objects.get(&attacker_id) {
-                        attacker
-                            .weapon
-                            .as_ref()
-                            .map(|w| {
-                                Object::weapon_ready(w, current_time)
-                                    && w.can_target_ground
-                                    && attacker.position.distance(target_location) <= w.range
-                            })
-                            .unwrap_or(false)
+                        if rocket_pod_ground {
+                            attacker
+                                .secondary_weapon
+                                .as_ref()
+                                .map(|w| {
+                                    Object::weapon_ready(w, current_time)
+                                        && w.can_target_ground
+                                        && attacker.position.distance(target_location) <= w.range
+                                })
+                                .unwrap_or(false)
+                        } else {
+                            attacker
+                                .weapon
+                                .as_ref()
+                                .map(|w| {
+                                    Object::weapon_ready(w, current_time)
+                                        && w.can_target_ground
+                                        && attacker.position.distance(target_location) <= w.range
+                                })
+                                .unwrap_or(false)
+                        }
                     } else {
                         false
                     }
                 };
 
                 if can_fire_at_location {
-                    let mut weapon_damage = self
-                        .objects
-                        .get(&attacker_id)
-                        .and_then(|a| a.weapon.as_ref())
-                        .map(|w| w.damage)
-                        .unwrap_or(0.0);
+                    let mut weapon_damage = if rocket_pod_ground {
+                        self.objects
+                            .get(&attacker_id)
+                            .and_then(|a| a.secondary_weapon.as_ref())
+                            .map(|w| w.damage)
+                            .unwrap_or(0.0)
+                    } else {
+                        self.objects
+                            .get(&attacker_id)
+                            .and_then(|a| a.weapon.as_ref())
+                            .map(|w| w.damage)
+                            .unwrap_or(0.0)
+                    };
                     if overcharge {
                         weapon_damage *= 1.1;
                     }
@@ -4849,7 +4957,7 @@ impl GameLogic {
                         weapon_damage *= attacker.frenzy_damage_multiplier();
                     }
 
-                    fired_slot = Some(0);
+                    fired_slot = Some(if rocket_pod_ground { 1 } else { 0 });
 
                     // Aurora dive bomb residual on force-attack-ground.
                     let aurora_ground_queued = {
@@ -4877,7 +4985,19 @@ impl GameLogic {
                     };
 
                     if !aurora_ground_queued {
-                        if let Some(ground_target_id) =
+                        if rocket_pod_ground {
+                            // Retail FIRE_WEAPON tertiary at position → scatter area residual.
+                            let (hits, _) = self.apply_comanche_rocket_pod_area_at(
+                                target_location,
+                                Some(attacker_id),
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                if hits > 0 {
+                                    attacker.gain_experience((hits as f32) * 10.0);
+                                }
+                            }
+                            let _ = weapon_damage; // area residual owns damage
+                        } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)
                         {
                             if let Some(target) = self.objects.get_mut(&ground_target_id) {
@@ -4897,7 +5017,7 @@ impl GameLogic {
                         }
 
                         // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
-                        {
+                        if !rocket_pod_ground {
                             use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
                             let is_inferno = self
                                 .objects
@@ -6649,6 +6769,12 @@ impl GameLogic {
             HostUpgradeKind::BunkerBusters => {
                 self.apply_bunker_busters_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::ComancheRocketPods => {
+                self.apply_comanche_rocket_pods_unlock_to_team(team, upgrade_name)
+            }
+            HostUpgradeKind::SentryDroneGun => {
+                self.apply_sentry_drone_gun_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -6760,6 +6886,73 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Equip Comanche Rocket Pods secondary + apply upgrade tag.
+    ///
+    /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_ComancheRocketPods unlocks
+    /// TERTIARY ComancheRocketPodWeapon. Host residual binds secondary slot.
+    fn apply_comanche_rocket_pods_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            is_comanche_template, COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let secondary = ThingTemplate::weapon_from_store(COMANCHE_ROCKET_POD_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_comanche_template(&obj.template_name) {
+                continue;
+            }
+            if let Some(ref w) = secondary {
+                obj.secondary_weapon = Some(w.clone());
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
+            // Host residual: PLAYER_UPGRADE weapon set flag for presentation honesty.
+            obj.weapon_set_player_upgrade = true;
+            affected = affected.saturating_add(1);
+        }
+        affected
+    }
+
+    /// Equip Sentry Drone Gun primary + apply upgrade tag.
+    ///
+    /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_AmericaSentryDroneGun unlocks
+    /// PRIMARY SentryDroneGun. Host residual binds primary weapon for auto-fire.
+    fn apply_sentry_drone_gun_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_sentry_drone::{
+            is_sentry_drone_template, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+        let primary = ThingTemplate::weapon_from_store(SENTRY_DRONE_GUN_WEAPON);
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_sentry_drone_template(&obj.template_name) {
+                continue;
+            }
+            if let Some(ref w) = primary {
+                obj.weapon = Some(w.clone());
+            }
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
+            obj.weapon_set_player_upgrade = true;
             affected = affected.saturating_add(1);
         }
         affected
@@ -7620,6 +7813,20 @@ impl GameLogic {
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
+            }
+
+            // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
+            // Always detector from spawn; gun is PLAYER_UPGRADE residual.
+            if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
+                object.is_detector = true;
+                if let Some(range) =
+                    crate::game_logic::host_sentry_drone::sentry_detection_range(template_name)
+                {
+                    object.detection_range = range;
+                }
+                // Innate stealth residual (StealthUpdate InnateStealth = Yes).
+                object.status.stealthed = true;
+                object.stealth_breaks_on_attack = true;
             }
 
             self.objects.insert(id, object);
@@ -10520,6 +10727,259 @@ impl GameLogic {
     /// Residual honesty counter: vehicles unmanned by neutron residual.
     pub fn neutron_shell_residual_vehicles_unmanned(&self) -> u32 {
         self.neutron_shell_residual_vehicles_unmanned
+    }
+
+    /// Residual honesty: Comanche rocket-pod area attack residual fired.
+    pub fn honesty_comanche_rocket_pod_ok(&self) -> bool {
+        self.comanche_rocket_pod_residual_area_attacks > 0
+    }
+
+    /// Residual honesty counter: rocket-pod area attacks.
+    pub fn comanche_rocket_pod_residual_area_attacks(&self) -> u32 {
+        self.comanche_rocket_pod_residual_area_attacks
+    }
+
+    /// Residual honesty counter: units hit by rocket-pod splash.
+    pub fn comanche_rocket_pod_residual_units_hit(&self) -> u32 {
+        self.comanche_rocket_pod_residual_units_hit
+    }
+
+    /// Residual honesty: Sentry Drone auto-fire residual shot.
+    pub fn honesty_sentry_drone_auto_fire_ok(&self) -> bool {
+        self.sentry_drone_residual_auto_fires > 0
+    }
+
+    /// Residual honesty counter: Sentry auto-fire residual shots.
+    pub fn sentry_drone_residual_auto_fires(&self) -> u32 {
+        self.sentry_drone_residual_auto_fires
+    }
+
+    /// Residual honesty: Sentry detector residual revealed at least one unit.
+    pub fn honesty_sentry_drone_detect_ok(&self) -> bool {
+        self.sentry_drone_residual_detects > 0
+    }
+
+    /// Residual honesty counter: Sentry detector residual reveals.
+    pub fn sentry_drone_residual_detects(&self) -> u32 {
+        self.sentry_drone_residual_detects
+    }
+
+    /// Apply ComancheRocketPodWeapon area residual at impact.
+    ///
+    /// Returns (units_hit, any_destroyed).
+    /// Fail-closed: not full ScatterTarget clip pattern / projectile flight.
+    fn apply_comanche_rocket_pod_area_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance,
+            ROCKET_POD_AUDIO, ROCKET_POD_SECONDARY_RADIUS,
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
+
+        let candidates: Vec<(ObjectId, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_rocket_pod_splash_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if dist <= ROCKET_POD_SECONDARY_RADIUS {
+                    Some((*id, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist) in candidates {
+            let dmg = rocket_pod_damage_at_distance(dist);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, source_team));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.comanche_rocket_pod_residual_area_attacks = self
+            .comanche_rocket_pod_residual_area_attacks
+            .saturating_add(1);
+        self.comanche_rocket_pod_residual_units_hit = self
+            .comanche_rocket_pod_residual_units_hit
+            .saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(ROCKET_POD_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                None,
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Residual Sentry Drone auto-fire: gun-equipped Sentry acquires nearest enemy
+    /// in weapon range and deals damage without a manual AttackObject order.
+    /// Fail-closed: not full DeployStyleAIUpdate pack/unpack / LOS matrix.
+    fn try_sentry_drone_residual_fire(&mut self, sentry_id: ObjectId) {
+        use crate::game_logic::host_sentry_drone::{
+            is_legal_sentry_auto_fire_target, SENTRY_GUN_AUDIO,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+        let Some(attacker) = self.objects.get(&sentry_id) else {
+            return;
+        };
+        if !attacker.is_alive() || attacker.weapon.is_none() || !attacker.can_attack() {
+            return;
+        }
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        if !Object::weapon_ready(weapon, current_time) {
+            return;
+        }
+
+        let team = attacker.team;
+        let range = weapon.range;
+        let damage = weapon.damage;
+        let fire_pos = attacker.get_position();
+
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in &self.objects {
+            if *id == sentry_id {
+                continue;
+            }
+            let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry)
+                || obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Aircraft);
+            let stealthed_hidden =
+                obj.is_effectively_stealthed() && obj.team != team;
+            if !is_legal_sentry_auto_fire_target(
+                obj.is_alive(),
+                obj.team == team,
+                obj.team == Team::Neutral,
+                obj.status.under_construction,
+                combat_kind,
+                stealthed_hidden,
+            ) {
+                continue;
+            }
+            let dist = fire_pos.distance(obj.get_position());
+            if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let Some((target_id, _)) = best else {
+            return;
+        };
+
+        let mut destroyed = false;
+        let mut kill_xp = 0.0;
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            destroyed = target.take_damage(damage);
+            if destroyed {
+                kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
+            }
+        }
+
+        if let Some(attacker) = self.objects.get_mut(&sentry_id) {
+            if let Some(w) = attacker.weapon.as_mut() {
+                w.last_fire_time = current_time;
+            }
+            attacker.target = Some(target_id);
+            attacker.target_location = None;
+            attacker.force_attack = false;
+            attacker.ai_state = AIState::Attacking;
+            attacker.status.attacking = true;
+            // STEALTH_NOT_WHILE_ATTACKING residual.
+            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                attacker.break_stealth();
+            }
+            if destroyed {
+                attacker.gain_experience(kill_xp);
+                attacker.stop_attack();
+            }
+        }
+
+        if destroyed {
+            self.mark_object_for_destruction(target_id, Some(team));
+        }
+
+        let muzzle_pos = self
+            .objects
+            .get(&sentry_id)
+            .map(|a| a.get_position())
+            .unwrap_or(fire_pos);
+        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
+        let _ = self.combat_particles.spawn_weapon_fire_fx(
+            muzzle_pos,
+            impact_pos,
+            self.frame,
+            sentry_id,
+            Some(target_id),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(SENTRY_GUN_AUDIO)
+                .with_object(sentry_id)
+                .with_position(muzzle_pos)
+                .with_priority(160),
+        );
+
+        self.sentry_drone_residual_auto_fires =
+            self.sentry_drone_residual_auto_fires.saturating_add(1);
     }
 
     /// Residual honesty: bunker-buster blast + garrison kill or bunker damage.
@@ -13634,7 +14094,8 @@ impl GameLogic {
         }
 
         // Collect active detectors (alive, not under construction).
-        let detectors: Vec<(Team, Vec3, f32)> = self
+        // Track whether any detector is a Sentry residual for honesty counters.
+        let detectors: Vec<(Team, Vec3, f32, bool)> = self
             .objects
             .values()
             .filter(|o| {
@@ -13643,8 +14104,19 @@ impl GameLogic {
                     && !o.status.under_construction
                     && !o.status.destroyed
             })
-            .map(|o| (o.team, o.get_position(), o.effective_detection_range()))
-            .filter(|(_, _, range)| *range > 0.0)
+            .map(|o| {
+                let is_sentry =
+                    crate::game_logic::host_sentry_drone::is_sentry_drone_template(
+                        &o.template_name,
+                    );
+                (
+                    o.team,
+                    o.get_position(),
+                    o.effective_detection_range(),
+                    is_sentry,
+                )
+            })
+            .filter(|(_, _, range, _)| *range > 0.0)
             .collect();
 
         if detectors.is_empty() {
@@ -13664,21 +14136,29 @@ impl GameLogic {
             .collect();
 
         for sid in stealthed_ids {
-            let Some((s_team, s_pos)) = self
-                .objects
-                .get(&sid)
-                .map(|o| (o.team, o.get_position()))
-            else {
+            let Some((s_team, s_pos, already_detected)) = self.objects.get(&sid).map(|o| {
+                (o.team, o.get_position(), o.status.detected)
+            }) else {
                 continue;
             };
 
-            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range)| {
-                *det_team != s_team && det_pos.distance(s_pos) <= *range
+            let mut detected_by_sentry = false;
+            let detected_by_someone = detectors.iter().any(|(det_team, det_pos, range, is_sentry)| {
+                let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
+                if in_range && *is_sentry {
+                    detected_by_sentry = true;
+                }
+                in_range
             });
 
             if detected_by_someone {
                 if let Some(obj) = self.objects.get_mut(&sid) {
                     obj.mark_detected(expires);
+                }
+                // Honesty: first residual reveal by a Sentry detector this tick.
+                if detected_by_sentry && !already_detected {
+                    self.sentry_drone_residual_detects =
+                        self.sentry_drone_residual_detects.saturating_add(1);
                 }
             }
         }
@@ -33409,6 +33889,529 @@ mod tests {
         assert!(
             !game_logic.honesty_point_defense_intercept_ok(),
             "fail-closed: regular Raptor must not PDL-intercept"
+        );
+    }
+
+    /// Residual: Upgrade_ComancheRocketPods equips secondary + area attack hits nearby units.
+    #[test]
+    fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_comanche_rocket_pods::{
+            is_comanche_template, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
+            UPGRADE_COMANCHE_ROCKET_PODS,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut comanche_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleComanche");
+        comanche_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON);
+        // Intentionally no secondary — research unlocks rocket pods residual.
+        game_logic
+            .templates
+            .insert("AmericaVehicleComanche".to_string(), comanche_tpl);
+
+        let producer_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("producer");
+
+        let comanche_id = game_logic
+            .create_object(
+                "AmericaVehicleComanche",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("comanche");
+        {
+            let c = game_logic.find_object(comanche_id).expect("comanche");
+            assert!(is_comanche_template(&c.template_name));
+            assert!(
+                c.secondary_weapon.is_none(),
+                "pre-upgrade comanche must lack rocket pods secondary"
+            );
+            assert!(
+                c.weapon.is_some(),
+                "comanche must spawn with primary cannon residual"
+            );
+        }
+
+        // Place two enemies near impact (within secondary splash radius 40).
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("tank");
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(110.0, 0.0, 0.0))
+            .expect("infantry");
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_COMANCHE_ROCKET_PODS.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![producer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::ComancheRocketPods),
+            "comanche rocket pods upgrade must queue residual"
+        );
+
+        game_logic.update();
+
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::ComancheRocketPods),
+            "comanche rocket pods upgrade must complete residual"
+        );
+        {
+            let c = game_logic.find_object(comanche_id).expect("comanche");
+            assert!(
+                c.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS),
+                "comanche must receive rocket pods upgrade tag"
+            );
+            assert!(
+                c.secondary_weapon.is_some(),
+                "comanche must equip rocket pods secondary after upgrade"
+            );
+            let sec = c.secondary_weapon.as_ref().unwrap();
+            assert!(
+                (sec.range - 200.0).abs() < 1.0,
+                "rocket pods range residual 200, got {}",
+                sec.range
+            );
+            assert!(
+                (sec.damage - 30.0).abs() < 1.0,
+                "rocket pods primary damage residual 30, got {}",
+                sec.damage
+            );
+            let _ = COMANCHE_ROCKET_POD_WEAPON;
+        }
+
+        // Fire secondary at tank (slot lock residual + area splash).
+        {
+            let c = game_logic.find_object_mut(comanche_id).expect("comanche");
+            c.active_weapon_slot = 1;
+            c.attack_target(tank_id);
+            if let Some(w) = c.secondary_weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = 0.0;
+                w.reload_time = 1000.0; // primary reloading
+            }
+            c.set_position(Vec3::new(80.0, 0.0, 0.0));
+        }
+
+        let tank_hp_before = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_before = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(90);
+        game_logic.update_combat(&[comanche_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_comanche_rocket_pod_ok(),
+            "rocket pods area attack residual honesty must fire"
+        );
+        assert!(
+            game_logic.comanche_rocket_pod_residual_units_hit() >= 1,
+            "rocket pods residual must hit at least the aim target"
+        );
+
+        let tank_hp_after = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        let inf_hp_after = game_logic
+            .find_object(infantry_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_after < tank_hp_before,
+            "tank in rocket pod core must take damage (before={tank_hp_before} after={tank_hp_after})"
+        );
+        // Infantry 10 units from tank impact (~100): secondary ring residual.
+        assert!(
+            inf_hp_after < inf_hp_before,
+            "infantry in rocket pod secondary radius must take splash (before={inf_hp_before} after={inf_hp_after})"
+        );
+    }
+
+    /// Fail-closed: primary Comanche cannon does not apply rocket-pod area residual.
+    #[test]
+    fn comanche_rocket_pods_primary_does_not_area_attack() {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_infantry_template(&mut game_logic);
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+
+        let mut comanche_tpl = crate::game_logic::ThingTemplate::new("TestComanche");
+        comanche_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(220.0)
+            .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+        game_logic
+            .templates
+            .insert("TestComanche".to_string(), comanche_tpl);
+
+        let comanche_id = game_logic
+            .create_object("TestComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("comanche");
+        {
+            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
+            c.active_weapon_slot = 0; // primary cannon
+            if let Some(w) = c.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+        let infantry_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("infantry");
+        {
+            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            c.attack_target(infantry_id);
+        }
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[comanche_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            !game_logic.honesty_comanche_rocket_pod_ok(),
+            "primary slot must not apply rocket pods area residual"
+        );
+        assert_eq!(
+            game_logic.comanche_rocket_pod_residual_area_attacks(),
+            0,
+            "primary fire must not increment rocket pod area counter"
+        );
+    }
+
+    /// Residual: FIRE_WEAPON ground path with rocket pods applies area residual.
+    #[test]
+    fn comanche_rocket_pods_ground_fire_area_residual() {
+        use crate::game_logic::host_comanche_rocket_pods::{
+            COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+        };
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+
+        let mut comanche_tpl = crate::game_logic::ThingTemplate::new("TestComanche");
+        comanche_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(220.0)
+            .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
+            .set_secondary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+        game_logic
+            .templates
+            .insert("TestComanche".to_string(), comanche_tpl);
+
+        let comanche_id = game_logic
+            .create_object("TestComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("comanche");
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+            .expect("tank");
+
+        {
+            let c = game_logic.find_object_mut(comanche_id).unwrap();
+            c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
+            c.active_weapon_slot = 1;
+            c.set_force_attack(true);
+            c.set_target_location(Some(Vec3::new(100.0, 0.0, 0.0)));
+            c.ai_state = AIState::AttackingGround;
+            c.status.attacking = true;
+            if let Some(w) = c.secondary_weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.min_range = 0.0;
+            }
+        }
+
+        let tank_hp_before = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[comanche_id, tank_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_comanche_rocket_pod_ok(),
+            "ground FIRE_WEAPON residual must apply rocket pods area"
+        );
+        let tank_hp_after = game_logic
+            .find_object(tank_id)
+            .map(|t| t.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            tank_hp_after < tank_hp_before,
+            "ground rocket pods residual must damage tank at aim pos"
+        );
+    }
+
+    /// Residual: Sentry Drone spawns as detector + gun upgrade enables auto-fire.
+    #[test]
+    fn sentry_drone_residual_detect_and_auto_fire() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_sentry_drone::{
+            is_sentry_drone_template, SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON,
+            UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 10_000;
+        game_logic.add_player(player);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut sentry_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleSentryDrone");
+        sentry_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        // No primary weapon until gun upgrade residual.
+        game_logic
+            .templates
+            .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
+
+        let producer_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("producer");
+
+        let sentry_id = game_logic
+            .create_object(
+                "AmericaVehicleSentryDrone",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("sentry");
+        {
+            let s = game_logic.find_object(sentry_id).expect("sentry");
+            assert!(is_sentry_drone_template(&s.template_name));
+            assert!(s.is_detector, "sentry must spawn as stealth detector residual");
+            assert!(
+                (s.detection_range - SENTRY_DETECTION_RANGE).abs() < 0.1,
+                "sentry detection range residual 225, got {}",
+                s.detection_range
+            );
+            assert!(
+                s.status.stealthed,
+                "sentry innate stealth residual on spawn"
+            );
+            assert!(
+                s.weapon.is_none(),
+                "pre-upgrade sentry must lack gun residual"
+            );
+        }
+
+        // Place stealthed enemy within detection range.
+        let stealth_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("stealthed enemy");
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = true;
+            e.status.detected = false;
+        }
+
+        game_logic.frame = 1;
+        game_logic.update_stealth_and_detection();
+        {
+            let e = game_logic.find_object(stealth_id).expect("enemy");
+            assert!(
+                e.status.detected,
+                "sentry detector residual must reveal stealthed enemy in range"
+            );
+        }
+        assert!(
+            game_logic.honesty_sentry_drone_detect_ok(),
+            "sentry detect honesty residual must fire"
+        );
+
+        // Without gun: no auto-fire residual.
+        game_logic.frame = 2;
+        game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            !game_logic.honesty_sentry_drone_auto_fire_ok(),
+            "fail-closed: unarmed sentry must not auto-fire"
+        );
+
+        // Research gun upgrade residual.
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_AMERICA_SENTRY_DRONE_GUN.to_string(),
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![producer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_queue_ok(HostUpgradeKind::SentryDroneGun),
+            "sentry gun upgrade must queue residual"
+        );
+        game_logic.update();
+        assert!(
+            game_logic
+                .host_upgrades()
+                .honesty_complete_ok(HostUpgradeKind::SentryDroneGun),
+            "sentry gun upgrade must complete residual"
+        );
+        {
+            let s = game_logic.find_object(sentry_id).expect("sentry");
+            assert!(
+                s.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN),
+                "sentry must receive gun upgrade tag"
+            );
+            assert!(
+                s.weapon.is_some(),
+                "sentry must equip SentryDroneGun after upgrade"
+            );
+            let w = s.weapon.as_ref().unwrap();
+            assert!(
+                (w.damage - 8.0).abs() < 0.1,
+                "SentryDroneGun damage residual 8, got {}",
+                w.damage
+            );
+            assert!(
+                (w.range - 150.0).abs() < 0.1,
+                "SentryDroneGun range residual 150, got {}",
+                w.range
+            );
+            let _ = SENTRY_DRONE_GUN_WEAPON;
+        }
+
+        // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
+        {
+            let e = game_logic.find_object_mut(stealth_id).unwrap();
+            e.status.stealthed = false; // or keep detected; either way targetable
+            e.set_position(Vec3::new(40.0, 0.0, 0.0));
+        }
+        {
+            let s = game_logic.find_object_mut(sentry_id).unwrap();
+            s.ai_state = AIState::Idle;
+            s.target = None;
+            s.target_location = None;
+            if let Some(w) = s.weapon.as_mut() {
+                w.last_fire_time = -100.0;
+                w.reload_time = 0.1;
+            }
+        }
+
+        let enemy_hp_before = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(30);
+        game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+
+        assert!(
+            game_logic.honesty_sentry_drone_auto_fire_ok(),
+            "sentry auto-fire residual honesty must fire with gun equipped"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(stealth_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "sentry auto-fire residual must damage enemy (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+    }
+
+    /// Fail-closed: non-Sentry vehicle with detector flag does not count as Sentry residual.
+    #[test]
+    fn sentry_drone_residual_skips_non_sentry_units() {
+        use crate::game_logic::host_sentry_drone::is_sentry_drone_template;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        {
+            let t = game_logic.find_object_mut(tank_id).unwrap();
+            t.is_detector = true;
+            t.detection_range = 225.0;
+            if let Some(w) = t.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.range = 150.0;
+            }
+            t.ai_state = AIState::Idle;
+            t.target = None;
+        }
+        let enemy_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+
+        {
+            let t = game_logic.find_object(tank_id).unwrap();
+            assert!(!is_sentry_drone_template(&t.template_name));
+        }
+
+        game_logic.set_current_frame(10);
+        game_logic.update_combat(&[tank_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            !game_logic.honesty_sentry_drone_auto_fire_ok(),
+            "fail-closed: ordinary tank must not use Sentry auto-fire residual"
         );
     }
 }
