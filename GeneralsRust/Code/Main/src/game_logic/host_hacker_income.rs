@@ -11,10 +11,12 @@
 //!
 //! Residual floating cash text (HackInternetAIUpdate):
 //! - Host `+$N` at unit pos + Z **20**, green RGBA (0,255,0,255), key `GUI:AddCash`.
+//! - STEALTHED local-player display gate residual (owner + containedBy Internet Center).
+//! - Internet Center geometry scatter residual (±0.3 major/minor radius).
 //!
 //! Fail-closed honesty:
 //! - Not full Unpack/Pack state machine / variation factor / model conditions
-//! - Not full InGameUI GPU draw / STEALTHED local-player display gate
+//! - Not full InGameUI GPU draw / Unicode GameText localization
 //! - Not full DISABLED_HACKED microwave interrupt resume matrix beyond skip-while-disabled
 //! - XpPerCashUpdate residual applied as +1 XP when experience tracker present
 //! - Network deferred
@@ -63,6 +65,70 @@ pub const HACKER_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
 
 /// Residual floating cash text color (green, retail GameMakeColor(0,255,0,255)).
 pub const HACKER_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
+
+/// C++ Internet Center geometry scatter scale for floating text inside container
+/// (`getMajorRadius() * 0.3f` / `getMinorRadius() * 0.3f`).
+pub const HACKER_IC_FLOATING_TEXT_SCATTER_SCALE: f32 = 0.3;
+
+/// C++ HackInternetAIUpdate floating-text local display gate (owner + container).
+///
+/// ```text
+/// if owner STEALTHED && !local && !DETECTED → hide
+/// if containedBy STEALTHED && !container local && !container DETECTED → hide
+/// ```
+pub fn should_display_hacker_floating_cash(
+    owner_stealthed: bool,
+    owner_detected: bool,
+    owner_local: bool,
+    has_container: bool,
+    container_stealthed: bool,
+    container_detected: bool,
+    container_local: bool,
+) -> bool {
+    use crate::game_logic::host_oil_derrick::should_display_stealthed_floating_cash;
+    if !should_display_stealthed_floating_cash(owner_stealthed, owner_detected, owner_local) {
+        return false;
+    }
+    if has_container
+        && !should_display_stealthed_floating_cash(
+            container_stealthed,
+            container_detected,
+            container_local,
+        )
+    {
+        return false;
+    }
+    true
+}
+
+/// Deterministic residual Internet Center floating-text scatter (C++
+/// GameClientRandomValue ± width/depth). Returns host XZ offset.
+///
+/// Fail-closed vs full GameClientRandomValue stream / GeometryInfo matrix.
+pub fn internet_center_floating_text_scatter(
+    seed: u32,
+    major_radius: f32,
+    minor_radius: f32,
+) -> (f32, f32) {
+    let width = (major_radius * HACKER_IC_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
+    let depth = (minor_radius * HACKER_IC_FLOATING_TEXT_SCATTER_SCALE).max(0.0);
+    if width <= 0.0 && depth <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let phase = (seed as f32 + 1.0) * 0.618_033_988_7;
+    let dx = if width > 0.0 {
+        (phase.fract() * 2.0 - 1.0) * width
+    } else {
+        0.0
+    };
+    // C++ Y horizontal → host Z.
+    let dz = if depth > 0.0 {
+        ((phase + 0.37).fract() * 2.0 - 1.0) * depth
+    } else {
+        0.0
+    };
+    (dx, dz)
+}
 
 /// Host residual HackInternet floating cash text presentation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,6 +241,12 @@ pub struct HostHackerIncomeRegistry {
     /// Floating cash text residual spawn count (honesty).
     #[serde(default)]
     pub floating_texts_total: u32,
+    /// Floating cash text suppressed by STEALTHED local display gate residual.
+    #[serde(default)]
+    pub floating_texts_suppressed: u32,
+    /// Internet Center geometry scatter residual applications.
+    #[serde(default)]
+    pub ic_scatter_applications: u32,
     /// Hackers currently residual-hacking (field command or IC).
     active_hackers: HashSet<ObjectId>,
     /// Next absolute logic frame each hacker may deposit.
@@ -284,6 +356,16 @@ impl HostHackerIncomeRegistry {
         }
     }
 
+    /// Record STEALTHED local-player display gate residual (text hidden).
+    pub fn record_floating_text_suppressed(&mut self) {
+        self.floating_texts_suppressed = self.floating_texts_suppressed.saturating_add(1);
+    }
+
+    /// Record Internet Center floating-text geometry scatter residual application.
+    pub fn record_ic_scatter(&mut self) {
+        self.ic_scatter_applications = self.ic_scatter_applications.saturating_add(1);
+    }
+
     /// Drop state when hacker is destroyed / gone.
     pub fn forget(&mut self, hacker_id: ObjectId) {
         self.active_hackers.remove(&hacker_id);
@@ -325,6 +407,17 @@ impl HostHackerIncomeRegistry {
         HACKER_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
             && (HACKER_FLOATING_TEXT_Z_OFFSET - 20.0).abs() < 0.01
             && HACKER_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
+            && (HACKER_IC_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001
+    }
+
+    /// Residual honesty: STEALTHED local display gate suppressed at least one text.
+    pub fn honesty_floating_text_stealth_gate_ok(&self) -> bool {
+        self.floating_texts_suppressed > 0
+    }
+
+    /// Residual honesty: Internet Center scatter residual applied.
+    pub fn honesty_ic_scatter_ok(&self) -> bool {
+        self.ic_scatter_applications > 0
     }
 
     /// Combined residual honesty.
@@ -421,5 +514,41 @@ mod tests {
         assert!((ft.position.y - 20.0).abs() < 0.01);
         reg.record_floating_text(ft);
         assert!(reg.honesty_floating_text_ok());
+    }
+
+    #[test]
+    fn stealthed_local_display_gate_and_ic_scatter_residual() {
+        // Field: stealthed non-local undetected → hide.
+        assert!(!should_display_hacker_floating_cash(
+            true, false, false, false, false, false, false
+        ));
+        // Field: stealthed local → show.
+        assert!(should_display_hacker_floating_cash(
+            true, false, true, false, false, false, false
+        ));
+        // Field: stealthed detected → show.
+        assert!(should_display_hacker_floating_cash(
+            true, true, false, false, false, false, false
+        ));
+        // IC: owner visible but container stealthed non-local → hide.
+        assert!(!should_display_hacker_floating_cash(
+            false, false, false, true, true, false, false
+        ));
+        // IC: container stealthed but local → show.
+        assert!(should_display_hacker_floating_cash(
+            false, false, false, true, true, false, true
+        ));
+
+        let (dx, dz) = internet_center_floating_text_scatter(0, 50.0, 40.0);
+        assert!(dx.abs() <= 50.0 * 0.3 + 0.001);
+        assert!(dz.abs() <= 40.0 * 0.3 + 0.001);
+        let zero = internet_center_floating_text_scatter(1, 0.0, 0.0);
+        assert!((zero.0).abs() < 0.001 && (zero.1).abs() < 0.001);
+
+        let mut reg = HostHackerIncomeRegistry::new();
+        reg.record_floating_text_suppressed();
+        reg.record_ic_scatter();
+        assert!(reg.honesty_floating_text_stealth_gate_ok());
+        assert!(reg.honesty_ic_scatter_ok());
     }
 }

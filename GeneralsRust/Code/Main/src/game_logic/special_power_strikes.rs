@@ -15,13 +15,14 @@
 //! TotalFiringTime / TotalDamagePulses / DamagePerSecond residual) that pulses
 //! damage at the target for the beam dwell. CarpetBomb is a delayed multi-strike
 //! line residual (`SUPERWEAPON_CarpetBomb` / `CarpetBombWeapon`): after bomber
-//! approach delay, applies explosive damage at multiple epicenters along a line
-//! through the target (fail-closed vs full B52 OCL drop path / variance /
-//! staggered DropDelay). ArtilleryBarrage is a delayed multi-shell scatter
-//! residual (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`):
-//! after DelayDeliveryMax residual, applies explosive damage at multiple shell
-//! epicenters within WeaponErrorRadius (fail-closed vs full ChinaArtilleryCannon
-//! OCL DeliverPayload / science tiers 12/24/36 / staggered shell drops).
+//! approach delay, applies explosive damage at DropDelay-staggered epicenters
+//! along a line through the target with DropVariance residual scatter
+//! (fail-closed vs full B52 OCL DeliverPayload transport Object). ArtilleryBarrage
+//! is a delayed multi-shell scatter residual
+//! (`SUPERWEAPON_ArtilleryBarrage1` / `ArtilleryBarrageDamageWeapon`): after
+//! DelayDeliveryMax residual, applies explosive damage at WeaponErrorRadius-
+//! scattered shell epicenters with per-shell DelayDelivery stagger (fail-closed
+//! vs full ChinaArtilleryCannon OCL DeliverPayload transport Object).
 //! CruiseMissile is a delayed loft-to-target residual
 //! (`SUPR_SPECIAL_CRUISE_MISSILE` / `SupW_CruiseMissile` /
 //! `SUPERWEAPON_CruiseMissile` / `MOABDetonationWeapon`): after NeutronMissile
@@ -37,14 +38,13 @@
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
 //! stack / gamma upgrade / SpectreGunshipUpdate gattling-strafe + howitzer
 //! projectile path / ParticleUplinkCannonUpdate outer-node lasers + swath sine
-//! wave + manual driving). CarpetBomb residual is multi-point simultaneous
-//! blasts with DropVariance residual scatter (not full AmericaJetB52
-//! DeliverPayload / per-bomb DropDelay stagger). ArtilleryBarrage residual is multi-point simultaneous
-//! shell blasts (not full ChinaArtilleryCannon transport / random
-//! WeaponErrorRadius draw / per-shell DelayDelivery stagger / science upgrade
-//! FormationSize matrix). CruiseMissile residual is a single MOAB blast (not
-//! full loft projectile / HeightDieUpdate / door animation / MOABFlameWeapon
-//! tree-ignite).
+//! wave + manual driving). CarpetBomb residual is DropDelay-staggered multi-point
+//! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
+//! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
+//! with per-shell DelayDelivery stagger and science-tier FormationSize
+//! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
+//! stream). CruiseMissile residual is a single MOAB blast (not full loft
+//! projectile / HeightDieUpdate / door animation / MOABFlameWeapon tree-ignite).
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -128,11 +128,14 @@ pub const CARPET_BOMB_DROP_VARIANCE_X: f32 = 30.0;
 pub const CARPET_BOMB_DROP_VARIANCE_Y: f32 = 40.0;
 /// Retail OCL CarpetBomb DropVariance Z (vertical; unused when 0).
 pub const CARPET_BOMB_DROP_VARIANCE_Z: f32 = 0.0;
+/// Retail OCL CarpetBomb `DropDelay` = 300 ms → 9 frames @ 30 FPS
+/// (parseDurationUnsignedInt: ms × 30 / 1000).
+pub const CARPET_BOMB_DROP_DELAY_FRAMES: u32 = 9;
 /// Retail `CarpetBombWeapon` PrimaryDamage.
 pub const CARPET_BOMB_DAMAGE: f32 = 300.0;
 /// Retail `CarpetBombWeapon` PrimaryDamageRadius.
 pub const CARPET_BOMB_RADIUS: f32 = 50.0;
-/// Bomber approach residual frames before multi-strike damage applies
+/// Bomber approach residual frames before first bomb DropDelay stagger starts
 /// (fail-closed vs full edge-spawn + transit locomotor).
 pub const CARPET_BOMB_IMPACT_DELAY_FRAMES: u32 = 90;
 
@@ -214,9 +217,11 @@ pub const ARTILLERY_BARRAGE_RADIUS: f32 = 50.0;
 /// Retail DeliverPayload `WeaponErrorRadius` (shell scatter radius around target).
 pub const ARTILLERY_BARRAGE_ERROR_RADIUS: f32 = 100.0;
 /// Retail DeliverPayload `DelayDeliveryMax` = 3000 ms → 90 frames @ 30 FPS.
+/// Used as: (1) base reaction/approach residual before first shell, and
+/// (2) max additional per-shell DelayDelivery stagger after that base.
 pub const ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES: u32 = 90;
-/// Residual ring radius for deterministic shell placement inside error radius
-/// (retail random draw within WeaponErrorRadius deferred).
+/// Legacy ring radius used by older residual placement (pre WeaponErrorRadius draw).
+/// Kept for honesty/tests that still reference the constant name.
 pub const ARTILLERY_BARRAGE_RING_RADIUS: f32 = 75.0;
 
 // --- Cruise Missile residual (retail SupW_CruiseMissile / MOABDetonationWeapon) ---
@@ -489,6 +494,88 @@ impl HostSuperweaponKind {
     }
 }
 
+/// Deterministic residual `WeaponErrorRadius` scatter for artillery formation index.
+///
+/// C++ `DeliverPayloadNugget` (ObjectCreationList.cpp):
+/// ```text
+/// if (m_errorRadius > 1.0f && formationIndex > 0) {
+///   randomRadius = GameLogicRandomValueReal(0, m_errorRadius);
+///   randomAngle  = GameLogicRandomValueReal(0, PI*2);
+///   targetPos.x += randomRadius * Cos(randomAngle);
+///   targetPos.y += randomRadius * Sin(randomAngle);
+/// }
+/// ```
+/// First formation slot is always spot-on (click target). Host residual uses
+/// deterministic pseudo-random radius/angle (not full GameLogicRandomValueReal).
+/// C++ X/Y horizontal map to host X/Z.
+pub fn weapon_error_radius_offset(formation_index: u32, error_radius: f32) -> Vec3 {
+    if formation_index == 0 || error_radius <= 1.0 {
+        return Vec3::ZERO;
+    }
+    // Golden-ratio residual phases — stable, non-zero scatter across indices.
+    let phase_r = (formation_index as f32) * 0.618_033_988_7;
+    let phase_a = (formation_index as f32) * 0.381_966_011_3 + 0.17;
+    let radius = phase_r.fract() * error_radius;
+    let angle = phase_a.fract() * std::f32::consts::TAU;
+    Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin())
+}
+
+/// Deterministic residual `DelayDeliveryMax` frames for artillery formation index.
+///
+/// C++: `setDisabledUntil(frame + GameLogicRandomValue(0, m_delayDeliveryFramesMax))`
+/// (inclusive integer range). Host residual: formationIndex 0 always 0 (lead
+/// shell starts after base approach residual); remaining shells draw a
+/// deterministic offset in `[0, max_frames]` inclusive.
+pub fn delay_delivery_frames(formation_index: u32, max_frames: u32) -> u32 {
+    if formation_index == 0 || max_frames == 0 {
+        return 0;
+    }
+    let phase = (formation_index as f32 * 0.618_033_988_7 + 0.13).fract();
+    // Inclusive [0, max_frames] like GameLogicRandomValue(0, max).
+    (phase * (max_frames as f32 + 1.0 - 1e-5)).floor() as u32
+}
+
+/// Absolute impact frame for artillery shell `formation_index`.
+///
+/// Base approach residual (`DelayDeliveryMax` as unified reaction) + per-shell
+/// DelayDelivery stagger residual.
+pub fn artillery_shell_impact_frame(activate_frame: u32, formation_index: u32) -> u32 {
+    activate_frame
+        .saturating_add(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES)
+        .saturating_add(delay_delivery_frames(
+            formation_index,
+            ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES,
+        ))
+}
+
+/// Absolute impact frame for carpet bomb index `i` (DropDelay stagger residual).
+///
+/// First bomb at approach residual; subsequent bombs every `CARPET_BOMB_DROP_DELAY_FRAMES`.
+pub fn carpet_bomb_impact_frame(activate_frame: u32, bomb_index: u32) -> u32 {
+    activate_frame
+        .saturating_add(CARPET_BOMB_IMPACT_DELAY_FRAMES)
+        .saturating_add(bomb_index.saturating_mul(CARPET_BOMB_DROP_DELAY_FRAMES))
+}
+
+/// Last absolute multi-strike impact frame for a kind (complete residual).
+pub fn multi_strike_last_impact_frame(
+    kind: HostSuperweaponKind,
+    activate_frame: u32,
+    artillery_tier: ArtilleryBarrageScienceTier,
+) -> u32 {
+    if kind.is_scatter_multi_strike() {
+        let count = artillery_tier.formation_size().max(1);
+        (0..count)
+            .map(|i| artillery_shell_impact_frame(activate_frame, i))
+            .max()
+            .unwrap_or_else(|| activate_frame.saturating_add(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES))
+    } else if kind.is_line_multi_strike() {
+        carpet_bomb_impact_frame(activate_frame, CARPET_BOMB_COUNT.saturating_sub(1))
+    } else {
+        activate_frame.saturating_add(kind.impact_delay_frames())
+    }
+}
+
 /// Deterministic residual DropVariance scatter for bomb index `i`.
 ///
 /// C++ DeliverPayloadAIUpdate:
@@ -547,9 +634,8 @@ pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
 
 /// Build residual artillery shell epicenters scattered around `target`.
 ///
-/// Fail-closed placement: one shell at the click target + remaining shells on a
-/// deterministic ring at `ARTILLERY_BARRAGE_RING_RADIUS` inside
-/// `WeaponErrorRadius` (retail random draw deferred).
+/// Formation index 0 is spot-on at the click target (C++). Remaining shells use
+/// deterministic `WeaponErrorRadius` residual scatter in `[0, error_radius]`.
 /// Shell count is Level1 FormationSize **12** by default.
 pub fn artillery_barrage_points(target: Vec3) -> Vec<Vec3> {
     artillery_barrage_points_for_tier(target, ArtilleryBarrageScienceTier::Level1)
@@ -558,25 +644,19 @@ pub fn artillery_barrage_points(target: Vec3) -> Vec<Vec3> {
 /// Build residual artillery shell epicenters for a science-tier FormationSize.
 ///
 /// Retail: SUPERWEAPON_ArtilleryBarrage1/2/3 → FormationSize **12 / 24 / 36**.
+/// Placement matches C++ `WeaponErrorRadius` residual (not fixed ring).
 pub fn artillery_barrage_points_for_tier(
     target: Vec3,
     tier: ArtilleryBarrageScienceTier,
 ) -> Vec<Vec3> {
     let count = tier.formation_size().max(1);
     let mut points = Vec::with_capacity(count as usize);
-    // Center shell guarantees a hit at the aimed position.
-    points.push(target);
-    let ring_count = count.saturating_sub(1);
-    if ring_count == 0 {
-        return points;
-    }
-    let ring_r = ARTILLERY_BARRAGE_RING_RADIUS.min(ARTILLERY_BARRAGE_ERROR_RADIUS);
-    for i in 0..ring_count {
-        let angle = (i as f32) * std::f32::consts::TAU / (ring_count as f32);
+    for i in 0..count {
+        let off = weapon_error_radius_offset(i, ARTILLERY_BARRAGE_ERROR_RADIUS);
         points.push(Vec3::new(
-            target.x + ring_r * angle.cos(),
-            target.y,
-            target.z + ring_r * angle.sin(),
+            target.x + off.x,
+            target.y + off.y,
+            target.z + off.z,
         ));
     }
     points
@@ -614,6 +694,10 @@ pub struct HostSpecialPowerStrike {
     /// Ignored for non-artillery kinds. Default Level1.
     #[serde(default)]
     pub artillery_tier: ArtilleryBarrageScienceTier,
+    /// Multi-strike residual: how many shells/bombs have already applied damage.
+    /// One-shot kinds leave this at 0 and complete in a single wave.
+    #[serde(default)]
+    pub multi_strike_applied: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -623,7 +707,7 @@ pub struct HostStrikeDamageHit {
     pub damage: f32,
 }
 
-/// Result of resolving one strike at impact time.
+/// Result of resolving one strike at impact time (or one multi-strike wave).
 #[derive(Debug, Clone)]
 pub struct HostStrikeImpactPlan {
     pub strike_id: u32,
@@ -632,6 +716,12 @@ pub struct HostStrikeImpactPlan {
     pub source_object: ObjectId,
     pub source_team: super::Team,
     pub hits: Vec<HostStrikeDamageHit>,
+    /// Shell/bomb epicenters applied in this wave (presentation residual).
+    pub epicenters: Vec<Vec3>,
+    /// How many multi-strike shells/bombs this wave covers.
+    pub wave_shell_count: u32,
+    /// True when this wave finishes the strike (spawn fields / complete honesty).
+    pub is_final_wave: bool,
 }
 
 /// Residual radiation field spawned by NuclearMissile impact
@@ -1260,6 +1350,7 @@ impl HostSpecialPowerStrikeRegistry {
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
+        // First multi-strike shell/bomb due frame (DelayDelivery / DropDelay residual).
         let impact_frame = activate_frame.saturating_add(kind.impact_delay_frames());
         let strike = HostSpecialPowerStrike {
             id,
@@ -1274,6 +1365,7 @@ impl HostSpecialPowerStrikeRegistry {
             objects_hit: 0,
             objects_destroyed: 0,
             artillery_tier,
+            multi_strike_applied: 0,
         };
         self.strikes.insert(id, strike);
         self.activated_this_frame.push(id);
@@ -1299,9 +1391,12 @@ impl HostSpecialPowerStrikeRegistry {
     /// Build impact damage plans for all strikes whose impact frame has arrived.
     /// Does not mutate object health — GameLogic applies hits.
     ///
-    /// Multi-strike residuals (CarpetBomb line / ArtilleryBarrage scatter): each
-    /// living enemy takes the max damage from any shell/bomb epicenter (not a
-    /// single circular blast at the click point only).
+    /// Multi-strike residuals (CarpetBomb line / ArtilleryBarrage scatter):
+    /// - Shells/bombs apply on their DelayDelivery / DropDelay residual frames.
+    /// - Each living enemy takes the max damage from any **due this wave**
+    ///   epicenter (not a single circular blast at the click point only).
+    /// - Jumping past several stagger frames applies all overdue shells/bombs
+    ///   in one wave (save/load and host tests).
     pub fn plan_due_impacts(
         &self,
         current_frame: u32,
@@ -1312,10 +1407,50 @@ impl HostSpecialPowerStrikeRegistry {
             if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
                 continue;
             }
-            let bomb_points = strike.kind.multi_strike_points_with_tier(
-                strike.target_position,
-                strike.artillery_tier,
-            );
+
+            let (due_points, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
+                let all_points = strike
+                    .kind
+                    .multi_strike_points_with_tier(
+                        strike.target_position,
+                        strike.artillery_tier,
+                    )
+                    .unwrap_or_default();
+                let total = all_points.len() as u32;
+                if total == 0 || strike.multi_strike_applied >= total {
+                    continue;
+                }
+                let mut due = Vec::new();
+                let mut due_count = 0_u32;
+                for (i, p) in all_points.iter().enumerate() {
+                    let idx = i as u32;
+                    if idx < strike.multi_strike_applied {
+                        continue;
+                    }
+                    let shell_frame = if strike.kind.is_scatter_multi_strike() {
+                        artillery_shell_impact_frame(strike.activate_frame, idx)
+                    } else {
+                        carpet_bomb_impact_frame(strike.activate_frame, idx)
+                    };
+                    if shell_frame <= current_frame {
+                        due.push(*p);
+                        due_count = due_count.saturating_add(1);
+                    }
+                }
+                if due_count == 0 {
+                    continue;
+                }
+                let applied_after = strike.multi_strike_applied.saturating_add(due_count);
+                let is_final = applied_after >= total;
+                (due, due_count, is_final)
+            } else {
+                (
+                    vec![strike.target_position],
+                    1,
+                    true,
+                )
+            };
+
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == strike.source_object {
@@ -1326,9 +1461,9 @@ impl HostSpecialPowerStrikeRegistry {
                 if team == strike.source_team {
                     continue;
                 }
-                let dmg = if let Some(ref points) = bomb_points {
-                    // Multi-strike: best (nearest) shell/bomb epicenter damage.
-                    points
+                let dmg = if strike.kind.is_multi_strike() {
+                    // Multi-strike wave: best (nearest) due shell/bomb epicenter.
+                    due_points
                         .iter()
                         .map(|epicenter| {
                             Self::damage_at_distance(
@@ -1348,13 +1483,21 @@ impl HostSpecialPowerStrikeRegistry {
                     });
                 }
             }
+            // Presentation epicenter: first due point (or strike target).
+            let present_pos = due_points
+                .first()
+                .copied()
+                .unwrap_or(strike.target_position);
             plans.push(HostStrikeImpactPlan {
                 strike_id: strike.id,
                 kind: strike.kind,
-                target_position: strike.target_position,
+                target_position: present_pos,
                 source_object: strike.source_object,
                 source_team: strike.source_team,
                 hits,
+                epicenters: due_points,
+                wave_shell_count,
+                is_final_wave,
             });
         }
         plans.sort_by_key(|p| p.strike_id);
@@ -1363,6 +1506,7 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Record impact results after GameLogic applied damage.
     ///
+    /// Multi-strike waves accumulate damage and only complete on `is_final_wave`.
     /// For `NuclearMissile`, also spawns a residual radiation field at the
     /// epicenter (retail `OCL_NukeRadiationField` residual).
     /// For `AnthraxBomb`, also spawns a residual toxin field at the epicenter
@@ -1378,48 +1522,69 @@ impl HostSpecialPowerStrikeRegistry {
         objects_hit: u32,
         objects_destroyed: u32,
     ) {
+        // Default: treat as final single wave (legacy callers).
+        self.record_impact_wave(strike_id, total_damage, objects_hit, objects_destroyed, 1, true);
+    }
+
+    /// Record one multi-strike impact wave (or a one-shot final impact).
+    pub fn record_impact_wave(
+        &mut self,
+        strike_id: u32,
+        total_damage: f32,
+        objects_hit: u32,
+        objects_destroyed: u32,
+        wave_shell_count: u32,
+        is_final_wave: bool,
+    ) {
         let mut spawn_radiation: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
-                strike.phase = HostStrikePhase::Completed;
-                strike.total_damage_applied = total_damage;
-                strike.objects_hit = objects_hit;
-                strike.objects_destroyed = objects_destroyed;
-                self.completed_this_frame.push(strike_id);
-                if strike.kind.spawns_radiation() {
-                    spawn_radiation = Some((
-                        strike.source_object,
-                        strike.source_team,
-                        strike.target_position,
-                        strike.impact_frame,
-                    ));
-                }
-                if strike.kind.spawns_toxin_field() {
-                    spawn_toxin = Some((
-                        strike.source_object,
-                        strike.source_team,
-                        strike.target_position,
-                        strike.impact_frame,
-                    ));
-                }
-                if strike.kind.spawns_orbit_field() {
-                    spawn_orbit = Some((
-                        strike.source_object,
-                        strike.source_team,
-                        strike.target_position,
-                        strike.impact_frame,
-                    ));
-                }
-                if strike.kind.spawns_beam_field() {
-                    spawn_beam = Some((
-                        strike.source_object,
-                        strike.source_team,
-                        strike.target_position,
-                        strike.impact_frame,
-                    ));
+                strike.total_damage_applied =
+                    strike.total_damage_applied + total_damage;
+                strike.objects_hit = strike.objects_hit.saturating_add(objects_hit);
+                strike.objects_destroyed =
+                    strike.objects_destroyed.saturating_add(objects_destroyed);
+                strike.multi_strike_applied = strike
+                    .multi_strike_applied
+                    .saturating_add(wave_shell_count.max(1));
+                if is_final_wave {
+                    strike.phase = HostStrikePhase::Completed;
+                    self.completed_this_frame.push(strike_id);
+                    if strike.kind.spawns_radiation() {
+                        spawn_radiation = Some((
+                            strike.source_object,
+                            strike.source_team,
+                            strike.target_position,
+                            strike.impact_frame,
+                        ));
+                    }
+                    if strike.kind.spawns_toxin_field() {
+                        spawn_toxin = Some((
+                            strike.source_object,
+                            strike.source_team,
+                            strike.target_position,
+                            strike.impact_frame,
+                        ));
+                    }
+                    if strike.kind.spawns_orbit_field() {
+                        spawn_orbit = Some((
+                            strike.source_object,
+                            strike.source_team,
+                            strike.target_position,
+                            strike.impact_frame,
+                        ));
+                    }
+                    if strike.kind.spawns_beam_field() {
+                        spawn_beam = Some((
+                            strike.source_object,
+                            strike.source_team,
+                            strike.target_position,
+                            strike.impact_frame,
+                        ));
+                    }
                 }
             }
         }
@@ -2208,6 +2373,21 @@ mod tests {
         assert!((CARPET_BOMB_DROP_VARIANCE_X - 30.0).abs() < 0.01);
         assert!((CARPET_BOMB_DROP_VARIANCE_Y - 40.0).abs() < 0.01);
         assert!((CARPET_BOMB_DROP_VARIANCE_Z - 0.0).abs() < 0.01);
+        assert_eq!(CARPET_BOMB_DROP_DELAY_FRAMES, 9);
+        // DropDelay residual: bomb i at approach + i * DropDelay.
+        assert_eq!(carpet_bomb_impact_frame(0, 0), CARPET_BOMB_IMPACT_DELAY_FRAMES);
+        assert_eq!(
+            carpet_bomb_impact_frame(0, 1),
+            CARPET_BOMB_IMPACT_DELAY_FRAMES + CARPET_BOMB_DROP_DELAY_FRAMES
+        );
+        assert_eq!(
+            multi_strike_last_impact_frame(
+                HostSuperweaponKind::CarpetBomb,
+                0,
+                ArtilleryBarrageScienceTier::Level1
+            ),
+            carpet_bomb_impact_frame(0, CARPET_BOMB_COUNT - 1)
+        );
         let points = carpet_bomb_points(Vec3::new(100.0, 0.0, 50.0));
         assert_eq!(points.len(), CARPET_BOMB_COUNT as usize);
         // Base line still centered; DropVariance residual scatters within ±var.
@@ -2251,6 +2431,7 @@ mod tests {
 
         // Place enemies at DropVariance-adjusted residual epicenters.
         let points = carpet_bomb_points(target);
+        let first = points[0];
         let center = points[7];
         let outer = points[14];
         let objects = vec![
@@ -2259,17 +2440,47 @@ mod tests {
             (ObjectId(3), outer, Team::USA, true),  // outer bomb (with variance)
             (ObjectId(4), Vec3::new(0.0, 0.0, 500.0), Team::USA, true), // far off-line
             (ObjectId(5), center, Team::China, true), // friendly
+            (ObjectId(6), first, Team::USA, true),  // first bomb DropDelay residual
         ];
 
-        // Before impact: no damage plan.
+        // Before first bomb: no damage plan.
         assert!(reg
             .plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES - 1, &objects)
             .is_empty());
 
-        let plans = reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES, &objects);
+        // First DropDelay wave: only bomb 0 due — not complete.
+        let first_wave = reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(first_wave.len(), 1);
+        assert_eq!(first_wave[0].wave_shell_count, 1);
+        assert!(!first_wave[0].is_final_wave);
+        assert!(first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(6) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        // Center (index 7) and outer (index 14) not yet due.
+        assert!(!first_wave[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
+        assert!(!first_wave[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        reg.record_impact_wave(
+            id,
+            CARPET_BOMB_DAMAGE,
+            1,
+            0,
+            first_wave[0].wave_shell_count,
+            first_wave[0].is_final_wave,
+        );
+        assert!(!reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
+
+        // Jump to last bomb frame: remaining bombs (incl. center + outer) apply.
+        let last = multi_strike_last_impact_frame(
+            HostSuperweaponKind::CarpetBomb,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        let plans = reg.plan_due_impacts(last, &objects);
         assert_eq!(plans.len(), 1);
+        assert!(plans[0].is_final_wave);
+        assert!(plans[0].wave_shell_count >= 14);
         // Center + outer-bomb enemies hit; far + friendly excluded.
-        assert_eq!(plans[0].hits.len(), 2);
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
             && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
@@ -2277,13 +2488,24 @@ mod tests {
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
 
-        reg.record_impact_complete(id, CARPET_BOMB_DAMAGE * 2.0, 2, 0);
+        reg.record_impact_wave(
+            id,
+            CARPET_BOMB_DAMAGE * 2.0,
+            2,
+            0,
+            plans[0].wave_shell_count,
+            plans[0].is_final_wave,
+        );
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CarpetBomb));
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
         assert!(reg.beam_fields().is_empty());
+        assert_eq!(
+            reg.get(id).unwrap().multi_strike_applied,
+            CARPET_BOMB_COUNT
+        );
     }
 
     #[test]
@@ -2341,19 +2563,31 @@ mod tests {
         );
         assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
         assert!((ARTILLERY_BARRAGE_RING_RADIUS - 75.0).abs() < 0.1);
+        // Lead shell DelayDelivery residual is 0; others in [0, max].
+        assert_eq!(delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES), 0);
+        for i in 1..12 {
+            let d = delay_delivery_frames(i, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
+            assert!(d <= ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
+        }
+        // WeaponErrorRadius residual: index 0 spot-on; others within error radius.
+        assert_eq!(weapon_error_radius_offset(0, ARTILLERY_BARRAGE_ERROR_RADIUS), Vec3::ZERO);
         let points = artillery_barrage_points(Vec3::new(100.0, 0.0, 50.0));
         assert_eq!(points.len(), ARTILLERY_BARRAGE_SHELL_COUNT as usize);
-        // First shell at target; remaining on ring inside error radius.
+        // First shell at target; remaining scattered inside WeaponErrorRadius.
         assert!((points[0].x - 100.0).abs() < 0.1);
         assert!((points[0].z - 50.0).abs() < 0.1);
+        let mut any_scatter = false;
         for p in points.iter().skip(1) {
             let dist = horizontal_distance(*p, Vec3::new(100.0, 0.0, 50.0));
             assert!(
-                (dist - ARTILLERY_BARRAGE_RING_RADIUS).abs() < 0.5,
-                "ring shell dist={dist}"
+                dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.1,
+                "WeaponErrorRadius shell dist={dist}"
             );
-            assert!(dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.1);
+            if dist > 0.5 {
+                any_scatter = true;
+            }
         }
+        assert!(any_scatter, "WeaponErrorRadius residual must scatter non-lead shells");
         let points_l3 = artillery_barrage_points_for_tier(
             Vec3::new(0.0, 0.0, 0.0),
             ArtilleryBarrageScienceTier::Level3,
@@ -2378,12 +2612,13 @@ mod tests {
             ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
         );
 
-        // Shells: center + ring at RING_RADIUS. Outer shell at +X ring point.
-        let outer = Vec3::new(ARTILLERY_BARRAGE_RING_RADIUS, 0.0, 0.0);
+        // Shells: center + WeaponErrorRadius residual scatter for index 1.
+        let points = artillery_barrage_points(target);
+        let outer = points[1];
         let objects = vec![
             (ObjectId(1), Vec3::ZERO, Team::China, true),
             (ObjectId(2), Vec3::new(0.0, 0.0, 0.0), Team::USA, true), // center shell
-            (ObjectId(3), outer, Team::USA, true),                    // ring shell
+            (ObjectId(3), outer, Team::USA, true),                    // scatter shell
             (ObjectId(4), Vec3::new(0.0, 0.0, 500.0), Team::USA, true), // far
             (ObjectId(5), Vec3::new(0.0, 0.0, 0.0), Team::China, true), // friendly
         ];
@@ -2393,23 +2628,98 @@ mod tests {
             .plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 1, &objects)
             .is_empty());
 
-        let plans = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
-        assert_eq!(plans.len(), 1);
-        // Center + ring-shell enemies hit; far + friendly excluded.
-        assert_eq!(plans[0].hits.len(), 2);
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
-            && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
-        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+        // First wave: lead shell (DelayDelivery 0) — center hit; not necessarily final.
+        let first = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
+        assert_eq!(first.len(), 1);
+        assert!(first[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2)
+                && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
+        reg.record_impact_wave(
+            id,
+            ARTILLERY_BARRAGE_DAMAGE,
+            1,
+            0,
+            first[0].wave_shell_count,
+            first[0].is_final_wave,
+        );
 
-        reg.record_impact_complete(id, ARTILLERY_BARRAGE_DAMAGE * 2.0, 2, 0);
-        assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
+        // Jump to last DelayDelivery shell frame: remaining scatter shells apply.
+        let last = multi_strike_last_impact_frame(
+            HostSuperweaponKind::ArtilleryBarrage,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        let plans = reg.plan_due_impacts(last, &objects);
+        if first[0].is_final_wave {
+            // All shells had DelayDelivery 0 — already complete.
+            assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
+        } else {
+            assert_eq!(plans.len(), 1);
+            assert!(plans[0].is_final_wave);
+            // Scatter-shell enemy hit when its shell is due; far + friendly excluded.
+            assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+                && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1)
+                || first[0]
+                    .hits
+                    .iter()
+                    .any(|h| h.target_id == ObjectId(3)));
+            assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
+            assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+            reg.record_impact_wave(
+                id,
+                ARTILLERY_BARRAGE_DAMAGE,
+                1,
+                0,
+                plans[0].wave_shell_count,
+                plans[0].is_final_wave,
+            );
+            assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
+        }
         assert!(reg.honesty_host_path_ok(HostSuperweaponKind::ArtilleryBarrage));
         assert!(reg.radiation_fields().is_empty());
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
+        assert_eq!(
+            reg.get(id).unwrap().multi_strike_applied,
+            ARTILLERY_BARRAGE_SHELL_COUNT
+        );
+    }
+
+    #[test]
+    fn weapon_error_radius_and_delay_delivery_residual_honesty() {
+        // C++: formationIndex 0 spot-on; others Random(0, r) + Random(0, 2π).
+        assert_eq!(
+            weapon_error_radius_offset(0, ARTILLERY_BARRAGE_ERROR_RADIUS),
+            Vec3::ZERO
+        );
+        for i in 1..36 {
+            let o = weapon_error_radius_offset(i, ARTILLERY_BARRAGE_ERROR_RADIUS);
+            let dist = (o.x * o.x + o.z * o.z).sqrt();
+            assert!(dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.001);
+            assert!((o.y).abs() < 0.001);
+        }
+        // DelayDelivery: lead 0; others in [0, max].
+        assert_eq!(delay_delivery_frames(0, 90), 0);
+        let mut any_positive = false;
+        for i in 1..36 {
+            let d = delay_delivery_frames(i, 90);
+            assert!(d <= 90);
+            if d > 0 {
+                any_positive = true;
+            }
+        }
+        assert!(any_positive, "DelayDelivery residual must stagger some shells");
+        // Shell impact frames: base + delay.
+        assert_eq!(
+            artillery_shell_impact_frame(10, 0),
+            10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        );
+        assert!(
+            artillery_shell_impact_frame(10, 5)
+                >= 10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
+        );
     }
 
     #[test]

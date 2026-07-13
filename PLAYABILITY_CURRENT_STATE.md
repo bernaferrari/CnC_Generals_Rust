@@ -1,3 +1,69 @@
+## Residual Host Playability — STEALTHED Float Gate + IC Scatter + last_damage_source Killer (2026-07-13)
+**Closed (host-testable STEALTHED floating-text local display gate + Internet Center scatter + CashBounty last_damage_source killer residual):**
+1. **STEALTHED local-player floating cash display gate residual**:
+   - C++ AutoDepositUpdate / HackInternetAIUpdate:
+     `if STEALTHED && !isLocallyControlled && !DETECTED → displayMoney = FALSE`.
+   - Wired for oil derrick / black market AutoDeposit and hacker cash pings.
+   - Hacker also gates on containedBy Internet Center STEALTHED residual.
+   - Cash still deposits; only floating text presentation is gated.
+   - Host-testable: gate matrix unit tests; suppressed honesty counters.
+   - Fail-closed: not full InGameUI GPU draw / Unicode GameText.
+2. **Internet Center floating-text geometry scatter residual** (`host_hacker_income`):
+   - C++ ±0.3 major/minor radius GameClientRandomValue when depositing inside IC.
+   - Host residual: deterministic scatter; honesty `ic_scatter_applications`.
+   - Fail-closed: not full GeometryInfo major/minor matrix / client RNG stream.
+3. **CashBounty last_damage_source killer residual** (`host_cash_bounty`):
+   - Prefer victim BodyModule `last_damage_source` for killer ObjectId + float pos.
+   - Main combat fire path uses `take_damage_from(dmg, Some(attacker_id))`.
+   - Fallback nearest living same-team residual when source unset.
+   - Host-testable: bounty float `killer_id == attacker`; last_damage_source honesty.
+   - Fail-closed: not full DestructionEvent killer ObjectId on every residual kill path.
+4. Tests (not log-only):
+   - `stealthed_local_display_gate_residual` (oil)
+   - `stealthed_local_display_gate_and_ic_scatter_residual` (hacker)
+   - `last_damage_source_killer_residual_honesty` (cash bounty)
+   - updated `cash_bounty_increases_cash_on_enemy_kill` (last_damage_source killer)
+
+**Still residual (fail-closed, not claimed):**
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText localization
+- Full DestructionEvent killer ObjectId matrix on every non-combat residual kill path
+- Network floating-text / last_damage_source replication (network deferred)
+
+## Residual Host Playability — Artillery WeaponErrorRadius/DelayDelivery + Carpet DropDelay Stagger (2026-07-13)
+**Closed (host-testable combat/power multi-strike residual):**
+1. **ArtilleryBarrage WeaponErrorRadius residual** (`special_power_strikes`):
+   - C++ `DeliverPayloadNugget`: formationIndex **0** spot-on; others
+     `GameLogicRandomValueReal(0, WeaponErrorRadius=100)` + random angle.
+   - Host residual: deterministic `weapon_error_radius_offset` (golden-ratio phase).
+   - Replaces fixed ring placement; shells stay inside **100** error radius.
+   - Host-testable: lead shell at click; non-lead scatter ≤ error radius.
+2. **ArtilleryBarrage per-shell DelayDelivery stagger residual**:
+   - Retail `DelayDeliveryMax` = 3000 ms → **90** frames; C++ disables each
+     ChinaArtilleryCannon transport until `Random(0, max)`.
+   - Host residual: base approach **90** + per-shell `delay_delivery_frames`
+     (lead **0**; others deterministic in `[0, 90]`).
+   - Multi-wave impact: shells apply when due; strike completes on last shell.
+   - Host-testable: first wave at base delay; complete at last shell frame.
+3. **CarpetBomb DropDelay stagger residual**:
+   - Retail OCL `DropDelay` = 300 ms → **9** frames between bombs.
+   - Bomb `i` impacts at approach **90** + `i × 9`; multi-wave complete after
+     last bomb (index 14).
+   - Jump past several frames applies all overdue bombs in one wave (save/load).
+   - Host-testable: first bomb only at frame 90; center/outer later; complete last.
+4. Tests (not log-only):
+   - `weapon_error_radius_and_delay_delivery_residual_honesty`
+   - updated `artillery_barrage_params_match_retail_multi_shell`
+   - updated `artillery_barrage_delayed_multi_shell_scatter_damage`
+   - updated `carpet_bomb_params_match_retail_multi_strike` (DropDelay **9**)
+   - updated `carpet_bomb_delayed_line_multi_strike_damage` (stagger waves)
+   - updated GameLogic carpet/artillery host-path integration tests
+
+**Still residual (fail-closed, not claimed):**
+- Full ChinaArtilleryCannon / AmericaJetB52 DeliverPayload transport Objects
+- Full GameLogicRandomValueReal RNG stream (host deterministic residual)
+- Full MOABFlameWeapon secondary / NeutronMissile loft projectile
+- Network multi-strike stagger replication (network deferred)
+
 ## Residual Host Playability — Hacker/CashBounty Floating Text + Artillery FormationSize Tiers (2026-07-13)
 **Closed (host-testable HackInternet + CashBounty floating cash text + ArtilleryBarrage science-tier FormationSize residual):**
 1. **HackInternet floating cash text residual** (`host_hacker_income`):
