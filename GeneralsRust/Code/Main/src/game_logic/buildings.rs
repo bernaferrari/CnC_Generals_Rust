@@ -312,8 +312,9 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .set_health(600.0)
         .set_cost(1000, -2)
         .set_model("abpatriotsw") // USA patriot missile system model
-        // Residual auto-fire: bind retail Patriot primary (not Weapon::default).
-        .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON);
+        // Residual auto-fire: bind retail Patriot primary + AA secondary.
+        .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(super::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
     templates.insert("USA_Patriot".to_string(), usa_patriot);
 
     // China Buildings
@@ -388,8 +389,10 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(400.0)
         .set_cost(800, -2)
-        .set_model("ubstingers"); // GLA Stinger Site - anti-air defense
-    // Fail-closed: retail Stinger is SPAWNS_ARE_THE_WEAPONS (no primary gun residual).
+        .set_model("ubstingers") // GLA Stinger Site - anti-air defense
+        // SPAWNS_ARE_THE_WEAPONS residual: structure fires soldier weapons.
+        .set_primary_weapon_name(super::weapon_bootstrap::STINGER_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(super::weapon_bootstrap::STINGER_SECONDARY_WEAPON);
     templates.insert("GLA_StingerSite".to_string(), gla_stinger);
 
     let mut gla_tunnel = ThingTemplate::new("GLA_TunnelNetwork");
@@ -665,4 +668,3 @@ mod tests {
         );
     }
 }
-

@@ -1,3 +1,31 @@
+## Residual Host Playability — Stinger Site + Patriot AA Polish (2026-07-13)
+**Closed (host-testable GLA Stinger Site SPAWNS_ARE_THE_WEAPONS residual + USA Patriot AA polish):**
+1. **Stinger Site residual** (`GLA_StingerSite` / Chem_/Demo_/Slth_ / GC_* variants):
+   - Retail SPAWNS_ARE_THE_WEAPONS abstraction: structure fires soldier weapons
+     (SpawnNumber=**3** honesty residual — not full SpawnBehavior / HiveStructureBody).
+   - PRIMARY `StingerMissileWeapon` (20 / 225 / ClipReload **2000**ms → 60 frames).
+   - SECONDARY `StingerMissileWeaponAir` (30 / 400 / AA only).
+   - AP Rockets PLAYER_UPGRADE residual (`Upgrade_GLAAPRockets`): damage × **1.25**.
+   - Auto-acquire residual (base-defense dual-slot path) chooses air/ground weapon.
+   - Honesty: `honesty_stinger_site_ok` / aa / ground_fires / ap_rockets_upgrades.
+2. **Patriot residual polish** (`USA_Patriot` / AmericaPatriotBattery / Lazr_…):
+   - PRIMARY `PatriotMissileWeapon` (30 / 225) already residual; now also
+     SECONDARY `PatriotMissileWeaponAir` (25 / 350 / AA).
+   - Dual-slot auto-acquire residual (same base-defense path as Gattling/Stinger).
+   - Honesty: `honesty_patriot_ok` / aa / ground_fires (plus existing base-defense fires).
+3. Tests (not log-only):
+   - `stinger_site_residual_dual_fire_and_ap_rockets`
+   - `patriot_residual_aa_secondary_auto_fires`
+   - `base_defense_residual_patriot_auto_fires_without_attack_object` (updated)
+   - module unit tests in `host_base_defense.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full SpawnBehavior / HiveStructureBody / 3 Stinger soldiers / CamoNetting stealth
+- Full AssistedTargetingModule Patriot assist clips / RequestAssistRange=200
+- Full Patriot ClipSize=4 in-clip DelayBetweenShots 250ms volley matrix
+- Full PointDefenseLaser for structure / anti-ballistic full matrix
+- Network base-defense replication (network deferred)
+
 ## Residual Host Playability — China Battlemaster (2026-07-13)
 **Closed (host-testable China Battlemaster main gun + Uranium + horde/nationalism residual):**
 1. **Battlemaster residual** (`ChinaTankBattleMaster` / `China_BattlemasterTank` / Tank_/Nuke_):
@@ -163,6 +191,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full CONTINUOUS_FIRE_* model-condition animation / turret pitch / VoiceRapidFire full matrix
 - Full AssistedTargetingModule Patriot assist clips / PointDefenseLaser for structure
+  (Patriot AA dual-slot polish closed 2026-07-13 — see Stinger Site + Patriot section)
 - Network structure continuous-fire / chain-gun replication (network deferred)
 
 ## Residual Host Playability — GLA Marauder + Combat Cycle (2026-07-13)

@@ -168,11 +168,14 @@ pub use host_propaganda::{
 };
 pub use host_base_defense::{
     gattling_building_air_weapon, gattling_building_ground_weapon, is_base_defense_structure,
-    is_gattling_cannon_structure, is_legal_base_defense_target, preferred_gattling_building_slot,
-    primary_weapon_name_for_defense, secondary_weapon_name_for_defense,
-    GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
+    is_dual_slot_base_defense, is_gattling_cannon_structure, is_legal_base_defense_target,
+    is_patriot_battery_structure, is_stinger_site_structure, patriot_air_weapon,
+    patriot_ground_weapon, preferred_dual_defense_slot, preferred_gattling_building_slot,
+    primary_weapon_name_for_defense, secondary_weapon_name_for_defense, stinger_air_weapon,
+    stinger_ground_weapon, GATTLING_BUILDING_AIR_DAMAGE, GATTLING_BUILDING_BASE_DELAY_FRAMES,
     GATTLING_BUILDING_GROUND_DAMAGE, GATTLING_BUILDING_GROUND_RANGE,
     GATTLING_BUILDING_PRIMARY_WEAPON, GATTLING_BUILDING_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON,
+    PATRIOT_SECONDARY_WEAPON, STINGER_PRIMARY_WEAPON, STINGER_SECONDARY_WEAPON,
 };
 pub use host_ecm_jam::{
     is_ecm_jammer, is_legal_ecm_jam_target, HOST_ECM_JAM_RADIUS,
