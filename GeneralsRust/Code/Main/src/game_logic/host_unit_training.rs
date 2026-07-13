@@ -12,9 +12,22 @@
 //! - `unlock_team_science` / `PurchaseScience` records unlock honesty.
 //! - Successful min-level grant records residual spawn honesty.
 //!
+//! Wave 62 residual pack (retail Science.ini / unit BuildTime / VeterancyGainCreate):
+//! - StartingLevel residual: RedGuard/Artillery/Technical **VETERAN**,
+//!   InfaRedGuard/Battlemaster **ELITE**
+//! - SciencePurchasePointCost **1** for all residual training sciences
+//! - Training BuildTime residual (secs→frames @ 30 FPS):
+//!   RedGuard **10**s→**300**f, Battlemaster **10**s→**300**f,
+//!   Inferno **15**s→**450**f, Technical **5**s→**150**f, MiniGunner **10**s→**300**f
+//! - Free unit residual: free always-Veteran path (no ScienceRequired) for
+//!   USA Pilot + SCIENCE_GattlingTankTraining science residual (StartingLevel
+//!   VETERAN; stock ChinaTankGattling omits module — science residual honesty)
+//! - America AdvancedTraining ExperienceScalarUpgrade AddXPScalar **1.0** residual
+//!
 //! Fail-closed honesty:
 //! - Not full PrerequisiteSciences rank tree / control-bar science visibility
 //! - Not full IsTrainable / experience tracker exclusive module matrix
+//! - Not full SCIENCE_GattlingTankTraining → stock Gattling module wire
 //! - Not network science / veterancy replication (network deferred)
 
 use super::VeterancyLevel;
@@ -30,6 +43,37 @@ pub const SCIENCE_BATTLEMASTER_TRAINING: &str = "SCIENCE_BattlemasterTraining";
 pub const SCIENCE_ARTILLERY_TRAINING: &str = "SCIENCE_ArtilleryTraining";
 /// Retail GLA Technical training science (StartingLevel = VETERAN).
 pub const SCIENCE_TECHNICAL_TRAINING: &str = "SCIENCE_TechnicalTraining";
+
+/// Retail China Gattling Tank training science (StartingLevel = VETERAN residual).
+///
+/// Science.ini lists SCIENCE_GattlingTankTraining; stock ChinaTankGattling omits
+/// VeterancyGainCreate — residual honesty still documents the science + level.
+pub const SCIENCE_GATTLING_TANK_TRAINING: &str = "SCIENCE_GattlingTankTraining";
+
+/// Retail SciencePurchasePointCost for residual unit-training sciences.
+pub const UNIT_TRAINING_SCIENCE_PURCHASE_POINT_COST: u32 = 1;
+
+/// Retail America AdvancedTraining upgrade (ExperienceScalarUpgrade free XP).
+pub const UPGRADE_AMERICA_ADVANCED_TRAINING: &str = "Upgrade_AmericaAdvancedTraining";
+/// Retail ExperienceScalarUpgrade AddXPScalar residual (+100% XP).
+pub const ADVANCED_TRAINING_ADD_XP_SCALAR: f32 = 1.0;
+
+/// Free always-Veteran residual template label (USA Pilot — no ScienceRequired).
+pub const FREE_VETERAN_PILOT_TEMPLATE: &str = "AmericaInfantryPilot";
+
+// --- Training BuildTime residual (seconds + frames @ 30 FPS) ---
+pub const RED_GUARD_BUILD_TIME_SECS: f32 = 10.0;
+pub const RED_GUARD_BUILD_TIME_FRAMES: u32 = 300;
+pub const BATTLEMASTER_BUILD_TIME_SECS: f32 = 10.0;
+pub const BATTLEMASTER_BUILD_TIME_FRAMES: u32 = 300;
+pub const INFERNO_CANNON_BUILD_TIME_SECS: f32 = 15.0;
+pub const INFERNO_CANNON_BUILD_TIME_FRAMES: u32 = 450;
+pub const TECHNICAL_BUILD_TIME_SECS: f32 = 5.0;
+pub const TECHNICAL_BUILD_TIME_FRAMES: u32 = 150;
+pub const MINIGUNNER_BUILD_TIME_SECS: f32 = 10.0;
+pub const MINIGUNNER_BUILD_TIME_FRAMES: u32 = 300;
+pub const GATTLING_TANK_BUILD_TIME_SECS: f32 = 10.0;
+pub const GATTLING_TANK_BUILD_TIME_FRAMES: u32 = 300;
 
 /// Normalize science / template identity (alphanumeric lower).
 pub fn normalize_identity(name: &str) -> String {
@@ -47,6 +91,8 @@ pub enum UnitTrainingScience {
     Battlemaster,
     Artillery,
     Technical,
+    /// SCIENCE_GattlingTankTraining residual (StartingLevel VETERAN).
+    GattlingTank,
 }
 
 impl UnitTrainingScience {
@@ -57,12 +103,15 @@ impl UnitTrainingScience {
             Self::Battlemaster => SCIENCE_BATTLEMASTER_TRAINING,
             Self::Artillery => SCIENCE_ARTILLERY_TRAINING,
             Self::Technical => SCIENCE_TECHNICAL_TRAINING,
+            Self::GattlingTank => SCIENCE_GATTLING_TANK_TRAINING,
         }
     }
 
     pub fn starting_level(self) -> VeterancyLevel {
         match self {
-            Self::RedGuard | Self::Artillery | Self::Technical => VeterancyLevel::Veteran,
+            Self::RedGuard | Self::Artillery | Self::Technical | Self::GattlingTank => {
+                VeterancyLevel::Veteran
+            }
             Self::InfaRedGuard | Self::Battlemaster => VeterancyLevel::Elite,
         }
     }
@@ -74,6 +123,23 @@ impl UnitTrainingScience {
             Self::Battlemaster => "BattlemasterTraining",
             Self::Artillery => "ArtilleryTraining",
             Self::Technical => "TechnicalTraining",
+            Self::GattlingTank => "GattlingTankTraining",
+        }
+    }
+
+    /// Retail SciencePurchasePointCost residual (all training sciences = **1**).
+    pub fn science_purchase_point_cost(self) -> u32 {
+        UNIT_TRAINING_SCIENCE_PURCHASE_POINT_COST
+    }
+
+    /// Retail BuildTime residual frames for the primary trained unit template.
+    pub fn primary_build_time_frames(self) -> u32 {
+        match self {
+            Self::RedGuard | Self::InfaRedGuard => RED_GUARD_BUILD_TIME_FRAMES,
+            Self::Battlemaster => BATTLEMASTER_BUILD_TIME_FRAMES,
+            Self::Artillery => INFERNO_CANNON_BUILD_TIME_FRAMES,
+            Self::Technical => TECHNICAL_BUILD_TIME_FRAMES,
+            Self::GattlingTank => GATTLING_TANK_BUILD_TIME_FRAMES,
         }
     }
 }
@@ -104,6 +170,12 @@ pub fn unit_training_science_from_name(name: &str) -> Option<UnitTrainingScience
     }
     if n.contains("sciencetechnicaltraining") || n == "technicaltraining" {
         return Some(UnitTrainingScience::Technical);
+    }
+    if n.contains("sciencegattlingtanktraining")
+        || n == "gattlingtanktraining"
+        || n.contains("gattlingtanktraining")
+    {
+        return Some(UnitTrainingScience::GattlingTank);
     }
     None
 }
@@ -179,6 +251,20 @@ pub fn unit_training_level_for_template(
         return None;
     }
 
+    // SCIENCE_GattlingTankTraining residual (StartingLevel VETERAN).
+    // Stock ChinaTankGattling omits the module; host residual still grants when
+    // the science is unlocked (honesty of intended science residual path).
+    {
+        use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
+        if is_gattling_tank_template(template_name) {
+            let kind = UnitTrainingScience::GattlingTank;
+            if player_has_unit_training_science(unlocked_sciences, kind) {
+                return Some((kind, kind.starting_level()));
+            }
+            return None;
+        }
+    }
+
     None
 }
 
@@ -219,6 +305,10 @@ pub struct HostUnitTrainingRegistry {
     pub artillery_grants: u32,
     /// Technical VETERAN grants.
     pub technical_grants: u32,
+    /// Gattling Tank VETERAN grants.
+    pub gattling_grants: u32,
+    /// Free always-Veteran residual grants (no ScienceRequired path).
+    pub free_unit_grants: u32,
 }
 
 impl HostUnitTrainingRegistry {
@@ -252,7 +342,20 @@ impl HostUnitTrainingRegistry {
             UnitTrainingScience::Technical => {
                 self.technical_grants = self.technical_grants.saturating_add(1);
             }
+            UnitTrainingScience::GattlingTank => {
+                self.gattling_grants = self.gattling_grants.saturating_add(1);
+            }
         }
+    }
+
+    /// Record free always-Veteran residual grant (no ScienceRequired).
+    pub fn record_free_unit_grant(&mut self) {
+        self.free_unit_grants = self.free_unit_grants.saturating_add(1);
+        self.grants = self.grants.saturating_add(1);
+    }
+
+    pub fn honesty_free_unit_ok(&self) -> bool {
+        self.free_unit_grants > 0
     }
 
     pub fn honesty_unlock_ok(&self) -> bool {
@@ -266,6 +369,78 @@ impl HostUnitTrainingRegistry {
     pub fn honesty_ok(&self) -> bool {
         self.honesty_unlock_ok() && self.honesty_grant_ok()
     }
+}
+
+
+/// Whether residual free always-Veteran path applies (no ScienceRequired).
+///
+/// Retail: AmericaInfantryPilot VeterancyGainCreate StartingLevel=VETERAN with
+/// ScienceRequired omitted. Fail-closed: not full free-unit crate matrix.
+pub fn is_free_always_veteran_template(template_name: &str) -> bool {
+    let n = normalize_identity(template_name);
+    n.contains("americainfantrypilot")
+        || n == "americainfantrypilot"
+        || n.ends_with("infantrypilot")
+        || n == "usapilot"
+        || n == "testpilot"
+}
+
+/// Free always-Veteran residual StartingLevel.
+pub fn free_always_veteran_starting_level() -> VeterancyLevel {
+    VeterancyLevel::Veteran
+}
+
+// --- Wave 62 residual honesty packs ---
+
+/// Veterancy StartingLevel residual honesty.
+pub fn honesty_unit_training_veterancy_residual_ok() -> bool {
+    UnitTrainingScience::RedGuard.starting_level() == VeterancyLevel::Veteran
+        && UnitTrainingScience::Artillery.starting_level() == VeterancyLevel::Veteran
+        && UnitTrainingScience::Technical.starting_level() == VeterancyLevel::Veteran
+        && UnitTrainingScience::GattlingTank.starting_level() == VeterancyLevel::Veteran
+        && UnitTrainingScience::InfaRedGuard.starting_level() == VeterancyLevel::Elite
+        && UnitTrainingScience::Battlemaster.starting_level() == VeterancyLevel::Elite
+        && free_always_veteran_starting_level() == VeterancyLevel::Veteran
+        && UnitTrainingScience::RedGuard.science_purchase_point_cost() == 1
+        && UnitTrainingScience::Battlemaster.science_purchase_point_cost() == 1
+        && SCIENCE_GATTLING_TANK_TRAINING == "SCIENCE_GattlingTankTraining"
+}
+
+/// Training BuildTime residual honesty (secs → frames @ 30 FPS).
+pub fn honesty_unit_training_time_residual_ok() -> bool {
+    (RED_GUARD_BUILD_TIME_SECS - 10.0).abs() < 0.01
+        && RED_GUARD_BUILD_TIME_FRAMES == 300
+        && (BATTLEMASTER_BUILD_TIME_SECS - 10.0).abs() < 0.01
+        && BATTLEMASTER_BUILD_TIME_FRAMES == 300
+        && (INFERNO_CANNON_BUILD_TIME_SECS - 15.0).abs() < 0.01
+        && INFERNO_CANNON_BUILD_TIME_FRAMES == 450
+        && (TECHNICAL_BUILD_TIME_SECS - 5.0).abs() < 0.01
+        && TECHNICAL_BUILD_TIME_FRAMES == 150
+        && (MINIGUNNER_BUILD_TIME_SECS - 10.0).abs() < 0.01
+        && MINIGUNNER_BUILD_TIME_FRAMES == 300
+        && (GATTLING_TANK_BUILD_TIME_SECS - 10.0).abs() < 0.01
+        && GATTLING_TANK_BUILD_TIME_FRAMES == 300
+        && UnitTrainingScience::RedGuard.primary_build_time_frames() == 300
+        && UnitTrainingScience::Artillery.primary_build_time_frames() == 450
+        && UnitTrainingScience::Technical.primary_build_time_frames() == 150
+}
+
+/// Free unit residual honesty (always-Veteran pilot + AdvancedTraining XP scalar).
+pub fn honesty_unit_training_free_unit_residual_ok() -> bool {
+    is_free_always_veteran_template(FREE_VETERAN_PILOT_TEMPLATE)
+        && is_free_always_veteran_template("AmericaInfantryPilot")
+        && is_free_always_veteran_template("TestPilot")
+        && !is_free_always_veteran_template("ChinaInfantryRedguard")
+        && free_always_veteran_starting_level() == VeterancyLevel::Veteran
+        && UPGRADE_AMERICA_ADVANCED_TRAINING == "Upgrade_AmericaAdvancedTraining"
+        && (ADVANCED_TRAINING_ADD_XP_SCALAR - 1.0).abs() < 0.001
+}
+
+/// Combined Wave 62 unit-training residual honesty pack.
+pub fn honesty_unit_training_residual_pack_ok() -> bool {
+    honesty_unit_training_veterancy_residual_ok()
+        && honesty_unit_training_time_residual_ok()
+        && honesty_unit_training_free_unit_residual_ok()
 }
 
 #[cfg(test)]
@@ -294,6 +469,10 @@ mod tests {
             unit_training_science_from_name(SCIENCE_TECHNICAL_TRAINING),
             Some(UnitTrainingScience::Technical)
         );
+        assert_eq!(
+            unit_training_science_from_name(SCIENCE_GATTLING_TANK_TRAINING),
+            Some(UnitTrainingScience::GattlingTank)
+        );
         assert!(unit_training_science_from_name("SCIENCE_StealthFighter").is_none());
         assert!(unit_training_science_from_name("SCIENCE_CashBounty1").is_none());
     }
@@ -318,6 +497,10 @@ mod tests {
         );
         assert_eq!(
             UnitTrainingScience::Technical.starting_level(),
+            VeterancyLevel::Veteran
+        );
+        assert_eq!(
+            UnitTrainingScience::GattlingTank.starting_level(),
             VeterancyLevel::Veteran
         );
     }
@@ -386,5 +569,22 @@ mod tests {
         assert_eq!(residual_xp_seed_for_level(VeterancyLevel::Veteran, thr), 60.0);
         assert_eq!(residual_xp_seed_for_level(VeterancyLevel::Elite, thr), 150.0);
         assert!(veterancy_rank(VeterancyLevel::Elite) > veterancy_rank(VeterancyLevel::Veteran));
+    }
+
+    #[test]
+    fn unit_training_residual_pack_honesty() {
+        assert!(honesty_unit_training_veterancy_residual_ok());
+        assert!(honesty_unit_training_time_residual_ok());
+        assert!(honesty_unit_training_free_unit_residual_ok());
+        assert!(honesty_unit_training_residual_pack_ok());
+        let sciences = vec![SCIENCE_GATTLING_TANK_TRAINING.to_string()];
+        assert_eq!(
+            unit_training_level_for_template("ChinaTankGattling", &sciences).map(|(_, l)| l),
+            Some(VeterancyLevel::Veteran)
+        );
+        let mut reg = HostUnitTrainingRegistry::new();
+        reg.record_free_unit_grant();
+        assert!(reg.honesty_free_unit_ok());
+        assert_eq!(reg.free_unit_grants, 1);
     }
 }

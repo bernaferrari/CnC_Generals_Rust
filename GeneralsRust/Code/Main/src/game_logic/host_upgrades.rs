@@ -8,6 +8,16 @@
 //! - Supply Lines research tags supply centers **and** grants residual
 //!   drop-off cash boost (economy residual; C++ Chinook `UpgradedSupplyBoost`)
 //!
+//! Wave 62 residual pack (retail Upgrade.ini cost/time + stealth forbidden):
+//! - Retail BuildCost / BuildTime residual honesty for HostUpgradeKind
+//!   (SupplyLines 800/30s, FlashBang 800/30s, TOW 800/30s, Capture 1000/30s,
+//!   CompositeArmor 2000/60s, Camouflage 2000/60s, CamoNetting 500/5s,
+//!   NeutronShells 2500/60s, NuclearTanks 2000/60s, …)
+//! - Host research frames remain fail-closed **1** (observable queue) while
+//!   `retail_research_frames` documents Upgrade.ini BuildTime → frames
+//! - StealthForbiddenConditions residual: Camouflage Rebel = ATTACKING
+//!   USING_ABILITY; CamoNetting structures = ATTACKING USING_ABILITY TAKING_DAMAGE
+//!
 //! Fail-closed: not full science tree, ProductionUpdate build-time parity,
 //! WeaponSetUpgrade module matrix, full per-unit INI `UpgradedSupplyBoost`
 //! matrix (Chinook 60), or multiplayer upgrade replication.
@@ -170,7 +180,8 @@ impl HostUpgradeKind {
 
     /// Residual research frames before complete (host path).
     /// `0` / `1` ⇒ complete on the next `GameLogic::update` (queue still observable).
-    /// Fail-closed: not retail Upgrade.ini BuildTime (30s).
+    /// Fail-closed host path: not retail Upgrade.ini BuildTime (see
+    /// [`Self::retail_research_frames`] for honesty pack).
     pub fn residual_research_frames(self) -> u32 {
         match self {
             // One logic update of research so QueueUpgrade is observably pending.
@@ -192,6 +203,60 @@ impl HostUpgradeKind {
             | HostUpgradeKind::SuicideBomb
             | HostUpgradeKind::Other => 1,
         }
+    }
+
+    /// Retail Upgrade.ini BuildCost residual (cash).
+    ///
+    /// Fail-closed: `Other` / unknown → **0**. Host research path still uses
+    /// short residual frames; this is honesty of retail cost matrix.
+    pub fn retail_build_cost(self) -> u32 {
+        match self {
+            HostUpgradeKind::CaptureBuilding => 1000, // Upgrade_AmericaRangerCaptureBuilding
+            HostUpgradeKind::FlashBangGrenade => 800,
+            HostUpgradeKind::TowMissile => 800,
+            HostUpgradeKind::SupplyLines => 800,
+            HostUpgradeKind::NeutronShells => 2500,
+            HostUpgradeKind::BunkerBusters => 1500,
+            HostUpgradeKind::ComancheRocketPods => 800,
+            HostUpgradeKind::SentryDroneGun => 1000,
+            HostUpgradeKind::Camouflage => 2000,
+            HostUpgradeKind::CamoNetting => 500,
+            HostUpgradeKind::CompositeArmor => 2000,
+            HostUpgradeKind::WorkerShoes => 1000,
+            HostUpgradeKind::NuclearTanks => 2000,
+            HostUpgradeKind::BoobyTrap => 1000,
+            HostUpgradeKind::AnthraxGamma => 1500,
+            HostUpgradeKind::SuicideBomb => 2000,
+            HostUpgradeKind::Other => 0,
+        }
+    }
+
+    /// Retail Upgrade.ini BuildTime residual (seconds).
+    pub fn retail_build_time_secs(self) -> f32 {
+        match self {
+            HostUpgradeKind::CaptureBuilding => 30.0,
+            HostUpgradeKind::FlashBangGrenade => 30.0,
+            HostUpgradeKind::TowMissile => 30.0,
+            HostUpgradeKind::SupplyLines => 30.0,
+            HostUpgradeKind::NeutronShells => 60.0,
+            HostUpgradeKind::BunkerBusters => 40.0,
+            HostUpgradeKind::ComancheRocketPods => 40.0,
+            HostUpgradeKind::SentryDroneGun => 30.0,
+            HostUpgradeKind::Camouflage => 60.0,
+            HostUpgradeKind::CamoNetting => 5.0,
+            HostUpgradeKind::CompositeArmor => 60.0,
+            HostUpgradeKind::WorkerShoes => 10.0,
+            HostUpgradeKind::NuclearTanks => 60.0,
+            HostUpgradeKind::BoobyTrap => 30.0,
+            HostUpgradeKind::AnthraxGamma => 60.0,
+            HostUpgradeKind::SuicideBomb => 30.0,
+            HostUpgradeKind::Other => 0.0,
+        }
+    }
+
+    /// Retail Upgrade.ini BuildTime → frames @ 30 FPS.
+    pub fn retail_research_frames(self) -> u32 {
+        (self.retail_build_time_secs() * 30.0).round() as u32
     }
 }
 
@@ -703,6 +768,48 @@ pub fn is_camouflage_unit_template(name: &str) -> bool {
 /// (fail-closed vs full StealthUpdate forbidden-condition matrix).
 pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
 
+/// Retail Rebel Camouflage StealthForbiddenConditions residual tokens.
+pub const CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY";
+/// Retail CamoNetting structure StealthForbiddenConditions residual tokens.
+pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str =
+    "ATTACKING USING_ABILITY TAKING_DAMAGE";
+
+/// Host residual of Camouflage infantry StealthUpdate::allowedToStealth.
+///
+/// Retail GLAInfantryRebel: StealthForbiddenConditions = ATTACKING USING_ABILITY.
+/// Host residual also applies StealthDelay re-cloak gate after reveal.
+pub fn camouflage_unit_stealth_desired(
+    innate_stealth: bool,
+    is_alive: bool,
+    is_attacking: bool,
+    is_using_ability: bool,
+    current_frame: u32,
+    stealth_allowed_frame: u32,
+) -> Option<bool> {
+    if !innate_stealth || !is_alive {
+        return None;
+    }
+    if is_attacking || is_using_ability {
+        return Some(false);
+    }
+    if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
+        return Some(false);
+    }
+    Some(true)
+}
+
+/// Absolute frame when Camouflage residual may re-cloak after a reveal.
+pub fn camouflage_stealth_allowed_frame(current_frame: u32) -> u32 {
+    current_frame.saturating_add(CAMOUFLAGE_STEALTH_DELAY_FRAMES)
+}
+
+/// Whether a residual forbidden condition token is present in the retail string.
+pub fn stealth_forbidden_contains(conditions: &str, token: &str) -> bool {
+    conditions
+        .split_whitespace()
+        .any(|t| t.eq_ignore_ascii_case(token))
+}
+
 #[cfg(test)]
 mod camouflage_template_tests {
     use super::*;
@@ -1046,6 +1153,70 @@ pub fn is_anthrax_gamma_unit_template(name: &str) -> bool {
         || is_bomb_truck_template(name)
 }
 
+
+// --- Wave 62 residual honesty packs (upgrade cost/time + stealth forbidden) ---
+
+/// Retail Upgrade.ini BuildCost residual honesty pack.
+pub fn honesty_upgrades_cost_residual_ok() -> bool {
+    HostUpgradeKind::SupplyLines.retail_build_cost() == 800
+        && HostUpgradeKind::FlashBangGrenade.retail_build_cost() == 800
+        && HostUpgradeKind::TowMissile.retail_build_cost() == 800
+        && HostUpgradeKind::CaptureBuilding.retail_build_cost() == 1000
+        && HostUpgradeKind::CompositeArmor.retail_build_cost() == 2000
+        && HostUpgradeKind::Camouflage.retail_build_cost() == 2000
+        && HostUpgradeKind::CamoNetting.retail_build_cost() == 500
+        && HostUpgradeKind::NeutronShells.retail_build_cost() == 2500
+        && HostUpgradeKind::NuclearTanks.retail_build_cost() == 2000
+        && HostUpgradeKind::BunkerBusters.retail_build_cost() == 1500
+        && HostUpgradeKind::ComancheRocketPods.retail_build_cost() == 800
+        && HostUpgradeKind::SentryDroneGun.retail_build_cost() == 1000
+}
+
+/// Retail Upgrade.ini BuildTime residual honesty pack (secs + frames).
+pub fn honesty_upgrades_time_residual_ok() -> bool {
+    (HostUpgradeKind::SupplyLines.retail_build_time_secs() - 30.0).abs() < 0.01
+        && HostUpgradeKind::SupplyLines.retail_research_frames() == 900
+        && (HostUpgradeKind::Camouflage.retail_build_time_secs() - 60.0).abs() < 0.01
+        && HostUpgradeKind::Camouflage.retail_research_frames() == 1800
+        && (HostUpgradeKind::CamoNetting.retail_build_time_secs() - 5.0).abs() < 0.01
+        && HostUpgradeKind::CamoNetting.retail_research_frames() == 150
+        && (HostUpgradeKind::NeutronShells.retail_build_time_secs() - 60.0).abs() < 0.01
+        && HostUpgradeKind::NeutronShells.retail_research_frames() == 1800
+        && (HostUpgradeKind::BunkerBusters.retail_build_time_secs() - 40.0).abs() < 0.01
+        && HostUpgradeKind::BunkerBusters.retail_research_frames() == 1200
+        // Host path remains short residual (observable queue).
+        && HostUpgradeKind::SupplyLines.residual_research_frames() == 1
+        && HostUpgradeKind::Camouflage.residual_research_frames() == 1
+}
+
+/// StealthForbiddenConditions residual honesty (Camouflage + CamoNetting).
+pub fn honesty_upgrades_stealth_forbidden_residual_ok() -> bool {
+    CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS == "ATTACKING USING_ABILITY"
+        && stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "ATTACKING")
+        && stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "USING_ABILITY")
+        && !stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
+        && CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS
+            == "ATTACKING USING_ABILITY TAKING_DAMAGE"
+        && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
+        && CAMOUFLAGE_STEALTH_DELAY_FRAMES == 75
+        && CAMO_NETTING_STEALTH_DELAY_FRAMES == 75
+        && camouflage_unit_stealth_desired(true, true, false, false, 100, 0) == Some(true)
+        && camouflage_unit_stealth_desired(true, true, true, false, 100, 0) == Some(false)
+        && camouflage_unit_stealth_desired(true, true, false, true, 100, 0) == Some(false)
+        && camouflage_unit_stealth_desired(true, true, false, false, 50, 85) == Some(false)
+        && camouflage_stealth_allowed_frame(10) == 85
+        // CamoNetting structure forbidden residual already host-wired.
+        && camo_netting_structure_stealth_desired(true, true, true, false, 100, 0) == Some(false)
+        && camo_netting_structure_stealth_desired(true, true, false, true, 100, 0) == Some(false)
+}
+
+/// Combined Wave 62 upgrades residual honesty pack.
+pub fn honesty_upgrades_residual_pack_ok() -> bool {
+    honesty_upgrades_cost_residual_ok()
+        && honesty_upgrades_time_residual_ok()
+        && honesty_upgrades_stealth_forbidden_residual_ok()
+}
+
 #[cfg(test)]
 mod camo_netting_and_gamma_tests {
     use super::*;
@@ -1229,5 +1400,13 @@ mod camo_netting_and_gamma_tests {
             HostUpgradeKind::from_name("Upgrade_GLACamouflage"),
             HostUpgradeKind::Camouflage
         );
+    }
+
+    #[test]
+    fn upgrades_residual_pack_honesty() {
+        assert!(honesty_upgrades_cost_residual_ok());
+        assert!(honesty_upgrades_time_residual_ok());
+        assert!(honesty_upgrades_stealth_forbidden_residual_ok());
+        assert!(honesty_upgrades_residual_pack_ok());
     }
 }

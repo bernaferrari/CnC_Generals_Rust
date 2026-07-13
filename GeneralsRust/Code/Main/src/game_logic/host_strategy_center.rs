@@ -86,6 +86,17 @@
 //!   scalar when ACTIVE). Host residual of getNextMoodTarget vision filter +
 //!   weapon range band. Fail-closed: not full PartitionManager filter stack.
 //!
+//! Wave 62 residual pack (retail FactionBuilding / Weapon / BattlePlanUpdate honesty):
+//! - Battle plan army residuals: Bombardment DAMAGE **120%**, HoldTheLine armor
+//!   scalar **0.9**, SearchAndDestroy RANGE **120%** + Sight **1.2**
+//! - Building residuals: HoldTheLine MaxHealth **2.0** PRESERVE_RATIO, S&D Sight
+//!   **2.0** + DetectsStealth **Yes**
+//! - Pack/unpack AnimationTime **7000**ms → **210**f all plans; TransitionIdle **0**
+//! - BattlePlanChangeParalyzeTime **5000**ms → **150**f
+//! - Strategy Center body residual: BuildCost **2500**, BuildTime **60**s → **1800**f,
+//!   MaxHealth **1500**, Vision/Shroud **400**, EnergyProduction **-2**
+//! - Message labels + ValidMemberKindOf residual tokens honesty
+//!
 //! Fail-closed honesty:
 //! - Not full PartitionManager filter stack / AI pathfinder mood matrix
 //!   (vision range + weapon band host residual closed)
@@ -347,6 +358,40 @@ pub const BATTLE_PLAN_SEARCH_AND_DESTROY_PACK_AUDIO: &str =
     "StrategyCenter_SearchAndDestroyPlanPack";
 pub const BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO: &str =
     "StrategyCenter_SearchAndDestroyPlanIdleLoop";
+
+// --- Wave 62 Strategy Center body + battle-plan residual pack constants ---
+
+/// Retail AmericaStrategyCenter BuildCost.
+pub const STRATEGY_CENTER_BUILD_COST: u32 = 2500;
+/// Retail AmericaStrategyCenter BuildTime (seconds).
+pub const STRATEGY_CENTER_BUILD_TIME_SECS: f32 = 60.0;
+/// BuildTime → frames @ 30 FPS (60 * 30 = 1800).
+pub const STRATEGY_CENTER_BUILD_TIME_FRAMES: u32 = 1800;
+/// Retail AmericaStrategyCenter MaxHealth / InitialHealth.
+pub const STRATEGY_CENTER_MAX_HEALTH: f32 = 1500.0;
+/// Retail AmericaStrategyCenter EnergyProduction.
+pub const STRATEGY_CENTER_ENERGY_PRODUCTION: i32 = -2;
+/// Retail StrategyCenterHoldTheLineMaxHealthChangeType residual token.
+pub const STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_CHANGE_TYPE: &str = "PRESERVE_RATIO";
+
+/// Retail BattlePlanUpdate message labels.
+pub const BATTLE_PLAN_BOMBARDMENT_MESSAGE: &str = "MESSAGE:BattlePlanBombardmentInitiated";
+pub const BATTLE_PLAN_HOLD_THE_LINE_MESSAGE: &str = "MESSAGE:BattlePlanHoldTheLineInitiated";
+pub const BATTLE_PLAN_SEARCH_AND_DESTROY_MESSAGE: &str =
+    "MESSAGE:BattlePlanSearchAndDestroyInitiated";
+
+/// Retail ValidMemberKindOf residual tokens.
+pub const BATTLE_PLAN_VALID_MEMBER_KINDOF: &str = "INFANTRY CAN_ATTACK VEHICLE";
+/// Retail InvalidMemberKindOf residual tokens.
+pub const BATTLE_PLAN_INVALID_MEMBER_KINDOF: &str = "DOZER STRUCTURE AIRCRAFT DRONE";
+
+/// Retail SpecialAbilityChangeBattlePlans special-power template name.
+pub const BATTLE_PLAN_SPECIAL_POWER_TEMPLATE: &str = "SpecialAbilityChangeBattlePlans";
+
+/// Retail StrategyCenterGun SecondaryDamage residual (Weapon.ini).
+pub const STRATEGY_CENTER_GUN_SECONDARY_DAMAGE: f32 = 50.0;
+/// Retail StrategyCenterGun SecondaryDamageRadius residual.
+pub const STRATEGY_CENTER_GUN_SECONDARY_RADIUS: f32 = 50.0;
 
 /// C++ TransitionStatus residual for BattlePlanUpdate door matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -1744,6 +1789,82 @@ impl HostBattlePlanRegistry {
     }
 }
 
+
+// --- Wave 62 residual honesty packs (retail INI constants; additive) ---
+
+/// Battle plan army residual parameters honesty.
+pub fn honesty_strategy_center_battle_plan_params_residual_ok() -> bool {
+    (BOMBARDMENT_DAMAGE_MULT - 1.20).abs() < 0.001
+        && (HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR - 0.9).abs() < 0.001
+        && (SEARCH_AND_DESTROY_RANGE_MULT - 1.20).abs() < 0.001
+        && (SEARCH_AND_DESTROY_SIGHT_RANGE_SCALAR - 1.2).abs() < 0.001
+        && (STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR - 2.0).abs() < 0.001
+        && (STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR - 2.0).abs() < 0.001
+        && STRATEGY_CENTER_SEARCH_AND_DESTROY_DETECTS_STEALTH
+        && STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_CHANGE_TYPE == "PRESERVE_RATIO"
+        && (HostBattlePlan::Bombardment.army_damage_multiplier() - 1.20).abs() < 0.001
+        && (HostBattlePlan::HoldTheLine.army_armor_damage_scalar() - 0.9).abs() < 0.001
+        && (HostBattlePlan::SearchAndDestroy.army_range_multiplier() - 1.20).abs() < 0.001
+        && (HostBattlePlan::SearchAndDestroy.army_sight_range_scalar() - 1.2).abs() < 0.001
+}
+
+/// Pack/unpack AnimationTime residual honesty (7000ms → 210f; TransitionIdle 0).
+pub fn honesty_strategy_center_pack_unpack_times_residual_ok() -> bool {
+    BATTLE_PLAN_ANIMATION_TIME_MS == 7000
+        && BATTLE_PLAN_ANIMATION_FRAMES == 210
+        && BATTLE_PLAN_TRANSITION_IDLE_FRAMES == 0
+        && BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO == "StrategyCenter_BombardmentPlanUnpackSound"
+        && BATTLE_PLAN_BOMBARDMENT_PACK_AUDIO == "StrategyCenter_BombardmentPlanPackSound"
+        && BATTLE_PLAN_HOLD_THE_LINE_UNPACK_AUDIO == "StrategyCenter_HoldTheLinePlanUnpack"
+        && BATTLE_PLAN_HOLD_THE_LINE_PACK_AUDIO == "StrategyCenter_HoldTheLinePlanPack"
+        && BATTLE_PLAN_SEARCH_AND_DESTROY_UNPACK_AUDIO
+            == "StrategyCenter_SearchAndDestroyPlanUnpack"
+        && BATTLE_PLAN_SEARCH_AND_DESTROY_PACK_AUDIO == "StrategyCenter_SearchAndDestroyPlanPack"
+        && BATTLE_PLAN_SEARCH_AND_DESTROY_IDLE_AUDIO
+            == "StrategyCenter_SearchAndDestroyPlanIdleLoop"
+        && HostBattlePlan::Bombardment.unpack_audio() == BATTLE_PLAN_BOMBARDMENT_UNPACK_AUDIO
+        && HostBattlePlan::HoldTheLine.pack_audio() == BATTLE_PLAN_HOLD_THE_LINE_PACK_AUDIO
+}
+
+/// BattlePlanChangeParalyzeTime residual honesty (5000ms → 150f).
+pub fn honesty_strategy_center_paralyze_residual_ok() -> bool {
+    BATTLE_PLAN_PARALYZE_TIME_MS == 5000
+        && BATTLE_PLAN_PARALYZE_FRAMES == 150
+        && battle_plan_paralyze_frames_from_ms(5000) == 150
+        && battle_plan_paralyze_until_frame(10) == 160
+}
+
+/// Strategy Center body residual honesty (cost/time/health/vision).
+pub fn honesty_strategy_center_body_residual_ok() -> bool {
+    STRATEGY_CENTER_BUILD_COST == 2500
+        && (STRATEGY_CENTER_BUILD_TIME_SECS - 60.0).abs() < 0.01
+        && STRATEGY_CENTER_BUILD_TIME_FRAMES == 1800
+        && (STRATEGY_CENTER_MAX_HEALTH - 1500.0).abs() < 0.01
+        && STRATEGY_CENTER_ENERGY_PRODUCTION == -2
+        && (STRATEGY_CENTER_BASE_VISION_RANGE - 400.0).abs() < 0.01
+        && (STRATEGY_CENTER_GUN_DAMAGE - 200.0).abs() < 0.01
+        && (STRATEGY_CENTER_GUN_RANGE - 400.0).abs() < 0.01
+        && (STRATEGY_CENTER_GUN_MIN_RANGE - 100.0).abs() < 0.01
+        && STRATEGY_CENTER_GUN_DELAY_FRAMES == 210
+        && BATTLE_PLAN_SPECIAL_POWER_TEMPLATE == "SpecialAbilityChangeBattlePlans"
+        && BATTLE_PLAN_BOMBARDMENT_MESSAGE == "MESSAGE:BattlePlanBombardmentInitiated"
+        && BATTLE_PLAN_HOLD_THE_LINE_MESSAGE == "MESSAGE:BattlePlanHoldTheLineInitiated"
+        && BATTLE_PLAN_SEARCH_AND_DESTROY_MESSAGE
+            == "MESSAGE:BattlePlanSearchAndDestroyInitiated"
+        && BATTLE_PLAN_VALID_MEMBER_KINDOF.contains("INFANTRY")
+        && BATTLE_PLAN_VALID_MEMBER_KINDOF.contains("VEHICLE")
+        && BATTLE_PLAN_INVALID_MEMBER_KINDOF.contains("DOZER")
+        && BATTLE_PLAN_INVALID_MEMBER_KINDOF.contains("AIRCRAFT")
+}
+
+/// Combined Wave 62 Strategy Center residual honesty pack.
+pub fn honesty_strategy_center_residual_pack_ok() -> bool {
+    honesty_strategy_center_battle_plan_params_residual_ok()
+        && honesty_strategy_center_pack_unpack_times_residual_ok()
+        && honesty_strategy_center_paralyze_residual_ok()
+        && honesty_strategy_center_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2309,5 +2430,14 @@ mod tests {
         assert!(reg.honesty_turret_fire_ok());
         assert_eq!(reg.turret_fire_count(), 1);
         assert_eq!(reg.turret_units_hit(), 2);
+    }
+
+    #[test]
+    fn strategy_center_residual_pack_honesty() {
+        assert!(honesty_strategy_center_battle_plan_params_residual_ok());
+        assert!(honesty_strategy_center_pack_unpack_times_residual_ok());
+        assert!(honesty_strategy_center_paralyze_residual_ok());
+        assert!(honesty_strategy_center_body_residual_ok());
+        assert!(honesty_strategy_center_residual_pack_ok());
     }
 }
