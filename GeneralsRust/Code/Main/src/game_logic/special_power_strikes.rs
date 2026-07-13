@@ -98,6 +98,11 @@
 //! Surfaces AIR; Howitzer TargetHeightIncludesStructures=No + InitialHealth +
 //! InstantDeath GENERIC death FX; OrbitalLaser KindOf IMMOBILE + Segments/ArcHeight
 //! defaults; single-beam RGB × innerAlpha residual (NumBeams==1 path).
+//! Wave 36 residual closed: Scud DestroyDie + Locomotor template name + Armor
+//! DamageFX=None; SpectreHowitzerShellLocomotor template residual (AIR/THRUST
+//! MinSpeed/Accel/TurnRate); Howitzer Armor DamageFX=None; connector KindOf
+//! IMMOBILE + MaxIntensity/Fade defaults + Tile=No; TrailRemnant KindOf
+//! ImmortalBody residual; DisplayString setFont residual (graphics).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -347,6 +352,28 @@ pub const SPECTRE_HOWITZER_SHELL_DISPLAY_NAME: &str = "OBJECT:Missile";
 pub const SPECTRE_HOWITZER_SHELL_EDITOR_SORTING: &str = "SYSTEM";
 /// Retail W3DModelDraw OkToChangeModelColor residual.
 pub const SPECTRE_HOWITZER_SHELL_OK_TO_CHANGE_MODEL_COLOR: bool = true;
+/// Retail ArmorSet DamageFX residual (`None`).
+pub const SPECTRE_HOWITZER_SHELL_DAMAGE_FX: &str = "None";
+/// Retail SpectreHowitzerShellLocomotor template name residual
+/// (commented out in Object when DumbProjectileBehavior is active; template still
+/// exists for residual honesty).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_NAME: &str = "SpectreHowitzerShellLocomotor";
+/// Retail SpectreHowitzerShellLocomotor Surfaces residual.
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SURFACES: &str = "AIR";
+/// Retail SpectreHowitzerShellLocomotor Appearance residual.
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_APPEARANCE: &str = "THRUST";
+/// Retail SpectreHowitzerShellLocomotor MinSpeed residual (dist/sec).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MIN_SPEED: f32 = 1111.0;
+/// Retail SpectreHowitzerShellLocomotor Acceleration residual (dist/sec²).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ACCEL: f32 = 9160.0;
+/// Retail SpectreHowitzerShellLocomotor TurnRate residual (degrees/sec).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_TURN_RATE: f32 = 99999.0;
+/// Retail SpectreHowitzerShellLocomotor MaxThrustAngle residual (degrees).
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MAX_THRUST_ANGLE: f32 = 90.0;
+/// Retail SpectreHowitzerShellLocomotor Braking residual.
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_BRAKING: f32 = 0.0;
+/// Retail SpectreHowitzerShellLocomotor AllowAirborneMotiveForce residual.
+pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ALLOW_AIRBORNE: bool = true;
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -447,6 +474,20 @@ pub const PARTICLE_CONNECTOR_INNER_COLOR: (f32, f32, f32, f32) =
 /// Retail connector OuterColor residual (R:0 G:0 B:255 A:150).
 pub const PARTICLE_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
     (0.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail connector KindOf residual (Medium/Intense both IMMOBILE).
+pub const PARTICLE_CONNECTOR_KIND_OF: &str = "IMMOBILE";
+/// Retail W3DLaserDraw Segments residual default (connectors omit Segments → 1).
+pub const PARTICLE_CONNECTOR_SEGMENTS: u32 = 1;
+/// Retail W3DLaserDraw ArcHeight residual default (connectors omit ArcHeight → 0).
+pub const PARTICLE_CONNECTOR_ARC_HEIGHT: f32 = 0.0;
+/// Retail W3DLaserDraw SegmentOverlapRatio residual default (connectors omit → 0).
+pub const PARTICLE_CONNECTOR_SEGMENT_OVERLAP: f32 = 0.0;
+/// Retail W3DLaserDraw MaxIntensityLifetime residual default (connectors omit → 0).
+pub const PARTICLE_CONNECTOR_MAX_INTENSITY_FRAMES: u32 = 0;
+/// Retail W3DLaserDraw FadeLifetime residual default (connectors omit → 0).
+pub const PARTICLE_CONNECTOR_FADE_FRAMES: u32 = 0;
+/// Retail connector Tile residual (connectors omit Tile → No).
+pub const PARTICLE_CONNECTOR_TILE: bool = false;
 /// Retail RevealRange = 50 — gratuitous vision at each scorch/GroundHitFX site.
 pub const PARTICLE_REVEAL_RANGE: f32 = 50.0;
 /// Retail TotalScorchMarks = 20 (also gates GroundHitFX / reveal cadence).
@@ -1433,6 +1474,16 @@ pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 = (4000 * 30) / 1000;
 pub const PARTICLE_REMNANT_OBJECT_NAME: &str = "ParticleUplinkCannonTrailRemnant";
 /// Retail remnant weapon name residual (honesty).
 pub const PARTICLE_REMNANT_WEAPON_NAME: &str = "ParticleUplinkCannonBeamTrailRemnantWeapon";
+/// Retail TrailRemnant KindOf residual.
+pub const PARTICLE_REMNANT_KIND_OF: &str = "NO_COLLIDE UNATTACKABLE IMMOBILE";
+/// Retail TrailRemnant ImmortalBody MaxHealth residual.
+pub const PARTICLE_REMNANT_MAX_HEALTH: f32 = 50.0;
+/// Retail TrailRemnant ImmortalBody InitialHealth residual.
+pub const PARTICLE_REMNANT_INITIAL_HEALTH: f32 = 50.0;
+/// Retail TrailRemnant EditorSorting residual.
+pub const PARTICLE_REMNANT_EDITOR_SORTING: &str = "SYSTEM";
+/// Retail TrailRemnant Body module residual.
+pub const PARTICLE_REMNANT_BODY: &str = "ImmortalBody";
 
 // --- Carpet Bomb line multi-strike residual (retail SUPERWEAPON_CarpetBomb) ---
 
@@ -1747,6 +1798,12 @@ pub const SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE: &str = "THRUST";
 pub const SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE: bool = true;
 /// Retail SCUDStormMissileLocomotor Braking residual.
 pub const SCUD_STORM_MISSILE_LOCOMOTOR_BRAKING: f32 = 0.0;
+/// Retail Locomotor SET_NORMAL template name residual.
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_NAME: &str = "SCUDStormMissileLocomotor";
+/// Retail DestroyDie module residual (empty module present on ScudStormMissile).
+pub const SCUD_STORM_MISSILE_DESTROY_DIE: bool = true;
+/// Retail ArmorSet DamageFX residual (`None`).
+pub const SCUD_STORM_MISSILE_DAMAGE_FX: &str = "None";
 
 /// Residual ScudStormMissile loft phase (MissileAIUpdate / Locomotor path).
 ///
@@ -2796,6 +2853,9 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: Locomotor Surfaces/Appearance/AllowAirborne/Braking residual applications.
     #[serde(default)]
     pub scud_locomotor_appearance_applications: u32,
+    /// Honesty: DestroyDie + Locomotor template name + Armor DamageFX residual applications.
+    #[serde(default)]
+    pub scud_destroy_die_locomotor_name_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -3074,6 +3134,12 @@ pub struct HostSpectreOrbitField {
     /// Honesty: shell loft height-die residual applications.
     #[serde(default)]
     pub howitzer_shell_loft_height_die_applications: u32,
+    /// Honesty: SpectreHowitzerShellLocomotor template residual applications.
+    #[serde(default)]
+    pub howitzer_shell_locomotor_template_applications: u32,
+    /// Honesty: Armor DamageFX=None residual applications.
+    #[serde(default)]
+    pub howitzer_shell_damage_fx_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -3380,6 +3446,18 @@ pub struct HostParticleBeamField {
     /// Honesty: W3DLaserDraw ArcHeight residual armed (default 0).
     #[serde(default)]
     pub orbital_arc_height_armed: u32,
+    /// Honesty: connector KindOf IMMOBILE residual armed.
+    #[serde(default)]
+    pub connector_kindof_immobile_armed: u32,
+    /// Honesty: connector W3DLaserDraw Segments residual armed (default 1).
+    #[serde(default)]
+    pub connector_segments_armed: u32,
+    /// Honesty: connector MaxIntensity/FadeLifetime residual defaults armed.
+    #[serde(default)]
+    pub connector_max_intensity_fade_armed: u32,
+    /// Honesty: connector Tile=No residual armed.
+    #[serde(default)]
+    pub connector_tile_no_armed: u32,
     /// Honesty: outer-node bone layout residual positions computed.
     #[serde(default)]
     pub outer_node_bone_layout_applications: u32,
@@ -3644,6 +3722,9 @@ pub struct HostParticleRemnantField {
     pub parent_beam_id: u32,
     /// Parent ParticleCannon strike id (0 if unknown).
     pub parent_strike_id: u32,
+    /// Honesty: TrailRemnant KindOf / ImmortalBody residual applications.
+    #[serde(default)]
+    pub remnant_object_params_applications: u32,
 }
 
 impl HostParticleRemnantField {
@@ -4269,6 +4350,7 @@ impl HostSpecialPowerStrikeRegistry {
             scud_fire_weapon_when_dead_applications: 0,
             scud_body_draw_params_applications: 0,
             scud_locomotor_appearance_applications: 0,
+            scud_destroy_die_locomotor_name_applications: 0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -4643,6 +4725,10 @@ impl HostSpecialPowerStrikeRegistry {
                     // Locomotor Surfaces/Appearance/AllowAirborne/Braking residual.
                     strike.scud_locomotor_appearance_applications = strike
                         .scud_locomotor_appearance_applications
+                        .saturating_add(shells);
+                    // DestroyDie + Locomotor template name + Armor DamageFX residual.
+                    strike.scud_destroy_die_locomotor_name_applications = strike
+                        .scud_destroy_die_locomotor_name_applications
                         .saturating_add(shells);
                     strike.scud_last_flight_distance = flight_dist;
                     if flight_dist > strike.scud_peak_flight_distance {
@@ -5137,6 +5223,8 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_loft_flight_applications: 0,
             howitzer_shell_last_loft_height: 0.0,
             howitzer_shell_loft_height_die_applications: 0,
+            howitzer_shell_locomotor_template_applications: 0,
+            howitzer_shell_damage_fx_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -5291,6 +5379,13 @@ impl HostSpecialPowerStrikeRegistry {
                     .saturating_add(1);
                 field.howitzer_shell_object_params_applications = field
                     .howitzer_shell_object_params_applications
+                    .saturating_add(1);
+                // SpectreHowitzerShellLocomotor template + Armor DamageFX residual.
+                field.howitzer_shell_locomotor_template_applications = field
+                    .howitzer_shell_locomotor_template_applications
+                    .saturating_add(1);
+                field.howitzer_shell_damage_fx_applications = field
+                    .howitzer_shell_damage_fx_applications
                     .saturating_add(1);
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
@@ -5712,6 +5807,11 @@ impl HostSpecialPowerStrikeRegistry {
             orbital_kindof_immobile_armed: 1,
             orbital_segments_armed: PARTICLE_ORBITAL_LASER_SEGMENTS,
             orbital_arc_height_armed: 1,
+            // Connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile residual.
+            connector_kindof_immobile_armed: 1,
+            connector_segments_armed: PARTICLE_CONNECTOR_SEGMENTS,
+            connector_max_intensity_fade_armed: 1,
+            connector_tile_no_armed: 1,
             // Outer-node bone layout residual (FX01..FX05 ring + connector).
             // Fail-closed: not full W3D bone-world extract.
             outer_node_bone_layout_applications: PARTICLE_OUTER_EFFECT_NUM_BONES,
@@ -5980,6 +6080,8 @@ impl HostSpecialPowerStrikeRegistry {
             objects_destroyed: 0,
             parent_beam_id,
             parent_strike_id,
+            // KindOf / ImmortalBody residual armed on spawn.
+            remnant_object_params_applications: 1,
         };
         self.remnant_fields.push(field);
         self.remnant_spawned_this_frame.push(id);
@@ -6762,6 +6864,90 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE == "THRUST"
             && SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE
             && (SCUD_STORM_MISSILE_LOCOMOTOR_BRAKING - 0.0).abs() < 0.01
+    }
+
+    /// Residual honesty: ScudStormMissile DestroyDie + Locomotor name + Armor DamageFX.
+    ///
+    /// Tracks empty DestroyDie module presence, Locomotor template name
+    /// **SCUDStormMissileLocomotor**, Armor DamageFX **None**. Fail-closed: not
+    /// full DestroyDie Object / Locomotor store matrix / DamageFX module path.
+    pub fn honesty_scud_destroy_die_locomotor_name_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_destroy_die_locomotor_name_applications > 0
+        }) && SCUD_STORM_MISSILE_DESTROY_DIE
+            && SCUD_STORM_MISSILE_LOCOMOTOR_NAME == "SCUDStormMissileLocomotor"
+            && SCUD_STORM_MISSILE_DAMAGE_FX == "None"
+    }
+
+    /// Residual honesty: SpectreHowitzerShellLocomotor template residual.
+    ///
+    /// Tracks Surfaces **AIR**, Appearance **THRUST**, MinSpeed **1111**, Accel
+    /// **9160**, TurnRate **99999**, MaxThrustAngle **90**, Braking **0**,
+    /// AllowAirborneMotiveForce Yes. Fail-closed: not full Locomotor store /
+    /// live motive force (Object comments out Locomotor when DumbProjectile active).
+    pub fn honesty_howitzer_shell_locomotor_template_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_locomotor_template_applications > 0
+                && f.howitzer_shell_locomotor_template_applications
+                    >= f.howitzer_shells_spawned
+        }) && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_NAME == "SpectreHowitzerShellLocomotor"
+            && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SURFACES == "AIR"
+            && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_APPEARANCE == "THRUST"
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MIN_SPEED - 1111.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ACCEL - 9160.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_TURN_RATE - 99999.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MAX_THRUST_ANGLE - 90.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_BRAKING - 0.0).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ALLOW_AIRBORNE
+    }
+
+    /// Residual honesty: SpectreHowitzerShell Armor DamageFX residual.
+    ///
+    /// Tracks ArmorSet DamageFX **None**. Fail-closed: not full DamageFXStore path.
+    pub fn honesty_howitzer_shell_damage_fx_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_damage_fx_applications > 0
+                && f.howitzer_shell_damage_fx_applications >= f.howitzer_shells_spawned
+        }) && SPECTRE_HOWITZER_SHELL_DAMAGE_FX == "None"
+    }
+
+    /// Residual honesty: connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile.
+    ///
+    /// Tracks KindOf **IMMOBILE**, Segments **1**, MaxIntensityLifetime **0**,
+    /// FadeLifetime **0**, Tile **No** residual defaults for Medium/Intense connectors.
+    /// Fail-closed: not full LaserUpdate GPU drawable / ThingFactory connector Object.
+    pub fn honesty_beam_connector_kindof_defaults_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.connector_kindof_immobile_armed >= 1
+                && f.connector_segments_armed == PARTICLE_CONNECTOR_SEGMENTS
+                && f.connector_max_intensity_fade_armed >= 1
+                && f.connector_tile_no_armed >= 1
+        }) && PARTICLE_CONNECTOR_KIND_OF == "IMMOBILE"
+            && PARTICLE_CONNECTOR_SEGMENTS == 1
+            && (PARTICLE_CONNECTOR_ARC_HEIGHT - 0.0).abs() < 0.01
+            && (PARTICLE_CONNECTOR_SEGMENT_OVERLAP - 0.0).abs() < 0.01
+            && PARTICLE_CONNECTOR_MAX_INTENSITY_FRAMES == 0
+            && PARTICLE_CONNECTOR_FADE_FRAMES == 0
+            && !PARTICLE_CONNECTOR_TILE
+    }
+
+    /// Residual honesty: TrailRemnant KindOf + ImmortalBody residual.
+    ///
+    /// Tracks KindOf **NO_COLLIDE UNATTACKABLE IMMOBILE**, ImmortalBody MaxHealth
+    /// **50**, InitialHealth **50**, EditorSorting **SYSTEM**. Fail-closed: not
+    /// full ThingFactory Object / ImmortalBody / DeletionUpdate module stack.
+    pub fn honesty_beam_remnant_object_params_ok(&self) -> bool {
+        self.remnant_fields.iter().any(|f| {
+            f.remnant_object_params_applications >= 1
+        }) && PARTICLE_REMNANT_KIND_OF == "NO_COLLIDE UNATTACKABLE IMMOBILE"
+            && (PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01
+            && (PARTICLE_REMNANT_INITIAL_HEALTH - 50.0).abs() < 0.01
+            && (PARTICLE_REMNANT_INITIAL_HEALTH - PARTICLE_REMNANT_MAX_HEALTH).abs() < 0.01
+            && PARTICLE_REMNANT_EDITOR_SORTING == "SYSTEM"
+            && PARTICLE_REMNANT_BODY == "ImmortalBody"
+            && PARTICLE_REMNANT_OBJECT_NAME == "ParticleUplinkCannonTrailRemnant"
     }
 
 
@@ -10651,4 +10837,132 @@ mod tests {
             });
         assert!((particle_orbital_single_beam_color_premul().0 - ia).abs() < 0.01);
     }
+
+    #[test]
+    fn scud_destroy_die_locomotor_name_residual_honesty() {
+        assert!(SCUD_STORM_MISSILE_DESTROY_DIE);
+        assert_eq!(SCUD_STORM_MISSILE_LOCOMOTOR_NAME, "SCUDStormMissileLocomotor");
+        assert_eq!(SCUD_STORM_MISSILE_DAMAGE_FX, "None");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 50.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_destroy_die_locomotor_name_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(50.0, 0.0, 50.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_destroy_die_locomotor_name_applications, 1);
+        }
+        assert!(reg.honesty_scud_destroy_die_locomotor_name_ok());
+        assert!(reg.honesty_scud_locomotor_appearance_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_locomotor_template_residual_honesty() {
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_LOCOMOTOR_NAME,
+            "SpectreHowitzerShellLocomotor"
+        );
+        assert_eq!(SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SURFACES, "AIR");
+        assert_eq!(SPECTRE_HOWITZER_SHELL_LOCOMOTOR_APPEARANCE, "THRUST");
+        assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MIN_SPEED - 1111.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ACCEL - 9160.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_TURN_RATE - 99999.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_MAX_THRUST_ANGLE - 90.0).abs() < 0.01);
+        assert!(SPECTRE_HOWITZER_SHELL_LOCOMOTOR_ALLOW_AIRBORNE);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_DAMAGE_FX, "None");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn_f = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_locomotor_template_ok());
+        assert!(!reg.honesty_howitzer_shell_damage_fx_ok());
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_locomotor_template_applications, 1);
+            assert_eq!(f.howitzer_shell_damage_fx_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_locomotor_template_ok());
+        assert!(reg.honesty_howitzer_shell_damage_fx_ok());
+        assert!(reg.honesty_howitzer_shell_design_params_ok());
+    }
+
+    #[test]
+    fn particle_uplink_connector_kindof_defaults_residual_honesty() {
+        assert_eq!(PARTICLE_CONNECTOR_KIND_OF, "IMMOBILE");
+        assert_eq!(PARTICLE_CONNECTOR_SEGMENTS, 1);
+        assert!((PARTICLE_CONNECTOR_ARC_HEIGHT - 0.0).abs() < 0.01);
+        assert_eq!(PARTICLE_CONNECTOR_MAX_INTENSITY_FRAMES, 0);
+        assert_eq!(PARTICLE_CONNECTOR_FADE_FRAMES, 0);
+        assert!(!PARTICLE_CONNECTOR_TILE);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        assert!(!reg.honesty_beam_connector_kindof_defaults_ok());
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, Vec3::ZERO, 10, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.connector_kindof_immobile_armed, 1);
+            assert_eq!(f.connector_segments_armed, 1);
+            assert_eq!(f.connector_max_intensity_fade_armed, 1);
+            assert_eq!(f.connector_tile_no_armed, 1);
+        }
+        assert!(reg.honesty_beam_connector_kindof_defaults_ok());
+        assert!(reg.honesty_beam_orbital_kindof_segments_ok());
+    }
+
+    #[test]
+    fn particle_uplink_remnant_object_params_residual_honesty() {
+        assert_eq!(PARTICLE_REMNANT_KIND_OF, "NO_COLLIDE UNATTACKABLE IMMOBILE");
+        assert!((PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01);
+        assert!((PARTICLE_REMNANT_INITIAL_HEALTH - 50.0).abs() < 0.01);
+        assert_eq!(PARTICLE_REMNANT_EDITOR_SORTING, "SYSTEM");
+        assert_eq!(PARTICLE_REMNANT_BODY, "ImmortalBody");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        assert!(!reg.honesty_beam_remnant_object_params_ok());
+        let rid = reg.spawn_remnant_field(
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(10.0, 0.0, 10.0),
+            0,
+            0,
+            0,
+        );
+        {
+            let f = reg.remnant_fields().iter().find(|r| r.id == rid).unwrap();
+            assert_eq!(f.remnant_object_params_applications, 1);
+        }
+        assert!(reg.honesty_beam_remnant_object_params_ok());
+        assert!(reg.honesty_beam_remnant_ok());
+    }
+
 }

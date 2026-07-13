@@ -14,6 +14,8 @@
 //! - UV_Offset_Rate residual (0, ScrollRate) V-scroll component
 //! - Soft-edge RGB innerAlpha premultiply residual in multi-beam layer pack
 //!   (C++ W3DLaserDraw: `red = inner + scale*(outer-inner)*innerAlpha`)
+//! - Connector W3DLaserDraw defaults residual (MaxIntensity/Fade = 0, Tile=No,
+//!   Segments=1, ArcHeight=0) for Medium/Intense connector lasers
 //!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
@@ -53,6 +55,35 @@ pub const ORBITAL_LASER_TEXTURE_MAPPING: &str = "TILED_TEXTURE_MAP";
 pub const ORBITAL_LASER_TILE: bool = true;
 /// Retail UV offset rate residual: Vector2(0, ScrollRate) — V component only.
 pub const ORBITAL_LASER_UV_OFFSET_U: f32 = 0.0;
+/// Retail W3DLaserDraw MaxIntensityLifetime residual default (0 = no hold).
+pub const ORBITAL_LASER_MAX_INTENSITY_FRAMES: u32 = 0;
+/// Retail W3DLaserDraw FadeLifetime residual default (0 = no fade-delete).
+pub const ORBITAL_LASER_FADE_FRAMES: u32 = 0;
+/// Retail connector MaxIntensityLifetime residual default (omitted → 0).
+pub const CONNECTOR_LASER_MAX_INTENSITY_FRAMES: u32 = 0;
+/// Retail connector FadeLifetime residual default (omitted → 0).
+pub const CONNECTOR_LASER_FADE_FRAMES: u32 = 0;
+/// Retail connector Tile residual (omitted → No).
+pub const CONNECTOR_LASER_TILE: bool = false;
+/// Retail connector Segments residual default (omitted → 1).
+pub const CONNECTOR_LASER_SEGMENTS: u32 = 1;
+/// Retail connector ArcHeight residual default (omitted → 0).
+pub const CONNECTOR_LASER_ARC_HEIGHT: f32 = 0.0;
+
+/// Honesty: connector W3DLaserDraw omitted-field defaults residual.
+///
+/// Medium/Intense connector lasers omit MaxIntensityLifetime / FadeLifetime /
+/// Tile / Segments / ArcHeight → C++ module defaults. Fail-closed: not full
+/// LaserUpdate drawable lifetime / fade-delete path.
+pub fn honesty_connector_laser_defaults() -> bool {
+    CONNECTOR_LASER_MAX_INTENSITY_FRAMES == 0
+        && CONNECTOR_LASER_FADE_FRAMES == 0
+        && !CONNECTOR_LASER_TILE
+        && CONNECTOR_LASER_SEGMENTS == 1
+        && (CONNECTOR_LASER_ARC_HEIGHT - 0.0).abs() < 0.01
+        && ORBITAL_LASER_MAX_INTENSITY_FRAMES == 0
+        && ORBITAL_LASER_FADE_FRAMES == 0
+}
 
 /// Bytes per packed laser segment vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
 pub const LASER_VERTEX_FLOATS: usize = 9;
@@ -709,6 +740,19 @@ mod tests {
         assert_eq!(single.len(), 1);
         assert!((single[0].color.0 - ia).abs() < 0.01);
         assert!((single[0].color.3 - ia).abs() < 0.01);
+    }
+
+    #[test]
+    fn connector_laser_defaults_residual_honesty() {
+        assert!(honesty_connector_laser_defaults());
+        assert_eq!(CONNECTOR_LASER_MAX_INTENSITY_FRAMES, 0);
+        assert_eq!(CONNECTOR_LASER_FADE_FRAMES, 0);
+        assert!(!CONNECTOR_LASER_TILE);
+        assert_eq!(CONNECTOR_LASER_SEGMENTS, 1);
+        assert!((CONNECTOR_LASER_ARC_HEIGHT - 0.0).abs() < 0.01);
+        // Orbital also omits MaxIntensity/Fade → defaults 0.
+        assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
+        assert_eq!(ORBITAL_LASER_FADE_FRAMES, 0);
     }
 
 }
