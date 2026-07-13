@@ -797,7 +797,13 @@ impl Object {
 
     /// Apply kill-pilot residual: vehicle becomes unmanned (no HP change).
     /// Caller is responsible for team transfer (typically Neutral).
+    /// Captures `unmanned_owner_team` for PilotFindVehicle PartitionFilterPlayer residual.
     pub fn apply_kill_pilot_unmanned(&mut self) {
+        // Preserve original controller for same-player PartitionFilter residual.
+        // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
+        if !self.status.disabled_unmanned {
+            self.status.unmanned_owner_team = Some(self.team);
+        }
         self.status.disabled_unmanned = true;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
@@ -830,6 +836,7 @@ impl Object {
             return false;
         }
         self.status.disabled_unmanned = false;
+        self.status.unmanned_owner_team = None;
         self.status.disabled_hacked = false;
         self.status.disabled_hacked_until_frame = 0;
         self.status.disabled_emp = false;
@@ -956,16 +963,31 @@ impl Object {
         self.status.parachuting
     }
 
-    /// Begin air-eject parachute residual (elevated spawn + sink until ground).
+    /// Whether AmericaParachute residual chute is open (past OpenDist freefall).
+    pub fn is_parachute_open(&self) -> bool {
+        self.status.parachute_open
+    }
+
+    /// Begin air-eject parachute residual (elevated spawn + freefall → OpenDist → open).
     pub fn apply_eject_parachuting(&mut self) {
+        let start_y = self.get_position().y;
         self.status.parachuting = true;
         self.status.airborne_target = true;
+        self.status.parachute_open = false;
+        self.status.parachute_start_height = start_y;
+    }
+
+    /// Mark AmericaParachute residual chute open (after OpenDist freefall).
+    pub fn open_eject_parachute(&mut self) {
+        self.status.parachute_open = true;
     }
 
     /// Clear parachuting residual on land.
     pub fn clear_eject_parachuting(&mut self) {
         self.status.parachuting = false;
         self.status.airborne_target = false;
+        self.status.parachute_open = false;
+        self.status.parachute_start_height = 0.0;
     }
 
     pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {

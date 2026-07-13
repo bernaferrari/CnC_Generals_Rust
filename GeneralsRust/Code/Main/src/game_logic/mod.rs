@@ -702,6 +702,16 @@ pub struct ObjectStatus {
     /// AmericaParachute host residual). Pilot sinks until ground.
     #[serde(default)]
     pub parachuting: bool,
+    /// AmericaParachute OpenClose residual: chute has opened after OpenDist freefall.
+    #[serde(default)]
+    pub parachute_open: bool,
+    /// Spawn height (y) when parachuting began — OpenDist freefall distance residual.
+    #[serde(default)]
+    pub parachute_start_height: f32,
+    /// Original controlling team when DISABLED_UNMANNED was applied.
+    /// Host killpilot sets team Neutral; this preserves PartitionFilterPlayer residual.
+    #[serde(default)]
+    pub unmanned_owner_team: Option<Team>,
     /// Residual death type for DieMux DeathTypes filters (EjectPilotDie etc).
     /// Default Normal (combat residual). Set to Crushed/Splatted for crush deaths.
     #[serde(default)]

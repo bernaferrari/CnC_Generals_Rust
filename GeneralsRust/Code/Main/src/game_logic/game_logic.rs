@@ -24704,6 +24704,16 @@ impl GameLogic {
         self.usa_pilot.honesty_find_vehicle_collide_ok()
     }
 
+    /// Residual honesty: PilotFindVehicle PartitionFilterPlayer residual rejected.
+    pub fn honesty_pilot_find_vehicle_player_ok(&self) -> bool {
+        self.usa_pilot.honesty_find_vehicle_player_ok()
+    }
+
+    /// Residual honesty: AmericaParachute residual chute opened past OpenDist.
+    pub fn honesty_pilot_parachute_open_ok(&self) -> bool {
+        self.usa_pilot.honesty_parachute_open_ok()
+    }
+
     /// Combined USA Pilot residual honesty.
     pub fn honesty_pilot_ok(&self) -> bool {
         self.usa_pilot.honesty_pilot_ok()
@@ -24715,14 +24725,16 @@ impl GameLogic {
     /// C++ PilotFindVehicleUpdate: human players sleep forever; AI issues
     /// `aiEnter` on closest valid target. Host residual maps valid targets onto
     /// the recrewable-unmanned path + VeterancyCrateCollide wouldLikeToCollideWith
-    /// gates (not above terrain / not airborne / trainable / can gain exp).
+    /// gates (not above terrain / not airborne / trainable / can gain exp) +
+    /// PartitionFilterPlayer residual (same team / Neutral with matching owner).
     /// When no vehicle found: one-shot base-center fallback (`m_didMoveToBase`).
-    /// Fail-closed: not full same-player PartitionFilter (Neutral unmanned allowed).
+    /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
             is_pilot_find_vehicle_collide_target, is_pilot_template,
             is_recrewable_unmanned_vehicle, pilot_collide_would_like_to_collide_with,
-            pilot_find_vehicle_scan_eligible, pilot_find_vehicle_scan_frame, pilot_levels_to_gain,
+            pilot_find_vehicle_same_player_ok, pilot_find_vehicle_scan_eligible,
+            pilot_find_vehicle_scan_frame, pilot_levels_to_gain,
             should_pilot_base_center_fallback, uses_air_eject_ocl,
             vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
             PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
@@ -24760,9 +24772,10 @@ impl GameLogic {
         let levels_to_gain = pilot_levels_to_gain(pilot_level);
 
         // Scan nearest recrewable unmanned vehicle in range with MinHealth +
-        // CollideModule wouldLikeToCollideWith residual.
+        // CollideModule wouldLikeToCollideWith + PartitionFilterPlayer residual.
         let mut best: Option<(ObjectId, f32, Vec3)> = None;
         let mut collide_rejects: u32 = 0;
+        let mut player_rejects: u32 = 0;
         for (vid, vehicle) in &self.objects {
             if *vid == pilot_id || !vehicle.is_alive() {
                 continue;
@@ -24793,6 +24806,16 @@ impl GameLogic {
             // 2D range residual (FROM_CENTER_2D).
             let dist = ((pilot_pos.x - vpos.x).powi(2) + (pilot_pos.z - vpos.z).powi(2)).sqrt();
             let in_range = dist <= PILOT_FIND_VEHICLE_SCAN_RANGE;
+            // PartitionFilterPlayer residual (same player / Neutral + owner).
+            let same_team = vehicle.team == pilot_team;
+            let is_neutral = vehicle.team == Team::Neutral;
+            let owner_matches = vehicle
+                .status
+                .unmanned_owner_team
+                .map(|t| t == pilot_team)
+                .unwrap_or(false);
+            let same_player_ok =
+                pilot_find_vehicle_same_player_ok(same_team, is_neutral, owner_matches);
             // CollideModule residual: isSignificantlyAboveTerrain / airborne /
             // trainable / canGainExpForLevel.
             let above_terrain = uses_air_eject_ocl(vpos.y, vehicle.status.airborne_target);
@@ -24810,13 +24833,20 @@ impl GameLogic {
                 is_trainable,
                 can_gain,
             );
+            // Track PartitionFilterPlayer rejects that otherwise pass recrew/MinHealth/range.
+            if recrewable && health_ok && in_range && !same_player_ok {
+                player_rejects = player_rejects.saturating_add(1);
+                continue;
+            }
             // Track CollideModule rejects that otherwise pass recrew/MinHealth/range
             // (honesty for residual gate, not full matrix).
-            if recrewable && health_ok && in_range && !collide_ok {
+            if recrewable && health_ok && in_range && same_player_ok && !collide_ok {
                 collide_rejects = collide_rejects.saturating_add(1);
                 continue;
             }
-            if !is_pilot_find_vehicle_collide_target(recrewable, health_ok, in_range, collide_ok) {
+            if !same_player_ok
+                || !is_pilot_find_vehicle_collide_target(recrewable, health_ok, in_range, collide_ok)
+            {
                 continue;
             }
             if best.map(|(_, d, _)| dist < d).unwrap_or(true) {
@@ -24826,6 +24856,11 @@ impl GameLogic {
         if collide_rejects > 0 {
             for _ in 0..collide_rejects {
                 self.usa_pilot.record_find_vehicle_collide_reject();
+            }
+        }
+        if player_rejects > 0 {
+            for _ in 0..player_rejects {
+                self.usa_pilot.record_find_vehicle_player_reject();
             }
         }
 
@@ -24873,18 +24908,24 @@ impl GameLogic {
         self.usa_pilot.record_base_center_move();
     }
 
-    /// OCL_EjectPilotViaParachute residual: sink elevated parachuting pilot to ground.
+    /// OCL_EjectPilotViaParachute residual: freefall → OpenDist open → sink to ground.
     ///
-    /// Fail-closed: linear sink (not full AmericaParachute OpenClose / physics matrix).
+    /// AmericaParachute residual: freefall at faster rate until fallen
+    /// `ParachuteOpenDist` (100), then open chute (slower sink + open audio).
+    /// Fail-closed: not full sway / pitch-roll / DeliverPayload matrix.
     fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            is_pilot_template, tick_parachute_height, PILOT_PARACHUTE_LAND_AUDIO,
+            is_pilot_template, should_open_parachute, tick_parachute_height_with_state,
+            PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO,
         };
 
-        let (pos, is_pilot) = match self.objects.get(&pilot_id) {
-            Some(obj) if obj.is_alive() && obj.is_parachuting() => {
-                (obj.get_position(), is_pilot_template(&obj.template_name))
-            }
+        let (pos, is_pilot, chute_open, start_h) = match self.objects.get(&pilot_id) {
+            Some(obj) if obj.is_alive() && obj.is_parachuting() => (
+                obj.get_position(),
+                is_pilot_template(&obj.template_name),
+                obj.is_parachute_open(),
+                obj.status.parachute_start_height,
+            ),
             _ => return,
         };
         if !is_pilot {
@@ -24893,14 +24934,33 @@ impl GameLogic {
         }
         // Host residual ground height 0 (flat terrain residual; not full TerrainLogic).
         let ground = 0.0_f32;
-        let (new_y, landed) = tick_parachute_height(pos.y, ground);
+        // OpenDist residual: freefall until fallen ≥ 100, then open chute.
+        let mut just_opened = false;
+        let mut open = chute_open;
+        if !open && should_open_parachute(start_h, pos.y) {
+            open = true;
+            just_opened = true;
+        }
+        let (new_y, landed) = tick_parachute_height_with_state(pos.y, ground, open);
+        // If freefall would overshoot ground before OpenDist, land closed residual.
         if let Some(pilot) = self.objects.get_mut(&pilot_id) {
+            if just_opened {
+                pilot.open_eject_parachute();
+            }
             let mut p = pilot.get_position();
             p.y = new_y;
             pilot.set_position(p);
             if landed {
                 pilot.clear_eject_parachuting();
             }
+        }
+        if just_opened {
+            self.usa_pilot.record_parachute_open();
+            self.queue_audio_event(
+                AudioEventRequest::new(PILOT_PARACHUTE_OPEN_AUDIO)
+                    .with_position(Vec3::new(pos.x, new_y, pos.z))
+                    .with_priority(145),
+            );
         }
         if landed {
             self.usa_pilot.record_parachute_land();
@@ -39172,7 +39232,7 @@ mod tests {
     /// non-trainable / cannot-gain-exp targets. Host residual: Heroic unmanned
     /// vehicle is rejected (pilot levels cannot promote past Heroic); elevated
     /// unmanned vehicle is rejected by isSignificantlyAboveTerrain residual.
-    /// Fail-closed: not full same-player PartitionFilter (Neutral unmanned ok).
+    /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     #[test]
     fn pilot_find_vehicle_collide_module_would_like_residual() {
         use crate::game_logic::host_usa_pilot::{
@@ -39210,8 +39270,9 @@ mod tests {
         }
 
         // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
+        // Spawn USA then Neutral so PartitionFilterPlayer residual keeps owner.
         let heroic_id = game_logic
-            .create_object("TestTank", Team::Neutral, Vec3::new(5.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("heroic tank");
         {
             let t = game_logic.find_object_mut(heroic_id).expect("heroic");
@@ -39227,7 +39288,7 @@ mod tests {
         let elevated_id = game_logic
             .create_object(
                 "TestTank",
-                Team::Neutral,
+                Team::USA,
                 Vec3::new(12.0, significantly_above_terrain_threshold() + 10.0, 0.0),
             )
             .expect("elevated tank");
@@ -39241,7 +39302,7 @@ mod tests {
 
         // Valid Rookie unmanned tank within Enter residual range (~selection radii + 4).
         let ok_id = game_logic
-            .create_object("TestTank", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("ok tank");
         {
             let t = game_logic.find_object_mut(ok_id).expect("ok");
@@ -39453,8 +39514,9 @@ mod tests {
         }
 
         // Healthy unmanned tank within scan range (100% HP ≥ MinHealth 0.5).
+        // Spawn USA then Neutral so PartitionFilterPlayer residual keeps owner.
         let tank_id = game_logic
-            .create_object("TestTank", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
             .expect("tank");
         {
             let t = game_logic.find_object_mut(tank_id).expect("tank");
@@ -39465,7 +39527,7 @@ mod tests {
 
         // Low-HP unmanned tank closer — must be skipped by MinHealth residual.
         let low_id = game_logic
-            .create_object("TestTank", Team::Neutral, Vec3::new(5.0, 0.0, 0.0))
+            .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
             .expect("low tank");
         {
             let t = game_logic.find_object_mut(low_id).expect("low");
@@ -40025,12 +40087,12 @@ mod tests {
     /// Residual: EjectPilotDie air OCL parachute when significantly above terrain.
     ///
     /// C++ isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute PutInContainer
-    /// AmericaParachute. Host residual: elevated pilot + parachuting sink to ground.
-    /// Fail-closed: not full AmericaParachute OpenClose / fall-physics matrix.
+    /// AmericaParachute residual: elevated pilot freefall → OpenDist open → land.
+    /// Fail-closed: not full AmericaParachute sway / DeliverPayload matrix.
     #[test]
     fn eject_pilot_air_ocl_parachute_residual() {
         use crate::game_logic::host_usa_pilot::{
-            significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE,
+            significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE, PARACHUTE_OPEN_DIST,
         };
         use crate::game_logic::VeterancyLevel;
 
@@ -40047,7 +40109,8 @@ mod tests {
             .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
 
         let thr = significantly_above_terrain_threshold();
-        let air_y = thr + 50.0;
+        // Spawn high enough that freefall OpenDist (100) is reached before ground.
+        let air_y = thr + PARACHUTE_OPEN_DIST + 50.0;
         let humvee_id = game_logic
             .create_object(
                 "AmericaVehicleHumvee",
@@ -40090,6 +40153,10 @@ mod tests {
                 "air-ejected pilot residual must be parachuting"
             );
             assert!(
+                !pilot.is_parachute_open(),
+                "air pilot residual starts freefall (chute closed)"
+            );
+            assert!(
                 pilot.get_position().y > thr,
                 "air pilot residual must spawn elevated, y={}",
                 pilot.get_position().y
@@ -40100,15 +40167,21 @@ mod tests {
             );
         }
 
-        // Sink parachute residual until land.
+        // Freefall until OpenDist, then open chute residual, then land.
+        assert!(!game_logic.honesty_pilot_parachute_open_ok());
         assert!(!game_logic.honesty_pilot_parachute_land_ok());
         let ids = [pilot_id];
-        for _ in 0..80 {
+        for _ in 0..120 {
             game_logic.update_ai(&ids, 1.0 / 30.0);
             if game_logic.honesty_pilot_parachute_land_ok() {
                 break;
             }
         }
+        assert!(
+            game_logic.honesty_pilot_parachute_open_ok(),
+            "AmericaParachute OpenDist residual must open chute honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().parachute_opens, 1);
         assert!(
             game_logic.honesty_pilot_parachute_land_ok(),
             "parachute residual must land and record honesty"
@@ -40171,6 +40244,221 @@ mod tests {
             "ground OCL residual must not parachute"
         );
         assert!(g_pilot.get_position().y.abs() < 0.1);
+    }
+
+    /// Residual: PilotFindVehicle PartitionFilterPlayer same-player residual.
+    ///
+    /// C++ PartitionFilterPlayer(me->getControllingPlayer(), true): only own
+    /// vehicles. Host killpilot → Neutral + unmanned_owner_team; accept Neutral
+    /// with matching owner, reject foreign-owner Neutral unmanned.
+    /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
+    #[test]
+    fn pilot_find_vehicle_same_player_partition_filter_residual() {
+        use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA AI", false));
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot");
+            p.experience.level = VeterancyLevel::Veteran;
+            p.ai_state = AIState::Idle;
+        }
+
+        // Closer foreign-owner unmanned (China sniped) — PartitionFilter rejects.
+        let foreign_id = game_logic
+            .create_object("TestTank", Team::China, Vec3::new(5.0, 0.0, 0.0))
+            .expect("foreign tank");
+        {
+            let t = game_logic.find_object_mut(foreign_id).expect("foreign");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Rookie;
+            t.health.current = t.max_health;
+            assert_eq!(t.status.unmanned_owner_team, Some(Team::China));
+        }
+
+        // Farther USA-owner unmanned — PartitionFilter accepts.
+        let own_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("own tank");
+        {
+            let t = game_logic.find_object_mut(own_id).expect("own");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Rookie;
+            t.health.current = t.max_health;
+            assert_eq!(t.status.unmanned_owner_team, Some(Team::USA));
+        }
+
+        assert!(!game_logic.honesty_pilot_find_vehicle_player_ok());
+        game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+        game_logic.update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0);
+
+        assert!(
+            game_logic.honesty_pilot_find_vehicle_player_ok(),
+            "PartitionFilterPlayer residual must reject foreign-owner unmanned"
+        );
+        assert!(
+            game_logic.usa_pilot_residual().find_vehicle_player_rejects >= 1
+        );
+        assert!(
+            game_logic.honesty_pilot_find_vehicle_ok(),
+            "PilotFindVehicle residual must still Enter matching-owner vehicle"
+        );
+
+        if game_logic
+            .find_object(pilot_id)
+            .map(|p| !p.status.destroyed)
+            .unwrap_or(false)
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after scan");
+            assert_eq!(
+                p.target,
+                Some(own_id),
+                "must skip foreign-owner Neutral and target own-owner vehicle"
+            );
+            game_logic.update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0);
+        }
+
+        let own = game_logic.find_object(own_id).expect("own after recrew");
+        assert!(!own.is_unmanned(), "own-owner vehicle must be recrewed");
+        assert_eq!(own.team, Team::USA);
+        assert!(
+            game_logic.find_object(foreign_id).unwrap().is_unmanned(),
+            "foreign-owner residual must remain unmanned"
+        );
+        assert!(
+            game_logic
+                .find_object(pilot_id)
+                .map(|p| p.status.destroyed)
+                .unwrap_or(true),
+            "pilot consumed after same-player-gated auto-recrew residual"
+        );
+    }
+
+    /// Residual: AmericaParachute OpenDist freefall → open residual path.
+    ///
+    /// Retail ParachuteOpenDist=100: freefall until fallen 100, then open chute
+    /// (slower sink + ParachuteOpen audio residual). Fail-closed: not full
+    /// sway / pitch-roll / DeliverPayload matrix.
+    #[test]
+    fn eject_pilot_parachute_open_dist_residual() {
+        use crate::game_logic::host_usa_pilot::{
+            significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE, PARACHUTE_OPEN_DIST,
+        };
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let thr = significantly_above_terrain_threshold();
+        let air_y = thr + PARACHUTE_OPEN_DIST + 80.0;
+        let humvee_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, air_y, 0.0),
+            )
+            .expect("airborne humvee");
+        {
+            let h = game_logic.find_object_mut(humvee_id).expect("humvee");
+            h.experience.level = VeterancyLevel::Veteran;
+            h.status.airborne_target = true;
+            let _ = h.take_damage(h.max_health * 2.0);
+            h.status.destroyed = true;
+        }
+        game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+        game_logic.process_destroy_list();
+
+        let pilot_id = game_logic
+            .objects
+            .iter()
+            .find(|(_, o)| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE)
+            .map(|(id, _)| *id)
+            .expect("ejected pilot");
+        let start_y = game_logic.find_object(pilot_id).unwrap().get_position().y;
+        assert!(
+            !game_logic.find_object(pilot_id).unwrap().is_parachute_open(),
+            "starts freefall closed"
+        );
+
+        // Tick freefall until OpenDist residual opens chute (before land).
+        let ids = [pilot_id];
+        let mut opened_y = None;
+        for _ in 0..20 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            let p = game_logic.find_object(pilot_id).expect("pilot");
+            if p.is_parachute_open() {
+                opened_y = Some(p.get_position().y);
+                break;
+            }
+            assert!(
+                p.is_parachuting(),
+                "must still be parachuting during freefall"
+            );
+        }
+        let opened_y = opened_y.expect("OpenDist residual must open chute");
+        assert!(
+            game_logic.honesty_pilot_parachute_open_ok(),
+            "parachute open honesty"
+        );
+        let fallen = start_y - opened_y;
+        assert!(
+            fallen + 0.5 >= PARACHUTE_OPEN_DIST,
+            "chute open residual after ≥OpenDist freefall, fallen={fallen}"
+        );
+        assert!(
+            !game_logic.honesty_pilot_parachute_land_ok(),
+            "must not land on the open frame (still elevated)"
+        );
+
+        // Finish landing residual.
+        for _ in 0..100 {
+            game_logic.update_ai(&ids, 1.0 / 30.0);
+            if game_logic.honesty_pilot_parachute_land_ok() {
+                break;
+            }
+        }
+        assert!(game_logic.honesty_pilot_parachute_land_ok());
+        assert!(
+            game_logic
+                .find_object(pilot_id)
+                .unwrap()
+                .get_position()
+                .y
+                .abs()
+                < 0.1
+        );
     }
 
     /// Residual: Bombardment plan enables StrategyCenterGun turret auto-fire.

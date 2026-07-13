@@ -30,6 +30,8 @@
 //! - **Air OCL parachute residual**: when dying vehicle is significantly above
 //!   terrain (C++ `isSignificantlyAboveTerrain` / OCL_EjectPilotViaParachute),
 //!   pilot spawns elevated + parachuting residual sink until ground.
+//! - **AmericaParachute OpenDist residual**: freefall until fallen **100**
+//!   (`ParachuteOpenDist`) then open chute (slower sink + open audio residual).
 //!
 //! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
 //!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
@@ -38,13 +40,15 @@
 //!   wouldLikeToCollideWith host gates — RequiredKindOf VEHICLE /
 //!   ForbiddenKindOf DOZER, not significantly above terrain, not airborne
 //!   locomotor, trainable, can gain exp for pilot levels (Heroic max).
+//! - **PilotFindVehicle PartitionFilterPlayer residual**: same controlling
+//!   player / host Neutral unmanned with matching `unmanned_owner_team`.
 //!
 //! Fail-closed honesty:
-//! - Not full AmericaParachute container OpenClose / fall-physics matrix
+//! - Not full AmericaParachute container sway / pitch-roll / DeliverPayload matrix
 //! - Not full AutoFindHealingUpdate AlwaysHeal busy-interrupt path
 //!   (C++ early-return makes busy path unreachable — host matches idle-only)
 //! - Not full defector FX flash / UNDETECTED_DEFECTOR relationship matrix
-//! - Not full same-player PartitionFilter (host allows Neutral unmanned recrew)
+//! - Not full same-map PartitionFilterSameMapStatus matrix
 //! - Not network recrew / pilot-eject replication (network deferred)
 
 use super::VeterancyLevel;
@@ -126,9 +130,18 @@ pub fn significantly_above_terrain_threshold() -> f32 {
     -(3.0 * 3.0) * HOST_GRAVITY
 }
 
-/// Host residual parachute sink (world units per logic frame).
-/// Fail-closed: not full AmericaParachute OpenClose / PhysicsUpdate matrix.
+/// Host residual open-chute sink (world units per logic frame).
+/// Fail-closed: not full AmericaParachute PhysicsUpdate damping matrix.
 pub const EJECT_PARACHUTE_SINK_PER_FRAME: f32 = 20.0;
+
+/// Host residual freefall sink before chute opens (faster than open-chute residual).
+pub const EJECT_PARACHUTE_FREEFALL_PER_FRAME: f32 = 40.0;
+
+/// Retail AmericaParachute `ParachuteOpenDist` — freefall distance before open.
+pub const PARACHUTE_OPEN_DIST: f32 = 100.0;
+
+/// Residual audio when AmericaParachute residual chute opens.
+pub const PILOT_PARACHUTE_OPEN_AUDIO: &str = "ParachuteOpen";
 
 /// Residual audio when air-ejected pilot lands (host of parachute open residual).
 pub const PILOT_PARACHUTE_LAND_AUDIO: &str = "ParadropLanding";
@@ -339,8 +352,7 @@ pub fn is_pilot_find_vehicle_target(
 /// - not isUsingAirborneLocomotor (IsPilot path)
 /// - ExperienceTracker isTrainable + canGainExpForLevel(pilot levels)
 ///
-/// Fail-closed: not full same-player PartitionFilter (host Neutral unmanned path);
-/// not full AI goal-object enter check from executeCrateBehavior.
+/// Fail-closed: not full AI goal-object enter check from executeCrateBehavior.
 pub fn pilot_collide_would_like_to_collide_with(
     is_alive: bool,
     is_vehicle: bool,
@@ -357,6 +369,24 @@ pub fn pilot_collide_would_like_to_collide_with(
         && !is_airborne_locomotor
         && is_trainable
         && can_gain_exp_for_pilot_levels
+}
+
+/// C++ `PartitionFilterPlayer(me->getControllingPlayer(), true)` residual used by
+/// PilotFindVehicleUpdate::scanClosestTarget.
+///
+/// Host killpilot sets vehicle team Neutral while recording `unmanned_owner_team`.
+/// Accept when:
+/// - vehicle still same team as pilot, OR
+/// - Neutral unmanned whose recorded owner matches pilot team.
+///
+/// Fail-closed: not full same-map PartitionFilterSameMapStatus; player Enter
+/// recrew path is not gated by this residual (AI auto-scan only).
+pub fn pilot_find_vehicle_same_player_ok(
+    same_team: bool,
+    is_neutral: bool,
+    owner_matches_pilot: bool,
+) -> bool {
+    same_team || (is_neutral && owner_matches_pilot)
 }
 
 /// C++ `VeterancyCrateCollide::getLevelsToGain` with AddsOwnerVeterancy residual.
@@ -476,14 +506,39 @@ pub fn air_eject_spawn_height(death_height: f32) -> f32 {
     death_height.max(significantly_above_terrain_threshold() + 1.0)
 }
 
+/// Whether AmericaParachute residual should open after freefall OpenDist.
+///
+/// C++ ParachuteContain: open when fallen distance ≥ ParachuteOpenDist (100).
+pub fn should_open_parachute(start_height: f32, current_height: f32) -> bool {
+    (start_height - current_height) >= PARACHUTE_OPEN_DIST
+}
+
 /// Advance parachute residual sink toward ground (y height axis).
 ///
-/// Returns (new_height, landed). Fail-closed linear sink (not full parachute physics).
+/// Returns (new_height, landed). Open-chute residual rate (legacy helper).
+/// Fail-closed linear sink (not full parachute physics).
 pub fn tick_parachute_height(current_height: f32, ground_height: f32) -> (f32, bool) {
+    tick_parachute_height_with_state(current_height, ground_height, true)
+}
+
+/// Advance parachute residual with freefall vs open-chute rates.
+///
+/// `chute_open == false` uses freefall rate; `true` uses open-chute sink.
+/// Returns (new_height, landed).
+pub fn tick_parachute_height_with_state(
+    current_height: f32,
+    ground_height: f32,
+    chute_open: bool,
+) -> (f32, bool) {
     if current_height <= ground_height + 0.01 {
         return (ground_height, true);
     }
-    let next = (current_height - EJECT_PARACHUTE_SINK_PER_FRAME).max(ground_height);
+    let rate = if chute_open {
+        EJECT_PARACHUTE_SINK_PER_FRAME
+    } else {
+        EJECT_PARACHUTE_FREEFALL_PER_FRAME
+    };
+    let next = (current_height - rate).max(ground_height);
     let landed = next <= ground_height + 0.01;
     (if landed { ground_height } else { next }, landed)
 }
@@ -609,6 +664,12 @@ pub struct HostUsaPilotRegistry {
     /// PilotFindVehicle CollideModule wouldLikeToCollideWith residual rejects.
     #[serde(default)]
     pub find_vehicle_collide_rejects: u32,
+    /// PilotFindVehicle PartitionFilterPlayer residual rejects (wrong owner).
+    #[serde(default)]
+    pub find_vehicle_player_rejects: u32,
+    /// AmericaParachute residual chute-open events (past OpenDist freefall).
+    #[serde(default)]
+    pub parachute_opens: u32,
 }
 
 impl HostUsaPilotRegistry {
@@ -681,6 +742,15 @@ impl HostUsaPilotRegistry {
     pub fn record_find_vehicle_collide_reject(&mut self) {
         self.find_vehicle_collide_rejects =
             self.find_vehicle_collide_rejects.saturating_add(1);
+    }
+
+    pub fn record_find_vehicle_player_reject(&mut self) {
+        self.find_vehicle_player_rejects =
+            self.find_vehicle_player_rejects.saturating_add(1);
+    }
+
+    pub fn record_parachute_open(&mut self) {
+        self.parachute_opens = self.parachute_opens.saturating_add(1);
     }
 
     /// Residual honesty: at least one recrew completed.
@@ -763,6 +833,16 @@ impl HostUsaPilotRegistry {
         self.find_vehicle_collide_rejects > 0
     }
 
+    /// Residual honesty: PartitionFilterPlayer residual rejected at least one candidate.
+    pub fn honesty_find_vehicle_player_ok(&self) -> bool {
+        self.find_vehicle_player_rejects > 0
+    }
+
+    /// Residual honesty: AmericaParachute residual opened chute at least once.
+    pub fn honesty_parachute_open_ok(&self) -> bool {
+        self.parachute_opens > 0
+    }
+
     /// Combined pilot residual honesty (recrew or eject path).
     pub fn honesty_pilot_ok(&self) -> bool {
         self.honesty_recrew_ok()
@@ -772,6 +852,8 @@ impl HostUsaPilotRegistry {
             || self.honesty_auto_heal_ok()
             || self.honesty_air_eject_ok()
             || self.honesty_parachute_land_ok()
+            || self.honesty_parachute_open_ok()
+            || self.honesty_find_vehicle_player_ok()
     }
 }
 
@@ -1082,6 +1164,34 @@ mod tests {
         let (ground, land_ground) = tick_parachute_height(0.0, 0.0);
         assert!(land_ground);
         assert!((ground - 0.0).abs() < 0.01);
+
+        // AmericaParachute OpenDist freefall residual.
+        assert!((PARACHUTE_OPEN_DIST - 100.0).abs() < 0.001);
+        assert!(!should_open_parachute(700.0, 650.0)); // fallen 50 < 100
+        assert!(should_open_parachute(700.0, 600.0)); // fallen 100
+        assert!(should_open_parachute(700.0, 500.0));
+        let (ff, _) = tick_parachute_height_with_state(700.0, 0.0, false);
+        let (open, _) = tick_parachute_height_with_state(700.0, 0.0, true);
+        assert!(
+            (700.0 - ff) > (700.0 - open) + 0.01,
+            "freefall residual must sink faster than open chute"
+        );
+        assert!((EJECT_PARACHUTE_FREEFALL_PER_FRAME - 40.0).abs() < 0.001);
+        assert!((EJECT_PARACHUTE_SINK_PER_FRAME - 20.0).abs() < 0.001);
+        assert!(!PILOT_PARACHUTE_OPEN_AUDIO.is_empty());
+    }
+
+    #[test]
+    fn pilot_find_vehicle_same_player_gates() {
+        // Same team residual.
+        assert!(pilot_find_vehicle_same_player_ok(true, false, false));
+        // Neutral + matching owner residual.
+        assert!(pilot_find_vehicle_same_player_ok(false, true, true));
+        // Neutral + wrong / unknown owner residual rejects.
+        assert!(!pilot_find_vehicle_same_player_ok(false, true, false));
+        // Enemy team residual rejects.
+        assert!(!pilot_find_vehicle_same_player_ok(false, false, false));
+        assert!(!pilot_find_vehicle_same_player_ok(false, false, true));
     }
 
     #[test]
@@ -1102,6 +1212,9 @@ mod tests {
         reg.record_parachute_land();
         assert!(reg.honesty_parachute_land_ok());
         assert_eq!(reg.parachute_lands, 1);
+        reg.record_parachute_open();
+        assert!(reg.honesty_parachute_open_ok());
+        assert_eq!(reg.parachute_opens, 1);
         reg.record_infantry_auto_heal_order();
         assert!(reg.honesty_infantry_auto_heal_ok());
         assert_eq!(reg.infantry_auto_heal_orders, 1);
@@ -1116,6 +1229,9 @@ mod tests {
         reg.record_find_vehicle_collide_reject();
         assert!(reg.honesty_find_vehicle_collide_ok());
         assert_eq!(reg.find_vehicle_collide_rejects, 1);
+        reg.record_find_vehicle_player_reject();
+        assert!(reg.honesty_find_vehicle_player_ok());
+        assert_eq!(reg.find_vehicle_player_rejects, 1);
     }
 
     #[test]
