@@ -324,6 +324,21 @@ pub enum SpecialPowerType {
     /// Temporary ally attack buff in radius (WEAPONBONUSCONDITION_FRENZY_*).
     /// Fail-closed: not full OCL Frenzy_InvisibleMarker / FrenzyCloud particle path.
     Frenzy,
+    /// USA Strategy Center Bombardment battle plan residual
+    /// (`SpecialAbilityChangeBattlePlans` OPTION_ONE / PLANSTATUS_BOMBARDMENT).
+    /// Army-wide DAMAGE 120% residual for legal members.
+    /// Fail-closed: not full BattlePlanUpdate pack/unpack / turret enable matrix.
+    BattlePlanBombardment,
+    /// USA Strategy Center HoldTheLine battle plan residual
+    /// (`SpecialAbilityChangeBattlePlans` OPTION_TWO / PLANSTATUS_HOLDTHELINE).
+    /// Army armor damage scalar 0.9 + Strategy Center max-health 2.0 residual.
+    /// Fail-closed: not full paralyze / door animation matrix.
+    BattlePlanHoldTheLine,
+    /// USA Strategy Center SearchAndDestroy battle plan residual
+    /// (`SpecialAbilityChangeBattlePlans` OPTION_THREE / PLANSTATUS_SEARCHANDDESTROY).
+    /// Army RANGE 120% + sight 1.2 residual; center detect residual.
+    /// Fail-closed: not full StealthDetectorUpdate module / vision object path.
+    BattlePlanSearchAndDestroy,
     /// GLA GPS Scrambler residual (SPECIAL_GPS_SCRAMBLER / SuperweaponGPSScrambler).
     /// Grants temporary STEALTHED to ally vehicles/infantry in radius (GrantStealth).
     /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.

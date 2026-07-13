@@ -4,6 +4,10 @@ use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+fn default_one_f32() -> f32 {
+    1.0
+}
+
 /// Object type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObjectType {
@@ -252,6 +256,19 @@ pub struct Object {
     pub weapon_bonus_frenzy_until_frame: u32,
     /// Residual Frenzy tier 1..=3 (maps to FRENZY_ONE/TWO/THREE damage mult).
     pub weapon_bonus_frenzy_level: u8,
+
+    /// Host residual USA Strategy Center battle-plan weapon bonuses
+    /// (C++ WEAPONBONUSCONDITION_BATTLEPLAN_* via Player::applyBattlePlanBonuses).
+    /// Fail-closed: not full KindOf multi-mask / projectile inheritance matrix.
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_bombardment: bool,
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_hold_the_line: bool,
+    #[serde(default)]
+    pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
+    #[serde(default = "default_one_f32")]
+    pub battle_plan_sight_scalar_applied: f32,
     /// Host residual continuous-fire ramp (Gattling Tank FiringTracker residual).
     /// Consecutive shots at current victim for ContinuousFireOne/Two thresholds.
     /// Fail-closed: not full model-condition CONTINUOUS_FIRE_* animation matrix.
@@ -445,6 +462,10 @@ impl Object {
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,
+            weapon_bonus_battle_plan_bombardment: false,
+            weapon_bonus_battle_plan_hold_the_line: false,
+            weapon_bonus_battle_plan_search_and_destroy: false,
+            battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
             continuous_fire_coast_until_frame: 0,
@@ -541,6 +562,10 @@ impl Object {
             weapon_bonus_frenzy: false,
             weapon_bonus_frenzy_until_frame: 0,
             weapon_bonus_frenzy_level: 0,
+            weapon_bonus_battle_plan_bombardment: false,
+            weapon_bonus_battle_plan_hold_the_line: false,
+            weapon_bonus_battle_plan_search_and_destroy: false,
+            battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
             continuous_fire_coast_until_frame: 0,
@@ -904,6 +929,87 @@ impl Object {
             .damage_multiplier()
     }
 
+    /// Whether any Strategy Center battle-plan residual weapon bonus is active.
+    pub fn has_battle_plan_bonus(&self) -> bool {
+        self.weapon_bonus_battle_plan_bombardment
+            || self.weapon_bonus_battle_plan_hold_the_line
+            || self.weapon_bonus_battle_plan_search_and_destroy
+    }
+
+    /// Apply residual Strategy Center army battle-plan bonuses to this unit.
+    ///
+    /// Clears previous battle-plan residual flags first (plan switch residual).
+    pub fn apply_battle_plan_bonus(
+        &mut self,
+        plan: crate::game_logic::host_strategy_center::HostBattlePlan,
+    ) {
+        self.clear_battle_plan_bonus();
+        match plan {
+            crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
+                self.weapon_bonus_battle_plan_bombardment = true;
+            }
+            crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
+                self.weapon_bonus_battle_plan_hold_the_line = true;
+            }
+            crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy => {
+                self.weapon_bonus_battle_plan_search_and_destroy = true;
+                // Sight residual: scale detection / template sight residual field.
+                let scalar = plan.army_sight_range_scalar();
+                if (scalar - 1.0).abs() > f32::EPSILON {
+                    self.detection_range = self.effective_detection_range() * scalar;
+                    self.battle_plan_sight_scalar_applied = scalar;
+                }
+            }
+        }
+    }
+
+    /// Clear residual Strategy Center battle-plan bonuses.
+    pub fn clear_battle_plan_bonus(&mut self) {
+        self.weapon_bonus_battle_plan_bombardment = false;
+        self.weapon_bonus_battle_plan_hold_the_line = false;
+        self.weapon_bonus_battle_plan_search_and_destroy = false;
+        // Undo SearchAndDestroy sight residual.
+        if (self.battle_plan_sight_scalar_applied - 1.0).abs() > f32::EPSILON
+            && self.battle_plan_sight_scalar_applied > f32::EPSILON
+        {
+            self.detection_range =
+                self.detection_range / self.battle_plan_sight_scalar_applied.max(0.01);
+            // If detection_range collapses near template default residual, clear override.
+            let base = self.get_template().sight_range;
+            if (self.detection_range - base).abs() < 0.5 {
+                self.detection_range = 0.0;
+            }
+        }
+        self.battle_plan_sight_scalar_applied = 1.0;
+    }
+
+    /// Retail BATTLEPLAN_BOMBARDMENT DAMAGE multiplier (1.0 when clear).
+    pub fn battle_plan_damage_multiplier(&self) -> f32 {
+        if self.weapon_bonus_battle_plan_bombardment {
+            crate::game_logic::host_strategy_center::BOMBARDMENT_DAMAGE_MULT
+        } else {
+            1.0
+        }
+    }
+
+    /// Retail HoldTheLine armor damage scalar (incoming damage mult; 1.0 when clear).
+    pub fn battle_plan_armor_damage_scalar(&self) -> f32 {
+        if self.weapon_bonus_battle_plan_hold_the_line {
+            crate::game_logic::host_strategy_center::HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR
+        } else {
+            1.0
+        }
+    }
+
+    /// Retail BATTLEPLAN_SEARCHANDDESTROY RANGE multiplier (1.0 when clear).
+    pub fn battle_plan_range_multiplier(&self) -> f32 {
+        if self.weapon_bonus_battle_plan_search_and_destroy {
+            crate::game_logic::host_strategy_center::SEARCH_AND_DESTROY_RANGE_MULT
+        } else {
+            1.0
+        }
+    }
+
     /// C++ OBJECT_STATUS_FAERIE_FIRE residual (Avenger paint).
     pub fn is_faerie_fire(&self) -> bool {
         self.status.faerie_fire
@@ -1110,7 +1216,9 @@ impl Object {
 
         // Apply armor reduction
         let armor_factor = 1.0 - (self.thing.template.armor / (self.thing.template.armor + 100.0));
-        let actual_damage = damage * armor_factor;
+        // HoldTheLine residual: HoldTheLinePlanArmorDamageScalar 0.9 (LESS is better).
+        let battle_plan_armor = self.battle_plan_armor_damage_scalar();
+        let actual_damage = damage * armor_factor * battle_plan_armor;
 
         self.health.damage(actual_damage);
 
@@ -1309,7 +1417,9 @@ impl Object {
         if weapon.min_range > 0.0 && distance < weapon.min_range {
             return false;
         }
-        distance <= weapon.range
+        // SearchAndDestroy residual: BATTLEPLAN_SEARCHANDDESTROY RANGE 120%.
+        let max_range = weapon.range * self.battle_plan_range_multiplier();
+        distance <= max_range
     }
 
     /// True if primary **or** secondary can currently hit the target.

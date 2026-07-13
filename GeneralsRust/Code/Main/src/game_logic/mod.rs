@@ -75,6 +75,7 @@ pub mod host_slave_drones;
 pub mod host_sneak_attack;
 pub mod host_spy_satellite;
 pub mod host_stealth_fighter;
+pub mod host_strategy_center;
 pub mod host_supply_drop_zone;
 pub mod host_tank_hunter;
 pub mod host_technical;
@@ -231,6 +232,12 @@ pub use host_firewall::{
 pub use host_frenzy::{
     is_legal_frenzy_target, HostFrenzy, HostFrenzyLevel, HostFrenzyRegistry, FRENZY_ACTIVATE_AUDIO,
     HOST_FRENZY_RADIUS,
+};
+pub use host_strategy_center::{
+    is_legal_battle_plan_member, is_strategy_center_template, HostBattlePlan,
+    HostBattlePlanRegistry, HostBattlePlanSelection, BOMBARDMENT_DAMAGE_MULT,
+    HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR, SEARCH_AND_DESTROY_RANGE_MULT,
+    SEARCH_AND_DESTROY_SIGHT_RANGE_SCALAR,
 };
 pub use host_gattling_tank::{
     gattling_air_weapon, gattling_delay_frames_for_level, gattling_ground_weapon,
