@@ -744,6 +744,10 @@ pub struct GameLogic {
     /// Fail-closed: not full unpack/pack state machine / variation / floating text.
     hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry,
 
+    /// Host America Supply Drop Zone residual cash (OCLUpdate residual).
+    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    supply_drop_zones: crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
+
     /// Host CommandCenter / RadarVan radar-online residual (Player::hasRadar).
     /// Fail-closed: not full RadarUpgrade/RadarUpdate grant matrix / power-disable proof.
     host_radar: crate::game_logic::host_radar::HostRadarRegistry,
@@ -1595,6 +1599,8 @@ impl GameLogic {
             black_markets: crate::game_logic::host_black_market::HostBlackMarketRegistry::new(),
             oil_derricks: crate::game_logic::host_oil_derrick::HostOilDerrickRegistry::new(),
             hacker_income: crate::game_logic::host_hacker_income::HostHackerIncomeRegistry::new(),
+            supply_drop_zones:
+                crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
             fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry::new(),
@@ -1764,6 +1770,7 @@ impl GameLogic {
         self.black_markets.clear();
         self.oil_derricks.clear();
         self.hacker_income.clear();
+        self.supply_drop_zones.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
         self.fire_walls.clear();
@@ -3737,6 +3744,9 @@ impl GameLogic {
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
         self.update_hacker_income();
+        // America Supply Drop Zone residual cash (OCLUpdate discrete drops).
+        // Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+        self.update_supply_drop_zone_drops();
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
         self.update_player_radar();
@@ -7007,6 +7017,83 @@ impl GameLogic {
         self.hacker_income.stop_hacking(hacker_id);
     }
 
+    /// America Supply Drop Zone residual cash (OCLUpdate residual).
+    ///
+    /// Retail FactionBuilding.ini AmericaSupplyDropZone:
+    /// MinDelay/MaxDelay=120000 ms → 3600 logic frames @ 30 FPS,
+    /// OCL_AmericaSupplyDropZoneCrateDrop → 6× SupplyDropZoneCrate @ $250
+    /// (+25 each with Upgrade_AmericaSupplyLines) → $1500 / $1650 residual cash.
+    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    fn update_supply_drop_zone_drops(&mut self) {
+        use crate::game_logic::host_supply_drop_zone::{
+            drop_cash_amount, is_legal_supply_drop_zone_income_source, is_supply_drop_zone_template,
+            SUPPLY_DROP_ZONE_DROP_AUDIO, SUPPLY_DROP_ZONE_DROP_CASH,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+
+        let frame = self.frame;
+        let zones: Vec<(ObjectId, Team, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !is_supply_drop_zone_template(&obj.template_name) {
+                    return None;
+                }
+                let is_neutral = obj.team == Team::Neutral;
+                if !is_legal_supply_drop_zone_income_source(
+                    obj.is_alive(),
+                    obj.is_constructed() && !obj.status.under_construction,
+                    is_neutral,
+                ) {
+                    return None;
+                }
+                Some((*id, obj.team, obj.get_position()))
+            })
+            .collect();
+
+        // Forget destroyed zones so re-builds reschedule cleanly.
+        let live: std::collections::HashSet<ObjectId> =
+            zones.iter().map(|(id, _, _)| *id).collect();
+        let stale: Vec<ObjectId> = self
+            .supply_drop_zones
+            .next_drop_keys()
+            .into_iter()
+            .filter(|id| !live.contains(id))
+            .collect();
+        for id in stale {
+            self.supply_drop_zones.forget(id);
+        }
+
+        for (zone_id, team, pos) in zones {
+            let has_supply_lines = self.players.values().any(|p| {
+                p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+            });
+            let amount = drop_cash_amount(has_supply_lines);
+            let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
+            let deposited = self
+                .supply_drop_zones
+                .try_drop(zone_id, frame, amount, boost);
+            if deposited == 0 {
+                continue;
+            }
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.resources.supplies = player.resources.supplies.saturating_add(deposited);
+                player.statistics.resources_collected =
+                    player.statistics.resources_collected.saturating_add(deposited);
+            }
+            if boost > 0 {
+                self.supply_lines_bonus_cash_total =
+                    self.supply_lines_bonus_cash_total.saturating_add(boost);
+            }
+            self.queue_audio_event(
+                AudioEventRequest::new(SUPPLY_DROP_ZONE_DROP_AUDIO)
+                    .with_object(zone_id)
+                    .with_position(pos)
+                    .with_priority(120),
+            );
+        }
+    }
+
     /// CommandCenter / RadarVan radar-online residual (C++ Player::hasRadar).
     ///
     /// Retail: America CC GrantUpgradeCreate Upgrade_AmericaRadar + RadarUpgrade;
@@ -9712,6 +9799,32 @@ impl GameLogic {
         self.hacker_income.cash_total()
     }
 
+    /// Residual America Supply Drop Zone honesty: at least one OCL cash credit.
+    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    pub fn honesty_supply_drop_zone_ok(&self) -> bool {
+        self.supply_drop_zones.honesty_ok()
+    }
+
+    /// Residual Supply Drop Zone drop honesty (alias).
+    pub fn honesty_supply_drop_zone_drop_ok(&self) -> bool {
+        self.supply_drop_zones.honesty_drop_ok()
+    }
+
+    /// Residual Supply Drop Zone drop count (observability).
+    pub fn supply_drop_zone_residual_drops(&self) -> u32 {
+        self.supply_drop_zones.drops()
+    }
+
+    /// Total residual cash credited via Supply Drop Zone OCL residual (observability).
+    pub fn supply_drop_zone_residual_cash_total(&self) -> u32 {
+        self.supply_drop_zones.cash_total()
+    }
+
+    /// Residual SupplyLines boost cash from Supply Drop Zone crates (observability).
+    pub fn supply_drop_zone_supply_lines_boost_cash_total(&self) -> u32 {
+        self.supply_drop_zones.supply_lines_boost_cash_total()
+    }
+
     /// Residual CommandCenter / RadarVan radar-online honesty.
     /// Fail-closed: not full RadarUpgrade/RadarUpdate module matrix.
     pub fn honesty_radar_online_ok(&self) -> bool {
@@ -11752,6 +11865,13 @@ impl GameLogic {
         &self,
     ) -> &crate::game_logic::host_hacker_income::HostHackerIncomeRegistry {
         &self.hacker_income
+    }
+
+    /// Host Supply Drop Zone residual registry (drops + honesty).
+    pub fn supply_drop_zones(
+        &self,
+    ) -> &crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry {
+        &self.supply_drop_zones
     }
 
     /// Host CommandCenter / RadarVan radar residual registry.
@@ -21355,6 +21475,179 @@ mod tests {
             game_logic.oil_derrick_residual_cash_total(),
             OIL_DERRICK_DEPOSIT_AMOUNT * 2
         );
+    }
+
+    /// Residual: AmericaSupplyDropZone OCL credits $1500 every 3600 logic frames
+    /// (6 × SupplyDropZoneCrate @ $250). With SupplyLines, +25/crate → $1650.
+    /// Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
+    #[test]
+    fn supply_drop_zone_residual_credits_cash_on_interval() {
+        use crate::game_logic::host_supply_drop_zone::{
+            SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
+            SUPPLY_DROP_ZONE_INTERVAL_FRAMES,
+        };
+        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("TestSupplyDropZone") {
+            let mut t = ThingTemplate::new("TestSupplyDropZone");
+            t.add_kind_of(KindOf::Structure)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(1000.0)
+                .set_cost(2500, 0);
+            game_logic
+                .templates
+                .insert("TestSupplyDropZone".to_string(), t);
+        }
+
+        let zone_id = game_logic
+            .create_object("TestSupplyDropZone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("supply drop zone");
+        if let Some(obj) = game_logic.find_object_mut(zone_id) {
+            obj.status.under_construction = false;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        // First observation schedules without dropping (C++ m_nextCreationFrame == 0).
+        game_logic.frame = 0;
+        game_logic.update_supply_drop_zone_drops();
+        assert!(!game_logic.honesty_supply_drop_zone_ok());
+        let mid = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(mid, cash_before, "no cash before first interval");
+
+        // Drop after 3600 frames.
+        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
+        game_logic.update_supply_drop_zone_drops();
+        let after_drop = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            after_drop,
+            cash_before.saturating_add(SUPPLY_DROP_ZONE_DROP_CASH),
+            "supply drop zone must credit residual ${SUPPLY_DROP_ZONE_DROP_CASH}"
+        );
+        assert!(
+            game_logic.honesty_supply_drop_zone_ok(),
+            "supply drop zone residual honesty"
+        );
+        assert!(game_logic.honesty_supply_drop_zone_drop_ok());
+        assert_eq!(game_logic.supply_drop_zone_residual_drops(), 1);
+        assert_eq!(
+            game_logic.supply_drop_zone_residual_cash_total(),
+            SUPPLY_DROP_ZONE_DROP_CASH
+        );
+        assert_eq!(game_logic.supply_drop_zones().drops, 1);
+
+        // Second interval.
+        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 2;
+        game_logic.update_supply_drop_zone_drops();
+        assert_eq!(game_logic.supply_drop_zone_residual_drops(), 2);
+        assert_eq!(
+            game_logic.supply_drop_zone_residual_cash_total(),
+            SUPPLY_DROP_ZONE_DROP_CASH * 2
+        );
+
+        // SupplyLines residual: next drop is $1650 (base + 6×25).
+        if let Some(player) = game_logic.get_player_mut_by_team(Team::USA) {
+            player.unlock_science(UPGRADE_AMERICA_SUPPLY_LINES);
+            assert!(
+                player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES),
+                "test setup: SupplyLines must be unlocked"
+            );
+        }
+
+        let cash_before_sl = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES * 3;
+        game_logic.update_supply_drop_zone_drops();
+        let after_sl = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            after_sl,
+            cash_before_sl.saturating_add(SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES),
+            "with SupplyLines drop must credit residual ${SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES}"
+        );
+        assert_eq!(
+            game_logic.supply_drop_zone_supply_lines_boost_cash_total(),
+            SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES - SUPPLY_DROP_ZONE_DROP_CASH
+        );
+    }
+
+    /// Residual: under-construction / neutral supply drop zone must not credit cash.
+    #[test]
+    fn supply_drop_zone_residual_skips_under_construction_and_neutral() {
+        use crate::game_logic::host_supply_drop_zone::SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
+        use crate::game_logic::{KindOf, ThingTemplate};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+
+        if !game_logic.templates.contains_key("AmericaSupplyDropZone") {
+            let mut t = ThingTemplate::new("AmericaSupplyDropZone");
+            t.add_kind_of(KindOf::Structure).set_health(1000.0);
+            game_logic
+                .templates
+                .insert("AmericaSupplyDropZone".to_string(), t);
+        }
+
+        // Under construction USA zone.
+        let uc_id = game_logic
+            .create_object(
+                "AmericaSupplyDropZone",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("uc zone");
+        if let Some(obj) = game_logic.find_object_mut(uc_id) {
+            obj.status.under_construction = true;
+        }
+
+        // Neutral constructed zone.
+        let neutral_id = game_logic
+            .create_object(
+                "AmericaSupplyDropZone",
+                Team::Neutral,
+                Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("neutral zone");
+        if let Some(obj) = game_logic.find_object_mut(neutral_id) {
+            obj.status.under_construction = false;
+        }
+
+        let cash_before = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        game_logic.frame = 0;
+        game_logic.update_supply_drop_zone_drops();
+        game_logic.frame = SUPPLY_DROP_ZONE_INTERVAL_FRAMES;
+        game_logic.update_supply_drop_zone_drops();
+
+        let cash_after = game_logic
+            .get_player_mut_by_team(Team::USA)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        assert_eq!(
+            cash_after, cash_before,
+            "under-construction / neutral supply drop zone must not credit cash"
+        );
+        assert!(!game_logic.honesty_supply_drop_zone_ok());
     }
 
     /// Residual: under-construction oil derrick must not deposit or award capture bonus.
