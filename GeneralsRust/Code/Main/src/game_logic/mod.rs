@@ -18,6 +18,7 @@ pub mod host_black_market;
 pub mod host_oil_derrick;
 pub mod host_hacker_income;
 pub mod host_mines;
+pub mod host_radar;
 pub mod host_radar_scan;
 pub mod host_spy_satellite;
 pub mod host_cia_intelligence;
@@ -89,6 +90,10 @@ pub use host_mines::{
     can_clear_mine_kind, is_mine_clearer, HostMineData, HostMineDetonateReason, HostMineKind,
     HostMineDetonationPlan, DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
     MINE_CLEARED_AUDIO,
+};
+pub use host_radar::{
+    is_legal_radar_provider, is_radar_command_center_template, is_radar_provider_template,
+    is_radar_van_template, HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
 };
 pub use host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
