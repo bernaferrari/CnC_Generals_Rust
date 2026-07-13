@@ -351,15 +351,19 @@ pub struct Object {
     pub demo_suicided_detonating: bool,
 
     /// Host residual: HiveStructureBody / SpawnBehavior slave count (Stinger Site).
-    /// 0 for non-hive units. Fail-closed: not full physical slave object spawn.
+    /// 0 for non-hive units. Mirror of alive residual roster slots.
     #[serde(default)]
     pub hive_slave_count: u8,
-    /// Host residual: active residual slave HP (closest slave).
+    /// Host residual: active residual slave HP (first alive mirror).
     #[serde(default)]
     pub hive_slave_hp: f32,
     /// Absolute host frame when next residual slave respawns (0 = none).
     #[serde(default)]
     pub hive_slave_respawn_frame: u32,
+    /// Host residual: physical SpawnBehavior slave roster (getClosestSlave).
+    /// Fail-closed: not full soldier Object / AI / W3D bone attach.
+    #[serde(default)]
+    pub hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
 
     /// Host residual: Strategy Center / TurretAI yaw (deg).
     /// Natural for Strategy Center = **-90** (NaturalTurretAngle).
@@ -391,14 +395,26 @@ pub struct Object {
     /// TurretAI idle-recenter residual: true while recentering after Hold (not pack).
     #[serde(default)]
     pub turret_idle_recentering: bool,
+    /// TurretAI idle mood-target residual: target was set by friend_checkForIdleMoodTarget.
+    /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
+    #[serde(default)]
+    pub turret_mood_target: bool,
 
     /// CamoNetting StealthUpdate FriendlyOpacity residual (0.5 cloaked / 1.0 revealed).
-    /// Fail-closed: not full drawable sub-object camo net visual.
+    /// Fail-closed: not full drawable sub-object camo net mesh visual.
     #[serde(default = "default_one_f32")]
     pub camo_friendly_opacity: f32,
     /// StealthUpdate pulse phase residual (radians) while cloaked.
     #[serde(default)]
     pub camo_opacity_pulse_phase: f32,
+    /// CamoNetting StealthLook residual (host of Drawable::setStealthLook).
+    /// 0=None, 1=VisibleFriendly, 2=VisibleFriendlyDetected, 3=VisibleDetected,
+    /// 4=Invisible. Fail-closed: not full W3D heat-vision second material pass GPU.
+    #[serde(default)]
+    pub camo_stealth_look: u8,
+    /// Heat-vision second material pass opacity residual (0 or 1 host residual).
+    #[serde(default)]
+    pub camo_heat_vision_opacity: f32,
 
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
     /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
@@ -575,6 +591,7 @@ impl Object {
             hive_slave_count: 0,
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
+            hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
             turret_angle_deg: default_strategy_center_turret_angle(),
             turret_pitch_deg: default_strategy_center_turret_pitch(),
             turret_idle_scan_next_frame: 0,
@@ -584,8 +601,11 @@ impl Object {
             turret_holding: false,
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
+            turret_mood_target: false,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
+            camo_stealth_look: 0,
+            camo_heat_vision_opacity: 0.0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
@@ -697,6 +717,7 @@ impl Object {
             hive_slave_count: 0,
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
+            hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
             turret_angle_deg: default_strategy_center_turret_angle(),
             turret_pitch_deg: default_strategy_center_turret_pitch(),
             turret_idle_scan_next_frame: 0,
@@ -706,8 +727,11 @@ impl Object {
             turret_holding: false,
             turret_hold_until_frame: 0,
             turret_idle_recentering: false,
+            turret_mood_target: false,
             camo_friendly_opacity: 1.0,
             camo_opacity_pulse_phase: 0.0,
+            camo_stealth_look: 0,
+            camo_heat_vision_opacity: 0.0,
             stealth_allowed_frame: 0,
             stealth_delay_pending: false,
             stealth_delay_frames: 0,
