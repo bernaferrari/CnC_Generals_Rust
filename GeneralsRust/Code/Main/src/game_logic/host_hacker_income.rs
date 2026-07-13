@@ -9,13 +9,19 @@
 //!   CashUpdateDelayFast **1800 ms → 54 frames** (inside Internet Center).
 //! - Veterancy residual: Regular/Veteran/Elite/Heroic = 5/6/8/10.
 //!
+//! Residual floating cash text (HackInternetAIUpdate):
+//! - Host `+$N` at unit pos + Z **20**, green RGBA (0,255,0,255), key `GUI:AddCash`.
+//!
 //! Fail-closed honesty:
 //! - Not full Unpack/Pack state machine / variation factor / model conditions
-//! - Not full floating text / stealth display gates
+//! - Not full InGameUI GPU draw / STEALTHED local-player display gate
 //! - Not full DISABLED_HACKED microwave interrupt resume matrix beyond skip-while-disabled
 //! - XpPerCashUpdate residual applied as +1 XP when experience tracker present
+//! - Network deferred
 
-use super::{ObjectId, VeterancyLevel};
+use super::ObjectId;
+use super::VeterancyLevel;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -48,6 +54,53 @@ pub const HACKER_XP_PER_CASH_UPDATE: f32 = 1.0;
 
 /// Audio residual when hacker deposits (UnitCashPing residual cue).
 pub const HACKER_CASH_PING_AUDIO: &str = "HackerCashPing";
+
+/// C++ HackInternet floating text Z lift (pos.z += 20.0f). Host Y-up → Y + 20.
+pub const HACKER_FLOATING_TEXT_Z_OFFSET: f32 = 20.0;
+
+/// Residual GameText key honesty for cash gain caption.
+pub const HACKER_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// Residual floating cash text color (green, retail GameMakeColor(0,255,0,255)).
+pub const HACKER_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
+
+/// Host residual HackInternet floating cash text presentation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostHackerFloatingText {
+    pub text: String,
+    pub text_key: String,
+    pub position: Vec3,
+    pub color_rgba: (u8, u8, u8, u8),
+    pub amount: u32,
+    pub spawn_frame: u32,
+    pub hacker_id: ObjectId,
+    pub in_internet_center: bool,
+}
+
+impl HostHackerFloatingText {
+    pub fn new(
+        hacker_id: ObjectId,
+        position: Vec3,
+        amount: u32,
+        spawn_frame: u32,
+        in_internet_center: bool,
+    ) -> Self {
+        Self {
+            text: format!("+${amount}"),
+            text_key: HACKER_FLOATING_TEXT_ADD_CASH_KEY.to_string(),
+            position: Vec3::new(
+                position.x,
+                position.y + HACKER_FLOATING_TEXT_Z_OFFSET,
+                position.z,
+            ),
+            color_rgba: HACKER_FLOATING_TEXT_COLOR_RGBA,
+            amount,
+            spawn_frame,
+            hacker_id,
+            in_internet_center,
+        }
+    }
+}
 
 /// Convert ms duration to logic frames (30 FPS residual).
 pub fn cash_interval_frames_from_ms(ms: u32) -> u32 {
@@ -116,6 +169,12 @@ pub struct HostHackerIncomeRegistry {
     pub field_starts: u32,
     /// Auto-starts when entering / contained in Internet Center.
     pub internet_center_auto_starts: u32,
+    /// Floating cash text residual descriptors spawned this session.
+    #[serde(default)]
+    pub floating_texts: Vec<HostHackerFloatingText>,
+    /// Floating cash text residual spawn count (honesty).
+    #[serde(default)]
+    pub floating_texts_total: u32,
     /// Hackers currently residual-hacking (field command or IC).
     active_hackers: HashSet<ObjectId>,
     /// Next absolute logic frame each hacker may deposit.
@@ -215,6 +274,16 @@ impl HostHackerIncomeRegistry {
         amount
     }
 
+    /// Record residual HackInternet floating cash text presentation.
+    pub fn record_floating_text(&mut self, text: HostHackerFloatingText) {
+        self.floating_texts_total = self.floating_texts_total.saturating_add(1);
+        self.floating_texts.push(text);
+        if self.floating_texts.len() > 32 {
+            let drain = self.floating_texts.len() - 32;
+            self.floating_texts.drain(0..drain);
+        }
+    }
+
     /// Drop state when hacker is destroyed / gone.
     pub fn forget(&mut self, hacker_id: ObjectId) {
         self.active_hackers.remove(&hacker_id);
@@ -240,6 +309,22 @@ impl HostHackerIncomeRegistry {
     /// Residual honesty: at least one Internet Center deposit.
     pub fn honesty_internet_center_ok(&self) -> bool {
         self.internet_center_deposits > 0
+    }
+
+    /// Residual honesty: floating cash text presentation spawned.
+    pub fn honesty_floating_text_ok(&self) -> bool {
+        self.floating_texts_total > 0
+            && self.floating_texts.iter().any(|t| {
+                t.amount > 0
+                    && t.text_key == HACKER_FLOATING_TEXT_ADD_CASH_KEY
+                    && t.color_rgba == HACKER_FLOATING_TEXT_COLOR_RGBA
+            })
+    }
+
+    pub fn honesty_floating_text_constants_ok() -> bool {
+        HACKER_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+            && (HACKER_FLOATING_TEXT_Z_OFFSET - 20.0).abs() < 0.01
+            && HACKER_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
     }
 
     /// Combined residual honesty.
@@ -324,5 +409,17 @@ mod tests {
         );
         assert!(reg.honesty_internet_center_ok());
         assert_eq!(reg.internet_center_deposits(), 1);
+    }
+
+    #[test]
+    fn floating_text_residual_green_z20() {
+        assert!(HostHackerIncomeRegistry::honesty_floating_text_constants_ok());
+        let mut reg = HostHackerIncomeRegistry::new();
+        let ft = HostHackerFloatingText::new(ObjectId(3), Vec3::new(1.0, 0.0, 2.0), 5, 60, false);
+        assert_eq!(ft.text, "+$5");
+        assert_eq!(ft.color_rgba, (0, 255, 0, 255));
+        assert!((ft.position.y - 20.0).abs() < 0.01);
+        reg.record_floating_text(ft);
+        assert!(reg.honesty_floating_text_ok());
     }
 }

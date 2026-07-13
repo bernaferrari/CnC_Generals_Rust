@@ -10363,6 +10363,16 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&h.id) {
                 obj.gain_experience(HACKER_XP_PER_CASH_UPDATE);
             }
+            // HackInternet floating cash text residual (green, Z+20).
+            self.hacker_income.record_floating_text(
+                crate::game_logic::host_hacker_income::HostHackerFloatingText::new(
+                    h.id,
+                    h.pos,
+                    deposited,
+                    frame,
+                    h.in_ic,
+                ),
+            );
             self.queue_audio_event(
                 AudioEventRequest::new(HACKER_CASH_PING_AUDIO)
                     .with_object(h.id)
@@ -12774,13 +12784,33 @@ impl GameLogic {
     fn record_destruction(&mut self, destroyed_object: &Object, killer: Option<Team>) {
         let destroyed_is_structure = destroyed_object.is_kind_of(KindOf::Structure);
         let victim_team = destroyed_object.team;
+        let victim_id = destroyed_object.id;
+        let victim_pos = destroyed_object.get_position();
         // C++ Object::scoreTheKill / Player::doBountyForKill:
         // no bounty for under-construction, non-enemy, or same-controller kills.
         let under_construction = destroyed_object.status.under_construction;
         let build_cost = destroyed_object.thing.template.build_cost.supplies;
 
         let mut bounty_awarded = 0_u32;
+        let mut bounty_killer_id = ObjectId(0);
+        let mut bounty_float_pos = victim_pos;
         if let Some(team) = killer {
+            // Residual killer position: prefer a living unit on killer team near victim
+            // (C++ uses killer Object pos; host destruction event carries team only).
+            if let Some((kid, kpos)) = self
+                .objects
+                .iter()
+                .filter(|(_, o)| o.team == team && o.is_alive())
+                .map(|(id, o)| (*id, o.get_position()))
+                .min_by(|a, b| {
+                    let da = (a.1.x - victim_pos.x).hypot(a.1.z - victim_pos.z);
+                    let db = (b.1.x - victim_pos.x).hypot(b.1.z - victim_pos.z);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+            {
+                bounty_killer_id = kid;
+                bounty_float_pos = kpos;
+            }
             if let Some(player_id) = self.player_id_for_team(team) {
                 if let Some(player) = self.players.get_mut(&player_id) {
                     if destroyed_is_structure {
@@ -12801,6 +12831,16 @@ impl GameLogic {
         }
         if bounty_awarded > 0 {
             self.cash_bounty.record_bounty_award(bounty_awarded);
+            // C++ doBountyForKill floating text: yellow, killer pos + Z10.
+            self.cash_bounty.record_floating_text(
+                crate::game_logic::host_cash_bounty::HostCashBountyFloatingText::new(
+                    bounty_killer_id,
+                    victim_id,
+                    bounty_float_pos,
+                    bounty_awarded,
+                    self.frame,
+                ),
+            );
         }
 
         if let Some(player_id) = self.player_id_for_team(destroyed_object.team) {
@@ -12846,6 +12886,11 @@ impl GameLogic {
     /// Residual honesty: at least one bounty cash award on kill.
     pub fn honesty_cash_bounty_award_ok(&self) -> bool {
         self.cash_bounty.honesty_bounty_award_ok()
+    }
+
+    /// Residual cash bounty floating cash text honesty.
+    pub fn honesty_cash_bounty_floating_text_ok(&self) -> bool {
+        self.cash_bounty.honesty_floating_text_ok()
     }
 
     /// Total residual cash credited via kill bounty (observability).
@@ -14609,6 +14654,11 @@ impl GameLogic {
     /// Fail-closed: not full unpack/pack / floating text.
     pub fn honesty_hacker_income_ok(&self) -> bool {
         self.hacker_income.honesty_ok()
+    }
+
+    /// Residual Hacker floating cash text honesty.
+    pub fn honesty_hacker_floating_text_ok(&self) -> bool {
+        self.hacker_income.honesty_floating_text_ok()
     }
 
     /// Residual Hacker Internet Center deposit honesty.
@@ -30744,7 +30794,9 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
-        use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+        use crate::game_logic::special_power_strikes::{
+            ArtilleryBarrageScienceTier, HostSuperweaponKind,
+        };
         let kind = HostSuperweaponKind::from_command_power(power)?;
         let source_team = self
             .objects
@@ -30752,12 +30804,27 @@ impl GameLogic {
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
         let frame = self.frame;
-        let id = self.special_power_strikes.queue(
+        // ArtilleryBarrage FormationSize residual from unlocked SCIENCE_ArtilleryBarrage1/2/3.
+        let artillery_tier = if kind == HostSuperweaponKind::ArtilleryBarrage {
+            let sciences: Vec<String> = self
+                .players
+                .values()
+                .filter(|p| p.team == source_team)
+                .flat_map(|p| p.unlocked_sciences.iter().cloned())
+                .collect();
+            ArtilleryBarrageScienceTier::highest_from_sciences(
+                sciences.iter().map(|s| s.as_str()),
+            )
+        } else {
+            ArtilleryBarrageScienceTier::Level1
+        };
+        let id = self.special_power_strikes.queue_with_artillery_tier(
             kind,
             source_object,
             source_team,
             target_position,
             frame,
+            artillery_tier,
         );
 
         // Activation audio residual (observable request path).

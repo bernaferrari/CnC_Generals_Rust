@@ -1,3 +1,39 @@
+## Residual Host Playability — Hacker/CashBounty Floating Text + Artillery FormationSize Tiers (2026-07-13)
+**Closed (host-testable HackInternet + CashBounty floating cash text + ArtilleryBarrage science-tier FormationSize residual):**
+1. **HackInternet floating cash text residual** (`host_hacker_income`):
+   - Host `+$N` presentation at hacker pos + Z offset **20** (C++ `pos.z += 20`).
+   - Green RGBA **(0,255,0,255)** (retail `GameMakeColor(0,255,0,255)`).
+   - GameText key honesty `GUI:AddCash`.
+   - Recorded on every residual cash ping (field + Internet Center).
+   - Host-testable: floating text on deposit; amount/color/key constants.
+   - Fail-closed: not full InGameUI GPU draw / STEALTHED local-player display gate /
+     Internet Center geometry scatter random.
+2. **CashBounty floating cash text residual** (`host_cash_bounty`):
+   - Host `+$N` at killer residual pos + Z offset **10** (C++ killer `pos.z += 10`).
+   - Yellow RGBA **(255,255,0,255)** (retail `GameMakeColor(255,255,0,255)`).
+   - Killer pos residual: nearest living unit on killer team (destruction event carries team only).
+   - Host-testable: floating text on bounty award; yellow color / Z+10 honesty.
+   - Fail-closed: not full killer ObjectId on destruction event / InGameUI GPU.
+3. **ArtilleryBarrage science-tier FormationSize residual** (`special_power_strikes`):
+   - Retail OCL FormationSize **12 / 24 / 36** for SCIENCE_ArtilleryBarrage1/2/3.
+   - `ArtilleryBarrageScienceTier` + `artillery_barrage_points_for_tier`.
+   - Queue path selects highest unlocked SCIENCE_ArtilleryBarrage* on source team.
+   - Strike stores `artillery_tier`; impact uses tier shell count for multi-shell scatter.
+   - Host-testable: L1=12 / L2=24 / L3=36 points; science name matrix; highest-wins.
+   - Fail-closed: not full random WeaponErrorRadius draw / per-shell DelayDelivery stagger /
+     ChinaArtilleryCannon DeliverPayload transport Object.
+4. Tests (not log-only):
+   - `floating_text_residual_green_z20` (hacker)
+   - `floating_text_residual_yellow_z10` (cash bounty)
+   - updated `artillery_barrage_params_match_retail_multi_shell` (tier FormationSize)
+   - host unit tests + existing integration residual paths still green
+
+**Still residual (fail-closed, not claimed):**
+- Full InGameUI::addFloatingText GPU draw / STEALTHED local display gate (hacker)
+- Full killer ObjectId on DestructionEvent (cash bounty uses nearest same-team residual)
+- Full ArtilleryBarrage random WeaponErrorRadius / OCL DeliverPayload transport path
+- Network floating-text / artillery-tier replication (network deferred)
+
 ## Residual Host Playability — AutoDeposit Floating Text + Oil SupplyLines Boost (2026-07-13)
 **Closed (host-testable AutoDepositUpdate floating cash text + TechOilDerrick UpgradedBoost residual):**
 1. **AutoDeposit floating cash text residual** (`host_oil_derrick` / `host_black_market`):

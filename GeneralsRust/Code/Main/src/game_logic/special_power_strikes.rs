@@ -138,9 +138,75 @@ pub const CARPET_BOMB_IMPACT_DELAY_FRAMES: u32 = 90;
 
 // --- Artillery Barrage scatter multi-shell residual (retail SUPERWEAPON_ArtilleryBarrage1) ---
 
-/// Retail `SUPERWEAPON_ArtilleryBarrage1` FormationSize (Level1 fail-closed;
-/// science tiers 2/3 use 24/36 — deferred).
+/// Retail `SUPERWEAPON_ArtilleryBarrage1` FormationSize (Level1).
 pub const ARTILLERY_BARRAGE_SHELL_COUNT: u32 = 12;
+/// Retail `SUPERWEAPON_ArtilleryBarrage2` FormationSize.
+pub const ARTILLERY_BARRAGE_SHELL_COUNT_L2: u32 = 24;
+/// Retail `SUPERWEAPON_ArtilleryBarrage3` FormationSize.
+pub const ARTILLERY_BARRAGE_SHELL_COUNT_L3: u32 = 36;
+
+/// Residual Artillery Barrage science tier (FormationSize 12/24/36).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ArtilleryBarrageScienceTier {
+    #[default]
+    Level1,
+    Level2,
+    Level3,
+}
+
+impl ArtilleryBarrageScienceTier {
+    /// Retail FormationSize for this science tier.
+    pub fn formation_size(self) -> u32 {
+        match self {
+            ArtilleryBarrageScienceTier::Level1 => ARTILLERY_BARRAGE_SHELL_COUNT,
+            ArtilleryBarrageScienceTier::Level2 => ARTILLERY_BARRAGE_SHELL_COUNT_L2,
+            ArtilleryBarrageScienceTier::Level3 => ARTILLERY_BARRAGE_SHELL_COUNT_L3,
+        }
+    }
+
+    /// Map SCIENCE_ArtilleryBarrage1/2/3 (or generic name residual) to tier.
+    /// Higher tiers win when multiple sciences are present (caller should pass highest).
+    pub fn from_science_name(name: &str) -> Option<Self> {
+        let n: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        if n.contains("artillerybarrage3") {
+            Some(ArtilleryBarrageScienceTier::Level3)
+        } else if n.contains("artillerybarrage2") {
+            Some(ArtilleryBarrageScienceTier::Level2)
+        } else if n.contains("artillerybarrage1") || n.contains("artillerybarrage") {
+            Some(ArtilleryBarrageScienceTier::Level1)
+        } else {
+            None
+        }
+    }
+
+    /// Select highest unlocked ArtilleryBarrage science tier from a science name list.
+    pub fn highest_from_sciences<'a, I>(sciences: I) -> Self
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut best = ArtilleryBarrageScienceTier::Level1;
+        for s in sciences {
+            if let Some(t) = Self::from_science_name(s) {
+                best = match (best, t) {
+                    (_, ArtilleryBarrageScienceTier::Level3)
+                    | (ArtilleryBarrageScienceTier::Level3, _) => {
+                        ArtilleryBarrageScienceTier::Level3
+                    }
+                    (_, ArtilleryBarrageScienceTier::Level2)
+                    | (ArtilleryBarrageScienceTier::Level2, _) => {
+                        ArtilleryBarrageScienceTier::Level2
+                    }
+                    _ => ArtilleryBarrageScienceTier::Level1,
+                };
+            }
+        }
+        best
+    }
+}
 /// Retail `ArtilleryBarrageDamageWeapon` PrimaryDamage.
 pub const ARTILLERY_BARRAGE_DAMAGE: f32 = 105.0;
 /// Retail `ArtilleryBarrageDamageWeapon` PrimaryDamageRadius.
@@ -366,10 +432,19 @@ impl HostSuperweaponKind {
 
     /// Residual multi-point shell/bomb epicenters for multi-strike kinds.
     pub fn multi_strike_points(self, target: Vec3) -> Option<Vec<Vec3>> {
+        self.multi_strike_points_with_tier(target, ArtilleryBarrageScienceTier::Level1)
+    }
+
+    /// Residual multi-point epicenters with ArtilleryBarrage science-tier FormationSize.
+    pub fn multi_strike_points_with_tier(
+        self,
+        target: Vec3,
+        artillery_tier: ArtilleryBarrageScienceTier,
+    ) -> Option<Vec<Vec3>> {
         if self.is_line_multi_strike() {
             Some(carpet_bomb_points(target))
         } else if self.is_scatter_multi_strike() {
-            Some(artillery_barrage_points(target))
+            Some(artillery_barrage_points_for_tier(target, artillery_tier))
         } else {
             None
         }
@@ -474,10 +549,20 @@ pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
 ///
 /// Fail-closed placement: one shell at the click target + remaining shells on a
 /// deterministic ring at `ARTILLERY_BARRAGE_RING_RADIUS` inside
-/// `WeaponErrorRadius` (retail random draw deferred). Shell count is Level1
-/// FormationSize 12 (science tiers 24/36 deferred).
+/// `WeaponErrorRadius` (retail random draw deferred).
+/// Shell count is Level1 FormationSize **12** by default.
 pub fn artillery_barrage_points(target: Vec3) -> Vec<Vec3> {
-    let count = ARTILLERY_BARRAGE_SHELL_COUNT.max(1);
+    artillery_barrage_points_for_tier(target, ArtilleryBarrageScienceTier::Level1)
+}
+
+/// Build residual artillery shell epicenters for a science-tier FormationSize.
+///
+/// Retail: SUPERWEAPON_ArtilleryBarrage1/2/3 → FormationSize **12 / 24 / 36**.
+pub fn artillery_barrage_points_for_tier(
+    target: Vec3,
+    tier: ArtilleryBarrageScienceTier,
+) -> Vec<Vec3> {
+    let count = tier.formation_size().max(1);
     let mut points = Vec::with_capacity(count as usize);
     // Center shell guarantees a hit at the aimed position.
     points.push(target);
@@ -525,6 +610,10 @@ pub struct HostSpecialPowerStrike {
     pub objects_hit: u32,
     /// Number of objects destroyed by this strike.
     pub objects_destroyed: u32,
+    /// ArtilleryBarrage science-tier FormationSize residual (12/24/36).
+    /// Ignored for non-artillery kinds. Default Level1.
+    #[serde(default)]
+    pub artillery_tier: ArtilleryBarrageScienceTier,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -1140,6 +1229,7 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Queue a superweapon strike. Returns host strike id.
+    /// ArtilleryBarrage uses Level1 FormationSize (12) by default.
     pub fn queue(
         &mut self,
         kind: HostSuperweaponKind,
@@ -1147,6 +1237,26 @@ impl HostSpecialPowerStrikeRegistry {
         source_team: super::Team,
         target_position: Vec3,
         activate_frame: u32,
+    ) -> u32 {
+        self.queue_with_artillery_tier(
+            kind,
+            source_object,
+            source_team,
+            target_position,
+            activate_frame,
+            ArtilleryBarrageScienceTier::Level1,
+        )
+    }
+
+    /// Queue a superweapon strike with ArtilleryBarrage science-tier FormationSize.
+    pub fn queue_with_artillery_tier(
+        &mut self,
+        kind: HostSuperweaponKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        target_position: Vec3,
+        activate_frame: u32,
+        artillery_tier: ArtilleryBarrageScienceTier,
     ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -1163,6 +1273,7 @@ impl HostSpecialPowerStrikeRegistry {
             total_damage_applied: 0.0,
             objects_hit: 0,
             objects_destroyed: 0,
+            artillery_tier,
         };
         self.strikes.insert(id, strike);
         self.activated_this_frame.push(id);
@@ -1201,7 +1312,10 @@ impl HostSpecialPowerStrikeRegistry {
             if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
                 continue;
             }
-            let bomb_points = strike.kind.multi_strike_points(strike.target_position);
+            let bomb_points = strike.kind.multi_strike_points_with_tier(
+                strike.target_position,
+                strike.artillery_tier,
+            );
             let mut hits = Vec::new();
             for &(id, pos, team, alive) in object_positions {
                 if !alive || id == strike.source_object {
@@ -2209,6 +2323,22 @@ mod tests {
         assert!(!kind.spawns_orbit_field());
         assert!(!HostSuperweaponKind::DaisyCutter.is_scatter_multi_strike());
         assert_eq!(ARTILLERY_BARRAGE_SHELL_COUNT, 12);
+        assert_eq!(ARTILLERY_BARRAGE_SHELL_COUNT_L2, 24);
+        assert_eq!(ARTILLERY_BARRAGE_SHELL_COUNT_L3, 36);
+        assert_eq!(ArtilleryBarrageScienceTier::Level1.formation_size(), 12);
+        assert_eq!(ArtilleryBarrageScienceTier::Level2.formation_size(), 24);
+        assert_eq!(ArtilleryBarrageScienceTier::Level3.formation_size(), 36);
+        assert_eq!(
+            ArtilleryBarrageScienceTier::from_science_name("SCIENCE_ArtilleryBarrage3"),
+            Some(ArtilleryBarrageScienceTier::Level3)
+        );
+        assert_eq!(
+            ArtilleryBarrageScienceTier::highest_from_sciences([
+                "SCIENCE_ArtilleryBarrage1",
+                "SCIENCE_ArtilleryBarrage2",
+            ]),
+            ArtilleryBarrageScienceTier::Level2
+        );
         assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
         assert!((ARTILLERY_BARRAGE_RING_RADIUS - 75.0).abs() < 0.1);
         let points = artillery_barrage_points(Vec3::new(100.0, 0.0, 50.0));
@@ -2224,6 +2354,11 @@ mod tests {
             );
             assert!(dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.1);
         }
+        let points_l3 = artillery_barrage_points_for_tier(
+            Vec3::new(0.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level3,
+        );
+        assert_eq!(points_l3.len(), 36);
     }
 
     #[test]
