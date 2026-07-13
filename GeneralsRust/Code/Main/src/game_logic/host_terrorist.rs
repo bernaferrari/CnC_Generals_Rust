@@ -15,7 +15,8 @@
 //! Fail-closed honesty:
 //! - Not full ConvertToCarBombCrateCollide matrix (separate host_car_bomb residual)
 //! - Not full SlowDeath SUICIDED fling / OCL poison particle bone matrix
-//! - Not Demo_SuicideDynamitePackPlusFire salvage fire-field matrix
+//! - Not Demo_SuicideDynamitePackPlusFire SUICIDED path (see host_demo_suicide_bomb
+//!   for Demo_DestroyedWeapon normal-death residual)
 //! - Not network suicide replication (network deferred)
 
 use super::Weapon;

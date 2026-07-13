@@ -2385,6 +2385,45 @@ impl Object {
         }
     }
 
+    /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
+    ///
+    /// Never lowers rank. Seeds residual XP so gain_experience does not demote.
+    /// Applies health / weapon bonuses when promoting.
+    pub fn set_min_veterancy_level(&mut self, level: VeterancyLevel) -> bool {
+        fn rank(level: VeterancyLevel) -> u8 {
+            match level {
+                VeterancyLevel::Rookie => 0,
+                VeterancyLevel::Veteran => 1,
+                VeterancyLevel::Elite => 2,
+                VeterancyLevel::Heroic => 3,
+            }
+        }
+        fn xp_seed(level: VeterancyLevel, thresholds: [f32; 3]) -> f32 {
+            match level {
+                VeterancyLevel::Rookie => 0.0,
+                VeterancyLevel::Veteran => thresholds[0],
+                VeterancyLevel::Elite => thresholds[1],
+                VeterancyLevel::Heroic => thresholds[2],
+            }
+        }
+
+        let previous = self.experience.level;
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+        if rank(level) <= rank(previous) {
+            // Still seed XP if level already matches but XP is below threshold.
+            let seed = xp_seed(previous, thresholds);
+            if self.experience.current < seed {
+                self.experience.current = seed;
+            }
+            return false;
+        }
+        self.experience.level = level;
+        let seed = xp_seed(level, thresholds);
+        self.experience.current = self.experience.current.max(seed);
+        self.apply_veterancy_bonuses(previous, level);
+        true
+    }
+
     pub fn select(&mut self) {
         if self.is_selectable() {
             self.selected = true;
