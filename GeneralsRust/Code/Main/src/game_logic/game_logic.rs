@@ -823,6 +823,10 @@ pub struct GameLogic {
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
     car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
+    /// USA Pilot recrew residual honesty.
+    usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry,
+    /// GLA Worker / WorkerShoes residual honesty.
+    gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry,
 
     /// Host GLA Bomb Truck disguise residual (SpecialAbilityDisguiseAsVehicle).
     /// Fail-closed: not full StealthUpdate transition opacity / model swap matrix.
@@ -1866,6 +1870,8 @@ impl GameLogic {
                 crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry::new(),
             host_radar: crate::game_logic::host_radar::HostRadarRegistry::new(),
             car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry::new(),
+            usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry::new(),
+            gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry::new(),
             bomb_truck_disguise:
                 crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry::new(),
             bomb_truck_detonate:
@@ -2142,6 +2148,8 @@ impl GameLogic {
         self.supply_drop_zones.clear();
         self.host_radar.clear();
         self.car_bomb.clear();
+        self.usa_pilot.clear();
+        self.gla_worker.clear();
         self.bomb_truck_disguise.clear();
         self.bomb_truck_detonate.clear();
         self.helix_napalm.clear();
@@ -6992,6 +7000,106 @@ impl GameLogic {
                         continue;
                     };
 
+                    // USA Pilot residual: Enter unmanned vehicle → recrew (not transport load).
+                    // Retail VeterancyCrateCollide IsPilot path residual.
+                    {
+                        let pilot_snapshot = self.objects.get(&object_id).map(|o| {
+                            (
+                                crate::game_logic::host_usa_pilot::is_pilot_template(
+                                    &o.template_name,
+                                ),
+                                o.team,
+                                o.experience.level,
+                                o.get_position(),
+                                o.selection_radius,
+                                o.can_move(),
+                            )
+                        });
+                        let vehicle_snapshot = self.objects.get(&container_id).map(|v| {
+                            (
+                                v.get_position(),
+                                v.selection_radius,
+                                v.is_alive(),
+                                v.is_kind_of(KindOf::Vehicle),
+                                v.is_kind_of(KindOf::Aircraft) || v.status.airborne_target,
+                                v.is_unmanned(),
+                                v.status.under_construction,
+                                v.is_worker()
+                                    || v.template_name.to_ascii_lowercase().contains("dozer"),
+                            )
+                        });
+                        if let (
+                            Some((
+                                is_pilot,
+                                pilot_team,
+                                pilot_level,
+                                pilot_pos,
+                                pilot_radius,
+                                pilot_can_move,
+                            )),
+                            Some((
+                                vehicle_pos,
+                                vehicle_radius,
+                                v_alive,
+                                v_vehicle,
+                                v_air,
+                                v_unmanned,
+                                v_under_construction,
+                                v_dozer,
+                            )),
+                        ) = (pilot_snapshot, vehicle_snapshot)
+                        {
+                            let recrewable =
+                                crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
+                                    v_alive,
+                                    v_vehicle,
+                                    v_air,
+                                    v_unmanned,
+                                    v_under_construction,
+                                    v_dozer,
+                                );
+                            if crate::game_logic::host_usa_pilot::should_recrew_on_enter(
+                                is_pilot,
+                                recrewable,
+                            ) {
+                                let enter_range = pilot_radius + vehicle_radius + 4.0;
+                                if pilot_can_move
+                                    && pilot_pos.distance(vehicle_pos) > enter_range
+                                {
+                                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                                        obj.set_destination(vehicle_pos);
+                                        obj.ai_state = AIState::Entering;
+                                    }
+                                    continue;
+                                }
+                                let transferred = self
+                                    .objects
+                                    .get_mut(&container_id)
+                                    .map(|v| v.apply_pilot_recrew(pilot_team, pilot_level))
+                                    .unwrap_or(false);
+                                self.usa_pilot.record_recrew(transferred);
+                                self.queue_audio_event(
+                                    AudioEventRequest::new(
+                                        crate::game_logic::host_usa_pilot::PILOT_RECREW_AUDIO,
+                                    )
+                                    .with_object(container_id)
+                                    .with_position(vehicle_pos)
+                                    .with_priority(170),
+                                );
+                                let msg = localization::localize(
+                                    "hud.pilot.recrew",
+                                    "Vehicle recrewed",
+                                );
+                                self.queue_radar_message_for_team(pilot_team, msg);
+                                if let Some(pilot) = self.objects.get_mut(&object_id) {
+                                    pilot.status.destroyed = true;
+                                }
+                                self.mark_object_for_destruction(object_id, Some(pilot_team));
+                                continue;
+                            }
+                        }
+                    }
+
                     let Some((
                         container_pos,
                         container_radius,
@@ -7942,6 +8050,29 @@ impl GameLogic {
                             .unwrap_or(0);
 
                         if deposit_amount > 0 {
+                            // Snapshot carrier for residual boost identity (worker shoes).
+                            let (
+                                carrier_is_gla_worker,
+                                carrier_has_worker_shoes,
+                            ) = self
+                                .objects
+                                .get(&object_id)
+                                .map(|o| {
+                                    let is_w = crate::game_logic::host_gla_worker::is_gla_worker_template(
+                                        &o.template_name,
+                                    );
+                                    let shoes = o.has_upgrade_tag(
+                                        crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
+                                    ) || self.players.values().any(|p| {
+                                        p.team == team
+                                            && p.has_unlocked_upgrade(
+                                                crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
+                                            )
+                                    });
+                                    (is_w, shoes)
+                                })
+                                .unwrap_or((false, false));
+
                             // Clear carried resources.
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stored_resources.supplies = 0;
@@ -7956,18 +8087,31 @@ impl GameLogic {
                                             crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES,
                                         )
                                 });
-                            let boost = crate::game_logic::host_upgrades::residual_supply_lines_drop_off_boost(
-                                has_supply_lines,
-                            );
+                            let supply_lines_boost =
+                                crate::game_logic::host_upgrades::residual_supply_lines_drop_off_boost(
+                                    has_supply_lines,
+                                );
+                            // GLA WorkerShoes residual: +8 per drop-off when unlocked.
+                            let worker_shoes_boost =
+                                crate::game_logic::host_gla_worker::residual_worker_shoes_drop_off_boost(
+                                    carrier_is_gla_worker,
+                                    carrier_has_worker_shoes,
+                                );
+                            let boost = supply_lines_boost.saturating_add(worker_shoes_boost);
                             let credited = deposit_amount.saturating_add(boost);
                             // Credit the player (carried supplies + optional economy boost).
                             if let Some(player) = self.get_player_mut_by_team(team) {
                                 player.resources.supplies =
                                     player.resources.supplies.saturating_add(credited);
                             }
-                            if boost > 0 {
-                                self.supply_lines_bonus_cash_total =
-                                    self.supply_lines_bonus_cash_total.saturating_add(boost);
+                            if supply_lines_boost > 0 {
+                                self.supply_lines_bonus_cash_total = self
+                                    .supply_lines_bonus_cash_total
+                                    .saturating_add(supply_lines_boost);
+                            }
+                            if worker_shoes_boost > 0 {
+                                self.gla_worker
+                                    .record_shoes_drop_off_boost(worker_shoes_boost);
                             }
                             // Head back to gather more from the original source.
                             let source_dest = target_id.and_then(|sid| {
@@ -8227,6 +8371,9 @@ impl GameLogic {
             HostUpgradeKind::CompositeArmor => {
                 self.apply_composite_armor_unlock_to_team(team, upgrade_name)
             }
+            HostUpgradeKind::WorkerShoes => {
+                self.apply_worker_shoes_unlock_to_team(team, upgrade_name)
+            }
             HostUpgradeKind::Other => 0,
         };
 
@@ -8257,6 +8404,46 @@ impl GameLogic {
                 AudioEventRequest::new("EVA_UpgradeComplete").with_priority(140),
             );
         }
+    }
+
+    /// Apply WorkerShoes residual: speed 30 + upgrade tag on GLA workers.
+    fn apply_worker_shoes_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+        use crate::game_logic::host_gla_worker::{
+            is_gla_worker_template, worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
+            WORKER_SHOES_AUDIO,
+        };
+
+        let mut affected = 0u32;
+        for obj in self.objects.values_mut() {
+            if obj.team != team || !obj.is_alive() {
+                continue;
+            }
+            if !is_gla_worker_template(&obj.template_name) && !obj.is_worker() {
+                continue;
+            }
+            // Prefer GLA worker templates; also accept KINDOF_WORKER residual
+            // whose template name matches worker residual (not USA/China dozer).
+            if !is_gla_worker_template(&obj.template_name) {
+                continue;
+            }
+            if obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || obj.has_upgrade_tag(upgrade_name)
+            {
+                // Already applied — refresh speed residual only.
+                obj.movement.max_speed = worker_residual_speed(true);
+                continue;
+            }
+            obj.movement.max_speed = worker_residual_speed(true);
+            obj.apply_upgrade_tag(upgrade_name);
+            obj.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
+            affected = affected.saturating_add(1);
+        }
+        if affected > 0 {
+            self.gla_worker.record_shoes_applied(affected);
+            self.queue_audio_event(
+                AudioEventRequest::new(WORKER_SHOES_AUDIO).with_priority(140),
+            );
+        }
+        affected
     }
 
     /// Equip FlashBang secondary on team rangers + apply upgrade tag.
@@ -9666,6 +9853,43 @@ impl GameLogic {
             if crate::game_logic::host_colonel_burton::is_colonel_burton_template(template_name) {
                 use crate::game_logic::host_colonel_burton::burton_sniper_weapon;
                 object.weapon = Some(burton_sniper_weapon());
+            }
+
+            // Host residual: USA Pilot starts VETERAN (VeterancyGainCreate StartingLevel).
+            // Fail-closed: not full EjectPilotDie parachute OCL / PilotFindVehicle AI scan.
+            if crate::game_logic::host_usa_pilot::is_pilot_template(template_name) {
+                use crate::game_logic::host_usa_pilot::pilot_default_veterancy;
+                use crate::game_logic::VeterancyLevel;
+                let target = pilot_default_veterancy();
+                if object.experience.level != target {
+                    let prev = object.experience.level;
+                    object.experience.level = target;
+                    // Seed residual XP so level does not immediately drop on gain_experience.
+                    if matches!(target, VeterancyLevel::Veteran) {
+                        object.experience.current =
+                            object.experience.current.max(1.0);
+                    }
+                    let _ = prev;
+                    // Apply bonuses only if promoting from Rookie.
+                    if !matches!(prev, VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic)
+                    {
+                        // Direct level set; apply_veterancy_bonuses is private — call gain path
+                        // by using a public residual: re-apply via temporary if needed.
+                        // Object::apply_pilot_recrew already handles merge; for spawn we set level
+                        // and leave HP/weapon multipliers fail-closed at template defaults until
+                        // first combat XP event. Veterans still recrew-transfer as Veteran.
+                    }
+                }
+            }
+
+            // Host residual: GLA Worker base speed / WorkerShoes speed if already unlocked.
+            // Fail-closed: not full WorkerAIUpdate bored auto-task matrix.
+            if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
+                use crate::game_logic::host_gla_worker::{
+                    worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
+                };
+                let shoes = object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
+                object.movement.max_speed = worker_residual_speed(shoes);
             }
 
             // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
@@ -20393,6 +20617,50 @@ impl GameLogic {
     }
 
     /// Residual honesty: at least one hijack transferred a vehicle.
+    /// Host USA Pilot residual registry.
+    pub fn usa_pilot_residual(
+        &self,
+    ) -> &crate::game_logic::host_usa_pilot::HostUsaPilotRegistry {
+        &self.usa_pilot
+    }
+
+    /// Residual honesty: at least one pilot recrew of unmanned vehicle.
+    pub fn honesty_pilot_recrew_ok(&self) -> bool {
+        self.usa_pilot.honesty_recrew_ok()
+    }
+
+    /// Residual honesty: pilot recrew with veterancy transfer observed.
+    pub fn honesty_pilot_veterancy_transfer_ok(&self) -> bool {
+        self.usa_pilot.honesty_veterancy_transfer_ok()
+    }
+
+    /// Combined USA Pilot residual honesty.
+    pub fn honesty_pilot_ok(&self) -> bool {
+        self.usa_pilot.honesty_pilot_ok()
+    }
+
+    /// Host GLA Worker residual registry.
+    pub fn gla_worker_residual(
+        &self,
+    ) -> &crate::game_logic::host_gla_worker::HostGlaWorkerRegistry {
+        &self.gla_worker
+    }
+
+    /// Residual honesty: WorkerShoes speed applied to workers.
+    pub fn honesty_worker_shoes_apply_ok(&self) -> bool {
+        self.gla_worker.honesty_shoes_apply_ok()
+    }
+
+    /// Residual honesty: WorkerShoes supply boost on drop-off.
+    pub fn honesty_worker_shoes_boost_ok(&self) -> bool {
+        self.gla_worker.honesty_shoes_boost_ok()
+    }
+
+    /// Combined GLA Worker residual honesty.
+    pub fn honesty_worker_ok(&self) -> bool {
+        self.gla_worker.honesty_worker_ok()
+    }
+
     pub fn honesty_hijack_ok(&self) -> bool {
         self.car_bomb.honesty_hijack_ok()
     }
@@ -30582,6 +30850,282 @@ mod tests {
             game_logic.honesty_snipe_vehicle_ok(),
             "snipe residual honesty"
         );
+    }
+
+    /// Residual: USA Pilot Enter unmanned vehicle → recrew (team + clear unmanned + consume pilot).
+    /// Fail-closed: not full EjectPilotDie parachute OCL / PilotFindVehicle AI scan.
+    #[test]
+    fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_usa_pilot::{is_pilot_template, pilot_default_veterancy};
+        use crate::game_logic::VeterancyLevel;
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
+
+        let pilot_id = game_logic
+            .create_object(
+                "AmericaInfantryPilot",
+                Team::USA,
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .expect("pilot");
+        {
+            let p = game_logic.find_object_mut(pilot_id).expect("pilot obj");
+            assert!(is_pilot_template(&p.template_name));
+            // Seed residual VETERAN (VeterancyGainCreate StartingLevel).
+            p.experience.level = pilot_default_veterancy();
+            p.experience.current = 1.0;
+        }
+
+        let tank_id = game_logic
+            .create_object("TestTank", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        {
+            let t = game_logic.find_object_mut(tank_id).expect("tank");
+            t.apply_kill_pilot_unmanned();
+            t.set_team(Team::Neutral);
+            t.experience.level = VeterancyLevel::Rookie;
+        }
+        assert!(
+            game_logic.find_object(tank_id).unwrap().is_unmanned(),
+            "precondition: unmanned vehicle"
+        );
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter { target_id: tank_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![pilot_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        {
+            let p = game_logic.find_object(pilot_id).expect("pilot after cmd");
+            assert_eq!(p.ai_state, AIState::Entering);
+            assert_eq!(p.target, Some(tank_id));
+        }
+
+        game_logic.update_ai(&[pilot_id, tank_id], 1.0 / 30.0);
+
+        let tank = game_logic.find_object(tank_id).expect("tank after recrew");
+        assert!(
+            !tank.is_unmanned(),
+            "recrew must clear DISABLED_UNMANNED"
+        );
+        assert_eq!(tank.team, Team::USA, "recrew transfers pilot team");
+        assert_eq!(
+            tank.experience.level,
+            VeterancyLevel::Veteran,
+            "pilot veterancy must transfer onto vehicle"
+        );
+        assert!(
+            game_logic.honesty_pilot_recrew_ok(),
+            "pilot recrew honesty"
+        );
+        assert!(
+            game_logic.honesty_pilot_veterancy_transfer_ok(),
+            "veterancy transfer honesty"
+        );
+        assert!(
+            game_logic.honesty_pilot_ok(),
+            "combined pilot residual honesty"
+        );
+        assert_eq!(game_logic.usa_pilot_residual().recrews, 1);
+
+        let pilot = game_logic.find_object(pilot_id).expect("pilot after recrew");
+        assert!(
+            pilot.status.destroyed,
+            "pilot infantry consumed after recrew"
+        );
+    }
+
+    /// Residual: pilot Enter rejects manned vehicles for recrew residual path
+    /// (fails closed into normal transport rules).
+    #[test]
+    fn pilot_recrew_rejects_manned_vehicle() {
+        use crate::command_system::{CommandType, GameCommand};
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        let mut pilot_tpl = ThingTemplate::new("TestPilot");
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("TestPilot".to_string(), pilot_tpl);
+
+        let pilot_id = game_logic
+            .create_object("TestPilot", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("pilot");
+        let tank_id = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        assert!(!game_logic.find_object(tank_id).unwrap().is_unmanned());
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::Enter { target_id: tank_id },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![pilot_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        // Manned enemy vehicle: enter may fail (team/capacity) — recrew honesty stays false.
+        assert!(!game_logic.honesty_pilot_recrew_ok());
+        assert!(!game_logic.find_object(tank_id).unwrap().is_unmanned());
+        assert_eq!(game_logic.find_object(tank_id).unwrap().team, Team::GLA);
+    }
+
+    /// Residual: WorkerShoes QueueUpgrade → speed 30 + supply boost +8 on drop-off.
+    #[test]
+    fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
+        use crate::command_system::{CommandType, GameCommand};
+        use crate::game_logic::host_gla_worker::{
+            is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
+            UPGRADE_GLA_WORKER_SHOES, WORKER_BASE_SPEED, WORKER_SHOES_SPEED,
+            WORKER_SHOES_SUPPLY_BOOST,
+        };
+        use crate::game_logic::host_upgrades::HostUpgradeKind;
+
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::GLA, "GLA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+        ensure_test_barracks_template(&mut game_logic);
+
+        let mut worker_tpl = ThingTemplate::new("GLAInfantryWorker");
+        worker_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Worker)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("GLAInfantryWorker".to_string(), worker_tpl);
+
+        let mut supply_tpl = ThingTemplate::new("GLASupplyStash");
+        supply_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SupplyCenter)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLASupplyStash".to_string(), supply_tpl);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
+            .expect("barracks");
+        let worker_id = game_logic
+            .create_object("GLAInfantryWorker", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("worker");
+        let supply_id = game_logic
+            .create_object("GLASupplyStash", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+            .expect("supply");
+
+        {
+            let w = game_logic.find_object(worker_id).expect("worker");
+            assert!(is_gla_worker_template(&w.template_name));
+            assert!(
+                (w.movement.max_speed - WORKER_BASE_SPEED).abs() < 0.01
+                    || (w.movement.max_speed - worker_residual_speed(false)).abs() < 0.01,
+                "worker base residual speed (got {})",
+                w.movement.max_speed
+            );
+        }
+
+        game_logic.queue_command(GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: UPGRADE_GLA_WORKER_SHOES.to_string(),
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![barracks_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::WorkerShoes));
+
+        game_logic.update();
+
+        assert!(game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::WorkerShoes));
+        assert!(
+            game_logic.honesty_worker_shoes_apply_ok(),
+            "WorkerShoes must affect workers"
+        );
+
+        let worker = game_logic.find_object(worker_id).expect("worker after shoes");
+        assert!(
+            worker.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
+            "worker must receive WorkerShoes tag"
+        );
+        assert!(
+            (worker.movement.max_speed - WORKER_SHOES_SPEED).abs() < 0.01,
+            "WorkerShoes residual speed 30 (got {})",
+            worker.movement.max_speed
+        );
+        assert_eq!(
+            residual_worker_shoes_drop_off_boost(true, true),
+            WORKER_SHOES_SUPPLY_BOOST
+        );
+
+        // Drop-off residual: worker with cargo deposits +8 shoes boost.
+        {
+            let w = game_logic.find_object_mut(worker_id).expect("worker mut");
+            w.stored_resources.supplies = 100;
+            w.set_position(Vec3::new(5.0, 0.0, 0.0));
+            w.target = Some(supply_id);
+            w.ai_state = AIState::ReturningResources;
+        }
+        let cash_before = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+
+        game_logic.update_ai(&[worker_id, supply_id], 1.0 / 30.0);
+
+        let cash_after = game_logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0);
+        let gained = cash_after.saturating_sub(cash_before);
+        assert!(
+            gained >= 100 + WORKER_SHOES_SUPPLY_BOOST,
+            "WorkerShoes drop-off must credit cargo + boost (gained={gained})"
+        );
+        assert!(
+            game_logic.honesty_worker_shoes_boost_ok(),
+            "shoes boost honesty"
+        );
+        assert!(
+            game_logic.honesty_worker_ok(),
+            "combined worker residual honesty"
+        );
+        assert_eq!(
+            game_logic.gla_worker_residual().shoes_bonus_cash_total,
+            WORKER_SHOES_SUPPLY_BOOST
+        );
+        let _ = barracks_id;
     }
 
     /// Residual: Burton PlantTimedDemoCharge walks to target then plants sticky timed C4.
