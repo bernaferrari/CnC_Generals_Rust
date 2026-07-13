@@ -88,6 +88,9 @@ pub const HUMVEE_MISSILE_WEAPON_AIR: &str = "HumveeMissileWeaponAir";
 /// Retail Laser General Patriot residual weapons.
 pub const LAZR_PATRIOT_PRIMARY_WEAPON: &str = "Lazr_PatriotMissileWeapon";
 pub const LAZR_PATRIOT_SECONDARY_WEAPON: &str = "Lazr_PatriotMissileWeaponAir";
+/// Retail Superweapon General EMP Patriot residual weapons.
+pub const SUPW_PATRIOT_PRIMARY_WEAPON: &str = "SupW_PatriotMissileWeapon";
+pub const SUPW_PATRIOT_SECONDARY_WEAPON: &str = "SupW_PatriotMissileWeaponAir";
 /// Retail GLA Tunnel Network structure gun residual.
 pub const TUNNEL_NETWORK_GUN: &str = "TunnelNetworkGun";
 
@@ -284,6 +287,10 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "Lazr_AmericaPatriotBattery"
         | "Lazr_PatriotMissileSystem"
         | "TestLazrPatriot" => Some(LAZR_PATRIOT_PRIMARY_WEAPON),
+        "SupW_AmericaPatriotBattery"
+        | "SupW_PatriotMissileSystem"
+        | "TestSupWPatriot"
+        | "TestEmpPatriot" => Some(SUPW_PATRIOT_PRIMARY_WEAPON),
         "GLATunnelNetwork"
         | "GLA_TunnelNetwork"
         | "Demo_GLATunnelNetwork"
@@ -659,6 +666,10 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         "Lazr_AmericaPatriotBattery"
         | "Lazr_PatriotMissileSystem"
         | "TestLazrPatriot" => Some(LAZR_PATRIOT_SECONDARY_WEAPON),
+        "SupW_AmericaPatriotBattery"
+        | "SupW_PatriotMissileSystem"
+        | "TestSupWPatriot"
+        | "TestEmpPatriot" => Some(SUPW_PATRIOT_SECONDARY_WEAPON),
         "GLA_StingerSite"
         | "GLAStingerSite"
         | "Chem_GLAStingerSite"
@@ -1044,6 +1055,25 @@ fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 999999.0,
+        },
+        // SupW_PatriotMissileWeapon PRIMARY — PrimaryDamage 15, Range 275,
+        // EMP detonation residual (DISABLED_EMP r10 / 10s).
+        SeedWeapon {
+            name: SUPW_PATRIOT_PRIMARY_WEAPON,
+            primary_damage: 15.0,
+            attack_range: 275.0,
+            delay_frames: 60,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
+        // SupW_PatriotMissileWeaponAir residual secondary — PrimaryDamage 30, Range 400.
+        SeedWeapon {
+            name: SUPW_PATRIOT_SECONDARY_WEAPON,
+            primary_damage: 30.0,
+            attack_range: 400.0,
+            delay_frames: 60,
+            clip_size: 4,
+            weapon_speed: 400.0,
         },
         // TunnelNetworkGun PRIMARY — PrimaryDamage 15, Range 175,
         // DelayBetweenShots 250ms → 8 frames.
@@ -1702,6 +1732,7 @@ fn seed_known_host_weapons() -> usize {
         // Base-defense AA secondaries: airborne only residual.
         if seed.name == PATRIOT_SECONDARY_WEAPON
             || seed.name == LAZR_PATRIOT_SECONDARY_WEAPON
+            || seed.name == SUPW_PATRIOT_SECONDARY_WEAPON
             || seed.name == STINGER_SECONDARY_WEAPON
             || seed.name == GATTLING_BUILDING_SECONDARY_WEAPON
         {

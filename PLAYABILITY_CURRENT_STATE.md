@@ -1,3 +1,36 @@
+## Residual Host Playability — SupW EMP Patriot + GLA Saboteur (2026-07-13)
+**Closed (host-testable SupW Patriot EMP dual-slot + Saboteur type-specific sabotage residual):**
+1. **Superweapon General EMP Patriot residual** (`SupW_AmericaPatriotBattery` / TestSupWPatriot):
+   - PRIMARY `SupW_PatriotMissileWeapon` residual: PrimaryDamage **15** / range **275**,
+     ClipReload residual cadence (60 frames).
+   - AA residual `SupW_PatriotMissileWeaponAir`: PrimaryDamage **30** / range **400**.
+   - Impact residual seeds EMPPatriotEffectSpheroid: DISABLED_EMP **10000** ms
+     (**300** frames) / EffectRadius **10** (DoesNotAffectMyOwnBuildings residual).
+   - Dual-slot base-defense auto-fire residual path (ground + AA + EMP).
+2. **GLA Saboteur residual** (`GLAInfantrySaboteur` / Chem_/Demo_/Slth_):
+   - Walk to enemy structure → type-specific Sabotage*CrateCollide residual:
+     - **Power plant**: player `power_sabotaged_till_frame` **900** frames brownout
+     - **Supply center**: steal **1000** cash residual
+     - **Military factory** (barracks/warfactory/airfield): DISABLED_HACKED **900** frames
+     - **Superweapon / Strategy / Command**: special-power recharge reset residual
+     - **Internet Center**: DISABLED_HACKED **450** frames
+     - **Fake building**: kill structure residual
+   - Saboteur consumed on success (mobile-crate residual).
+   - Fail-closed: non-saboteur cannot issue; non-matching structures cancel residual.
+3. Tests (not log-only):
+   - `supw_patriot_emp_residual_dual_slot_and_disable`
+   - `sabotage_command_applies_only_after_unit_reaches_target` (power residual)
+   - `saboteur_military_factory_residual_disables_production`
+   - `sabotage_command_rejects_non_saboteur_units`
+   - module unit tests in `host_base_defense` (SupW) / `host_saboteur`
+
+**Still residual (fail-closed, not claimed):**
+- Full SupW AssistedTargetingModule assist clip / RequestAssistRange matrix
+- Full EMPPatriotEffectSpheroid drawable scale/tint / EMPSparks particle volume
+- Full BuildingPickup CrateCollide goal-object / EVA floating-text matrix
+- Full internet-center spy-vision / contained-hacker disable iterate
+- Network SupW EMP / saboteur replication (network deferred)
+
 ## Residual Host Playability — Laser General Tanks/Patriot + Tunnel Network Gun (2026-07-13)
 **Closed (host-testable Lazr tank lasers / Lazr Patriot dual-slot + TunnelNetworkGun residual):**
 1. **Laser General tank residual** (`Lazr_AmericaTankCrusader` / `Lazr_AmericaTankPaladin`):
