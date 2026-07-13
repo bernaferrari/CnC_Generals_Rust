@@ -1,3 +1,38 @@
+## Residual Host Playability — Patriot AssistedTargeting + DemoTrap Mode (2026-07-13)
+**Closed (host-testable AssistedTargetingUpdate + DemoTrapUpdate weapon-slot mode residual):**
+1. **AssistedTargetingUpdate residual** (AmericaPatriotBattery ModuleTag_07):
+   - PRIMARY/AA fire with `RequestAssistRange` **200** issues assist request residual.
+   - Same-team equivalent Patriots (stock / Lazr / SupW family) within range that are
+     free to assist accept a clip of **AssistingClipSize = 4** assist-weapon shots
+     (`PatriotMissileAssistWeapon` dmg **25** / range **450**; Lazr dmg **35**;
+     SupW dmg **25** + EMPPatriotEffectSpheroid residual).
+   - Clip fires on DelayBetweenShots **250**ms → **8** frames residual cadence.
+   - Host-testable: near assistant accepts + damages; far (range > 200) rejects;
+     Lazr↔stock non-equivalent rejects; AssistingClipSize honesty.
+   - Fail-closed: not full BinaryDataStream laser drawable feedback
+     (`LaserFromAssisted` / `LaserToTarget` residual audio cue only).
+2. **DemoTrapUpdate weapon-slot mode residual**:
+   - DefaultProximityMode **Yes** → starts Proximity (SECONDARY residual).
+   - ManualModeWeaponSlot (TERTIARY residual) disables proximity scan.
+   - DetonationWeaponSlot (PRIMARY residual) → manual detonate residual.
+   - Host-testable: manual mode enemy-in-range does not detonate; switch to
+     Proximity detonates; Detonate mode manual-detonates.
+   - Fail-closed: not full PreAttack scoop animation / weapon-lock UI matrix.
+3. Tests (not log-only):
+   - `patriot_assisted_targeting_request_assist_range_residual`
+   - `lazr_patriot_assist_equivalent_family_residual`
+   - `demo_trap_weapon_slot_mode_residual`
+   - module unit tests in `host_base_defense` / `host_mines` (assist matrix /
+     mode residual honesty)
+
+**Still residual (fail-closed, not claimed):**
+- Full BinaryDataStream laser drawable feedback for Patriot assist beams
+- Full AI turret pitch/yaw natural-position angle matrix (recenter frame gate closed)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute sway / pitch-roll / DeliverPayload residual
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Network assist / demo-trap-mode replication (network deferred)
+
 ## Residual Host Playability — Delayed setBattlePlan ACTIVE + Turret Recenter (2026-07-13)
 **Closed (host-testable BattlePlanUpdate delayed ACTIVE setBattlePlan + Bombardment recenter residual):**
 1. **Delayed ACTIVE-after-unpack setBattlePlan residual** (`BattlePlanUpdate::setStatus`):

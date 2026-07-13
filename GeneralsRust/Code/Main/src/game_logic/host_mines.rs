@@ -15,9 +15,15 @@
 //! - Timed charges detonate at absolute frame
 //! - Dozer / Worker mine-clear: approach enemy/neutral mine → disarm without detonation
 //!
+//! - **DemoTrapUpdate weapon-slot mode residual**:
+//!   - DefaultProximityMode **Yes** → starts in Proximity (SECONDARY residual)
+//!   - Manual mode (TERTIARY residual) disables proximity scan
+//!   - Detonation slot (PRIMARY residual) → manual detonate residual
+//!   - Fail-closed: not full PreAttack scoop animation / weapon-lock UI matrix
+//!
 //! Fail-closed honesty:
 //! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
-//! - Not full DemoTrapUpdate weapon-slot mode matrix / PreAttack scoop animation
+//! - Not full DemoTrapUpdate PreAttack scoop animation / weapon-lock UI matrix
 //! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
 //! - Not full StickyBombUpdate attach bones / geometry-based splash / max-charge list
 //! - Not full OCL ClusterMinesBomb aircraft path
@@ -29,6 +35,32 @@ use serde::{Deserialize, Serialize};
 
 /// Logic frames per second (host fixed step).
 pub const MINE_LOGIC_FPS: f32 = 30.0;
+
+/// DemoTrapUpdate weapon-slot mode residual.
+///
+/// Retail slots:
+/// - `DetonationWeaponSlot = PRIMARY` → detonate now
+/// - `ProximityModeWeaponSlot = SECONDARY` → proximity scan on
+/// - `ManualModeWeaponSlot = TERTIARY` → proximity scan off
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DemoTrapMode {
+    /// ProximityModeWeaponSlot residual (DefaultProximityMode Yes).
+    Proximity,
+    /// ManualModeWeaponSlot residual — wait for manual detonate / detonation slot.
+    Manual,
+    /// DetonationWeaponSlot residual — command to detonate immediately.
+    Detonate,
+}
+
+impl DemoTrapMode {
+    pub fn proximity_enabled(self) -> bool {
+        matches!(self, DemoTrapMode::Proximity)
+    }
+
+    pub fn is_detonate_command(self) -> bool {
+        matches!(self, DemoTrapMode::Detonate)
+    }
+}
 
 /// Host residual mine/trap kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -270,6 +302,10 @@ pub struct HostMineData {
     pub demo_trap_profile: DemoTrapProfile,
     /// When true, enemies in trigger_range detonate (DemoTrap / LandMine).
     pub proximity_enabled: bool,
+    /// DemoTrapUpdate weapon-slot mode residual (Proximity / Manual).
+    /// Land mines ignore this (always proximity when enabled).
+    #[serde(default = "default_demo_trap_mode")]
+    pub demo_trap_mode: DemoTrapMode,
     pub detonated: bool,
     /// Absolute logic frame for timed detonation (TimedDemoCharge).
     pub detonate_at_frame: Option<u32>,
@@ -277,6 +313,10 @@ pub struct HostMineData {
     pub attached_to: Option<ObjectId>,
     /// Source that placed this residual (producer).
     pub producer_id: Option<ObjectId>,
+}
+
+fn default_demo_trap_mode() -> DemoTrapMode {
+    DemoTrapMode::Proximity
 }
 
 impl HostMineData {
@@ -290,11 +330,37 @@ impl HostMineData {
             secondary_radius: 0.0,
             demo_trap_profile: DemoTrapProfile::Standard,
             proximity_enabled: kind.defaults_to_proximity(),
+            // DefaultProximityMode Yes residual for DemoTrap; other kinds ignore.
+            demo_trap_mode: if matches!(kind, HostMineKind::DemoTrap) {
+                DemoTrapMode::Proximity
+            } else {
+                DemoTrapMode::Manual
+            },
             detonated: false,
             detonate_at_frame: None,
             attached_to: None,
             producer_id: None,
         }
+    }
+
+    /// Apply DemoTrapUpdate weapon-slot mode residual.
+    ///
+    /// Returns true if mode changed (or detonate was selected). Detonate does not
+    /// persist as mode — caller should fire manual detonate residual.
+    pub fn set_demo_trap_mode(&mut self, mode: DemoTrapMode) -> bool {
+        if !matches!(self.kind, HostMineKind::DemoTrap) || self.detonated {
+            return false;
+        }
+        if mode.is_detonate_command() {
+            // Detonation slot residual: leave mode as Manual (proximity off) and
+            // signal caller to detonate.
+            self.demo_trap_mode = DemoTrapMode::Manual;
+            self.proximity_enabled = false;
+            return true;
+        }
+        self.demo_trap_mode = mode;
+        self.proximity_enabled = mode.proximity_enabled();
+        true
     }
 
     pub fn land_mine() -> Self {
@@ -526,6 +592,37 @@ mod tests {
         assert!(d.trigger_range > 0.0);
         assert!(d.detonation_damage > 0.0);
         assert!(d.detonate_at_frame.is_none());
+    }
+
+    #[test]
+    fn demo_trap_weapon_slot_mode_residual() {
+        // DefaultProximityMode Yes residual.
+        let mut d = HostMineData::demo_trap();
+        assert_eq!(d.demo_trap_mode, DemoTrapMode::Proximity);
+        assert!(d.proximity_enabled);
+        assert!(DemoTrapMode::Proximity.proximity_enabled());
+        assert!(!DemoTrapMode::Manual.proximity_enabled());
+        assert!(DemoTrapMode::Detonate.is_detonate_command());
+
+        // ManualModeWeaponSlot residual.
+        assert!(d.set_demo_trap_mode(DemoTrapMode::Manual));
+        assert_eq!(d.demo_trap_mode, DemoTrapMode::Manual);
+        assert!(!d.proximity_enabled);
+
+        // Back to ProximityModeWeaponSlot residual.
+        assert!(d.set_demo_trap_mode(DemoTrapMode::Proximity));
+        assert_eq!(d.demo_trap_mode, DemoTrapMode::Proximity);
+        assert!(d.proximity_enabled);
+
+        // DetonationWeaponSlot residual: signals detonate + proximity off.
+        assert!(d.set_demo_trap_mode(DemoTrapMode::Detonate));
+        assert!(!d.proximity_enabled);
+        assert_eq!(d.demo_trap_mode, DemoTrapMode::Manual);
+
+        // Land mines reject demo-trap mode residual.
+        let mut land = HostMineData::land_mine();
+        assert!(!land.set_demo_trap_mode(DemoTrapMode::Manual));
+        assert!(land.proximity_enabled);
     }
 
     #[test]
