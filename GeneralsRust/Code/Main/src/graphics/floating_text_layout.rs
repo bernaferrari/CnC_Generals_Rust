@@ -14,6 +14,7 @@
 //! - Retail green/yellow cash caption color honesty samples
 //! - DisplayString setText residual (notifyTextChanged when text differs)
 //! - DisplayString setFont residual (equal font early-out / m_fontChanged)
+//! - DisplayString getTextLength residual (UnicodeString length = char count)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -109,6 +110,21 @@ pub fn honesty_display_string_set_font(
     changed: bool,
 ) -> bool {
     display_string_set_font_changed(previous_font, new_font) == changed
+}
+
+/// DisplayString `getTextLength` residual: number of characters in residual text.
+///
+/// C++ `DisplayString::getTextLength` → `m_textString.getLength()`.
+/// Host residual uses Unicode scalar count (char count) for ASCII/captions.
+/// Fail-closed vs full UTF-16 WideChar length on live Display surface.
+#[inline]
+pub fn display_string_get_text_length(text: &str) -> u32 {
+    text.chars().count() as u32
+}
+
+/// Honesty: getTextLength residual matches char count.
+pub fn honesty_display_string_get_text_length(text: &str, length: u32) -> bool {
+    display_string_get_text_length(text) == length
 }
 
 /// Floats per packed layout entry:
@@ -486,6 +502,19 @@ mod tests {
         // Empty new font → fail-closed (C++ NULL font early return).
         assert!(!display_string_set_font_changed("Arial", ""));
         assert!(honesty_display_string_set_font("Arial", "", false));
+    }
+
+    #[test]
+    fn display_string_get_text_length_residual_honesty() {
+        assert_eq!(display_string_get_text_length("+$150"), 5);
+        assert!(honesty_display_string_get_text_length("+$150", 5));
+        assert_eq!(display_string_get_text_length(""), 0);
+        assert!(honesty_display_string_get_text_length("", 0));
+        assert_eq!(display_string_get_text_length("$200"), 4);
+        assert!(honesty_display_string_get_text_length("$200", 4));
+        // Measure residual width tracks glyph width × length.
+        let (w, _) = crate::graphics::game_text_residual::measure_display_string_residual("+$150");
+        assert_eq!(w, display_string_get_text_length("+$150") * 8);
     }
 
 }

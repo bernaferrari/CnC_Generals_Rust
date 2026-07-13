@@ -1,3 +1,48 @@
+## Residual Host Playability — Scud FireOCL/Speed Table + Howitzer Aim Params + getTextLength + UK Locale (2026-07-13)
+**Closed (host-testable residual not covered by wave 36/37 DestroyDie/loco/connector residual):**
+1. **ScudStormMissile DeathWeapon FireOCL residual** (`special_power_strikes`):
+   - Base FireOCL **OCL_PoisonFieldLarge**, upgraded **OCL_PoisonFieldUpgradedLarge**.
+   - Honesty: `honesty_scud_death_fire_ocl_ok`.
+   - Fail-closed: not full FireWeaponWhenDead OCL spawn Object path.
+2. **SCUDStormMissileLocomotor SpeedDamaged/MinSpeed/MaxThrustAngle residual** (`special_power_strikes`):
+   - SpeedDamaged **200**, MinSpeed **100**, MaxThrustAngle **45** (plus Speed/Accel/TurnRate honesty).
+   - Honesty: `honesty_scud_locomotor_speed_table_ok`.
+   - Fail-closed: not full Locomotor thrust motive force matrix.
+3. **SpectreHowitzerGun AcceptableAimDelta/AttackRange residual** (`special_power_strikes`):
+   - AcceptableAimDelta **180**, AttackRange **2222**, ProjectileCollidesWith **STRUCTURES WALLS**,
+     AntiGround **Yes**.
+   - Honesty: `honesty_howitzer_gun_aim_params_ok`.
+   - Fail-closed: not full WeaponTemplate store / live turret aim matrix.
+4. **DisplayString getTextLength residual** (`floating_text_layout`):
+   - C++ `m_textString.getLength()` → host char-count residual.
+   - Honesty: `honesty_display_string_get_text_length`.
+   - Fail-closed: not full UTF-16 WideChar length on live Display surface.
+5. **Multi-locale LANGUAGE_ID_UK residual** (`game_text_residual`):
+   - LanguageId UK residual maps to English CSF pack paths (retail UK share).
+   - Discriminant residual US=0 UK=1 German=2 …; path table **6** locales.
+   - Honesty: multi_locale_path_count **6** / `ResidualLanguageId::Uk`.
+   - Fail-closed: not full multi-locale CSF boot UI for all LanguageId assets.
+6. Snapshot/Xfer: scud FireOCL + speed table / howitzer gun aim residual fields appended.
+7. Tests (not log-only):
+   - `scud_death_fire_ocl_and_speed_table_residual_honesty`
+   - `spectre_howitzer_gun_aim_params_residual_honesty`
+   - `display_string_get_text_length_residual_honesty`
+   - `multi_locale_csf_path_residual_table` (UK)
+   - all `special_power_strikes::` (**72**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Scud DestroyDie/Loco Name + Howitzer Shell Loco + Connector KindOf Defaults + TrailRemnant + DisplayString setFont (2026-07-13)
 **Closed (host-testable residual not covered by wave 35 FireWeaponWhenDead/body/loco residual):**
 1. **ScudStormMissile DestroyDie + Locomotor template name residual** (`special_power_strikes`):
