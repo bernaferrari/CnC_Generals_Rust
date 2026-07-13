@@ -187,6 +187,11 @@ pub struct Object {
     /// C++ STEALTH_NOT_WHILE_ATTACKING residual: firing breaks stealth.
     /// Default true for host residual honesty.
     pub stealth_breaks_on_attack: bool,
+    /// C++ StealthForbiddenConditions MOVING residual (Pathfinder): uncloak while moving.
+    /// Fail-closed: not full StealthUpdate condition matrix.
+    pub stealth_breaks_on_move: bool,
+    /// C++ InnateStealth residual: re-cloak when forbidden conditions clear.
+    pub innate_stealth: bool,
 
     /// Host residual: bitmask of player indices currently vision-spying this unit
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
@@ -329,6 +334,8 @@ impl Object {
             detection_range: 0.0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
+            stealth_breaks_on_move: false,
+            innate_stealth: false,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
@@ -403,6 +410,8 @@ impl Object {
             detection_range: 0.0,
             detection_expires_frame: 0,
             stealth_breaks_on_attack: true,
+            stealth_breaks_on_move: false,
+            innate_stealth: false,
             vision_spied_mask: 0,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,

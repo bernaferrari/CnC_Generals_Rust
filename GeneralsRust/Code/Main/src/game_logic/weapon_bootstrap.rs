@@ -78,6 +78,12 @@ pub const COMANCHE_ROCKET_POD_WEAPON: &str = "ComancheRocketPodWeapon";
 /// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
 pub const SENTRY_DRONE_GUN_WEAPON: &str = "SentryDroneGun";
 
+/// Retail Pathfinder sniper residual weapon.
+pub const PATHFINDER_SNIPER_WEAPON: &str = "USAPathfinderSniperRifle";
+
+/// Retail Hellfire drone residual weapon.
+pub const HELLFIRE_MISSILE_WEAPON: &str = "HellfireMissileWeapon";
+
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the GameLogic WeaponStore (if needed) and ensure host combat
@@ -154,6 +160,27 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
         | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_PRIMARY_WEAPON),
+        // Pathfinder sniper residual.
+        "AmericaInfantryPathfinder"
+        | "USA_Pathfinder"
+        | "TestPathfinder"
+        | "AirF_AmericaInfantryPathfinder"
+        | "SupW_AmericaInfantryPathfinder"
+        | "Lazr_AmericaInfantryPathfinder" => Some(PATHFINDER_SNIPER_WEAPON),
+        // Hellfire drone residual primary.
+        "AmericaVehicleHellfireDrone"
+        | "USA_HellfireDrone"
+        | "TestHellfireDrone"
+        | "AirF_AmericaVehicleHellfireDrone"
+        | "SupW_AmericaVehicleHellfireDrone"
+        | "Lazr_AmericaVehicleHellfireDrone" => Some(HELLFIRE_MISSILE_WEAPON),
+        // Scout drone has no primary weapon (sensor only).
+        "AmericaVehicleScoutDrone"
+        | "USA_ScoutDrone"
+        | "TestScoutDrone"
+        | "AirF_AmericaVehicleScoutDrone"
+        | "SupW_AmericaVehicleScoutDrone"
+        | "Lazr_AmericaVehicleScoutDrone" => None,
         // Sentry gun is PLAYER_UPGRADE only — no primary until research residual.
         "AmericaVehicleSentryDrone"
         | "USA_SentryDrone"
@@ -191,6 +218,15 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 return Some(COMANCHE_PRIMARY_WEAPON);
+            }
+            if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
+                return Some(PATHFINDER_SNIPER_WEAPON);
+            }
+            if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
+                return Some(HELLFIRE_MISSILE_WEAPON);
+            }
+            if crate::game_logic::host_slave_drones::is_scout_drone_template(template_name) {
+                return None;
             }
             // Sentry without gun upgrade has no residual primary (fail-closed).
             if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
@@ -506,6 +542,26 @@ fn seed_known_host_weapons() -> usize {
             attack_range: 150.0,
             delay_frames: 6,
             clip_size: 0,
+            weapon_speed: 600.0,
+        },
+        // USAPathfinderSniperRifle PRIMARY — PrimaryDamage 100, Range 300,
+        // Delay 2000ms → 60 frames.
+        SeedWeapon {
+            name: PATHFINDER_SNIPER_WEAPON,
+            primary_damage: 100.0,
+            attack_range: 300.0,
+            delay_frames: 60,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // HellfireMissileWeapon PRIMARY — PrimaryDamage 40, Range 150,
+        // Delay+ClipReload ~3000ms → 90 frames.
+        SeedWeapon {
+            name: HELLFIRE_MISSILE_WEAPON,
+            primary_damage: 40.0,
+            attack_range: 150.0,
+            delay_frames: 90,
+            clip_size: 1,
             weapon_speed: 600.0,
         },
     ];
