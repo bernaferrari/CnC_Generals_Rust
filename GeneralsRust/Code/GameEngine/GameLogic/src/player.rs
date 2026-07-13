@@ -3222,11 +3222,13 @@ impl Player {
     /// The bounty amount awarded.
     pub fn do_bounty_for_kill(&mut self, killer_cost: Int) -> Int {
         // Calculate bounty based on victim's cost and our cash bounty percent
+        // C++: Int bounty = REAL_TO_INT_CEIL(costToBuild * m_cashBountyPercent);
         let bounty = ((killer_cost as Real) * self.cash_bounty_percent).ceil() as Int;
 
-        // Award the bounty
+        // Award the bounty — C++ deposits + scoreKeeper.addMoneyEarned
         if bounty > 0 {
             let _ = self.money.deposit(bounty as u32);
+            self.score_keeper.add_money_earned(bounty as u32);
         }
 
         bounty
