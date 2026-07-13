@@ -37,9 +37,13 @@ pub const SENTRY_GUN_AUDIO: &str = "SentryDroneWeapon";
 /// Whether template is a residual Sentry Drone.
 ///
 /// Fail-closed: name residual (not full DeployStyleAIUpdate / DRONE kind matrix).
-/// Excludes hulk debris / death OCL names that are not the living drone.
+/// Excludes hulk debris / death OCL / weapon-token names that are not the living drone.
 pub fn is_sentry_drone_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
+    let n = template_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect::<String>();
     if n.is_empty() {
         return false;
     }
@@ -47,7 +51,11 @@ pub fn is_sentry_drone_template(template_name: &str) -> bool {
     if n.contains("hulk") || n.contains("die") || n.contains("debris") {
         return false;
     }
-    n.contains("sentrydrone") || n.contains("sentry_drone") || n == "usa_sentrydrone"
+    // Weapon / upgrade tokens (SentryDroneGun, Upgrade_AmericaSentryDroneGun).
+    if n.contains("gun") || n.contains("weapon") || n.starts_with("upgrade") {
+        return false;
+    }
+    n.contains("sentrydrone") || n == "usasentrydrone"
 }
 
 /// Whether residual spawn should install detector fields.

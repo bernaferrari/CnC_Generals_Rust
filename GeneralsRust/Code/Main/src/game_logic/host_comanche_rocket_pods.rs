@@ -63,12 +63,19 @@ pub fn is_comanche_template(template_name: &str) -> bool {
 /// Whether combat should apply rocket-pod area residual instead of single-target HP.
 ///
 /// Host residual: Comanche + upgrade tag + secondary slot (1).
+/// Retail AutoChooseSources = NONE — only fires when player locks slot / FIRE_WEAPON.
 pub fn should_apply_rocket_pod_area_attack(
     is_comanche: bool,
     has_upgrade: bool,
     fired_slot: u8,
 ) -> bool {
     is_comanche && has_upgrade && fired_slot == 1
+}
+
+/// Whether residual auto weapon-chooser may pick rocket-pod secondary.
+/// Always false (retail AutoChooseSources TERTIARY NONE).
+pub fn rocket_pods_auto_choose_allowed() -> bool {
+    false
 }
 
 /// True when residual force-fire / FIRE_WEAPON ground path should use rocket pods.
