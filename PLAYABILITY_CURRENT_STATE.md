@@ -1,3 +1,31 @@
+## Residual Host Playability — Spectre Gattling/Howitzer Dual Residual + Scud Per-Missile Poison (2026-07-13)
+**Closed (host-testable combat/power residual not covered by Scud multi-missile / Spectre OrbitTime / Aurora wave):**
+1. **Spectre dual-weapon orbit residual** (`special_power_strikes`):
+   - Howitzer (`SpectreHowitzerGun`): PrimaryDamage **80** in PrimaryDamageRadius
+     **25** around reticle + deterministic `RandomOffsetForHowitzer` residual (**±20**).
+   - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to nearest living enemy in
+     AttackAreaRadius **200**, DelayBetweenShots **100** ms → **3** frames.
+   - HowitzerFiringRate residual remains **9** frames; both streams exclude source
+     + same-team friendlies.
+   - Host-testable: first insertion tick = 80+90 at reticle; gattling-only at +3;
+     far units outside orbit untouched; honesty_gattling_ok.
+   - Fail-closed: not full projectile path / continuous-fire rate matrix / gunner Object.
+2. **ScudStorm per-missile LargePoisonField residual**:
+   - Each multi-missile wave spawns `OCL_PoisonFieldLarge` residual at wave
+     epicenters (retail FireOCL each detonation), not only on final wave.
+   - Host-testable: poison fields grow across waves; up to ClipSize **9** fields.
+3. Tests (not log-only):
+   - `spectre_gattling_and_howitzer_residual_honesty`
+   - updated `spectre_gunship_impact_spawns_orbit_and_ticks_damage`
+   - updated `scud_storm_multi_missile_scatter_and_poison_residual`
+   - updated `spectre_gunship_host_path_queues_orbit_damage_over_time`
+
+**Still residual (fail-closed, not claimed):**
+- Full SpectreGunshipUpdate gattling continuous-fire bonuses / howitzer shell projectile
+- Full ScudStormMissile Object / PreAttack animation / anthrax-upgraded Secondary 200
+- Full GameLogicRandomValueReal RNG stream
+- Network Spectre dual-weapon / Scud poison replication (network deferred)
+
 ## Residual Host Playability — ScudStorm Multi-Missile + Spectre OrbitTime + Aurora ALLIES/Flame (2026-07-13)
 **Closed (host-testable combat/power residual not covered by wave 11):**
 1. **ScudStorm ClipSize-9 ScatterTarget multi-missile residual** (`special_power_strikes`):
