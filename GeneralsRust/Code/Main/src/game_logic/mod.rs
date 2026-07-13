@@ -692,6 +692,10 @@ pub struct ObjectStatus {
     /// Absolute host logic frame when eject InvulnerableTime expires (0 = inactive).
     #[serde(default)]
     pub eject_invulnerable_until_frame: u32,
+    /// C++ PilotFindVehicleUpdate::m_didMoveToBase residual.
+    /// AI pilot attempts base-center fallback once when no recrewable vehicle is found.
+    #[serde(default)]
+    pub pilot_did_move_to_base: bool,
 }
 
 /// Basic geometry information for objects
