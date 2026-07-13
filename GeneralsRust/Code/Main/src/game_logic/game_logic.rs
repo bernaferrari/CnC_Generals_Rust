@@ -915,6 +915,20 @@ pub struct GameLogic {
     tomahawk_residual_fires: u32,
     tomahawk_residual_units_hit: u32,
 
+    /// Host residual: USA Raptor jet missiles + Laser Missiles honesty.
+    /// Fail-closed: not full RETURN_TO_BASE / ClipReload airfield rearm matrix.
+    raptor_residual_fires: u32,
+    raptor_residual_units_hit: u32,
+    raptor_residual_laser_missiles_upgrades: u32,
+
+    /// Host residual: USA Battle Drone attach / gun / repair honesty.
+    /// Fail-closed: not full SlavedUpdate arm weld FX / ConflictsWith matrix.
+    battle_drone_residual_attaches: u32,
+    battle_drone_residual_fires: u32,
+    battle_drone_residual_units_hit: u32,
+    battle_drone_residual_repairs: u32,
+    battle_drone_residual_repair_amount: f32,
+
     /// Host residual: China Overlord / Emperor main gun dual-radius + Uranium honesty.
     /// Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
     overlord_gun_residual_fires: u32,
@@ -1943,6 +1957,14 @@ impl GameLogic {
             scorpion_residual_missile_fires: 0,
             tomahawk_residual_fires: 0,
             tomahawk_residual_units_hit: 0,
+            raptor_residual_fires: 0,
+            raptor_residual_units_hit: 0,
+            raptor_residual_laser_missiles_upgrades: 0,
+            battle_drone_residual_attaches: 0,
+            battle_drone_residual_fires: 0,
+            battle_drone_residual_units_hit: 0,
+            battle_drone_residual_repairs: 0,
+            battle_drone_residual_repair_amount: 0.0,
             overlord_gun_residual_fires: 0,
             overlord_gun_residual_units_hit: 0,
             overlord_gun_residual_uranium_upgrades: 0,
@@ -2233,6 +2255,14 @@ impl GameLogic {
         self.scorpion_residual_missile_fires = 0;
         self.tomahawk_residual_fires = 0;
         self.tomahawk_residual_units_hit = 0;
+        self.raptor_residual_fires = 0;
+        self.raptor_residual_units_hit = 0;
+        self.raptor_residual_laser_missiles_upgrades = 0;
+        self.battle_drone_residual_attaches = 0;
+        self.battle_drone_residual_fires = 0;
+        self.battle_drone_residual_units_hit = 0;
+        self.battle_drone_residual_repairs = 0;
+        self.battle_drone_residual_repair_amount = 0.0;
         self.overlord_gun_residual_fires = 0;
         self.overlord_gun_residual_units_hit = 0;
         self.overlord_gun_residual_uranium_upgrades = 0;
@@ -4311,6 +4341,9 @@ impl GameLogic {
         // America Supply Drop Zone residual cash (OCLUpdate discrete drops).
         // Fail-closed: not full cargo-plane DeliverPayload / parachute crate path.
         self.update_supply_drop_zone_drops();
+        // USA Battle Drone residual master repair (RepairRatePerSecond when HP < 60%).
+        // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
+        self.update_battle_drone_repair_residual(dt);
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
         self.update_player_radar();
@@ -5585,6 +5618,50 @@ impl GameLogic {
                         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                             if hits > 0 {
                                 attacker.gain_experience((hits as f32) * 15.0);
+                            }
+                        }
+                    } else if {
+                        // USA Raptor residual: jet missiles + Laser Missiles splash.
+                        use crate::game_logic::host_raptor::{
+                            is_raptor_template, should_apply_raptor_residual,
+                        };
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                should_apply_raptor_residual(is_raptor_template(
+                                    &a.template_name,
+                                ))
+                            })
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_raptor_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 12.0);
+                            }
+                        }
+                    } else if {
+                        // USA Battle Drone residual: intended-only MG fire.
+                        use crate::game_logic::host_slave_drones::is_battle_drone_template;
+                        self.objects
+                            .get(&attacker_id)
+                            .map(|a| is_battle_drone_template(&a.template_name))
+                            .unwrap_or(false)
+                    } {
+                        let impact = target_position;
+                        let (hits, _destroyed_any) = self.apply_battle_drone_residual_at(
+                            impact,
+                            Some(attacker_id),
+                            Some(target_id),
+                        );
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            if hits > 0 {
+                                attacker.gain_experience((hits as f32) * 2.0);
                             }
                         }
                     } else if {
@@ -10213,6 +10290,24 @@ impl GameLogic {
                 object.weapon = Some(tomahawk_weapon());
             }
 
+            // Host residual: USA Raptor PRIMARY jet missiles (+ Laser Missiles upgrade).
+            // Fail-closed: not full RETURN_TO_BASE ClipReload airfield rearm matrix.
+            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
+                use crate::game_logic::host_raptor::{
+                    has_laser_missiles_upgrade, is_king_raptor_template, raptor_weapon,
+                };
+                let king = is_king_raptor_template(template_name);
+                let laser = has_laser_missiles_upgrade(&object.applied_upgrades);
+                object.weapon = Some(raptor_weapon(king, laser));
+            }
+
+            // Host residual: USA Battle Drone PRIMARY machine gun.
+            // Fail-closed: not full SlavedUpdate repair arm weld FX matrix.
+            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
+                use crate::game_logic::host_slave_drones::battle_drone_weapon;
+                object.weapon = Some(battle_drone_weapon());
+            }
+
             // Host residual: China Overlord / Emperor PRIMARY dual-radius tank gun.
             // Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
             if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
@@ -14304,6 +14399,66 @@ impl GameLogic {
         self.tomahawk_residual_units_hit
     }
 
+    /// Residual honesty: USA Raptor jet missile residual fired or Laser Missiles applied.
+    pub fn honesty_raptor_ok(&self) -> bool {
+        self.raptor_residual_fires > 0 || self.raptor_residual_laser_missiles_upgrades > 0
+    }
+
+    pub fn honesty_raptor_laser_missiles_ok(&self) -> bool {
+        self.raptor_residual_laser_missiles_upgrades > 0
+    }
+
+    pub fn raptor_residual_fires(&self) -> u32 {
+        self.raptor_residual_fires
+    }
+
+    pub fn raptor_residual_units_hit(&self) -> u32 {
+        self.raptor_residual_units_hit
+    }
+
+    pub fn raptor_residual_laser_missiles_upgrades(&self) -> u32 {
+        self.raptor_residual_laser_missiles_upgrades
+    }
+
+    /// Residual honesty: Battle Drone attach / fire / repair residual path.
+    pub fn honesty_battle_drone_ok(&self) -> bool {
+        self.battle_drone_residual_attaches > 0
+            || self.battle_drone_residual_fires > 0
+            || self.battle_drone_residual_repairs > 0
+    }
+
+    pub fn honesty_battle_drone_attach_ok(&self) -> bool {
+        self.battle_drone_residual_attaches > 0
+    }
+
+    pub fn honesty_battle_drone_fire_ok(&self) -> bool {
+        self.battle_drone_residual_fires > 0
+    }
+
+    pub fn honesty_battle_drone_repair_ok(&self) -> bool {
+        self.battle_drone_residual_repairs > 0
+    }
+
+    pub fn battle_drone_residual_attaches(&self) -> u32 {
+        self.battle_drone_residual_attaches
+    }
+
+    pub fn battle_drone_residual_fires(&self) -> u32 {
+        self.battle_drone_residual_fires
+    }
+
+    pub fn battle_drone_residual_units_hit(&self) -> u32 {
+        self.battle_drone_residual_units_hit
+    }
+
+    pub fn battle_drone_residual_repairs(&self) -> u32 {
+        self.battle_drone_residual_repairs
+    }
+
+    pub fn battle_drone_residual_repair_amount(&self) -> f32 {
+        self.battle_drone_residual_repair_amount
+    }
+
     /// Residual honesty: Overlord / Emperor main gun dual-radius / Uranium residual.
     pub fn honesty_overlord_gun_ok(&self) -> bool {
         self.overlord_gun_residual_fires > 0
@@ -16715,6 +16870,297 @@ impl GameLogic {
         }
 
         (hits, any_destroyed)
+    }
+
+
+    /// Apply Laser Missiles residual tag + rebind Raptor jet missile damage.
+    pub fn apply_raptor_laser_missiles_upgrade(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_raptor::{
+            has_laser_missiles_upgrade, is_king_raptor_template, is_raptor_template,
+            raptor_weapon, UPGRADE_AMERICA_LASER_MISSILES,
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !is_raptor_template(&obj.template_name) {
+            return false;
+        }
+        obj.applied_upgrades
+            .insert(UPGRADE_AMERICA_LASER_MISSILES.to_string());
+        let king = is_king_raptor_template(&obj.template_name);
+        let laser = has_laser_missiles_upgrade(&obj.applied_upgrades);
+        let mut w = raptor_weapon(king, laser);
+        // Preserve fire clock if already mid-combat.
+        if let Some(prev) = obj.weapon.as_ref() {
+            w.last_fire_time = prev.last_fire_time;
+        }
+        obj.weapon = Some(w);
+        self.raptor_residual_laser_missiles_upgrades = self
+            .raptor_residual_laser_missiles_upgrades
+            .saturating_add(1);
+        true
+    }
+
+    /// Apply Raptor residual fire (jet missile + primary radius splash).
+    fn apply_raptor_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_raptor::{
+            has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
+            is_raptor_template, raptor_damage_at, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
+        };
+
+        let (source_team, is_king, has_laser) = {
+            if let Some(sid) = source {
+                if let Some(obj) = self.objects.get(&sid) {
+                    (
+                        obj.team,
+                        is_king_raptor_template(&obj.template_name),
+                        has_laser_missiles_upgrade(&obj.applied_upgrades),
+                    )
+                } else {
+                    (Team::Neutral, false, false)
+                }
+            } else {
+                (Team::Neutral, false, false)
+            }
+        };
+
+        let impact_xz = (impact.x, impact.z);
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        let candidates: Vec<(ObjectId, f32, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if source == Some(*id) {
+                    return None;
+                }
+                let combat_kind = obj.is_kind_of(KindOf::Attackable)
+                    || obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Infantry)
+                    || obj.is_kind_of(KindOf::Vehicle)
+                    || obj.is_kind_of(KindOf::Aircraft);
+                if !is_legal_raptor_target(
+                    obj.is_alive(),
+                    false,
+                    obj.status.under_construction,
+                    combat_kind,
+                ) {
+                    return None;
+                }
+                let pos = obj.get_position();
+                let dist = {
+                    let dx = impact_xz.0 - pos.x;
+                    let dz = impact_xz.1 - pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                let is_intended = intended_target == Some(*id);
+                if is_intended || dist <= RAPTOR_PRIMARY_RADIUS {
+                    Some((*id, dist, is_intended))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (id, dist, is_intended) in candidates {
+            let dmg = raptor_damage_at(if is_intended { 0.0 } else { dist }, is_king, has_laser);
+            if dmg <= 0.0 {
+                continue;
+            }
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let destroyed = obj.take_damage(dmg);
+                hits = hits.saturating_add(1);
+                if destroyed {
+                    any_destroyed = true;
+                    destroy_ids.push((id, Some(source_team)));
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.raptor_residual_fires = self.raptor_residual_fires.saturating_add(1);
+        self.raptor_residual_units_hit = self.raptor_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(RAPTOR_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(150),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_raptor_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Apply Battle Drone residual fire (intended-only machine gun).
+    fn apply_battle_drone_residual_at(
+        &mut self,
+        impact: Vec3,
+        source: Option<ObjectId>,
+        intended_target: Option<ObjectId>,
+    ) -> (u32, bool) {
+        use crate::game_logic::host_slave_drones::{
+            is_battle_drone_template, BATTLE_DRONE_FIRE_AUDIO, BATTLE_DRONE_GUN_DAMAGE,
+        };
+
+        let source_team = source
+            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
+            .unwrap_or(Team::Neutral);
+
+        let mut hits = 0u32;
+        let mut any_destroyed = false;
+        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
+
+        if let Some(tid) = intended_target {
+            if let Some(obj) = self.objects.get_mut(&tid) {
+                if obj.is_alive() && !obj.status.under_construction {
+                    let destroyed = obj.take_damage(BATTLE_DRONE_GUN_DAMAGE);
+                    hits = 1;
+                    if destroyed {
+                        any_destroyed = true;
+                        destroy_ids.push((tid, Some(source_team)));
+                    }
+                }
+            }
+        }
+
+        for (id, killer) in destroy_ids {
+            self.mark_object_for_destruction(id, killer);
+        }
+
+        self.battle_drone_residual_fires = self.battle_drone_residual_fires.saturating_add(1);
+        self.battle_drone_residual_units_hit =
+            self.battle_drone_residual_units_hit.saturating_add(hits);
+
+        self.queue_audio_event(
+            AudioEventRequest::new(BATTLE_DRONE_FIRE_AUDIO)
+                .with_position(impact)
+                .with_priority(120),
+        );
+        if let Some(sid) = source {
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                self.objects
+                    .get(&sid)
+                    .map(|o| o.get_position())
+                    .unwrap_or(impact),
+                Some(impact),
+                self.frame,
+                sid,
+                intended_target,
+            );
+            let _ = is_battle_drone_template(
+                &self
+                    .objects
+                    .get(&sid)
+                    .map(|o| o.template_name.clone())
+                    .unwrap_or_default(),
+            );
+        }
+
+        (hits, any_destroyed)
+    }
+
+    /// Tick residual Battle Drone master repair (RepairRatePerSecond when HP < 60%).
+    ///
+    /// Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
+    pub fn update_battle_drone_repair_residual(&mut self, dt: f32) {
+        use crate::game_logic::host_slave_drones::{
+            battle_drone_repair_amount_for_frame, battle_drone_should_repair_master,
+            is_battle_drone_template, is_slave_drone_master_template,
+        };
+
+        // Pair each battle drone with nearest same-team master residual.
+        let drones: Vec<(ObjectId, Team, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() || !is_battle_drone_template(&o.template_name) {
+                    return None;
+                }
+                Some((*id, o.team, o.get_position()))
+            })
+            .collect();
+        if drones.is_empty() {
+            return;
+        }
+
+        let masters: Vec<(ObjectId, Team, Vec3, f32, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() || !is_slave_drone_master_template(&o.template_name) {
+                    return None;
+                }
+                let max_hp = o.health.maximum.max(1.0);
+                let pct = (o.health.current / max_hp) * 100.0;
+                Some((*id, o.team, o.get_position(), o.health.current, pct))
+            })
+            .collect();
+
+        let heal = battle_drone_repair_amount_for_frame(dt);
+        if heal <= 0.0 {
+            return;
+        }
+
+        for (_drone_id, dteam, dpos) in drones {
+            // Nearest same-team master residual.
+            let mut best: Option<(ObjectId, f32, f32)> = None; // id, dist, pct
+            for (mid, mteam, mpos, _mhp, mpct) in &masters {
+                if *mteam != dteam {
+                    continue;
+                }
+                let dx = dpos.x - mpos.x;
+                let dz = dpos.z - mpos.z;
+                let dist = (dx * dx + dz * dz).sqrt();
+                if best.map(|(_, bd, _)| dist < bd).unwrap_or(true) {
+                    best = Some((*mid, dist, *mpct));
+                }
+            }
+            let Some((mid, dist, mpct)) = best else {
+                continue;
+            };
+            if !battle_drone_should_repair_master(true, mpct, true, dist) {
+                continue;
+            }
+            if let Some(master) = self.objects.get_mut(&mid) {
+                let before = master.health.current;
+                let max_hp = master.health.maximum;
+                master.health.current = (before + heal).min(max_hp);
+                let gained = master.health.current - before;
+                if gained > 0.0 {
+                    self.battle_drone_residual_repairs =
+                        self.battle_drone_residual_repairs.saturating_add(1);
+                    self.battle_drone_residual_repair_amount += gained;
+                }
+            }
+        }
     }
 
     /// Apply Uranium Shells residual tag + rebind Overlord / Emperor main gun.
@@ -19644,6 +20090,11 @@ impl GameLogic {
                     crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
                 );
             }
+            if matches!(kind, SlaveDroneKind::Battle) {
+                tpl.set_primary_weapon_name(
+                    crate::game_logic::host_slave_drones::BATTLE_DRONE_MACHINE_GUN,
+                );
+            }
             // Scout: no primary.
             self.templates.insert(drone_tpl_name.to_string(), tpl);
         }
@@ -19665,6 +20116,10 @@ impl GameLogic {
             SlaveDroneKind::Hellfire => {
                 self.hellfire_drone_residual_attaches =
                     self.hellfire_drone_residual_attaches.saturating_add(1);
+            }
+            SlaveDroneKind::Battle => {
+                self.battle_drone_residual_attaches =
+                    self.battle_drone_residual_attaches.saturating_add(1);
             }
         }
 
@@ -49315,7 +49770,274 @@ mod tests {
     }
 
     /// Residual: China Battlemaster tank gun + Uranium Shells damage + horde/nationalism ROF.
-    /// Residual: China Overlord main gun dual-radius + Uranium Shells.
+    
+    /// Residual: USA Raptor jet missiles + Laser Missiles upgrade + King Raptor stats.
+    #[test]
+    fn raptor_residual_missiles_and_laser_missiles() {
+        use crate::game_logic::host_raptor::{
+            is_king_raptor_template, is_raptor_template, RAPTOR_DAMAGE, RAPTOR_MIN_RANGE,
+            RAPTOR_RANGE, RAPTOR_JET_MISSILE_WEAPON, KING_RAPTOR_DAMAGE, KING_RAPTOR_RANGE,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let mut raptor_tpl = crate::game_logic::ThingTemplate::new("AmericaJetRaptor");
+        raptor_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(RAPTOR_JET_MISSILE_WEAPON);
+        game_logic
+            .templates
+            .insert("AmericaJetRaptor".to_string(), raptor_tpl);
+
+        let raptor_id = game_logic
+            .create_object(
+                "AmericaJetRaptor",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("raptor");
+        {
+            let r = game_logic.find_object(raptor_id).expect("raptor");
+            assert!(is_raptor_template(&r.template_name));
+            assert!(!is_king_raptor_template(&r.template_name));
+            let prim = r.weapon.as_ref().expect("missile");
+            assert!((prim.damage - RAPTOR_DAMAGE).abs() < 0.01);
+            assert!((prim.range - RAPTOR_RANGE).abs() < 1.0);
+            assert!((prim.min_range - RAPTOR_MIN_RANGE).abs() < 1.0);
+            assert!(prim.can_target_air);
+            assert!((prim.reload_time - 5.0 / 30.0).abs() < 0.02);
+        }
+
+        // Target outside min-range residual (min 100 → place at 200).
+        let enemy = game_logic
+            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+            .expect("enemy");
+        let near_splash = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(204.0, 0.0, 0.0))
+            .expect("primary ring");
+        {
+            let r = game_logic.find_object_mut(raptor_id).unwrap();
+            r.attack_target(enemy);
+            if let Some(w) = r.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        let near_hp_before = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+
+        game_logic.set_current_frame(50);
+        game_logic.update_combat(
+            &[raptor_id, enemy, near_splash],
+            LOGIC_FRAME_TIMESTEP,
+        );
+
+        assert!(
+            game_logic.raptor_residual_fires() > 0,
+            "raptor residual fire honesty"
+        );
+        assert!(
+            game_logic.honesty_raptor_ok(),
+            "raptor residual host path honesty"
+        );
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before - 50.0,
+            "raptor primary residual ~100 dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        let near_hp_after = game_logic
+            .find_object(near_splash)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            near_hp_after < near_hp_before,
+            "raptor primary radius residual must hit unit at 4 (before={near_hp_before} after={near_hp_after})"
+        );
+
+        // Laser Missiles residual → 125 damage.
+        assert!(
+            game_logic.apply_raptor_laser_missiles_upgrade(raptor_id),
+            "laser missiles upgrade applies"
+        );
+        assert!(game_logic.honesty_raptor_laser_missiles_ok());
+        {
+            let r = game_logic.find_object(raptor_id).unwrap();
+            let prim = r.weapon.as_ref().expect("laser missile weapon");
+            assert!(
+                (prim.damage - 125.0).abs() < 0.01,
+                "laser missiles 125% residual dmg={}",
+                prim.damage
+            );
+        }
+
+        // King Raptor residual chassis stats.
+        let mut king_tpl = crate::game_logic::ThingTemplate::new("AirF_AmericaJetRaptor");
+        king_tpl
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(180.0);
+        game_logic
+            .templates
+            .insert("AirF_AmericaJetRaptor".to_string(), king_tpl);
+        let king_id = game_logic
+            .create_object(
+                "AirF_AmericaJetRaptor",
+                Team::USA,
+                Vec3::new(50.0, 0.0, 0.0),
+            )
+            .expect("king raptor");
+        {
+            let k = game_logic.find_object(king_id).expect("king");
+            assert!(is_king_raptor_template(&k.template_name));
+            let prim = k.weapon.as_ref().expect("king missile");
+            assert!((prim.damage - KING_RAPTOR_DAMAGE).abs() < 0.01);
+            assert!((prim.range - KING_RAPTOR_RANGE).abs() < 1.0);
+            assert!((prim.reload_time - 3.0 / 30.0).abs() < 0.02);
+            assert_eq!(prim.ammo, Some(6));
+        }
+    }
+
+    /// Residual: USA Battle Drone attach + MG fire + master repair.
+    #[test]
+    fn battle_drone_residual_attach_fire_and_repair() {
+        use crate::game_logic::host_slave_drones::{
+            is_battle_drone_template, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_MACHINE_GUN,
+            SlaveDroneKind,
+        };
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+        ensure_host_weapon_store();
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        // Humvee master residual.
+        let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0);
+        game_logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
+
+        let master_id = game_logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+
+        // Damage master below 60% for repair residual.
+        {
+            let m = game_logic.find_object_mut(master_id).unwrap();
+            m.health.current = m.health.maximum * 0.40;
+        }
+        let master_hp_before = game_logic
+            .find_object(master_id)
+            .map(|m| m.health.current)
+            .unwrap_or(0.0);
+
+        let drone_id = game_logic
+            .residual_attach_slave_drone(master_id, SlaveDroneKind::Battle)
+            .expect("battle drone attach");
+        assert!(game_logic.honesty_battle_drone_attach_ok());
+        {
+            let d = game_logic.find_object(drone_id).expect("drone");
+            assert!(is_battle_drone_template(&d.template_name));
+            let prim = d.weapon.as_ref().expect("battle drone gun");
+            assert!((prim.damage - BATTLE_DRONE_GUN_DAMAGE).abs() < 0.01);
+            assert!((prim.range - 110.0).abs() < 1.0);
+            let _ = BATTLE_DRONE_MACHINE_GUN;
+        }
+        {
+            let m = game_logic.find_object(master_id).unwrap();
+            assert!(
+                m.applied_upgrades.iter().any(|u| u.to_ascii_lowercase().contains("battledrone")
+                    || u.contains("BattleDrone")),
+                "master tagged with BattleDrone upgrade residual"
+            );
+        }
+
+        // Repair residual over one second.
+        for _ in 0..30 {
+            game_logic.update_battle_drone_repair_residual(1.0 / 30.0);
+        }
+        let master_hp_after = game_logic
+            .find_object(master_id)
+            .map(|m| m.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            master_hp_after > master_hp_before + 5.0,
+            "battle drone repair residual ~10 HP/s (before={master_hp_before} after={master_hp_after})"
+        );
+        assert!(
+            game_logic.honesty_battle_drone_repair_ok(),
+            "battle drone repair honesty"
+        );
+        assert!(
+            game_logic.battle_drone_residual_repair_amount() > 5.0,
+            "repair amount honesty"
+        );
+
+        // Fire residual at enemy infantry.
+        let enemy = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let d = game_logic.find_object_mut(drone_id).unwrap();
+            d.attack_target(enemy);
+            if let Some(w) = d.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        let enemy_hp_before = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        game_logic.set_current_frame(80);
+        game_logic.update_combat(&[drone_id, enemy, master_id], LOGIC_FRAME_TIMESTEP);
+        assert!(
+            game_logic.battle_drone_residual_fires() > 0,
+            "battle drone fire honesty"
+        );
+        assert!(game_logic.honesty_battle_drone_fire_ok());
+        let enemy_hp_after = game_logic
+            .find_object(enemy)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            enemy_hp_after < enemy_hp_before,
+            "battle drone MG residual dmg (before={enemy_hp_before} after={enemy_hp_after})"
+        );
+        assert!(game_logic.honesty_battle_drone_ok());
+    }
+
+/// Residual: China Overlord main gun dual-radius + Uranium Shells.
     #[test]
     fn overlord_gun_residual_dual_radius_and_uranium() {
         use crate::game_logic::host_overlord_gun::{
