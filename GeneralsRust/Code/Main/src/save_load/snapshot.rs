@@ -2895,6 +2895,8 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_death_detonated_applications)?;
         xfer.xfer_marker_label("HowitzerShellDeathLaseredApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDeathLaseredOclApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_ocl_applications)?;
         xfer.xfer_marker_label("HowitzerShellOnlyMovingDownApplications")?;
         xfer.xfer_u32(&mut self.howitzer_shell_only_moving_down_applications)?;
         // SpectreHowitzerShell W3D ModelDraw residual (appended).
@@ -3104,6 +3106,38 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         self.last_connector_segment_start.xfer(xfer)?;
         xfer.xfer_marker_label("LastConnectorSegmentEnd")?;
         self.last_connector_segment_end.xfer(xfer)?;
+        // Medium connector soft-edge + OrbitalLaser Vision/Shroud residual (appended).
+        xfer.xfer_marker_label("MediumConnectorSoftEdgeArmed")?;
+        xfer.xfer_u32(&mut self.medium_connector_soft_edge_armed)?;
+        xfer.xfer_marker_label("PeakMediumConnectorSoftEdgeOuterWidth")?;
+        xfer.xfer_f32(&mut self.peak_medium_connector_soft_edge_outer_width)?;
+        xfer.xfer_marker_label("OrbitalVisionShroudArmed")?;
+        xfer.xfer_u32(&mut self.orbital_vision_shroud_armed)?;
+        xfer.xfer_marker_label("LastOrbitalVisionRange")?;
+        xfer.xfer_f32(&mut self.last_orbital_vision_range)?;
+        xfer.xfer_marker_label("LastOrbitalShroudClearingRange")?;
+        xfer.xfer_f32(&mut self.last_orbital_shroud_clearing_range)?;
+        // LaserUpdate client residual (appended).
+        xfer.xfer_marker_label("LaserUpdateInitApplications")?;
+        xfer.xfer_u32(&mut self.laser_update_init_applications)?;
+        xfer.xfer_marker_label("LaserUpdateDirty")?;
+        xfer.xfer_bool(&mut self.laser_update_dirty)?;
+        xfer.xfer_marker_label("LaserUpdateGrowthFrames")?;
+        xfer.xfer_u32(&mut self.laser_update_growth_frames)?;
+        xfer.xfer_marker_label("LaserUpdateCurrentWidthScalar")?;
+        xfer.xfer_f32(&mut self.laser_update_current_width_scalar)?;
+        xfer.xfer_marker_label("LaserUpdateWidening")?;
+        xfer.xfer_bool(&mut self.laser_update_widening)?;
+        xfer.xfer_marker_label("LaserUpdateDecaying")?;
+        xfer.xfer_bool(&mut self.laser_update_decaying)?;
+        xfer.xfer_marker_label("LastLaserUpdateStart")?;
+        self.last_laser_update_start.xfer(xfer)?;
+        xfer.xfer_marker_label("LastLaserUpdateEnd")?;
+        self.last_laser_update_end.xfer(xfer)?;
+        xfer.xfer_marker_label("LastLaserUpdateDrawableMid")?;
+        self.last_laser_update_drawable_mid.xfer(xfer)?;
+        xfer.xfer_marker_label("LastLaserUpdateRadius")?;
+        xfer.xfer_f32(&mut self.last_laser_update_radius)?;
         Ok(())
     }
 }
@@ -3172,6 +3206,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_thrust_wobble_applications: 0,
                 scud_last_thrust_wobble: 0.0,
                 scud_peak_abs_thrust_wobble: 0.0,
+                scud_geometry_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3271,6 +3306,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_physics_mass_applications: 0,
                 howitzer_shell_death_detonated_applications: 0,
                 howitzer_shell_death_lasered_applications: 0,
+                howitzer_shell_death_lasered_ocl_applications: 0,
                 howitzer_shell_only_moving_down_applications: 0,
                 howitzer_shell_model_draw_applications: 0,
                 howitzer_shell_scale_applications: 0,
@@ -3370,6 +3406,21 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 connector_laser_segments_created: 0,
                 last_connector_segment_start: Vec3::ZERO,
                 last_connector_segment_end: Vec3::ZERO,
+                medium_connector_soft_edge_armed: 0,
+                peak_medium_connector_soft_edge_outer_width: 0.0,
+                orbital_vision_shroud_armed: 0,
+                last_orbital_vision_range: 0.0,
+                last_orbital_shroud_clearing_range: 0.0,
+                laser_update_init_applications: 0,
+                laser_update_dirty: false,
+                laser_update_growth_frames: 0,
+                laser_update_current_width_scalar: 0.0,
+                laser_update_widening: false,
+                laser_update_decaying: false,
+                last_laser_update_start: Vec3::ZERO,
+                last_laser_update_end: Vec3::ZERO,
+                last_laser_update_drawable_mid: Vec3::ZERO,
+                last_laser_update_radius: 0.0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
