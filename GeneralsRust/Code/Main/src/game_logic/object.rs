@@ -148,6 +148,16 @@ pub struct Object {
     /// Distinct from generic Humvee transport residual for honesty counters.
     pub is_battle_bus_transport: bool,
 
+    /// Host residual: GLA Tunnel Network structure (`TunnelContain`).
+    /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
+    /// Fail-closed: not full GuardTunnelNetwork AI / CaveSystem cave-in matrix.
+    pub is_tunnel_network: bool,
+
+    /// Host residual: AirF Combat Chinook style transport (capacity 8 + fire +
+    /// armed-riders + ListeningOutpost dummy). Distinct from vanilla Chinook
+    /// (no PassengersAllowedToFire) and from Battle Bus for honesty counters.
+    pub is_combat_chinook_transport: bool,
+
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
     pub contained_by: Option<ObjectId>,
@@ -320,6 +330,8 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
+            is_tunnel_network: false,
+            is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -396,6 +408,8 @@ impl Object {
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
             is_battle_bus_transport: false,
+            is_tunnel_network: false,
+            is_combat_chinook_transport: false,
             contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
@@ -1405,6 +1419,10 @@ impl Object {
         if self.is_overlord_style_container() {
             return self.overlord_bunker_slot_capacity() > 0;
         }
+        // GLA Tunnel Network residual: TunnelContain entrance (shared team pool).
+        if self.is_tunnel_network_style_container() {
+            return self.is_kind_of(KindOf::Structure);
+        }
         // Transports: any vehicle may act as a container (host residual).
         // Explicit max_transport=0 still allows footprint residual capacity.
         if self.is_kind_of(KindOf::Vehicle) {
@@ -1480,6 +1498,49 @@ impl Object {
     /// True when this vehicle is a Battle Bus residual transport.
     pub fn is_battle_bus_style_container(&self) -> bool {
         self.is_battle_bus_transport
+    }
+
+    /// Install residual GLA Tunnel Network structure:
+    /// C++ TunnelContain shared MaxTunnelCapacity=10 per player.
+    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem.
+    pub fn install_tunnel_network_residual(&mut self) {
+        self.is_tunnel_network = true;
+        if let Some(bd) = self.building_data.as_mut() {
+            // Local max is the shared pool cap; GameLogic enforces team-shared count.
+            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+        } else {
+            let mut bd = BuildingData::new(BuildingType::Bunker);
+            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            self.building_data = Some(bd);
+        }
+    }
+
+    /// True when this structure is a GLA Tunnel Network residual entrance.
+    pub fn is_tunnel_network_style_container(&self) -> bool {
+        self.is_tunnel_network
+    }
+
+    /// Install residual Air Force Combat Chinook transport:
+    /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
+    /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY VEHICLE.
+    /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    pub fn install_combat_chinook_transport(&mut self) {
+        self.is_combat_chinook_transport = true;
+        self.max_transport =
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
+        self.passengers_allowed_to_fire = true;
+        self.armed_riders_upgrade_weapon_set = true;
+        // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
+        self.thing.template.add_kind_of(KindOf::Attackable);
+        // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE
+        // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
+        self.weapon = None;
+        self.weapon_set_player_upgrade = false;
+    }
+
+    /// True when this vehicle is an AirF Combat Chinook residual transport.
+    pub fn is_combat_chinook_style_container(&self) -> bool {
+        self.is_combat_chinook_transport
     }
 
     /// Residual transport capacity (vehicles). Overlord bunker residual wins,

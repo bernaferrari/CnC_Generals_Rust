@@ -1,3 +1,27 @@
+## Residual Host Playability — GLA Tunnel Network Enter/Exit (2026-07-12)
+**Closed (host-testable TunnelContain shared pool + cross-tunnel exit):**
+1. **Tunnel Network residual** (`GLATunnelNetwork` / general variants / SneakAttack tunnel):
+   - `TunnelContain` shared passenger pool per team (`GameData.ini MaxTunnelCapacity = 10`).
+   - Enter any allied tunnel network structure (all ground units; aircraft residual-skip).
+   - Exit / Evacuate on **any** allied tunnel dumps the shared pool at that tunnel
+     (enter A → evacuate B places unit at B — key residual path).
+   - Honesty: `honesty_tunnel_network_enter_exit_ok` /
+     `honesty_tunnel_network_cross_exit_ok` / `honesty_tunnel_network_ok`.
+2. Tests (not log-only):
+   - `tunnel_network_residual_flags_and_capacity_installed`
+   - `tunnel_network_residual_enter_sets_garrisoned_and_shared_pool`
+   - `tunnel_network_residual_cross_exit_enter_a_evacuate_b`
+   - `tunnel_network_residual_shared_capacity_full_rejects_enter`
+   - `tunnel_network_residual_rejects_aircraft`
+   - module unit tests in `host_tunnel_network.rs`
+
+**Still residual (fail-closed, not claimed):**
+- Full GuardTunnelNetwork / AITNGuard nemesis AI path
+- Full TimeForFullHeal / healObjects tick while contained
+- Full CaveSystem multi-index / last-tunnel cave-in destroy matrix
+- Full ExitStart bone / multi-door exit interface
+- Network tunnel-network replication (network deferred)
+
 ## Residual Host Playability — Pathfinder Stealth Detect + Scout/Hellfire Drones (2026-07-12)
 **Closed (host-testable detect + stealth + drone attach/auto-fire):**
 1. **Pathfinder residual** (`AmericaInfantryPathfinder`):
@@ -22,11 +46,32 @@
    - `slave_drone_residual_rejects_non_master_attach`
    - module unit tests in `host_pathfinder.rs` / `host_slave_drones.rs`
 
+**Closed (host-testable Combat Chinook passenger fire residual):**
+1. **Combat Chinook residual** (`AirF_AmericaVehicleChinook`):
+   - TransportContain Slots=**8**, `PassengersAllowedToFire=Yes`,
+     `ArmedRidersUpgradeMyWeaponSet=Yes` (ListeningOutpostUpgradedDummyWeapon bind).
+   - AllowInsideKindOf residual: infantry + vehicle (rejects aircraft).
+   - Docked riders residual-fire from chinook origin (Battle Bus pattern).
+   - PointDefenseLaser residual name matrix includes AirF Combat Chinook
+     (ScanRange 250 / AttackRange 65 / Delay ~8 frames).
+   - Honesty: `honesty_combat_chinook_load_unload_ok` /
+     `honesty_combat_chinook_passenger_fire_ok` /
+     `honesty_combat_chinook_weapon_set_upgrade_ok`.
+   - Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+2. Tests:
+   - `combat_chinook_residual_capacity_and_flags_installed`
+   - `combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set`
+   - `combat_chinook_residual_load_two_unload_both_free`
+   - `combat_chinook_residual_passenger_fire_damages_nearby_enemy`
+   - `combat_chinook_residual_capacity_full_rejects_enter`
+   - `combat_chinook_residual_allows_vehicle_enter`
+   - module unit tests in `host_combat_chinook.rs`
+
 **Still residual (fail-closed, not claimed):**
 - Full SlavedUpdate guard/scout wander ranges / master layer lock
 - Full ObjectCreationUpgrade ConflictsWith / ProductionUpdate door UI per-vehicle
 - Full Pathfinder SCIENCE_Pathfinder prereq gate / FriendlyOpacity pulse / IR detector FX
-- Combat Chinook passenger-fire residual (AirF Chinook PassengersAllowedToFire) — still open
+- Full ChinookAIUpdate ropes / supply warehouse boxes / rappel / combat drop clear
 - Humvee TOW / FlashBang remain partial via existing host upgrades
 - Network detector / drone replication (network deferred)
 
@@ -288,7 +333,7 @@
 **Still residual (fail-closed, not claimed):**
 - Full OCL Start model animation / crack-dust particle stack
 - Full multi-shockwave FireWeaponUpdate timing (10ms / 1000ms / 2500ms)
-- Full TunnelContain enter/exit / GuardTunnelNetwork AI path
+- Full GuardTunnelNetwork AI path (enter/exit residual closed above)
 - SharedSyncedTimer / multiplayer academy classification
 - Network sneak-attack replication (network deferred)
 

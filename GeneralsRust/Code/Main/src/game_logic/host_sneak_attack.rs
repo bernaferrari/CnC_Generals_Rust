@@ -13,7 +13,8 @@
 //! Fail-closed honesty:
 //! - Not full OCL Start/Tunnel model animation / crack dust particle stack
 //! - Not full multi-shockwave timing matrix (10ms / 1000ms / 2500ms FireWeaponUpdate)
-//! - Not full TunnelContain enter/exit / GuardTunnelNetwork AI path
+//! - TunnelContain enter/exit residual is host_tunnel_network (shared pool + cross-exit);
+//!   not full GuardTunnelNetwork AI path
 //! - Not SharedSyncedTimer / multiplayer academy classification
 //! - Not network sneak-attack replication (network deferred)
 

@@ -46,6 +46,8 @@ pub mod host_firewall;
 pub mod host_inferno_cannon;
 pub mod host_aurora_bomb;
 pub mod host_battle_bus;
+pub mod host_tunnel_network;
+pub mod host_combat_chinook;
 pub mod host_cleanup_area;
 pub mod host_comanche_rocket_pods;
 pub mod host_sentry_drone;
@@ -222,6 +224,15 @@ pub use host_inferno_cannon::{
 pub use host_battle_bus::{
     battle_bus_passenger_dummy_weapon, is_battle_bus_template, rider_has_viable_weapon,
     HostBattleBusRegistry, BATTLE_BUS_TRANSPORT_SLOTS,
+};
+pub use host_tunnel_network::{
+    is_tunnel_network_template, unit_can_use_tunnel, HostTunnelNetworkRegistry,
+    MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES,
+};
+pub use host_combat_chinook::{
+    combat_chinook_rider_has_viable_weapon, is_combat_chinook_template,
+    is_passenger_dummy_weapon, listening_outpost_upgraded_dummy_weapon,
+    HostCombatChinookRegistry, COMBAT_CHINOOK_TRANSPORT_SLOTS,
 };
 pub use host_cleanup_area::{
     in_cleanup_radius_2d, is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaRegistry,
