@@ -1,3 +1,42 @@
+## Residual Host Playability — Parachute Pitch/Roll Sway + LaserUpdate Endpoint Track (2026-07-13)
+**Closed (host-testable AmericaParachute pitch/roll sway + Patriot LaserUpdate residual):**
+1. **AmericaParachute pitch/roll sway residual** (ParachuteContain + ParachuteLocomotor):
+   - PitchRateMax / RollRateMax **60** deg/s → **π/90** rad/frame seed band.
+   - Deterministic host seed: pitch **+½ max**, roll **−½ max** on chute open.
+   - Open-chute spring/damper residual each frame:
+     stiffness **0.02**, damping **0.01** (ParachuteLocomotor).
+   - LowAltitudeDamping **0.2** when height ≤ **20** (ALTITUDE_DAMP_START).
+   - Freefall residual does not sway; land clears pitch/roll state.
+   - Host-testable: freefall zero; open → non-zero pitch/roll; land clear.
+   - Fail-closed: not full bone PARA_COG / rider sway / DeliverPayload matrix.
+2. **LaserUpdate endpoint track + W3DLaserDraw param residual**
+   (PatriotBinaryDataStream assist beams):
+   - Each frame refreshes start/end from live `from_id` / `to_id` positions
+     (C++ `LaserUpdate::updateStartPos` / `updateEndPos` without bone).
+   - Dead/missing target freezes last end residual.
+   - W3DLaserDraw honesty: NumBeams **1**, ScrollRate **-0.25**, ArcHeight **30**,
+     InnerBeamWidth **4**, Segments **20**; host advances scroll residual/frame.
+   - Host-testable: endpoint follows moved victim; scroll advances; lifetime still 18.
+   - Fail-closed: not full texture / arc segment GPU draw.
+3. Tests (not log-only):
+   - `eject_pilot_parachute_pitch_roll_sway_residual`
+   - updated `patriot_assist_binary_data_stream_laser_residual`
+     (endpoint track + ScrollRate + draw params)
+   - module unit tests in `host_usa_pilot` / `host_base_defense`
+     (sway matrix / LowAltitudeDamping / track + freeze / scroll)
+
+**Still residual (fail-closed, not claimed):**
+- Full TurretAI mood-target / bone pitch matrix
+- Full W3DLaserDraw texture / arc GPU draw for Patriot assist beams
+  (endpoint track + draw-param honesty host residual closed 2026-07-13)
+- Full VisionObjectName spawn residual (createVisionObject disabled in retail C++)
+- Full AmericaParachute bone PARA_COG / DeliverPayload residual
+  (pitch/roll spring-damper host residual closed 2026-07-13)
+- Full AutoFindHealingUpdate AlwaysHeal busy-interrupt path (dead code in retail C++)
+- Full physical SpawnBehavior slave objects / HiveStructureBody getClosestSlave matrix
+- Full CamoNetting sub-object net visual / W3D heat-vision drawable matrix
+- Network parachute-sway / laser-endpoint replication (network deferred)
+
 ## Residual Host Playability — TurretAI HoldTurret/Idle-Recenter + CamoNetting FriendlyOpacity (2026-07-13)
 **Closed (host-testable Strategy Center TurretAI HoldTurret + idle-recenter + CamoNetting FriendlyOpacity residual):**
 1. **TurretAI HoldTurret + idle-recenter residual** (Strategy Center Turret):
