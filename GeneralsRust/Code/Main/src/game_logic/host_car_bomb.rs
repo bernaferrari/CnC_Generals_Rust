@@ -1,8 +1,11 @@
 //! Host GLA Hijack / ConvertToCarBomb residual.
 //!
 //! Residual slice (playability):
-//! - `Hijack`: infantry reaches enemy vehicle → vehicle transfers team + HIJACKED;
-//!   hijacker is consumed (fail-closed vs HijackerUpdate hide-in-vehicle path).
+//! - `Hijack`: infantry walks to enemy ground vehicle → transfer team +
+//!   OBJECT_STATUS_HIJACKED; hijacker is consumed (fail-closed residual of
+//!   ConvertToHijackedVehicleCrateCollide + HijackerUpdate hide-in-vehicle;
+//!   always consume, never eject-pilot re-spawn). Already-hijacked targets
+//!   are rejected. Observable audio + radar message on success.
 //! - `ConvertToCarbomb`: infantry reaches vehicle (incl. neutral civilians) →
 //!   vehicle defects to converter team, gains IS_CARBOMB + SuicideCarBomb weapon
 //!   residual, converter is consumed (C++ ConvertToCarBombCrateCollide).
@@ -15,6 +18,7 @@
 //! - Not full HijackerUpdate hide-in-partition / eject-pilot re-spawn path
 //! - Not full SuicideCarBomb secondary radius / NOT_SIMILAR ally filtering
 //! - Not full radar re-add / EVA vehicle-stolen / script name transfer
+//! - Not full immune-to-capture / transport-occupancy / dozer-task cancel matrix
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};

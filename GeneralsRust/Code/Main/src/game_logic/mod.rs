@@ -64,7 +64,8 @@ pub use host_cia_intelligence::{
     CIA_INTELLIGENCE_DURATION_FRAMES,
 };
 pub use host_hero_abilities::{
-    HostHeroAbilityRegistry, STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
+    HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_AUDIO, DISABLE_VEHICLE_HACK_DURATION_FRAMES,
+    STEAL_CASH_DEFAULT_AMOUNT, SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO,
 };
 pub use host_car_bomb::{
     car_bomb_damage_at_distance, suicide_car_bomb_weapon, HostCarBombRegistry,
@@ -237,6 +238,13 @@ pub struct ObjectStatus {
     /// Vehicle stays alive but cannot act; team is typically Neutral.
     #[serde(default)]
     pub disabled_unmanned: bool,
+    /// C++ DISABLED_HACKED residual (Black Lotus DisableVehicleHack).
+    /// Vehicle stays alive on its team but cannot move/attack until frame expires.
+    #[serde(default)]
+    pub disabled_hacked: bool,
+    /// Absolute host logic frame when DISABLED_HACKED expires (0 = inactive).
+    #[serde(default)]
+    pub disabled_hacked_until_frame: u32,
     /// C++ OBJECT_STATUS_IS_CARBOMB residual (ConvertToCarBombCrateCollide).
     /// Vehicle uses SuicideCarBomb weapon set residual and detonates on attack fire.
     #[serde(default)]

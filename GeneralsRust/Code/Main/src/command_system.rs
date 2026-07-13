@@ -185,6 +185,10 @@ pub enum CommandType {
     StealCashHack {
         target_id: ObjectId,
     },
+    /// Black Lotus residual: disable enemy ground vehicle (DISABLED_HACKED).
+    DisableVehicleHack {
+        target_id: ObjectId,
+    },
     SwitchWeapons,
     ToggleOvercharge,
 
@@ -1446,6 +1450,10 @@ impl CommandSystem {
         }
 
         let target_has_occupants = !target.contained_units().is_empty();
+        // Structures + Overlord BattleBunker residual: infantry/heroes only.
+        let infantry_only = target.is_kind_of(KindOf::Structure)
+            || (target.is_overlord_style_container()
+                && target.overlord_bunker_slot_capacity() > 0);
 
         for &unit_id in units {
             let Some(unit) = game_logic.get_object(unit_id) else {
@@ -1458,6 +1466,10 @@ impl CommandSystem {
                 || !unit.can_move()
                 || unit.is_kind_of(KindOf::Structure)
             {
+                continue;
+            }
+
+            if infantry_only && !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
                 continue;
             }
 
