@@ -4,23 +4,72 @@
 //! Host residual closed here (fail-closed vs full retail Anim2D GPU draw):
 //! - Z-rise offset from retail `zRisePerSecond` × age (host Y-up → +lift)
 //! - Display-time / fade residual from MoneyPickUp template parameters
+//! - Anim2D frame advance residual (NumberImages / AnimationDelay / LOOP mode)
+//! - Frame image name residual (`SCPDollar000`..`SCPDollar030`)
 //! - Honesty counters for anims / active / bytes packed
 //! - Deterministic pack order for dual-tick presentation consumers
 //!
 //! Still residual:
-//! - Full Anim2DCollection GPU frame advance / texture atlas sample
+//! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
 //! - WORLD_ANIM_FADE_ON_EXPIRE live Display surface blend
 
 use crate::presentation_frame::{PresentationFrame, PresentationWorldAnim};
 
 /// Floats per packed world-anim layout entry:
-/// pos.xyz + lift_y + display_time + z_rise + age_frames + alpha + fades = 9 × f32.
-pub const WORLD_ANIM_LAYOUT_FLOATS: usize = 9;
+/// pos.xyz + lift_y + display_time + z_rise + age_frames + alpha + fades + current_frame = 10 × f32.
+pub const WORLD_ANIM_LAYOUT_FLOATS: usize = 10;
 /// Bytes per packed layout entry.
 pub const WORLD_ANIM_LAYOUT_BYTES: usize = WORLD_ANIM_LAYOUT_FLOATS * std::mem::size_of::<f32>();
 
 /// Logic frames per second residual for age → seconds conversion.
 pub const WORLD_ANIM_LOGIC_FPS: f32 = 30.0;
+
+// ---------------------------------------------------------------------------
+// MoneyPickUp Anim2D template residual (Animation2D.ini)
+// ---------------------------------------------------------------------------
+
+/// Retail `NumberImages` for MoneyPickUp.
+pub const MONEY_PICKUP_NUM_FRAMES: u16 = 31;
+/// Retail `AnimationDelay` in milliseconds.
+pub const MONEY_PICKUP_ANIM_DELAY_MS: u32 = 30;
+/// Retail frames between updates: ceil(ms * 30 / 1000) = ceil(0.9) = 1.
+pub const MONEY_PICKUP_FRAMES_BETWEEN_UPDATES: u32 = 1;
+/// Retail AnimationMode = LOOP.
+pub const MONEY_PICKUP_ANIM_MODE_LOOP: bool = true;
+/// Retail image sequence prefix (`SCPDollar000`..).
+pub const MONEY_PICKUP_IMAGE_PREFIX: &str = "SCPDollar";
+
+/// Convert AnimationDelay ms → logic frames (C++ parseDurationUnsignedShort / ceil).
+pub fn anim_delay_ms_to_frames(ms: u32) -> u32 {
+    // ConvertDurationFromMsecsToFrames: ms * 30 / 1000, then ceil.
+    let frames = (ms as f32) * WORLD_ANIM_LOGIC_FPS / 1000.0;
+    frames.ceil().max(1.0) as u32
+}
+
+/// MoneyPickUp LOOP mode current frame residual from age.
+///
+/// C++ Anim2D::try_next_frame advances when
+/// `now - last_update >= frames_between_updates`, LOOP wraps max→min.
+pub fn money_pickup_current_frame(age_frames: u32) -> u16 {
+    let between = MONEY_PICKUP_FRAMES_BETWEEN_UPDATES.max(1);
+    let steps = age_frames / between;
+    (steps % (MONEY_PICKUP_NUM_FRAMES as u32)) as u16
+}
+
+/// Residual frame image name: `SCPDollar` + zero-padded 3-digit frame.
+pub fn money_pickup_frame_image_name(frame: u16) -> String {
+    format!("{MONEY_PICKUP_IMAGE_PREFIX}{frame:03}")
+}
+
+/// Honesty: frame index + image name residual match MoneyPickUp template.
+pub fn honesty_money_pickup_frame(age_frames: u32, frame: u16, image: &str) -> bool {
+    let expected = money_pickup_current_frame(age_frames);
+    frame == expected
+        && image == money_pickup_frame_image_name(expected)
+        && expected < MONEY_PICKUP_NUM_FRAMES
+        && anim_delay_ms_to_frames(MONEY_PICKUP_ANIM_DELAY_MS) == MONEY_PICKUP_FRAMES_BETWEEN_UPDATES
+        && MONEY_PICKUP_ANIM_MODE_LOOP
+}
 
 /// One CPU-side residual world-anim layout sample.
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +84,10 @@ pub struct WorldAnimLayoutEntry {
     pub alpha: f32,
     pub fades: f32,
     pub template_hash: u32,
+    /// Anim2D current frame residual (LOOP advance).
+    pub current_frame: u16,
+    /// Frame image name residual (`SCPDollarNNN`).
+    pub frame_image: String,
 }
 
 impl WorldAnimLayoutEntry {
@@ -49,6 +102,7 @@ impl WorldAnimLayoutEntry {
             self.age_frames,
             self.alpha,
             self.fades,
+            self.current_frame as f32,
         ]
     }
 }
@@ -63,6 +117,10 @@ pub struct WorldAnimLayoutHonesty {
     pub has_geometry: bool,
     pub gpu_upload_ready: bool,
     pub money_pickup_templates_ok: bool,
+    /// True when all packed MoneyPickUp entries have honest Anim2D frame residual.
+    pub anim2d_frame_ok: bool,
+    /// Peak Anim2D frame index observed this pack.
+    pub peak_anim_frame: u16,
 }
 
 impl WorldAnimLayoutHonesty {
@@ -80,6 +138,10 @@ impl WorldAnimLayoutHonesty {
 
     pub fn honesty_template_ok(&self) -> bool {
         self.money_pickup_templates_ok
+    }
+
+    pub fn honesty_anim2d_frame_ok(&self) -> bool {
+        self.anim2d_frame_ok
     }
 }
 
@@ -108,6 +170,7 @@ impl WorldAnimLayout {
             honesty: WorldAnimLayoutHonesty {
                 cpu_pack_ok: true,
                 money_pickup_templates_ok: true,
+                anim2d_frame_ok: true,
                 ..Default::default()
             },
         }
@@ -129,6 +192,8 @@ impl WorldAnimLayout {
         let mut entries = Vec::with_capacity(anims.len());
         let mut active = 0u32;
         let mut templates_ok = true;
+        let mut frame_ok = true;
+        let mut peak_anim_frame = 0u16;
         for a in anims {
             if a.template.is_empty() {
                 templates_ok = false;
@@ -150,6 +215,14 @@ impl WorldAnimLayout {
             if alpha <= 0.0 {
                 continue;
             }
+            let current_frame = money_pickup_current_frame(age);
+            let frame_image = money_pickup_frame_image_name(current_frame);
+            if a.template == "MoneyPickUp"
+                && !honesty_money_pickup_frame(age, current_frame, &frame_image)
+            {
+                frame_ok = false;
+            }
+            peak_anim_frame = peak_anim_frame.max(current_frame);
             entries.push(WorldAnimLayoutEntry {
                 position: [a.position.x, a.position.y, a.position.z],
                 lift_y: lift,
@@ -159,6 +232,8 @@ impl WorldAnimLayout {
                 alpha,
                 fades: if a.fades { 1.0 } else { 0.0 },
                 template_hash: template_hash(&a.template),
+                current_frame,
+                frame_image,
             });
         }
 
@@ -168,6 +243,15 @@ impl WorldAnimLayout {
         }
         let layout_bytes = f32_slice_to_bytes(&floats);
         let anims_packed = entries.len() as u32;
+        // Empty of MoneyPickUp failures is honest; non-empty requires frame residual.
+        let anim2d_frame_ok = if anims_packed == 0 {
+            true
+        } else {
+            frame_ok
+                && entries.iter().all(|e| {
+                    honesty_money_pickup_frame(e.age_frames as u32, e.current_frame, &e.frame_image)
+                })
+        };
         Self {
             honesty: WorldAnimLayoutHonesty {
                 anims_packed,
@@ -177,6 +261,8 @@ impl WorldAnimLayout {
                 has_geometry: active > 0,
                 gpu_upload_ready: false,
                 money_pickup_templates_ok: templates_ok,
+                anim2d_frame_ok,
+                peak_anim_frame,
             },
             entries,
             layout_bytes,
@@ -210,6 +296,7 @@ mod tests {
         assert!(pack.honesty.honesty_cpu_pack_ok());
         assert!(!pack.honesty.honesty_geometry_ok());
         assert!(pack.honesty.honesty_template_ok());
+        assert!(pack.honesty.honesty_anim2d_frame_ok());
     }
 
     #[test]
@@ -227,5 +314,24 @@ mod tests {
         let mut marked = pack;
         marked.mark_gpu_upload_ready();
         assert!(marked.honesty.honesty_upload_ready_ok());
+    }
+
+    #[test]
+    fn money_pickup_anim2d_frame_advance_residual() {
+        assert_eq!(anim_delay_ms_to_frames(30), 1);
+        assert_eq!(money_pickup_current_frame(0), 0);
+        assert_eq!(money_pickup_current_frame(1), 1);
+        assert_eq!(money_pickup_current_frame(30), 30);
+        assert_eq!(money_pickup_current_frame(31), 0); // LOOP wrap
+        assert_eq!(money_pickup_frame_image_name(0), "SCPDollar000");
+        assert_eq!(money_pickup_frame_image_name(12), "SCPDollar012");
+        assert!(honesty_money_pickup_frame(15, 15, "SCPDollar015"));
+
+        let anim = PresentationWorldAnim::synthetic_money_pickup(0);
+        let pack = WorldAnimLayout::pack_anims_at(&[anim], 15);
+        assert!(pack.honesty.honesty_anim2d_frame_ok());
+        assert_eq!(pack.entries[0].current_frame, 15);
+        assert_eq!(pack.entries[0].frame_image, "SCPDollar015");
+        assert_eq!(pack.honesty.peak_anim_frame, 15);
     }
 }

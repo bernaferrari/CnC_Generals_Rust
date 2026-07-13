@@ -1,3 +1,60 @@
+## Residual Host Playability — Presentation CSF/STR + Multi-Beam Soft Edge + Anim2D Frame + DisplayString Measure (2026-07-13)
+**Closed (host-testable presentation residual not covered by wave 27–29 RNG/combat residual):**
+1. **CSF/STR Unicode GameText residual** (`game_text_residual`):
+   - Pure STR residual parse matching C++ map-string blocks.
+   - Pure CSF residual parse matching `generals.csf` LBL/RTS blocks (UTF-16 xor).
+   - Retail English `GUI:AddCash` template residual **`$%d`** + printf-d format → `$N`.
+   - Optional live English CSF load when assets present (GUI:Back=BACK honesty).
+   - Synthetic CSF fixture path for CI without assets.
+   - Honesty: `exercise_host_game_text_residual` / `game_text_csf_str_ok`.
+   - Fail-closed: not full multi-locale CSF boot for all LanguageId / live Display surface.
+2. **DisplayString monospaced measure residual** (`floating_text_layout` + `game_text_residual`):
+   - 8×8 glyph extents residual for packed captions (`+$N` host frozen text).
+   - Honesty: `display_string_measure_ok` on shell smoke + layout pack.
+   - Fail-closed: not full GPU font atlas raster / WW3D StretchRect submit.
+3. **OrbitalLaser multi-beam soft-edge CPU pack residual** (`laser_segment_upload`):
+   - NumBeams **12** width/color lerp: Inner 0.6/white → Outer 26/blue.
+   - ScrollRate **-1.75** UV + TilingScalar **0.15** tile factor residual.
+   - Texture residual `EXNoise02.tga`.
+   - Honesty: `honesty_multi_beam_soft_edge_ok` / `multi_beam_soft_edge_ok`.
+   - Fail-closed: not live WGPU texture atlas / additive soft-edge shader submit.
+4. **MoneyPickUp Anim2D frame advance residual** (`world_anim_layout`):
+   - NumberImages **31**, AnimationDelay **30**ms → frames_between **1**, LOOP mode.
+   - Frame image residual `SCPDollar000`..`SCPDollar030`.
+   - Honesty: `anim2d_frame_ok` / `honesty_money_pickup_frame`.
+   - Fail-closed: not full Anim2DCollection GPU texture atlas sample.
+5. Shell smoke residual flags (do not flip playable_claim):
+   - `multi_beam_soft_edge_ok`, `anim2d_frame_ok`, `game_text_csf_str_ok`,
+     `display_string_measure_ok` (plus prior presentation flags).
+7. **Co-landed combat residual honesty** (already green in-tree with this wave):
+   - Multi-beam soft-edge width/alpha/color lerp residual on beam field
+     (`particle_uplink_soft_edge_residual_honesty`).
+   - ScudStormMissile ballistic flight residual (locomotor speed/accel +
+     OnlyWhenMovingDown/SnapToGround + model UBScudStrm_M).
+   - SpectreHowitzerShell W3D ModelDraw residual (AVSpectreShell1 Scale/Shadow/
+     MaxHealth/Geometry honesty).
+   - Outer-node bone layout residual (FX01..FX05 ring positions host residual).
+   - Snapshot/Xfer fields appended for soft-edge / outer-node / ballistic / ModelDraw.
+
+6. Tests (not log-only):
+   - `game_text_residual::*` (5)
+   - `laser_segment_upload::orbital_multi_beam_soft_edge_residual_honesty`
+   - `world_anim_layout::money_pickup_anim2d_frame_advance_residual`
+   - updated `floating_text_layout` measure residual
+   - shell_smoke (4)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Once-at-Queue OCL + Scud PreferredHeight Spring + NumBeams Scroll + Helpers RNG Unify (2026-07-13)
 **Closed (host-testable combat residual not covered by wave 26–27 OuterBeam/loft/RNG residual):**
 1. **Once-at-queue multi-strike OCL residual** (`special_power_strikes`):

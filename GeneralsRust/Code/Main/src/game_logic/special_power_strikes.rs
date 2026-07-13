@@ -69,8 +69,18 @@
 //! HeightDie / PreferredHeight spring residual closed (not full ThingFactory
 //! projectile Object / live MissileAIUpdate physics flight sim).
 //! OuterBeamWidth multi-beam NumBeams + ScrollRate / TilingScalar residual closed
-//! (host tracks multi-beam cylinder count + scroll UV honesty; fail-closed vs
-//! full GPU multi-beam soft edge / texture atlas submit).
+//! (host tracks multi-beam cylinder count + scroll UV honesty).
+//! Multi-beam soft-edge width/alpha/color lerp residual closed
+//! (W3DLaserDraw scale = i/(NumBeams-1) cylinders + tile-factor honesty;
+//! fail-closed vs full SegLineRenderer GPU texture atlas submit).
+//! ScudStormMissile ballistic flight residual closed
+//! (locomotor speed/accel + OnlyWhenMovingDown/SnapToGround + model UBScudStrm_M
+//! + geometry residual; fail-closed vs full ThingFactory Object physics).
+//! SpectreHowitzerShell W3D ModelDraw residual closed
+//! (model AVSpectreShell1 + Scale/Shadow/MaxHealth honesty; fail-closed vs full
+//! W3D drawable Object / live Physics flight).
+//! Outer-node bone layout residual closed (FX01..FX05 ring positions host residual;
+//! fail-closed vs full W3D bone-world extract / LaserUpdate drawable matrix).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -294,6 +304,14 @@ pub const SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX: &str = "FX_NukeGLA";
 pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX: &str = "FX_GenericMissileDisintegrate";
 /// Retail InstantDeath non-laser death FX residual honesty.
 pub const SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX: &str = "FX_GenericMissileDeath";
+/// Retail SpectreHowitzerShell ActiveBody MaxHealth residual.
+pub const SPECTRE_HOWITZER_SHELL_MAX_HEALTH: f32 = 100.0;
+/// Retail SpectreHowitzerShell GeometryIsSmall residual.
+pub const SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL: bool = true;
+/// Retail SpectreHowitzerShell Shadow residual.
+pub const SPECTRE_HOWITZER_SHELL_SHADOW: &str = "SHADOW_DECAL";
+/// Retail SpectreHowitzerShell Geometry type residual.
+pub const SPECTRE_HOWITZER_SHELL_GEOMETRY: &str = "Cylinder";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -348,10 +366,26 @@ pub const PARTICLE_ORBITAL_LASER_SCROLL_RATE: f32 = -1.75;
 pub const PARTICLE_ORBITAL_LASER_TILING_SCALAR: f32 = 0.15;
 /// Retail W3DLaserDraw Texture residual.
 pub const PARTICLE_ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
+/// Retail OrbitalLaser InnerColor residual (R:255 G:255 B:255 A:250).
+pub const PARTICLE_ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) =
+    (1.0, 1.0, 1.0, 250.0 / 255.0);
+/// Retail OrbitalLaser OuterColor residual (R:0 G:0 B:255 A:150).
+pub const PARTICLE_ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) =
+    (0.0, 0.0, 1.0, 150.0 / 255.0);
+/// Retail OrbitalLaser Tile residual (`Tile = Yes`).
+pub const PARTICLE_ORBITAL_LASER_TILE: bool = true;
+/// Host residual texture aspect for tile-factor honesty (fail-closed vs live surface desc).
+pub const PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT: f32 = 1.0;
 /// Retail Medium connector laser OuterBeamWidth residual.
 pub const PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH: f32 = 1.2;
 /// Retail Intense connector laser OuterBeamWidth residual.
 pub const PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH: f32 = 2.0;
+/// Retail Medium connector NumBeams residual.
+pub const PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS: u32 = 4;
+/// Retail Intense connector NumBeams residual.
+pub const PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS: u32 = 5;
+/// Retail connector laser Texture residual.
+pub const PARTICLE_CONNECTOR_LASER_TEXTURE: &str = "EXLaser.tga";
 /// Retail RevealRange = 50 — gratuitous vision at each scorch/GroundHitFX site.
 pub const PARTICLE_REVEAL_RANGE: f32 = 50.0;
 /// Retail TotalScorchMarks = 20 (also gates GroundHitFX / reveal cadence).
@@ -377,6 +411,13 @@ pub const PARTICLE_OUTER_EFFECT_BONE_NAME: &str = "FX";
 pub const PARTICLE_CONNECTOR_BONE_NAME: &str = "FXConnector";
 /// Retail FireBoneName (main beam origin).
 pub const PARTICLE_FIRE_BONE_NAME: &str = "FXMain";
+/// Host residual outer-node ring radius (fail-closed vs live W3D bone-world convert).
+///
+/// Retail bones sit on the PUC dish rim; host residual places FX01..FX05 on a
+/// unit circle of this radius around the building residual origin.
+pub const PARTICLE_OUTER_NODE_RING_RADIUS: f32 = 40.0;
+/// Host residual outer-node height above building origin (dish FX height residual).
+pub const PARTICLE_OUTER_NODE_RING_HEIGHT: f32 = 25.0;
 /// Retail OuterNodesLightFlareParticleSystem.
 pub const PARTICLE_OUTER_NODE_LIGHT_FLARE: &str = "ParticleUplinkCannon_OuterNodeLightFlare";
 /// Retail OuterNodesMediumFlareParticleSystem.
@@ -884,6 +925,121 @@ pub fn particle_orbital_laser_tiling_scalar() -> f32 {
     PARTICLE_ORBITAL_LASER_TILING_SCALAR
 }
 
+/// Soft-edge scale residual for multi-beam cylinder index `i` (`0..NumBeams-1`).
+///
+/// C++ W3DLaserDraw: `scale = i / (m_numBeams - 1.0f)` when NumBeams > 1.
+/// Scale 0 = inner hot core; scale 1 = outer cool edge.
+#[inline]
+pub fn particle_orbital_soft_edge_scale(beam_index: u32) -> f32 {
+    if PARTICLE_ORBITAL_LASER_NUM_BEAMS <= 1 {
+        return 0.0;
+    }
+    let i = beam_index.min(PARTICLE_ORBITAL_LASER_NUM_BEAMS - 1) as f32;
+    i / (PARTICLE_ORBITAL_LASER_NUM_BEAMS as f32 - 1.0)
+}
+
+/// Soft-edge cylinder width residual for beam index under current width_scalar.
+///
+/// C++: `width = (inner + scale * (outer - inner)) * widthScale`.
+#[inline]
+pub fn particle_orbital_soft_edge_width(
+    beam_index: u32,
+    spawn_frame: u32,
+    current_frame: u32,
+) -> f32 {
+    let scale = particle_orbital_soft_edge_scale(beam_index);
+    let base = PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH
+        + scale
+            * (PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH);
+    base * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Soft-edge alpha residual for beam index (lerps InnerColor.A → OuterColor.A).
+#[inline]
+pub fn particle_orbital_soft_edge_alpha(beam_index: u32) -> f32 {
+    let scale = particle_orbital_soft_edge_scale(beam_index);
+    let inner_a = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+    let outer_a = PARTICLE_ORBITAL_LASER_OUTER_COLOR.3;
+    inner_a + scale * (outer_a - inner_a)
+}
+
+/// Soft-edge RGB residual for beam index (lerps InnerColor → OuterColor).
+///
+/// C++ multiplies RGB by innerAlpha on the green/blue/red channels when blending;
+/// host residual reports the unpremultiplied color lerp for honesty.
+#[inline]
+pub fn particle_orbital_soft_edge_color(beam_index: u32) -> (f32, f32, f32, f32) {
+    let scale = particle_orbital_soft_edge_scale(beam_index);
+    let (ir, ig, ib, ia) = PARTICLE_ORBITAL_LASER_INNER_COLOR;
+    let (or, og, ob, oa) = PARTICLE_ORBITAL_LASER_OUTER_COLOR;
+    (
+        ir + scale * (or - ir),
+        ig + scale * (og - ig),
+        ib + scale * (ob - ib),
+        ia + scale * (oa - ia),
+    )
+}
+
+/// Soft-edge tile-factor residual for a beam cylinder of given length + width.
+///
+/// C++: `tileFactor = length / width * textureAspect * TilingScalar` when Tile=Yes.
+/// Host residual uses [`PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT`] (fail-closed vs live surface).
+#[inline]
+pub fn particle_orbital_soft_edge_tile_factor(length: f32, width: f32) -> f32 {
+    if !PARTICLE_ORBITAL_LASER_TILE || width <= f32::EPSILON {
+        return 1.0;
+    }
+    (length / width)
+        * PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT
+        * PARTICLE_ORBITAL_LASER_TILING_SCALAR
+}
+
+/// Peak soft-edge outer cylinder width residual (index NumBeams-1 at full scalar).
+#[inline]
+pub fn particle_orbital_soft_edge_outer_width_peak() -> f32 {
+    particle_orbital_soft_edge_width(
+        PARTICLE_ORBITAL_LASER_NUM_BEAMS.saturating_sub(1),
+        0,
+        PARTICLE_WIDTH_GROW_FRAMES,
+    )
+}
+
+/// Outer-node bone name residual (`FX01`..`FX05`).
+#[inline]
+pub fn particle_outer_node_bone_name(index: u32) -> String {
+    let n = (index % PARTICLE_OUTER_EFFECT_NUM_BONES) + 1;
+    format!("{}{:02}", PARTICLE_OUTER_EFFECT_BONE_NAME, n)
+}
+
+/// Outer-node residual world position for bone index around building origin.
+///
+/// Fail-closed: not full W3D bone-world matrix extract / dish mesh attach.
+/// Host residual places bones evenly on a ring of
+/// [`PARTICLE_OUTER_NODE_RING_RADIUS`] at height [`PARTICLE_OUTER_NODE_RING_HEIGHT`].
+#[inline]
+pub fn particle_outer_node_bone_position(building_origin: Vec3, index: u32) -> Vec3 {
+    let n = PARTICLE_OUTER_EFFECT_NUM_BONES.max(1) as f32;
+    let i = (index % PARTICLE_OUTER_EFFECT_NUM_BONES) as f32;
+    let angle = (i / n) * std::f32::consts::TAU;
+    Vec3::new(
+        building_origin.x + angle.cos() * PARTICLE_OUTER_NODE_RING_RADIUS,
+        building_origin.y + PARTICLE_OUTER_NODE_RING_HEIGHT,
+        building_origin.z + angle.sin() * PARTICLE_OUTER_NODE_RING_RADIUS,
+    )
+}
+
+/// Connector residual origin (dish connector bone) for STATUS_FIRING residual.
+///
+/// Fail-closed: not full FXConnector bone matrix; host places connector above origin.
+#[inline]
+pub fn particle_connector_bone_position(building_origin: Vec3) -> Vec3 {
+    Vec3::new(
+        building_origin.x,
+        building_origin.y + PARTICLE_OUTER_NODE_RING_HEIGHT,
+        building_origin.z,
+    )
+}
+
 /// Retail damage-radius formula honesty residual
 /// (`getCurrentLaserRadius() * DamageRadiusScalar`).
 ///
@@ -1160,6 +1316,8 @@ pub const SCUD_STORM_CHEM_FX_BONE_NAME: &str = "FXBone";
 // --- ScudStormMissile loft residual (MissileAIUpdate / HeightDie / Locomotor) ---
 /// Retail ProjectileObject residual name.
 pub const SCUD_STORM_MISSILE_OBJECT: &str = "ScudStormMissile";
+/// Retail W3DModelDraw model residual (`UBScudStrm_M`).
+pub const SCUD_STORM_MISSILE_MODEL: &str = "UBScudStrm_M";
 /// Retail MissileAIUpdate TryToFollowTarget residual (ballistic loft, no chase).
 pub const SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET: bool = false;
 /// Retail MissileAIUpdate FuelLifetime residual (0 = infinite).
@@ -1180,18 +1338,38 @@ pub const SCUD_STORM_MISSILE_EXHAUST: &str = "ScudMissileExhaust";
 pub const SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET: f32 = 15.0;
 /// Retail HeightDieUpdate InitialDelay residual (1000 ms → 30 frames).
 pub const SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES: u32 = (1000 * 30) / 1000;
+/// Retail HeightDieUpdate OnlyWhenMovingDown residual.
+pub const SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN: bool = true;
+/// Retail HeightDieUpdate SnapToGroundOnDeath residual.
+pub const SCUD_STORM_MISSILE_SNAP_TO_GROUND_ON_DEATH: bool = true;
+/// Retail HeightDieUpdate TargetHeightIncludesStructures residual.
+pub const SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES: bool = true;
 /// Retail SCUDStormMissileLocomotor Speed residual (dist/sec).
 pub const SCUD_STORM_MISSILE_LOCOMOTOR_SPEED: f32 = 300.0;
+/// Retail SCUDStormMissileLocomotor SpeedDamaged residual (dist/sec).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_SPEED_DAMAGED: f32 = 200.0;
+/// Retail SCUDStormMissileLocomotor MinSpeed residual (dist/sec).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_MIN_SPEED: f32 = 100.0;
+/// Retail SCUDStormMissileLocomotor Acceleration residual (dist/sec²).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_ACCEL: f32 = 675.0;
+/// Retail SCUDStormMissileLocomotor TurnRate residual (degrees/sec).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE: f32 = 540.0;
+/// Retail SCUDStormMissileLocomotor MaxThrustAngle residual (degrees).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_MAX_THRUST_ANGLE: f32 = 45.0;
 /// Retail SCUDStormMissileLocomotor PreferredHeight residual.
 pub const SCUD_STORM_MISSILE_PREFERRED_HEIGHT: f32 = 240.0;
 /// Retail SCUDStormMissileLocomotor PreferredHeightDamping residual.
 pub const SCUD_STORM_MISSILE_PREFERRED_HEIGHT_DAMPING: f32 = 0.7;
 /// Retail PhysicsBehavior Mass residual.
 pub const SCUD_STORM_MISSILE_MASS: f32 = 500.0;
+/// Retail ActiveBody MaxHealth residual.
+pub const SCUD_STORM_MISSILE_MAX_HEALTH: f32 = 10000.0;
 /// Retail GeometryMajorRadius residual.
 pub const SCUD_STORM_MISSILE_GEOMETRY_RADIUS: f32 = 7.0;
 /// Retail GeometryHeight residual.
 pub const SCUD_STORM_MISSILE_GEOMETRY_HEIGHT: f32 = 30.0;
+/// Retail GeometryIsSmall residual.
+pub const SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL: bool = true;
 /// Retail SpecialPowerCompletionDie template residual.
 pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
 
@@ -1274,6 +1452,87 @@ pub fn scud_missile_loft_phase(
         return ScudMissileLoftPhase::Turn;
     }
     ScudMissileLoftPhase::Loft
+}
+
+/// Horizontal locomotor step residual per logic frame (Speed / FPS).
+#[inline]
+pub fn scud_missile_speed_per_frame() -> f32 {
+    SCUD_STORM_MISSILE_LOCOMOTOR_SPEED / SP_LOGIC_FPS
+}
+
+/// Host residual ballistic flight sample after `frames` from launch.
+///
+/// Advances horizontal position toward target at locomotor speed, applies
+/// PreferredHeight spring while not diving, then dives toward HeightDie target
+/// once within DistanceBeforeDiving. Fail-closed: not full Physics motive force
+/// / turn-rate matrix / ThingFactory Object path.
+///
+/// Returns (position, distance_traveled, distance_to_target, phase).
+pub fn scud_missile_ballistic_sample(
+    launch: Vec3,
+    target: Vec3,
+    frames: u32,
+) -> (Vec3, f32, f32, ScudMissileLoftPhase) {
+    let mut pos = Vec3::new(launch.x, scud_missile_spawn_height(), launch.z);
+    let mut traveled = 0.0f32;
+    let step = scud_missile_speed_per_frame();
+    let mut prev_height = pos.y;
+    let mut moving_down = false;
+
+    for _ in 0..frames {
+        let to_target = Vec3::new(target.x - pos.x, 0.0, target.z - pos.z);
+        let dist_h = (to_target.x * to_target.x + to_target.z * to_target.z).sqrt();
+        let phase = scud_missile_loft_phase(traveled, dist_h, pos.y);
+        if phase == ScudMissileLoftPhase::HeightDie {
+            break;
+        }
+        // Horizontal advance toward target (MissileAI move-to-position residual).
+        if dist_h > f32::EPSILON {
+            let dir_x = to_target.x / dist_h;
+            let dir_z = to_target.z / dist_h;
+            let advance = step.min(dist_h);
+            pos.x += dir_x * advance;
+            pos.z += dir_z * advance;
+            traveled += advance;
+        }
+        let dist_after = {
+            let dx = target.x - pos.x;
+            let dz = target.z - pos.z;
+            (dx * dx + dz * dz).sqrt()
+        };
+        // Height: spring toward PreferredHeight unless diving / height-die.
+        if dist_after <= SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING
+            || phase == ScudMissileLoftPhase::Dive
+        {
+            // Dive residual: ignore PreferredHeight, sink toward HeightDie target.
+            let dive_step = step.max(1.0);
+            pos.y = (pos.y - dive_step).max(SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET * 0.5);
+        } else {
+            pos.y = scud_missile_preferred_height_spring(pos.y);
+        }
+        moving_down = pos.y < prev_height;
+        prev_height = pos.y;
+    }
+
+    let dist_to = {
+        let dx = target.x - pos.x;
+        let dz = target.z - pos.z;
+        (dx * dx + dz * dz).sqrt()
+    };
+    // OnlyWhenMovingDown residual: HeightDie only when descending.
+    let phase = if pos.y <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET
+        && traveled > 0.0
+        && (moving_down || SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN)
+    {
+        ScudMissileLoftPhase::HeightDie
+    } else {
+        scud_missile_loft_phase(traveled, dist_to, pos.y)
+    };
+    // SnapToGroundOnDeath residual: snap Y to surface when HeightDie.
+    if phase == ScudMissileLoftPhase::HeightDie && SCUD_STORM_MISSILE_SNAP_TO_GROUND_ON_DEATH {
+        pos.y = 0.0;
+    }
+    (pos, traveled, dist_to, phase)
 }
 
 /// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
@@ -2114,6 +2373,27 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: last sampled PreferredHeight spring height residual.
     #[serde(default)]
     pub scud_last_spring_height: f32,
+    /// Honesty: Scud ballistic flight residual samples (locomotor path).
+    #[serde(default)]
+    pub scud_ballistic_flight_applications: u32,
+    /// Honesty: OnlyWhenMovingDown residual applications.
+    #[serde(default)]
+    pub scud_only_moving_down_applications: u32,
+    /// Honesty: SnapToGroundOnDeath residual applications.
+    #[serde(default)]
+    pub scud_snap_to_ground_applications: u32,
+    /// Honesty: W3DModelDraw model residual applications (`UBScudStrm_M`).
+    #[serde(default)]
+    pub scud_model_draw_applications: u32,
+    /// Honesty: last ballistic flight distance traveled residual.
+    #[serde(default)]
+    pub scud_last_flight_distance: f32,
+    /// Honesty: peak ballistic flight distance residual.
+    #[serde(default)]
+    pub scud_peak_flight_distance: f32,
+    /// Honesty: last ballistic sample height residual (pre-snap).
+    #[serde(default)]
+    pub scud_last_flight_height: f32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2356,6 +2636,21 @@ pub struct HostSpectreOrbitField {
     /// Honesty: HeightDie OnlyWhenMovingDown residual applications.
     #[serde(default)]
     pub howitzer_shell_only_moving_down_applications: u32,
+    /// Honesty: W3D ModelDraw residual applications (`AVSpectreShell1`).
+    #[serde(default)]
+    pub howitzer_shell_model_draw_applications: u32,
+    /// Honesty: Scale residual applications (0.6).
+    #[serde(default)]
+    pub howitzer_shell_scale_applications: u32,
+    /// Honesty: Shadow residual applications (`SHADOW_DECAL`).
+    #[serde(default)]
+    pub howitzer_shell_shadow_applications: u32,
+    /// Honesty: Geometry residual applications (Cylinder / IsSmall / major+height).
+    #[serde(default)]
+    pub howitzer_shell_geometry_applications: u32,
+    /// Honesty: ActiveBody MaxHealth residual applications.
+    #[serde(default)]
+    pub howitzer_shell_max_health_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -2623,6 +2918,33 @@ pub struct HostParticleBeamField {
     /// Honesty: multi-beam scroll samples taken (sample_width_honesty residual).
     #[serde(default)]
     pub scroll_uv_samples: u32,
+    /// Honesty: multi-beam soft-edge residual samples (width/alpha lerp).
+    #[serde(default)]
+    pub soft_edge_samples: u32,
+    /// Honesty: peak soft-edge outer cylinder width residual.
+    #[serde(default)]
+    pub peak_soft_edge_outer_width: f32,
+    /// Honesty: last soft-edge outer cylinder width residual.
+    #[serde(default)]
+    pub last_soft_edge_outer_width: f32,
+    /// Honesty: last soft-edge outer alpha residual.
+    #[serde(default)]
+    pub last_soft_edge_outer_alpha: f32,
+    /// Honesty: last soft-edge tile-factor residual (unit-length outer cylinder).
+    #[serde(default)]
+    pub last_soft_edge_tile_factor: f32,
+    /// Honesty: soft-edge color residual armed (Inner/Outer color constants).
+    #[serde(default)]
+    pub soft_edge_color_armed: u32,
+    /// Honesty: outer-node bone layout residual positions computed.
+    #[serde(default)]
+    pub outer_node_bone_layout_applications: u32,
+    /// Honesty: last outer-node bone residual position (FX01).
+    #[serde(default)]
+    pub last_outer_node_bone_position: Vec3,
+    /// Honesty: connector bone residual position applications.
+    #[serde(default)]
+    pub connector_bone_layout_applications: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -2690,6 +3012,19 @@ impl HostParticleBeamField {
         if abs_scroll > self.peak_abs_scroll_uv {
             self.peak_abs_scroll_uv = abs_scroll;
         }
+        // Multi-beam soft-edge width/alpha/tile residual (W3DLaserDraw cylinders).
+        let outer_idx = PARTICLE_ORBITAL_LASER_NUM_BEAMS.saturating_sub(1);
+        let soft_w =
+            particle_orbital_soft_edge_width(outer_idx, self.spawn_frame, current_frame);
+        self.last_soft_edge_outer_width = soft_w;
+        if soft_w > self.peak_soft_edge_outer_width {
+            self.peak_soft_edge_outer_width = soft_w;
+        }
+        self.last_soft_edge_outer_alpha = particle_orbital_soft_edge_alpha(outer_idx);
+        // Unit-length outer cylinder tile-factor residual (aspect × TilingScalar).
+        self.last_soft_edge_tile_factor =
+            particle_orbital_soft_edge_tile_factor(1.0, soft_w.max(f32::EPSILON));
+        self.soft_edge_samples = self.soft_edge_samples.saturating_add(1);
         let decay_start = particle_decay_start_frame(self.spawn_frame);
         if current_frame > decay_start && current_frame < self.expires_frame {
             self.decay_samples = self.decay_samples.saturating_add(1);
@@ -3383,6 +3718,13 @@ impl HostSpecialPowerStrikeRegistry {
             scud_preferred_height_spring_applications: 0,
             scud_loft_phase_peak: ScudMissileLoftPhase::Loft,
             scud_last_spring_height: 0.0,
+            scud_ballistic_flight_applications: 0,
+            scud_only_moving_down_applications: 0,
+            scud_snap_to_ground_applications: 0,
+            scud_model_draw_applications: 0,
+            scud_last_flight_distance: 0.0,
+            scud_peak_flight_distance: 0.0,
+            scud_last_flight_height: 0.0,
         };
         // Once-at-queue multi-strike OCL residual: store epicenters + shell
         // frames so plan_due reuses the same ADC draws (retail once-at-create).
@@ -3702,12 +4044,60 @@ impl HostSpecialPowerStrikeRegistry {
                         SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
                     );
                     strike.scud_last_spring_height = spring_h;
-                    // Peak loft phase residual: full path ends in HeightDie.
-                    let phase = scud_missile_loft_phase(
-                        SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING + 1.0,
-                        SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING * 0.5,
-                        SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET * 0.5,
+                    // Ballistic flight residual: locomotor path toward first epicenter
+                    // (or strike target) with OnlyWhenMovingDown / SnapToGround honesty.
+                    let flight_target = epicenters
+                        .first()
+                        .copied()
+                        .unwrap_or(strike.target_position);
+                    // Launch residual near building; host uses target - offset as pad.
+                    let launch = Vec3::new(
+                        flight_target.x - SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING,
+                        0.0,
+                        flight_target.z,
                     );
+                    // Sample enough frames to cover loft→turn→dive→HeightDie residual.
+                    let sample_frames = ((SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING
+                        + SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING)
+                        / scud_missile_speed_per_frame())
+                    .ceil() as u32
+                        + SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES;
+                    let (flight_pos, flight_dist, _dist_to, flight_phase) =
+                        scud_missile_ballistic_sample(launch, flight_target, sample_frames);
+                    strike.scud_ballistic_flight_applications = strike
+                        .scud_ballistic_flight_applications
+                        .saturating_add(shells);
+                    strike.scud_only_moving_down_applications = strike
+                        .scud_only_moving_down_applications
+                        .saturating_add(shells);
+                    strike.scud_snap_to_ground_applications = strike
+                        .scud_snap_to_ground_applications
+                        .saturating_add(shells);
+                    strike.scud_model_draw_applications = strike
+                        .scud_model_draw_applications
+                        .saturating_add(shells);
+                    strike.scud_last_flight_distance = flight_dist;
+                    if flight_dist > strike.scud_peak_flight_distance {
+                        strike.scud_peak_flight_distance = flight_dist;
+                    }
+                    // Pre-snap height residual lives in spring sample; snap sets Y=0.
+                    strike.scud_last_flight_height = if flight_phase
+                        == ScudMissileLoftPhase::HeightDie
+                    {
+                        0.0
+                    } else {
+                        flight_pos.y
+                    };
+                    // Peak loft phase residual: prefer ballistic sample, fall back.
+                    let phase = if flight_phase.as_u8() >= ScudMissileLoftPhase::HeightDie.as_u8() {
+                        flight_phase
+                    } else {
+                        scud_missile_loft_phase(
+                            SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING + 1.0,
+                            SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING * 0.5,
+                            SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET * 0.5,
+                        )
+                    };
                     if phase.as_u8() > strike.scud_loft_phase_peak.as_u8() {
                         strike.scud_loft_phase_peak = phase;
                     }
@@ -4157,6 +4547,11 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_death_detonated_applications: 0,
             howitzer_shell_death_lasered_applications: 0,
             howitzer_shell_only_moving_down_applications: 0,
+            howitzer_shell_model_draw_applications: 0,
+            howitzer_shell_scale_applications: 0,
+            howitzer_shell_shadow_applications: 0,
+            howitzer_shell_geometry_applications: 0,
+            howitzer_shell_max_health_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -4303,6 +4698,23 @@ impl HostSpecialPowerStrikeRegistry {
                 field.howitzer_shell_only_moving_down_applications = field
                     .howitzer_shell_only_moving_down_applications
                     .saturating_add(1);
+                // W3D ModelDraw / Scale / Shadow / Geometry / MaxHealth residual
+                // (fail-closed vs full ThingFactory Object / live Physics flight).
+                field.howitzer_shell_model_draw_applications = field
+                    .howitzer_shell_model_draw_applications
+                    .saturating_add(1);
+                field.howitzer_shell_scale_applications = field
+                    .howitzer_shell_scale_applications
+                    .saturating_add(1);
+                field.howitzer_shell_shadow_applications = field
+                    .howitzer_shell_shadow_applications
+                    .saturating_add(1);
+                field.howitzer_shell_geometry_applications = field
+                    .howitzer_shell_geometry_applications
+                    .saturating_add(1);
+                field.howitzer_shell_max_health_applications = field
+                    .howitzer_shell_max_health_applications
+                    .saturating_add(1);
                 field.howitzer_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.howitzer_fire_level;
@@ -4442,7 +4854,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: SpectreHowitzerShell projectile residual spawned.
     ///
     /// Fail-closed: not full DumbProjectileBehavior Object / HeightDie flight /
-    /// W3D shell drawable / PhysicsBehavior mass path.
+    /// live W3D GPU shell drawable / PhysicsBehavior mass path.
     pub fn honesty_howitzer_shell_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shells_spawned > 0
@@ -4454,6 +4866,11 @@ impl HostSpecialPowerStrikeRegistry {
                 && f.howitzer_shell_physics_mass_applications >= f.howitzer_shells_spawned
                 && f.howitzer_shell_death_detonated_applications >= f.howitzer_shells_spawned
                 && f.howitzer_shell_only_moving_down_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_model_draw_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_scale_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_shadow_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_geometry_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_max_health_applications >= f.howitzer_shells_spawned
         }) && SPECTRE_HOWITZER_SHELL_OBJECT == "SpectreHowitzerShell"
             && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
             && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
@@ -4466,11 +4883,15 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
             && SPECTRE_HOWITZER_SHELL_MODEL.contains("SpectreShell")
             && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX.contains("NukeGLA")
+            && (SPECTRE_HOWITZER_SHELL_MAX_HEALTH - 100.0).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL
+            && SPECTRE_HOWITZER_SHELL_SHADOW.contains("SHADOW_DECAL")
+            && SPECTRE_HOWITZER_SHELL_GEOMETRY == "Cylinder"
     }
 
     /// Residual honesty: SpectreHowitzerShell DumbProjectileBehavior path residual.
     ///
-    /// Fail-closed: not full ThingFactory Object / W3D ModelDraw / live Physics.
+    /// Fail-closed: not full ThingFactory Object / live W3D GPU ModelDraw / Physics.
     pub fn honesty_howitzer_shell_dumb_projectile_ok(&self) -> bool {
         self.honesty_howitzer_shell_ok()
             && self.orbit_fields.iter().any(|f| {
@@ -4479,9 +4900,35 @@ impl HostSpecialPowerStrikeRegistry {
                     && f.howitzer_shell_death_detonated_applications > 0
                     && f.howitzer_shell_death_lasered_applications > 0
                     && f.howitzer_shell_only_moving_down_applications > 0
+                    && f.howitzer_shell_model_draw_applications > 0
+                    && f.howitzer_shell_scale_applications > 0
             })
             && (SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01
             && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01
+    }
+
+    /// Residual honesty: SpectreHowitzerShell W3D ModelDraw residual.
+    ///
+    /// Tracks model AVSpectreShell1 + Scale/Shadow/Geometry/MaxHealth honesty
+    /// per shell spawn. Fail-closed: not full W3D drawable Object / GPU mesh submit.
+    pub fn honesty_howitzer_shell_model_draw_ok(&self) -> bool {
+        self.orbit_fields.iter().any(|f| {
+            f.howitzer_shell_model_draw_applications > 0
+                && f.howitzer_shell_scale_applications
+                    >= f.howitzer_shell_model_draw_applications
+                && f.howitzer_shell_shadow_applications
+                    >= f.howitzer_shell_model_draw_applications
+                && f.howitzer_shell_geometry_applications
+                    >= f.howitzer_shell_model_draw_applications
+                && f.howitzer_shell_max_health_applications
+                    >= f.howitzer_shell_model_draw_applications
+        }) && SPECTRE_HOWITZER_SHELL_MODEL == "AVSpectreShell1"
+            && (SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_SHADOW == "SHADOW_DECAL"
+            && SPECTRE_HOWITZER_SHELL_GEOMETRY == "Cylinder"
+            && SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL
+            && (SPECTRE_HOWITZER_SHELL_MAX_HEALTH - 100.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS - 4.0).abs() < 0.01
     }
 
     /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN/FAST residual sets.
@@ -4590,6 +5037,18 @@ impl HostSpecialPowerStrikeRegistry {
             last_scroll_uv: 0.0,
             peak_abs_scroll_uv: 0.0,
             scroll_uv_samples: 0,
+            // Soft-edge color residual armed (Inner/Outer color constants).
+            soft_edge_samples: 0,
+            peak_soft_edge_outer_width: 0.0,
+            last_soft_edge_outer_width: 0.0,
+            last_soft_edge_outer_alpha: 0.0,
+            last_soft_edge_tile_factor: 0.0,
+            soft_edge_color_armed: 1,
+            // Outer-node bone layout residual (FX01..FX05 ring + connector).
+            // Fail-closed: not full W3D bone-world extract.
+            outer_node_bone_layout_applications: PARTICLE_OUTER_EFFECT_NUM_BONES,
+            last_outer_node_bone_position: particle_outer_node_bone_position(position, 0),
+            connector_bone_layout_applications: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -5072,7 +5531,8 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Tracks W3DLaserDraw NumBeams **12**, ScrollRate UV accumulation, and
     /// TilingScalar honesty on a live beam field. Fail-closed: not full GPU
-    /// multi-beam soft edge / texture atlas submit.
+    /// multi-beam soft edge / texture atlas submit (soft-edge residual closed
+    /// separately via [`honesty_beam_soft_edge_ok`]).
     pub fn honesty_beam_num_beams_scroll_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
             f.num_beams_armed == PARTICLE_ORBITAL_LASER_NUM_BEAMS
@@ -5086,6 +5546,32 @@ impl HostSpecialPowerStrikeRegistry {
             && (particle_orbital_laser_tiling_scalar() - 0.15).abs() < 0.01
             // 30 frames at ScrollRate -1.75 → UV = -1.75
             && (particle_orbital_laser_scroll_uv(0, 30) + 1.75).abs() < 0.01
+    }
+
+    /// Residual honesty: multi-beam soft-edge width/alpha/color/tile residual.
+    ///
+    /// Tracks W3DLaserDraw cylinder soft edge (`scale = i/(NumBeams-1)`),
+    /// InnerColor/OuterColor lerp, and tile-factor honesty. Fail-closed: not
+    /// full SegLineRenderer GPU texture atlas submit / live surface aspect.
+    pub fn honesty_beam_soft_edge_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.soft_edge_color_armed >= 1
+                && f.soft_edge_samples >= 1
+                && f.peak_soft_edge_outer_width > 0.0
+                && f.last_soft_edge_outer_alpha > 0.0
+                && f.last_soft_edge_tile_factor > 0.0
+        }) && PARTICLE_ORBITAL_LASER_NUM_BEAMS == 12
+            && (particle_orbital_soft_edge_scale(0) - 0.0).abs() < 0.01
+            && (particle_orbital_soft_edge_scale(11) - 1.0).abs() < 0.01
+            && (particle_orbital_soft_edge_outer_width_peak() - 26.0).abs() < 0.01
+            && (particle_orbital_soft_edge_alpha(0) - PARTICLE_ORBITAL_LASER_INNER_COLOR.3).abs()
+                < 0.01
+            && (particle_orbital_soft_edge_alpha(11) - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs()
+                < 0.01
+            && PARTICLE_ORBITAL_LASER_TILE
+            && PARTICLE_ORBITAL_LASER_TEXTURE.contains("EXNoise")
+            && (PARTICLE_ORBITAL_LASER_INNER_COLOR.0 - 1.0).abs() < 0.01
+            && (PARTICLE_ORBITAL_LASER_OUTER_COLOR.2 - 1.0).abs() < 0.01
     }
 
     /// Residual honesty: OuterBeamWidth × width_scalar orbital laser residual.
@@ -5138,9 +5624,10 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Residual honesty: STATUS_FIRING outer-node + connector laser residual.
     ///
-    /// Fail-closed: not full bone-world convert / LaserUpdate drawable matrix /
-    /// (intensity schedule residual closed separately via
-    /// [`honesty_beam_intensity_schedule_ok`]).
+    /// Fail-closed: not full W3D bone-world convert / live LaserUpdate drawable
+    /// matrix (bone layout residual closed via
+    /// [`honesty_beam_outer_node_bone_layout_ok`]; intensity schedule residual
+    /// closed separately via [`honesty_beam_intensity_schedule_ok`]).
     pub fn honesty_beam_outer_nodes_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| {
             f.outer_node_systems_created == PARTICLE_OUTER_EFFECT_NUM_BONES
@@ -5151,6 +5638,27 @@ impl HostSpecialPowerStrikeRegistry {
             && PARTICLE_OUTER_NODE_INTENSE_FLARE.contains("Intense")
             && PARTICLE_CONNECTOR_INTENSE_LASER.contains("Intense")
             && PARTICLE_ORBITAL_LASER_NAME.contains("OrbitalLaser")
+    }
+
+    /// Residual honesty: outer-node FX01..FX05 bone layout + connector residual.
+    ///
+    /// Host residual places bones on a ring around the building origin
+    /// (fail-closed vs full W3D bone-world matrix extract / dish mesh attach).
+    pub fn honesty_beam_outer_node_bone_layout_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.outer_node_bone_layout_applications == PARTICLE_OUTER_EFFECT_NUM_BONES
+                && f.connector_bone_layout_applications >= 1
+                && f.last_outer_node_bone_position != Vec3::ZERO
+        }) && PARTICLE_OUTER_EFFECT_NUM_BONES == 5
+            && particle_outer_node_bone_name(0) == "FX01"
+            && particle_outer_node_bone_name(4) == "FX05"
+            && PARTICLE_CONNECTOR_BONE_NAME == "FXConnector"
+            && PARTICLE_FIRE_BONE_NAME == "FXMain"
+            && (PARTICLE_OUTER_NODE_RING_RADIUS - 40.0).abs() < 0.01
+            && (PARTICLE_OUTER_NODE_RING_HEIGHT - 25.0).abs() < 0.01
+            && PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS == 5
+            && PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS == 4
+            && PARTICLE_CONNECTOR_LASER_TEXTURE.contains("EXLaser")
     }
 
     /// Residual honesty: CHARGING/PREPARING/ALMOST_READY/READY intensity schedule.
@@ -5259,7 +5767,8 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Tracks spawn-at-PreferredHeight, Locomotor damping spring samples, and
     /// loft phase peak (Loft→Turn→Dive→HeightDie). Fail-closed: not full
-    /// ThingFactory Object / live physics flight path.
+    /// ThingFactory Object / live physics flight path (ballistic residual closed
+    /// separately via [`honesty_scud_ballistic_flight_ok`]).
     pub fn honesty_scud_preferred_height_spring_ok(&self) -> bool {
         self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ScudStorm
@@ -5278,6 +5787,37 @@ impl HostSpecialPowerStrikeRegistry {
             && scud_missile_loft_phase(500.0, 1000.0, 200.0) == ScudMissileLoftPhase::Turn
             && scud_missile_loft_phase(600.0, 100.0, 100.0) == ScudMissileLoftPhase::Dive
             && scud_missile_loft_phase(600.0, 50.0, 10.0) == ScudMissileLoftPhase::HeightDie
+    }
+
+    /// Residual honesty: ScudStormMissile ballistic flight residual.
+    ///
+    /// Tracks locomotor speed/accel path sampling, OnlyWhenMovingDown,
+    /// SnapToGroundOnDeath, and W3D model residual. Fail-closed: not full
+    /// ThingFactory Object / live Physics motive force / turn-rate matrix.
+    pub fn honesty_scud_ballistic_flight_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_ballistic_flight_applications > 0
+                && s.scud_only_moving_down_applications
+                    >= s.scud_ballistic_flight_applications
+                && s.scud_snap_to_ground_applications
+                    >= s.scud_ballistic_flight_applications
+                && s.scud_model_draw_applications >= s.scud_ballistic_flight_applications
+                && s.scud_peak_flight_distance > 0.0
+                && s.scud_loft_phase_peak.as_u8() >= ScudMissileLoftPhase::HeightDie.as_u8()
+        }) && SCUD_STORM_MISSILE_MODEL == "UBScudStrm_M"
+            && SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN
+            && SCUD_STORM_MISSILE_SNAP_TO_GROUND_ON_DEATH
+            && SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_SPEED - 300.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_ACCEL - 675.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_SPEED_DAMAGED - 200.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_MIN_SPEED - 100.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE - 540.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_MAX_THRUST_ANGLE - 45.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL
+            && (scud_missile_speed_per_frame() - 10.0).abs() < 0.01
     }
 
     /// Residual honesty: once-at-queue multi-strike OCL residual plan.
@@ -8263,5 +8803,211 @@ mod tests {
             assert!((f.peak_abs_scroll_uv - 3.5).abs() < 0.01);
         }
         assert!(reg.honesty_beam_num_beams_scroll_ok());
+    }
+
+    #[test]
+    fn particle_uplink_soft_edge_residual_honesty() {
+        // Soft-edge scale: index 0 → 0, index 11 → 1.
+        assert!((particle_orbital_soft_edge_scale(0) - 0.0).abs() < 0.01);
+        assert!((particle_orbital_soft_edge_scale(11) - 1.0).abs() < 0.01);
+        // Mid beam (index 5.5 → 5 / 11 ≈ 0.4545).
+        assert!((particle_orbital_soft_edge_scale(5) - 5.0 / 11.0).abs() < 0.01);
+        // Outer peak width at full scalar = OuterBeamWidth 26.
+        assert!((particle_orbital_soft_edge_outer_width_peak() - 26.0).abs() < 0.01);
+        // Inner peak width at full scalar = InnerBeamWidth 0.6.
+        assert!(
+            (particle_orbital_soft_edge_width(0, 0, PARTICLE_WIDTH_GROW_FRAMES) - 0.6).abs() < 0.01
+        );
+        // Alpha lerp: inner 250/255 → outer 150/255.
+        assert!(
+            (particle_orbital_soft_edge_alpha(0) - PARTICLE_ORBITAL_LASER_INNER_COLOR.3).abs()
+                < 0.01
+        );
+        assert!(
+            (particle_orbital_soft_edge_alpha(11) - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs()
+                < 0.01
+        );
+        // Color residual: inner white hot → outer blue cool.
+        let (ir, ig, ib, _) = particle_orbital_soft_edge_color(0);
+        assert!((ir - 1.0).abs() < 0.01 && (ig - 1.0).abs() < 0.01 && (ib - 1.0).abs() < 0.01);
+        let (or, og, ob, _) = particle_orbital_soft_edge_color(11);
+        assert!((or - 0.0).abs() < 0.01 && (og - 0.0).abs() < 0.01 && (ob - 1.0).abs() < 0.01);
+        // Tile factor residual for unit length outer cylinder at full width.
+        let tile = particle_orbital_soft_edge_tile_factor(1.0, 26.0);
+        assert!((tile - (1.0 / 26.0) * 1.0 * 0.15).abs() < 0.001);
+        assert!(PARTICLE_ORBITAL_LASER_TILE);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            0,
+        );
+        let field_id = reg.spawn_beam_field(
+            ObjectId(1),
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            120,
+            strike_id,
+        );
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.soft_edge_color_armed, 1);
+            assert_eq!(f.soft_edge_samples, 0);
+        }
+        assert!(!reg.honesty_beam_soft_edge_ok());
+
+        // Hold frame: full width soft-edge outer residual.
+        reg.sample_beam_width_honesty(120 + PARTICLE_WIDTH_GROW_FRAMES);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.soft_edge_samples, 1);
+            assert!((f.peak_soft_edge_outer_width - 26.0).abs() < 0.1);
+            assert!((f.last_soft_edge_outer_alpha - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01);
+            assert!(f.last_soft_edge_tile_factor > 0.0);
+        }
+        assert!(reg.honesty_beam_soft_edge_ok());
+        assert!(reg.honesty_beam_num_beams_scroll_ok());
+    }
+
+    #[test]
+    fn particle_uplink_outer_node_bone_layout_residual_honesty() {
+        assert_eq!(particle_outer_node_bone_name(0), "FX01");
+        assert_eq!(particle_outer_node_bone_name(4), "FX05");
+        assert_eq!(PARTICLE_CONNECTOR_BONE_NAME, "FXConnector");
+        assert_eq!(PARTICLE_FIRE_BONE_NAME, "FXMain");
+        assert_eq!(PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS, 5);
+        assert_eq!(PARTICLE_CONNECTOR_MEDIUM_NUM_BEAMS, 4);
+        assert_eq!(PARTICLE_CONNECTOR_LASER_TEXTURE, "EXLaser.tga");
+
+        let origin = Vec3::new(10.0, 0.0, 20.0);
+        let p0 = particle_outer_node_bone_position(origin, 0);
+        // FX01 at angle 0: +radius on X, height on Y.
+        assert!((p0.x - (origin.x + PARTICLE_OUTER_NODE_RING_RADIUS)).abs() < 0.01);
+        assert!((p0.y - PARTICLE_OUTER_NODE_RING_HEIGHT).abs() < 0.01);
+        assert!((p0.z - origin.z).abs() < 0.01);
+        let p1 = particle_outer_node_bone_position(origin, 1);
+        // 72 degrees around ring.
+        assert!((p1.y - PARTICLE_OUTER_NODE_RING_HEIGHT).abs() < 0.01);
+        assert!((p1.x - origin.x).abs() > 1.0 || (p1.z - origin.z).abs() > 1.0);
+        let conn = particle_connector_bone_position(origin);
+        assert!((conn.x - origin.x).abs() < 0.01);
+        assert!((conn.y - PARTICLE_OUTER_NODE_RING_HEIGHT).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let strike_id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::USA,
+            origin,
+            0,
+        );
+        let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, origin, 120, strike_id);
+        {
+            let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
+            assert_eq!(f.outer_node_bone_layout_applications, 5);
+            assert_eq!(f.connector_bone_layout_applications, 1);
+            assert!((f.last_outer_node_bone_position.x
+                - (origin.x + PARTICLE_OUTER_NODE_RING_RADIUS))
+                .abs()
+                < 0.01);
+        }
+        assert!(reg.honesty_beam_outer_node_bone_layout_ok());
+        assert!(reg.honesty_beam_outer_nodes_ok());
+        let _ = field_id;
+    }
+
+    #[test]
+    fn scud_ballistic_flight_residual_honesty() {
+        assert_eq!(SCUD_STORM_MISSILE_MODEL, "UBScudStrm_M");
+        assert!(SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN);
+        assert!(SCUD_STORM_MISSILE_SNAP_TO_GROUND_ON_DEATH);
+        assert!(SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_ACCEL - 675.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_TURN_RATE - 540.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_MAX_HEALTH - 10000.0).abs() < 0.01);
+        assert!(SCUD_STORM_MISSILE_GEOMETRY_IS_SMALL);
+        assert!((scud_missile_speed_per_frame() - 10.0).abs() < 0.01);
+
+        // Ballistic sample over enough frames to reach HeightDie residual.
+        let launch = Vec3::new(0.0, 0.0, 0.0);
+        let target = Vec3::new(700.0, 0.0, 0.0);
+        let (pos, traveled, dist_to, phase) =
+            scud_missile_ballistic_sample(launch, target, 120);
+        assert!(traveled > 0.0);
+        assert!(phase == ScudMissileLoftPhase::HeightDie || dist_to < 200.0 || pos.y <= 15.0);
+        // After HeightDie snap, Y is surface.
+        if phase == ScudMissileLoftPhase::HeightDie {
+            assert!((pos.y - 0.0).abs() < 0.01);
+        }
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        assert!(!reg.honesty_scud_ballistic_flight_ok());
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_ballistic_flight_applications, 1);
+            assert_eq!(s.scud_only_moving_down_applications, 1);
+            assert_eq!(s.scud_snap_to_ground_applications, 1);
+            assert_eq!(s.scud_model_draw_applications, 1);
+            assert!(s.scud_peak_flight_distance > 0.0);
+            assert_eq!(s.scud_loft_phase_peak, ScudMissileLoftPhase::HeightDie);
+        }
+        assert!(reg.honesty_scud_ballistic_flight_ok());
+        assert!(reg.honesty_scud_preferred_height_spring_ok());
+        assert!(reg.honesty_scud_missile_loft_ok());
+    }
+
+    #[test]
+    fn spectre_howitzer_shell_model_draw_residual_honesty() {
+        assert_eq!(SPECTRE_HOWITZER_SHELL_MODEL, "AVSpectreShell1");
+        assert!((SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_SHADOW, "SHADOW_DECAL");
+        assert_eq!(SPECTRE_HOWITZER_SHELL_GEOMETRY, "Cylinder");
+        assert!(SPECTRE_HOWITZER_SHELL_GEOMETRY_IS_SMALL);
+        assert!((SPECTRE_HOWITZER_SHELL_MAX_HEALTH - 100.0).abs() < 0.01);
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+        assert!(!reg.honesty_howitzer_shell_model_draw_ok());
+        // One howitzer tick residual.
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert_eq!(f.howitzer_shell_model_draw_applications, 1);
+            assert_eq!(f.howitzer_shell_scale_applications, 1);
+            assert_eq!(f.howitzer_shell_shadow_applications, 1);
+            assert_eq!(f.howitzer_shell_geometry_applications, 1);
+            assert_eq!(f.howitzer_shell_max_health_applications, 1);
+        }
+        assert!(reg.honesty_howitzer_shell_model_draw_ok());
+        assert!(reg.honesty_howitzer_shell_ok());
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
     }
 }
