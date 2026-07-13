@@ -305,6 +305,40 @@ pub fn is_legal_scorpion_splash_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
+
+// --- Wave 62 thin residual honesty pack (optional peel) ---
+
+/// Scorpion gun + salvage residual honesty.
+pub fn honesty_scorpion_gun_residual_ok() -> bool {
+    (SCORPION_GUN_DAMAGE - 20.0).abs() < 0.01
+        && (SCORPION_GUN_DAMAGE_PLUS - 25.0).abs() < 0.01
+        && (SCORPION_GUN_SPLASH_RADIUS - 5.0).abs() < 0.01
+        && (SCORPION_RANGE - 150.0).abs() < 0.01
+        && SCORPION_GUN_DELAY_FRAMES == 30
+        && (SCORPION_GUN_PROJECTILE_SPEED - 400.0).abs() < 0.1
+        && SCORPION_TANK_GUN == "ScorpionTankGun"
+        && SCORPION_TANK_GUN_PLUS_ONE == "ScorpionTankGunPlusOne"
+}
+
+/// Scorpion rocket residual honesty (Upgrade + AP + dual clip).
+pub fn honesty_scorpion_rocket_residual_ok() -> bool {
+    (SCORPION_MISSILE_PRIMARY_DAMAGE - 100.0).abs() < 0.01
+        && (SCORPION_MISSILE_PRIMARY_RADIUS - 5.0).abs() < 0.01
+        && (SCORPION_MISSILE_SECONDARY_DAMAGE - 80.0).abs() < 0.01
+        && (SCORPION_MISSILE_SECONDARY_RADIUS - 25.0).abs() < 0.01
+        && (SCORPION_MISSILE_MIN_RANGE - 40.0).abs() < 0.01
+        && SCORPION_MISSILE_RELOAD_FRAMES == 450
+        && (SCORPION_AP_DAMAGE_MULT - 1.25).abs() < 0.001
+        && UPGRADE_GLA_SCORPION_ROCKET == "Upgrade_GLAScorpionRocket"
+        && UPGRADE_GLA_AP_ROCKETS == "Upgrade_GLAAPRockets"
+        && SCORPION_MISSILE_WEAPON == "ScorpionMissileWeapon"
+}
+
+/// Combined Wave 62 scorpion thin residual honesty pack.
+pub fn honesty_scorpion_residual_pack_ok() -> bool {
+    honesty_scorpion_gun_residual_ok() && honesty_scorpion_rocket_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,5 +411,12 @@ mod tests {
             salvage_tier_from_upgrades(&set),
             ScorpionSalvageTier::Two
         );
+    }
+
+    #[test]
+    fn scorpion_residual_pack_honesty() {
+        assert!(honesty_scorpion_gun_residual_ok());
+        assert!(honesty_scorpion_rocket_residual_ok());
+        assert!(honesty_scorpion_residual_pack_ok());
     }
 }
