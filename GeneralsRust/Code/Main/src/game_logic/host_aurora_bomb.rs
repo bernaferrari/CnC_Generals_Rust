@@ -15,11 +15,24 @@
 //!   SupW_AuroraFuelAirGas SlowDeath MIDPOINT — tree-ignite flame 5 / r100).
 //! - Honesty counters for activate / complete / damage gates and tests.
 //!
+//! Wave 61 residual pack (retail Weapon.ini / WeaponObjects.ini / AmericaAir.ini honesty):
+//! - AuroraBombWeapon: Primary **400**/r**20**, AttackRange **300**, ClipSize **1**,
+//!   ClipReload **5000**ms → **150**f, AutoReloadsClip **RETURN_TO_BASE**,
+//!   DamageType **AURORA_BOMB**, DeathType **EXPLODED**, Projectile **AuroraBomb**,
+//!   AcceptableAimDelta **45**, RadiusDamageAffects ALLIES ENEMIES NEUTRALS NOT_SIMILAR,
+//!   ProjectileCollidesWith **STRUCTURES**, FireFX / DetonationFX residual names
+//! - AirF detonation **1000**/r**100**, SupW detonation **900**/r**70**, primary tiny **2**/r**4**
+//! - Projectile residual: MaxHealth **100**, Mass **75**, AuroraBombLocomotor Speed **480** /
+//!   MinSpeed **240** / Accel **960** / TurnRate **960** / MaxThrustAngle **60**
+//! - Jet body residual: MaxHealth **80**, Vision **180**, Shroud **600**, BuildCost **2500**,
+//!   ReturnToBaseIdleTime **10000**ms → **300**f, SneakyOffsetWhenAttacking **-20**
+//!
 //! Fail-closed honesty:
-//! - Not full AuroraBombLocomotor / MissileAIUpdate DistanceToTargetBeforeDiving
+//! - Not full AuroraBombLocomotor flight path / MissileAIUpdate DistanceToTargetBeforeDiving
 //! - Not full HeightDieUpdate / CreateObjectDie OCL_AuroraBombExplode gas object
 //! - Not full SlowDeath multi-stage timing / tree burn state / FX GPU
-//! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / RETURN_TO_BASE clip reload
+//! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / airfield RETURN_TO_BASE rearm path
+//!   (ClipSize/ClipReload/AutoReloadsClip residual honesty closed Wave 61)
 //! - SupW_FuelBombDetonationWeapon 900/r70 residual is host-testable via
 //!   `HostAuroraBombKind::FuelAirSupW` (AirF keeps 1000/r100)
 //! - Not multiplayer shared-synced bomb projectile (network deferred)
@@ -67,6 +80,97 @@ pub const AURORA_FUEL_AIR_FLAME_AUDIO: &str = "DaisyCutterIgnite";
 /// Retail AuroraBombWeapon AttackRange residual.
 pub const AURORA_BOMB_ATTACK_RANGE: f32 = 300.0;
 
+// --- Wave 61 RETURN_TO_BASE / weapon matrix residual ---
+
+/// Retail AuroraBombWeapon ClipSize residual.
+pub const AURORA_BOMB_CLIP_SIZE: u32 = 1;
+/// Retail AuroraBombWeapon ClipReloadTime residual (msec).
+pub const AURORA_BOMB_CLIP_RELOAD_MS: u32 = 5000;
+/// ClipReloadTime 5000ms → 150 frames @ 30 FPS.
+pub const AURORA_BOMB_CLIP_RELOAD_FRAMES: u32 = 150;
+/// Retail AutoReloadsClip residual.
+pub const AURORA_BOMB_AUTO_RELOADS: &str = "RETURN_TO_BASE";
+/// Retail DamageType residual.
+pub const AURORA_BOMB_DAMAGE_TYPE: &str = "AURORA_BOMB";
+/// Retail DeathType residual.
+pub const AURORA_BOMB_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ProjectileObject residual (standard).
+pub const AURORA_BOMB_PROJECTILE: &str = "AuroraBomb";
+/// Retail AirF projectile residual.
+pub const AIRF_AURORA_BOMB_PROJECTILE: &str = "AirF_AuroraBomb";
+/// Retail SupW projectile residual.
+pub const SUPW_AURORA_FUEL_AIR_BOMB_PROJECTILE: &str = "SupW_AuroraFuelAirBomb";
+/// Retail AcceptableAimDelta residual (degrees).
+pub const AURORA_BOMB_ACCEPTABLE_AIM_DELTA_DEG: f32 = 45.0;
+/// Retail RadiusDamageAffects residual tokens.
+pub const AURORA_BOMB_RADIUS_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS NOT_SIMILAR";
+/// Retail ProjectileCollidesWith residual.
+pub const AURORA_BOMB_PROJECTILE_COLLIDES_WITH: &str = "STRUCTURES";
+/// Retail FireFX residual name.
+pub const AURORA_BOMB_FIRE_FX: &str = "FX_AuroraBombLaunch";
+/// Retail ProjectileDetonationFX residual name.
+pub const AURORA_BOMB_DETONATION_FX: &str = "FX_AuroraBombDetonate";
+/// Retail WeaponSpeed residual (instant-ish bookkeeping).
+pub const AURORA_BOMB_WEAPON_SPEED: f32 = 99999.0;
+/// Retail AirF primary impact damage residual (tiny; OCL detonation is real blast).
+pub const AIRF_AURORA_PRIMARY_DAMAGE: f32 = 2.0;
+/// Retail AirF primary impact radius residual.
+pub const AIRF_AURORA_PRIMARY_RADIUS: f32 = 4.0;
+/// Retail SupW detonation weapon name residual.
+pub const SUPW_FUEL_BOMB_DETONATION_WEAPON: &str = "SupW_FuelBombDetonationWeapon";
+/// Retail AirF detonation weapon name residual.
+pub const AIRF_AURORA_BOMB_DETONATION_WEAPON: &str = "AirF_AuroraBombDetonationWeapon";
+
+// --- Wave 61 projectile residual (Object AuroraBomb) ---
+
+/// Retail AuroraBomb projectile MaxHealth residual.
+pub const AURORA_BOMB_PROJECTILE_MAX_HEALTH: f32 = 100.0;
+/// Retail AuroraBomb PhysicsBehavior Mass residual.
+pub const AURORA_BOMB_PROJECTILE_MASS: f32 = 75.0;
+/// Retail AerodynamicFriction residual.
+pub const AURORA_BOMB_PROJECTILE_AERO_FRICTION: f32 = 2.0;
+/// Retail ForwardFriction residual.
+pub const AURORA_BOMB_PROJECTILE_FORWARD_FRICTION: f32 = 2.0;
+/// Retail CenterOfMassOffset residual.
+pub const AURORA_BOMB_PROJECTILE_COM_OFFSET: f32 = 2.0;
+/// Retail GeometryMajorRadius residual.
+pub const AURORA_BOMB_PROJECTILE_GEOMETRY_RADIUS: f32 = 2.0;
+/// Retail AuroraBombLocomotor Speed residual.
+pub const AURORA_BOMB_LOCO_SPEED: f32 = 480.0;
+/// Retail AuroraBombLocomotor MinSpeed residual.
+pub const AURORA_BOMB_LOCO_MIN_SPEED: f32 = 240.0;
+/// Retail AuroraBombLocomotor Acceleration residual.
+pub const AURORA_BOMB_LOCO_ACCEL: f32 = 960.0;
+/// Retail AuroraBombLocomotor TurnRate residual (deg/sec).
+pub const AURORA_BOMB_LOCO_TURN_RATE: f32 = 960.0;
+/// Retail AuroraBombLocomotor MaxThrustAngle residual (deg).
+pub const AURORA_BOMB_LOCO_MAX_THRUST_ANGLE: f32 = 60.0;
+/// Retail MissileAIUpdate TryToFollowTarget residual.
+pub const AURORA_BOMB_TRY_TO_FOLLOW_TARGET: bool = false;
+
+// --- Wave 61 AmericaJetAurora body / JetAIUpdate residual ---
+
+/// Retail AmericaJetAurora MaxHealth residual.
+pub const AURORA_JET_MAX_HEALTH: f32 = 80.0;
+/// Retail VisionRange residual.
+pub const AURORA_JET_VISION_RANGE: f32 = 180.0;
+/// Retail ShroudClearingRange residual.
+pub const AURORA_JET_SHROUD_CLEARING_RANGE: f32 = 600.0;
+/// Retail BuildCost residual.
+pub const AURORA_JET_BUILD_COST: u32 = 2500;
+/// Retail BuildTime residual (seconds).
+pub const AURORA_JET_BUILD_TIME: f32 = 30.0;
+/// Retail ReturnToBaseIdleTime residual (msec).
+pub const AURORA_JET_RETURN_TO_BASE_IDLE_MS: u32 = 10_000;
+/// ReturnToBaseIdleTime 10000ms → 300 frames @ 30 FPS.
+pub const AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES: u32 = 300;
+/// Retail SneakyOffsetWhenAttacking residual.
+pub const AURORA_JET_SNEAKY_OFFSET: f32 = -20.0;
+/// Retail AttackLocomotorPersistTime residual (msec).
+pub const AURORA_JET_ATTACK_LOCO_PERSIST_MS: u32 = 100;
+/// Retail AttackersMissPersistTime residual (msec).
+pub const AURORA_JET_ATTACKERS_MISS_PERSIST_MS: u32 = 2000;
+
 /// Retail primary weapon template name (standard Aurora).
 pub const AURORA_BOMB_PRIMARY_WEAPON: &str = "AuroraBombWeapon";
 /// Retail AirF primary weapon (tiny impact; detonation via OCL residual).
@@ -80,6 +184,14 @@ pub const AURORA_BOMB_LAUNCH_AUDIO: &str = "AuroraBombLaunch";
 pub const AURORA_BOMB_DETONATE_AUDIO: &str = "AuroraBombDetonate";
 /// Fuel-Air detonation audio residual (DaisyCutter-family final explosion cue).
 pub const AURORA_FUEL_AIR_DETONATE_AUDIO: &str = "DaisyCutterExplosion";
+
+/// Convert msec residual → logic frames @ 30 FPS.
+pub fn aurora_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * AURORA_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Host residual Aurora bomb kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -543,7 +655,8 @@ impl HostAuroraBombRegistry {
 
 /// Residual primary weapon binding for Aurora aircraft (host combat path).
 ///
-/// ClipSize residual = 1 (RETURN_TO_BASE reload not modeled — long host reload).
+/// ClipSize residual = 1; ClipReloadTime 5000ms honesty (full RETURN_TO_BASE airfield
+/// rearm path fail-closed — host uses long reload seconds residual).
 pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
     // Host residual: weapon.damage is residual bookkeeping only — area damage is
     // applied after dive delay, not as instant single-target take_damage.
@@ -551,20 +664,111 @@ pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
     let bookkeeping_damage = match kind {
         HostAuroraBombKind::Standard => AURORA_BOMB_DAMAGE,
         // AirF / SupW primary is intentionally tiny (2.0); detonation is residual OCL.
-        HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => 2.0,
+        HostAuroraBombKind::FuelAir | HostAuroraBombKind::FuelAirSupW => AIRF_AURORA_PRIMARY_DAMAGE,
     };
     super::Weapon {
         damage: bookkeeping_damage,
         range: AURORA_BOMB_ATTACK_RANGE,
         min_range: 0.0,
-        reload_time: 5.0, // ClipReloadTime 5000 ms residual
+        reload_time: (AURORA_BOMB_CLIP_RELOAD_MS as f32) / 1000.0, // ClipReloadTime 5000 ms residual
         last_fire_time: -100.0,
-        ammo: Some(1),
+        ammo: Some(AURORA_BOMB_CLIP_SIZE),
         can_target_air: false,
         can_target_ground: true,
-        projectile_speed: 99999.0,
+        projectile_speed: AURORA_BOMB_WEAPON_SPEED,
         pre_attack_delay: 0.0,
     }
+}
+
+// --- Wave 61 residual honesty packs ---
+
+/// Wave 61 residual honesty: AuroraBombWeapon damage / range matrix.
+pub fn honesty_aurora_bomb_damage_range_residual_ok() -> bool {
+    (AURORA_BOMB_DAMAGE - 400.0).abs() < 0.01
+        && (AURORA_BOMB_RADIUS - 20.0).abs() < 0.01
+        && (AURORA_BOMB_ATTACK_RANGE - 300.0).abs() < 0.1
+        && AURORA_BOMB_DIVE_DELAY_FRAMES == 45
+        && (AURORA_FUEL_AIR_DAMAGE - 1000.0).abs() < 0.01
+        && (AURORA_FUEL_AIR_RADIUS - 100.0).abs() < 0.01
+        && (AURORA_FUEL_AIR_SUPW_DAMAGE - 900.0).abs() < 0.01
+        && (AURORA_FUEL_AIR_SUPW_RADIUS - 70.0).abs() < 0.01
+        && AURORA_FUEL_AIR_GAS_DELAY_FRAMES == 30
+        && AURORA_FUEL_AIR_IMPACT_DELAY_FRAMES == 75
+        && (AURORA_FUEL_AIR_FLAME_DAMAGE - 5.0).abs() < 0.01
+        && (AURORA_FUEL_AIR_FLAME_RADIUS - 100.0).abs() < 0.1
+        && (AIRF_AURORA_PRIMARY_DAMAGE - 2.0).abs() < 0.01
+        && (AIRF_AURORA_PRIMARY_RADIUS - 4.0).abs() < 0.01
+        && (AURORA_BOMB_ACCEPTABLE_AIM_DELTA_DEG - 45.0).abs() < 0.01
+        && AURORA_BOMB_DAMAGE_TYPE == "AURORA_BOMB"
+        && AURORA_BOMB_DEATH_TYPE == "EXPLODED"
+        && AURORA_BOMB_RADIUS_AFFECTS.contains("NOT_SIMILAR")
+        && AURORA_BOMB_RADIUS_AFFECTS.contains("ALLIES")
+        && AURORA_BOMB_PRIMARY_WEAPON == "AuroraBombWeapon"
+        && AIRF_AURORA_BOMB_PRIMARY_WEAPON == "AirF_AuroraBombWeapon"
+        && SUPW_AURORA_FUEL_BOMB_WEAPON == "SupW_AuroraFuelBombWeapon"
+        && AIRF_AURORA_BOMB_DETONATION_WEAPON == "AirF_AuroraBombDetonationWeapon"
+        && SUPW_FUEL_BOMB_DETONATION_WEAPON == "SupW_FuelBombDetonationWeapon"
+        && HostAuroraBombKind::Standard.damage() == AURORA_BOMB_DAMAGE
+        && HostAuroraBombKind::FuelAir.damage() == AURORA_FUEL_AIR_DAMAGE
+        && HostAuroraBombKind::FuelAirSupW.damage() == AURORA_FUEL_AIR_SUPW_DAMAGE
+}
+
+/// Wave 61 residual honesty: RETURN_TO_BASE clip reload residual.
+pub fn honesty_aurora_return_to_base_residual_ok() -> bool {
+    AURORA_BOMB_CLIP_SIZE == 1
+        && AURORA_BOMB_CLIP_RELOAD_MS == 5000
+        && AURORA_BOMB_CLIP_RELOAD_FRAMES == aurora_ms_to_frames(AURORA_BOMB_CLIP_RELOAD_MS)
+        && AURORA_BOMB_CLIP_RELOAD_FRAMES == 150
+        && AURORA_BOMB_AUTO_RELOADS == "RETURN_TO_BASE"
+        && AURORA_JET_RETURN_TO_BASE_IDLE_MS == 10_000
+        && AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
+            == aurora_ms_to_frames(AURORA_JET_RETURN_TO_BASE_IDLE_MS)
+        && AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES == 300
+        && {
+            let w = aurora_bomb_weapon(HostAuroraBombKind::Standard);
+            w.ammo == Some(1)
+                && (w.reload_time - 5.0).abs() < 0.01
+                && (w.range - AURORA_BOMB_ATTACK_RANGE).abs() < 0.01
+                && !w.can_target_air
+                && w.can_target_ground
+        }
+}
+
+/// Wave 61 residual honesty: AuroraBomb projectile / locomotor residual.
+pub fn honesty_aurora_projectile_residual_ok() -> bool {
+    AURORA_BOMB_PROJECTILE == "AuroraBomb"
+        && AIRF_AURORA_BOMB_PROJECTILE == "AirF_AuroraBomb"
+        && SUPW_AURORA_FUEL_AIR_BOMB_PROJECTILE == "SupW_AuroraFuelAirBomb"
+        && (AURORA_BOMB_PROJECTILE_MAX_HEALTH - 100.0).abs() < 0.01
+        && (AURORA_BOMB_PROJECTILE_MASS - 75.0).abs() < 0.01
+        && (AURORA_BOMB_PROJECTILE_AERO_FRICTION - 2.0).abs() < 0.01
+        && (AURORA_BOMB_PROJECTILE_FORWARD_FRICTION - 2.0).abs() < 0.01
+        && (AURORA_BOMB_PROJECTILE_COM_OFFSET - 2.0).abs() < 0.01
+        && (AURORA_BOMB_PROJECTILE_GEOMETRY_RADIUS - 2.0).abs() < 0.01
+        && (AURORA_BOMB_LOCO_SPEED - 480.0).abs() < 0.01
+        && (AURORA_BOMB_LOCO_MIN_SPEED - 240.0).abs() < 0.01
+        && (AURORA_BOMB_LOCO_ACCEL - 960.0).abs() < 0.01
+        && (AURORA_BOMB_LOCO_TURN_RATE - 960.0).abs() < 0.01
+        && (AURORA_BOMB_LOCO_MAX_THRUST_ANGLE - 60.0).abs() < 0.01
+        && !AURORA_BOMB_TRY_TO_FOLLOW_TARGET
+        && AURORA_BOMB_PROJECTILE_COLLIDES_WITH == "STRUCTURES"
+        && AURORA_BOMB_FIRE_FX == "FX_AuroraBombLaunch"
+        && AURORA_BOMB_DETONATION_FX == "FX_AuroraBombDetonate"
+        && (AURORA_JET_MAX_HEALTH - 80.0).abs() < 0.01
+        && (AURORA_JET_VISION_RANGE - 180.0).abs() < 0.01
+        && (AURORA_JET_SHROUD_CLEARING_RANGE - 600.0).abs() < 0.01
+        && AURORA_JET_BUILD_COST == 2500
+        && (AURORA_JET_BUILD_TIME - 30.0).abs() < 0.01
+        && (AURORA_JET_SNEAKY_OFFSET - (-20.0)).abs() < 0.01
+        && AURORA_JET_ATTACK_LOCO_PERSIST_MS == 100
+        && AURORA_JET_ATTACKERS_MISS_PERSIST_MS == 2000
+}
+
+/// Combined Wave 61 Aurora bomb residual honesty pack.
+pub fn honesty_aurora_bomb_residual_pack_ok() -> bool {
+    honesty_aurora_bomb_damage_range_residual_ok()
+        && honesty_aurora_return_to_base_residual_ok()
+        && honesty_aurora_projectile_residual_ok()
 }
 
 #[cfg(test)]
@@ -876,5 +1080,21 @@ mod tests {
         assert!(w.can_target_ground);
         assert!(!w.can_target_air);
         assert_eq!(w.ammo, Some(1));
+        assert!((w.reload_time - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn aurora_bomb_residual_pack_honesty_wave61() {
+        assert!(honesty_aurora_bomb_damage_range_residual_ok());
+        assert!(honesty_aurora_return_to_base_residual_ok());
+        assert!(honesty_aurora_projectile_residual_ok());
+        assert!(honesty_aurora_bomb_residual_pack_ok());
+        assert_eq!(aurora_ms_to_frames(5000), 150);
+        assert_eq!(aurora_ms_to_frames(10_000), 300);
+        assert_eq!(AURORA_BOMB_AUTO_RELOADS, "RETURN_TO_BASE");
+        assert_eq!(AURORA_BOMB_PROJECTILE, "AuroraBomb");
+        assert!((AURORA_BOMB_LOCO_SPEED - 480.0).abs() < 0.01);
+        assert!((AURORA_JET_MAX_HEALTH - 80.0).abs() < 0.01);
+        assert_eq!(AURORA_JET_BUILD_COST, 2500);
     }
 }
