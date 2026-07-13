@@ -2875,6 +2875,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.model_condition_fast_sets)?;
         xfer.xfer_marker_label("ModelConditionSlowSets")?;
         xfer.xfer_u32(&mut self.model_condition_slow_sets)?;
+        // SpectreHowitzerShell projectile residual (appended).
+        xfer.xfer_marker_label("HowitzerShellsSpawned")?;
+        xfer.xfer_u32(&mut self.howitzer_shells_spawned)?;
+        xfer.xfer_marker_label("HowitzerShellFireFx")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_fire_fx)?;
+        xfer.xfer_marker_label("HowitzerShellDetonationFx")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_detonation_fx)?;
+        xfer.xfer_marker_label("HowitzerShellHeightDieDelays")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_height_die_delays)?;
+        xfer.xfer_marker_label("HowitzerShellFireSounds")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_fire_sounds)?;
         Ok(())
     }
 }
@@ -2964,6 +2975,47 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.laser_base_flare_created)?;
         xfer.xfer_marker_label("GroundToOrbitLaserCreated")?;
         xfer.xfer_u32(&mut self.ground_to_orbit_laser_created)?;
+        // Intensity schedule residual (CHARGING…POSTFIRE/PACKING + BeamLaunchFX).
+        xfer.xfer_marker_label("Status")?;
+        {
+            let mut v = self.status.as_u8();
+            xfer.xfer_u8(&mut v)?;
+            self.status =
+                crate::game_logic::special_power_strikes::ParticleUplinkStatus::from_u8(v);
+        }
+        xfer.xfer_marker_label("OuterIntensity")?;
+        {
+            let mut v = self.outer_intensity.as_u8();
+            xfer.xfer_u8(&mut v)?;
+            self.outer_intensity =
+                crate::game_logic::special_power_strikes::ParticleIntensity::from_u8(v);
+        }
+        xfer.xfer_marker_label("ConnectorIntensity")?;
+        {
+            let mut v = self.connector_intensity.as_u8();
+            xfer.xfer_u8(&mut v)?;
+            self.connector_intensity =
+                crate::game_logic::special_power_strikes::ParticleIntensity::from_u8(v);
+        }
+        xfer.xfer_marker_label("LaserBaseIntensity")?;
+        {
+            let mut v = self.laser_base_intensity.as_u8();
+            xfer.xfer_u8(&mut v)?;
+            self.laser_base_intensity =
+                crate::game_logic::special_power_strikes::ParticleIntensity::from_u8(v);
+        }
+        xfer.xfer_marker_label("BeamLaunchFxApplications")?;
+        xfer.xfer_u32(&mut self.beam_launch_fx_applications)?;
+        xfer.xfer_marker_label("NextLaunchFxFrame")?;
+        xfer.xfer_u32(&mut self.next_launch_fx_frame)?;
+        xfer.xfer_marker_label("PostfireApplications")?;
+        xfer.xfer_u32(&mut self.postfire_applications)?;
+        xfer.xfer_marker_label("PackingApplications")?;
+        xfer.xfer_u32(&mut self.packing_applications)?;
+        xfer.xfer_marker_label("IntensityTransitions")?;
+        xfer.xfer_u32(&mut self.intensity_transitions)?;
+        xfer.xfer_marker_label("ConnectorFlareCreated")?;
+        xfer.xfer_u32(&mut self.connector_flare_created)?;
         Ok(())
     }
 }
@@ -2993,6 +3045,22 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 spectre_tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
                 scud_anthrax_tier: crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
                 multi_strike_applied: 0,
+                particle_status: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
+                particle_status_peak: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
+                particle_intensity_transitions: 0,
+                particle_charging_applications: 0,
+                particle_preparing_applications: 0,
+                particle_almost_ready_applications: 0,
+                particle_ready_applications: 0,
+                particle_model_unpacking_sets: 0,
+                particle_model_deployed_sets: 0,
+                particle_model_packing_sets: 0,
+                scud_pre_attack_active: false,
+                scud_pre_attack_frames: 0,
+                scud_chem_fx_bones: 0,
+                scud_fire_fx_applications: 0,
+                scud_detonation_fx_applications: 0,
+                scud_launch_bone_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3083,6 +3151,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 model_condition_mean_sets: 0,
                 model_condition_fast_sets: 0,
                 model_condition_slow_sets: 0,
+                howitzer_shells_spawned: 0,
+                howitzer_shell_fire_fx: 0,
+                howitzer_shell_detonation_fx: 0,
+                howitzer_shell_height_die_delays: 0,
+                howitzer_shell_fire_sounds: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3136,6 +3209,16 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 connector_lasers_created: 0,
                 laser_base_flare_created: 0,
                 ground_to_orbit_laser_created: 0,
+                status: crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
+                outer_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
+                connector_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
+                laser_base_intensity: crate::game_logic::special_power_strikes::ParticleIntensity::None,
+                beam_launch_fx_applications: 0,
+                next_launch_fx_frame: 0,
+                postfire_applications: 0,
+                packing_applications: 0,
+                intensity_transitions: 0,
+                connector_flare_created: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;

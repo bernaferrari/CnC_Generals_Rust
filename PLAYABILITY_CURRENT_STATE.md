@@ -1,3 +1,62 @@
+## Residual Host Playability — PUC Intensity + Scud PreAttack + SpectreHowitzerShell (2026-07-13)
+**Closed (host-testable modules/powers residual not covered by wave 22–23):**
+1. **Particle Uplink intensity schedule residual** (`special_power_strikes` /
+   `ParticleUplinkCannonUpdate::setClientStatus`):
+   - Retail pre-fire windows: BeginChargeTime **5000** ms → **150**f (CHARGING /
+     IT_LIGHT outer), RaiseAntennaTime **4667** ms → **140**f (PREPARING /
+     IT_MEDIUM outer + MODELCONDITION_UNPACKING), ReadyDelayTime **2000** ms →
+     **60**f (ALMOST_READY / READY_TO_FIRE IT_MEDIUM connectors + laser-base Light).
+   - Host residual anchors ready-to-fire at ParticleCannon `impact_frame`;
+     host impact_delay **120**f covers PREPARING→ALMOST_READY→READY (full
+     CHARGING needs the full BeginCharge+RaiseAntenna window).
+   - Attack residual: FIRING (IT_INTENSE all + ground↔orbit) → POSTFIRE
+     (IT_MEDIUM + laser still up) after TotalFiringTime → PACKING (effects clear)
+     after WidthGrow decay tail.
+   - Model-condition honesty: UNPACKING / DEPLOYED / PACKING residual counters.
+   - Honesty: `honesty_beam_intensity_schedule_ok` / `honesty_beam_postfire_ok`.
+2. **BeamLaunchFX residual** (`DelayBetweenLaunchFX` **1000** ms → **30**f):
+   - First application on STATUS_FIRING entry; refresh every 30 frames while FIRING.
+   - Retail name `FX_ParticleUplinkCannon_BeamLaunchIteration`.
+   - Honesty: `honesty_beam_launch_fx_ok`.
+3. **ScudStorm PreAttack + Chem FX residual**:
+   - PreAttack PER_CLIP window (first missile delay) residual frame counter +
+     `scud_pre_attack_active` until first wave.
+   - Chem FXBone residual: **3** × `ScudStormBuildingGoo` (`FXBone01..03`).
+   - FireFX `WeaponFX_ScudStormMissile` + detonation `ScudStormMissileDetonation`
+     + launch bone `WeaponA` honesty per missile wave.
+   - Honesty: `honesty_scud_pre_attack_and_chem_fx_ok`.
+   - Fail-closed: not full ScudStormMissile Object / MissileAIUpdate loft path.
+4. **SpectreHowitzerShell projectile residual** (`special_power_strikes` /
+   `SpectreHowitzerGun` / `Object SpectreHowitzerShell`):
+   - Each howitzer orbit tick records shell spawn + FireFX + detonation FX +
+     FireSound + HeightDie InitialDelay (**30**f) residual honesty.
+   - Retail anchors: ProjectileObject `SpectreHowitzerShell`, WeaponSpeed **999**,
+     HeightDie TargetHeight **1.0**, GeometryRadius **4.0**, Scale **0.6**,
+     locomotor speed **1111** honesty residual.
+   - Honesty: `honesty_howitzer_shell_ok`.
+   - Fail-closed: not full DumbProjectileBehavior Object / W3D shell drawable /
+     PhysicsBehavior mass path.
+5. Snapshot/Xfer: intensity schedule fields on `HostParticleBeamField`; shell
+   residual fields on `HostSpectreOrbitField`.
+6. Tests (not log-only):
+   - `particle_uplink_intensity_schedule_and_beam_launch_fx_residual_honesty`
+   - `scud_storm_pre_attack_and_chem_fx_residual_honesty`
+   - `spectre_howitzer_shell_projectile_residual_honesty`
+   - updated `particle_cannon_params_match_retail_continuous_beam` (intensity matrix)
+   - all `special_power_strikes::` (**38**)
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full ScudStormMissile projectile Object / MissileAIUpdate loft path
+- Full SpectreHowitzerShell DumbProjectileBehavior Object / W3D shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate drawable objects
+- Full OuterBeamWidth × scalar GPU laser radius (host residual caps at r50)
+- Full GameLogicRandomValueReal / GameClientRandomValue RNG streams
+- Full InGameUI::addFloatingText GPU draw / Unicode GameText
+- Full Anim2DCollection GPU / world-anim draw path
+- Network combat/power residual replication (network deferred)
+
 ## Residual Host Playability — PUC WidthGrow Decay + Manual Drive + Outer Nodes (2026-07-13)
 **Closed (host-testable combat/presentation residual not covered by wave 21 WidthGrow grow + Scorch/Reveal):**
 1. **Particle Uplink WidthGrow decay shrink residual** (`special_power_strikes` /
