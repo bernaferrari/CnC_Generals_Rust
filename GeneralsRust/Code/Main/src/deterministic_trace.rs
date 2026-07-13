@@ -473,6 +473,7 @@ fn object_status_bits(object: &Object) -> u32 {
         | ((status.disabled_unmanned as u32) << 13)
         | ((status.is_carbomb as u32) << 14)
         | ((status.hijacked as u32) << 15)
+        | ((status.disabled_hacked as u32) << 16)
 }
 
 fn format_vec_command(name: &str, value: Vec3) -> String {
