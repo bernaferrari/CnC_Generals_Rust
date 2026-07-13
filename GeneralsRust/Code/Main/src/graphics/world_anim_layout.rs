@@ -8,6 +8,8 @@
 //! - Frame image name residual (`SCPDollar000`..`SCPDollar030`)
 //! - Honesty counters for anims / active / bytes packed
 //! - Deterministic pack order for dual-tick presentation consumers
+//! - MoneyPickUp ExecuteAnimationTime **4.0s** / ZRise **15** / Fades **Yes**
+//!   + residual fade window **1.0s** after display time (WORLD_ANIM_FADE_WINDOW)
 //!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
@@ -40,6 +42,48 @@ pub const MONEY_PICKUP_ANIM_MODE_LOOP: bool = true;
 pub const MONEY_PICKUP_RANDOMIZE_START_FRAME: bool = false;
 /// Retail image sequence prefix (`SCPDollar000`..).
 pub const MONEY_PICKUP_IMAGE_PREFIX: &str = "SCPDollar";
+/// Retail ExecuteAnimationTime residual (seconds) from MoneyCrateCollide.
+pub const MONEY_PICKUP_DISPLAY_TIME_SECONDS: f32 = 4.0;
+/// Retail ExecuteAnimationZRise residual (world units per second).
+pub const MONEY_PICKUP_Z_RISE_PER_SECOND: f32 = 15.0;
+/// Retail ExecuteAnimationFades residual (Yes).
+pub const MONEY_PICKUP_FADES: bool = true;
+/// Host residual fade window after display time (seconds) when Fades=Yes.
+///
+/// C++ world-anim fade residual: alpha decays over ~1 second after display
+/// time expires. Fail-closed: not live WORLD_ANIM_FADE_ON_EXPIRE Display blend.
+pub const MONEY_PICKUP_FADE_WINDOW_SECONDS: f32 = 1.0;
+
+/// Residual alpha for MoneyPickUp given age_seconds and template fade params.
+///
+/// - age < display → alpha 1.0 (active)
+/// - age ≥ display and fades → clamp(1 - (age - display) / fade_window, 0..1)
+/// - age ≥ display and !fades → 0.0
+#[inline]
+pub fn money_pickup_fade_alpha(age_seconds: f32, display_time: f32, fades: bool) -> f32 {
+    if age_seconds < display_time {
+        1.0
+    } else if fades {
+        let past = age_seconds - display_time;
+        (1.0 - past / MONEY_PICKUP_FADE_WINDOW_SECONDS).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Honesty: MoneyPickUp ExecuteAnimation residual params + fade window.
+pub fn honesty_money_pickup_fade_params() -> bool {
+    (MONEY_PICKUP_DISPLAY_TIME_SECONDS - 4.0).abs() < 0.01
+        && (MONEY_PICKUP_Z_RISE_PER_SECOND - 15.0).abs() < 0.01
+        && MONEY_PICKUP_FADES
+        && (MONEY_PICKUP_FADE_WINDOW_SECONDS - 1.0).abs() < 0.01
+        && (money_pickup_fade_alpha(0.0, 4.0, true) - 1.0).abs() < 0.01
+        && (money_pickup_fade_alpha(3.9, 4.0, true) - 1.0).abs() < 0.01
+        && (money_pickup_fade_alpha(4.0, 4.0, true) - 1.0).abs() < 0.01
+        && (money_pickup_fade_alpha(4.5, 4.0, true) - 0.5).abs() < 0.01
+        && (money_pickup_fade_alpha(5.0, 4.0, true) - 0.0).abs() < 0.01
+        && (money_pickup_fade_alpha(5.0, 4.0, false) - 0.0).abs() < 0.01
+}
 
 /// Convert AnimationDelay ms → logic frames (C++ parseDurationUnsignedShort / ceil).
 pub fn anim_delay_ms_to_frames(ms: u32) -> u32 {
@@ -219,16 +263,10 @@ impl WorldAnimLayout {
             let age_sec = age as f32 / WORLD_ANIM_LOGIC_FPS;
             let lift = a.z_rise_per_second * age_sec;
             let display = a.display_time_seconds.max(0.0);
-            let alpha = if age_sec < display {
+            let alpha = money_pickup_fade_alpha(age_sec, display, a.fades);
+            if age_sec < display {
                 active = active.saturating_add(1);
-                1.0
-            } else if a.fades {
-                // Residual fade window: 1 second after display time.
-                let past = age_sec - display;
-                (1.0 - past).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
+            }
             if alpha <= 0.0 {
                 continue;
             }
@@ -359,6 +397,23 @@ mod tests {
         assert_eq!(money_pickup_frame_image_name(0), "SCPDollar000");
         assert_eq!(money_pickup_frame_image_name(30), "SCPDollar030");
         assert_eq!(MONEY_PICKUP_NUM_FRAMES, 31);
+    }
+
+    #[test]
+    fn money_pickup_fade_params_residual_honesty() {
+        assert!(honesty_money_pickup_fade_params());
+        assert!((MONEY_PICKUP_DISPLAY_TIME_SECONDS - 4.0).abs() < 0.01);
+        assert!((MONEY_PICKUP_Z_RISE_PER_SECOND - 15.0).abs() < 0.01);
+        assert!(MONEY_PICKUP_FADES);
+        // Mid-fade residual at age 4.5s → alpha 0.5.
+        assert!((money_pickup_fade_alpha(4.5, 4.0, true) - 0.5).abs() < 0.01);
+        // Pack during fade window still has geometry (alpha > 0).
+        let anim = PresentationWorldAnim::synthetic_money_pickup(0);
+        // 4.5 seconds = 135 frames @ 30 FPS.
+        let pack = WorldAnimLayout::pack_anims_at(&[anim], 135);
+        assert!(pack.honesty.honesty_cpu_pack_ok());
+        assert_eq!(pack.honesty.anims_packed, 1);
+        assert!((pack.entries[0].alpha - 0.5).abs() < 0.01);
     }
 
 }

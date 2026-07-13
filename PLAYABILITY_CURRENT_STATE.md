@@ -1,3 +1,125 @@
+## Residual Host Playability — Scud DestroyDie/Loco Name + Howitzer Shell Loco + Connector KindOf Defaults + TrailRemnant + DisplayString setFont (2026-07-13)
+**Closed (host-testable residual not covered by wave 35 FireWeaponWhenDead/body/loco residual):**
+1. **ScudStormMissile DestroyDie + Locomotor template name residual** (`special_power_strikes`):
+   - Empty DestroyDie module residual present on ScudStormMissile.
+   - Locomotor SET_NORMAL template name **SCUDStormMissileLocomotor**.
+   - ArmorSet DamageFX **None**.
+   - Honesty: `honesty_scud_destroy_die_locomotor_name_ok`.
+   - Fail-closed: not full DestroyDie Object / Locomotor store matrix.
+2. **SpectreHowitzerShellLocomotor template residual** (`special_power_strikes`):
+   - Surfaces **AIR**, Appearance **THRUST**, MinSpeed **1111**, Accel **9160**,
+     TurnRate **99999**, MaxThrustAngle **90**, Braking **0**, AllowAirborne Yes.
+   - ArmorSet DamageFX **None** residual.
+   - Honesty: `honesty_howitzer_shell_locomotor_template_ok` / `honesty_howitzer_shell_damage_fx_ok`.
+   - Fail-closed: not full Locomotor store / live motive force (Object comments out Locomotor).
+3. **Connector KindOf IMMOBILE + MaxIntensity/Fade/Tile residual** (`special_power_strikes`):
+   - Medium/Intense connectors: KindOf **IMMOBILE**, Segments **1**, ArcHeight **0**,
+     MaxIntensityLifetime **0**, FadeLifetime **0**, Tile **No**.
+   - Honesty: `honesty_beam_connector_kindof_defaults_ok`.
+   - Fail-closed: not full LaserUpdate GPU drawable / ThingFactory connector Object.
+4. **ParticleUplinkCannonTrailRemnant KindOf/ImmortalBody residual** (`special_power_strikes`):
+   - KindOf **NO_COLLIDE UNATTACKABLE IMMOBILE**, ImmortalBody Max/Initial **50**,
+     EditorSorting **SYSTEM**.
+   - Honesty: `honesty_beam_remnant_object_params_ok`.
+   - Fail-closed: not full ThingFactory Object / DeletionUpdate module stack.
+5. **DisplayString setFont residual** (`floating_text_layout`):
+   - Equal font early-out / different font m_fontChanged residual.
+   - Empty/NULL font fail-closed early return residual.
+   - Honesty: `honesty_display_string_set_font`.
+   - Fail-closed: not full FontCharsClass re-raster / WW3D StretchRect.
+6. **Connector/Orbital W3DLaserDraw omitted-field defaults residual** (`laser_segment_upload`):
+   - MaxIntensityLifetime **0**, FadeLifetime **0**, connector Tile **No**, Segments **1**, ArcHeight **0**.
+   - Honesty: `honesty_connector_laser_defaults`.
+   - Fail-closed: not full LaserUpdate drawable lifetime / fade-delete path.
+7. **MoneyPickUp ExecuteAnimationTime/ZRise/Fades residual** (`world_anim_layout`):
+   - DisplayTime **4.0s**, ZRise **15**, Fades **Yes**, fade window **1.0s**.
+   - Honesty: `honesty_money_pickup_fade_params` / pack alpha mid-fade residual.
+   - Fail-closed: not full WORLD_ANIM_FADE_ON_EXPIRE live Display blend.
+8. Snapshot/Xfer: howitzer locomotor template + damage FX / connector kindof defaults /
+   remnant object params residual fields appended.
+9. Tests (not log-only):
+   - `scud_destroy_die_locomotor_name_residual_honesty`
+   - `spectre_howitzer_shell_locomotor_template_residual_honesty`
+   - `particle_uplink_connector_kindof_defaults_residual_honesty`
+   - `particle_uplink_remnant_object_params_residual_honesty`
+   - `display_string_set_font_residual_honesty`
+   - `connector_laser_defaults_residual_honesty`
+   - `money_pickup_fade_params_residual_honesty`
+   - all `special_power_strikes::` (**70**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Scud DestroyDie/Locomotor Name + Howitzer Locomotor Template + Connector KindOf Defaults + Remnant ImmortalBody + DisplayString setFont + MoneyPickUp Fade (2026-07-13)
+**Closed (host-testable residual not covered by wave 34–35 FireWeaponWhenDead/body/loco residual):**
+1. **ScudStormMissile DestroyDie + Locomotor name + Armor DamageFX residual** (`special_power_strikes`):
+   - Empty DestroyDie module residual present.
+   - Locomotor SET_NORMAL template name **SCUDStormMissileLocomotor**.
+   - ArmorSet DamageFX **None**.
+   - Honesty: `honesty_scud_destroy_die_locomotor_name_ok`.
+   - Fail-closed: not full DestroyDie Object / Locomotor store matrix.
+2. **SpectreHowitzerShellLocomotor template residual** (`special_power_strikes`):
+   - Surfaces **AIR**, Appearance **THRUST**, MinSpeed **1111**, Accel **9160**,
+     TurnRate **99999**, MaxThrustAngle **90**, Braking **0**, AllowAirborne Yes.
+   - Honesty: `honesty_howitzer_shell_locomotor_template_ok`.
+   - Fail-closed: not full Locomotor store / live motive force (Object comments out Locomotor).
+3. **SpectreHowitzerShell Armor DamageFX residual** (`special_power_strikes`):
+   - ArmorSet DamageFX **None**.
+   - Honesty: `honesty_howitzer_shell_damage_fx_ok`.
+   - Fail-closed: not full DamageFXStore path.
+4. **Connector KindOf IMMOBILE + Segments/MaxIntensity/Fade/Tile residual** (`special_power_strikes` + `laser_segment_upload`):
+   - KindOf **IMMOBILE**, Segments **1**, MaxIntensityLifetime **0**, FadeLifetime **0**, Tile **No**.
+   - Honesty: `honesty_beam_connector_kindof_defaults_ok` / `honesty_connector_laser_defaults`.
+   - Fail-closed: not full LaserUpdate GPU drawable / fade-delete path.
+5. **TrailRemnant KindOf + ImmortalBody residual** (`special_power_strikes`):
+   - KindOf **NO_COLLIDE UNATTACKABLE IMMOBILE**, ImmortalBody MaxHealth **50**,
+     InitialHealth **50**, EditorSorting **SYSTEM**.
+   - Honesty: `honesty_beam_remnant_object_params_ok`.
+   - Fail-closed: not full ThingFactory Object / ImmortalBody / DeletionUpdate stack.
+6. **DisplayString setFont residual** (`floating_text_layout`):
+   - Equal font early-out / different font m_fontChanged residual.
+   - Honesty: `honesty_display_string_set_font`.
+   - Fail-closed: not full FontCharsClass re-raster / hotkey underline font.
+7. **MoneyPickUp ExecuteAnimation fade residual** (`world_anim_layout`):
+   - DisplayTime **4.0s**, ZRise **15**, Fades **Yes**, fade window **1.0s**.
+   - Honesty: `honesty_money_pickup_fade_params`.
+   - Fail-closed: not full Anim2DCollection GPU / WORLD_ANIM_FADE_ON_EXPIRE Display blend.
+8. Snapshot/Xfer: howitzer locomotor template + damage FX / connector KindOf defaults /
+   remnant object params residual fields appended.
+9. Tests (not log-only):
+   - `scud_destroy_die_locomotor_name_residual_honesty`
+   - `spectre_howitzer_shell_locomotor_template_residual_honesty`
+   - `particle_uplink_connector_kindof_defaults_residual_honesty`
+   - `particle_uplink_remnant_object_params_residual_honesty`
+   - `display_string_set_font_residual_honesty`
+   - `money_pickup_fade_params_residual_honesty`
+   - `connector_laser_defaults_residual_honesty`
+   - all `special_power_strikes::` (**70**)
+   - graphics residual tests green
+   - golden_skirmish_gate --frames 8 → `playable_claim=true`
+   - shell_smoke_gate → `playable_claim=false` / `shell_host_playable_ok=true`
+
+**Still residual (fail-closed, not claimed):**
+- Full multi-locale CSF/STR GameText table load for all LanguageId at runtime boot UI
+- Full Anim2DCollection GPU texture atlas / DisplayString font raster draw
+- Full OuterBeamWidth multi-beam GPU soft edge / texture atlas submit
+  (host residual packs NumBeams width/color/UV/additive/tiled/premul/defaults; combat still r50)
+- Full ScudStormMissile ThingFactory Object / live MissileAIUpdate physics flight
+- Full SpectreHowitzerShell ThingFactory Object / W3D ModelDraw shell drawable
+- Full W3D bone-extract outer-node / connector LaserUpdate GPU drawables
+- Full TrailRemnant ThingFactory ImmortalBody / DeletionUpdate module stack
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Scud FireWeaponWhenDead/Body/Loco + Howitzer Design/GENERIC Death + Connector Premul + Orbital KindOf/Segments + DisplayString setText (2026-07-13)
 **Closed (host-testable residual not covered by wave 33 soft-edge premul/object-params residual):**
 1. **ScudStormMissile FireWeaponWhenDead residual** (`special_power_strikes`):

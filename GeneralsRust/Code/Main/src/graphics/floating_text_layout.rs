@@ -13,6 +13,7 @@
 //! - DisplayString color residual normalize u8 RGBA → f32 (0..1)
 //! - Retail green/yellow cash caption color honesty samples
 //! - DisplayString setText residual (notifyTextChanged when text differs)
+//! - DisplayString setFont residual (equal font early-out / m_fontChanged)
 //!
 //! Still residual:
 //! - Full DisplayString GPU font atlas raster / WW3D StretchRect submit
@@ -88,6 +89,26 @@ pub fn display_string_set_text_changed(previous: &str, new_text: &str) -> bool {
 /// Honesty: setText residual matches C++ early-out vs notifyTextChanged path.
 pub fn honesty_display_string_set_text(previous: &str, new_text: &str, changed: bool) -> bool {
     display_string_set_text_changed(previous, new_text) == changed
+}
+
+/// DisplayString `setFont` residual: whether font change arms residual dirty.
+///
+/// C++ `W3DDisplayString::setFont`: if `font == NULL` return; if `m_font == font`
+/// return early; else set font + `m_fontChanged = TRUE`. Host residual returns
+/// true when font name differs (changed) and false when equal (no-op).
+/// Fail-closed vs live FontCharsClass re-raster / hotkey underline font.
+#[inline]
+pub fn display_string_set_font_changed(previous_font: &str, new_font: &str) -> bool {
+    !new_font.is_empty() && previous_font != new_font
+}
+
+/// Honesty: setFont residual matches C++ early-out vs m_fontChanged path.
+pub fn honesty_display_string_set_font(
+    previous_font: &str,
+    new_font: &str,
+    changed: bool,
+) -> bool {
+    display_string_set_font_changed(previous_font, new_font) == changed
 }
 
 /// Floats per packed layout entry:
@@ -452,6 +473,19 @@ mod tests {
         assert!(honesty_display_string_set_text("+$150", "+$200", true));
         assert!(display_string_set_text_changed("", "+$0"));
         assert!(!display_string_set_text_changed("", ""));
+    }
+
+    #[test]
+    fn display_string_set_font_residual_honesty() {
+        // Equal font → no change residual (C++ early return).
+        assert!(!display_string_set_font_changed("Arial", "Arial"));
+        assert!(honesty_display_string_set_font("Arial", "Arial", false));
+        // Different font → m_fontChanged residual.
+        assert!(display_string_set_font_changed("Arial", "Times"));
+        assert!(honesty_display_string_set_font("Arial", "Times", true));
+        // Empty new font → fail-closed (C++ NULL font early return).
+        assert!(!display_string_set_font_changed("Arial", ""));
+        assert!(honesty_display_string_set_font("Arial", "", false));
     }
 
 }
