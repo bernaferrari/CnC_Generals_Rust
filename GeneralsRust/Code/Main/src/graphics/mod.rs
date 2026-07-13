@@ -14,9 +14,15 @@ pub mod render_item;
 pub mod render_pipeline;
 pub mod selection_renderer;
 pub mod ui_render_pass;
+pub mod world_anim_layout;
 pub use floating_text_layout::{
-    pack_floating_text_and_mark_ready, FloatingTextLayout, FloatingTextLayoutEntry,
-    FloatingTextLayoutHonesty, FLOATING_TEXT_LAYOUT_BYTES, FLOATING_TEXT_LAYOUT_FLOATS,
+    pack_floating_text_and_mark_ready, resolve_add_cash_caption, FloatingTextLayout,
+    FloatingTextLayoutEntry, FloatingTextLayoutHonesty, FLOATING_TEXT_LAYOUT_BYTES,
+    FLOATING_TEXT_LAYOUT_FLOATS, GUI_ADD_CASH_KEY,
+};
+pub use world_anim_layout::{
+    pack_world_anim_and_mark_ready, WorldAnimLayout, WorldAnimLayoutEntry, WorldAnimLayoutHonesty,
+    WORLD_ANIM_LAYOUT_BYTES, WORLD_ANIM_LAYOUT_FLOATS,
 };
 pub use graphics_system::{GlobalUniforms, GraphicsStatistics, GraphicsSystem};
 pub use laser_segment_upload::{

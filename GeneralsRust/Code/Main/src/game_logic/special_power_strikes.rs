@@ -41,26 +41,32 @@
 //! single host field (not full HazardousMaterialArmor / cleanup-hazard object
 //! stack / SpectreGunshipUpdate continuous-fire ROF + ContinuousFireCoast residual
 //! (host residual; SpectreHowitzerShell projectile residual closed at shell
-//! spawn/FireFX/detonation/HeightDie InitialDelay honesty — not full
-//! DumbProjectileBehavior Object / W3D shell drawable;
+//! spawn/FireFX/detonation/HeightDie InitialDelay + DumbProjectileBehavior /
+//! Physics mass / InstantDeath path honesty — not full W3D shell drawable Object);
 //! MODELCONDITION CONTINUOUS_FIRE_* honesty residual closed) /
 //! ParticleUplinkCannonUpdate outer-node + connector laser residual closed at
 //! STATUS_FIRING; intensity schedule residual closed
 //! (CHARGING/PREPARING/ALMOST_READY/READY Light→Medium→Intense client residual);
-//! manual beam driving residual closed (override destination + ManualDrivingSpeed /
-//! ManualFastDrivingSpeed / DoubleClickToFastDriveDelay); DamagePulseRemnant
-//! trail residual closed; swath sine residual closed; WidthGrow damage-radius
-//! grow+hold+decay shrink residual closed; TotalScorchMarks/RevealRange residual
-//! closed). CarpetBomb residual is DropDelay-staggered multi-point
-//! blasts with DropVariance residual scatter (not full AmericaJetB52 Object /
-//! pathfinder). ArtilleryBarrage residual is WeaponErrorRadius-scattered shells
-//! with per-shell DelayDelivery stagger and science-tier FormationSize
-//! (not full ChinaArtilleryCannon transport Object / GameLogicRandomValueReal
-//! stream). ScudStorm residual is ClipSize-9 ScatterTarget multi-missile +
-//! ScudStormDamageWeapon primary/secondary + LargePoisonField residual, with
-//! Anthrax Beta/Gamma upgraded Secondary 200 + upgraded poison 25 residual;
-//! PreAttack PER_CLIP + FireFX/IgnitionFX/launch residual + Chem FXBone residual
-//! closed (not full ScudStormMissile Object / MissileAIUpdate loft path).
+//! OuterBeamWidth × width_scalar orbital laser draw / getCurrentLaserRadius
+//! retail damage-radius formula honesty residual closed (host combat still caps
+//! at PARTICLE_BEAM_RADIUS 50; retail peak = OuterBeamWidth×0.5×DamageRadiusScalar
+//! = 44.2); manual beam driving residual closed (override destination +
+//! ManualDrivingSpeed / ManualFastDrivingSpeed / DoubleClickToFastDriveDelay);
+//! DamagePulseRemnant trail residual closed; swath sine residual closed;
+//! WidthGrow damage-radius grow+hold+decay shrink residual closed;
+//! TotalScorchMarks/RevealRange residual closed). CarpetBomb residual is
+//! DropDelay-staggered multi-point blasts with DropVariance residual scatter
+//! (not full AmericaJetB52 Object / pathfinder). ArtilleryBarrage residual is
+//! WeaponErrorRadius-scattered shells with per-shell DelayDelivery stagger and
+//! science-tier FormationSize (pure ADC GameLogicRandomValueReal residual by
+//! formation index — re-query stable; fail-closed vs once-at-queue global stream
+//! storage / full ChinaArtilleryCannon transport Object). ScudStorm residual is ClipSize-9
+//! ScatterTarget multi-missile + ScudStormDamageWeapon primary/secondary +
+//! LargePoisonField residual, with Anthrax Beta/Gamma upgraded Secondary 200 +
+//! upgraded poison 25 residual; PreAttack PER_CLIP + FireFX/IgnitionFX/launch
+//! residual + Chem FXBone residual + ScudStormMissile MissileAIUpdate loft /
+//! HeightDie / preferred-height residual closed (not full ThingFactory projectile
+//! Object / live MissileAIUpdate flight sim).
 //! CruiseMissile residual is a MOAB primary + MOABFlame secondary residual
 //! (not full loft projectile / HeightDieUpdate / door animation / tree burn state).
 
@@ -270,6 +276,20 @@ pub const SPECTRE_HOWITZER_SHELL_SCALE: f32 = 0.6;
 /// Retail SpectreHowitzerShellLocomotor Speed residual (dist/sec; unused when
 /// DumbProjectileBehavior is active, honesty residual for shell path).
 pub const SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED: f32 = 1111.0;
+/// Retail SpectreHowitzerShell PhysicsBehavior Mass residual.
+pub const SPECTRE_HOWITZER_SHELL_MASS: f32 = 1.0;
+/// Retail SpectreHowitzerShell GeometryHeight residual.
+pub const SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT: f32 = 4.0;
+/// Retail SpectreHowitzerShell W3D model residual honesty.
+pub const SPECTRE_HOWITZER_SHELL_MODEL: &str = "AVSpectreShell1";
+/// Retail HeightDieUpdate OnlyWhenMovingDown residual (pad-safe loft).
+pub const SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN: bool = true;
+/// Retail InstantDeath DETONATED FX residual honesty.
+pub const SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX: &str = "FX_NukeGLA";
+/// Retail InstantDeath LASERED FX residual honesty.
+pub const SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX: &str = "FX_GenericMissileDisintegrate";
+/// Retail InstantDeath non-laser death FX residual honesty.
+pub const SPECTRE_HOWITZER_SHELL_DEATH_GENERIC_FX: &str = "FX_GenericMissileDeath";
 
 // --- Particle Uplink continuous beam residual (ParticleUplinkCannonUpdate) ---
 
@@ -306,9 +326,28 @@ pub const PARTICLE_WIDTH_GROW_FRAMES: u32 = (2000 * 30) / 1000;
 pub const PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES: u32 =
     PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES;
 /// Retail OuterBeamWidth residual for OrbitalLaser honesty (26.0).
-/// Host full damage radius is [`PARTICLE_BEAM_RADIUS`]; OuterBeamWidth ×
-/// DamageRadiusScalar = 26 × 3.4 ≈ 88.4 is the full GPU laser matrix (fail-closed).
+///
+/// Retail damage radius formula (`LaserUpdate::getCurrentLaserRadius` ×
+/// `DamageRadiusScalar`):
+/// `getLaserTemplateWidth() = OuterBeamWidth * 0.5` → peak laser r = **13.0**,
+/// peak damage = 13 × 3.4 = **44.2**. Host combat residual still caps at
+/// [`PARTICLE_BEAM_RADIUS`] (**50**) for fail-closed parity with prior host tests;
+/// OuterBeamWidth draw / retail-formula honesty is tracked separately.
 pub const PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH: f32 = 26.0;
+/// Retail InnerBeamWidth residual for OrbitalLaser W3DLaserDraw.
+pub const PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH: f32 = 0.6;
+/// Retail NumBeams residual (overlapping cylinders).
+pub const PARTICLE_ORBITAL_LASER_NUM_BEAMS: u32 = 12;
+/// Retail ScrollRate residual (toward muzzle negative).
+pub const PARTICLE_ORBITAL_LASER_SCROLL_RATE: f32 = -1.75;
+/// Retail TilingScalar residual.
+pub const PARTICLE_ORBITAL_LASER_TILING_SCALAR: f32 = 0.15;
+/// Retail W3DLaserDraw Texture residual.
+pub const PARTICLE_ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
+/// Retail Medium connector laser OuterBeamWidth residual.
+pub const PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH: f32 = 1.2;
+/// Retail Intense connector laser OuterBeamWidth residual.
+pub const PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH: f32 = 2.0;
 /// Retail RevealRange = 50 — gratuitous vision at each scorch/GroundHitFX site.
 pub const PARTICLE_REVEAL_RANGE: f32 = 50.0;
 /// Retail TotalScorchMarks = 20 (also gates GroundHitFX / reveal cadence).
@@ -789,6 +828,39 @@ pub fn particle_beam_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 
     PARTICLE_BEAM_RADIUS * particle_width_scalar(spawn_frame, current_frame)
 }
 
+/// Retail `W3DLaserDraw::getLaserTemplateWidth()` residual (`OuterBeamWidth * 0.5`).
+#[inline]
+pub fn particle_orbital_laser_template_width() -> f32 {
+    PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH * 0.5
+}
+
+/// Retail `LaserUpdate::getCurrentLaserRadius()` residual.
+///
+/// `getLaserTemplateWidth() * m_currentWidthScalar` (OuterBeamWidth/2 × scalar).
+#[inline]
+pub fn particle_orbital_laser_current_radius(spawn_frame: u32, current_frame: u32) -> f32 {
+    particle_orbital_laser_template_width() * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Retail visual OuterBeamWidth × width_scalar residual (W3DLaserDraw cylinder width).
+///
+/// Fail-closed: not full GPU multi-beam NumBeams draw / texture scroll submit.
+#[inline]
+pub fn particle_orbital_laser_draw_width(spawn_frame: u32, current_frame: u32) -> f32 {
+    PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH * particle_width_scalar(spawn_frame, current_frame)
+}
+
+/// Retail damage-radius formula honesty residual
+/// (`getCurrentLaserRadius() * DamageRadiusScalar`).
+///
+/// Peak hold = 13 × 3.4 = **44.2**. Host combat still uses
+/// [`particle_beam_damage_radius`] (caps at r50 × scalar).
+#[inline]
+pub fn particle_retail_damage_radius(spawn_frame: u32, current_frame: u32) -> f32 {
+    particle_orbital_laser_current_radius(spawn_frame, current_frame)
+        * PARTICLE_DAMAGE_RADIUS_SCALAR
+}
+
 /// Residual scorch mark radius under ScorchMarkScalar residual.
 ///
 /// Retail: `scorchRadius = getCurrentLaserRadius() * ScorchMarkScalar`.
@@ -1050,6 +1122,44 @@ pub const SCUD_STORM_CHEM_FX_PARTICLE: &str = "ScudStormBuildingGoo";
 pub const SCUD_STORM_CHEM_FX_BONE_COUNT: u32 = 3;
 /// Retail Chem FXBone base name residual.
 pub const SCUD_STORM_CHEM_FX_BONE_NAME: &str = "FXBone";
+
+// --- ScudStormMissile loft residual (MissileAIUpdate / HeightDie / Locomotor) ---
+/// Retail ProjectileObject residual name.
+pub const SCUD_STORM_MISSILE_OBJECT: &str = "ScudStormMissile";
+/// Retail MissileAIUpdate TryToFollowTarget residual (ballistic loft, no chase).
+pub const SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET: bool = false;
+/// Retail MissileAIUpdate FuelLifetime residual (0 = infinite).
+pub const SCUD_STORM_MISSILE_FUEL_LIFETIME: u32 = 0;
+/// Retail MissileAIUpdate InitialVelocity residual (dist/sec).
+pub const SCUD_STORM_MISSILE_INITIAL_VELOCITY: f32 = 0.0;
+/// Retail MissileAIUpdate DistanceToTravelBeforeTurning residual.
+pub const SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING: f32 = 500.0;
+/// Retail MissileAIUpdate DistanceToTargetBeforeDiving residual.
+pub const SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING: f32 = 200.0;
+/// Retail MissileAIUpdate IgnitionFX residual.
+pub const SCUD_STORM_MISSILE_IGNITION_FX: &str = "FX_ScudStormIgnition";
+/// Retail ScudStormWeapon FireSound residual.
+pub const SCUD_STORM_MISSILE_LAUNCH_SOUND: &str = "ScudStormLaunch";
+/// Retail ScudStormWeapon ProjectileExhaust residual.
+pub const SCUD_STORM_MISSILE_EXHAUST: &str = "ScudMissileExhaust";
+/// Retail HeightDieUpdate TargetHeight residual (structures included).
+pub const SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET: f32 = 15.0;
+/// Retail HeightDieUpdate InitialDelay residual (1000 ms → 30 frames).
+pub const SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES: u32 = (1000 * 30) / 1000;
+/// Retail SCUDStormMissileLocomotor Speed residual (dist/sec).
+pub const SCUD_STORM_MISSILE_LOCOMOTOR_SPEED: f32 = 300.0;
+/// Retail SCUDStormMissileLocomotor PreferredHeight residual.
+pub const SCUD_STORM_MISSILE_PREFERRED_HEIGHT: f32 = 240.0;
+/// Retail SCUDStormMissileLocomotor PreferredHeightDamping residual.
+pub const SCUD_STORM_MISSILE_PREFERRED_HEIGHT_DAMPING: f32 = 0.7;
+/// Retail PhysicsBehavior Mass residual.
+pub const SCUD_STORM_MISSILE_MASS: f32 = 500.0;
+/// Retail GeometryMajorRadius residual.
+pub const SCUD_STORM_MISSILE_GEOMETRY_RADIUS: f32 = 7.0;
+/// Retail GeometryHeight residual.
+pub const SCUD_STORM_MISSILE_GEOMETRY_HEIGHT: f32 = 30.0;
+/// Retail SpecialPowerCompletionDie template residual.
+pub const SCUD_STORM_MISSILE_SPECIAL_POWER: &str = "SuperweaponScudStorm";
 
 /// Retail ScatterTarget table (C++ X/Y horizontal), scaled by ScatterTargetScalar.
 /// Host maps C++ X → X, C++ Y → Z.
@@ -1530,7 +1640,7 @@ impl HostSuperweaponKind {
     }
 }
 
-/// Deterministic residual `WeaponErrorRadius` scatter for artillery formation index.
+/// Residual `WeaponErrorRadius` scatter for artillery formation index.
 ///
 /// C++ `DeliverPayloadNugget` (ObjectCreationList.cpp):
 /// ```text
@@ -1542,33 +1652,35 @@ impl HostSuperweaponKind {
 /// }
 /// ```
 /// First formation slot is always spot-on (click target). Host residual uses
-/// deterministic pseudo-random radius/angle (not full GameLogicRandomValueReal).
+/// pure ADC RandomValue algorithm seeded by formation index (re-query stable
+/// for multi-strike plan_due recomputes; algorithm parity with
+/// GameLogicRandomValueReal — not golden-ratio residual).
 /// C++ X/Y horizontal map to host X/Z.
 pub fn weapon_error_radius_offset(formation_index: u32, error_radius: f32) -> Vec3 {
     if formation_index == 0 || error_radius <= 1.0 {
         return Vec3::ZERO;
     }
-    // Golden-ratio residual phases — stable, non-zero scatter across indices.
-    let phase_r = (formation_index as f32) * 0.618_033_988_7;
-    let phase_a = (formation_index as f32) * 0.381_966_011_3 + 0.17;
-    let radius = phase_r.fract() * error_radius;
-    let angle = phase_a.fract() * std::f32::consts::TAU;
+    use super::host_rng_residual::HostRandomState;
+    let mut s = HostRandomState::seeded(formation_index.wrapping_add(1));
+    let radius = s.next_real(0.0, error_radius);
+    let angle = s.next_real(0.0, std::f32::consts::TAU);
     Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin())
 }
 
-/// Deterministic residual `DelayDeliveryMax` frames for artillery formation index.
+/// Residual `DelayDeliveryMax` frames for artillery formation index.
 ///
 /// C++: `setDisabledUntil(frame + GameLogicRandomValue(0, m_delayDeliveryFramesMax))`
 /// (inclusive integer range). Host residual: formationIndex 0 always 0 (lead
-/// shell starts after base approach residual); remaining shells draw a
-/// deterministic offset in `[0, max_frames]` inclusive.
+/// shell starts after base approach residual); remaining shells draw via pure
+/// ADC RandomValue algorithm in `[0, max_frames]` inclusive.
 pub fn delay_delivery_frames(formation_index: u32, max_frames: u32) -> u32 {
     if formation_index == 0 || max_frames == 0 {
         return 0;
     }
-    let phase = (formation_index as f32 * 0.618_033_988_7 + 0.13).fract();
+    use super::host_rng_residual::HostRandomState;
+    let mut s = HostRandomState::seeded(formation_index.wrapping_add(0xD1));
     // Inclusive [0, max_frames] like GameLogicRandomValue(0, max).
-    (phase * (max_frames as f32 + 1.0 - 1e-5)).floor() as u32
+    s.next_int(0, max_frames as i32).max(0) as u32
 }
 
 /// Absolute impact frame for artillery shell `formation_index`.
@@ -1614,27 +1726,28 @@ pub fn multi_strike_last_impact_frame(
     }
 }
 
-/// Deterministic residual DropVariance scatter for bomb index `i`.
+/// Residual DropVariance scatter for bomb index `i`.
 ///
 /// C++ DeliverPayloadAIUpdate:
-/// `pos.x += Random(-var.x, var.x); pos.y += Random(-var.y, var.y);`
-/// Host residual: deterministic pseudo-scatter in ±variance (not full RNG stream).
+/// `pos.x += GameLogicRandomValueReal(-var.x, var.x);` (same for y/z when > 0).
+/// Host residual: pure ADC RandomValue algorithm seeded by bomb index
+/// (re-query stable; algorithm parity with GameLogicRandomValueReal).
 /// C++ X/Y horizontal map to host X/Z; C++ Z maps to host Y (vertical).
 pub fn drop_variance_offset(index: u32, var_x: f32, var_y: f32, var_z: f32) -> Vec3 {
-    // Golden-ratio phase residual for stable, non-zero scatter across indices.
-    let phase = (index as f32 + 1.0) * 0.618_033_988_7;
+    use super::host_rng_residual::HostRandomState;
+    let mut s = HostRandomState::seeded(index.wrapping_add(1));
     let fx = if var_x > 0.0 {
-        (phase.fract() * 2.0 - 1.0) * var_x
+        s.next_real(-var_x, var_x)
     } else {
         0.0
     };
     let fy = if var_y > 0.0 {
-        ((phase + 0.37).fract() * 2.0 - 1.0) * var_y
+        s.next_real(-var_y, var_y)
     } else {
         0.0
     };
     let fz = if var_z > 0.0 {
-        ((phase + 0.73).fract() * 2.0 - 1.0) * var_z
+        s.next_real(-var_z, var_z)
     } else {
         0.0
     };
@@ -1701,19 +1814,20 @@ pub fn artillery_barrage_points_for_tier(
 }
 
 
-/// Deterministic residual DelayBetweenShots frames for ScudStorm missile index.
+/// Residual DelayBetweenShots frames for ScudStorm missile index.
 ///
 /// Retail: DelayBetweenShots Min:100 Max:1000 (ms). Host residual: missile 0
-/// has no inter-shot delay (PreAttack covers first); remaining missiles draw a
-/// deterministic offset in [min, max] inclusive frames.
+/// has no inter-shot delay (PreAttack covers first); remaining missiles draw
+/// via pure ADC GameLogicRandomValue algorithm in [min, max] inclusive frames.
 pub fn scud_delay_between_frames(missile_index: u32) -> u32 {
     if missile_index == 0 {
         return 0;
     }
-    let min = SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES;
-    let max = SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES;
-    let phase = (missile_index as f32 * 0.618_033_988_7 + 0.21).fract();
-    min + (phase * ((max - min) as f32 + 1.0 - 1e-5)).floor() as u32
+    use super::host_rng_residual::HostRandomState;
+    let min = SCUD_STORM_DELAY_BETWEEN_MIN_FRAMES as i32;
+    let max = SCUD_STORM_DELAY_BETWEEN_MAX_FRAMES as i32;
+    let mut s = HostRandomState::seeded(missile_index.wrapping_add(0x5C1D));
+    s.next_int(min, max).max(0) as u32
 }
 
 /// Absolute impact frame for ScudStorm missile `missile_index`.
@@ -1843,6 +1957,24 @@ pub struct HostSpecialPowerStrike {
     /// Honesty: launch-bone residual (WeaponA shown during clip).
     #[serde(default)]
     pub scud_launch_bone_applications: u32,
+    /// Honesty: ScudStormMissile loft residual applications (MissileAIUpdate path).
+    #[serde(default)]
+    pub scud_missile_loft_applications: u32,
+    /// Honesty: IgnitionFX residual applications (FX_ScudStormIgnition).
+    #[serde(default)]
+    pub scud_ignition_fx_applications: u32,
+    /// Honesty: FireSound residual applications (ScudStormLaunch).
+    #[serde(default)]
+    pub scud_launch_sound_applications: u32,
+    /// Honesty: ProjectileExhaust residual applications (ScudMissileExhaust).
+    #[serde(default)]
+    pub scud_exhaust_applications: u32,
+    /// Honesty: HeightDieUpdate residual applications (TargetHeight 15 / InitialDelay).
+    #[serde(default)]
+    pub scud_height_die_applications: u32,
+    /// Honesty: SpecialPowerCompletionDie residual applications.
+    #[serde(default)]
+    pub scud_special_power_completion_applications: u32,
 }
 
 /// Damage application plan for a single victim (computed before mutable apply).
@@ -2070,6 +2202,21 @@ pub struct HostSpectreOrbitField {
     /// Honesty: FireSound residual applications (StrategyCenter_ArtilleryRound).
     #[serde(default)]
     pub howitzer_shell_fire_sounds: u32,
+    /// Honesty: DumbProjectileBehavior residual applications (per shell).
+    #[serde(default)]
+    pub howitzer_shell_dumb_projectile_applications: u32,
+    /// Honesty: PhysicsBehavior mass residual applications (Mass=1).
+    #[serde(default)]
+    pub howitzer_shell_physics_mass_applications: u32,
+    /// Honesty: InstantDeath DETONATED path residual applications.
+    #[serde(default)]
+    pub howitzer_shell_death_detonated_applications: u32,
+    /// Honesty: InstantDeath LASERED path residual applications (armed).
+    #[serde(default)]
+    pub howitzer_shell_death_lasered_applications: u32,
+    /// Honesty: HeightDie OnlyWhenMovingDown residual applications.
+    #[serde(default)]
+    pub howitzer_shell_only_moving_down_applications: u32,
 }
 
 impl HostSpectreOrbitField {
@@ -2298,6 +2445,30 @@ pub struct HostParticleBeamField {
     /// Honesty: connector flare residual applications (ALMOST_READY+).
     #[serde(default)]
     pub connector_flare_created: u32,
+    /// Honesty: peak OuterBeamWidth × width_scalar draw width (visual residual).
+    #[serde(default)]
+    pub peak_outer_beam_draw_width: f32,
+    /// Honesty: last OuterBeamWidth × width_scalar draw width.
+    #[serde(default)]
+    pub last_outer_beam_draw_width: f32,
+    /// Honesty: peak retail getCurrentLaserRadius (OuterBeamWidth×0.5×scalar).
+    #[serde(default)]
+    pub peak_retail_laser_radius: f32,
+    /// Honesty: last retail getCurrentLaserRadius residual.
+    #[serde(default)]
+    pub last_retail_laser_radius: f32,
+    /// Honesty: peak retail damage radius formula (laser radius × DamageRadiusScalar).
+    #[serde(default)]
+    pub peak_retail_damage_radius: f32,
+    /// Honesty: last retail damage radius formula residual.
+    #[serde(default)]
+    pub last_retail_damage_radius: f32,
+    /// Honesty: orbital laser W3DLaserDraw param residual armed at STATUS_FIRING.
+    #[serde(default)]
+    pub orbital_laser_draw_params_armed: u32,
+    /// Honesty: intense connector OuterBeamWidth residual armed at STATUS_FIRING.
+    #[serde(default)]
+    pub connector_outer_beam_width_armed: u32,
 }
 
 fn default_trough_width_scalar() -> f32 {
@@ -2340,6 +2511,22 @@ impl HostParticleBeamField {
         self.last_width_scalar = width_scalar;
         if width_scalar > self.peak_width_scalar {
             self.peak_width_scalar = width_scalar;
+        }
+        // OuterBeamWidth × scalar draw + retail laser/damage formula residual.
+        let draw_w = particle_orbital_laser_draw_width(self.spawn_frame, current_frame);
+        self.last_outer_beam_draw_width = draw_w;
+        if draw_w > self.peak_outer_beam_draw_width {
+            self.peak_outer_beam_draw_width = draw_w;
+        }
+        let laser_r = particle_orbital_laser_current_radius(self.spawn_frame, current_frame);
+        self.last_retail_laser_radius = laser_r;
+        if laser_r > self.peak_retail_laser_radius {
+            self.peak_retail_laser_radius = laser_r;
+        }
+        let retail_dmg = particle_retail_damage_radius(self.spawn_frame, current_frame);
+        self.last_retail_damage_radius = retail_dmg;
+        if retail_dmg > self.peak_retail_damage_radius {
+            self.peak_retail_damage_radius = retail_dmg;
         }
         let decay_start = particle_decay_start_frame(self.spawn_frame);
         if current_frame > decay_start && current_frame < self.expires_frame {
@@ -3021,6 +3208,12 @@ impl HostSpecialPowerStrikeRegistry {
             scud_fire_fx_applications: 0,
             scud_detonation_fx_applications: 0,
             scud_launch_bone_applications: 0,
+            scud_missile_loft_applications: 0,
+            scud_ignition_fx_applications: 0,
+            scud_launch_sound_applications: 0,
+            scud_exhaust_applications: 0,
+            scud_height_die_applications: 0,
+            scud_special_power_completion_applications: 0,
         };
         // Seed ParticleCannon pre-fire intensity residual at activate frame.
         if kind == HostSuperweaponKind::ParticleCannon {
@@ -3279,6 +3472,21 @@ impl HostSpecialPowerStrikeRegistry {
                         strike.scud_detonation_fx_applications.saturating_add(shells);
                     strike.scud_launch_bone_applications =
                         strike.scud_launch_bone_applications.saturating_add(shells);
+                    // ScudStormMissile loft residual (MissileAIUpdate / HeightDie /
+                    // IgnitionFX / exhaust / SpecialPowerCompletionDie honesty).
+                    strike.scud_missile_loft_applications =
+                        strike.scud_missile_loft_applications.saturating_add(shells);
+                    strike.scud_ignition_fx_applications =
+                        strike.scud_ignition_fx_applications.saturating_add(shells);
+                    strike.scud_launch_sound_applications =
+                        strike.scud_launch_sound_applications.saturating_add(shells);
+                    strike.scud_exhaust_applications =
+                        strike.scud_exhaust_applications.saturating_add(shells);
+                    strike.scud_height_die_applications =
+                        strike.scud_height_die_applications.saturating_add(shells);
+                    strike.scud_special_power_completion_applications = strike
+                        .scud_special_power_completion_applications
+                        .saturating_add(shells);
                     if epicenters.is_empty() {
                         spawn_scud_poison.push((
                             source,
@@ -3720,6 +3928,11 @@ impl HostSpecialPowerStrikeRegistry {
             howitzer_shell_detonation_fx: 0,
             howitzer_shell_height_die_delays: 0,
             howitzer_shell_fire_sounds: 0,
+            howitzer_shell_dumb_projectile_applications: 0,
+            howitzer_shell_physics_mass_applications: 0,
+            howitzer_shell_death_detonated_applications: 0,
+            howitzer_shell_death_lasered_applications: 0,
+            howitzer_shell_only_moving_down_applications: 0,
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -3849,6 +4062,23 @@ impl HostSpecialPowerStrikeRegistry {
                     field.howitzer_shell_height_die_delays.saturating_add(1);
                 field.howitzer_shell_fire_sounds =
                     field.howitzer_shell_fire_sounds.saturating_add(1);
+                // DumbProjectileBehavior + Physics mass + InstantDeath + HeightDie
+                // OnlyWhenMovingDown residual honesty (not full W3D shell Object).
+                field.howitzer_shell_dumb_projectile_applications = field
+                    .howitzer_shell_dumb_projectile_applications
+                    .saturating_add(1);
+                field.howitzer_shell_physics_mass_applications = field
+                    .howitzer_shell_physics_mass_applications
+                    .saturating_add(1);
+                field.howitzer_shell_death_detonated_applications = field
+                    .howitzer_shell_death_detonated_applications
+                    .saturating_add(1);
+                field.howitzer_shell_death_lasered_applications = field
+                    .howitzer_shell_death_lasered_applications
+                    .saturating_add(1);
+                field.howitzer_shell_only_moving_down_applications = field
+                    .howitzer_shell_only_moving_down_applications
+                    .saturating_add(1);
                 field.howitzer_coast_until_frame =
                     spectre_coast_until_after_shot(current_frame, interval);
                 let prev_level = field.howitzer_fire_level;
@@ -3996,6 +4226,10 @@ impl HostSpecialPowerStrikeRegistry {
                 && f.howitzer_shell_detonation_fx >= f.howitzer_shells_spawned
                 && f.howitzer_shell_height_die_delays >= f.howitzer_shells_spawned
                 && f.howitzer_shell_fire_sounds >= f.howitzer_shells_spawned
+                && f.howitzer_shell_dumb_projectile_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_physics_mass_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_death_detonated_applications >= f.howitzer_shells_spawned
+                && f.howitzer_shell_only_moving_down_applications >= f.howitzer_shells_spawned
         }) && SPECTRE_HOWITZER_SHELL_OBJECT == "SpectreHowitzerShell"
             && SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
             && (SPECTRE_HOWITZER_WEAPON_SPEED - 999.0).abs() < 0.01
@@ -4004,6 +4238,26 @@ impl HostSpecialPowerStrikeRegistry {
             && SPECTRE_HOWITZER_FIRE_SOUND.contains("Artillery")
             && (SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT - 1.0).abs() < 0.01
             && (SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_MASS - 1.0).abs() < 0.01
+            && SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN
+            && SPECTRE_HOWITZER_SHELL_MODEL.contains("SpectreShell")
+            && SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX.contains("NukeGLA")
+    }
+
+    /// Residual honesty: SpectreHowitzerShell DumbProjectileBehavior path residual.
+    ///
+    /// Fail-closed: not full ThingFactory Object / W3D ModelDraw / live Physics.
+    pub fn honesty_howitzer_shell_dumb_projectile_ok(&self) -> bool {
+        self.honesty_howitzer_shell_ok()
+            && self.orbit_fields.iter().any(|f| {
+                f.howitzer_shell_dumb_projectile_applications > 0
+                    && f.howitzer_shell_physics_mass_applications > 0
+                    && f.howitzer_shell_death_detonated_applications > 0
+                    && f.howitzer_shell_death_lasered_applications > 0
+                    && f.howitzer_shell_only_moving_down_applications > 0
+            })
+            && (SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01
+            && (SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01
     }
 
     /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_MEAN/FAST residual sets.
@@ -4097,6 +4351,15 @@ impl HostSpecialPowerStrikeRegistry {
             packing_applications: 0,
             intensity_transitions: 1, // Idle/Ready → Firing on spawn
             connector_flare_created: 1,
+            peak_outer_beam_draw_width: 0.0,
+            last_outer_beam_draw_width: 0.0,
+            peak_retail_laser_radius: 0.0,
+            last_retail_laser_radius: 0.0,
+            peak_retail_damage_radius: 0.0,
+            last_retail_damage_radius: 0.0,
+            // Orbital laser W3DLaserDraw params + Intense connector OuterBeamWidth.
+            orbital_laser_draw_params_armed: 1,
+            connector_outer_beam_width_armed: 1,
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
@@ -4575,6 +4838,36 @@ impl HostSpecialPowerStrikeRegistry {
                 == PARTICLE_BEAM_DURATION_FRAMES + PARTICLE_WIDTH_GROW_FRAMES
     }
 
+    /// Residual honesty: OuterBeamWidth × width_scalar orbital laser residual.
+    ///
+    /// Tracks W3DLaserDraw OuterBeamWidth draw width, `getCurrentLaserRadius`
+    /// (OuterBeamWidth×0.5×scalar), and retail damage formula
+    /// (laser radius × DamageRadiusScalar = peak 44.2). Host combat damage
+    /// still uses [`PARTICLE_BEAM_RADIUS`] (50). Fail-closed: not full GPU
+    /// multi-beam NumBeams / texture scroll submit.
+    pub fn honesty_beam_outer_beam_width_ok(&self) -> bool {
+        self.beam_fields.iter().any(|f| {
+            f.orbital_laser_draw_params_armed >= 1
+                && f.connector_outer_beam_width_armed >= 1
+                && f.peak_outer_beam_draw_width
+                    >= PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH * 0.5 - f32::EPSILON
+                && f.peak_retail_laser_radius
+                    >= particle_orbital_laser_template_width() * 0.5 - f32::EPSILON
+                && f.peak_retail_damage_radius
+                    >= particle_orbital_laser_template_width()
+                        * 0.5
+                        * PARTICLE_DAMAGE_RADIUS_SCALAR
+                        - 0.1
+        }) && (PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01
+            && (PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01
+            && PARTICLE_ORBITAL_LASER_NUM_BEAMS == 12
+            && (PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH - 2.0).abs() < 0.01
+            && (PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH - 1.2).abs() < 0.01
+            && PARTICLE_ORBITAL_LASER_TEXTURE.contains("EXNoise")
+            && (particle_orbital_laser_template_width() - 13.0).abs() < 0.01
+            && (particle_retail_damage_radius(0, PARTICLE_WIDTH_GROW_FRAMES) - 44.2).abs() < 0.05
+    }
+
     /// Residual honesty: manual beam drive moved the epicenter at least once.
     ///
     /// Fail-closed: not full scripted waypoint mode / disabled-object reject /
@@ -4662,7 +4955,7 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Residual honesty: ScudStorm PreAttack + Chem FXBone residual.
     ///
-    /// Fail-closed: not full ScudStormMissile Object / MissileAIUpdate loft.
+    /// Fail-closed: not full ScudStormMissile ThingFactory Object path.
     pub fn honesty_scud_pre_attack_and_chem_fx_ok(&self) -> bool {
         self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ScudStorm
@@ -4675,6 +4968,39 @@ impl HostSpecialPowerStrikeRegistry {
             && SCUD_STORM_CHEM_FX_PARTICLE.contains("Goo")
             && SCUD_STORM_FIRE_FX.contains("ScudStormMissile")
             && SCUD_STORM_LAUNCH_BONE == "WeaponA"
+    }
+
+    /// Residual honesty: ScudStormMissile MissileAIUpdate loft residual.
+    ///
+    /// Tracks loft / IgnitionFX / FireSound / exhaust / HeightDie /
+    /// SpecialPowerCompletionDie residual per missile wave. Fail-closed: not
+    /// full ThingFactory projectile Object / live MissileAIUpdate flight sim /
+    /// PreferredHeight spring path.
+    pub fn honesty_scud_missile_loft_ok(&self) -> bool {
+        self.strikes.values().any(|s| {
+            s.kind == HostSuperweaponKind::ScudStorm
+                && s.scud_missile_loft_applications > 0
+                && s.scud_ignition_fx_applications >= s.scud_missile_loft_applications
+                && s.scud_launch_sound_applications >= s.scud_missile_loft_applications
+                && s.scud_exhaust_applications >= s.scud_missile_loft_applications
+                && s.scud_height_die_applications >= s.scud_missile_loft_applications
+                && s.scud_special_power_completion_applications
+                    >= s.scud_missile_loft_applications
+                && s.scud_fire_fx_applications >= s.scud_missile_loft_applications
+        }) && SCUD_STORM_MISSILE_OBJECT == "ScudStormMissile"
+            && !SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET
+            && SCUD_STORM_MISSILE_FUEL_LIFETIME == 0
+            && (SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING - 500.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING - 200.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET - 15.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES == 30
+            && (SCUD_STORM_MISSILE_PREFERRED_HEIGHT - 240.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_LOCOMOTOR_SPEED - 300.0).abs() < 0.01
+            && (SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01
+            && SCUD_STORM_MISSILE_IGNITION_FX.contains("Ignition")
+            && SCUD_STORM_MISSILE_LAUNCH_SOUND.contains("Launch")
+            && SCUD_STORM_MISSILE_EXHAUST.contains("Exhaust")
+            && SCUD_STORM_MISSILE_SPECIAL_POWER.contains("ScudStorm")
     }
 
     /// Advance ParticleCannon pre-fire intensity schedule + beam FIRING/POSTFIRE/
@@ -5030,6 +5356,21 @@ mod tests {
         assert_eq!(PARTICLE_BEAM_TRAVEL_FRAMES, 75);
         assert_eq!(PARTICLE_LAUNCH_FX_INTERVAL_FRAMES, 30);
         assert!(PARTICLE_BEAM_LAUNCH_FX.contains("BeamLaunch"));
+        // OuterBeamWidth × scalar / retail laser radius formula residual.
+        assert!((PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
+        assert!((PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01);
+        assert_eq!(PARTICLE_ORBITAL_LASER_NUM_BEAMS, 12);
+        assert!((PARTICLE_ORBITAL_LASER_SCROLL_RATE + 1.75).abs() < 0.01);
+        assert!((PARTICLE_ORBITAL_LASER_TILING_SCALAR - 0.15).abs() < 0.01);
+        assert_eq!(PARTICLE_ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
+        assert!((PARTICLE_CONNECTOR_MEDIUM_OUTER_BEAM_WIDTH - 1.2).abs() < 0.01);
+        assert!((PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH - 2.0).abs() < 0.01);
+        assert!((particle_orbital_laser_template_width() - 13.0).abs() < 0.01);
+        assert!((particle_orbital_laser_current_radius(100, 160) - 13.0).abs() < 0.01);
+        assert!((particle_orbital_laser_draw_width(100, 160) - 26.0).abs() < 0.01);
+        assert!((particle_retail_damage_radius(100, 160) - 44.2).abs() < 0.05);
+        assert!((particle_orbital_laser_draw_width(100, 130) - 13.0).abs() < 0.01);
+        assert!((particle_retail_damage_radius(100, 130) - 22.1).abs() < 0.05);
         // Client-effects residual matrix honesty.
         let charging = particle_client_effects_for_status(ParticleUplinkStatus::Charging);
         assert_eq!(charging.outer_intensity, ParticleIntensity::Light);
@@ -7218,6 +7559,12 @@ mod tests {
         assert!((SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS - 4.0).abs() < 0.01);
         assert!((SPECTRE_HOWITZER_SHELL_SCALE - 0.6).abs() < 0.01);
         assert!((SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SPEED - 1111.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_MASS - 1.0).abs() < 0.01);
+        assert!((SPECTRE_HOWITZER_SHELL_GEOMETRY_HEIGHT - 4.0).abs() < 0.01);
+        assert_eq!(SPECTRE_HOWITZER_SHELL_MODEL, "AVSpectreShell1");
+        assert!(SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_ONLY_MOVING_DOWN);
+        assert!(SPECTRE_HOWITZER_SHELL_DEATH_DETONATED_FX.contains("NukeGLA"));
+        assert!(SPECTRE_HOWITZER_SHELL_DEATH_LASERED_FX.contains("Disintegrate"));
         assert!(SPECTRE_HOWITZER_FIRE_FX.contains("TankGun"));
         assert!(SPECTRE_HOWITZER_DETONATION_FX.contains("SpectreHowitzer"));
         assert!(SPECTRE_HOWITZER_FIRE_SOUND.contains("Artillery"));
@@ -7244,8 +7591,14 @@ mod tests {
             assert_eq!(f.howitzer_shell_detonation_fx, 1);
             assert_eq!(f.howitzer_shell_height_die_delays, 1);
             assert_eq!(f.howitzer_shell_fire_sounds, 1);
+            assert_eq!(f.howitzer_shell_dumb_projectile_applications, 1);
+            assert_eq!(f.howitzer_shell_physics_mass_applications, 1);
+            assert_eq!(f.howitzer_shell_death_detonated_applications, 1);
+            assert_eq!(f.howitzer_shell_death_lasered_applications, 1);
+            assert_eq!(f.howitzer_shell_only_moving_down_applications, 1);
         }
         assert!(reg.honesty_howitzer_shell_ok());
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
         assert!(reg.honesty_howitzer_ok());
 
         // Second howitzer residual tick accumulates shell counters.
@@ -7257,7 +7610,161 @@ mod tests {
             assert_eq!(f.howitzer_shells_spawned, 2);
             assert_eq!(f.howitzer_shell_fire_fx, 2);
             assert_eq!(f.howitzer_shell_detonation_fx, 2);
+            assert_eq!(f.howitzer_shell_dumb_projectile_applications, 2);
         }
         assert!(reg.honesty_howitzer_shell_ok());
+        assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
+    }
+
+    #[test]
+    fn particle_uplink_outer_beam_width_retail_radius_residual_honesty() {
+        // Retail getLaserTemplateWidth = OuterBeamWidth * 0.5 = 13.
+        // getCurrentLaserRadius = template * width_scalar.
+        // damageRadius = laserRadius * DamageRadiusScalar → peak 44.2.
+        // Host combat residual still uses PARTICLE_BEAM_RADIUS 50 × scalar.
+        assert!((PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01);
+        assert!((particle_orbital_laser_template_width() - 13.0).abs() < 0.01);
+        assert!((particle_retail_damage_radius(0, 60) - 44.2).abs() < 0.05);
+        assert!((PARTICLE_CONNECTOR_INTENSE_OUTER_BEAM_WIDTH - 2.0).abs() < 0.01);
+        assert_eq!(PARTICLE_ORBITAL_LASER_NUM_BEAMS, 12);
+        assert_eq!(PARTICLE_ORBITAL_LASER_TEXTURE, "EXNoise02.tga");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let click = Vec3::new(0.0, 0.0, 0.0);
+        let id = reg.queue(
+            HostSuperweaponKind::ParticleCannon,
+            ObjectId(1),
+            Team::China,
+            click,
+            0,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        let field_id = reg.beam_fields()[0].id;
+        let spawn = reg.beam_fields()[0].spawn_frame;
+        {
+            let f = &reg.beam_fields()[0];
+            assert_eq!(f.orbital_laser_draw_params_armed, 1);
+            assert_eq!(f.connector_outer_beam_width_armed, 1);
+            assert_eq!(f.ground_to_orbit_laser_created, 1);
+        }
+
+        // Half WidthGrow: draw width 13, laser r 6.5, retail damage 22.1.
+        let half = spawn + PARTICLE_WIDTH_GROW_FRAMES / 2;
+        reg.sample_beam_width_honesty(half);
+        {
+            let f = &reg.beam_fields()[0];
+            assert!((f.last_outer_beam_draw_width - 13.0).abs() < 0.1);
+            assert!((f.last_retail_laser_radius - 6.5).abs() < 0.1);
+            assert!((f.last_retail_damage_radius - 22.1).abs() < 0.1);
+            // Host combat radius residual still PARTICLE_BEAM_RADIUS × 0.5 = 25.
+            assert!((particle_beam_damage_radius(spawn, half) - 25.0).abs() < 0.1);
+        }
+
+        // Full hold: draw 26, laser 13, retail damage 44.2 (host combat 50).
+        let hold = spawn + PARTICLE_WIDTH_GROW_FRAMES;
+        reg.sample_beam_width_honesty(hold);
+        {
+            let f = &reg.beam_fields()[0];
+            assert!((f.peak_outer_beam_draw_width - 26.0).abs() < 0.1);
+            assert!((f.peak_retail_laser_radius - 13.0).abs() < 0.1);
+            assert!((f.peak_retail_damage_radius - 44.2).abs() < 0.1);
+            assert!((f.last_outer_beam_draw_width - 26.0).abs() < 0.1);
+            assert!((particle_beam_damage_radius(spawn, hold) - 50.0).abs() < 0.1);
+        }
+        assert!(reg.honesty_beam_outer_beam_width_ok());
+
+        // Decay half: draw width 13 again (scalar 0.5).
+        let decay_start = particle_decay_start_frame(spawn);
+        let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
+        reg.sample_beam_width_honesty(half_decay);
+        {
+            let f = &reg.beam_fields()[0];
+            assert!((f.last_outer_beam_draw_width - 13.0).abs() < 0.1);
+            assert!((f.last_retail_damage_radius - 22.1).abs() < 0.1);
+            // Peak hold values preserved.
+            assert!((f.peak_retail_damage_radius - 44.2).abs() < 0.1);
+        }
+        assert!(reg.honesty_beam_outer_beam_width_ok());
+        let _ = field_id;
+    }
+
+    #[test]
+    fn scud_storm_missile_loft_residual_honesty() {
+        // Retail ScudStormMissile MissileAIUpdate / HeightDie / Locomotor residual.
+        assert_eq!(SCUD_STORM_MISSILE_OBJECT, "ScudStormMissile");
+        assert!(!SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET);
+        assert_eq!(SCUD_STORM_MISSILE_FUEL_LIFETIME, 0);
+        assert!((SCUD_STORM_MISSILE_INITIAL_VELOCITY - 0.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_BEFORE_TURNING - 500.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING - 200.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET - 15.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES, 30);
+        assert!((SCUD_STORM_MISSILE_LOCOMOTOR_SPEED - 300.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_PREFERRED_HEIGHT - 240.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_PREFERRED_HEIGHT_DAMPING - 0.7).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_MASS - 500.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_RADIUS - 7.0).abs() < 0.01);
+        assert!((SCUD_STORM_MISSILE_GEOMETRY_HEIGHT - 30.0).abs() < 0.01);
+        assert_eq!(SCUD_STORM_MISSILE_IGNITION_FX, "FX_ScudStormIgnition");
+        assert_eq!(SCUD_STORM_MISSILE_LAUNCH_SOUND, "ScudStormLaunch");
+        assert_eq!(SCUD_STORM_MISSILE_EXHAUST, "ScudMissileExhaust");
+        assert_eq!(SCUD_STORM_MISSILE_SPECIAL_POWER, "SuperweaponScudStorm");
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::ScudStorm,
+            ObjectId(1),
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+            0,
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_missile_loft_applications, 0);
+            assert!(s.scud_pre_attack_active);
+        }
+        assert!(!reg.honesty_scud_missile_loft_ok());
+
+        // First missile wave: loft residual + IgnitionFX + HeightDie honesty.
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(100.0, 0.0, 100.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_missile_loft_applications, 1);
+            assert_eq!(s.scud_ignition_fx_applications, 1);
+            assert_eq!(s.scud_launch_sound_applications, 1);
+            assert_eq!(s.scud_exhaust_applications, 1);
+            assert_eq!(s.scud_height_die_applications, 1);
+            assert_eq!(s.scud_special_power_completion_applications, 1);
+            assert!(s.scud_fire_fx_applications >= 1);
+            assert!(!s.scud_pre_attack_active);
+        }
+        assert!(reg.honesty_scud_missile_loft_ok());
+        assert!(reg.honesty_scud_pre_attack_and_chem_fx_ok());
+
+        // Second wave accumulates loft residual.
+        reg.record_impact_wave(
+            id,
+            0.0,
+            0,
+            0,
+            1,
+            false,
+            &[Vec3::new(110.0, 0.0, 90.0)],
+        );
+        {
+            let s = reg.get(id).unwrap();
+            assert_eq!(s.scud_missile_loft_applications, 2);
+            assert_eq!(s.scud_ignition_fx_applications, 2);
+            assert_eq!(s.scud_height_die_applications, 2);
+        }
+        assert!(reg.honesty_scud_missile_loft_ok());
     }
 }

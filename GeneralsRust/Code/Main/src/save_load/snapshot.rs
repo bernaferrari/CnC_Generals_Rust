@@ -2886,6 +2886,17 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.howitzer_shell_height_die_delays)?;
         xfer.xfer_marker_label("HowitzerShellFireSounds")?;
         xfer.xfer_u32(&mut self.howitzer_shell_fire_sounds)?;
+        // SpectreHowitzerShell DumbProjectile / Physics / InstantDeath residual.
+        xfer.xfer_marker_label("HowitzerShellDumbProjectileApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_dumb_projectile_applications)?;
+        xfer.xfer_marker_label("HowitzerShellPhysicsMassApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_physics_mass_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDeathDetonatedApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_death_detonated_applications)?;
+        xfer.xfer_marker_label("HowitzerShellDeathLaseredApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_death_lasered_applications)?;
+        xfer.xfer_marker_label("HowitzerShellOnlyMovingDownApplications")?;
+        xfer.xfer_u32(&mut self.howitzer_shell_only_moving_down_applications)?;
         Ok(())
     }
 }
@@ -3016,6 +3027,23 @@ impl XferData for crate::game_logic::special_power_strikes::HostParticleBeamFiel
         xfer.xfer_u32(&mut self.intensity_transitions)?;
         xfer.xfer_marker_label("ConnectorFlareCreated")?;
         xfer.xfer_u32(&mut self.connector_flare_created)?;
+        // OuterBeamWidth × scalar / retail laser radius residual (appended).
+        xfer.xfer_marker_label("PeakOuterBeamDrawWidth")?;
+        xfer.xfer_f32(&mut self.peak_outer_beam_draw_width)?;
+        xfer.xfer_marker_label("LastOuterBeamDrawWidth")?;
+        xfer.xfer_f32(&mut self.last_outer_beam_draw_width)?;
+        xfer.xfer_marker_label("PeakRetailLaserRadius")?;
+        xfer.xfer_f32(&mut self.peak_retail_laser_radius)?;
+        xfer.xfer_marker_label("LastRetailLaserRadius")?;
+        xfer.xfer_f32(&mut self.last_retail_laser_radius)?;
+        xfer.xfer_marker_label("PeakRetailDamageRadius")?;
+        xfer.xfer_f32(&mut self.peak_retail_damage_radius)?;
+        xfer.xfer_marker_label("LastRetailDamageRadius")?;
+        xfer.xfer_f32(&mut self.last_retail_damage_radius)?;
+        xfer.xfer_marker_label("OrbitalLaserDrawParamsArmed")?;
+        xfer.xfer_u32(&mut self.orbital_laser_draw_params_armed)?;
+        xfer.xfer_marker_label("ConnectorOuterBeamWidthArmed")?;
+        xfer.xfer_u32(&mut self.connector_outer_beam_width_armed)?;
         Ok(())
     }
 }
@@ -3061,6 +3089,12 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 scud_fire_fx_applications: 0,
                 scud_detonation_fx_applications: 0,
                 scud_launch_bone_applications: 0,
+                scud_missile_loft_applications: 0,
+                scud_ignition_fx_applications: 0,
+                scud_launch_sound_applications: 0,
+                scud_exhaust_applications: 0,
+                scud_height_die_applications: 0,
+                scud_special_power_completion_applications: 0,
             },
         )?;
         // NuclearMissile residual radiation fields (appended; older binary
@@ -3156,6 +3190,11 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 howitzer_shell_detonation_fx: 0,
                 howitzer_shell_height_die_delays: 0,
                 howitzer_shell_fire_sounds: 0,
+                howitzer_shell_dumb_projectile_applications: 0,
+                howitzer_shell_physics_mass_applications: 0,
+                howitzer_shell_death_detonated_applications: 0,
+                howitzer_shell_death_lasered_applications: 0,
+                howitzer_shell_only_moving_down_applications: 0,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;
@@ -3219,6 +3258,14 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 packing_applications: 0,
                 intensity_transitions: 0,
                 connector_flare_created: 0,
+                peak_outer_beam_draw_width: 0.0,
+                last_outer_beam_draw_width: 0.0,
+                peak_retail_laser_radius: 0.0,
+                last_retail_laser_radius: 0.0,
+                peak_retail_damage_radius: 0.0,
+                last_retail_damage_radius: 0.0,
+                orbital_laser_draw_params_armed: 0,
+                connector_outer_beam_width_armed: 0,
             },
         )?;
         xfer.xfer_marker_label("BeamFieldsSpawnedTotal")?;
