@@ -1616,6 +1616,22 @@ pub struct PresentationFrame {
     pub camera_shakers: Vec<(f32, f32, f32)>,
     /// Pending camera motion-blur request count residual.
     pub camera_motion_blur_count: usize,
+    /// Pending camera zoom residual (zoom, duration).
+    pub camera_zoom: Option<(f32, f32)>,
+    pub camera_zoom_reset: bool,
+    /// Pending camera pitch residual (pitch, duration).
+    pub camera_pitch: Option<(f32, f32)>,
+    /// Pending camera rotate residual (rotations, duration).
+    pub camera_rotate: Option<(f32, f32)>,
+    /// Pending look-toward residual.
+    pub camera_look_toward: Option<[f32; 3]>,
+    /// Pending slave-mode enable residual (template, bone).
+    pub camera_slave_enable: Option<(String, String)>,
+    pub camera_slave_disable: bool,
+    /// Active script named timers residual (name, text, countdown).
+    pub named_timers: Vec<(String, String, bool)>,
+    /// Cameo flash residual (button, count).
+    pub cameo_flash: Vec<(String, i32)>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2123,6 +2139,43 @@ impl PresentationFrame {
                 .take(8)
                 .collect(),
             camera_motion_blur_count: logic.peek_pending_camera_motion_blur_count(),
+            camera_zoom: logic
+                .peek_pending_camera_zoom()
+                .map(|z| (z.zoom, z.duration_seconds)),
+            camera_zoom_reset: logic.peek_pending_camera_zoom_reset(),
+            camera_pitch: logic
+                .peek_pending_camera_pitch()
+                .map(|p| (p.pitch, p.duration_seconds)),
+            camera_rotate: logic
+                .peek_pending_camera_rotate()
+                .map(|r| (r.rotations, r.duration_seconds)),
+            camera_look_toward: logic
+                .peek_pending_camera_look_toward()
+                .map(|l| [l.position.x, l.position.y, l.position.z]),
+            camera_slave_enable: logic
+                .peek_pending_camera_slave_enable()
+                .map(|s| (s.thing_template_name.clone(), s.bone_name.clone())),
+            camera_slave_disable: logic.peek_pending_camera_slave_disable(),
+            named_timers: {
+                let mut timers: Vec<(String, String, bool)> = logic
+                    .peek_script_named_timers()
+                    .iter()
+                    .map(|(n, (t, c))| (n.clone(), t.clone(), *c))
+                    .collect();
+                timers.sort_by(|a, b| a.0.cmp(&b.0));
+                timers.truncate(16);
+                timers
+            },
+            cameo_flash: {
+                let mut flashes: Vec<(String, i32)> = logic
+                    .peek_script_cameo_flash_count()
+                    .iter()
+                    .map(|(b, c)| (b.clone(), *c))
+                    .collect();
+                flashes.sort_by(|a, b| a.0.cmp(&b.0));
+                flashes.truncate(16);
+                flashes
+            },
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -3120,6 +3173,15 @@ impl PresentationFrame {
         ui.camera_bw_mode = self.camera_bw_mode;
         ui.camera_shakers = self.camera_shakers.clone();
         ui.camera_motion_blur_count = self.camera_motion_blur_count;
+        ui.camera_zoom = self.camera_zoom;
+        ui.camera_zoom_reset = self.camera_zoom_reset;
+        ui.camera_pitch = self.camera_pitch;
+        ui.camera_rotate = self.camera_rotate;
+        ui.camera_look_toward = self.camera_look_toward;
+        ui.camera_slave_enable = self.camera_slave_enable.clone();
+        ui.camera_slave_disable = self.camera_slave_disable;
+        ui.named_timers = self.named_timers.clone();
+        ui.cameo_flash = self.cameo_flash.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4765,6 +4827,53 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_camera_controls() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.queue_pending_camera_zoom(0.55, 1.5);
+        logic.queue_pending_camera_zoom_reset();
+        logic.queue_pending_camera_pitch(-0.2, 0.8);
+        logic.queue_pending_camera_rotate(1.0, 2.0);
+        logic.queue_pending_camera_look_toward(glam::Vec3::new(10.0, 0.0, 20.0), 1.0);
+        logic.queue_pending_camera_slave_enable("AmericaSpyDrone", "Bone01");
+        logic.queue_pending_camera_slave_disable();
+        logic.upsert_script_named_timer("TimerA", "00:30", true);
+        logic.set_script_cameo_flash("Command_AmericaRanger", 3);
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(frame.camera_zoom, Some((0.55, 1.5)));
+        assert!(frame.camera_zoom_reset);
+        assert_eq!(frame.camera_pitch, Some((-0.2, 0.8)));
+        assert_eq!(frame.camera_rotate, Some((1.0, 2.0)));
+        assert_eq!(frame.camera_look_toward, Some([10.0, 0.0, 20.0]));
+        assert_eq!(
+            frame
+                .camera_slave_enable
+                .as_ref()
+                .map(|(t, b)| (t.as_str(), b.as_str())),
+            Some(("AmericaSpyDrone", "Bone01"))
+        );
+        assert!(frame.camera_slave_disable);
+        assert!(frame
+            .named_timers
+            .iter()
+            .any(|(n, t, c)| n == "TimerA" && t == "00:30" && *c));
+        assert!(frame
+            .cameo_flash
+            .iter()
+            .any(|(b, c)| b == "Command_AmericaRanger" && *c == 3));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.camera_zoom, Some((0.55, 1.5)));
+        assert!(ui.camera_zoom_reset);
+        assert!(ui.named_timers.iter().any(|(n, _, _)| n == "TimerA"));
+        assert!(ui
+            .cameo_flash
+            .iter()
+            .any(|(b, c)| b.contains("Ranger") && *c == 3));
     }
 
     #[test]

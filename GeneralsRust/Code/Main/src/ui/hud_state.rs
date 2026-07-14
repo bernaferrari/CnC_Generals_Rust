@@ -172,6 +172,22 @@ pub struct GameUIState {
     pub camera_shakers: Vec<(f32, f32, f32)>,
     /// Pending camera motion-blur request count residual.
     pub camera_motion_blur_count: usize,
+    /// Pending camera zoom residual (zoom, duration).
+    pub camera_zoom: Option<(f32, f32)>,
+    pub camera_zoom_reset: bool,
+    /// Pending camera pitch residual (pitch, duration).
+    pub camera_pitch: Option<(f32, f32)>,
+    /// Pending camera rotate residual (rotations, duration).
+    pub camera_rotate: Option<(f32, f32)>,
+    /// Pending look-toward residual.
+    pub camera_look_toward: Option<[f32; 3]>,
+    /// Pending slave-mode enable residual (template, bone).
+    pub camera_slave_enable: Option<(String, String)>,
+    pub camera_slave_disable: bool,
+    /// Active script named timers residual (name, text, countdown).
+    pub named_timers: Vec<(String, String, bool)>,
+    /// Cameo flash residual (button, count).
+    pub cameo_flash: Vec<(String, i32)>,
     pub radar_enabled: bool,
     pub radar_forced: bool,
     pub objectives: Vec<ObjectiveDisplay>,
@@ -231,6 +247,15 @@ impl Default for GameUIState {
             camera_bw_mode: None,
             camera_shakers: Vec::new(),
             camera_motion_blur_count: 0,
+            camera_zoom: None,
+            camera_zoom_reset: false,
+            camera_pitch: None,
+            camera_rotate: None,
+            camera_look_toward: None,
+            camera_slave_enable: None,
+            camera_slave_disable: false,
+            named_timers: Vec::new(),
+            cameo_flash: Vec::new(),
             radar_enabled: true,
             radar_forced: false,
             objectives: Vec::new(),
