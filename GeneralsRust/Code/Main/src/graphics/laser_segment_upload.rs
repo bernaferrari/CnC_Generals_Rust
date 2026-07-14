@@ -33,6 +33,11 @@
 //!   retail commented sample **2000**ms → **60**f when field is set
 //! - FadeLifetime sample residual: commented **0** / **250**ms peel honesty
 //!
+//! Wave 74 residual closed (host-testable, fail-closed vs GPU):
+//! - Soft-edge multi-beam UV residual deepen: per-layer scroll_uv + tile_factor
+//!   + UV_Offset_Rate (U=0, V=ScrollRate×elapsed) honesty on packed layers
+//! - Fail-closed vs wgpu `Queue::write_buffer` (ready flag is bookkeeping only)
+//!
 //! Still residual:
 //! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - Texture atlas GPU sample bind / sampler state
@@ -174,6 +179,126 @@ pub fn honesty_laser_texture_bind_pack() -> bool {
         && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP"
         && ORBITAL_LASER_TILE
         && honesty_connector_laser_defaults()
+}
+
+/// Wave 74 residual honesty: soft-edge multi-beam UV residual pack.
+///
+/// Deepens UV residual for OrbitalLaser soft-edge layers:
+/// - `UV_Offset_Rate` residual Vector2(**0**, ScrollRate) — U always 0
+/// - Per-layer `scroll_uv` = ScrollRate × elapsed (shared across layers)
+/// - Per-layer `tile_factor` = (length / width) × TilingScalar (aspect=1)
+/// - Packed vertices carry U = tile_factor, V = scroll residual
+/// - Fail-closed: `gpu_upload_ready` never claims live `write_buffer`
+pub fn honesty_soft_edge_multi_beam_uv_residual_pack() -> bool {
+    // UV offset rate residual constants.
+    if (ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() >= 0.001 {
+        return false;
+    }
+    if (ORBITAL_LASER_SCROLL_RATE + 1.75).abs() >= 0.01 {
+        return false;
+    }
+    if (ORBITAL_LASER_TILING_SCALAR - 0.15).abs() >= 0.001 {
+        return false;
+    }
+    if !ORBITAL_LASER_TILE {
+        return false;
+    }
+    if ORBITAL_LASER_TEXTURE_MAPPING != "TILED_TEXTURE_MAP" {
+        return false;
+    }
+
+    let elapsed = 1.0f32;
+    let length = 200.0f32;
+    let scroll_uv = ORBITAL_LASER_SCROLL_RATE * elapsed;
+    let layers = multi_beam_layer_residuals(
+        ORBITAL_LASER_NUM_BEAMS,
+        ORBITAL_LASER_INNER_BEAM_WIDTH,
+        ORBITAL_LASER_OUTER_BEAM_WIDTH,
+        ORBITAL_LASER_INNER_COLOR,
+        ORBITAL_LASER_OUTER_COLOR,
+        length,
+        ORBITAL_LASER_TILING_SCALAR,
+        scroll_uv,
+        1.0,
+    );
+    if layers.len() != ORBITAL_LASER_NUM_BEAMS as usize {
+        return false;
+    }
+    // Every soft-edge layer shares the same scroll UV residual.
+    for layer in &layers {
+        if (layer.scroll_uv - scroll_uv).abs() >= 0.001 {
+            return false;
+        }
+        // Tile factor residual: length/width * tiling_scalar.
+        let expected_tile = if layer.width > 1e-6 {
+            (length / layer.width) * ORBITAL_LASER_TILING_SCALAR
+        } else {
+            0.0
+        };
+        if (layer.tile_factor - expected_tile).abs() >= 0.01 {
+            return false;
+        }
+    }
+    // Outer edge tile factor residual honesty.
+    let outer_tile =
+        (length / ORBITAL_LASER_OUTER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
+    if (layers.last().map(|l| l.tile_factor).unwrap_or(0.0) - outer_tile).abs() >= 0.01 {
+        return false;
+    }
+    // Inner edge tile factor residual honesty (narrower → larger tile factor).
+    let inner_tile =
+        (length / ORBITAL_LASER_INNER_BEAM_WIDTH) * ORBITAL_LASER_TILING_SCALAR;
+    if (layers.first().map(|l| l.tile_factor).unwrap_or(0.0) - inner_tile).abs() >= 0.01 {
+        return false;
+    }
+    if layers.first().map(|l| l.tile_factor).unwrap_or(0.0)
+        <= layers.last().map(|l| l.tile_factor).unwrap_or(0.0)
+    {
+        // Narrower inner beam must tile more densely than outer.
+        return false;
+    }
+
+    // Packed multi-beam soft-edge residual: UV honesty on upload pack.
+    let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, length),
+        elapsed,
+        1.0,
+    );
+    if !pack.honesty.honesty_multi_beam_soft_edge_ok() {
+        return false;
+    }
+    if !pack.honesty.honesty_additive_tiled_ok() {
+        return false;
+    }
+    if (pack.honesty.uv_offset_u - ORBITAL_LASER_UV_OFFSET_U).abs() >= 0.001 {
+        return false;
+    }
+    if (pack.honesty.uv_offset_v - scroll_uv).abs() >= 0.001 {
+        return false;
+    }
+    if (pack.honesty.multi_beam_scroll_uv - scroll_uv).abs() >= 0.001 {
+        return false;
+    }
+    if (pack.honesty.multi_beam_tiling_scalar - ORBITAL_LASER_TILING_SCALAR).abs() >= 0.001 {
+        return false;
+    }
+    // Fail-closed: ready flag is bookkeeping only (never live write_buffer).
+    let mut marked = pack;
+    marked.mark_gpu_upload_ready();
+    if !marked.honesty.honesty_upload_ready_ok() {
+        return false;
+    }
+    if !marked.honesty.honesty_no_live_gpu_write_buffer() {
+        return false;
+    }
+    if !honesty_gpu_write_buffer_not_claimed(&marked) {
+        return false;
+    }
+    // SoftnessDepth/Distance remain absent (soft edge is multi-beam UV/width only).
+    !ORBITAL_LASER_HAS_SOFTNESS_DEPTH_FIELD
+        && !ORBITAL_LASER_HAS_SOFTNESS_DISTANCE_FIELD
+        && honesty_orbital_multi_beam_layers(&layers)
 }
 
 /// Honesty: OuterBeamWidth multi-beam residual pack (Wave 65).
@@ -1015,5 +1140,42 @@ mod tests {
         assert_eq!(LASER_COMMENTED_FADE_LIFETIME_FRAMES, 8);
         assert_eq!(ORBITAL_LASER_MAX_INTENSITY_FRAMES, 0);
         assert_eq!(CONNECTOR_LASER_MAX_INTENSITY_FRAMES, 0);
+    }
+
+    #[test]
+    fn soft_edge_multi_beam_uv_residual_wave74_honesty() {
+        assert!(honesty_soft_edge_multi_beam_uv_residual_pack());
+        // UV_Offset_Rate residual: U=0, V=ScrollRate×elapsed.
+        assert!((ORBITAL_LASER_UV_OFFSET_U - 0.0).abs() < 0.001);
+        let pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+            (0.0, 500.0, 0.0),
+            (0.0, 0.0, 0.0),
+            2.0, // 2s → scroll V = -3.5
+            1.0,
+        );
+        assert!((pack.honesty.uv_offset_u - 0.0).abs() < 0.001);
+        assert!((pack.honesty.uv_offset_v - ORBITAL_LASER_SCROLL_RATE * 2.0).abs() < 0.01);
+        assert!((pack.honesty.multi_beam_scroll_uv - (-3.5)).abs() < 0.01);
+        assert!((pack.honesty.multi_beam_tiling_scalar - 0.15).abs() < 0.001);
+        assert!(pack.honesty.honesty_additive_tiled_ok());
+        // Fail-closed vs live write_buffer.
+        let mut marked = pack;
+        marked.mark_gpu_upload_ready();
+        assert!(marked.honesty.gpu_upload_ready);
+        assert!(honesty_gpu_write_buffer_not_claimed(&marked));
+        // Per-layer tile_factor residual: inner denser than outer.
+        let layers = multi_beam_layer_residuals(
+            ORBITAL_LASER_NUM_BEAMS,
+            ORBITAL_LASER_INNER_BEAM_WIDTH,
+            ORBITAL_LASER_OUTER_BEAM_WIDTH,
+            ORBITAL_LASER_INNER_COLOR,
+            ORBITAL_LASER_OUTER_COLOR,
+            200.0,
+            ORBITAL_LASER_TILING_SCALAR,
+            ORBITAL_LASER_SCROLL_RATE * 2.0,
+            1.0,
+        );
+        assert!(layers[0].tile_factor > layers[11].tile_factor);
+        assert!((layers[0].scroll_uv - layers[11].scroll_uv).abs() < 0.001);
     }
 }

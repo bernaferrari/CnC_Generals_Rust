@@ -26,6 +26,12 @@
 //! - MoneyPickUp Image list residual (`SCPDollar000`..`SCPDollar030`, **31** names)
 //!   stored on Anim2DTemplate residual; `NumberImages` must match list length
 //!
+//! Wave 74 residual closed (host-testable, fail-closed vs GPU):
+//! - MoneyPickUp Image list residual bind table (`SCPDollar000`..`SCPDollar030`)
+//!   complete name honesty for dual-tick / eventual GPU consumers
+//! - Anim2DCollection `findTemplate("MoneyPickUp")` after residual init path
+//!   returns the template with full image list residual bind
+//!
 //! Still residual:
 //! - Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
 //! - WORLD_ANIM_FADE_ON_EXPIRE live Display surface blend
@@ -351,6 +357,118 @@ pub fn honesty_anim2d_ini_template_count_and_money_pickup_images() -> bool {
         return false;
     }
     true
+}
+
+/// Wave 74 residual: MoneyPickUp Image list residual bind table.
+///
+/// Returns `(frame_index, image_name)` pairs for SCPDollar000..030. Host residual
+/// bind for dual-tick / eventual GPU atlas consumers — not live Image load.
+pub fn money_pickup_image_list_bind_residual() -> Vec<(u16, &'static str)> {
+    MONEY_PICKUP_IMAGE_LIST
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (i as u16, *name))
+        .collect()
+}
+
+/// Residual image name for a MoneyPickUp frame index via the bind table.
+///
+/// Fail-closed: out-of-range → empty residual (not a GPU claim).
+#[inline]
+pub fn money_pickup_image_bind_at(frame: u16) -> Option<&'static str> {
+    MONEY_PICKUP_IMAGE_LIST.get(frame as usize).copied()
+}
+
+/// Wave 74 residual honesty: complete MoneyPickUp image name table bind.
+///
+/// `SCPDollar000`..`SCPDollar030` residual names match `NumberImages` **31** and
+/// the frame image name residual formatter. Fail-closed vs GPU texture atlas.
+pub fn honesty_money_pickup_image_list_bind() -> bool {
+    let bind = money_pickup_image_list_bind_residual();
+    if bind.len() as u16 != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
+    if MONEY_PICKUP_NUM_FRAMES != 31 {
+        return false;
+    }
+    for (frame, name) in &bind {
+        if *frame >= MONEY_PICKUP_NUM_FRAMES {
+            return false;
+        }
+        if *name != money_pickup_frame_image_name(*frame) {
+            return false;
+        }
+        if money_pickup_image_bind_at(*frame) != Some(*name) {
+            return false;
+        }
+        // Zero-padded 3-digit residual honesty.
+        if *name != format!("{MONEY_PICKUP_IMAGE_PREFIX}{frame:03}") {
+            return false;
+        }
+    }
+    // Bounds residual: last frame = SCPDollar030; past-end miss.
+    money_pickup_image_bind_at(0) == Some("SCPDollar000")
+        && money_pickup_image_bind_at(30) == Some("SCPDollar030")
+        && money_pickup_image_bind_at(31).is_none()
+        && honesty_money_pickup_image_sequence()
+}
+
+/// Wave 74 residual honesty: Collection findTemplate after residual init path.
+///
+/// C++ path residual: `Anim2DCollection::init` records Animation2D.ini, then
+/// templates are registered; `findTemplate("MoneyPickUp")` resolves the template
+/// with full Image list residual bind. Fail-closed vs full INI parse / GPU draw.
+pub fn honesty_money_pickup_find_template_after_init() -> bool {
+    if ANIM2D_COLLECTION_INI_PATH != "Data/INI/Animation2D.ini" {
+        return false;
+    }
+    let mut col = Anim2DCollectionResidual::new();
+    // Before init residual: no templates, findTemplate miss is honest.
+    if col.find_template("MoneyPickUp").is_some() {
+        return false;
+    }
+    col.init();
+    if !col.init_path_recorded {
+        return false;
+    }
+    // After init, residual still empty until newTemplate residual registers.
+    if col.find_template("MoneyPickUp").is_some() {
+        return false;
+    }
+    // Residual init path: register Animation2D.ini template names.
+    for name in ANIM2D_INI_TEMPLATE_NAMES {
+        col.new_template(name);
+    }
+    let Some(money_id) = col.find_template("MoneyPickUp") else {
+        return false;
+    };
+    let Some(t) = col.templates.get(&money_id) else {
+        return false;
+    };
+    if t.name != "MoneyPickUp" {
+        return false;
+    }
+    if t.num_frames != MONEY_PICKUP_NUM_FRAMES {
+        return false;
+    }
+    if t.images.len() != MONEY_PICKUP_IMAGE_LIST.len() {
+        return false;
+    }
+    // Full image list residual bind honesty on the found template.
+    for (i, expected) in MONEY_PICKUP_IMAGE_LIST.iter().enumerate() {
+        if t.images.get(i).map(String::as_str) != Some(*expected) {
+            return false;
+        }
+    }
+    if t.randomize_start_frame {
+        return false;
+    }
+    // findTemplate miss residual for unknown name.
+    if col.find_template("NoSuchAnim2DTemplate").is_some() {
+        return false;
+    }
+    honesty_money_pickup_image_list_bind()
+        && honesty_anim2d_ini_template_count_and_money_pickup_images()
 }
 
 /// Residual Anim2D animation mode discriminants (C++ `Anim2DMode` order).
@@ -1321,5 +1439,34 @@ mod tests {
         assert_eq!(t.images.len(), 31);
         assert_eq!(t.images[0], "SCPDollar000");
         assert_eq!(t.images[30], "SCPDollar030");
+    }
+
+    #[test]
+    fn money_pickup_image_list_bind_and_find_template_wave74_honesty() {
+        assert!(honesty_money_pickup_image_list_bind());
+        assert!(honesty_money_pickup_find_template_after_init());
+        let bind = money_pickup_image_list_bind_residual();
+        assert_eq!(bind.len(), 31);
+        assert_eq!(bind[0], (0, "SCPDollar000"));
+        assert_eq!(bind[15], (15, "SCPDollar015"));
+        assert_eq!(bind[30], (30, "SCPDollar030"));
+        assert_eq!(money_pickup_image_bind_at(12), Some("SCPDollar012"));
+        assert!(money_pickup_image_bind_at(99).is_none());
+
+        // Collection residual init → findTemplate MoneyPickUp with full bind.
+        let mut col = Anim2DCollectionResidual::new();
+        assert!(col.find_template("MoneyPickUp").is_none());
+        col.init();
+        assert!(col.init_path_recorded);
+        assert_eq!(ANIM2D_COLLECTION_INI_PATH, "Data/INI/Animation2D.ini");
+        for name in ANIM2D_INI_TEMPLATE_NAMES {
+            col.new_template(name);
+        }
+        let money = col.find_template("MoneyPickUp").expect("MoneyPickUp after init");
+        let t = &col.templates[&money];
+        assert_eq!(t.images.len(), 31);
+        for (frame, name) in money_pickup_image_list_bind_residual() {
+            assert_eq!(t.images[frame as usize], name);
+        }
     }
 }
