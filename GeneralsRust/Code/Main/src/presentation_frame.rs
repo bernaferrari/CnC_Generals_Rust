@@ -173,6 +173,10 @@ pub struct RenderableObject {
     pub kind_of: Vec<crate::game_logic::KindOf>,
     pub is_structure: bool,
     pub is_unit: bool,
+    /// Mobile residual (infantry/vehicle/aircraft) for runtime-host select.
+    pub is_mobile: bool,
+    /// Structure can enqueue production (host building_data present + constructed).
+    pub can_produce: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
     /// mesh pass does not re-read live ThingTemplate during GPU collect.
     pub model_key: Option<String>,
@@ -1698,6 +1702,15 @@ impl PresentationFrame {
                 },
                 is_structure,
                 is_unit,
+                is_mobile: is_unit
+                    || obj.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    || obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                    || obj.is_kind_of(crate::game_logic::KindOf::Aircraft),
+                can_produce: obj.building_data.is_some()
+                    && !obj.status.under_construction
+                    && obj.construction_percent >= 1.0
+                    && !obj.status.destroyed
+                    && obj.is_alive(),
                 model_key,
                 mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
@@ -2219,7 +2232,7 @@ impl PresentationFrame {
             .find(|o| {
                 o.team == player_team
                     && !o.destroyed
-                    && o.is_unit
+                    && o.is_mobile
                     && UnitControlSystem::presentation_is_selectable(o)
             })
             .map(|o| o.id)
@@ -2232,13 +2245,7 @@ impl PresentationFrame {
     ) -> Option<ObjectId> {
         self.objects
             .iter()
-            .find(|o| {
-                o.team == player_team
-                    && !o.destroyed
-                    && o.is_structure
-                    && !o.under_construction
-                    && o.construction_percent >= 1.0
-            })
+            .find(|o| o.team == player_team && !o.destroyed && o.can_produce)
             .map(|o| o.id)
     }
 
@@ -2258,7 +2265,7 @@ impl PresentationFrame {
     pub fn count_mobile_friendlies(&self, player_team: crate::game_logic::Team) -> u32 {
         self.objects
             .iter()
-            .filter(|o| o.team == player_team && !o.destroyed && o.is_unit)
+            .filter(|o| o.team == player_team && !o.destroyed && o.is_mobile)
             .count() as u32
     }
 
@@ -3194,6 +3201,62 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn mobile_and_producer_freeze_from_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tu = ThingTemplate::new("Humvee");
+        tu.set_health(200.0);
+        tu.add_kind_of(KindOf::Vehicle);
+        tu.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Humvee".into(), tu);
+        let mut tb = ThingTemplate::new("Barracks");
+        tb.set_health(800.0);
+        tb.add_kind_of(KindOf::Structure);
+        tb.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Barracks".into(), tb);
+        let mut tw = ThingTemplate::new("Wall");
+        tw.set_health(100.0);
+        tw.add_kind_of(KindOf::Structure);
+        logic.templates.insert("Wall".into(), tw);
+        let u = logic
+            .create_object("Humvee", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("Barracks", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let w = logic
+            .create_object("Wall", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.get_object_mut(b) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            if o.building_data.is_none() {
+                o.building_data = Some(crate::game_logic::BuildingData::new(
+                    crate::game_logic::BuildingType::Barracks,
+                ));
+            }
+        }
+        if let Some(o) = logic.get_object_mut(w) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.building_data = None;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let hu = frame.objects.iter().find(|o| o.id == u).unwrap();
+        assert!(hu.is_mobile);
+        assert!(!hu.can_produce);
+        let hb = frame.objects.iter().find(|o| o.id == b).unwrap();
+        assert!(!hb.is_mobile);
+        assert!(hb.can_produce);
+        let hw = frame.objects.iter().find(|o| o.id == w).unwrap();
+        assert!(hw.is_structure);
+        assert!(!hw.can_produce);
+        assert_eq!(frame.first_mobile_friendly_id(Team::USA), Some(u));
+        assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(b));
+        assert_eq!(frame.count_mobile_friendlies(Team::USA), 1);
     }
 
     #[test]
