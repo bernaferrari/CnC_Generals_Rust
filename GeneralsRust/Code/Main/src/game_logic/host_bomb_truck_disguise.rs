@@ -13,6 +13,15 @@
 //! - Attacking / force-fire residual also reveals (OrderIdleEnemies path is
 //!   fail-closed to clear-disguise only).
 //!
+//! Wave 66 residual pack (retail GLAVehicle.ini / SpecialPower.ini / Locomotor.ini):
+//! - Disguise residual: SpecialAbilityDisguiseAsVehicle, DisguisesAsTeam **Yes**,
+//!   RevealDistanceFromTarget **100**, TransitionTime **2000**ms → **60**f,
+//!   RevealTransitionTime **1000**ms → **30**f, FX_BombTruckDisguise /
+//!   FX_BombTruckDisguiseReveal.
+//! - Body residual: MaxHealth **220**, Vision **150**, Shroud **200**,
+//!   BuildCost **1200**, BuildTime **15**s → **450**f, TransportSlotCount **3**,
+//!   BombTruckLocomotor Speed **50**/Damaged **50**.
+//!
 //! Fail-closed honesty:
 //! - Not full StealthUpdate transition opacity / half-point model swap
 //! - Not full drawable indicator-color night/day matrix for disguised players
@@ -23,14 +32,65 @@
 use super::{ObjectId, Team};
 use serde::{Deserialize, Serialize};
 
+/// Logic frames per second (host fixed step).
+pub const BOMB_TRUCK_LOGIC_FPS: f32 = 30.0;
+
+/// Retail special-power template residual.
+pub const BOMB_TRUCK_DISGUISE_SPECIAL_POWER: &str = "SpecialAbilityDisguiseAsVehicle";
+/// Retail special-power enum residual.
+pub const BOMB_TRUCK_DISGUISE_ENUM: &str = "SPECIAL_DISGUISE_AS_VEHICLE";
+
 /// C++ StealthUpdate RevealDistanceFromTarget residual (Bomb Truck INI).
 pub const BOMB_TRUCK_DISGUISE_REVEAL_DISTANCE: f32 = 100.0;
+/// Retail DisguisesAsTeam residual.
+pub const BOMB_TRUCK_DISGUISES_AS_TEAM: bool = true;
+/// Retail DisguiseTransitionTime residual (msec).
+pub const BOMB_TRUCK_DISGUISE_TRANSITION_MS: u32 = 2000;
+/// DisguiseTransitionTime 2000ms → 60 frames @ 30 FPS.
+pub const BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES: u32 = 60;
+/// Retail DisguiseRevealTransitionTime residual (msec).
+pub const BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_MS: u32 = 1000;
+/// DisguiseRevealTransitionTime 1000ms → 30 frames @ 30 FPS.
+pub const BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES: u32 = 30;
+/// Retail DisguiseFX residual.
+pub const BOMB_TRUCK_DISGUISE_FX: &str = "FX_BombTruckDisguise";
+/// Retail DisguiseRevealFX residual.
+pub const BOMB_TRUCK_DISGUISE_REVEAL_FX: &str = "FX_BombTruckDisguiseReveal";
 
 /// Audio residual when disguise is applied (Voice.ini BombTruckVoiceDisguise).
 pub const BOMB_TRUCK_DISGUISE_AUDIO: &str = "BombTruckVoiceDisguise";
 
 /// Audio residual when disguise is revealed (FX_BombTruckDisguiseReveal residual cue).
 pub const BOMB_TRUCK_DISGUISE_REVEAL_AUDIO: &str = "BombTruckVoiceModeDisguise";
+
+// --- Body residual (GLAVehicleBombTruck) ---
+
+/// Retail ActiveBody MaxHealth residual.
+pub const BOMB_TRUCK_MAX_HEALTH: f32 = 220.0;
+/// Retail VisionRange residual.
+pub const BOMB_TRUCK_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const BOMB_TRUCK_SHROUD_CLEARING_RANGE: f32 = 200.0;
+/// Retail BuildCost residual.
+pub const BOMB_TRUCK_BUILD_COST: u32 = 1200;
+/// Retail BuildTime residual (seconds).
+pub const BOMB_TRUCK_BUILD_TIME_SEC: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS.
+pub const BOMB_TRUCK_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail TransportSlotCount residual.
+pub const BOMB_TRUCK_TRANSPORT_SLOT_COUNT: u32 = 3;
+/// Retail BombTruckLocomotor Speed residual.
+pub const BOMB_TRUCK_LOCOMOTOR_SPEED: f32 = 50.0;
+/// Retail BombTruckLocomotor SpeedDamaged residual.
+pub const BOMB_TRUCK_LOCOMOTOR_SPEED_DAMAGED: f32 = 50.0;
+
+/// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
+pub fn bomb_truck_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * BOMB_TRUCK_LOGIC_FPS / 1000.0).round() as u32
+}
 
 /// Normalize template / name residual matching.
 fn alnum_lower(s: &str) -> String {
@@ -181,6 +241,51 @@ impl HostBombTruckDisguiseRegistry {
     }
 }
 
+// --- Wave 66 residual honesty packs ---
+
+/// Wave 66 residual honesty: disguise special-power / stealth residual peel.
+pub fn honesty_bomb_truck_disguise_ability_residual_ok() -> bool {
+    BOMB_TRUCK_DISGUISE_SPECIAL_POWER == "SpecialAbilityDisguiseAsVehicle"
+        && BOMB_TRUCK_DISGUISE_ENUM == "SPECIAL_DISGUISE_AS_VEHICLE"
+        && (BOMB_TRUCK_DISGUISE_REVEAL_DISTANCE - 100.0).abs() < 0.01
+        && BOMB_TRUCK_DISGUISES_AS_TEAM
+        && BOMB_TRUCK_DISGUISE_TRANSITION_MS == 2000
+        && BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES
+            == bomb_truck_ms_to_frames(BOMB_TRUCK_DISGUISE_TRANSITION_MS)
+        && BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES == 60
+        && BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_MS == 1000
+        && BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES
+            == bomb_truck_ms_to_frames(BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_MS)
+        && BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES == 30
+        && BOMB_TRUCK_DISGUISE_FX == "FX_BombTruckDisguise"
+        && BOMB_TRUCK_DISGUISE_REVEAL_FX == "FX_BombTruckDisguiseReveal"
+        && BOMB_TRUCK_DISGUISE_AUDIO == "BombTruckVoiceDisguise"
+        && should_reveal_disguise_by_distance(100.0)
+        && !should_reveal_disguise_by_distance(100.1)
+}
+
+/// Wave 66 residual honesty: bomb truck body residual peel.
+pub fn honesty_bomb_truck_body_residual_ok() -> bool {
+    (BOMB_TRUCK_MAX_HEALTH - 220.0).abs() < 0.01
+        && (BOMB_TRUCK_VISION_RANGE - 150.0).abs() < 0.01
+        && (BOMB_TRUCK_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
+        && BOMB_TRUCK_BUILD_COST == 1200
+        && (BOMB_TRUCK_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && BOMB_TRUCK_BUILD_TIME_FRAMES
+            == ((BOMB_TRUCK_BUILD_TIME_SEC * BOMB_TRUCK_LOGIC_FPS).round() as u32)
+        && BOMB_TRUCK_BUILD_TIME_FRAMES == 450
+        && BOMB_TRUCK_TRANSPORT_SLOT_COUNT == 3
+        && (BOMB_TRUCK_LOCOMOTOR_SPEED - 50.0).abs() < 0.01
+        && (BOMB_TRUCK_LOCOMOTOR_SPEED_DAMAGED - 50.0).abs() < 0.01
+        && is_bomb_truck_template("GLAVehicleBombTruck")
+        && !is_bomb_truck_template("GLAVehicleQuadCannon")
+}
+
+/// Combined Wave 66 Bomb Truck disguise residual honesty pack.
+pub fn honesty_bomb_truck_disguise_residual_pack_ok() -> bool {
+    honesty_bomb_truck_disguise_ability_residual_ok() && honesty_bomb_truck_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +386,17 @@ mod tests {
         assert!(!reg.honesty_reveal_ok());
         reg.record_reveal();
         assert!(reg.honesty_reveal_ok());
+    }
+
+    #[test]
+    fn bomb_truck_disguise_residual_pack_honesty_wave66() {
+        assert_eq!(bomb_truck_ms_to_frames(2000), 60);
+        assert_eq!(bomb_truck_ms_to_frames(1000), 30);
+        assert!(honesty_bomb_truck_disguise_ability_residual_ok());
+        assert!(honesty_bomb_truck_body_residual_ok());
+        assert!(honesty_bomb_truck_disguise_residual_pack_ok());
+        assert!(BOMB_TRUCK_DISGUISES_AS_TEAM);
+        assert_eq!(BOMB_TRUCK_BUILD_TIME_FRAMES, 450);
+        assert_eq!(BOMB_TRUCK_DISGUISE_SPECIAL_POWER, "SpecialAbilityDisguiseAsVehicle");
     }
 }
