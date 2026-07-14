@@ -392,6 +392,11 @@ impl Player {
             self.resources.supplies = self.resources.supplies.saturating_add(bounty);
             self.statistics.resources_collected =
                 self.statistics.resources_collected.saturating_add(bounty);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
         }
         bounty
     }
@@ -418,6 +423,11 @@ impl Player {
             if cost.supplies > 0 {
                 self.record_resources_spent(cost.supplies);
             }
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
             true
         } else {
             false
@@ -432,6 +442,13 @@ impl Player {
                 .statistics
                 .resources_collected
                 .saturating_add(amount.supplies);
+        }
+        if amount.supplies > 0 {
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
         }
     }
 
@@ -455,6 +472,11 @@ impl Player {
         self.queued_upgrades.remove(&queued_name);
         self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
         self.power_available -= refund.power;
+        crate::game_logic::host_economy_log::record(
+            self.id,
+            self.resources.supplies,
+            self.power_available,
+        );
         true
     }
 
