@@ -102,6 +102,11 @@ pub struct EntityStore {
 }
 
 impl EntityStore {
+    /// Remove every entity and reset id allocation.
+    pub fn clear(&mut self) {
+        *self = Self::new();
+    }
+
     /// Create a new store.
     pub fn new() -> Self {
         Self {

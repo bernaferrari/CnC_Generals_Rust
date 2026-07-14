@@ -45,6 +45,10 @@ pub struct PlayerInfo {
     pub team: Option<u8>,
     /// Whether the player is controlled by a human.
     pub is_human: bool,
+    /// Cash/supplies mirror.
+    pub supplies: u32,
+    /// Power available residual.
+    pub power_available: i32,
 }
 
 /// Immutable snapshot of the world state for deterministic consumers.
@@ -84,6 +88,10 @@ pub struct PlayerData {
     pub team: Option<u8>,
     /// Indicates whether the player is human-controlled.
     pub is_human: bool,
+    /// Cash/supplies (host Player::resources.supplies mirror).
+    pub supplies: u32,
+    /// Power available residual (host power_available).
+    pub power_available: i32,
 }
 
 impl PlayerData {
@@ -94,6 +102,8 @@ impl PlayerData {
             name: self.name.clone(),
             team: self.team,
             is_human: self.is_human,
+            supplies: self.supplies,
+            power_available: self.power_available,
         }
     }
 }
@@ -208,6 +218,11 @@ impl World {
         *self = new_self;
     }
 
+    /// Drop all entities while keeping players and frame.
+    pub fn clear_entities(&mut self) {
+        self.entities.clear();
+    }
+
     /// Mark the simulation as having advanced to the next frame.
     pub fn advance(&mut self, frame: u32) {
         self.frame = frame as u64;
@@ -232,6 +247,8 @@ impl World {
                 name: player_name,
                 team,
                 is_human,
+                supplies: 0,
+                power_available: 0,
             });
         }
         Some(id)
@@ -496,6 +513,38 @@ impl GameWorld {
         is_human: bool,
     ) -> Option<PlayerId> {
         self.inner.allocate_player_with_name(name, team, is_human)
+    }
+
+    /// Allocate a player and set economy fields in one call (shadow/host mirror).
+    pub fn allocate_player_with_economy(
+        &mut self,
+        name: Option<String>,
+        team: Option<u8>,
+        is_human: bool,
+        supplies: u32,
+        power_available: i32,
+    ) -> Option<PlayerId> {
+        let id = self.inner.allocate_player_with_name(name, team, is_human)?;
+        if let Some(p) = self.inner.player_mut(id) {
+            p.supplies = supplies;
+            p.power_available = power_available;
+        }
+        Some(id)
+    }
+
+    /// Set supplies for a player (borrow-first economy phase helper).
+    pub fn set_player_supplies(&mut self, id: PlayerId, supplies: u32) -> bool {
+        if let Some(p) = self.inner.player_mut(id) {
+            p.supplies = supplies;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Clear all entities (incremental shadow rebuild helper).
+    pub fn clear_entities(&mut self) {
+        self.inner.clear_entities();
     }
 }
 
