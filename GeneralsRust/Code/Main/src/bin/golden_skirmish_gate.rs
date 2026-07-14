@@ -42,6 +42,9 @@ fn main() {
     } else {
         result.synthetic_combat && !result.playable_claim
     };
+    // Map path: also require pure-march combat honesty (no teleport pull residual).
+    let map_combat_honesty_ok =
+        !result.map_loaded || (result.combat_no_teleport_ok && result.combat_realistic_speed_ok);
     let pass = result.config_applied
         && result.frames_advanced > 0
         && result.moved_units
@@ -56,7 +59,8 @@ fn main() {
         && !result.ai_disabled_for_slice
         && combat_claim_ok
         && result.ai_structure_templates_retained
-        && map_same_world_ok;
+        && map_same_world_ok
+        && map_combat_honesty_ok;
     if pass {
         println!(
             "golden_skirmish_gate: PASS (AI on; map_loaded={} synthetic_combat={} playable_claim={}; ai_templates_retained=true; map_same_world_prod={} map_same_world_victory={} retail_prod={} retail_gather={} combat_no_teleport={} combat_realistic_speed={} combat_store_damage={})",

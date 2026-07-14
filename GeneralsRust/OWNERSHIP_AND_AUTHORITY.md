@@ -55,6 +55,19 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 5. Rebind GameClient to Main authority + snapshot only.
 6. Promote `gamelogic` as sole authority; Main = event loop.
 
+
+## Golden / executable honesty (2026-07-14)
+
+| Gate | Honesty |
+|------|---------|
+| `golden_skirmish_gate` | Map path `playable_claim` requires pure march (`combat_no_teleport_ok`) + retail-ish speed; teleport pull only if `GOLDEN_ALLOW_TELEPORT_PULL=1` |
+| `executable_smoke_gate` | Real binary Menu→InGame + runtime-host select/move (`gameplay_cmd`); **not** WND click path (`playable_claim=false`) |
+| `shell_smoke_gate` | Headless host skirmish stack; not windowed WND |
+
+## Still Main mid-frame (not sole GameWorld)
+
+Host still executes AI decision, pathfinding step, and combat resolution mid-frame. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations and presentation overlay — not yet the sole simulation owner.
+
 ## Gates (honest reading)
 
 | Gate | Proves |
