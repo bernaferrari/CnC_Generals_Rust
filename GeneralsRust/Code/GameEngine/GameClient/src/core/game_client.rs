@@ -3263,6 +3263,15 @@ impl GameClient {
         Ok(())
     }
 
+    /// Tick drawable client modules without GameLogic OBJECT_REGISTRY binding.
+    /// Used when Main presentation snapshot owns unit visuals (default host path).
+    pub fn update_drawables_local(&mut self, delta_time: f32) -> GameClientResult<()> {
+        for drawable in self.drawable_map.values_mut() {
+            drawable.update(delta_time);
+        }
+        Ok(())
+    }
+
     pub fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
