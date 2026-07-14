@@ -943,7 +943,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         && pres.dual_tick.applies >= 1;
     let gameworld_shadow_ok = {
         let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&logic);
-        probe.counts_match
+        probe.full_match()
     };
 
     // Minimap FOW from presentation residual (grid snapshot, not live shroud re-lock).
