@@ -152,6 +152,20 @@
 //! - `module_type100_ok` — Wave 100 Module type table residual pack
 //! - `xfer100_ok` — Wave 100 Xfer residual deepen pack
 //! - `tf_crosslink100_ok` — Wave 100 ThingFactory spawn cross-link residual pack
+//! - `module_factory101_ok` — Wave 101 ModuleFactory residual deepen pack
+//! - `thing_factory101_ok` — Wave 101 ThingFactory create residual deepen pack
+//! - `partition_register101_ok` — Wave 101 PartitionManager register residual pack
+//! - `mf_crosslink101_ok` — Wave 101 ThingFactory/Module/Partition cross-link pack
+//! - `display102_ok` — Wave 102 DisplayString FontChars/StretchRect residual pack
+//! - `anim2d102_ok` — Wave 102 Anim2D full template table / Collection init pack
+//! - `laser102_ok` — Wave 102 laser SegLine UV atlas residual pack
+//! - `csf102_ok` — Wave 102 multi-locale CSF residual pack (expanded locales)
+//! - `pres102_ok` — Wave 102 presentation dual-tick residual deepen pack
+//! - `weapon103_ok` — Wave 103 weapon residual deepen pack
+//! - `armor103_ok` — Wave 103 armor residual expand pack
+//! - `loco103_ok` — Wave 103 locomotor residual expand pack
+//! - `sp103_ok` — Wave 103 special-power superweapon residual deepen pack
+//! - `kindof103_ok` — Wave 103 object KindOf residual pack
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
@@ -250,10 +264,21 @@ use crate::game_logic::host_production_buildable_command_residual::{
     honesty_production_residual_deepen_pack_wave99,
 };
 use crate::game_logic::host_thing_factory_module_xfer_residual::{
+    honesty_module_factory_residual_deepen_pack_wave101,
     honesty_module_type_table_residual_pack_wave100,
+    honesty_partition_register_residual_pack_wave101,
+    honesty_thing_factory_create_residual_deepen_pack_wave101,
+    honesty_thing_factory_module_partition_crosslink_wave101,
     honesty_thing_factory_residual_deepen_pack_wave100,
     honesty_thing_factory_spawn_crosslink_wave100, honesty_xfer_residual_deepen_pack_wave100,
 };
+use crate::game_logic::host_game_logic_residual_wave103::{
+    honesty_object_kindof_residual_pack_wave103,
+    honesty_special_power_superweapon_residual_deepen_wave103,
+};
+use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave103;
+use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
+use crate::game_logic::weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
 use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
 use crate::game_logic::host_pathfinder::honesty_pathfinder_residual_pack_wave81;
 use crate::game_logic::host_rng_residual::{
@@ -278,7 +303,9 @@ use crate::game_logic::terrain::honesty_map_height_sample_residual_pack_wave81;
 use crate::game_logic::weapon_bootstrap::honesty_weapon_store_host_seed_residual_wave77;
 use crate::game_logic::GameLogic;
 use crate::graphics::minimap_renderer::honesty_minimap_residual_pack_wave79;
-use crate::presentation_frame::honesty_spectre_orbit_decal_presentation_ok;
+use crate::presentation_frame::{
+    honesty_presentation_residual_deepen_pack_wave102, honesty_spectre_orbit_decal_presentation_ok,
+};
 use crate::save_load::honesty_drawable_residual_fields_wave79_ok;
 use crate::selection_renderer::honesty_selection_hud_residual_pack_wave79;
 use crate::unit_input_handler::honesty_input_residual_pack_wave79;
@@ -287,16 +314,20 @@ use crate::gameplay_layout::{
     honesty_control_bar_residual_pack_wave76_ok, GameplayLayoutStatus,
 };
 use crate::graphics::floating_text_layout::{
+    honesty_display_string_residual_deepen_pack_wave102,
     honesty_graphics_residual_pack_wave76_ok, pack_floating_text_and_mark_ready, FloatingTextLayout,
 };
 use crate::graphics::game_text_residual::{
-    exercise_host_game_text_residual, honesty_translate_copy_escape_table,
+    exercise_host_game_text_residual, honesty_csf_multi_locale_residual_deepen_pack_wave102,
+    honesty_translate_copy_escape_table,
 };
 use crate::graphics::laser_segment_upload::{
-    pack_and_mark_upload_ready, LaserSegmentUpload,
+    honesty_laser_segliner_residual_deepen_pack_wave102, pack_and_mark_upload_ready,
+    LaserSegmentUpload,
 };
 use crate::graphics::world_anim_layout::{
-    honesty_anim2d_collection_residual, pack_world_anim_and_mark_ready, WorldAnimLayout,
+    honesty_anim2d_collection_residual, honesty_anim2d_residual_deepen_pack_wave102,
+    pack_world_anim_and_mark_ready, WorldAnimLayout,
 };
 use crate::map_frame_scenario::resolve_first_map;
 use crate::presentation_frame::{
@@ -628,6 +659,34 @@ pub struct ShellSmokeResult {
     pub xfer_deepen_wave100_ok: bool,
     /// Wave 100 ThingFactory spawn cross-link residual pack honesty.
     pub thing_factory_crosslink_wave100_ok: bool,
+    /// Wave 101 ModuleFactory residual deepen pack honesty.
+    pub module_factory_deepen_wave101_ok: bool,
+    /// Wave 101 ThingFactory create residual deepen pack honesty.
+    pub thing_factory_create_wave101_ok: bool,
+    /// Wave 101 PartitionManager register residual pack honesty.
+    pub partition_register_wave101_ok: bool,
+    /// Wave 101 ThingFactory/Module/Partition cross-link residual pack honesty.
+    pub mf_crosslink_wave101_ok: bool,
+    /// Wave 102 DisplayString FontChars spacing + StretchRect submit residual pack.
+    pub display_string_deepen_wave102_ok: bool,
+    /// Wave 102 Anim2D full template table / Collection init residual pack.
+    pub anim2d_deepen_wave102_ok: bool,
+    /// Wave 102 laser SegLine UV atlas / multi-beam soft-edge residual pack.
+    pub laser_segliner_deepen_wave102_ok: bool,
+    /// Wave 102 multi-locale CSF expanded pack-load residual honesty.
+    pub csf_multi_locale_deepen_wave102_ok: bool,
+    /// Wave 102 presentation dual-tick residual deepen pack honesty.
+    pub presentation_deepen_wave102_ok: bool,
+    /// Wave 103 weapon residual deepen pack honesty.
+    pub weapon_deepen_wave103_ok: bool,
+    /// Wave 103 armor residual expand pack honesty.
+    pub armor_expand_wave103_ok: bool,
+    /// Wave 103 locomotor residual expand pack honesty.
+    pub locomotor_expand_wave103_ok: bool,
+    /// Wave 103 special-power superweapon residual deepen pack honesty.
+    pub special_power_deepen_wave103_ok: bool,
+    /// Wave 103 object KindOf residual pack honesty.
+    pub object_kindof_wave103_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -1043,6 +1102,25 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let module_type_wave100_ok = honesty_module_type_table_residual_pack_wave100();
     let xfer_deepen_wave100_ok = honesty_xfer_residual_deepen_pack_wave100();
     let thing_factory_crosslink_wave100_ok = honesty_thing_factory_spawn_crosslink_wave100();
+    // Wave 101 residual honesty packs (ModuleFactory/ThingFactory create/Partition register; no playable_claim flip).
+    let module_factory_deepen_wave101_ok = honesty_module_factory_residual_deepen_pack_wave101();
+    let thing_factory_create_wave101_ok =
+        honesty_thing_factory_create_residual_deepen_pack_wave101();
+    let partition_register_wave101_ok = honesty_partition_register_residual_pack_wave101();
+    let mf_crosslink_wave101_ok = honesty_thing_factory_module_partition_crosslink_wave101();
+    // Wave 102 residual honesty packs (DisplayString/Anim2D/laser/CSF/presentation; no playable_claim flip).
+    let display_string_deepen_wave102_ok = honesty_display_string_residual_deepen_pack_wave102();
+    let anim2d_deepen_wave102_ok = honesty_anim2d_residual_deepen_pack_wave102();
+    let laser_segliner_deepen_wave102_ok = honesty_laser_segliner_residual_deepen_pack_wave102();
+    let csf_multi_locale_deepen_wave102_ok = honesty_csf_multi_locale_residual_deepen_pack_wave102();
+    let presentation_deepen_wave102_ok = honesty_presentation_residual_deepen_pack_wave102();
+    // Wave 103 residual honesty packs (weapon/armor/loco/special-power/KindOf; no playable_claim flip).
+    let weapon_deepen_wave103_ok = honesty_weapon_store_deepen_residual_wave103();
+    let armor_expand_wave103_ok = honesty_armor_residual_expand_wave103();
+    let locomotor_expand_wave103_ok = honesty_locomotor_residual_expand_wave103();
+    let special_power_deepen_wave103_ok =
+        honesty_special_power_superweapon_residual_deepen_wave103();
+    let object_kindof_wave103_ok = honesty_object_kindof_residual_pack_wave103();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -1332,6 +1410,20 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         module_type_wave100_ok,
         xfer_deepen_wave100_ok,
         thing_factory_crosslink_wave100_ok,
+        module_factory_deepen_wave101_ok,
+        thing_factory_create_wave101_ok,
+        partition_register_wave101_ok,
+        mf_crosslink_wave101_ok,
+        display_string_deepen_wave102_ok,
+        anim2d_deepen_wave102_ok,
+        laser_segliner_deepen_wave102_ok,
+        csf_multi_locale_deepen_wave102_ok,
+        presentation_deepen_wave102_ok,
+        weapon_deepen_wave103_ok,
+        armor_expand_wave103_ok,
+        locomotor_expand_wave103_ok,
+        special_power_deepen_wave103_ok,
+        object_kindof_wave103_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -1343,7 +1435,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} kindof84={kindof_wave84_ok} wslot84={weapon_slot_wave84_ok} vet84={veterancy_wave84_ok} rel84={relationship_wave84_ok} geom84={geometry_wave84_ok} shadow84={shadow_wave84_ok} faction85={faction_side_wave85_ok} ptpl85={player_template_wave85_ok} cash85={starting_cash_wave85_ok} aiperson85={skirmish_ai_personality_wave85_ok} victory85={victory_condition_wave85_ok} cam86={gamedata_camera_fps_wave86_ok} world86={gamedata_world_constants_wave86_ok} mpopt86={multiplayer_options_wave86_ok} mapsel86={map_selection_wave86_ok} crate86={crate_deepen_wave86_ok} weather87={weather_wave87_ok} water87={water_wave87_ok} bridge87={bridge_wave87_ok} tunnel87={tunnel_wave87_ok} garrison87={garrison_wave87_ok} transport87={transport_wave87_ok} radius88={radius_cursor_wave88_ok} mouse88={mouse_cursor_wave88_ok} fxlist88={superweapon_fxlist_wave88_ok} ocl88={superweapon_ocl_wave88_ok} particle88={superweapon_particle_wave88_ok} audio88={superweapon_audio_wave88_ok} rank89={rank_skill_wave89_ok} exp89={experience_wave89_ok} hotkey89={hotkey_wave89_ok} chat89={chat_wave89_ok} replay89={replay_wave89_ok} options89={options_wave89_ok} gamespeed90={gamespeed_wave90_ok} framerate90={frame_rate_wave90_ok} debug90={debug_tables_wave90_ok} lang90={language_wave90_ok} credits90={credits_wave90_ok} tooltip91={tooltip_wave91_ok} helpbox91={help_box_wave91_ok} message91={message_wave91_ok} eva91={eva_wave91_ok} video91={video_wave91_ok} briefing91={mission_briefing_wave91_ok} weapon92={weapon_deepen_wave92_ok} armor92={armor_expand_wave92_ok} body92={body_health_wave92_ok} loco92={locomotor_expand_wave92_ok} science92={science_names_wave92_ok} particle93={particle_emit_wave93_ok} drawable93={drawable_opacity_wave93_ok} shadow93={shadow_deepen_wave93_ok} terrain_tex93={terrain_texture_wave93_ok} road93={road_wave93_ok} ai_state94={ai_state_wave94_ok} special_ability94={special_ability_wave94_ok} upgrade_names94={upgrade_names_wave94_ok} command_set94={command_set_wave94_ok} script_action95={script_action_wave95_ok} script_cond95={script_condition_wave95_ok} map_object95={map_object_wave95_ok} waypoint95={waypoint_wave95_ok} team95={team_wave95_ok} player95={player_deepen_wave95_ok} partition96={partition_wave96_ok} collision96={collision_wave96_ok} physics96={physics_wave96_ok} projectile96={projectile_wave96_ok} radar97={radar_deepen_wave97_ok} spotter97={spotter_wave97_ok} stealth97={stealth_deepen_wave97_ok} detector97={detector_deepen_wave97_ok} vision97={vision_wave97_ok} dock98={dock_wave98_ok} contain98={contain_wave98_ok} exit98={exit_wave98_ok} heal98={heal_wave98_ok} production99={production_deepen_wave99_ok} buildable99={buildable_wave99_ok} prereq99={prerequisite_wave99_ok} cmdbtn99={command_button_deepen_wave99_ok} controlbar99={control_bar_deepen_wave99_ok} thing_factory100={thing_factory_deepen_wave100_ok} module_type100={module_type_wave100_ok} xfer100={xfer_deepen_wave100_ok} tf_crosslink100={thing_factory_crosslink_wave100_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} kindof84={kindof_wave84_ok} wslot84={weapon_slot_wave84_ok} vet84={veterancy_wave84_ok} rel84={relationship_wave84_ok} geom84={geometry_wave84_ok} shadow84={shadow_wave84_ok} faction85={faction_side_wave85_ok} ptpl85={player_template_wave85_ok} cash85={starting_cash_wave85_ok} aiperson85={skirmish_ai_personality_wave85_ok} victory85={victory_condition_wave85_ok} cam86={gamedata_camera_fps_wave86_ok} world86={gamedata_world_constants_wave86_ok} mpopt86={multiplayer_options_wave86_ok} mapsel86={map_selection_wave86_ok} crate86={crate_deepen_wave86_ok} weather87={weather_wave87_ok} water87={water_wave87_ok} bridge87={bridge_wave87_ok} tunnel87={tunnel_wave87_ok} garrison87={garrison_wave87_ok} transport87={transport_wave87_ok} radius88={radius_cursor_wave88_ok} mouse88={mouse_cursor_wave88_ok} fxlist88={superweapon_fxlist_wave88_ok} ocl88={superweapon_ocl_wave88_ok} particle88={superweapon_particle_wave88_ok} audio88={superweapon_audio_wave88_ok} rank89={rank_skill_wave89_ok} exp89={experience_wave89_ok} hotkey89={hotkey_wave89_ok} chat89={chat_wave89_ok} replay89={replay_wave89_ok} options89={options_wave89_ok} gamespeed90={gamespeed_wave90_ok} framerate90={frame_rate_wave90_ok} debug90={debug_tables_wave90_ok} lang90={language_wave90_ok} credits90={credits_wave90_ok} tooltip91={tooltip_wave91_ok} helpbox91={help_box_wave91_ok} message91={message_wave91_ok} eva91={eva_wave91_ok} video91={video_wave91_ok} briefing91={mission_briefing_wave91_ok} weapon92={weapon_deepen_wave92_ok} armor92={armor_expand_wave92_ok} body92={body_health_wave92_ok} loco92={locomotor_expand_wave92_ok} science92={science_names_wave92_ok} particle93={particle_emit_wave93_ok} drawable93={drawable_opacity_wave93_ok} shadow93={shadow_deepen_wave93_ok} terrain_tex93={terrain_texture_wave93_ok} road93={road_wave93_ok} ai_state94={ai_state_wave94_ok} special_ability94={special_ability_wave94_ok} upgrade_names94={upgrade_names_wave94_ok} command_set94={command_set_wave94_ok} script_action95={script_action_wave95_ok} script_cond95={script_condition_wave95_ok} map_object95={map_object_wave95_ok} waypoint95={waypoint_wave95_ok} team95={team_wave95_ok} player95={player_deepen_wave95_ok} partition96={partition_wave96_ok} collision96={collision_wave96_ok} physics96={physics_wave96_ok} projectile96={projectile_wave96_ok} radar97={radar_deepen_wave97_ok} spotter97={spotter_wave97_ok} stealth97={stealth_deepen_wave97_ok} detector97={detector_deepen_wave97_ok} vision97={vision_wave97_ok} dock98={dock_wave98_ok} contain98={contain_wave98_ok} exit98={exit_wave98_ok} heal98={heal_wave98_ok} production99={production_deepen_wave99_ok} buildable99={buildable_wave99_ok} prereq99={prerequisite_wave99_ok} cmdbtn99={command_button_deepen_wave99_ok} controlbar99={control_bar_deepen_wave99_ok} thing_factory100={thing_factory_deepen_wave100_ok} module_type100={module_type_wave100_ok} xfer100={xfer_deepen_wave100_ok} tf_crosslink100={thing_factory_crosslink_wave100_ok} module_factory101={module_factory_deepen_wave101_ok} thing_factory101={thing_factory_create_wave101_ok} partition_register101={partition_register_wave101_ok} mf_crosslink101={mf_crosslink_wave101_ok} display102={display_string_deepen_wave102_ok} anim2d102={anim2d_deepen_wave102_ok} laser102={laser_segliner_deepen_wave102_ok} csf102={csf_multi_locale_deepen_wave102_ok} pres102={presentation_deepen_wave102_ok} weapon103={weapon_deepen_wave103_ok} armor103={armor_expand_wave103_ok} loco103={locomotor_expand_wave103_ok} sp103={special_power_deepen_wave103_ok} kindof103={object_kindof_wave103_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -2106,6 +2198,76 @@ mod tests {
         assert!(
             r.thing_factory_crosslink_wave100_ok,
             "thing factory spawn crosslink residual pack wave100: {}",
+            r.detail
+        );
+        assert!(
+            r.module_factory_deepen_wave101_ok,
+            "module factory residual deepen pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.thing_factory_create_wave101_ok,
+            "thing factory create residual deepen pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.partition_register_wave101_ok,
+            "partition register residual pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.mf_crosslink_wave101_ok,
+            "thing factory module partition crosslink residual pack wave101: {}",
+            r.detail
+        );
+        assert!(
+            r.display_string_deepen_wave102_ok,
+            "display string residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.anim2d_deepen_wave102_ok,
+            "anim2d residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.laser_segliner_deepen_wave102_ok,
+            "laser segliner residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.csf_multi_locale_deepen_wave102_ok,
+            "csf multi-locale residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.presentation_deepen_wave102_ok,
+            "presentation residual deepen pack wave102: {}",
+            r.detail
+        );
+        assert!(
+            r.weapon_deepen_wave103_ok,
+            "weapon residual deepen pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.armor_expand_wave103_ok,
+            "armor residual expand pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.locomotor_expand_wave103_ok,
+            "locomotor residual expand pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_deepen_wave103_ok,
+            "special power superweapon residual deepen pack wave103: {}",
+            r.detail
+        );
+        assert!(
+            r.object_kindof_wave103_ok,
+            "object kindof residual pack wave103: {}",
             r.detail
         );
         assert!(
