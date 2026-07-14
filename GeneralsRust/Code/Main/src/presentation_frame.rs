@@ -1588,6 +1588,8 @@ pub struct PresentationFrame {
     pub radar_ui_enabled: bool,
     /// Script radar forced residual.
     pub radar_forced: bool,
+    /// Mission objectives residual (ObjectiveDisplay clone).
+    pub objectives: Vec<crate::ui::objectives::ObjectiveDisplay>,
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     pub fow_shell_bypass: bool,
@@ -2067,6 +2069,7 @@ impl PresentationFrame {
                 logic.radar_forced() || (logic.radar_script_enabled() && local_has_radar)
             },
             radar_forced: logic.radar_forced(),
+            objectives: logic.mission_objectives().to_vec(),
             fow_shell_bypass,
             fow_grid,
             particle_systems,
@@ -3050,6 +3053,7 @@ impl PresentationFrame {
         }
         ui.radar_enabled = self.radar_ui_enabled;
         ui.radar_forced = self.radar_forced;
+        ui.objectives = self.objectives.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         ui.new_beacons = self.new_beacons.clone();
         if !self.beacons.is_empty() {
@@ -4695,6 +4699,55 @@ mod tests {
             "expected ProductionComplete: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn presentation_feeds_mission_objectives() {
+        use crate::game_logic::{Player, Team};
+        use crate::ui::objectives::{ObjectiveCategory, ObjectiveDisplay, ObjectiveStatus};
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "ObjP", true));
+        logic.upsert_mission_objective(ObjectiveDisplay {
+            id: Some("OBJ_HOLD".into()),
+            title: "Hold the ridge".into(),
+            description: "Defend until reinforcements arrive.".into(),
+            status: ObjectiveStatus::Active,
+            progress: Some((1, 3)),
+            category: ObjectiveCategory::Primary,
+        });
+        logic.upsert_mission_objective(ObjectiveDisplay {
+            id: Some("OBJ_SCOUT".into()),
+            title: "Scout the pass".into(),
+            description: "Reveal the northern FOW.".into(),
+            status: ObjectiveStatus::Completed,
+            progress: None,
+            category: ObjectiveCategory::Secondary,
+        });
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame
+                .objectives
+                .iter()
+                .any(|o| o.title.contains("Hold the ridge") && o.status == ObjectiveStatus::Active),
+            "objectives: {:?}",
+            frame.objectives
+        );
+        assert!(frame
+            .objectives
+            .iter()
+            .any(|o| o.id.as_deref() == Some("OBJ_SCOUT")));
+
+        let mut ui = crate::ui::GameUIState::default();
+        frame.apply_to_ui_state(&mut ui);
+        assert_eq!(ui.objectives.len(), frame.objectives.len());
+        assert!(ui
+            .objectives
+            .iter()
+            .any(|o| o.title.contains("Hold the ridge")));
+        assert!(ui.objectives.iter().any(|o| {
+            o.id.as_deref() == Some("OBJ_SCOUT") && o.status == ObjectiveStatus::Completed
+        }));
     }
 
     #[test]
