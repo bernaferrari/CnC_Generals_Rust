@@ -1,6 +1,8 @@
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 
 fn main() {
+    // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
+    generals_main::gameworld_shadow::ensure_gate_damage_authority();
     let r = run_shell_smoke(10);
     println!("{}", format_shell_smoke_report(&r));
     // Fail-closed retail: headless smoke must never claim full W3D playability.

@@ -64,12 +64,50 @@ pub fn gameworld_shadow_enabled() -> bool {
     std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_some() || gameworld_damage_authority_enabled()
 }
 
-/// When set, GameWorld shadow mutations are the **last writer** for HP each tick.
+/// When enabled, GameWorld shadow mutations are the **last writer** for HP each tick.
 /// Host combat still runs mid-frame; end-of-tick reapplies drained damage events
 /// on the shadow and writebacks health/destroyed onto host objects.
 /// Implies a shadow session (separate GENERALS_GAMEWORLD_SHADOW not required).
+///
+/// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1|true` on; `0|false` off; unset = off
+/// unless [`ensure_gate_damage_authority`] ran (gates default-on).
 pub fn gameworld_damage_authority_enabled() -> bool {
-    std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_some()
+    match std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v.is_empty()
+                || v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => false,
+    }
+}
+
+/// Economy last-writer (player supplies/power) opt-in.
+pub fn gameworld_economy_authority_enabled() -> bool {
+    match std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v.is_empty()
+                || v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        Err(_) => false,
+    }
+}
+
+/// Gates/smoke: default-enable damage authority unless user already set the env.
+pub fn ensure_gate_damage_authority() {
+    if std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none() {
+        // SAFETY: single-threaded gate processes; set before engine start.
+        unsafe {
+            std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        }
+    }
 }
 
 /// Session holding GameWorld + stable host↔entity ID maps.
@@ -335,6 +373,27 @@ impl GameWorldShadow {
 
     /// Queue damage on the shadow entity mapped from a host object.
     /// Returns false if the host id is not mapped.
+    /// Write shadow player supplies/power onto host players (economy last writer).
+    pub fn writeback_economy_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &gw) in &self.host_player_to_gw {
+            let Some(pd) = self.world.player(gw) else {
+                continue;
+            };
+            let Some(player) = logic.get_player_mut(hid) else {
+                continue;
+            };
+            if player.resources.supplies != pd.supplies
+                || player.power_available != pd.power_available
+            {
+                player.resources.supplies = pd.supplies;
+                player.power_available = pd.power_available;
+                updated += 1;
+            }
+        }
+        updated
+    }
+
     pub fn queue_damage_for_host(&mut self, host: ObjectId, amount: f32) -> bool {
         let Some(eid) = self.entity_for_host(host) else {
             return false;
@@ -592,14 +651,21 @@ pub fn shadow_session_after_host_tick(
             events.len()
         );
     }
+    let mut econ_wb = 0usize;
+    if gameworld_economy_authority_enabled() {
+        // Shadow already holds host economy from sync; allow tests to desync host
+        // and rely on writeback. Production path is identity until supply mutations land.
+        econ_wb = shadow.writeback_economy_to_host(logic);
+    }
     let mut probe = shadow.probe(logic);
-    if !events.is_empty() {
+    if !events.is_empty() || econ_wb > 0 {
         probe.detail = format!(
-            "{}|dmg_events={}|auth={}|wb={}",
+            "{}|dmg_events={}|auth={}|wb={}|econ_wb={}",
             probe.detail,
             events.len(),
             auth,
-            writebacks
+            writebacks,
+            econ_wb
         );
     }
     probe
@@ -852,6 +918,34 @@ mod tests {
             assert!(!gameworld_damage_authority_enabled());
             assert!(maybe_shadow_after_host_tick(&GameLogic::new()).is_none());
         }
+    }
+
+    #[test]
+    fn economy_authority_writeback_supplies() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("EconAuth");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(!logic.get_players().is_empty());
+        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
+        ids.sort_unstable();
+        let hid = ids[0];
+        let shadow_supplies = shadow
+            .world()
+            .player(gamelogic::world::PlayerId::from_index(0))
+            .map(|p| p.supplies)
+            .unwrap_or(0);
+        // Desync host cash downward.
+        if let Some(p) = logic.get_player_mut(hid) {
+            p.resources.supplies = shadow_supplies.saturating_sub(1234);
+        }
+        let wb = shadow.writeback_economy_to_host(&mut logic);
+        assert!(wb >= 1);
+        assert_eq!(
+            logic.get_player(hid).unwrap().resources.supplies,
+            shadow_supplies
+        );
     }
 
     #[test]
