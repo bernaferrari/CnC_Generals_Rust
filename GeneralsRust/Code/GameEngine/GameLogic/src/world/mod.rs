@@ -17,6 +17,11 @@ impl PlayerId {
     /// Neutral/observer slot.
     pub const NEUTRAL: PlayerId = PlayerId(0);
 
+    /// Construct from a dense slot index (shadow/mirror helpers).
+    pub fn from_index(idx: u8) -> Self {
+        PlayerId(idx)
+    }
+
     /// Raw numeric value.
     pub fn get(self) -> u8 {
         self.0
@@ -204,7 +209,7 @@ impl World {
     }
 
     /// Mark the simulation as having advanced to the next frame.
-    pub(crate) fn advance(&mut self, frame: u32) {
+    pub fn advance(&mut self, frame: u32) {
         self.frame = frame as u64;
     }
 
@@ -394,6 +399,22 @@ impl GameWorld {
 
     pub fn frame(&self) -> u64 {
         self.inner.snapshot().frame
+    }
+
+    /// Set the world frame counter (no entity simulation).
+    /// Used by shadow/mirror probes and deterministic test harnesses.
+    pub fn set_frame(&mut self, frame: u64) {
+        let clamped = frame.min(u32::MAX as u64) as u32;
+        self.inner.advance(clamped);
+    }
+
+    /// Advance the world frame counter by `frames` (no entity simulation).
+    pub fn advance_frames(&mut self, frames: u64) {
+        if frames == 0 {
+            return;
+        }
+        let next = self.frame().saturating_add(frames);
+        self.set_frame(next);
     }
 
     pub fn entity(&self, id: EntityId) -> Option<&entities::Entity> {

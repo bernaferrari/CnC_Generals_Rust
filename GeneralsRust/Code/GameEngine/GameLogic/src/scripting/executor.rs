@@ -2795,10 +2795,9 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Enabling script '{}'", script_name);
-        let found = with_script_engine_mut(|engine| {
-            engine.set_script_active_by_name(&script_name, true)
-        })
-        .unwrap_or(false);
+        let found =
+            with_script_engine_mut(|engine| engine.set_script_active_by_name(&script_name, true))
+                .unwrap_or(false);
         if !found {
             log::warn!("ENABLE_SCRIPT: script '{}' not found", script_name);
         }
@@ -2811,10 +2810,9 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Disabling script '{}'", script_name);
-        let found = with_script_engine_mut(|engine| {
-            engine.set_script_active_by_name(&script_name, false)
-        })
-        .unwrap_or(false);
+        let found =
+            with_script_engine_mut(|engine| engine.set_script_active_by_name(&script_name, false))
+                .unwrap_or(false);
         if !found {
             log::warn!("DISABLE_SCRIPT: script '{}' not found", script_name);
         }
