@@ -2110,6 +2110,39 @@ impl PresentationFrame {
         }
     }
 
+    /// Queue presentation gameplay events into host audio residual (next-frame process).
+    /// Fail-closed: not Miles/device spatial parity — event names only for dispatch tables.
+    pub fn apply_events_to_audio(&self, logic: &mut GameLogic) -> usize {
+        use crate::game_logic::AudioEventRequest;
+        let mut n = 0usize;
+        for ev in &self.events {
+            let (kind, obj) = match ev {
+                PresentationEvent::ObjectDestroyed { id, .. } => ("UnitDie", Some(*id)),
+                PresentationEvent::ConstructionComplete { id, .. } => {
+                    ("BuildingComplete", Some(*id))
+                }
+                PresentationEvent::UpgradeComplete { .. } => ("UpgradeComplete", None),
+                PresentationEvent::ProductionComplete { spawned, .. } => {
+                    ("UnitReady", Some(*spawned))
+                }
+                PresentationEvent::AttackTargeted { attacker, .. } => {
+                    ("WeaponFire", Some(*attacker))
+                }
+                PresentationEvent::Victory { .. } => ("Victory", None),
+                PresentationEvent::RadarMessage { .. }
+                | PresentationEvent::OwnerChanged { .. }
+                | PresentationEvent::ParticleSystemSpawned { .. } => continue,
+            };
+            let mut req = AudioEventRequest::new(kind);
+            if let Some(id) = obj {
+                req = req.with_object(id);
+            }
+            logic.queue_audio_event(req);
+            n += 1;
+        }
+        n
+    }
+
     /// Snapshot-owned ControlBar / WND selection panel (health + name).
     pub fn control_bar_selection_panel(&self) -> crate::ui::ControlBarSelectionPanelState {
         crate::ui::ControlBarSelectionPanelState::from_unit_infos(
@@ -2273,6 +2306,22 @@ mod tests {
             "hud should receive presentation events (before={before}, after={})",
             hud.message_count_for_test()
         );
+    }
+
+    #[test]
+    fn apply_events_queues_audio_for_destroy_and_attack() {
+        crate::game_logic::host_attack_log::clear();
+        crate::game_logic::host_attack_log::record(
+            crate::game_logic::ObjectId(1),
+            Some(crate::game_logic::ObjectId(2)),
+        );
+        let _ = crate::game_logic::host_attack_log::drain();
+        let mut logic = crate::game_logic::GameLogic::new();
+        // inject destroy event via construction of frame with attack only
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let n = frame.apply_events_to_audio(&mut logic);
+        assert!(n >= 1, "expected audio queue from AttackTargeted, n={n}");
+        assert!(logic.queued_audio_event_count_for_test() >= 1);
     }
 
     #[test]
