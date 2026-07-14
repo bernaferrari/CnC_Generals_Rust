@@ -1,3 +1,62 @@
+## Residual Host Playability — Wave 94: AI state / special ability / upgrade names / CommandSet superweapon residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; command/AI/ability/upgrade residual):**
+1. **AI state residual tables** (`host_ai_ability_upgrade_residual`, AIStateMachine.h):
+   - `AIStateType` residual **44** names AI_IDLE **0** .. AI_GUARD_RETALIATE **43** (`NUM_AI_STATES` **44**).
+   - Host `AIState` → C++ `AI_*` residual bridge (Moving→MOVE_TO, Attacking→ATTACK_OBJECT,
+     AttackMoving→ATTACK_MOVE_TO, Guarding*→GUARD, SpecialAbility/Capturing→BUSY, …).
+   - Honesty: `honesty_ai_state_residual_table_wave94`.
+2. **Special ability residual deepen** (SpecialPower.ini + Object SpecialAbilityUpdate):
+   - **27** SpecialAbility* template residual rows (core 20 + Demo/Nuke/Lazr variants).
+   - ReloadTime residual anchors: TankHunter/BoobyTrap **7500**, infantry capture **15000**,
+     Hacker **500**, Microwave **4000**, Lotus steal **2000**, Helix napalm **10000**,
+     Demo rebel timed **30000**, BattleBus rollout **7500**.
+   - ms→frames residual `*0.03` (7500→**225**, 15000→**450**).
+   - SpecialAbilityUpdate samples: Lotus capture/disable/steal, TNT MaxSpecialObjects **8**,
+     Missile Defender range **200**/prep **1000**, Ranger capture prep **20000**,
+     Hacker range **150**/unpack **7300**/prep **3000**.
+   - Honesty: `honesty_special_ability_residual_deepen_wave94`.
+3. **Upgrade residual full name table** (Upgrade.ini):
+   - **81** unique Upgrade.ini internal names (duplicate SupW PointDefenseDrone collapsed).
+   - Anchors: SupplyLines / FlashBang / TOW / Capture / CompositeArmor / NuclearTanks /
+     Camouflage / CamoNetting / AnthraxGamma / SuicideBomb / Overlord addons / HelixNapalm /
+     RocketBuggyToxinUpgrade / general prefixes Chem_/Demo_/Nuke_/AirF_/SupW_/Tank_.
+   - Honesty: `honesty_upgrade_name_table_residual_wave94`.
+4. **CommandSet residual for superweapon buildings** (CommandSet.ini + Wave 80 kindof cross-link):
+   - ParticleUplink: slot1 FireParticleUplinkCannon + Sell.
+   - ScudStorm: slot1 ScudStorm + Sell.
+   - NuclearMissile: NeutronMissile + Uranium/NuclearTanks/NeutronShells/Mines + Sell.
+   - Command centers: USA Daisy/A10/Spectre/Paradrop; China Arty/EMP/Cluster/Frenzy;
+     GLA Anthrax/Sneak/Ambush/GPS; Strategy Center battle plans + MOAB/CIA.
+   - Honesty: `honesty_command_set_superweapon_residual_wave94`.
+
+**Wiring:**
+- `game_logic/host_ai_ability_upgrade_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — ai_state94/special_ability94/upgrade_names94/command_set94 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave94 honesty flags; playable_claim stays false
+- Combined pack: `honesty_ai_ability_upgrade_residual_pack_wave94`
+- Co-ships concurrent Wave 95 script/map/team/player residual module + shell wiring for green gates
+
+**Gates:**
+- Unit: 5 wave94 honesty tests PASS (+ wave95 residual module tests PASS)
+- golden_skirmish_gate --frames 8 → PASS playable_claim=true
+- shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+  ai_state94=true special_ability94=true upgrade_names94=true command_set94=true
+  (plus concurrent wave95 script/map/waypoint/team/player)
+
+**Not claimed:**
+- Full AIStateMachine exclusive enter/exit / path residual
+- Full SpecialAbilityUpdate flee-after / MaxSpecialObjects exclusive matrix
+- Full UpgradeCenter NameKey purchase / multipleyer upgrade replication
+- Full ControlBar CommandSet slot UI matrix / WND cameo residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 95: script action/condition name tables / map object / waypoint / team / player residual deepen (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal script/map/team/player residual):**
