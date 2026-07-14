@@ -6263,6 +6263,10 @@ impl CnCGameEngine {
                     log::trace!("presentation overlay from GameWorld shadow: {n} objects");
                 }
             }
+            let audio_n = pres.apply_events_to_audio(&mut self.game_logic);
+            if audio_n > 0 {
+                log::trace!("presentation audio events queued: {audio_n}");
+            }
             self.last_presentation_frame = Some(pres);
 
             #[cfg(feature = "game_client")]

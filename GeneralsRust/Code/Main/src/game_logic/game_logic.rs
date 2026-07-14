@@ -33497,6 +33497,11 @@ impl GameLogic {
 
     /// Queue an audio event to be processed by the audio system
     /// Mirrors C++ TheAudio->addAudioEvent() pattern
+    /// Test/honesty: pending audio events not yet process_audio_events drained.
+    pub fn queued_audio_event_count_for_test(&self) -> usize {
+        self.queued_audio_events.len()
+    }
+
     pub fn queue_audio_event(&mut self, event: AudioEventRequest) {
         self.queued_audio_events.push(event);
     }
