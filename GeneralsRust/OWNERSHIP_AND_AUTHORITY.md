@@ -66,7 +66,7 @@ OS input → normalized commands → Main GameLogic (30 Hz host sim)
 
 ## Still Main mid-frame (not sole GameWorld)
 
-Host still executes AI decision, pathfinding step, and combat resolution mid-frame. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations and presentation overlay — not yet the sole simulation owner.
+Host still executes AI decision, pathfinding step, and combat resolution mid-frame. AI `launch_attack` now prefers `set_target` (host_attack_log) plus move so the shadow attack channel sees AI aggression. GameWorld shadow is last-writer for HP/cash/pose/targets/move destinations and presentation overlay — not yet the sole simulation owner.
 
 ## Gates (honest reading)
 
