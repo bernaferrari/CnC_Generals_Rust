@@ -2054,6 +2054,42 @@ impl PresentationFrame {
             ids = infos.iter().map(|i| i.object_id).collect();
         }
         hud.sync_selection_from_presentation(ids, infos);
+        self.apply_events_to_game_hud(hud);
+    }
+
+    /// Route frozen gameplay events into HUD message / radar channels.
+    /// Fail-closed: text residual only — not full EVA voice / WND dialog parity.
+    pub fn apply_events_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        for ev in &self.events {
+            match ev {
+                PresentationEvent::RadarMessage { text, .. } => {
+                    hud.push_radar_message(text);
+                }
+                PresentationEvent::ConstructionComplete { template, .. } => {
+                    hud.push_info_message(&format!("Construction complete: {template}"));
+                }
+                PresentationEvent::UpgradeComplete { name, .. } => {
+                    hud.push_info_message(&format!("Upgrade complete: {name}"));
+                }
+                PresentationEvent::ProductionComplete { template, .. } => {
+                    hud.push_info_message(&format!("Unit ready: {template}"));
+                }
+                PresentationEvent::OwnerChanged { id, team } => {
+                    hud.push_info_message(&format!("Ownership changed: #{} -> {:?}", id.0, team));
+                }
+                PresentationEvent::ObjectDestroyed { id, .. } => {
+                    hud.push_info_message(&format!("Destroyed: #{}", id.0));
+                }
+                PresentationEvent::Victory { winner_player } => {
+                    let msg = match winner_player {
+                        Some(p) => format!("Victory: player {p}"),
+                        None => "Victory".to_string(),
+                    };
+                    hud.push_info_message(&msg);
+                }
+                PresentationEvent::ParticleSystemSpawned { .. } => {}
+            }
+        }
     }
 
     /// Snapshot-owned ControlBar / WND selection panel (health + name).
@@ -2195,6 +2231,29 @@ mod tests {
             }),
             "expected UpgradeComplete: {:?}",
             frame.events
+        );
+    }
+
+    #[test]
+    fn apply_events_routes_upgrade_and_owner_to_hud() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let _ = logic
+            .host_upgrades_mut()
+            .record_complete("CaptureBuilding", 0, 1, 1);
+        crate::game_logic::host_owner_log::clear();
+        crate::game_logic::host_owner_log::record(
+            crate::game_logic::ObjectId(3),
+            crate::game_logic::Team::GLA,
+        );
+        let _ = crate::game_logic::host_owner_log::drain();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut hud = crate::ui::GameHUD::new();
+        let before = hud.message_count_for_test();
+        frame.apply_events_to_game_hud(&mut hud);
+        assert!(
+            hud.message_count_for_test() > before,
+            "hud should receive presentation events (before={before}, after={})",
+            hud.message_count_for_test()
         );
     }
 
