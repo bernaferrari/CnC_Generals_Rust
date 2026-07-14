@@ -2205,6 +2205,40 @@ impl PresentationFrame {
     ///
     /// Prefer non-structures when any unit is in the box (C++ InGameUI drag residual).
     /// If only structures are hit, keep a single structure when exactly one is present.
+    /// Filter stored ids to alive selectable friendlies (control-group recall residual).
+    pub fn filter_alive_selectable_ids(
+        &self,
+        ids: &[ObjectId],
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut out = Vec::new();
+        for id in ids {
+            if let Some(o) = self.objects.iter().find(|o| o.id == *id) {
+                if o.team == player_team && UnitControlSystem::presentation_is_selectable(o) {
+                    out.push(*id);
+                }
+            }
+        }
+        out
+    }
+
+    /// All alive selectable friendlies (Ctrl+A / Tab cycle residual).
+    pub fn alive_selectable_friendly_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+    ) -> Vec<ObjectId> {
+        use crate::unit_control::UnitControlSystem;
+        let mut ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|o| o.team == player_team && UnitControlSystem::presentation_is_selectable(o))
+            .map(|o| o.id)
+            .collect();
+        ids.sort_by_key(|id| id.0);
+        ids
+    }
+
     pub fn box_select_unit_ids(
         &self,
         player_team: crate::game_logic::Team,
@@ -3078,6 +3112,45 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn hotkey_selection_helpers_from_presentation() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Ranger".into(), t);
+        let a = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let enemy = logic
+            .create_object("Ranger", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        // Destroy b on host after snapshot? Filter uses snapshot destroyed flag.
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let all = frame.alive_selectable_friendly_ids(Team::USA);
+        assert_eq!(all, {
+            let mut v = vec![a, b];
+            v.sort_by_key(|id| id.0);
+            v
+        });
+        let filtered =
+            frame.filter_alive_selectable_ids(&[a, b, enemy, ObjectId(99999)], Team::USA);
+        assert!(filtered.contains(&a) && filtered.contains(&b));
+        assert!(!filtered.contains(&enemy));
+        // Mark destroyed in a rebuilt frame.
+        if let Some(o) = logic.get_object_mut(b) {
+            o.status.destroyed = true;
+        }
+        let frame2 = PresentationFrame::build_from_logic(&logic, 0);
+        let filtered2 = frame2.filter_alive_selectable_ids(&[a, b], Team::USA);
+        assert_eq!(filtered2, vec![a]);
     }
 
     #[test]
