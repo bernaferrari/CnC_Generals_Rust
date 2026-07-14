@@ -79,6 +79,50 @@ impl PresentationObjectType {
     }
 }
 
+/// Snapshot-owned structure kind residual (host BuildingType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationBuildingType {
+    CommandCenter,
+    Barracks,
+    WarFactory,
+    Airfield,
+    RepairPad,
+    HealPad,
+    SupplyCenter,
+    PowerPlant,
+    DefenseTurret,
+    SupplyDropZone,
+    Palace,
+    Propaganda,
+    Bunker,
+}
+
+impl PresentationBuildingType {
+    pub fn from_host(t: crate::game_logic::BuildingType) -> Self {
+        use crate::game_logic::BuildingType as B;
+        match t {
+            B::CommandCenter => Self::CommandCenter,
+            B::Barracks => Self::Barracks,
+            B::WarFactory => Self::WarFactory,
+            B::Airfield => Self::Airfield,
+            B::RepairPad => Self::RepairPad,
+            B::HealPad => Self::HealPad,
+            B::SupplyCenter => Self::SupplyCenter,
+            B::PowerPlant => Self::PowerPlant,
+            B::DefenseTurret => Self::DefenseTurret,
+            B::SupplyDropZone => Self::SupplyDropZone,
+            B::Palace => Self::Palace,
+            B::Propaganda => Self::Propaganda,
+            B::Bunker => Self::Bunker,
+        }
+    }
+
+    /// Factory / barracks / airfield residual for unit production UI.
+    pub fn is_unit_producer(self) -> bool {
+        matches!(self, Self::Barracks | Self::WarFactory | Self::Airfield)
+    }
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -177,6 +221,8 @@ pub struct RenderableObject {
     pub is_mobile: bool,
     /// Structure can enqueue production (host building_data present + constructed).
     pub can_produce: bool,
+    /// Host BuildingType residual when structure has building_data.
+    pub building_type: Option<PresentationBuildingType>,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
     /// mesh pass does not re-read live ThingTemplate during GPU collect.
     pub model_key: Option<String>,
@@ -1711,6 +1757,10 @@ impl PresentationFrame {
                     && obj.construction_percent >= 1.0
                     && !obj.status.destroyed
                     && obj.is_alive(),
+                building_type: obj
+                    .building_data
+                    .as_ref()
+                    .map(|b| PresentationBuildingType::from_host(b.building_type)),
                 model_key,
                 mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
@@ -2243,10 +2293,37 @@ impl PresentationFrame {
         &self,
         player_team: crate::game_logic::Team,
     ) -> Option<ObjectId> {
+        // Prefer barracks/warfactory/airfield; fall back to any can_produce structure.
         self.objects
             .iter()
-            .find(|o| o.team == player_team && !o.destroyed && o.can_produce)
+            .find(|o| {
+                o.team == player_team
+                    && !o.destroyed
+                    && o.can_produce
+                    && o.building_type
+                        .map(PresentationBuildingType::is_unit_producer)
+                        .unwrap_or(false)
+            })
+            .or_else(|| {
+                self.objects
+                    .iter()
+                    .find(|o| o.team == player_team && !o.destroyed && o.can_produce)
+            })
             .map(|o| o.id)
+    }
+
+    /// Structures that can produce units (ControlBar factory residual feed).
+    pub fn unit_producer_structures(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.can_produce
+                    && o.building_type
+                        .map(PresentationBuildingType::is_unit_producer)
+                        .unwrap_or(false)
+            })
+            .collect()
     }
 
     /// Runtime-host residual: first alive enemy attackable.
@@ -3201,6 +3278,54 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn building_type_freeze_from_host() {
+        use crate::game_logic::{
+            buildings::{BuildingData, BuildingType},
+            KindOf, Team, ThingTemplate,
+        };
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut tb = ThingTemplate::new("WarFact");
+        tb.set_health(1000.0);
+        tb.add_kind_of(KindOf::Structure);
+        logic.templates.insert("WarFact".into(), tb);
+        let mut tc = ThingTemplate::new("CC");
+        tc.set_health(2000.0);
+        tc.add_kind_of(KindOf::Structure);
+        logic.templates.insert("CC".into(), tc);
+        let wf = logic
+            .create_object("WarFact", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let cc = logic
+            .create_object("CC", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.get_object_mut(wf) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        }
+        if let Some(o) = logic.get_object_mut(cc) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.building_data = Some(BuildingData::new(BuildingType::CommandCenter));
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let w = frame.objects.iter().find(|o| o.id == wf).unwrap();
+        assert_eq!(w.building_type, Some(PresentationBuildingType::WarFactory));
+        assert!(w.can_produce);
+        assert!(w.building_type.unwrap().is_unit_producer());
+        let c = frame.objects.iter().find(|o| o.id == cc).unwrap();
+        assert_eq!(
+            c.building_type,
+            Some(PresentationBuildingType::CommandCenter)
+        );
+        assert!(c.can_produce);
+        assert!(!c.building_type.unwrap().is_unit_producer());
+        // Prefer war factory over command center for unit production residual.
+        assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(wf));
+        assert_eq!(frame.unit_producer_structures().len(), 1);
     }
 
     #[test]
