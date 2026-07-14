@@ -93,6 +93,36 @@ pub struct RenderableObject {
     pub veterancy: PresentationVeterancy,
     /// Experience points residual (display / debug).
     pub experience_points: f32,
+    /// Host ObjectStatus::moving residual.
+    pub moving: bool,
+    /// Host ObjectStatus::attacking residual.
+    pub attacking: bool,
+    /// C++ OBJECT_STATUS_STEALTHED residual.
+    pub stealthed: bool,
+    /// C++ OBJECT_STATUS_DETECTED residual.
+    pub detected: bool,
+    /// Stealthed && !detected && !disguised (not a legal auto-target).
+    pub effectively_stealthed: bool,
+    /// Any host disable residual that blocks acting.
+    pub disabled: bool,
+    /// Container residual when this unit is inside another object.
+    pub contained_by: Option<ObjectId>,
+    /// Force-attack order residual.
+    pub force_attack: bool,
+    /// Primary weapon present residual.
+    pub has_weapon: bool,
+    /// Primary weapon range residual (0 when unarmed).
+    pub weapon_range: f32,
+    /// Primary weapon damage residual (0 when unarmed).
+    pub weapon_damage: f32,
+    /// CamoNetting StealthLook ordinal residual (0..5).
+    pub camo_stealth_look: u8,
+    /// Bomb-truck disguise template residual.
+    pub disguise_as_template: Option<String>,
+    /// Apparent team while disguised.
+    pub disguise_as_team: Option<Team>,
+    /// Stealth detector range residual (0 = none).
+    pub detection_range: f32,
     pub is_structure: bool,
     pub is_unit: bool,
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
@@ -1523,6 +1553,21 @@ impl PresentationFrame {
                 construction_percent: obj.construction_percent.clamp(0.0, 1.0),
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
                 experience_points: obj.experience.current.max(0.0),
+                moving: obj.status.moving,
+                attacking: obj.status.attacking,
+                stealthed: obj.status.stealthed,
+                detected: obj.status.detected,
+                effectively_stealthed: obj.is_effectively_stealthed(),
+                disabled: obj.is_disabled(),
+                contained_by: obj.contained_by,
+                force_attack: obj.force_attack,
+                has_weapon: obj.weapon.is_some(),
+                weapon_range: obj.weapon.as_ref().map(|w| w.range).unwrap_or(0.0),
+                weapon_damage: obj.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0),
+                camo_stealth_look: obj.camo_stealth_look,
+                disguise_as_template: obj.disguise_as_template.clone(),
+                disguise_as_team: obj.disguise_as_team,
+                detection_range: obj.detection_range.max(0.0),
                 is_structure,
                 is_unit,
                 model_key,
@@ -1868,6 +1913,30 @@ impl PresentationFrame {
             .filter(|o| {
                 !o.destroyed && o.is_unit && !matches!(o.veterancy, PresentationVeterancy::Rookie)
             })
+            .collect()
+    }
+
+    /// Units currently attacking (status residual).
+    pub fn attacking_units(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.attacking)
+            .collect()
+    }
+
+    /// Effectively stealthed units (hidden from non-allied targeting residual).
+    pub fn effectively_stealthed_units(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.effectively_stealthed)
+            .collect()
+    }
+
+    /// Contained (garrisoned/transported) units residual.
+    pub fn contained_units(&self) -> Vec<&RenderableObject> {
+        self.objects
+            .iter()
+            .filter(|o| !o.destroyed && o.contained_by.is_some())
             .collect()
     }
 
@@ -2674,6 +2743,79 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn weapon_and_stealth_freeze_from_host() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("StealthScout");
+        t.set_health(60.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("StealthScout".into(), t);
+        let mut tb = ThingTemplate::new("Bunker");
+        tb.set_health(300.0);
+        tb.add_kind_of(KindOf::Structure);
+        logic.templates.insert("Bunker".into(), tb);
+        let uid = logic
+            .create_object("StealthScout", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+            .expect("u");
+        let bid = logic
+            .create_object("Bunker", Team::USA, glam::Vec3::new(8.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+            obj.weapon = Some(Weapon {
+                damage: 12.0,
+                range: 150.0,
+                min_range: 0.0,
+                reload_time: 1.0,
+                last_fire_time: 0.0,
+                ammo: None,
+                can_target_air: false,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            obj.status.stealthed = true;
+            obj.status.detected = false;
+            obj.status.attacking = true;
+            obj.status.moving = false;
+            obj.force_attack = true;
+            obj.contained_by = Some(bid);
+            obj.camo_stealth_look = 5;
+            obj.detection_range = 300.0;
+            obj.disguise_as_template = Some("ChinaTroopCrawler".into());
+            obj.disguise_as_team = Some(Team::China);
+            // Disguised clears effectively_stealthed
+            obj.status.disguised = true;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let u = frame.objects.iter().find(|o| o.id == uid).expect("u");
+        assert!(u.has_weapon);
+        assert!((u.weapon_range - 150.0).abs() < 0.01);
+        assert!((u.weapon_damage - 12.0).abs() < 0.01);
+        assert!(u.stealthed);
+        assert!(!u.detected);
+        // disguised => not effectively stealthed
+        assert!(!u.effectively_stealthed);
+        assert!(u.attacking);
+        assert!(u.force_attack);
+        assert_eq!(u.contained_by, Some(bid));
+        assert_eq!(u.camo_stealth_look, 5);
+        assert!((u.detection_range - 300.0).abs() < 0.01);
+        assert_eq!(u.disguise_as_template.as_deref(), Some("ChinaTroopCrawler"));
+        assert_eq!(u.disguise_as_team, Some(Team::China));
+        assert_eq!(frame.attacking_units().len(), 1);
+        assert_eq!(frame.contained_units().len(), 1);
+        // pure stealth unit without disguise
+        if let Some(obj) = logic.get_objects_mut().get_mut(&uid) {
+            obj.status.disguised = false;
+            obj.disguise_as_template = None;
+            obj.disguise_as_team = None;
+        }
+        let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+        let u2 = frame2.objects.iter().find(|o| o.id == uid).expect("u2");
+        assert!(u2.effectively_stealthed);
+        assert_eq!(frame2.effectively_stealthed_units().len(), 1);
     }
 
     #[test]
