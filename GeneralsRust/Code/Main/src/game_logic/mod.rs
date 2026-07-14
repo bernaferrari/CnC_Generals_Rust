@@ -76,6 +76,8 @@ pub mod host_ai_ability_upgrade_residual;
 pub mod host_script_map_team_player_residual;
 pub mod host_radar_stealth_vision_residual;
 pub mod host_partition_collision_physics_residual;
+pub mod host_dock_contain_exit_heal_residual;
+pub mod host_production_buildable_command_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -304,6 +306,17 @@ pub use host_partition_collision_physics_residual::{
     honesty_collision_residual_pack_wave96, honesty_partition_residual_pack_wave96,
     honesty_partition_collision_physics_residual_pack_wave96,
     honesty_physics_residual_pack_wave96, honesty_projectile_residual_deepen_pack_wave96,
+};
+pub use host_dock_contain_exit_heal_residual::{
+    honesty_contain_residual_deepen_pack_wave98, honesty_dock_contain_exit_heal_residual_pack_wave98,
+    honesty_dock_residual_pack_wave98, honesty_exit_residual_pack_wave98,
+    honesty_heal_residual_deepen_pack_wave98,
+};
+pub use host_production_buildable_command_residual::{
+    honesty_buildable_residual_pack_wave99, honesty_command_button_residual_deepen_pack_wave99,
+    honesty_control_bar_residual_deepen_pack_wave99, honesty_prerequisite_residual_pack_wave99,
+    honesty_production_buildable_command_residual_pack_wave99,
+    honesty_production_residual_deepen_pack_wave99,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{

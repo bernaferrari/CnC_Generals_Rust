@@ -1,3 +1,139 @@
+## Residual Host Playability — Wave 98: dock residual peels / contain residual deepen / exit residual peels / heal residual deepen (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal dock/contain/exit/heal residual):**
+1. **Dock residual peels** (`host_dock_contain_exit_heal_residual`, beyond Wave 52 repair / Wave 83 supply dock):
+   - `DEFAULT_APPROACH_VECTOR_SIZE` **10**; `DYNAMIC_APPROACH_VECTOR_FLAG` **-1**.
+   - DockUpdateModuleData defaults: NumberApproachPositions **0**, AllowsPassthrough **Yes**.
+   - DockUpdate ctor residual: dockOpen **Yes**, dockerInside/crippled/positionsLoaded **No**, approachBones **-1**.
+   - AI_DOCK state residual **8** names APPROACH **0** .. MOVE_TO_RALLY **7**.
+   - WaitForClearance timeout residual **30×LOGICFRAMES** = **900**f.
+   - RepairDock: default framesForFullHeal **1.0**; retail TimeForFullHeal **5000**ms→**150**f;
+     NumberApproachPositions **5**; isRallyPointAfterDock **Yes**.
+   - SupplyCenterDock: GrantTemporaryStealth default **0**; GLA **20000**ms→**600**f;
+     America approach **9**; China/GLA boneless **-1** + AllowsPassthrough **No**.
+   - RailedTransportDock: Tolerance default **50**; ferry Pull/Push **4500**ms→**135**f,
+     Tolerance **400**, Approach **9**; UNLOAD_ALL **-1**.
+   - healthToAddPerFrame residual: `(max−current)/framesForFullHeal`.
+   - Honesty: `honesty_dock_residual_pack_wave98`.
+2. **Contain residual deepen** (beyond Wave 87 open/garrison/transport):
+   - OpenContain deepen: BurnedDeathToUnits **Yes**, PassengersInTurret **No**,
+     WeaponBonusPassedToPassengers **No**, KickOutOnCapture **Yes**, ImmuneToClear **Yes**,
+     isHealContain/Garrisonable/Bustable/Tunnel **No**; Transport isDisplayedOnControlBar **Yes**.
+   - ObjectEnterExitType residual **3**: WANTS_TO_ENTER **0** / EXIT **1** / NEITHER **2**.
+   - EvacDisposition residual **4**: INVALID **0** .. BURST_FROM_CENTER **3**.
+   - HealContain: isHealContain **Yes**; default frames **0**; barracks TimeForFullHeal
+     **2000**ms→**60**f / ContainMax **10** / allies **Yes** / enemies+neutral **No** /
+     AllowInsideKindOf **INFANTRY**.
+   - Sliver residual: `max_health / frames_for_full_heal`; done when containedFrames ≥ frames.
+   - Honesty: `honesty_contain_residual_deepen_pack_wave98`.
+3. **Exit residual peels**:
+   - ExitDoorType residual: DOOR_1..4 **0..3**, COUNT_MAX **4**, NONE_AVAILABLE **-1**,
+     NONE_NEEDED **-2**.
+   - OpenContain reserveDoor default **DOOR_1**; NumberOfExitPaths **1**; DoorOpenTime **1**f;
+     isExitBusy default **No**.
+   - QueueProductionExitUpdate defaults: ExitDelay **0**, AllowAirborne **No**, InitialBurst **0**.
+   - ChinaBarracks ExitDelay **300**ms→**9**f; transport ExitDelay sample **500**ms→**15**f.
+   - NUM_MODELCONDITION_DOOR_STATES **4**; transport exit countdown tick residual.
+   - Honesty: `honesty_exit_residual_pack_wave98`.
+4. **Heal residual deepen** (beyond Wave 71 ambulance + Wave 81 AutoFindHealing retail):
+   - AutoHealBehavior defaults: StartsActive **No**, SingleBurst **No**, HealingAmount **0**,
+     HealingDelay **UINT_MAX**, StartHealingDelay **0**, Radius **0**, SkipSelf **No**,
+     AffectsWholePlayer **No**.
+   - AutoFindHealing ctor defaults: ScanFrames **0**/Range **0**, NeverHeal **0.95**, AlwaysHeal **0.25**.
+   - Retail infantry AutoFindHealing re-anchor: Scan **1000**ms→**30**f / Range **300** /
+     Never **0.85** / Always **0.25** (ctor NeverHeal stricter than retail).
+   - ParkingPlaceBehavior: default HealAmount **0**; Airfield **10**/sec Rows/Cols **2**/HasRunways
+     **Yes**/ApproachHeight **50**; Helix-style sample **20**/sec.
+   - DAMAGE_HEALING / DEATH_NONE residual tokens; parking heal per-frame residual.
+   - Honesty: `honesty_heal_residual_deepen_pack_wave98`.
+5. **Combined pack**: `honesty_dock_contain_exit_heal_residual_pack_wave98`.
+6. Tests / gates:
+   - Unit: 5 wave98 honesty tests PASS
+   - shell_smoke: dock98/contain98/exit98/heal98 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     dock98=true contain98=true exit98=true heal98=true
+     (plus concurrent wave99 production/buildable/prereq/cmdbtn/controlbar)
+
+**Wiring:**
+- `game_logic/host_dock_contain_exit_heal_residual.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — dock98/contain98/exit98/heal98 fields + detail tokens
+- `shell_smoke_gate.rs` — require wave98 honesty flags; playable_claim stays false
+- Co-present Wave 99 residual (`host_production_buildable_command_residual`) in shell gate wiring
+
+**Still residual (fail-closed, not claimed):**
+- Full DockUpdate bone load / approach path AI residual
+- Full OpenContain exit-door bone matrix / fire-point garrison residual
+- Full ExitInterface production door anim residual
+- Full AutoHealBehavior multi-healer exclusive / particle pulse residual
+- Full ParkingPlaceBehavior runway taxi / hangar park residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+
+## Residual Host Playability — Wave 99: production residual deepen / buildable / prerequisite / command-button deepen / control-bar deepen peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal production/buildable/prereq/command/control residual):**
+1. **Production residual deepen** (`host_production_buildable_command_residual`, beyond Wave 83 queue/energy/refund):
+   - `ProductionType` residual INVALID **0** / UNIT **1** / UPGRADE **2**.
+   - Module defaults: MaxQueueEntries **9**, NumDoorAnimations **0**, door/complete durations **0**.
+   - `ExitDoorType` DOOR_1..4 / COUNT_MAX **4** / NONE_AVAILABLE **−1** / NONE_NEEDED **−2**.
+   - ProductionEntry ctor residual: ID **1**, percent **0**, quantity **0**.
+   - DisabledTypesToProcess default HELD bit **0x08** (DISABLED_HELD ordinal **3**).
+   - INI field residual table **8** (MaxQueueEntries…DisabledTypesToProcess).
+   - QuantityModifier sample ChinaInfantryRedguard **×2**; default count **1**.
+   - `BuildCompletionType` INVALID / APPEARS_AT_RALLY_POINT / PLACED_BY_PLAYER residual.
+   - CONSTRUCTION_COMPLETE percent **−1**; calcTimeToBuild energy residual (5s→**150**/full, **300**/zero).
+   - Honesty: `honesty_production_residual_deepen_pack_wave99`.
+2. **Buildable residual peels** (BuildableStatus / CanMakeType / LegalBuildCode):
+   - BuildableStatus Yes / Ignore_Prerequisites / No / Only_By_AI residual (**4**).
+   - CanMakeType OK..MAXED_OUT_FOR_PLAYER residual (**7**).
+   - LegalBuildCode LBC_OK..GENERIC_FAILURE residual (**8**).
+   - LocalLegalToBuildOptions bits terrain **0x01**..fail-stealthed **0x80**.
+   - TOTAL_FRAMES_TO_SELL_OBJECT **90**; SellPercentage **50%**; sell refund residual.
+   - Human allow residual: YES / IGNORE_PREREQ only.
+   - Honesty: `honesty_buildable_residual_pack_wave99`.
+3. **Prerequisite residual peels** (ProductionPrerequisite):
+   - MAX_PREREQ **32**; UNIT_OR_WITH_PREV **0x01**.
+   - Prerequisites INI fields Object / Science residual.
+   - Sample rows: AmericaWarFactory→SupplyCenter, Barracks→CC, ChinaWarFactory,
+     GLABarracks, StrategyCenter OR WarFactory|Airfield residual.
+   - Host-testable AND/OR satisfaction residual + science gate.
+   - Honesty: `honesty_prerequisite_residual_pack_wave99`.
+4. **CommandButton residual deepen** (`host_production_buildable_command_residual`, beyond Wave 80 SW labels):
+   - GUICommandType residual **35** names NONE..SELECT_ALL_UNITS_OF_TYPE (no ALLOW_SURRENDER).
+   - CommandOption residual **24** bit-names; NEED_TARGET mask **0x227**; NEED_OBJECT **0x7**.
+   - CommandButtonMappedBorderType NONE/BUILD/UPGRADE/ACTION/SYSTEM residual.
+   - CommandButton INI field residual table **15** (Command…UnitSpecificSound).
+   - Honesty: `honesty_command_button_residual_deepen_pack_wave99`.
+5. **ControlBar residual deepen** (beyond Wave 76 window/font pack):
+   - MAX_COMMANDS_PER_SET **18**; visible ButtonCommand **14**; MAX_BUILD_QUEUE_BUTTONS **9**.
+   - MAX_STRUCTURE_INVENTORY_BUTTONS **10**; MAX_SPECIAL_POWER_SHORTCUTS **11**.
+   - Science rank windows **4** / **15** / **4**; right HUD upgrade cameos **5**.
+   - ControlBarContext residual **9** names NONE..OCL_TIMER.
+   - ButtonCommand01..14 + ButtonQueue01..09 residual name tables.
+   - Window-count cross-link **98** (Wave 76).
+   - Honesty: `honesty_control_bar_residual_deepen_pack_wave99`.
+6. Tests / gates:
+   - Unit honesty tests for all five wave99 residual packs.
+   - shell_smoke: production99/buildable99/prereq99/cmdbtn99/controlbar99 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     production99=true buildable99=true prereq99=true cmdbtn99=true controlbar99=true
+     (plus concurrent wave98 dock/contain/exit/heal)
+
+**Still residual (fail-closed, not claimed):**
+- Full ProductionUpdate door-anim / parking-place live queue residual
+- Full BuildAssistant isLocationLegalToBuild terrain/shroud graph residual
+- Full ProductionPrerequisite live player-owned unit scan residual
+- Full CommandButton INI parse / science-swap cameo matrix residual
+- Full ControlBar DrawCallback / windowed W3D retail UI residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 97: radar residual deepen / spotter / stealth deepen / detector deepen / vision residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal radar/spotter/stealth/detector/vision residual):**
