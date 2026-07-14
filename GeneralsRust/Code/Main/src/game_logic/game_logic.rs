@@ -12647,6 +12647,7 @@ impl GameLogic {
             self.cancel_all_production(event.id);
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                crate::game_logic::host_destroy_log::record(event.id);
                 // Combat particle residual: death → registry entry (explosion + smoke).
                 // PresentationFrame / client can observe systems after the kill.
                 let death_pos = obj.get_position();
