@@ -286,6 +286,19 @@ pub struct HostUpgradeResearch {
     pub units_affected: u32,
     /// Producer building (optional residual).
     pub source_object: Option<ObjectId>,
+    /// Wave 79: cash supplies paid at QueueUpgrade (retail cost residual application).
+    #[serde(default)]
+    pub build_cost_paid: u32,
+    /// Wave 79: retail Upgrade.ini BuildTime → frames residual bookkeeping.
+    #[serde(default)]
+    pub retail_research_frames: u32,
+    /// Wave 79: host residual research frames (still **1** for observable queue).
+    #[serde(default = "default_residual_research_frames")]
+    pub residual_research_frames: u32,
+}
+
+fn default_residual_research_frames() -> u32 {
+    1
 }
 
 /// Host registry of upgrade research queue/complete for honesty + residual apply.
@@ -404,11 +417,26 @@ impl HostUpgradeRegistry {
             phase: HostUpgradePhase::Queued,
             units_affected: 0,
             source_object,
+            // Cost is filled by [`Self::set_build_cost_paid`] when the command
+            // path debits cash; default to retail matrix for residual honesty.
+            build_cost_paid: kind.retail_build_cost(),
+            retail_research_frames: kind.retail_research_frames(),
+            residual_research_frames: kind.residual_research_frames(),
         };
         self.entries.insert(id, entry);
         self.pending_index.insert(key, id);
         self.queued_this_frame.push(id);
         id
+    }
+
+    /// Wave 79: record actual cash paid at QueueUpgrade (retail cost application).
+    pub fn set_build_cost_paid(&mut self, name: &str, player_id: u32, cost: u32) {
+        let key = (player_id, normalize_upgrade_identity(name));
+        if let Some(&id) = self.pending_index.get(&key) {
+            if let Some(entry) = self.entries.get_mut(&id) {
+                entry.build_cost_paid = cost;
+            }
+        }
     }
 
     /// Mark research completed and store how many units were affected.
@@ -440,6 +468,9 @@ impl HostUpgradeRegistry {
                     phase: HostUpgradePhase::Completed,
                     units_affected,
                     source_object: None,
+                    build_cost_paid: kind.retail_build_cost(),
+                    retail_research_frames: kind.retail_research_frames(),
+                    residual_research_frames: kind.residual_research_frames(),
                 },
             );
             self.completed_this_frame.push(id);
@@ -1217,6 +1248,51 @@ pub fn honesty_upgrades_residual_pack_ok() -> bool {
         && honesty_upgrades_stealth_forbidden_residual_ok()
 }
 
+/// Wave 79: retail cost/time residual **application** honesty (not docs-only).
+///
+/// Queue stamps `build_cost_paid` + `retail_research_frames` from Upgrade.ini
+/// residual matrix; host research path remains 1-frame residual.
+pub fn honesty_upgrades_cost_time_application_wave79_ok() -> bool {
+    let mut reg = HostUpgradeRegistry::new();
+    let id = reg.record_queue(
+        UPGRADE_AMERICA_SUPPLY_LINES,
+        Team::USA,
+        0,
+        10,
+        None,
+    );
+    let entry = reg.get(id).expect("queued");
+    entry.build_cost_paid == HostUpgradeKind::SupplyLines.retail_build_cost()
+        && entry.build_cost_paid == 800
+        && entry.retail_research_frames == HostUpgradeKind::SupplyLines.retail_research_frames()
+        && entry.retail_research_frames == 900
+        && entry.residual_research_frames == 1
+        && HostUpgradeKind::WorkerShoes.retail_build_cost() == 1000
+        && HostUpgradeKind::CamoNetting.retail_build_cost() == 500
+        && HostUpgradeKind::NuclearTanks.retail_research_frames() == 1800
+        && resolve_upgrade_retail_cost_supplies("Upgrade_GLAWorkerShoes") == 1000
+        && resolve_upgrade_retail_cost_supplies("Upgrade_AmericaSupplyLines") == 800
+        && resolve_upgrade_retail_cost_supplies("Upgrade_AmericaAdvancedTraining") == 1500
+        && honesty_upgrades_residual_pack_ok()
+}
+
+/// Wave 79 shared retail cost resolve (HostUpgradeKind matrix + AdvancedTraining).
+///
+/// Used by host residual command path honesty; fail-closed unknown → **0** for
+/// known HostUpgradeKind::Other unless AdvancedTraining residual name matches.
+pub fn resolve_upgrade_retail_cost_supplies(upgrade_name: &str) -> u32 {
+    let kind = HostUpgradeKind::from_name(upgrade_name);
+    let retail = kind.retail_build_cost();
+    if retail > 0 {
+        return retail;
+    }
+    let n = normalize_upgrade_identity(upgrade_name);
+    if n.contains("advancedtraining") {
+        return 1500; // Upgrade_AmericaAdvancedTraining BuildCost residual
+    }
+    0
+}
+
 #[cfg(test)]
 mod camo_netting_and_gamma_tests {
     use super::*;
@@ -1420,5 +1496,18 @@ mod camo_netting_and_gamma_tests {
         assert_eq!(HostUpgradeKind::SupplyLines.retail_build_cost(), 800);
         assert_eq!(HostUpgradeKind::Camouflage.retail_research_frames(), 1800);
         assert_eq!(CAMOUFLAGE_STEALTH_DELAY_FRAMES, 75);
+    }
+
+    /// Wave 79: retail cost/time residual application honesty.
+    #[test]
+    fn upgrades_cost_time_application_wave79_honesty() {
+        assert!(honesty_upgrades_cost_time_application_wave79_ok());
+        let mut reg = HostUpgradeRegistry::new();
+        let id = reg.record_queue(UPGRADE_GLA_WORKER_SHOES, Team::GLA, 1, 0, None);
+        reg.set_build_cost_paid(UPGRADE_GLA_WORKER_SHOES, 1, 1000);
+        let e = reg.get(id).unwrap();
+        assert_eq!(e.build_cost_paid, 1000);
+        assert_eq!(e.retail_research_frames, 300); // 10s * 30
+        assert_eq!(e.residual_research_frames, 1);
     }
 }

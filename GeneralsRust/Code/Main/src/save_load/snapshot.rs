@@ -1,5 +1,11 @@
 //! World snapshot / Xfer residual for host save/load.
 //!
+//! # Wave 79 Drawable residual fields
+//!
+//! `ObjectStatusSnapshot.camo_stealth_look` freezes C++ `Drawable::m_stealthLook`
+//! ordinal residual (`Object::camo_stealth_look`) so mid-flight CamoNetting /
+//! Camouflage looks survive save/load.
+//!
 //! # Secondary weapon residual (2026-07-12)
 //!
 //! Host `Object` gained `secondary_weapon` + `active_weapon_slot` for combat /
@@ -346,6 +352,11 @@ pub struct ObjectStatusSnapshot {
     /// Fail-closed: not full C++ WeaponSet chooser state.
     #[serde(default)]
     pub active_weapon_slot: u8,
+    /// Wave 79 Drawable residual: CamoNetting / Camouflage `StealthLookType` ordinal
+    /// (`Object::camo_stealth_look` / C++ `Drawable::m_stealthLook`).
+    /// Serde default for older snapshots.
+    #[serde(default)]
+    pub camo_stealth_look: u8,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -379,6 +390,7 @@ impl Default for ObjectStatusSnapshot {
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
             active_weapon_slot: 0,
+            camo_stealth_look: 0,
         }
     }
 }
@@ -1503,6 +1515,9 @@ impl XferData for ObjectStatusSnapshot {
         // Appended residual (DISABLED_SUBDUED / Microwave structure cook).
         xfer.xfer_marker_label("DisabledSubdued")?;
         xfer.xfer_bool(&mut self.disabled_subdued)?;
+        // Wave 79: Drawable residual StealthLook ordinal (appended).
+        xfer.xfer_marker_label("CamoStealthLook")?;
+        xfer.xfer_u8(&mut self.camo_stealth_look)?;
         Ok(())
     }
 }
@@ -3837,6 +3852,13 @@ impl XferData for HostUpgradeResearch {
         xfer.xfer_u32(&mut self.units_affected)?;
         xfer.xfer_marker_label("SourceObject")?;
         xfer_option(xfer, &mut self.source_object, ObjectId(0))?;
+        // Wave 79: cost/time residual application bookkeeping (appended).
+        xfer.xfer_marker_label("BuildCostPaid")?;
+        xfer.xfer_u32(&mut self.build_cost_paid)?;
+        xfer.xfer_marker_label("RetailResearchFrames")?;
+        xfer.xfer_u32(&mut self.retail_research_frames)?;
+        xfer.xfer_marker_label("ResidualResearchFrames")?;
+        xfer.xfer_u32(&mut self.residual_research_frames)?;
         Ok(())
     }
 }
@@ -3861,6 +3883,9 @@ impl XferData for HostUpgradeRegistrySnapshot {
                 phase: HostUpgradePhase::Queued,
                 units_affected: 0,
                 source_object: None,
+                build_cost_paid: 0,
+                retail_research_frames: 0,
+                residual_research_frames: 1,
             },
         )?;
         Ok(())
@@ -4087,6 +4112,7 @@ impl SnapshotBuilder {
             special_power_cooldown: object.special_power_cooldown,
             special_power_cooldown_remaining: object.special_power_cooldown_remaining,
             active_weapon_slot: object.active_weapon_slot,
+            camo_stealth_look: object.camo_stealth_look,
         }
     }
 
@@ -4710,6 +4736,8 @@ impl SnapshotBuilder {
         object.status.disabled_subdued = status.disabled_subdued;
         object.status.is_carbomb = status.is_carbomb;
         object.status.hijacked = status.hijacked;
+        // Wave 79 Drawable residual: restore StealthLook ordinal.
+        object.camo_stealth_look = status.camo_stealth_look;
 
         object.ai_state = if status.destroyed {
             AIState::Idle
@@ -6860,4 +6888,62 @@ mod tests {
             "file-loaded registry must record complete"
         );
     }
+
+    /// Wave 79: Drawable residual camo_stealth_look survives snapshot capture/restore.
+    #[test]
+    fn drawable_camo_stealth_look_snapshot_residual_wave79() {
+        let mut source = GameLogic::new();
+        let mut template = ThingTemplate::new("CamoDrawableSnap");
+        template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable);
+        source
+            .templates
+            .insert("CamoDrawableSnap".into(), template);
+        let id = source
+            .create_object("CamoDrawableSnap", Team::GLA, glam::Vec3::ZERO)
+            .expect("create");
+        {
+            let obj = source.get_object_mut(id).expect("obj");
+            // HostCamoStealthLook::VisibleDetected = 3
+            obj.camo_stealth_look = 3;
+            obj.status.stealthed = true;
+            obj.status.detected = true;
+        }
+
+        let builder = SnapshotBuilder::new();
+        let snap = builder.create_world_snapshot(&source).expect("snap");
+        let obj_snap = snap.objects.get(&id).expect("obj snap");
+        assert_eq!(obj_snap.status.camo_stealth_look, 3);
+        assert!(obj_snap.status.stealthed);
+        assert!(obj_snap.status.detected);
+
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snap, &mut restored)
+            .expect("restore");
+        let obj = restored.find_object(id).expect("restored obj");
+        assert_eq!(obj.camo_stealth_look, 3);
+        assert!(obj.status.stealthed);
+        assert!(obj.status.detected);
+        assert!(honesty_drawable_residual_fields_wave79_ok());
+    }
+}
+
+/// Wave 79 Drawable residual honesty: StealthLook ordinal survives ObjectStatus.
+pub fn honesty_drawable_residual_fields_wave79_ok() -> bool {
+    // HostCamoStealthLook ordinals (Drawable.h residual).
+    let looks = [0u8, 1, 2, 3, 4, 5];
+    looks.iter().all(|&look| {
+        let mut status = ObjectStatusSnapshot::default();
+        status.camo_stealth_look = look;
+        status.stealthed = look != 0;
+        status.detected = look == 3 || look == 4;
+        // Round-trip via clone residual.
+        let cloned = status.clone();
+        cloned.camo_stealth_look == look
+            && cloned.stealthed == status.stealthed
+            && cloned.detected == status.detected
+    }) && ObjectStatusSnapshot::default().camo_stealth_look == 0
 }

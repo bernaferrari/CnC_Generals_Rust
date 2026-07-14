@@ -1,3 +1,70 @@
+## Residual Host Playability — Wave 78: superweapon reload table + CarpetBomb/Artillery/Cluster/GPS/Cash residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal to Waves 76–77):**
+1. **HostSuperweaponKind reload residual table** (`special_power_strikes`):
+   - Complete `reload_ms()` / `reload_frames()` for **all 10** kinds:
+     Daisy **360s**, A10 **240s**, Scud **300s**, PUC **240s**, Nuke **360s**,
+     Anthrax **360s**, Spectre **240s**, Carpet **150s**, Artillery **300s**,
+     Cruise **120s**.
+   - New baseline constants: `SCUD_STORM_RELOAD_*`, `PARTICLE_CANNON_RELOAD_*`,
+     `ANTHRAX_BOMB_RELOAD_*`.
+   - Ordering residual: Cruise < Carpet < A10/Spectre/PUC < Scud/Artillery < Daisy/Nuke/Anthrax.
+   - Honesty: `honesty_host_superweapon_reload_table_wave78`.
+2. **CarpetBomb faction-tier residual deepen** (`special_power_strikes`):
+   - Per-tier ReloadTime: America/China **150000**, AirF **240000**, Nuke_ variant **180000**.
+   - RadiusCursor / DeliveryDecalRadius: America **100**, China/AirF **180**.
+   - OCL / science names + DeliveryDecal (SCCA10Strike_USA vs SCCCarpBomb;
+     Color **(255,156,0)** vs **(255,0,0)**; Opacity **25–50%**; Throb **500**ms).
+   - ViewObjectDuration **40000**ms → **1200**f / Range **250**.
+   - Honesty: `honesty_carpet_bomb_science_tier_residual_pack_wave78`.
+3. **Artillery science-tier residual deepen** (`special_power_strikes`):
+   - SCIENCE_ArtilleryBarrage1/2/3 + SUPERWEAPON_ArtilleryBarrage1/2/3 OCL names.
+   - `science_name()` / `ocl_name()` on `ArtilleryBarrageScienceTier`.
+   - Science point cost **1**; prereqs China+Rank3 / chain.
+   - DeliveryDecal: **SCCArtilleryBarrage_China** / Color **(255,156,0)** /
+     Opacity **25–50%** / Throb **500**ms / Radius **125**.
+   - VisibleNumBones **1**, VisibleItemsDroppedPerInterval **1**.
+   - Honesty: `honesty_artillery_science_tier_residual_pack_wave78` +
+     `honesty_special_power_residual_pack_wave78_ok`.
+4. **ClusterMines residual deepen** (`host_mines`):
+   - DeliveryDecal: **SCCClusterMines_China** / SHADOW_ALPHA_DECAL /
+     Opacity **25–50%** / Throb **500**ms / Color **(255,156,0)**.
+   - DropOffset **(0,0,-2)**, MaxAttempts **4**, Payload count **1**.
+   - ViewObjectDuration **30000**ms → **900**f / Range **250**.
+   - SCIENCE_ClusterMines prereq **SCIENCE_CHINA + SCIENCE_Rank3**, cost **1**.
+   - Honesty: `honesty_cluster_mines_residual_pack_wave78`.
+5. **GPSScrambler residual deepen** (`host_gps_scrambler`):
+   - SCIENCE prereq **GLA+Rank5** vs Slth **GLA+Rank3**; point cost **1**.
+   - Marker KindOf **NO_COLLIDE IMMOBILE UNATTACKABLE**; ImmortalBody MaxHealth **1**.
+   - Particles: GPSMicrowaveScambler / GPSRotisserie / gpsScrambleCloud.
+   - Enums SPECIAL_GPS_SCRAMBLER / SLTH_SPECIAL_GPS_SCRAMBLER.
+   - Honesty: `honesty_gps_scrambler_residual_pack_wave78`.
+6. **CashBounty residual deepen** (`host_cash_bounty`):
+   - `CashBountyScienceTier` enum: percent **5/10/20%**, science/ability/display names,
+     ModuleTag_15/16/17, highest_from_sciences.
+   - DisplayName SCIENCE:GLACashBounty1/2/3 + shared Description residual.
+   - Honesty: `honesty_cash_bounty_residual_pack_wave78`.
+7. Tests / gates:
+   - `host_superweapon_reload_table_wave78_honesty` /
+     `carpet_bomb_science_tier_residual_pack_wave78_honesty` /
+     `artillery_science_tier_residual_pack_wave78_honesty` /
+     `cluster_mines_residual_pack_wave78_honesty` /
+     `gps_scrambler_residual_pack_wave78_honesty` /
+     `cash_bounty_residual_pack_wave78_honesty`
+   - shell_smoke: sp78/cluster78/gps78/cash78 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     sp78=true cluster78=true gps78=true cash78=true
+
+**Still residual (fail-closed, not claimed):**
+- Full Miles positional InitiateSound / live SpecialPower SharedSyncedTimer UI
+- Full AmericaJetB52 / ChinaArtilleryCannon / ClusterMinesBomb DeliverPayload Objects
+- Full GrantStealth particle GPU path / StealthUpdate module matrix
+- Full CashBountyPower palace science gate matrix / calcCostToBuild handicap
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 77: AI/weapon/FOW/ground-height/audio residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal to Wave 76 ControlBar/script):**

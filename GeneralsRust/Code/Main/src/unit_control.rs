@@ -18,6 +18,9 @@ use std::sync::Arc;
 use std::sync::Mutex as AsyncMutex;
 use std::time::SystemTime;
 
+/// Host residual: double-click select-type window (seconds).
+pub const DOUBLE_CLICK_THRESHOLD_SECS: f32 = 0.3;
+
 /// 3D Ray for mouse picking calculations
 #[derive(Debug, Clone, Copy)]
 pub struct Ray {
@@ -242,6 +245,7 @@ pub struct UnitControlSystem {
 
     /// Selection settings
     pub selection_radius: f32,
+    /// Double-click residual window (seconds). See [`DOUBLE_CLICK_THRESHOLD_SECS`].
     pub double_click_threshold: f32,
 
     /// Visual feedback settings
@@ -284,7 +288,7 @@ impl UnitControlSystem {
             hovered_object: None,
             window_size,
             selection_radius: 2.0,
-            double_click_threshold: 0.3,
+            double_click_threshold: DOUBLE_CLICK_THRESHOLD_SECS,
             selection_color: [0.0, 1.0, 0.0, 1.0], // Green
             hover_color: [1.0, 1.0, 0.0, 0.5],     // Yellow
             friendly_color: [0.0, 0.0, 1.0, 1.0],  // Blue

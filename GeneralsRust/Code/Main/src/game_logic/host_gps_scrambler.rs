@@ -76,6 +76,30 @@ pub const GPS_SCRAMBLER_RADIUS_PARTICLE: &str = "ParticleUplinkCannon_LaserBaseR
 /// Activate audio residual (SpecialPower.ini InitiateAtLocationSound).
 pub const GPS_SCRAMBLER_ACTIVATE_AUDIO: &str = "GPSScrambleActivate";
 
+// --- Wave 78: GPS Scrambler science / marker / particle residual deepen ---
+/// Retail SCIENCE_GPSScrambler SciencePurchasePointCost residual.
+pub const GPS_SCRAMBLER_SCIENCE_POINT_COST: u32 = 1;
+/// Retail SCIENCE_GPSScrambler PrerequisiteSciences residual tokens.
+pub const GPS_SCRAMBLER_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_GLA", "SCIENCE_Rank5"];
+/// Retail Slth_SCIENCE_GPSScrambler PrerequisiteSciences residual tokens (Rank3).
+pub const GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES: [&str; 2] = ["SCIENCE_GLA", "SCIENCE_Rank3"];
+/// Retail GrantStealthBehavior KindOf residual tokens.
+pub const GPS_SCRAMBLER_GRANT_KIND_OF: [&str; 2] = ["VEHICLE", "INFANTRY"];
+/// Retail GPSScrambler_InvisibleMarker KindOf residual substring honesty.
+pub const GPS_SCRAMBLER_MARKER_KIND_OF: &str = "NO_COLLIDE IMMOBILE UNATTACKABLE";
+/// Retail ImmortalBody MaxHealth residual on invisible marker.
+pub const GPS_SCRAMBLER_MARKER_MAX_HEALTH: f32 = 1.0;
+/// Retail W3DModelDraw particle residual names on GPSScrambler_InvisibleMarker.
+pub const GPS_SCRAMBLER_PARTICLE_MICROWAVE: &str = "GPSMicrowaveScambler";
+/// Retail GPSRotisserie particle residual.
+pub const GPS_SCRAMBLER_PARTICLE_ROTISSERIE: &str = "GPSRotisserie";
+/// Retail gpsScrambleCloud particle residual.
+pub const GPS_SCRAMBLER_PARTICLE_CLOUD: &str = "gpsScrambleCloud";
+/// Retail Enum residual for SuperweaponGPSScrambler.
+pub const GPS_SCRAMBLER_ENUM: &str = "SPECIAL_GPS_SCRAMBLER";
+/// Retail Enum residual for Slth_SuperweaponGPSScrambler.
+pub const GPS_SCRAMBLER_SLTH_ENUM: &str = "SLTH_SPECIAL_GPS_SCRAMBLER";
+
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn gps_scrambler_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -173,6 +197,30 @@ pub fn honesty_gps_scrambler_reload_ocl_residual_ok() -> bool {
 pub fn honesty_gps_scrambler_residual_pack_ok() -> bool {
     honesty_gps_scrambler_grow_radius_residual_ok()
         && honesty_gps_scrambler_reload_ocl_residual_ok()
+}
+
+/// Wave 78 residual honesty: GPS science / marker particle / KindOf residual deepen.
+///
+/// Fail-closed: not full particle GPU path / full StealthUpdate module matrix.
+pub fn honesty_gps_scrambler_residual_pack_wave78() -> bool {
+    GPS_SCRAMBLER_SCIENCE_POINT_COST == 1
+        && GPS_SCRAMBLER_PREREQ_SCIENCES == ["SCIENCE_GLA", "SCIENCE_Rank5"]
+        && GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES == ["SCIENCE_GLA", "SCIENCE_Rank3"]
+        && GPS_SCRAMBLER_GRANT_KIND_OF == ["VEHICLE", "INFANTRY"]
+        && GPS_SCRAMBLER_MARKER_KIND_OF.contains("NO_COLLIDE")
+        && GPS_SCRAMBLER_MARKER_KIND_OF.contains("IMMOBILE")
+        && GPS_SCRAMBLER_MARKER_KIND_OF.contains("UNATTACKABLE")
+        && (GPS_SCRAMBLER_MARKER_MAX_HEALTH - 1.0).abs() < 0.01
+        && GPS_SCRAMBLER_PARTICLE_MICROWAVE == "GPSMicrowaveScambler"
+        && GPS_SCRAMBLER_PARTICLE_ROTISSERIE == "GPSRotisserie"
+        && GPS_SCRAMBLER_PARTICLE_CLOUD == "gpsScrambleCloud"
+        && GPS_SCRAMBLER_ENUM == "SPECIAL_GPS_SCRAMBLER"
+        && GPS_SCRAMBLER_SLTH_ENUM == "SLTH_SPECIAL_GPS_SCRAMBLER"
+        // Slth is faster reload and lower rank prereq residual.
+        && GPS_SCRAMBLER_SLTH_RELOAD_MS < GPS_SCRAMBLER_RELOAD_MS
+        && GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES[1] == "SCIENCE_Rank3"
+        && GPS_SCRAMBLER_PREREQ_SCIENCES[1] == "SCIENCE_Rank5"
+        && honesty_gps_scrambler_residual_pack_ok()
 }
 
 /// One active residual GPS Scrambler activation bookkeeping entry.
@@ -325,4 +373,17 @@ mod tests {
         assert!(gps_scrambler_grow_is_final(7));
         assert!((gps_scrambler_scan_radius_after_updates(100) - 100.0).abs() < 0.01);
     }
+
+    #[test]
+    fn gps_scrambler_residual_pack_wave78_honesty() {
+        assert!(honesty_gps_scrambler_residual_pack_wave78());
+        assert_eq!(GPS_SCRAMBLER_SCIENCE_POINT_COST, 1);
+        assert_eq!(GPS_SCRAMBLER_PREREQ_SCIENCES, ["SCIENCE_GLA", "SCIENCE_Rank5"]);
+        assert_eq!(GPS_SCRAMBLER_SLTH_PREREQ_SCIENCES, ["SCIENCE_GLA", "SCIENCE_Rank3"]);
+        assert_eq!(GPS_SCRAMBLER_PARTICLE_MICROWAVE, "GPSMicrowaveScambler");
+        assert_eq!(GPS_SCRAMBLER_PARTICLE_CLOUD, "gpsScrambleCloud");
+        assert_eq!(GPS_SCRAMBLER_ENUM, "SPECIAL_GPS_SCRAMBLER");
+        assert!(GPS_SCRAMBLER_SLTH_RELOAD_MS < GPS_SCRAMBLER_RELOAD_MS);
+    }
+
 }

@@ -28,6 +28,27 @@ pub trait UiTextureRegistrar {
     ) -> UiTextureId;
 }
 
+// --- Wave 79 minimap residual honesty (host-testable; no GPU claim) ---
+
+/// Retail / host standard minimap texture resolution residual (square).
+pub const MINIMAP_STANDARD_SIZE: u32 = 256;
+/// Default world span residual when map bounds are unknown (square map).
+pub const MINIMAP_DEFAULT_WORLD_SPAN: f32 = 1024.0;
+/// Default minimap panel screen origin residual (top-left padding).
+pub const MINIMAP_DEFAULT_SCREEN_ORIGIN: f32 = 10.0;
+/// FOW shade residual when blending with terrain base (Visible / Explored / Hidden).
+pub const MINIMAP_FOW_SHADE_VISIBLE: f32 = 1.0;
+pub const MINIMAP_FOW_SHADE_EXPLORED: f32 = 0.5;
+pub const MINIMAP_FOW_SHADE_HIDDEN: f32 = 0.12;
+/// Pure FOW grayscale residual (no terrain base).
+pub const MINIMAP_FOW_RGBA_HIDDEN: [u8; 4] = [0, 0, 0, 255];
+pub const MINIMAP_FOW_RGBA_EXPLORED: [u8; 4] = [90, 90, 90, 255];
+pub const MINIMAP_FOW_RGBA_VISIBLE: [u8; 4] = [255, 255, 255, 255];
+/// Soft-edge residual: keep 3/4 own pixel + 1/4 3×3 neighborhood average.
+pub const MINIMAP_SOFTEN_SELF_WEIGHT: u16 = 3;
+pub const MINIMAP_SOFTEN_NEIGHBOR_WEIGHT: u16 = 1;
+pub const MINIMAP_SOFTEN_WEIGHT_SUM: u16 = 4;
+
 // Define minimap types locally until FOW system is properly integrated
 #[derive(Debug, Clone, Copy)]
 pub struct MinimapDimensions {
@@ -38,10 +59,37 @@ pub struct MinimapDimensions {
 impl MinimapDimensions {
     pub fn standard() -> Self {
         MinimapDimensions {
-            width: 256,
-            height: 256,
+            width: MINIMAP_STANDARD_SIZE,
+            height: MINIMAP_STANDARD_SIZE,
         }
     }
+}
+
+/// Wave 79 minimap residual honesty pack (dimensions / FOW shade / soft-edge).
+///
+/// Fail-closed: not full SAGE Radar/Minimap GPU atlas or live click-to-scroll camera.
+pub fn honesty_minimap_residual_pack_wave79() -> bool {
+    let std = MinimapDimensions::standard();
+    let visible = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Visible);
+    let explored = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Explored);
+    let hidden = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Hidden);
+    std.width == MINIMAP_STANDARD_SIZE
+        && std.height == MINIMAP_STANDARD_SIZE
+        && (MINIMAP_DEFAULT_WORLD_SPAN - 1024.0).abs() < 0.01
+        && (MINIMAP_DEFAULT_SCREEN_ORIGIN - 10.0).abs() < 0.01
+        && (MINIMAP_FOW_SHADE_VISIBLE - 1.0).abs() < 0.001
+        && (MINIMAP_FOW_SHADE_EXPLORED - 0.5).abs() < 0.001
+        && (MINIMAP_FOW_SHADE_HIDDEN - 0.12).abs() < 0.001
+        && MinimapFowManager::state_to_rgba(MinimapFowState::Hidden) == MINIMAP_FOW_RGBA_HIDDEN
+        && MinimapFowManager::state_to_rgba(MinimapFowState::Explored) == MINIMAP_FOW_RGBA_EXPLORED
+        && MinimapFowManager::state_to_rgba(MinimapFowState::Visible) == MINIMAP_FOW_RGBA_VISIBLE
+        && visible == [200, 180, 160, 255]
+        && explored[0] < visible[0]
+        && hidden[0] < explored[0]
+        && MINIMAP_SOFTEN_SELF_WEIGHT + MINIMAP_SOFTEN_NEIGHBOR_WEIGHT == MINIMAP_SOFTEN_WEIGHT_SUM
+        && PresentationFowGrid::CELL_HIDDEN == 0
+        && PresentationFowGrid::CELL_EXPLORED == 1
+        && PresentationFowGrid::CELL_VISIBLE == 2
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -123,19 +171,19 @@ impl MinimapFowManager {
         LogicCoord3D::new(world_x, world_y, 0.0)
     }
 
-    fn state_to_rgba(state: MinimapFowState) -> [u8; 4] {
+    pub fn state_to_rgba(state: MinimapFowState) -> [u8; 4] {
         match state {
-            MinimapFowState::Hidden => [0, 0, 0, 255],
-            MinimapFowState::Explored => [90, 90, 90, 255],
-            MinimapFowState::Visible => [255, 255, 255, 255],
+            MinimapFowState::Hidden => MINIMAP_FOW_RGBA_HIDDEN,
+            MinimapFowState::Explored => MINIMAP_FOW_RGBA_EXPLORED,
+            MinimapFowState::Visible => MINIMAP_FOW_RGBA_VISIBLE,
         }
     }
 
-    fn blend_fow_with_base(base: [u8; 4], state: MinimapFowState) -> [u8; 4] {
+    pub fn blend_fow_with_base(base: [u8; 4], state: MinimapFowState) -> [u8; 4] {
         let shade = match state {
-            MinimapFowState::Visible => 1.0,
-            MinimapFowState::Explored => 0.5,
-            MinimapFowState::Hidden => 0.12,
+            MinimapFowState::Visible => MINIMAP_FOW_SHADE_VISIBLE,
+            MinimapFowState::Explored => MINIMAP_FOW_SHADE_EXPLORED,
+            MinimapFowState::Hidden => MINIMAP_FOW_SHADE_HIDDEN,
         };
         [
             ((base[0] as f32) * shade).clamp(0.0, 255.0) as u8,
@@ -186,9 +234,16 @@ impl MinimapFowManager {
                 let avg_b = (sum_b / count) as u8;
 
                 // Keep edge transitions readable but softer than hard per-pixel state bands.
-                texture[i] = (((texture[i] as u16) * 3 + avg_r as u16) / 4) as u8;
-                texture[i + 1] = (((texture[i + 1] as u16) * 3 + avg_g as u16) / 4) as u8;
-                texture[i + 2] = (((texture[i + 2] as u16) * 3 + avg_b as u16) / 4) as u8;
+                // Residual: self-weight 3 + neighbor-weight 1 over weight-sum 4.
+                texture[i] = (((texture[i] as u16) * MINIMAP_SOFTEN_SELF_WEIGHT
+                    + avg_r as u16 * MINIMAP_SOFTEN_NEIGHBOR_WEIGHT)
+                    / MINIMAP_SOFTEN_WEIGHT_SUM) as u8;
+                texture[i + 1] = (((texture[i + 1] as u16) * MINIMAP_SOFTEN_SELF_WEIGHT
+                    + avg_g as u16 * MINIMAP_SOFTEN_NEIGHBOR_WEIGHT)
+                    / MINIMAP_SOFTEN_WEIGHT_SUM) as u8;
+                texture[i + 2] = (((texture[i + 2] as u16) * MINIMAP_SOFTEN_SELF_WEIGHT
+                    + avg_b as u16 * MINIMAP_SOFTEN_NEIGHBOR_WEIGHT)
+                    / MINIMAP_SOFTEN_WEIGHT_SUM) as u8;
                 texture[i + 3] = 255;
             }
         }
@@ -876,6 +931,11 @@ mod tests {
         assert!(explored[1] < visible[1]);
         assert!(hidden[0] < explored[0]);
         assert!(hidden[1] < explored[1]);
+    }
+
+    #[test]
+    fn minimap_residual_pack_wave79_honesty() {
+        assert!(honesty_minimap_residual_pack_wave79());
     }
 
     #[test]

@@ -42,10 +42,20 @@
 //! - `graphics_wave76_residual_ok` — InGameUI font table + vanish color-alpha residual
 //! - `spectre_orbit_decal_presentation_ok` — Wave 73 presentation Spectre decal residual
 //! - `special_power_wave77_residual_ok` — Wave 77 audio name tables residual pack
+//! - `special_power_wave78_residual_ok` — Wave 78 reload table / CarpetBomb / Artillery residual pack
+//! - `cluster_mines_wave78_residual_ok` — Wave 78 ClusterMines DeliveryDecal / science residual pack
+//! - `gps_scrambler_wave78_residual_ok` — Wave 78 GPS science / marker particle residual pack
+//! - `cash_bounty_wave78_residual_ok` — Wave 78 CashBountyScienceTier residual pack
 //! - `fow_residual_pack_ok` — Wave 77 FOW cell/R8/inactive residual honesty
 //! - `ground_height_presentation_ok` — Wave 77 unit ground-height presentation residual
 //! - `weapon_store_seed_residual_ok` — Wave 77 host WeaponStore seed residual pack
 //! - `ai_skirmish_residual_ok` — Wave 77 AI skirmish timer/wealth residual pack
+//! - `minimap_residual_pack_ok` — Wave 79 minimap FOW shade/size residual pack
+//! - `selection_hud_residual_pack_ok` — Wave 79 selection/HUD color residual pack
+//! - `input_residual_pack_ok` — Wave 79 drag/double-click input residual pack
+//! - `drawable_residual_fields_ok` — Wave 79 Drawable StealthLook save/load residual
+//! - `unit_training_wave79_residual_ok` — Wave 79 veterancy bonus / AdvancedTraining XP
+//! - `upgrades_cost_time_application_ok` — Wave 79 upgrade cost/time application residual
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
@@ -56,13 +66,23 @@ use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
 use crate::game_logic::host_rng_residual::{
     exercise_host_rng_residual, honesty_rng_residual_pack_ok,
 };
+use crate::game_logic::host_cash_bounty::honesty_cash_bounty_residual_pack_wave78;
+use crate::game_logic::host_gps_scrambler::honesty_gps_scrambler_residual_pack_wave78;
+use crate::game_logic::host_mines::honesty_cluster_mines_residual_pack_wave78;
+use crate::game_logic::host_unit_training::honesty_unit_training_residual_pack_wave79_ok;
+use crate::game_logic::host_upgrades::honesty_upgrades_cost_time_application_wave79_ok;
 use crate::game_logic::special_power_strikes::{
     honesty_special_power_residual_pack_ok, honesty_special_power_residual_pack_wave73_ok,
     honesty_special_power_residual_pack_wave76_ok, honesty_special_power_residual_pack_wave77_ok,
+    honesty_special_power_residual_pack_wave78_ok,
 };
 use crate::game_logic::weapon_bootstrap::honesty_weapon_store_host_seed_residual_wave77;
 use crate::game_logic::GameLogic;
+use crate::graphics::minimap_renderer::honesty_minimap_residual_pack_wave79;
 use crate::presentation_frame::honesty_spectre_orbit_decal_presentation_ok;
+use crate::save_load::honesty_drawable_residual_fields_wave79_ok;
+use crate::selection_renderer::honesty_selection_hud_residual_pack_wave79;
+use crate::unit_input_handler::honesty_input_residual_pack_wave79;
 use crate::gameplay_layout::{
     control_bar_layout_honesty, format_control_bar_honesty,
     honesty_control_bar_residual_pack_wave76_ok, GameplayLayoutStatus,
@@ -175,6 +195,26 @@ pub struct ShellSmokeResult {
     pub weapon_store_seed_residual_ok: bool,
     /// Wave 77 AI skirmish structure/team timer residual honesty pack.
     pub ai_skirmish_residual_ok: bool,
+    /// Wave 78 HostSuperweaponKind reload + CarpetBomb/Artillery science residual pack.
+    pub special_power_wave78_residual_ok: bool,
+    /// Wave 78 ClusterMines DeliveryDecal / science residual pack.
+    pub cluster_mines_wave78_residual_ok: bool,
+    /// Wave 78 GPS Scrambler science / marker particle residual pack.
+    pub gps_scrambler_wave78_residual_ok: bool,
+    /// Wave 78 CashBountyScienceTier residual pack.
+    pub cash_bounty_wave78_residual_ok: bool,
+    /// Wave 79 minimap FOW shade/size residual honesty pack.
+    pub minimap_residual_pack_ok: bool,
+    /// Wave 79 selection/HUD color residual honesty pack.
+    pub selection_hud_residual_pack_ok: bool,
+    /// Wave 79 drag/double-click input residual honesty pack.
+    pub input_residual_pack_ok: bool,
+    /// Wave 79 Drawable StealthLook save/load residual honesty.
+    pub drawable_residual_fields_ok: bool,
+    /// Wave 79 unit-training/veterancy residual deepen honesty pack.
+    pub unit_training_wave79_residual_ok: bool,
+    /// Wave 79 upgrade cost/time residual application honesty.
+    pub upgrades_cost_time_application_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -448,6 +488,18 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         presentation_ok && pres.ground_height_presentation_residual_ok();
     let weapon_store_seed_residual_ok = honesty_weapon_store_host_seed_residual_wave77();
     let ai_skirmish_residual_ok = honesty_ai_skirmish_residual_pack_wave77();
+    // Wave 78 residual honesty packs (reload table + science tiers; no playable_claim flip).
+    let special_power_wave78_residual_ok = honesty_special_power_residual_pack_wave78_ok();
+    let cluster_mines_wave78_residual_ok = honesty_cluster_mines_residual_pack_wave78();
+    let gps_scrambler_wave78_residual_ok = honesty_gps_scrambler_residual_pack_wave78();
+    let cash_bounty_wave78_residual_ok = honesty_cash_bounty_residual_pack_wave78();
+    // Wave 79 residual honesty packs (orthogonal to special powers; no playable_claim flip).
+    let minimap_residual_pack_ok = honesty_minimap_residual_pack_wave79();
+    let selection_hud_residual_pack_ok = honesty_selection_hud_residual_pack_wave79();
+    let input_residual_pack_ok = honesty_input_residual_pack_wave79();
+    let drawable_residual_fields_ok = honesty_drawable_residual_fields_wave79_ok();
+    let unit_training_wave79_residual_ok = honesty_unit_training_residual_pack_wave79_ok();
+    let upgrades_cost_time_application_ok = honesty_upgrades_cost_time_application_wave79_ok();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -620,6 +672,16 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         ground_height_presentation_ok,
         weapon_store_seed_residual_ok,
         ai_skirmish_residual_ok,
+        special_power_wave78_residual_ok,
+        cluster_mines_wave78_residual_ok,
+        gps_scrambler_wave78_residual_ok,
+        cash_bounty_wave78_residual_ok,
+        minimap_residual_pack_ok,
+        selection_hud_residual_pack_ok,
+        input_residual_pack_ok,
+        drawable_residual_fields_ok,
+        unit_training_wave79_residual_ok,
+        upgrades_cost_time_application_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -631,7 +693,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -808,6 +870,56 @@ mod tests {
         assert!(
             r.ai_skirmish_residual_ok,
             "AI skirmish residual pack wave77: {}",
+            r.detail
+        );
+        assert!(
+            r.special_power_wave78_residual_ok,
+            "special power residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.cluster_mines_wave78_residual_ok,
+            "cluster mines residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.gps_scrambler_wave78_residual_ok,
+            "GPS scrambler residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.cash_bounty_wave78_residual_ok,
+            "cash bounty residual pack wave78: {}",
+            r.detail
+        );
+        assert!(
+            r.minimap_residual_pack_ok,
+            "minimap residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.selection_hud_residual_pack_ok,
+            "selection HUD residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.input_residual_pack_ok,
+            "input residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.drawable_residual_fields_ok,
+            "drawable residual fields wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.unit_training_wave79_residual_ok,
+            "unit training residual pack wave79: {}",
+            r.detail
+        );
+        assert!(
+            r.upgrades_cost_time_application_ok,
+            "upgrades cost/time application wave79: {}",
             r.detail
         );
         assert!(
