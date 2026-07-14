@@ -130,6 +130,15 @@
 //! - `waypoint95_ok` — Wave 95 waypoint residual pack
 //! - `team95_ok` — Wave 95 team residual pack
 //! - `player95_ok` — Wave 95 player residual deepen pack
+//! - `partition96_ok` — Wave 96 partition residual pack
+//! - `collision96_ok` — Wave 96 collision / GeometryInfo residual pack
+//! - `physics96_ok` — Wave 96 physics residual pack
+//! - `projectile96_ok` — Wave 96 projectile residual deepen pack
+//! - `radar97_ok` — Wave 97 radar residual deepen pack
+//! - `spotter97_ok` — Wave 97 spotter residual pack
+//! - `stealth97_ok` — Wave 97 stealth residual deepen pack
+//! - `detector97_ok` — Wave 97 detector residual deepen pack
+//! - `vision97_ok` — Wave 97 vision residual pack
 //! - `control_bar_path_resolved` / `control_bar_wnd_validated` — ControlBar.wnd residual
 //! - `control_bar_window_loaded` — headless WindowManager parse when WindowZH present
 
@@ -208,6 +217,15 @@ use crate::game_logic::host_script_map_team_player_residual::{
     honesty_script_action_name_table_residual_wave95,
     honesty_script_condition_name_table_residual_wave95,
     honesty_team_residual_pack_wave95, honesty_waypoint_residual_pack_wave95,
+};
+use crate::game_logic::host_radar_stealth_vision_residual::{
+    honesty_detector_residual_deepen_pack_wave97, honesty_radar_residual_deepen_pack_wave97,
+    honesty_spotter_residual_pack_wave97, honesty_stealth_residual_deepen_pack_wave97,
+    honesty_vision_residual_pack_wave97,
+};
+use crate::game_logic::host_partition_collision_physics_residual::{
+    honesty_collision_residual_pack_wave96, honesty_partition_residual_pack_wave96,
+    honesty_physics_residual_pack_wave96, honesty_projectile_residual_deepen_pack_wave96,
 };
 use crate::game_logic::host_paradrop::honesty_paradrop_residual_pack_wave76_ok;
 use crate::game_logic::host_pathfinder::honesty_pathfinder_residual_pack_wave81;
@@ -539,6 +557,24 @@ pub struct ShellSmokeResult {
     pub team_wave95_ok: bool,
     /// Wave 95 player residual deepen pack honesty.
     pub player_deepen_wave95_ok: bool,
+    /// Wave 96 partition residual pack honesty.
+    pub partition_wave96_ok: bool,
+    /// Wave 96 collision residual pack honesty.
+    pub collision_wave96_ok: bool,
+    /// Wave 96 physics residual pack honesty.
+    pub physics_wave96_ok: bool,
+    /// Wave 96 projectile residual deepen pack honesty.
+    pub projectile_wave96_ok: bool,
+    /// Wave 97 radar residual deepen pack honesty.
+    pub radar_deepen_wave97_ok: bool,
+    /// Wave 97 spotter residual pack honesty.
+    pub spotter_wave97_ok: bool,
+    /// Wave 97 stealth residual deepen pack honesty.
+    pub stealth_deepen_wave97_ok: bool,
+    /// Wave 97 detector residual deepen pack honesty.
+    pub detector_deepen_wave97_ok: bool,
+    /// Wave 97 vision residual pack honesty.
+    pub vision_wave97_ok: bool,
     /// Shell Skirmish → Loading → GameHUD ownership transition (StartGame parity).
     pub screen_skirmish_ok: bool,
     /// ControlBar.wnd resolve/validate path (C++ ShowControlBar / ensure_gameplay_layouts).
@@ -927,6 +963,17 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let waypoint_wave95_ok = honesty_waypoint_residual_pack_wave95();
     let team_wave95_ok = honesty_team_residual_pack_wave95();
     let player_deepen_wave95_ok = honesty_player_residual_deepen_pack_wave95();
+    // Wave 96 residual honesty packs (partition/collision/physics/projectile; no playable_claim flip).
+    let partition_wave96_ok = honesty_partition_residual_pack_wave96();
+    let collision_wave96_ok = honesty_collision_residual_pack_wave96();
+    let physics_wave96_ok = honesty_physics_residual_pack_wave96();
+    let projectile_wave96_ok = honesty_projectile_residual_deepen_pack_wave96();
+    // Wave 97 residual honesty packs (radar/spotter/stealth/detector/vision; no playable_claim flip).
+    let radar_deepen_wave97_ok = honesty_radar_residual_deepen_pack_wave97();
+    let spotter_wave97_ok = honesty_spotter_residual_pack_wave97();
+    let stealth_deepen_wave97_ok = honesty_stealth_residual_deepen_pack_wave97();
+    let detector_deepen_wave97_ok = honesty_detector_residual_deepen_pack_wave97();
+    let vision_wave97_ok = honesty_vision_residual_pack_wave97();
 
     // HUD + multi-consumer selection panel health from presentation after dual-tick.
     let (hud_selection_ok, selection_consumers_ok) = if let Some(id) = select_id {
@@ -1194,6 +1241,15 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         waypoint_wave95_ok,
         team_wave95_ok,
         player_deepen_wave95_ok,
+        partition_wave96_ok,
+        collision_wave96_ok,
+        physics_wave96_ok,
+        projectile_wave96_ok,
+        radar_deepen_wave97_ok,
+        spotter_wave97_ok,
+        stealth_deepen_wave97_ok,
+        detector_deepen_wave97_ok,
+        vision_wave97_ok,
         screen_skirmish_ok,
         control_bar_layout_ok,
         control_bar_path_resolved,
@@ -1205,7 +1261,7 @@ pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
         playable_claim,
         status,
         detail: format!(
-            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} kindof84={kindof_wave84_ok} wslot84={weapon_slot_wave84_ok} vet84={veterancy_wave84_ok} rel84={relationship_wave84_ok} geom84={geometry_wave84_ok} shadow84={shadow_wave84_ok} faction85={faction_side_wave85_ok} ptpl85={player_template_wave85_ok} cash85={starting_cash_wave85_ok} aiperson85={skirmish_ai_personality_wave85_ok} victory85={victory_condition_wave85_ok} cam86={gamedata_camera_fps_wave86_ok} world86={gamedata_world_constants_wave86_ok} mpopt86={multiplayer_options_wave86_ok} mapsel86={map_selection_wave86_ok} crate86={crate_deepen_wave86_ok} weather87={weather_wave87_ok} water87={water_wave87_ok} bridge87={bridge_wave87_ok} tunnel87={tunnel_wave87_ok} garrison87={garrison_wave87_ok} transport87={transport_wave87_ok} radius88={radius_cursor_wave88_ok} mouse88={mouse_cursor_wave88_ok} fxlist88={superweapon_fxlist_wave88_ok} ocl88={superweapon_ocl_wave88_ok} particle88={superweapon_particle_wave88_ok} audio88={superweapon_audio_wave88_ok} rank89={rank_skill_wave89_ok} exp89={experience_wave89_ok} hotkey89={hotkey_wave89_ok} chat89={chat_wave89_ok} replay89={replay_wave89_ok} options89={options_wave89_ok} gamespeed90={gamespeed_wave90_ok} framerate90={frame_rate_wave90_ok} debug90={debug_tables_wave90_ok} lang90={language_wave90_ok} credits90={credits_wave90_ok} tooltip91={tooltip_wave91_ok} helpbox91={help_box_wave91_ok} message91={message_wave91_ok} eva91={eva_wave91_ok} video91={video_wave91_ok} briefing91={mission_briefing_wave91_ok} weapon92={weapon_deepen_wave92_ok} armor92={armor_expand_wave92_ok} body92={body_health_wave92_ok} loco92={locomotor_expand_wave92_ok} science92={science_names_wave92_ok} particle93={particle_emit_wave93_ok} drawable93={drawable_opacity_wave93_ok} shadow93={shadow_deepen_wave93_ok} terrain_tex93={terrain_texture_wave93_ok} road93={road_wave93_ok} ai_state94={ai_state_wave94_ok} special_ability94={special_ability_wave94_ok} upgrade_names94={upgrade_names_wave94_ok} command_set94={command_set_wave94_ok} script_action95={script_action_wave95_ok} script_cond95={script_condition_wave95_ok} map_object95={map_object_wave95_ok} waypoint95={waypoint_wave95_ok} team95={team_wave95_ok} player95={player_deepen_wave95_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
+            "host={host_constructed} cfg={skirmish_config_ok} menu_cfg={menu_config_ok} map_res={map_resolved} map_load={map_loaded} frames={frames_advanced} pres={presentation_ok} dual_tick={dual_tick_presentation_ok} dual_tick_ctr={dual_tick_counters_ok} hud_sel={hud_selection_ok} sel_consumers={selection_consumers_ok} minimap_fow={minimap_fow_presentation_ok} laser_upload={laser_segment_upload_ok} multi_beam={multi_beam_soft_edge_ok} laser_pres={laser_presentation_residual_ok} floating_text={floating_text_layout_ok} ft_vanish={floating_text_vanish_ok} world_anim={world_anim_presentation_ok} world_anim_layout={world_anim_layout_ok} wa_fade={world_anim_fade_ok} anim2d={anim2d_frame_ok} anim2d_col={anim2d_collection_residual_ok} translate_copy={translate_copy_residual_ok} game_text={game_text_caption_ok} csf_str={game_text_csf_str_ok} ds_measure={display_string_measure_ok} rng={rng_stream_residual_ok} mesh={mesh_asset_residual_ok} rng_pack={rng_residual_pack_ok} sp72={special_power_wave72_residual_ok} sp73={special_power_wave73_residual_ok} sp76={special_power_wave76_residual_ok} paradrop76={paradrop_wave76_residual_ok} cb76={control_bar_wave76_residual_ok} gfx76={graphics_wave76_residual_ok} spectre_decal={spectre_orbit_decal_presentation_ok} sp77={special_power_wave77_residual_ok} fow77={fow_residual_pack_ok} gh77={ground_height_presentation_ok} weapon77={weapon_store_seed_residual_ok} ai77={ai_skirmish_residual_ok} sp78={special_power_wave78_residual_ok} cluster78={cluster_mines_wave78_residual_ok} gps78={gps_scrambler_wave78_residual_ok} cash78={cash_bounty_wave78_residual_ok} minimap79={minimap_residual_pack_ok} sel79={selection_hud_residual_pack_ok} input79={input_residual_pack_ok} draw79={drawable_residual_fields_ok} train79={unit_training_wave79_residual_ok} upg79={upgrades_cost_time_application_ok} cmdbtn80={command_button_wave80_residual_ok} rank80={science_rank_wave80_residual_ok} kindof80={superweapon_kindof_wave80_residual_ok} spenum80={special_power_enum_wave80_residual_ok} height81={terrain_height_sample_wave81_ok} path81={pathfinder_wave81_residual_ok} loco81={locomotor_table_wave81_ok} armor81={armor_table_wave81_ok} puc81={puc_flare_table_wave81_ok} dmg82={damage_type_wave82_ok} death82={death_type_wave82_ok} mc82={model_condition_wave82_ok} wbonus82={weapon_bonus_wave82_ok} ostatus82={object_status_wave82_ok} prod83={production_queue_wave83_ok} supply83={supply_warehouse_wave83_ok} dozer83={dozer_build_wave83_ok} capture83={capture_building_wave83_ok} power83={power_plant_wave83_ok} cc83={command_center_wave83_ok} kindof84={kindof_wave84_ok} wslot84={weapon_slot_wave84_ok} vet84={veterancy_wave84_ok} rel84={relationship_wave84_ok} geom84={geometry_wave84_ok} shadow84={shadow_wave84_ok} faction85={faction_side_wave85_ok} ptpl85={player_template_wave85_ok} cash85={starting_cash_wave85_ok} aiperson85={skirmish_ai_personality_wave85_ok} victory85={victory_condition_wave85_ok} cam86={gamedata_camera_fps_wave86_ok} world86={gamedata_world_constants_wave86_ok} mpopt86={multiplayer_options_wave86_ok} mapsel86={map_selection_wave86_ok} crate86={crate_deepen_wave86_ok} weather87={weather_wave87_ok} water87={water_wave87_ok} bridge87={bridge_wave87_ok} tunnel87={tunnel_wave87_ok} garrison87={garrison_wave87_ok} transport87={transport_wave87_ok} radius88={radius_cursor_wave88_ok} mouse88={mouse_cursor_wave88_ok} fxlist88={superweapon_fxlist_wave88_ok} ocl88={superweapon_ocl_wave88_ok} particle88={superweapon_particle_wave88_ok} audio88={superweapon_audio_wave88_ok} rank89={rank_skill_wave89_ok} exp89={experience_wave89_ok} hotkey89={hotkey_wave89_ok} chat89={chat_wave89_ok} replay89={replay_wave89_ok} options89={options_wave89_ok} gamespeed90={gamespeed_wave90_ok} framerate90={frame_rate_wave90_ok} debug90={debug_tables_wave90_ok} lang90={language_wave90_ok} credits90={credits_wave90_ok} tooltip91={tooltip_wave91_ok} helpbox91={help_box_wave91_ok} message91={message_wave91_ok} eva91={eva_wave91_ok} video91={video_wave91_ok} briefing91={mission_briefing_wave91_ok} weapon92={weapon_deepen_wave92_ok} armor92={armor_expand_wave92_ok} body92={body_health_wave92_ok} loco92={locomotor_expand_wave92_ok} science92={science_names_wave92_ok} particle93={particle_emit_wave93_ok} drawable93={drawable_opacity_wave93_ok} shadow93={shadow_deepen_wave93_ok} terrain_tex93={terrain_texture_wave93_ok} road93={road_wave93_ok} ai_state94={ai_state_wave94_ok} special_ability94={special_ability_wave94_ok} upgrade_names94={upgrade_names_wave94_ok} command_set94={command_set_wave94_ok} script_action95={script_action_wave95_ok} script_cond95={script_condition_wave95_ok} map_object95={map_object_wave95_ok} waypoint95={waypoint_wave95_ok} team95={team_wave95_ok} player95={player_deepen_wave95_ok} partition96={partition_wave96_ok} collision96={collision_wave96_ok} physics96={physics_wave96_ok} projectile96={projectile_wave96_ok} radar97={radar_deepen_wave97_ok} spotter97={spotter_wave97_ok} stealth97={stealth_deepen_wave97_ok} detector97={detector_deepen_wave97_ok} vision97={vision_wave97_ok} screen={screen_skirmish_ok} control_bar={control_bar_layout_ok} cb_path={control_bar_path_resolved} cb_valid={control_bar_wnd_validated} cb_loaded={control_bar_window_loaded} cb_windows={control_bar_window_count} shell_host_playable_ok={shell_host_playable_ok} playable_claim={playable_claim} {layout_report}"
         ),
     }
 }
@@ -1857,6 +1913,52 @@ mod tests {
         assert!(
             r.player_deepen_wave95_ok,
             "player residual deepen pack wave95: {}",
+            r.detail
+        );
+        assert!(
+            r.partition_wave96_ok,
+            "partition residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.collision_wave96_ok,
+            "collision residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.physics_wave96_ok,
+            "physics residual pack wave96: {}",
+            r.detail
+        );
+        assert!(
+            r.projectile_wave96_ok,
+            "projectile residual deepen pack wave96: {}",
+            r.detail
+        );
+
+        assert!(
+            r.radar_deepen_wave97_ok,
+            "radar residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.spotter_wave97_ok,
+            "spotter residual pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.stealth_deepen_wave97_ok,
+            "stealth residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.detector_deepen_wave97_ok,
+            "detector residual deepen pack wave97: {}",
+            r.detail
+        );
+        assert!(
+            r.vision_wave97_ok,
+            "vision residual pack wave97: {}",
             r.detail
         );
         assert!(
