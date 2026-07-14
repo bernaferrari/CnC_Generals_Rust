@@ -1435,7 +1435,23 @@ pub struct PresentationFrame {
     pub local_player_id: u32,
     pub local_supplies: u32,
     pub local_power: i32,
+    /// Host Player::power_produced residual (energy bar numerator side).
+    pub local_power_produced: i32,
+    /// Host Player::power_consumed residual (energy bar demand side).
+    pub local_power_consumed: i32,
     pub local_color_rgb: (u8, u8, u8),
+    /// Local player still alive residual.
+    pub local_is_alive: bool,
+    /// Radar provider count residual (CommandCenter / RadarVan).
+    pub local_radar_count: i32,
+    /// Script/power radar disable residual.
+    pub local_radar_disabled: bool,
+    /// GLA cash bounty percent residual (0..1).
+    pub local_cash_bounty_percent: f32,
+    /// Unlocked science names residual (capped).
+    pub local_unlocked_sciences: Vec<String>,
+    /// Queued upgrade template names residual (capped).
+    pub local_queued_upgrades: Vec<String>,
     pub selected: Vec<ObjectId>,
     pub events: Vec<PresentationEvent>,
     pub match_over: bool,
@@ -1585,7 +1601,34 @@ impl PresentationFrame {
         let local = logic.get_player(local_player_id);
         let local_supplies = local.map(|p| p.resources.supplies).unwrap_or(0);
         let local_power = local.map(|p| p.power_available).unwrap_or(0);
+        let local_power_produced = local.map(|p| p.power_produced).unwrap_or(0);
+        let local_power_consumed = local.map(|p| p.power_consumed).unwrap_or(0);
         let local_color_rgb = local.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
+        let local_is_alive = local.map(|p| p.is_alive).unwrap_or(false);
+        let local_radar_count = local.map(|p| p.radar_count).unwrap_or(0);
+        let local_radar_disabled = local.map(|p| p.radar_disabled).unwrap_or(false);
+        let local_cash_bounty_percent = local
+            .map(|p| p.cash_bounty_percent.clamp(0.0, 1.0))
+            .unwrap_or(0.0);
+        const MAX_SCIENCE_NAMES: usize = 32;
+        const MAX_UPGRADE_NAMES: usize = 32;
+        let mut local_unlocked_sciences: Vec<String> = local
+            .map(|p| {
+                let mut v: Vec<String> = p.unlocked_sciences.iter().cloned().collect();
+                v.sort();
+                v.truncate(MAX_SCIENCE_NAMES);
+                v
+            })
+            .unwrap_or_default();
+        let mut local_queued_upgrades: Vec<String> = local
+            .map(|p| {
+                let mut v: Vec<String> = p.queued_upgrades.iter().cloned().collect();
+                v.sort();
+                v.truncate(MAX_UPGRADE_NAMES);
+                v
+            })
+            .unwrap_or_default();
+        let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
         let selected = local
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -1755,7 +1798,15 @@ impl PresentationFrame {
             local_player_id,
             local_supplies,
             local_power,
+            local_power_produced,
+            local_power_consumed,
             local_color_rgb,
+            local_is_alive,
+            local_radar_count,
+            local_radar_disabled,
+            local_cash_bounty_percent,
+            local_unlocked_sciences,
+            local_queued_upgrades,
             selected,
             events,
             match_over: false,
@@ -1938,6 +1989,22 @@ impl PresentationFrame {
             .iter()
             .filter(|o| !o.destroyed && o.contained_by.is_some())
             .collect()
+    }
+
+    /// True when local player has any radar provider and radar is not disabled.
+    pub fn local_radar_active(&self) -> bool {
+        self.local_radar_count > 0 && !self.local_radar_disabled
+    }
+
+    /// Energy ratio residual (produced / max(consumed,1)) for power bar UI.
+    pub fn local_energy_ratio(&self) -> f32 {
+        let demand = self.local_power_consumed.max(1) as f32;
+        self.local_power_produced as f32 / demand
+    }
+
+    /// Whether a science name is unlocked for the local player residual.
+    pub fn local_has_science(&self, name: &str) -> bool {
+        self.local_unlocked_sciences.iter().any(|s| s == name)
     }
 
     /// Overlay health/position/destroyed from a GameWorld shadow session.
@@ -2743,6 +2810,58 @@ mod tests {
             "expected EconomyChanged: {:?}",
             frame.events
         );
+    }
+
+    #[test]
+    fn local_player_freeze_from_host() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut t = ThingTemplate::new("LocalUnit");
+        t.set_health(50.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("LocalUnit".into(), t);
+        let _uid = logic
+            .create_object("LocalUnit", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let pid = 0u32;
+        if let Some(p) = logic.get_player_mut(pid) {
+            p.is_local = true;
+            p.is_alive = true;
+            p.resources.supplies = 12345;
+            p.power_available = 40;
+            p.power_produced = 100;
+            p.power_consumed = 55;
+            p.radar_count = 2;
+            p.radar_disabled = false;
+            p.cash_bounty_percent = 0.1;
+            p.unlocked_sciences.insert("SCIENCE_RedGuards".into());
+            p.unlocked_sciences.insert("SCIENCE_CashBounty1".into());
+            p.queued_upgrades
+                .insert("Upgrade_AmericaAdvancedTraining".into());
+            p.color_rgb = (10, 20, 30);
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, pid);
+        assert_eq!(frame.local_player_id, pid);
+        assert_eq!(frame.local_supplies, 12345);
+        assert_eq!(frame.local_power, 40);
+        assert_eq!(frame.local_power_produced, 100);
+        assert_eq!(frame.local_power_consumed, 55);
+        assert!(frame.local_is_alive);
+        assert_eq!(frame.local_radar_count, 2);
+        assert!(!frame.local_radar_disabled);
+        assert!(frame.local_radar_active());
+        assert!((frame.local_cash_bounty_percent - 0.1).abs() < 0.001);
+        assert!(frame.local_has_science("SCIENCE_CashBounty1"));
+        assert!(frame
+            .local_unlocked_sciences
+            .contains(&"SCIENCE_RedGuards".into()));
+        assert!(frame
+            .local_queued_upgrades
+            .contains(&"Upgrade_AmericaAdvancedTraining".into()));
+        assert_eq!(frame.local_color_rgb, (10, 20, 30));
+        let ratio = frame.local_energy_ratio();
+        assert!((ratio - (100.0 / 55.0)).abs() < 0.01);
     }
 
     #[test]
