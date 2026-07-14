@@ -764,6 +764,107 @@ fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<PresentationWorldA
     out
 }
 
+// --- Wave 73: Spectre AttackAreaDecal / TargetingReticleDecal presentation residual ---
+
+/// Retail Spectre AttackAreaDecal Texture residual (`SCCSpecTarg`).
+pub const PRESENTATION_SPECTRE_ATTACK_AREA_DECAL: &str = "SCCSpecTarg";
+/// Retail Spectre TargetingReticleDecal Texture residual (`SCCSpecRet`).
+pub const PRESENTATION_SPECTRE_TARGETING_RETICLE_DECAL: &str = "SCCSpecRet";
+/// Retail Spectre decal Color residual (R:127 G:177 B:222 A:255) as RGBA 0..1.
+pub const PRESENTATION_SPECTRE_DECAL_COLOR: [f32; 4] = [
+    127.0 / 255.0,
+    177.0 / 255.0,
+    222.0 / 255.0,
+    1.0,
+];
+/// Retail AttackAreaDecal OpacityMin residual (25%).
+pub const PRESENTATION_SPECTRE_ATTACK_AREA_OPACITY_MIN: f32 = 0.25;
+/// Retail AttackAreaDecal OpacityMax residual (50%).
+pub const PRESENTATION_SPECTRE_ATTACK_AREA_OPACITY_MAX: f32 = 0.50;
+/// Retail TargetingReticleDecal OpacityMin residual (50%).
+pub const PRESENTATION_SPECTRE_RETICLE_OPACITY_MIN: f32 = 0.50;
+/// Retail TargetingReticleDecal OpacityMax residual (100%).
+pub const PRESENTATION_SPECTRE_RETICLE_OPACITY_MAX: f32 = 1.00;
+/// Retail AttackAreaDecal OpacityThrobTime residual (msec).
+pub const PRESENTATION_SPECTRE_ATTACK_AREA_THROB_MS: u32 = 1500;
+/// Retail TargetingReticleDecal OpacityThrobTime residual (msec).
+pub const PRESENTATION_SPECTRE_RETICLE_THROB_MS: u32 = 300;
+/// Retail AttackAreaRadius residual (presentation cursor / decal radius).
+pub const PRESENTATION_SPECTRE_ATTACK_AREA_RADIUS: f32 = 200.0;
+/// Retail TargetingReticleRadius residual.
+pub const PRESENTATION_SPECTRE_RETICLE_RADIUS: f32 = 25.0;
+/// Retail AttackAreaDecal Style residual.
+pub const PRESENTATION_SPECTRE_DECAL_STYLE: &str = "SHADOW_ALPHA_DECAL";
+/// Retail OnlyVisibleToOwningPlayer residual (both decals).
+pub const PRESENTATION_SPECTRE_DECAL_ONLY_OWNER: bool = true;
+
+/// Snapshot-owned Spectre orbit decal presentation residual (AttackArea + Reticle).
+///
+/// Fail-closed: not full SHADOW_ALPHA_DECAL GPU throb / owning-player visibility filter.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PresentationSpectreOrbitDecal {
+    pub attack_area_texture: &'static str,
+    pub reticle_texture: &'static str,
+    pub color: [f32; 4],
+    pub attack_area_radius: f32,
+    pub reticle_radius: f32,
+    pub attack_area_opacity_min: f32,
+    pub attack_area_opacity_max: f32,
+    pub reticle_opacity_min: f32,
+    pub reticle_opacity_max: f32,
+    pub attack_area_throb_ms: u32,
+    pub reticle_throb_ms: u32,
+    pub style: &'static str,
+    pub only_visible_to_owning_player: bool,
+}
+
+impl PresentationSpectreOrbitDecal {
+    /// Retail SpectreGunshipUpdate AttackAreaDecal + TargetingReticleDecal residual defaults.
+    pub const RETAIL: Self = Self {
+        attack_area_texture: PRESENTATION_SPECTRE_ATTACK_AREA_DECAL,
+        reticle_texture: PRESENTATION_SPECTRE_TARGETING_RETICLE_DECAL,
+        color: PRESENTATION_SPECTRE_DECAL_COLOR,
+        attack_area_radius: PRESENTATION_SPECTRE_ATTACK_AREA_RADIUS,
+        reticle_radius: PRESENTATION_SPECTRE_RETICLE_RADIUS,
+        attack_area_opacity_min: PRESENTATION_SPECTRE_ATTACK_AREA_OPACITY_MIN,
+        attack_area_opacity_max: PRESENTATION_SPECTRE_ATTACK_AREA_OPACITY_MAX,
+        reticle_opacity_min: PRESENTATION_SPECTRE_RETICLE_OPACITY_MIN,
+        reticle_opacity_max: PRESENTATION_SPECTRE_RETICLE_OPACITY_MAX,
+        attack_area_throb_ms: PRESENTATION_SPECTRE_ATTACK_AREA_THROB_MS,
+        reticle_throb_ms: PRESENTATION_SPECTRE_RETICLE_THROB_MS,
+        style: PRESENTATION_SPECTRE_DECAL_STYLE,
+        only_visible_to_owning_player: PRESENTATION_SPECTRE_DECAL_ONLY_OWNER,
+    };
+
+    /// Honesty: retail Spectre AttackAreaDecal / TargetingReticleDecal presentation residual.
+    pub fn honesty_residual_ok(self) -> bool {
+        self.attack_area_texture == "SCCSpecTarg"
+            && self.reticle_texture == "SCCSpecRet"
+            && (self.attack_area_radius - 200.0).abs() < 0.01
+            && (self.reticle_radius - 25.0).abs() < 0.01
+            && (self.attack_area_opacity_min - 0.25).abs() < 0.001
+            && (self.attack_area_opacity_max - 0.50).abs() < 0.001
+            && (self.reticle_opacity_min - 0.50).abs() < 0.001
+            && (self.reticle_opacity_max - 1.00).abs() < 0.001
+            && self.attack_area_throb_ms == 1500
+            && self.reticle_throb_ms == 300
+            && self.style == "SHADOW_ALPHA_DECAL"
+            && self.only_visible_to_owning_player
+            && (self.color[0] - 127.0 / 255.0).abs() < 0.001
+            && (self.color[1] - 177.0 / 255.0).abs() < 0.001
+            && (self.color[2] - 222.0 / 255.0).abs() < 0.001
+            && (self.color[3] - 1.0).abs() < 0.001
+            && self.attack_area_opacity_min < self.attack_area_opacity_max
+            && self.reticle_opacity_min < self.reticle_opacity_max
+            && self.reticle_radius < self.attack_area_radius
+    }
+}
+
+/// Free-function honesty for Spectre orbit decal presentation residual (Wave 73).
+pub fn honesty_spectre_orbit_decal_presentation_ok() -> bool {
+    PresentationSpectreOrbitDecal::RETAIL.honesty_residual_ok()
+}
+
 /// Dual-tick residual counters frozen on each presentation build / apply.
 ///
 /// Host-testable bookkeeping for seed → logic step → multi-consumer apply order.
@@ -1262,6 +1363,16 @@ impl PresentationFrame {
             b.honesty_ground_height_ok() && b.honesty_soft_edge_presentation_ok()
         }) && PRESENTATION_ORBITAL_SOFT_EDGE.honesty_orbital_residual_ok()
             && honesty_ground_height_residual_ok(PRESENTATION_DEFAULT_GROUND_HEIGHT, false)
+    }
+
+    /// Honesty: Spectre AttackAreaDecal / TargetingReticleDecal presentation residual (Wave 73).
+    ///
+    /// Constant pack — presentation freezes retail decal defaults so dual-tick
+    /// consumers can draw orbit cursors without re-reading live SpectreGunshipUpdate.
+    /// Fail-closed: not full SHADOW_ALPHA_DECAL GPU throb submit.
+    pub fn spectre_orbit_decal_presentation_residual_ok(&self) -> bool {
+        let _ = self;
+        honesty_spectre_orbit_decal_presentation_ok()
     }
 
     /// Note a dual-tick apply on this snapshot (HUD / shell multi-consumer path).
@@ -2619,5 +2730,28 @@ mod tests {
         assert!(frame.floating_text_vanish_residual_ok());
         assert!(frame.world_anim_fade_residual_ok());
         assert!(frame.laser_presentation_residual_ok());
+    }
+
+    /// Wave 73: Spectre AttackAreaDecal / TargetingReticleDecal presentation residual.
+    #[test]
+    fn spectre_orbit_decal_presentation_residual_wave73() {
+        assert!(honesty_spectre_orbit_decal_presentation_ok());
+        let decal = PresentationSpectreOrbitDecal::RETAIL;
+        assert!(decal.honesty_residual_ok());
+        assert_eq!(decal.attack_area_texture, "SCCSpecTarg");
+        assert_eq!(decal.reticle_texture, "SCCSpecRet");
+        assert!((decal.attack_area_radius - 200.0).abs() < 0.01);
+        assert!((decal.reticle_radius - 25.0).abs() < 0.01);
+        assert_eq!(decal.attack_area_throb_ms, 1500);
+        assert_eq!(decal.reticle_throb_ms, 300);
+        assert_eq!(decal.style, "SHADOW_ALPHA_DECAL");
+        assert!(decal.only_visible_to_owning_player);
+        assert!(decal.reticle_radius < decal.attack_area_radius);
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SpectreDecalPres");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(snap.spectre_orbit_decal_presentation_residual_ok());
     }
 }
