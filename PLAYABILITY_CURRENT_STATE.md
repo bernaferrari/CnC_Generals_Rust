@@ -1,3 +1,40 @@
+## Residual Host Playability — Wave 72: remaining host residual packs + special_power Daisy/A10 deepen (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **RNG residual pack** (`host_rng_residual`) — only host missing `honesty_*residual_pack_ok`:
+   - MultFactor **1/(2^32-1)** + default six-word ADC seed table residual.
+   - Pure index-seeded re-query stability + structure scatter scale **0.3**.
+   - Live logic/client/audio stream exercise + ADC parity residual.
+   - Honesty: `honesty_rng_residual_pack_ok`.
+2. **Mines residual pack gate** (`host_mines`):
+   - Existing Wave 51 pack (`honesty_mines_residual_pack_ok`) + wave72 honesty test.
+3. **EMP Pulse residual pack gate** (`host_emp_pulse`):
+   - Existing Wave 51 pack (`honesty_emp_pulse_residual_pack_ok`) + wave72 honesty test.
+4. **Upgrades residual pack gate** (`host_upgrades`):
+   - Existing Wave 62 pack (`honesty_upgrades_residual_pack_ok`) + wave72 honesty test.
+5. **Unit Training residual pack gate** (`host_unit_training`):
+   - Existing Wave 62 pack (`honesty_unit_training_residual_pack_ok`) + wave72 honesty test.
+6. **Strategy Center residual pack gate** (`host_strategy_center`):
+   - Existing Wave 62 pack (`honesty_strategy_center_residual_pack_ok`) + wave72 honesty test.
+7. **Sneak Attack residual pack gate** (`host_sneak_attack`):
+   - Existing Wave 62 pack (`honesty_sneak_attack_residual_pack_ok`) + wave72 honesty test.
+8. **Special Power residual deepen** (`special_power_strikes`):
+   - **DaisyCutter / MOAB** residual pack: ReloadTime **360000**ms → **10800**f,
+     RadiusCursor **170**, science SCIENCE_DaisyCutter, ViewObject **30000**/range **250**,
+     DaisyCutterDetonationWeapon **2000**/r**100**, flame secondary **5**/r**100**.
+   - **A10 Thunderbolt** residual pack: ReloadTime **240000**ms → **7200**f,
+     RadiusCursor **50**, science SCIENCE_A10ThunderboltMissileStrike1,
+     host aggregate **500**/r**100**, missile **200**/r**50**, ClipReload **20000**ms → **600**f,
+     Vulcan **10**/r**4**/delay **60**ms.
+   - Combined: `honesty_special_power_residual_pack_ok` (carpet/cruise/artillery/nuke/anthrax
+     + DaisyCutter + A10).
+   - HostSuperweaponKind Daisy/A10 delay/damage/radius wired to pack constants.
+9. Tests / gates (not log-only):
+   - `rng_residual_pack_honesty_wave72` / mines / emp_pulse / upgrades /
+     unit_training / strategy_center / sneak_attack / special_power
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 71: heal/repair/frenzy residual packs + flashbang fix (2026-07-13)
 
 **Closed (host-testable residual peels):**

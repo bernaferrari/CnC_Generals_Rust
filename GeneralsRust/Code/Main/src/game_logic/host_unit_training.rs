@@ -587,4 +587,16 @@ mod tests {
         assert!(reg.honesty_free_unit_ok());
         assert_eq!(reg.free_unit_grants, 1);
     }
+
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn unit_training_residual_pack_honesty_wave72() {
+        assert!(honesty_unit_training_residual_pack_ok());
+        assert!(honesty_unit_training_veterancy_residual_ok());
+        assert!(honesty_unit_training_time_residual_ok());
+        assert!(honesty_unit_training_free_unit_residual_ok());
+        assert_eq!(RED_GUARD_BUILD_TIME_FRAMES, 300);
+        assert_eq!(INFERNO_CANNON_BUILD_TIME_FRAMES, 450);
+        assert_eq!(FREE_VETERAN_PILOT_TEMPLATE, "AmericaInfantryPilot");
+    }
 }

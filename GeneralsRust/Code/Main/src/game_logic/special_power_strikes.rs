@@ -185,6 +185,21 @@
 //! (DETONATED / LASERED+OCL / GENERIC) + Scale 0.6 / Geometry / Shadow pack;
 //! TrailRemnant KindOf NO_COLLIDE+UNATTACKABLE+IMMOBILE + ImmortalBody MaxHealth
 //! 50 residual pack. Fail-closed: not full ThingFactory Object / live module stack.
+//! Wave 73 residual closed: SpectreGunship orbit residual pack deepen
+//! (HowitzerFiringRate 300ms→9f / HowitzerFollowLag 400ms→12f /
+//! GunshipOrbitRadius 250 vs AttackAreaRadius 200 science-tier table /
+//! TargetingReticleRadius 25 / StrafingIncrement 20 / OrbitInsertionSlope 0.7 /
+//! AttackAreaDecal SCCSpecTarg + TargetingReticleDecal SCCSpecRet /
+//! dual-weapon ROF howitzer 9→6→4 / gattling 3→1→1 schedule /
+//! SuperweaponSpectreGunship Reload 240s / AirF 180s / ViewObject 30s/250);
+//! NuclearMissile radiation residual pack deepen (AttackRange 15 /
+//! MinimumAttackRange 10 / KindOf IMMOBILE+CLEANUP_HAZARD+INERT+NO_COLLIDE /
+//! HazardousMaterialArmor / Geometry CYLINDER h1 / HazardFieldCoreWeapon /
+//! DeathFX FX_RadiationPoolDie / SuperweaponNeutronMissile Reload 360s);
+//! SupW variants residual pack (SupW Neutron Reload 240s / SupW PUC 180s /
+//! Nuke_ Neutron 300s / AirF Spectre 180s / RadiusCursor 210). Fail-closed:
+//! not full SpectreGunshipUpdate OCL aircraft / HazardousMaterialArmor cleanup
+//! stack / SupW ThingFactory Object.
 
 use super::ObjectId;
 use crate::command_system::SpecialPowerType;
@@ -236,6 +251,45 @@ pub const NUKE_RADIATION_FIELD_MAX_HEALTH: f32 = 150.0;
 /// Retail NukeRadiationFieldWeapon GeometryMajorRadius residual.
 pub const NUKE_RADIATION_GEOMETRY_MAJOR_RADIUS: f32 = 100.0;
 
+// --- Wave 73: NuclearMissile radiation residual pack deepen ---
+
+/// Retail `NukeRadiationFieldWeapon` AttackRange residual.
+pub const NUKE_RADIATION_ATTACK_RANGE: f32 = 15.0;
+/// Retail `NukeRadiationFieldWeapon` MinimumAttackRange residual.
+pub const NUKE_RADIATION_MINIMUM_ATTACK_RANGE: f32 = 10.0;
+/// Retail NukeRadiationFieldWeapon KindOf residual.
+pub const NUKE_RADIATION_KIND_OF: &str = "IMMOBILE CLEANUP_HAZARD INERT NO_COLLIDE";
+/// Retail NukeRadiationFieldWeapon Armor residual.
+pub const NUKE_RADIATION_ARMOR: &str = "HazardousMaterialArmor";
+/// Retail NukeRadiationFieldWeapon Geometry residual.
+pub const NUKE_RADIATION_GEOMETRY: &str = "CYLINDER";
+/// Retail NukeRadiationFieldWeapon GeometryHeight residual.
+pub const NUKE_RADIATION_GEOMETRY_HEIGHT: f32 = 1.0;
+/// Retail NukeRadiationFieldWeapon GeometryIsSmall residual.
+pub const NUKE_RADIATION_GEOMETRY_IS_SMALL: bool = false;
+/// Retail NukeRadiationFieldWeapon InitialHealth residual.
+pub const NUKE_RADIATION_FIELD_INITIAL_HEALTH: f32 = 150.0;
+/// Retail NukeRadiationFieldWeapon EditorSorting residual.
+pub const NUKE_RADIATION_EDITOR_SORTING: &str = "SYSTEM";
+/// Retail NukeRadiationFieldWeapon HazardFieldCoreWeapon residual (stack clean).
+pub const NUKE_RADIATION_HAZARD_FIELD_CORE_WEAPON: &str = "HazardFieldCoreWeapon";
+/// Retail NukeRadiationFieldWeapon FXListDie DeathFX residual.
+pub const NUKE_RADIATION_DEATH_FX: &str = "FX_RadiationPoolDie";
+/// Retail SuperweaponNeutronMissile ReloadTime residual (msec).
+pub const NUCLEAR_MISSILE_RELOAD_MS: u32 = 360_000;
+/// SuperweaponNeutronMissile ReloadTime 360000ms → 10800 frames @ 30 FPS.
+pub const NUCLEAR_MISSILE_RELOAD_FRAMES: u32 = 10_800;
+/// Retail SuperweaponNeutronMissile RadiusCursorRadius residual.
+pub const NUCLEAR_MISSILE_RADIUS_CURSOR: f32 = 210.0;
+/// Retail SuperweaponNeutronMissile ViewObjectDuration residual (msec).
+pub const NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_MS: u32 = 40_000;
+/// ViewObjectDuration 40000ms → 1200 frames.
+pub const NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_FRAMES: u32 = 1_200;
+/// Retail SuperweaponNeutronMissile ViewObjectRange residual.
+pub const NUCLEAR_MISSILE_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SuperweaponNeutronMissile InitiateAtLocationSound residual.
+pub const NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND: &str = "AirRaidSiren";
+
 // --- Anthrax toxin residual (retail AnthraxBombPoisonFieldWeapon / LifetimeUpdate) ---
 
 /// Retail `AnthraxBombPoisonFieldWeapon` PrimaryDamage.
@@ -282,6 +336,8 @@ pub const ANTHRAX_TOXIN_MINIMUM_ATTACK_RANGE: f32 = 10.0;
 pub const SPECTRE_ORBIT_DAMAGE_PER_TICK: f32 = 80.0;
 /// Retail `SpectreGunshipUpdate` AttackAreaRadius / RadiusCursorRadius.
 pub const SPECTRE_ORBIT_RADIUS: f32 = 200.0;
+/// Retail HowitzerFiringRate residual (msec).
+pub const SPECTRE_HOWITZER_FIRING_RATE_MS: u32 = 300;
 /// Retail HowitzerFiringRate = 300 ms → 9 frames @ 30 FPS.
 pub const SPECTRE_ORBIT_TICK_INTERVAL_FRAMES: u32 = 9;
 /// Retail OrbitTime = 15000 ms @ 30 FPS.
@@ -292,6 +348,65 @@ pub const SPECTRE_ORBIT_AUDIO: &str = "SpectreGunshipAmbientLoop";
 pub const SPECTRE_HOWITZER_RADIUS: f32 = 25.0;
 /// Retail `SpectreGunshipUpdate` RandomOffsetForHowitzer residual.
 pub const SPECTRE_HOWITZER_RANDOM_OFFSET: f32 = 20.0;
+
+// --- Wave 73: SpectreGunship orbit residual pack deepen ---
+
+/// Retail `SpectreGunshipUpdate` HowitzerFollowLag residual (msec).
+/// How long after gattling acquires target before howitzer may fire same.
+pub const SPECTRE_HOWITZER_FOLLOW_LAG_MS: u32 = 400;
+/// HowitzerFollowLag 400ms → 12 frames @ 30 FPS.
+pub const SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES: u32 = 12;
+/// Retail `SpectreGunshipUpdate` GunshipOrbitRadius residual (flight circle).
+/// Distinct from AttackAreaRadius **200** (damage/cursor circle).
+pub const SPECTRE_GUNSHIP_ORBIT_RADIUS: f32 = 250.0;
+/// Retail `SpectreGunshipUpdate` TargetingReticleRadius residual.
+pub const SPECTRE_TARGETING_RETICLE_RADIUS: f32 = 25.0;
+/// Retail `SpectreGunshipUpdate` StrafingIncrement residual (gattling step).
+pub const SPECTRE_STRAFING_INCREMENT: f32 = 20.0;
+/// Retail `SpectreGunshipUpdate` OrbitInsertionSlope residual.
+pub const SPECTRE_ORBIT_INSERTION_SLOPE: f32 = 0.7;
+/// Retail `SpectreGunshipUpdate` GattlingStrafeFXParticleSystem residual.
+pub const SPECTRE_GATTLING_STRAFE_FX: &str = "SpectreGattlingArmsSmoke";
+/// Retail AttackAreaDecal Texture residual.
+pub const SPECTRE_ATTACK_AREA_DECAL_TEXTURE: &str = "SCCSpecTarg";
+/// Retail TargetingReticleDecal Texture residual.
+pub const SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE: &str = "SCCSpecRet";
+/// Retail AttackAreaDecal / TargetingReticleDecal Color residual (RGBA 0..255).
+pub const SPECTRE_DECAL_COLOR: (u8, u8, u8, u8) = (127, 177, 222, 255);
+/// Retail AttackAreaDecal OpacityThrobTime residual (msec).
+pub const SPECTRE_ATTACK_AREA_DECAL_THROB_MS: u32 = 1500;
+/// Retail TargetingReticleDecal OpacityThrobTime residual (msec).
+pub const SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS: u32 = 300;
+/// Retail SuperweaponSpectreGunship ReloadTime residual (msec).
+pub const SPECTRE_RELOAD_MS: u32 = 240_000;
+/// SuperweaponSpectreGunship ReloadTime 240000ms → 7200 frames.
+pub const SPECTRE_RELOAD_FRAMES: u32 = 7_200;
+/// Retail AirF_SuperweaponSpectreGunship ReloadTime residual (msec).
+pub const SPECTRE_AIRF_RELOAD_MS: u32 = 180_000;
+/// AirF Spectre ReloadTime 180000ms → 5400 frames.
+pub const SPECTRE_AIRF_RELOAD_FRAMES: u32 = 5_400;
+/// Retail SuperweaponSpectreGunship ViewObjectDuration residual (msec).
+pub const SPECTRE_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration 30000ms → 900 frames.
+pub const SPECTRE_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail SuperweaponSpectreGunship ViewObjectRange residual.
+pub const SPECTRE_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SuperweaponSpectreGunship SpecialPowerTemplate name residual.
+pub const SPECTRE_SPECIAL_POWER_TEMPLATE: &str = "SuperweaponSpectreGunship";
+/// Retail AirF Spectre SpecialPowerTemplate name residual.
+pub const SPECTRE_AIRF_SPECIAL_POWER_TEMPLATE: &str = "AirF_SuperweaponSpectreGunship";
+/// Dual-weapon howitzer base interval frames (HowitzerFiringRate residual).
+pub const SPECTRE_DUAL_HOWITZER_BASE_INTERVAL: u32 = SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
+/// Dual-weapon howitzer MEAN interval (ROF 150% → floor(9/1.5)=6).
+pub const SPECTRE_DUAL_HOWITZER_MEAN_INTERVAL: u32 = 6;
+/// Dual-weapon howitzer FAST interval (ROF 200% → floor(9/2)=4).
+pub const SPECTRE_DUAL_HOWITZER_FAST_INTERVAL: u32 = 4;
+/// Dual-weapon gattling base interval frames (DelayBetweenShots 100ms → 3f).
+pub const SPECTRE_DUAL_GATTLING_BASE_INTERVAL: u32 = 3;
+/// Dual-weapon gattling MEAN interval (ROF 200% → floor(3/2)=1).
+pub const SPECTRE_DUAL_GATTLING_MEAN_INTERVAL: u32 = 1;
+/// Dual-weapon gattling FAST interval (ROF 300% → floor(3/3)=1).
+pub const SPECTRE_DUAL_GATTLING_FAST_INTERVAL: u32 = 1;
 /// Retail `SpectreGattlingGun` PrimaryDamage (single-target residual).
 pub const SPECTRE_GATTLING_DAMAGE: f32 = 90.0;
 /// Retail `SpectreGattlingGun` DelayBetweenShots = 100 ms → 3 frames @ 30 FPS.
@@ -2185,6 +2300,247 @@ pub fn honesty_anthrax_toxin_residual_pack() -> bool {
         && ANTHRAX_TOXIN_AUDIO == "AnthraxPoolAmbientLoop"
 }
 
+/// Honesty: DaisyCutter / MOAB special-power residual pack deepen (Wave 72).
+///
+/// SpecialPower.ini ReloadTime / RadiusCursor / science / ViewObject +
+/// DaisyCutterDetonationWeapon + DaisyCutterFlameWeapon residual.
+/// Fail-closed: not full FuelAirBombPower OCL cargo plane DeliverPayload Object.
+pub fn honesty_daisy_cutter_residual_pack() -> bool {
+    DAISY_CUTTER_RELOAD_MS == 360_000
+        && DAISY_CUTTER_RELOAD_FRAMES == 10_800
+        && duration_ms_to_logic_frames(DAISY_CUTTER_RELOAD_MS) == DAISY_CUTTER_RELOAD_FRAMES
+        && (DAISY_CUTTER_RADIUS_CURSOR - 170.0).abs() < 0.01
+        && DAISY_CUTTER_REQUIRED_SCIENCE == "SCIENCE_DaisyCutter"
+        && DAISY_CUTTER_SPECIAL_POWER == "SuperweaponDaisyCutter"
+        && DAISY_CUTTER_MOAB_SPECIAL_POWER == "SuperweaponMOAB"
+        && DAISY_CUTTER_VIEW_OBJECT_DURATION_MS == 30_000
+        && DAISY_CUTTER_VIEW_OBJECT_DURATION_FRAMES == 900
+        && duration_ms_to_logic_frames(DAISY_CUTTER_VIEW_OBJECT_DURATION_MS)
+            == DAISY_CUTTER_VIEW_OBJECT_DURATION_FRAMES
+        && (DAISY_CUTTER_VIEW_OBJECT_RANGE - 250.0).abs() < 0.1
+        && DAISY_CUTTER_SHARED_SYNCED_TIMER
+        && !DAISY_CUTTER_PUBLIC_TIMER
+        && DAISY_CUTTER_SHORTCUT_POWER
+        && (DAISY_CUTTER_PRIMARY_DAMAGE - 2000.0).abs() < 0.1
+        && (DAISY_CUTTER_PRIMARY_RADIUS - 100.0).abs() < 0.1
+        && (DAISY_CUTTER_OUTER_RADIUS - 170.0).abs() < 0.1
+        && DAISY_CUTTER_IMPACT_DELAY_FRAMES == 90
+        && DAISY_CUTTER_DAMAGE_TYPE == "EXPLOSION"
+        && DAISY_CUTTER_DEATH_TYPE == "EXPLODED"
+        && (DAISY_CUTTER_FLAME_DAMAGE - 5.0).abs() < 0.01
+        && (DAISY_CUTTER_FLAME_RADIUS - 100.0).abs() < 0.1
+        && DAISY_CUTTER_EXPLOSION_AUDIO == "DaisyCutterExplosion"
+        // Host kind residual parity with pack constants.
+        && HostSuperweaponKind::DaisyCutter.impact_delay_frames()
+            == DAISY_CUTTER_IMPACT_DELAY_FRAMES
+        && (HostSuperweaponKind::DaisyCutter.max_damage() - DAISY_CUTTER_PRIMARY_DAMAGE).abs()
+            < 0.1
+        && (HostSuperweaponKind::DaisyCutter.damage_radius() - DAISY_CUTTER_OUTER_RADIUS).abs()
+            < 0.1
+        && HostSuperweaponKind::DaisyCutter.spawns_moab_flame()
+}
+
+/// Honesty: A-10 Thunderbolt special-power residual pack deepen (Wave 72).
+///
+/// SpecialPower.ini ReloadTime / RadiusCursor / science / ViewObject +
+/// A10ThunderboltMissileWeapon / Vulcan residual.
+/// Fail-closed: not full AmericaJetA10Thunderbolt DeliverPayload flight Object.
+pub fn honesty_a10_strike_residual_pack() -> bool {
+    A10_STRIKE_RELOAD_MS == 240_000
+        && A10_STRIKE_RELOAD_FRAMES == 7_200
+        && duration_ms_to_logic_frames(A10_STRIKE_RELOAD_MS) == A10_STRIKE_RELOAD_FRAMES
+        && (A10_STRIKE_RADIUS_CURSOR - 50.0).abs() < 0.01
+        && A10_STRIKE_REQUIRED_SCIENCE == "SCIENCE_A10ThunderboltMissileStrike1"
+        && A10_STRIKE_SPECIAL_POWER == "SuperweaponA10ThunderboltMissileStrike"
+        && A10_STRIKE_VIEW_OBJECT_DURATION_MS == 30_000
+        && A10_STRIKE_VIEW_OBJECT_DURATION_FRAMES == 900
+        && duration_ms_to_logic_frames(A10_STRIKE_VIEW_OBJECT_DURATION_MS)
+            == A10_STRIKE_VIEW_OBJECT_DURATION_FRAMES
+        && (A10_STRIKE_VIEW_OBJECT_RANGE - 250.0).abs() < 0.1
+        && A10_STRIKE_SHARED_SYNCED_TIMER
+        && !A10_STRIKE_PUBLIC_TIMER
+        && A10_STRIKE_SHORTCUT_POWER
+        && (A10_STRIKE_HOST_MAX_DAMAGE - 500.0).abs() < 0.1
+        && (A10_STRIKE_HOST_RADIUS - 100.0).abs() < 0.1
+        && (A10_STRIKE_HOST_INNER_RADIUS - 40.0).abs() < 0.1
+        && A10_STRIKE_IMPACT_DELAY_FRAMES == 60
+        && (A10_MISSILE_PRIMARY_DAMAGE - 200.0).abs() < 0.1
+        && (A10_MISSILE_PRIMARY_RADIUS - 50.0).abs() < 0.1
+        && A10_MISSILE_CLIP_RELOAD_MS == 20_000
+        && A10_MISSILE_CLIP_RELOAD_FRAMES == 600
+        && duration_ms_to_logic_frames(A10_MISSILE_CLIP_RELOAD_MS) == A10_MISSILE_CLIP_RELOAD_FRAMES
+        && (A10_VULCAN_PRIMARY_DAMAGE - 10.0).abs() < 0.01
+        && (A10_VULCAN_PRIMARY_RADIUS - 4.0).abs() < 0.01
+        && A10_VULCAN_DELAY_BETWEEN_SHOTS_MS == 60
+        && A10_STRIKE_IMPACT_AUDIO == "A10StrikeImpact"
+        && HostSuperweaponKind::A10Strike.impact_delay_frames() == A10_STRIKE_IMPACT_DELAY_FRAMES
+        && (HostSuperweaponKind::A10Strike.max_damage() - A10_STRIKE_HOST_MAX_DAMAGE).abs() < 0.1
+        && (HostSuperweaponKind::A10Strike.damage_radius() - A10_STRIKE_HOST_RADIUS).abs() < 0.1
+}
+
+/// Combined Wave 72 special-power residual honesty pack (free constant packs).
+///
+/// Consolidates carpet/cruise/artillery/nuke/anthrax + DaisyCutter/A10 deepen.
+pub fn honesty_special_power_residual_pack_ok() -> bool {
+    honesty_carpet_bomb_residual_pack()
+        && honesty_cruise_missile_residual_pack()
+        && honesty_artillery_barrage_residual_pack()
+        && honesty_nuke_radiation_residual_pack()
+        && honesty_anthrax_toxin_residual_pack()
+        && honesty_daisy_cutter_residual_pack()
+        && honesty_a10_strike_residual_pack()
+}
+
+// --- Wave 73 residual honesty packs ---
+
+/// Honesty: SpectreGunship orbit residual pack deepen (Wave 73).
+///
+/// HowitzerFiringRate / FollowLag / GunshipOrbitRadius vs AttackAreaRadius /
+/// science-tier AttackAreaRadius table / dual-weapon ROF schedule / SpecialPower
+/// Reload+ViewObject / AttackAreaDecal residual.
+/// Fail-closed: not full SpectreGunshipUpdate OCL aircraft / live gattling strafe.
+pub fn honesty_spectre_orbit_residual_pack_wave73() -> bool {
+    SPECTRE_HOWITZER_FIRING_RATE_MS == 300
+        && SPECTRE_ORBIT_TICK_INTERVAL_FRAMES == 9
+        && duration_ms_to_logic_frames(SPECTRE_HOWITZER_FIRING_RATE_MS)
+            == SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
+        && SPECTRE_HOWITZER_FOLLOW_LAG_MS == 400
+        && SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES == 12
+        && duration_ms_to_logic_frames(SPECTRE_HOWITZER_FOLLOW_LAG_MS)
+            == SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES
+        && (SPECTRE_GUNSHIP_ORBIT_RADIUS - 250.0).abs() < 0.01
+        && (SPECTRE_ORBIT_RADIUS - 200.0).abs() < 0.01
+        // Gunship flight circle is larger than damage/cursor AttackAreaRadius.
+        && SPECTRE_GUNSHIP_ORBIT_RADIUS > SPECTRE_ORBIT_RADIUS
+        && (SPECTRE_TARGETING_RETICLE_RADIUS - 25.0).abs() < 0.01
+        && (SPECTRE_STRAFING_INCREMENT - 20.0).abs() < 0.01
+        && (SPECTRE_ORBIT_INSERTION_SLOPE - 0.7).abs() < 0.001
+        && SPECTRE_GATTLING_STRAFE_FX == "SpectreGattlingArmsSmoke"
+        && SPECTRE_ATTACK_AREA_DECAL_TEXTURE == "SCCSpecTarg"
+        && SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE == "SCCSpecRet"
+        && SPECTRE_DECAL_COLOR == (127, 177, 222, 255)
+        && SPECTRE_ATTACK_AREA_DECAL_THROB_MS == 1500
+        && SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS == 300
+        && SPECTRE_RELOAD_MS == 240_000
+        && SPECTRE_RELOAD_FRAMES == 7_200
+        && duration_ms_to_logic_frames(SPECTRE_RELOAD_MS) == SPECTRE_RELOAD_FRAMES
+        && SPECTRE_AIRF_RELOAD_MS == 180_000
+        && SPECTRE_AIRF_RELOAD_FRAMES == 5_400
+        && duration_ms_to_logic_frames(SPECTRE_AIRF_RELOAD_MS) == SPECTRE_AIRF_RELOAD_FRAMES
+        && SPECTRE_VIEW_OBJECT_DURATION_MS == 30_000
+        && SPECTRE_VIEW_OBJECT_DURATION_FRAMES == 900
+        && duration_ms_to_logic_frames(SPECTRE_VIEW_OBJECT_DURATION_MS)
+            == SPECTRE_VIEW_OBJECT_DURATION_FRAMES
+        && (SPECTRE_VIEW_OBJECT_RANGE - 250.0).abs() < 0.1
+        && SPECTRE_SPECIAL_POWER_TEMPLATE == "SuperweaponSpectreGunship"
+        && SPECTRE_AIRF_SPECIAL_POWER_TEMPLATE == "AirF_SuperweaponSpectreGunship"
+        // Science tiers only change OrbitTime; AttackAreaRadius stays 200.
+        && SpectreGunshipScienceTier::Level1.attack_area_radius() == SPECTRE_ORBIT_RADIUS
+        && SpectreGunshipScienceTier::Level2.attack_area_radius() == SPECTRE_ORBIT_RADIUS
+        && SpectreGunshipScienceTier::Level3.attack_area_radius() == SPECTRE_ORBIT_RADIUS
+        && SpectreGunshipScienceTier::Level1.orbit_duration_frames() == 300
+        && SpectreGunshipScienceTier::Level2.orbit_duration_frames() == 450
+        && SpectreGunshipScienceTier::Level3.orbit_duration_frames() == 600
+        // Dual-weapon ROF residual schedule.
+        && SPECTRE_DUAL_HOWITZER_BASE_INTERVAL == 9
+        && SPECTRE_DUAL_HOWITZER_MEAN_INTERVAL == 6
+        && SPECTRE_DUAL_HOWITZER_FAST_INTERVAL == 4
+        && SPECTRE_DUAL_GATTLING_BASE_INTERVAL == 3
+        && SPECTRE_DUAL_GATTLING_MEAN_INTERVAL == 1
+        && SPECTRE_DUAL_GATTLING_FAST_INTERVAL == 1
+        && spectre_howitzer_interval_frames(0) == SPECTRE_DUAL_HOWITZER_BASE_INTERVAL
+        && spectre_howitzer_interval_frames(2) == SPECTRE_DUAL_HOWITZER_MEAN_INTERVAL
+        && spectre_howitzer_interval_frames(3) == SPECTRE_DUAL_HOWITZER_FAST_INTERVAL
+        && spectre_gattling_interval_frames(0) == SPECTRE_DUAL_GATTLING_BASE_INTERVAL
+        && spectre_gattling_interval_frames(2) == SPECTRE_DUAL_GATTLING_MEAN_INTERVAL
+        && spectre_gattling_interval_frames(3) == SPECTRE_DUAL_GATTLING_FAST_INTERVAL
+        && (SPECTRE_HOWITZER_RANDOM_OFFSET - 20.0).abs() < 0.01
+        && (SPECTRE_HOWITZER_RADIUS - 25.0).abs() < 0.01
+        && HostSuperweaponKind::SpectreGunship.damage_radius() == SPECTRE_ORBIT_RADIUS
+}
+
+/// Honesty: NuclearMissile radiation residual pack deepen (Wave 73).
+///
+/// NukeRadiationFieldWeapon AttackRange / KindOf / Armor / Geometry / DeathFX /
+/// HazardFieldCore + SuperweaponNeutronMissile Reload/ViewObject residual.
+/// Fail-closed: not full HazardousMaterialArmor cleanup-hazard stack.
+pub fn honesty_nuke_radiation_residual_pack_wave73() -> bool {
+    honesty_nuke_radiation_residual_pack()
+        && (NUKE_RADIATION_ATTACK_RANGE - 15.0).abs() < 0.01
+        && (NUKE_RADIATION_MINIMUM_ATTACK_RANGE - 10.0).abs() < 0.01
+        && NUKE_RADIATION_KIND_OF.contains("IMMOBILE")
+        && NUKE_RADIATION_KIND_OF.contains("CLEANUP_HAZARD")
+        && NUKE_RADIATION_KIND_OF.contains("INERT")
+        && NUKE_RADIATION_KIND_OF.contains("NO_COLLIDE")
+        && NUKE_RADIATION_ARMOR == "HazardousMaterialArmor"
+        && NUKE_RADIATION_GEOMETRY == "CYLINDER"
+        && (NUKE_RADIATION_GEOMETRY_HEIGHT - 1.0).abs() < 0.01
+        && !NUKE_RADIATION_GEOMETRY_IS_SMALL
+        && (NUKE_RADIATION_FIELD_INITIAL_HEALTH - 150.0).abs() < 0.1
+        && (NUKE_RADIATION_FIELD_INITIAL_HEALTH - NUKE_RADIATION_FIELD_MAX_HEALTH).abs() < 0.01
+        && NUKE_RADIATION_EDITOR_SORTING == "SYSTEM"
+        && NUKE_RADIATION_HAZARD_FIELD_CORE_WEAPON == "HazardFieldCoreWeapon"
+        && NUKE_RADIATION_DEATH_FX == "FX_RadiationPoolDie"
+        && NUCLEAR_MISSILE_RELOAD_MS == 360_000
+        && NUCLEAR_MISSILE_RELOAD_FRAMES == 10_800
+        && duration_ms_to_logic_frames(NUCLEAR_MISSILE_RELOAD_MS) == NUCLEAR_MISSILE_RELOAD_FRAMES
+        && (NUCLEAR_MISSILE_RADIUS_CURSOR - 210.0).abs() < 0.01
+        && NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_MS == 40_000
+        && NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_FRAMES == 1_200
+        && duration_ms_to_logic_frames(NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_MS)
+            == NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_FRAMES
+        && (NUCLEAR_MISSILE_VIEW_OBJECT_RANGE - 250.0).abs() < 0.1
+        && NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND == "AirRaidSiren"
+        && (HostSuperweaponKind::NuclearMissile.damage_radius() - NUCLEAR_MISSILE_RADIUS_CURSOR)
+            .abs()
+            < 0.01
+}
+
+/// Honesty: SupW / AirF / Nuke_ special-power variant residual pack (Wave 73).
+///
+/// SupW_SuperweaponNeutronMissile / SupW_ParticleUplink / Nuke_ Neutron /
+/// AirF Spectre ReloadTime + RadiusCursor residual table.
+/// Fail-closed: not full SupW ThingFactory Object / general faction select.
+pub fn honesty_supw_variants_residual_pack_wave73() -> bool {
+    SUPW_NEUTRON_MISSILE_RELOAD_MS == 240_000
+        && SUPW_NEUTRON_MISSILE_RELOAD_FRAMES == 7_200
+        && duration_ms_to_logic_frames(SUPW_NEUTRON_MISSILE_RELOAD_MS)
+            == SUPW_NEUTRON_MISSILE_RELOAD_FRAMES
+        && (SUPW_NEUTRON_MISSILE_RADIUS_CURSOR - 210.0).abs() < 0.01
+        && SUPW_NEUTRON_MISSILE_VIEW_OBJECT_DURATION_MS == 40_000
+        && SUPW_NEUTRON_MISSILE_VIEW_OBJECT_DURATION_FRAMES == 1_200
+        && (SUPW_NEUTRON_MISSILE_VIEW_OBJECT_RANGE - 250.0).abs() < 0.1
+        && SUPW_NEUTRON_MISSILE_SPECIAL_POWER == "SupW_SuperweaponNeutronMissile"
+        && SUPW_PUC_RELOAD_MS == 180_000
+        && SUPW_PUC_RELOAD_FRAMES == 5_400
+        && duration_ms_to_logic_frames(SUPW_PUC_RELOAD_MS) == SUPW_PUC_RELOAD_FRAMES
+        && SUPW_PUC_SPECIAL_POWER == "SupW_SuperweaponParticleUplinkCannon"
+        && NUKE_GENERAL_NEUTRON_RELOAD_MS == 300_000
+        && NUKE_GENERAL_NEUTRON_RELOAD_FRAMES == 9_000
+        && duration_ms_to_logic_frames(NUKE_GENERAL_NEUTRON_RELOAD_MS)
+            == NUKE_GENERAL_NEUTRON_RELOAD_FRAMES
+        && NUKE_GENERAL_NEUTRON_SPECIAL_POWER == "Nuke_SuperweaponNeutronMissile"
+        && (NUKE_GENERAL_NEUTRON_RADIUS_CURSOR - 210.0).abs() < 0.01
+        // SupW Neutron is faster than standard China NeutronMissile (360s).
+        && SUPW_NEUTRON_MISSILE_RELOAD_MS < NUCLEAR_MISSILE_RELOAD_MS
+        // Nuke general is between SupW (240s) and standard (360s).
+        && NUKE_GENERAL_NEUTRON_RELOAD_MS > SUPW_NEUTRON_MISSILE_RELOAD_MS
+        && NUKE_GENERAL_NEUTRON_RELOAD_MS < NUCLEAR_MISSILE_RELOAD_MS
+        // SupW PUC is faster than standard ParticleUplink (240s).
+        && SUPW_PUC_RELOAD_MS < 240_000
+        // AirF Spectre is faster than USA Spectre (240s).
+        && SPECTRE_AIRF_RELOAD_MS < SPECTRE_RELOAD_MS
+        && CRUISE_MISSILE_RELOAD_MS == 120_000
+        && CRUISE_MISSILE_RELOAD_FRAMES == 3_600
+}
+
+/// Combined Wave 73 residual honesty pack.
+pub fn honesty_special_power_residual_pack_wave73_ok() -> bool {
+    honesty_spectre_orbit_residual_pack_wave73()
+        && honesty_nuke_radiation_residual_pack_wave73()
+        && honesty_supw_variants_residual_pack_wave73()
+}
+
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
 pub fn honesty_deletion_update_sleep_delay() -> bool {
     PARTICLE_REMNANT_DELETION_MIN_FRAMES == 120
@@ -2720,6 +3076,131 @@ pub const MOAB_FLAME_DEATH_TYPE: &str = "BURNED";
 /// (door times deferred; impact delay stays CRUISE_MISSILE_IMPACT_DELAY_FRAMES).
 pub const CRUISE_MISSILE_LOFT_COMPOSITE_FRAMES: u32 =
     CRUISE_MISSILE_SPECIAL_SPEED_TIME_FRAMES + CRUISE_MISSILE_HEIGHT_DIE_INITIAL_DELAY_FRAMES;
+
+// --- DaisyCutter special-power residual pack (Wave 72, SpecialPower.ini + Weapon.ini) ---
+
+/// Retail SuperweaponDaisyCutter / SuperweaponMOAB ReloadTime residual (msec).
+pub const DAISY_CUTTER_RELOAD_MS: u32 = 360_000;
+/// ReloadTime frames residual (360000 ms → 10800 @ 30 FPS).
+pub const DAISY_CUTTER_RELOAD_FRAMES: u32 = 10_800;
+/// Retail SuperweaponDaisyCutter RadiusCursorRadius residual (shared by MOAB).
+pub const DAISY_CUTTER_RADIUS_CURSOR: f32 = 170.0;
+/// Retail SuperweaponDaisyCutter RequiredScience residual.
+pub const DAISY_CUTTER_REQUIRED_SCIENCE: &str = "SCIENCE_DaisyCutter";
+/// Retail SuperweaponDaisyCutter template residual name.
+pub const DAISY_CUTTER_SPECIAL_POWER: &str = "SuperweaponDaisyCutter";
+/// Retail SuperweaponMOAB upgrade residual name (same SPECIAL_DAISY_CUTTER enum).
+pub const DAISY_CUTTER_MOAB_SPECIAL_POWER: &str = "SuperweaponMOAB";
+/// Retail ViewObjectDuration residual (msec).
+pub const DAISY_CUTTER_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration frames residual (30000 ms → 900).
+pub const DAISY_CUTTER_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail ViewObjectRange residual.
+pub const DAISY_CUTTER_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SharedSyncedTimer residual.
+pub const DAISY_CUTTER_SHARED_SYNCED_TIMER: bool = true;
+/// Retail PublicTimer residual.
+pub const DAISY_CUTTER_PUBLIC_TIMER: bool = false;
+/// Retail ShortcutPower residual.
+pub const DAISY_CUTTER_SHORTCUT_POWER: bool = true;
+/// Retail DaisyCutterDetonationWeapon PrimaryDamage residual.
+pub const DAISY_CUTTER_PRIMARY_DAMAGE: f32 = 2000.0;
+/// Retail DaisyCutterDetonationWeapon PrimaryDamageRadius residual.
+pub const DAISY_CUTTER_PRIMARY_RADIUS: f32 = 100.0;
+/// Host residual outer damage radius (RadiusCursorRadius residual for falloff).
+pub const DAISY_CUTTER_OUTER_RADIUS: f32 = 170.0;
+/// FuelAirBombPower residual impact delay frames (3.0s @ 30 FPS).
+pub const DAISY_CUTTER_IMPACT_DELAY_FRAMES: u32 = 90;
+/// Retail DaisyCutterDetonationWeapon DamageType residual.
+pub const DAISY_CUTTER_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail DaisyCutterDetonationWeapon DeathType residual.
+pub const DAISY_CUTTER_DEATH_TYPE: &str = "EXPLODED";
+/// Retail DaisyCutterFlameWeapon PrimaryDamage residual (tree-ignite secondary).
+pub const DAISY_CUTTER_FLAME_DAMAGE: f32 = 5.0;
+/// Retail DaisyCutterFlameWeapon PrimaryDamageRadius residual.
+pub const DAISY_CUTTER_FLAME_RADIUS: f32 = 100.0;
+/// Host residual impact audio cue.
+pub const DAISY_CUTTER_EXPLOSION_AUDIO: &str = "DaisyCutterExplosion";
+
+// --- A10 Thunderbolt special-power residual pack (Wave 72) ---
+
+/// Retail SuperweaponA10ThunderboltMissileStrike ReloadTime residual (msec).
+pub const A10_STRIKE_RELOAD_MS: u32 = 240_000;
+/// ReloadTime frames residual (240000 ms → 7200 @ 30 FPS).
+pub const A10_STRIKE_RELOAD_FRAMES: u32 = 7_200;
+/// Retail SuperweaponA10ThunderboltMissileStrike RadiusCursorRadius residual.
+pub const A10_STRIKE_RADIUS_CURSOR: f32 = 50.0;
+/// Retail RequiredScience residual (tier 1).
+pub const A10_STRIKE_REQUIRED_SCIENCE: &str = "SCIENCE_A10ThunderboltMissileStrike1";
+/// Retail SpecialPower template residual name.
+pub const A10_STRIKE_SPECIAL_POWER: &str = "SuperweaponA10ThunderboltMissileStrike";
+/// Retail ViewObjectDuration residual (msec).
+pub const A10_STRIKE_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration frames residual (30000 ms → 900).
+pub const A10_STRIKE_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail ViewObjectRange residual.
+pub const A10_STRIKE_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SharedSyncedTimer residual.
+pub const A10_STRIKE_SHARED_SYNCED_TIMER: bool = true;
+/// Retail PublicTimer residual.
+pub const A10_STRIKE_PUBLIC_TIMER: bool = false;
+/// Retail ShortcutPower residual.
+pub const A10_STRIKE_SHORTCUT_POWER: bool = true;
+/// Host residual aggregate max damage at epicenter (multi-missile residual path).
+pub const A10_STRIKE_HOST_MAX_DAMAGE: f32 = 500.0;
+/// Host residual outer damage radius for multi-missile residual path.
+pub const A10_STRIKE_HOST_RADIUS: f32 = 100.0;
+/// Host residual inner falloff radius.
+pub const A10_STRIKE_HOST_INNER_RADIUS: f32 = 40.0;
+/// A-10 flight/approach residual frames (shorter than full aircraft OCL).
+pub const A10_STRIKE_IMPACT_DELAY_FRAMES: u32 = 60;
+/// Retail A10ThunderboltMissileWeapon PrimaryDamage residual (per missile).
+pub const A10_MISSILE_PRIMARY_DAMAGE: f32 = 200.0;
+/// Retail A10ThunderboltMissileWeapon PrimaryDamageRadius residual.
+pub const A10_MISSILE_PRIMARY_RADIUS: f32 = 50.0;
+/// Retail A10ThunderboltMissileWeapon ClipReloadTime residual (msec).
+pub const A10_MISSILE_CLIP_RELOAD_MS: u32 = 20_000;
+/// ClipReloadTime frames residual (20000 ms → 600).
+pub const A10_MISSILE_CLIP_RELOAD_FRAMES: u32 = 600;
+/// Retail A10ThunderboltVulcan PrimaryDamage residual.
+pub const A10_VULCAN_PRIMARY_DAMAGE: f32 = 10.0;
+/// Retail A10ThunderboltVulcan PrimaryDamageRadius residual.
+pub const A10_VULCAN_PRIMARY_RADIUS: f32 = 4.0;
+/// Retail A10ThunderboltVulcan DelayBetweenShots residual (msec).
+pub const A10_VULCAN_DELAY_BETWEEN_SHOTS_MS: u32 = 60;
+/// Host residual impact audio cue.
+pub const A10_STRIKE_IMPACT_AUDIO: &str = "A10StrikeImpact";
+
+// --- Wave 73: SupW / Nuke_ / AirF special-power variant residual pack ---
+
+/// Retail SupW_SuperweaponNeutronMissile ReloadTime residual (msec).
+pub const SUPW_NEUTRON_MISSILE_RELOAD_MS: u32 = 240_000;
+/// SupW Neutron ReloadTime 240000ms → 7200 frames.
+pub const SUPW_NEUTRON_MISSILE_RELOAD_FRAMES: u32 = 7_200;
+/// Retail SupW_SuperweaponNeutronMissile RadiusCursorRadius residual.
+pub const SUPW_NEUTRON_MISSILE_RADIUS_CURSOR: f32 = 210.0;
+/// Retail SupW_SuperweaponNeutronMissile ViewObjectDuration residual (msec).
+pub const SUPW_NEUTRON_MISSILE_VIEW_OBJECT_DURATION_MS: u32 = 40_000;
+/// ViewObjectDuration 40000ms → 1200 frames.
+pub const SUPW_NEUTRON_MISSILE_VIEW_OBJECT_DURATION_FRAMES: u32 = 1_200;
+/// Retail SupW_SuperweaponNeutronMissile ViewObjectRange residual.
+pub const SUPW_NEUTRON_MISSILE_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SupW_SuperweaponNeutronMissile template residual name.
+pub const SUPW_NEUTRON_MISSILE_SPECIAL_POWER: &str = "SupW_SuperweaponNeutronMissile";
+/// Retail SupW_SuperweaponParticleUplinkCannon ReloadTime residual (msec).
+pub const SUPW_PUC_RELOAD_MS: u32 = 180_000;
+/// SupW PUC ReloadTime 180000ms → 5400 frames.
+pub const SUPW_PUC_RELOAD_FRAMES: u32 = 5_400;
+/// Retail SupW_SuperweaponParticleUplinkCannon template residual name.
+pub const SUPW_PUC_SPECIAL_POWER: &str = "SupW_SuperweaponParticleUplinkCannon";
+/// Retail Nuke_SuperweaponNeutronMissile ReloadTime residual (msec).
+pub const NUKE_GENERAL_NEUTRON_RELOAD_MS: u32 = 300_000;
+/// Nuke_ Neutron ReloadTime 300000ms → 9000 frames.
+pub const NUKE_GENERAL_NEUTRON_RELOAD_FRAMES: u32 = 9_000;
+/// Retail Nuke_SuperweaponNeutronMissile RadiusCursorRadius residual.
+pub const NUKE_GENERAL_NEUTRON_RADIUS_CURSOR: f32 = 210.0;
+/// Retail Nuke_SuperweaponNeutronMissile template residual name.
+pub const NUKE_GENERAL_NEUTRON_SPECIAL_POWER: &str = "Nuke_SuperweaponNeutronMissile";
 
 // --- ScudStorm multi-missile residual (retail ScudStormWeapon / ScudStormDamageWeapon) ---
 
@@ -3271,6 +3752,15 @@ impl SpectreGunshipScienceTier {
         }
     }
 
+    /// Retail AttackAreaRadius residual for this science tier.
+    ///
+    /// AirF LEVEL1/2/3 and default USA Spectre all use AttackAreaRadius **200**
+    /// (OrbitTime is the only science-tier orbit residual that changes).
+    pub fn attack_area_radius(self) -> f32 {
+        let _ = self;
+        SPECTRE_ORBIT_RADIUS
+    }
+
     /// Map SCIENCE_SpectreGunship1/2/3 (or AirF / Solo residual) to tier.
     pub fn from_science_name(name: &str) -> Option<Self> {
         let n: String = name
@@ -3390,9 +3880,9 @@ impl HostSuperweaponKind {
     pub fn impact_delay_frames(self) -> u32 {
         match self {
             // FuelAirBombPower residual: impact_delay 3.0s @ 30 FPS.
-            HostSuperweaponKind::DaisyCutter => 90,
+            HostSuperweaponKind::DaisyCutter => DAISY_CUTTER_IMPACT_DELAY_FRAMES,
             // A-10 flight/approach residual (shorter than full aircraft OCL).
-            HostSuperweaponKind::A10Strike => 60,
+            HostSuperweaponKind::A10Strike => A10_STRIKE_IMPACT_DELAY_FRAMES,
             // SCUD PreAttackDelay residual (first missile); multi-missile stagger follows.
             HostSuperweaponKind::ScudStorm => SCUD_STORM_PRE_ATTACK_FRAMES,
             // Particle Uplink charge + beam-travel residual
@@ -3420,8 +3910,8 @@ impl HostSuperweaponKind {
     /// Max damage at epicenter (host residual values; retail weapon tables deferred).
     pub fn max_damage(self) -> f32 {
         match self {
-            HostSuperweaponKind::DaisyCutter => 2000.0,
-            HostSuperweaponKind::A10Strike => 500.0,
+            HostSuperweaponKind::DaisyCutter => DAISY_CUTTER_PRIMARY_DAMAGE,
+            HostSuperweaponKind::A10Strike => A10_STRIKE_HOST_MAX_DAMAGE,
             // Retail ScudStormDamageWeapon PrimaryDamage (per missile).
             HostSuperweaponKind::ScudStorm => SCUD_STORM_PRIMARY_DAMAGE,
             // Continuous beam residual: no one-shot impact blast
@@ -3445,8 +3935,8 @@ impl HostSuperweaponKind {
     /// Outer damage radius (matches SpecialPower.ini RadiusCursorRadius where known).
     pub fn damage_radius(self) -> f32 {
         match self {
-            HostSuperweaponKind::DaisyCutter => 170.0,
-            HostSuperweaponKind::A10Strike => 100.0,
+            HostSuperweaponKind::DaisyCutter => DAISY_CUTTER_OUTER_RADIUS,
+            HostSuperweaponKind::A10Strike => A10_STRIKE_HOST_RADIUS,
             // Retail ScudStormDamageWeapon SecondaryDamageRadius.
             HostSuperweaponKind::ScudStorm => SCUD_STORM_SECONDARY_RADIUS,
             // Residual beam damage radius (see PARTICLE_BEAM_RADIUS).
@@ -3469,8 +3959,8 @@ impl HostSuperweaponKind {
     /// Inner radius with full damage (two-stage falloff).
     pub fn falloff_inner(self) -> f32 {
         match self {
-            HostSuperweaponKind::DaisyCutter => 100.0,
-            HostSuperweaponKind::A10Strike => 40.0,
+            HostSuperweaponKind::DaisyCutter => DAISY_CUTTER_PRIMARY_RADIUS,
+            HostSuperweaponKind::A10Strike => A10_STRIKE_HOST_INNER_RADIUS,
             // Retail ScudStormDamageWeapon PrimaryDamageRadius (full primary).
             HostSuperweaponKind::ScudStorm => SCUD_STORM_PRIMARY_RADIUS,
             // Continuous beam: no one-shot falloff (pulse damage is flat in radius).
@@ -14066,5 +14556,156 @@ mod tests {
         assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
         assert!(honesty_immortal_body_health_floor(50.0, -100.0, 1.0));
         assert!(honesty_deletion_update_sleep_delay());
+    }
+
+    /// Wave 72 residual pack honesty: DaisyCutter / A10 deepen + combined pack.
+    #[test]
+    fn special_power_residual_pack_honesty_wave72() {
+        assert!(honesty_daisy_cutter_residual_pack());
+        assert!(honesty_a10_strike_residual_pack());
+        assert!(honesty_special_power_residual_pack_ok());
+        assert_eq!(DAISY_CUTTER_RELOAD_FRAMES, 10_800);
+        assert_eq!(A10_STRIKE_RELOAD_FRAMES, 7_200);
+        assert!((DAISY_CUTTER_RADIUS_CURSOR - 170.0).abs() < 0.01);
+        assert!((A10_STRIKE_RADIUS_CURSOR - 50.0).abs() < 0.01);
+        assert_eq!(
+            HostSuperweaponKind::DaisyCutter.impact_delay_frames(),
+            90
+        );
+        assert_eq!(HostSuperweaponKind::A10Strike.impact_delay_frames(), 60);
+        assert!((A10_MISSILE_PRIMARY_DAMAGE - 200.0).abs() < 0.1);
+        assert!((DAISY_CUTTER_FLAME_DAMAGE - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn spectre_orbit_residual_pack_wave73_honesty() {
+        assert!(honesty_spectre_orbit_residual_pack_wave73());
+        assert_eq!(SPECTRE_HOWITZER_FIRING_RATE_MS, 300);
+        assert_eq!(SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, 9);
+        assert_eq!(duration_ms_to_logic_frames(300), 9);
+        assert_eq!(SPECTRE_HOWITZER_FOLLOW_LAG_MS, 400);
+        assert_eq!(SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES, 12);
+        assert!((SPECTRE_GUNSHIP_ORBIT_RADIUS - 250.0).abs() < 0.01);
+        assert!((SPECTRE_ORBIT_RADIUS - 200.0).abs() < 0.01);
+        assert!(SPECTRE_GUNSHIP_ORBIT_RADIUS > SPECTRE_ORBIT_RADIUS);
+        assert_eq!(SPECTRE_ATTACK_AREA_DECAL_TEXTURE, "SCCSpecTarg");
+        assert_eq!(SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE, "SCCSpecRet");
+        assert_eq!(SPECTRE_DECAL_COLOR, (127, 177, 222, 255));
+        assert_eq!(SPECTRE_RELOAD_MS, 240_000);
+        assert_eq!(SPECTRE_AIRF_RELOAD_MS, 180_000);
+        // Science tiers: OrbitTime scales, AttackAreaRadius fixed.
+        for tier in [
+            SpectreGunshipScienceTier::Level1,
+            SpectreGunshipScienceTier::Level2,
+            SpectreGunshipScienceTier::Level3,
+        ] {
+            assert!((tier.attack_area_radius() - 200.0).abs() < 0.01);
+        }
+        assert_eq!(SpectreGunshipScienceTier::Level1.orbit_duration_frames(), 300);
+        assert_eq!(SpectreGunshipScienceTier::Level2.orbit_duration_frames(), 450);
+        assert_eq!(SpectreGunshipScienceTier::Level3.orbit_duration_frames(), 600);
+        // Dual-weapon ROF residual schedule.
+        assert_eq!(spectre_howitzer_interval_frames(0), 9);
+        assert_eq!(spectre_howitzer_interval_frames(2), 6);
+        assert_eq!(spectre_howitzer_interval_frames(3), 4);
+        assert_eq!(spectre_gattling_interval_frames(0), 3);
+        assert_eq!(spectre_gattling_interval_frames(2), 1);
+        assert_eq!(spectre_gattling_interval_frames(3), 1);
+
+        // Application path: orbit spawn + dual-weapon tick still host-testable.
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue_with_tiers(
+            HostSuperweaponKind::SpectreGunship,
+            ObjectId(1),
+            Team::USA,
+            Vec3::ZERO,
+            0,
+            ArtilleryBarrageScienceTier::Level1,
+            SpectreGunshipScienceTier::Level3,
+        );
+        reg.record_impact_complete(id, 0.0, 0, 0);
+        assert!(!reg.orbit_fields().is_empty());
+        let field_id = reg.orbit_fields()[0].id;
+        let spawn = reg.orbit_fields()[0].spawn_frame;
+        assert_eq!(
+            reg.orbit_fields()[0].expires_frame,
+            spawn + SpectreGunshipScienceTier::Level3.orbit_duration_frames()
+        );
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
+        {
+            let f = &reg.orbit_fields()[0];
+            assert!(f.howitzer_ticks >= 1);
+        }
+        assert!(reg.honesty_orbit_ok());
+    }
+
+    #[test]
+    fn nuke_radiation_residual_pack_wave73_honesty() {
+        assert!(honesty_nuke_radiation_residual_pack_wave73());
+        assert!((NUKE_RADIATION_ATTACK_RANGE - 15.0).abs() < 0.01);
+        assert!((NUKE_RADIATION_MINIMUM_ATTACK_RANGE - 10.0).abs() < 0.01);
+        assert_eq!(NUKE_RADIATION_ARMOR, "HazardousMaterialArmor");
+        assert_eq!(NUKE_RADIATION_GEOMETRY, "CYLINDER");
+        assert!((NUKE_RADIATION_GEOMETRY_HEIGHT - 1.0).abs() < 0.01);
+        assert!(!NUKE_RADIATION_GEOMETRY_IS_SMALL);
+        assert_eq!(NUKE_RADIATION_DEATH_FX, "FX_RadiationPoolDie");
+        assert_eq!(NUKE_RADIATION_HAZARD_FIELD_CORE_WEAPON, "HazardFieldCoreWeapon");
+        assert_eq!(NUCLEAR_MISSILE_RELOAD_MS, 360_000);
+        assert_eq!(NUCLEAR_MISSILE_RELOAD_FRAMES, 10_800);
+        assert_eq!(duration_ms_to_logic_frames(360_000), 10_800);
+        assert!((NUCLEAR_MISSILE_RADIUS_CURSOR - 210.0).abs() < 0.01);
+        assert_eq!(NUCLEAR_MISSILE_VIEW_OBJECT_DURATION_FRAMES, 1_200);
+        assert!(NUKE_RADIATION_KIND_OF.contains("CLEANUP_HAZARD"));
+
+        let mut reg = HostSpecialPowerStrikeRegistry::new();
+        let id = reg.queue(
+            HostSuperweaponKind::NuclearMissile,
+            ObjectId(1),
+            Team::China,
+            Vec3::ZERO,
+            0,
+        );
+        reg.record_impact_complete(id, 1000.0, 1, 0);
+        assert!(!reg.radiation_fields().is_empty());
+        {
+            let f = &reg.radiation_fields()[0];
+            assert_eq!(f.radiation_residual_pack_armed, 1);
+            assert_eq!(f.radiation_suspend_fx_applications, 1);
+            assert_eq!(f.radiation_fire_fx_applications, 1);
+        }
+        assert!(reg.honesty_nuke_radiation_residual_pack_ok());
+        assert!(reg.honesty_radiation_ok());
+    }
+
+    #[test]
+    fn supw_variants_residual_pack_wave73_honesty() {
+        assert!(honesty_supw_variants_residual_pack_wave73());
+        assert_eq!(SUPW_NEUTRON_MISSILE_RELOAD_MS, 240_000);
+        assert_eq!(SUPW_NEUTRON_MISSILE_RELOAD_FRAMES, 7_200);
+        assert_eq!(
+            SUPW_NEUTRON_MISSILE_SPECIAL_POWER,
+            "SupW_SuperweaponNeutronMissile"
+        );
+        assert!((SUPW_NEUTRON_MISSILE_RADIUS_CURSOR - 210.0).abs() < 0.01);
+        assert_eq!(SUPW_PUC_RELOAD_MS, 180_000);
+        assert_eq!(SUPW_PUC_RELOAD_FRAMES, 5_400);
+        assert_eq!(
+            SUPW_PUC_SPECIAL_POWER,
+            "SupW_SuperweaponParticleUplinkCannon"
+        );
+        assert_eq!(NUKE_GENERAL_NEUTRON_RELOAD_MS, 300_000);
+        assert_eq!(NUKE_GENERAL_NEUTRON_RELOAD_FRAMES, 9_000);
+        assert_eq!(
+            NUKE_GENERAL_NEUTRON_SPECIAL_POWER,
+            "Nuke_SuperweaponNeutronMissile"
+        );
+        // Ordering: SupW 240s < Nuke_ 300s < standard China 360s.
+        assert!(SUPW_NEUTRON_MISSILE_RELOAD_MS < NUKE_GENERAL_NEUTRON_RELOAD_MS);
+        assert!(NUKE_GENERAL_NEUTRON_RELOAD_MS < NUCLEAR_MISSILE_RELOAD_MS);
+        // AirF Spectre faster than USA Spectre.
+        assert!(SPECTRE_AIRF_RELOAD_MS < SPECTRE_RELOAD_MS);
+        // SupW Cruise already residual.
+        assert_eq!(CRUISE_MISSILE_RELOAD_MS, 120_000);
+        assert!(honesty_special_power_residual_pack_wave73_ok());
     }
 }

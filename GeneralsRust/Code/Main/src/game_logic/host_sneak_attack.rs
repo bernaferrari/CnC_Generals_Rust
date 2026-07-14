@@ -608,4 +608,16 @@ mod tests {
         assert!(honesty_sneak_attack_spawn_residual_ok());
         assert!(honesty_sneak_attack_residual_pack_ok());
     }
+
+    /// Wave 72 residual pack honesty gate (wrapper residual_pack_ok).
+    #[test]
+    fn sneak_attack_residual_pack_honesty_wave72() {
+        assert!(honesty_sneak_attack_residual_pack_ok());
+        assert!(honesty_sneak_attack_special_power_residual_ok());
+        assert!(honesty_sneak_attack_tunnel_residual_ok());
+        assert!(honesty_sneak_attack_spawn_residual_ok());
+        assert_eq!(SNEAK_ATTACK_RELOAD_TIME_FRAMES, 4500);
+        assert_eq!(SNEAK_ATTACK_SPAWN_DELAY_FRAMES, 150);
+        assert!((SNEAK_ATTACK_SHOCKWAVE_DAMAGE - 50.0).abs() < 0.01);
+    }
 }
