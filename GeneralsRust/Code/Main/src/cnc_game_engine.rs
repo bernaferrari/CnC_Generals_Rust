@@ -8037,13 +8037,19 @@ impl CnCGameEngine {
                     let mut selection = Vec::new();
                     if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                         let team = player.team;
-                        for id in stored {
-                            if let Some(obj) = self.game_logic.find_object(id) {
-                                if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                                    selection.push(id);
+                        selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                            frame.filter_alive_selectable_ids(&stored, team)
+                        } else {
+                            let mut live = Vec::new();
+                            for id in stored {
+                                if let Some(obj) = self.game_logic.find_object(id) {
+                                    if obj.team == team && obj.is_selectable() && obj.is_alive() {
+                                        live.push(id);
+                                    }
                                 }
                             }
-                        }
+                            live
+                        };
                     }
 
                     self.game_logic
@@ -8062,12 +8068,17 @@ impl CnCGameEngine {
                 };
                 let team = player.team;
 
-                let mut selection = Vec::new();
-                for (&id, obj) in self.game_logic.get_objects() {
-                    if obj.team == team && obj.is_selectable() && obj.is_alive() {
-                        selection.push(id);
+                let selection = if let Some(frame) = self.last_presentation_frame.as_ref() {
+                    frame.alive_selectable_friendly_ids(team)
+                } else {
+                    let mut live = Vec::new();
+                    for (&id, obj) in self.game_logic.get_objects() {
+                        if obj.team == team && obj.is_selectable() && obj.is_alive() {
+                            live.push(id);
+                        }
                     }
-                }
+                    live
+                };
 
                 self.game_logic
                     .select_objects(self.current_player_id, selection.clone());
@@ -8093,14 +8104,22 @@ impl CnCGameEngine {
                 };
                 let team = player.team;
 
-                let mut all: Vec<ObjectId> = self
-                    .game_logic
-                    .get_objects()
-                    .iter()
-                    .filter(|(_, obj)| obj.team == team && obj.is_selectable() && obj.is_alive())
-                    .map(|(&id, _)| id)
-                    .collect();
-                all.sort_by_key(|id| id.0);
+                let all: Vec<ObjectId> = if let Some(frame) = self.last_presentation_frame.as_ref()
+                {
+                    frame.alive_selectable_friendly_ids(team)
+                } else {
+                    let mut live: Vec<ObjectId> = self
+                        .game_logic
+                        .get_objects()
+                        .iter()
+                        .filter(|(_, obj)| {
+                            obj.team == team && obj.is_selectable() && obj.is_alive()
+                        })
+                        .map(|(&id, _)| id)
+                        .collect();
+                    live.sort_by_key(|id| id.0);
+                    live
+                };
                 if all.is_empty() {
                     return;
                 }
