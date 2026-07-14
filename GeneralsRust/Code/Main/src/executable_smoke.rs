@@ -40,6 +40,8 @@ pub struct ExecutableSmokeResult {
     pub process_started: bool,
     pub reached_menu: bool,
     pub reached_ingame: bool,
+    /// Runtime-host select+move command accepted (not WND click; still not full playable_claim).
+    pub gameplay_cmd_ok: bool,
     pub frames_observed: u32,
     pub map_seen: String,
     pub exit_code: Option<i32>,
@@ -56,6 +58,7 @@ impl Default for ExecutableSmokeResult {
             process_started: false,
             reached_menu: false,
             reached_ingame: false,
+            gameplay_cmd_ok: false,
             frames_observed: 0,
             map_seen: "-".into(),
             exit_code: None,
@@ -72,6 +75,9 @@ struct StatusSnap {
     frame: u32,
     startup_progress: f32,
     startup_phase: String,
+    selected_count: u32,
+    local_mobile_units: u32,
+    last_gameplay_cmd: String,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -91,6 +97,9 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "frame" => snap.frame = v.trim().parse().unwrap_or(0),
             "startup_progress" => snap.startup_progress = v.trim().parse().unwrap_or(0.0),
             "startup_phase" => snap.startup_phase = v.trim().to_string(),
+            "selected_count" => snap.selected_count = v.trim().parse().unwrap_or(0),
+            "local_mobile_units" => snap.local_mobile_units = v.trim().parse().unwrap_or(0),
+            "last_gameplay_cmd" => snap.last_gameplay_cmd = v.trim().to_string(),
             _ => {}
         }
     }
@@ -267,6 +276,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
     result.process_started = true;
 
     let started = Instant::now();
+    let mut gameplay_step: u8 = 0;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
     let mut commanded_at: Option<Instant> = None;
@@ -394,14 +404,39 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
                     }
                 }
                 2 => {
-                    // Hold a few InGame frames then exit.
-                    if snap.frame >= 3
-                        || commanded_at
-                            .map(|t| t.elapsed() > Duration::from_secs(5))
-                            .unwrap_or(true)
+                    // Issue host gameplay commands (select + move), then exit.
+                    // Not WND widget clicks — still not playable_claim.
+                    if gameplay_step == 0 {
+                        let _ = write_control(&control_path, &["select_local_unit"]);
+                        gameplay_step = 1;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step == 1
+                        && (snap.last_gameplay_cmd.starts_with("select_ok")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(3))
+                                .unwrap_or(false))
                     {
-                        let _ = write_control(&control_path, &["exit"]);
-                        phase = 3;
+                        if snap.last_gameplay_cmd.starts_with("select_ok")
+                            || snap.selected_count > 0
+                        {
+                            result.gameplay_cmd_ok =
+                                snap.last_gameplay_cmd.starts_with("select_ok");
+                        }
+                        let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
+                        gameplay_step = 2;
+                        commanded_at = Some(Instant::now());
+                    } else if gameplay_step >= 2 {
+                        if snap.last_gameplay_cmd.starts_with("move_ok") {
+                            result.gameplay_cmd_ok = true;
+                        }
+                        if snap.frame >= 5
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .unwrap_or(true)
+                        {
+                            let _ = write_control(&control_path, &["exit"]);
+                            phase = 3;
+                        }
                     }
                 }
                 3 => {
@@ -472,13 +507,14 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} started={} menu={} ingame={} gameplay_cmd={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
         r.process_started,
         r.reached_menu,
         r.reached_ingame,
+        r.gameplay_cmd_ok,
         r.frames_observed,
         r.map_seen,
         r.exit_code,
