@@ -1,49 +1,3 @@
-## Residual Host Playability — Wave 102: DisplayString/Anim2D/laser/CSF presentation residual peels (2026-07-14)
-
-**Closed (host-testable residual peels; orthogonal graphics residual toward GPU):**
-1. **DisplayString residual deepen** (`floating_text_layout`):
-   - FontCharsClass spacing residual table: `CHAR_BUFFER_LEN` **32768**, ASCII array **256**,
-     PixelOverlap formula `clamp((-font_height)/8, 0, 4)`, Get_Char_Spacing =
-     Width − PixelOverlap − CharOverhang; monospaced Width=8 → spacing=8.
-   - ASCII printable 0x20..0x7E spacing residual table (**95** entries).
-   - StretchRect submit residual bookkeeping: shadow+text Draw_Sentence host counters,
-     optional hotkey submit, Render residual; `gpu_stretch_rect_submitted=false` always.
-   - Honesty: `honesty_display_string_residual_deepen_pack_wave102`.
-2. **Anim2D residual deepen** (`world_anim_layout`):
-   - Full Animation2D.ini template residual table (**14** names) with mode / delay_ms /
-     randomize / NumberImages / image-prefix / start-index metadata (not just MoneyPickUp).
-   - Collection `init_with_retail_templates` residual registers all 14 with residual metadata.
-   - Honesty: `honesty_anim2d_residual_deepen_pack_wave102`.
-3. **Laser SegLine residual deepen** (`laser_segment_upload`):
-   - Soft-edge UV atlas residual texture bind expand: TextureMapMode UNIFORM_WIDTH **0** /
-     TILED **2**, UVOffsetDeltaPerMS = rate×0.001, CurrentUVOffset advance residual,
-     atlas bind table EXNoise02 / EXBinaryStream32 / EXLaser.
-   - Multi-beam soft-edge residual cross-link retained.
-   - Honesty: `honesty_laser_segliner_residual_deepen_pack_wave102`.
-4. **Multi-locale CSF residual deepen** (`game_text_residual`):
-   - Expanded pack-load residual for all **10** LanguageId (primary 5 + UK/JA/Jabber/KO/Unknown).
-   - Fail-closed empty-table honesty when assets absent (CI).
-   - Honesty: `honesty_csf_multi_locale_residual_deepen_pack_wave102`.
-5. **Presentation residual deepen** (`presentation_frame`):
-   - Dual-tick residual deepen: selected_count + particle_count consistency;
-     deepen pack cross-links floating/world-anim/laser/spectre/mesh/ground residual.
-   - Honesty: `honesty_presentation_residual_deepen_pack_wave102`.
-6. **Wiring**:
-   - shell_smoke: display102/anim2d102/laser102/csf102/pres102 flags (playable_claim stays false)
-   - shell_smoke_gate requires wave102 honesty flags
-7. **Tests / gates**:
-   - Unit wave102 honesty tests PASS
-   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
-   - shell_smoke_gate → PASS playable_claim=false with display102=true…pres102=true
-
-**Still residual (fail-closed, not claimed):**
-- Full DisplayString GPU font atlas raster / WW3D StretchRect submit
-- Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
-- Full SegLineRenderer wgpu write_buffer / atlas sampler bind
-- Full multi-locale CSF GameTextManager boot UI for all LanguageId
-- Shell `playable_claim` remains false (no windowed W3D retail claim)
-- Network residual replication (network deferred)
-
 ## Residual Host Playability — Wave 103: weapon/armor/locomotor/special-power/KindOf residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Waves 101/102 ThingFactory/graphics):**
@@ -112,6 +66,52 @@
 - Shell playable_claim remains **false**
 - Golden playable_claim remains **true**
 - Network residual deferred
+
+## Residual Host Playability — Wave 102: DisplayString/Anim2D/laser/CSF presentation residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal graphics residual toward GPU):**
+1. **DisplayString residual deepen** (`floating_text_layout`):
+   - FontCharsClass spacing residual table: `CHAR_BUFFER_LEN` **32768**, ASCII array **256**,
+     PixelOverlap formula `clamp((-font_height)/8, 0, 4)`, Get_Char_Spacing =
+     Width − PixelOverlap − CharOverhang; monospaced Width=8 → spacing=8.
+   - ASCII printable 0x20..0x7E spacing residual table (**95** entries).
+   - StretchRect submit residual bookkeeping: shadow+text Draw_Sentence host counters,
+     optional hotkey submit, Render residual; `gpu_stretch_rect_submitted=false` always.
+   - Honesty: `honesty_display_string_residual_deepen_pack_wave102`.
+2. **Anim2D residual deepen** (`world_anim_layout`):
+   - Full Animation2D.ini template residual table (**14** names) with mode / delay_ms /
+     randomize / NumberImages / image-prefix / start-index metadata (not just MoneyPickUp).
+   - Collection `init_with_retail_templates` residual registers all 14 with residual metadata.
+   - Honesty: `honesty_anim2d_residual_deepen_pack_wave102`.
+3. **Laser SegLine residual deepen** (`laser_segment_upload`):
+   - Soft-edge UV atlas residual texture bind expand: TextureMapMode UNIFORM_WIDTH **0** /
+     TILED **2**, UVOffsetDeltaPerMS = rate×0.001, CurrentUVOffset advance residual,
+     atlas bind table EXNoise02 / EXBinaryStream32 / EXLaser.
+   - Multi-beam soft-edge residual cross-link retained.
+   - Honesty: `honesty_laser_segliner_residual_deepen_pack_wave102`.
+4. **Multi-locale CSF residual deepen** (`game_text_residual`):
+   - Expanded pack-load residual for all **10** LanguageId (primary 5 + UK/JA/Jabber/KO/Unknown).
+   - Fail-closed empty-table honesty when assets absent (CI).
+   - Honesty: `honesty_csf_multi_locale_residual_deepen_pack_wave102`.
+5. **Presentation residual deepen** (`presentation_frame`):
+   - Dual-tick residual deepen: selected_count + particle_count consistency;
+     deepen pack cross-links floating/world-anim/laser/spectre/mesh/ground residual.
+   - Honesty: `honesty_presentation_residual_deepen_pack_wave102`.
+6. **Wiring**:
+   - shell_smoke: display102/anim2d102/laser102/csf102/pres102 flags (playable_claim stays false)
+   - shell_smoke_gate requires wave102 honesty flags
+7. **Tests / gates**:
+   - Unit wave102 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false with display102=true…pres102=true
+
+**Still residual (fail-closed, not claimed):**
+- Full DisplayString GPU font atlas raster / WW3D StretchRect submit
+- Full Anim2DCollection GPU texture atlas sample / WW3D Image draw
+- Full SegLineRenderer wgpu write_buffer / atlas sampler bind
+- Full multi-locale CSF GameTextManager boot UI for all LanguageId
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
 
 ## Residual Host Playability — Wave 101: ModuleFactory / ThingFactory create / Partition register residual peels (2026-07-14)
 
