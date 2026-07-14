@@ -96,7 +96,7 @@ When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPi
 
 ## OBJECT_REGISTRY residual
 
-Main `Object` methods (`is_alive`, HP%, pose get/set) consult `gamelogic::OBJECT_REGISTRY` **only** when `engine_object_bridge_enabled()` (`GENERALS_BRIDGE_ENGINE_OBJECTS` / dual-tick). Default production path is host-owned fields only — no `Arc<RwLock<Object>>` dual-world reads.
+Main `Object` methods (`is_alive`, HP%, pose get/set) and mid-frame skips in `update_movement` / combat consult `gamelogic::OBJECT_REGISTRY` **only** when `engine_object_bridge_enabled()` (`GENERALS_BRIDGE_ENGINE_OBJECTS` / dual-tick). Default production path is host-owned fields only — no `Arc<RwLock<Object>>` dual-world reads.
 
 The gamelogic crate still stores factory objects behind `Arc<RwLock<_>>` for legacy ObjectFactory compatibility; that surface is not on the default host match path.
 
