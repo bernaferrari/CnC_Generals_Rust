@@ -154,6 +154,11 @@ pub enum PresentationEvent {
         template: String,
         spawned: ObjectId,
     },
+    /// Capture / hijack / set_team transfer this frame.
+    OwnerChanged {
+        id: ObjectId,
+        team: Team,
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1453,6 +1458,12 @@ impl PresentationFrame {
                 });
             }
         }
+        for ev in crate::game_logic::host_owner_log::last_drain_snapshot() {
+            events.push(PresentationEvent::OwnerChanged {
+                id: ev.object,
+                team: ev.team,
+            });
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2183,6 +2194,31 @@ mod tests {
                 )
             }),
             "expected UpgradeComplete: {:?}",
+            frame.events
+        );
+    }
+
+    #[test]
+    fn owner_changed_freezes_from_last_drain() {
+        crate::game_logic::host_owner_log::clear();
+        crate::game_logic::host_owner_log::record(
+            crate::game_logic::ObjectId(7),
+            crate::game_logic::Team::China,
+        );
+        let _ = crate::game_logic::host_owner_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::OwnerChanged {
+                        id,
+                        team: crate::game_logic::Team::China
+                    } if id.0 == 7
+                )
+            }),
+            "expected OwnerChanged: {:?}",
             frame.events
         );
     }
