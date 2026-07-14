@@ -7029,10 +7029,16 @@ impl CnCGameEngine {
     }
 
     fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline, game_logic: &GameLogic) {
-        if let Some(path) = game_logic
-            .heightmap_hint()
-            .and_then(|p| p.to_str().map(|s| s.to_string()))
-        {
+        // Prefer presentation-frozen hint when available (no live path re-read).
+        let path = render_pipeline
+            .presentation_frame()
+            .and_then(|p| p.world_env.heightmap_hint.clone())
+            .or_else(|| {
+                game_logic
+                    .heightmap_hint()
+                    .and_then(|p| p.to_str().map(|s| s.to_string()))
+            });
+        if let Some(path) = path {
             // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
             // Feeding those into terrain elevation creates severe startup terrain corruption.
             if path.to_ascii_lowercase().ends_with(".tga") {
@@ -7051,11 +7057,27 @@ impl CnCGameEngine {
         game_logic: &GameLogic,
         map_name: &str,
     ) {
+        // Freeze world env (bounds/hint/roads) for this load so heightmap + road bake
+        // prefer presentation residual rather than re-querying live GameLogic mid-sync.
+        // Only seed when no presentation is set yet (map-load path).
+        if render_pipeline.presentation_frame().is_none() {
+            let env_frame = crate::presentation_frame::PresentationFrame::build_from_logic(
+                game_logic,
+                game_logic.get_frame() as u32,
+            );
+            render_pipeline.set_presentation_frame(Some(env_frame));
+        }
+
+        let bounds = render_pipeline
+            .presentation_frame()
+            .map(|p| p.world_env.world_bounds_vec3())
+            .unwrap_or_else(|| game_logic.world_bounds());
+
         let hint_loaded = if render_pipeline.heightmap_hint().is_some() {
             match render_pipeline.load_heightmap_from_hint(
                 &graphics_system.device_arc(),
                 &graphics_system.queue_arc(),
-                Some(game_logic.world_bounds()),
+                Some(bounds),
             ) {
                 Ok(()) => true,
                 Err(err) => {

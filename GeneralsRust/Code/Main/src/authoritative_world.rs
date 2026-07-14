@@ -146,6 +146,18 @@ mod tests {
     }
 
     #[test]
+    fn default_policy_is_authority_only_without_env() {
+        // Ensure verification flag off for this assertion.
+        set_verification_single_authority(false);
+        // Without GENERALS_ALLOW_DUAL_TICK in env, default is single authority.
+        if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
+            && std::env::var_os("GENERALS_VERIFY_SINGLE_AUTHORITY").is_none()
+        {
+            assert_eq!(dual_tick_policy(), DualTickPolicy::AuthorityOnly);
+        }
+    }
+
+    #[test]
     fn authority_only_skips_crate_tick() {
         let mut called = false;
         apply_post_authority_crate_tick(DualTickPolicy::AuthorityOnly, || {

@@ -109,6 +109,22 @@ fn write_control(path: &Path, lines: &[&str]) -> std::io::Result<()> {
     f.flush()
 }
 
+fn kill_stale_runtime_host_generals(exe: &Path) {
+    // Only target processes whose argv contains both our binary path and runtime-host.
+    // Fail-soft: never abort the smoke for cleanup issues.
+    #[cfg(unix)]
+    {
+        let exe_s = exe.to_string_lossy().to_string();
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", &format!("{exe_s}.*runtime-host")])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = exe;
+}
+
 fn resolve_runtime_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("GENERALS_RUNTIME_EXE") {
         let pb = PathBuf::from(p);
@@ -199,6 +215,10 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
             "generals binary not found; build with `cargo build -p generals_main --bin generals --release` or set GENERALS_RUNTIME_EXE".into();
         return result;
     };
+
+    // Best-effort: prior flaky runs can leave a hanging runtime-host `generals` holding
+    // the GPU/display; that makes the next Booting exit before Menu.
+    kill_stale_runtime_host_generals(&exe);
 
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
