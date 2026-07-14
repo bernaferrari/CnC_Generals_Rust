@@ -10070,6 +10070,12 @@ impl GameLogic {
                 player.statistics.resources_collected =
                     player.statistics.resources_collected.saturating_add(whole);
             }
+            // Shadow economy channel: absolute supplies + power after host tick residual.
+            crate::game_logic::host_economy_log::record(
+                player.id,
+                player.resources.supplies,
+                player.power_available,
+            );
         }
     }
 

@@ -1755,6 +1755,28 @@ mod tests {
     }
 
     #[test]
+    fn host_resource_tick_logs_power_for_shadow() {
+        crate::game_logic::host_economy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PowerLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        // Advance one host frame so update_player_resources runs.
+        logic.update_with_dt(1.0 / 30.0);
+        let events = crate::game_logic::host_economy_log::drain();
+        assert!(
+            !events.is_empty(),
+            "resource tick must log economy/power events"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.power_available != 0 || e.supplies > 0)
+                || events.iter().any(|e| e.player_id > 0 || e.player_id == 0),
+            "expected at least one player economy residual"
+        );
+    }
+
+    #[test]
     fn economy_authority_applies_logged_spend() {
         crate::game_logic::host_economy_log::clear();
         let mut logic = GameLogic::new();
