@@ -61,7 +61,17 @@ impl GameWorldShadowProbe {
 
 /// Whether the optional engine shadow path is enabled.
 pub fn gameworld_shadow_enabled() -> bool {
-    std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_some() || gameworld_damage_authority_enabled()
+    match std::env::var("GENERALS_GAMEWORLD_SHADOW") {
+        Ok(v) => {
+            let v = v.trim();
+            !(v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off")
+                || v.eq_ignore_ascii_case("no"))
+        }
+        // Unset → session on (authority writebacks remain separately gated).
+        Err(_) => true,
+    }
 }
 
 /// When enabled, GameWorld shadow mutations are the **last writer** for HP each tick.
@@ -213,6 +223,9 @@ impl GameWorldShadow {
                     }
                     e.transform = transform;
                     e.owner = owner;
+                    e.attack_target = obj
+                        .target
+                        .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
                     // Keep template name if host renamed (rare).
                     if e.template.name != obj.template_name {
                         e.template = TemplateRef::new(obj.template_name.clone());
@@ -225,6 +238,22 @@ impl GameWorldShadow {
                 }
             } else {
                 self.spawn_mapped(oid, obj.template_name.clone(), owner, transform, health);
+            }
+        }
+
+        // Second pass: resolve attack targets now that all IDs are mapped.
+        for oid in logic.get_objects().keys().copied() {
+            let Some(obj) = logic.get_objects().get(&oid) else {
+                continue;
+            };
+            let Some(&eid) = self.host_to_entity.get(&oid.0) else {
+                continue;
+            };
+            let at = obj
+                .target
+                .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
+            if let Some(e) = self.world.world_mut().entity_mut(eid) {
+                e.attack_target = at;
             }
         }
 
@@ -474,6 +503,21 @@ impl GameWorldShadow {
         }
         let applied = self.apply_pending();
         (queued, applied)
+    }
+
+    /// Queue SetAttackTarget for a mapped host attacker.
+    pub fn queue_set_attack_target_for_host(
+        &mut self,
+        host_attacker: ObjectId,
+        host_target: Option<ObjectId>,
+    ) -> bool {
+        let Some(attacker) = self.entity_for_host(host_attacker) else {
+            return false;
+        };
+        let target = host_target.and_then(|t| self.entity_for_host(t));
+        self.world
+            .queue_mutation(WorldMutation::SetAttackTarget { attacker, target });
+        true
     }
 
     /// Queue SetTransform for a mapped host object (move-command channel).
@@ -1151,14 +1195,43 @@ mod tests {
     }
 
     #[test]
-    fn shadow_disabled_by_default() {
-        if std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_none()
-            && std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none()
-        {
-            assert!(!gameworld_shadow_enabled());
-            assert!(!gameworld_damage_authority_enabled());
-            assert!(maybe_shadow_after_host_tick(&GameLogic::new()).is_none());
+    fn shadow_session_defaults_on() {
+        // Session defaults on when SHADOW unset (process may have gate env from other tests).
+        if std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_none() {
+            assert!(
+                gameworld_shadow_enabled(),
+                "shadow session should default on when env unset"
+            );
+        } else {
+            // If explicitly set, respect the helper's parse.
+            let _ = gameworld_shadow_enabled();
         }
+    }
+
+    #[test]
+    fn attack_target_syncs_to_shadow_entity() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AtkTarget");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AtkA", 100.0);
+        ensure_template(&mut logic, "AtkB", 100.0);
+        let a = logic
+            .create_object("AtkA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object("AtkB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("b");
+        if let Some(obj) = logic.get_objects_mut().get_mut(&a) {
+            obj.set_target(Some(b));
+        }
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let ea = shadow.entity_for_host(a).unwrap();
+        let eb = shadow.entity_for_host(b).unwrap();
+        assert_eq!(shadow.world().entity(ea).unwrap().attack_target, Some(eb));
+        assert!(shadow.queue_set_attack_target_for_host(a, None));
+        let _ = shadow.apply_pending();
+        assert_eq!(shadow.world().entity(ea).unwrap().attack_target, None);
     }
 
     #[test]

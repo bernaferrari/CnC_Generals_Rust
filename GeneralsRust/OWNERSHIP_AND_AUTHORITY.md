@@ -67,6 +67,8 @@ Spawn/destroy: `host_spawn_log` / `host_destroy_log` drained each tick; shadow m
 Presentation: when engine holds a shadow session, `PresentationFrame` is built from host then `overlay_gameworld_shadow` so HP/pose/supplies prefer GameWorld.
 Move channel: `SetTransform` mutations + `apply_host_positions_as_transforms`.
 
+Shadow session **defaults on** in the engine (`GENERALS_GAMEWORLD_SHADOW=0` to disable). Entity.attack_target mirrors host Object::target; SetAttackTarget mutation available.
+
 Still not production authority for the full sim.
 
 ### Damage authority cutover (opt-in)

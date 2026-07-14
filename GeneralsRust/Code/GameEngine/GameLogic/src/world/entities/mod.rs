@@ -90,6 +90,8 @@ pub struct Entity {
     pub transform: Transform,
     /// Current hitpoints.
     pub health: f32,
+    /// Attack/command target (shadow of host Object::target).
+    pub attack_target: Option<EntityId>,
 }
 
 impl Entity {
@@ -162,6 +164,7 @@ impl EntityStore {
             owner,
             transform,
             health,
+            attack_target: None,
         };
 
         self.alive.insert(id, entity);
