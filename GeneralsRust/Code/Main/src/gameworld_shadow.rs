@@ -1366,6 +1366,27 @@ mod tests {
     }
 
     #[test]
+    fn mark_for_destruction_logs_on_remove() {
+        crate::game_logic::host_destroy_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DesLog");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "DesU", 50.0);
+        let id = logic
+            .create_object("DesU", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        crate::game_logic::host_destroy_log::clear();
+        logic.mark_object_for_destruction(id, None);
+        logic.update_with_dt(1.0 / 30.0);
+        let ev = crate::game_logic::host_destroy_log::drain();
+        assert!(
+            ev.iter().any(|e| e.id == id),
+            "destroy process must log host_destroy: {ev:?}"
+        );
+        assert!(logic.get_objects().get(&id).is_none());
+    }
+
+    #[test]
     fn spawn_and_destroy_channel_maps_ids() {
         crate::game_logic::host_spawn_log::clear();
         crate::game_logic::host_destroy_log::clear();
@@ -1643,6 +1664,69 @@ mod tests {
     }
 
     #[test]
+    fn production_complete_logs_when_queue_finishes() {
+        crate::game_logic::host_production_log::clear();
+        crate::game_logic::host_spawn_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("ProdDone");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let barracks = logic
+            .get_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
+            .map(|(id, _)| *id);
+        let Some(bid) = barracks else {
+            return; // minimal config without producer
+        };
+        // Pick a cheap infantry template the barracks can build if present.
+        let unit_name = [
+            "AmericaInfantryRanger",
+            "USA_Ranger",
+            "GoldenRanger",
+            "Ranger",
+        ]
+        .into_iter()
+        .find(|n| logic.templates.contains_key(*n));
+        let Some(name) = unit_name else {
+            return;
+        };
+        if let Some(t) = logic.templates.get_mut(name) {
+            t.build_time = 0.05;
+            t.build_cost.supplies = 0;
+            t.build_cost.power = 0;
+        }
+        assert!(logic.enqueue_production(bid, name.to_string()));
+        crate::game_logic::host_production_log::clear();
+        crate::game_logic::host_spawn_log::clear();
+        let before = logic.get_objects().len();
+        for _ in 0..300 {
+            logic.update_with_dt(1.0 / 30.0);
+            if logic.get_objects().len() > before {
+                break;
+            }
+        }
+        let prods = crate::game_logic::host_production_log::drain();
+        let spawns = crate::game_logic::host_spawn_log::drain();
+        let completed = prods.iter().any(|e| {
+            matches!(
+                e,
+                crate::game_logic::host_production_log::HostProductionEvent::Complete {
+                    template_name,
+                    ..
+                } if template_name == name
+            )
+        });
+        let spawned = spawns.iter().any(|e| e.template == name);
+        assert!(
+            completed || spawned,
+            "expected Complete and/or spawn log for {name}: prods={prods:?} spawns={spawns:?}"
+        );
+        if spawned {
+            assert!(completed, "spawn without Complete event: prods={prods:?}");
+        }
+    }
+
+    #[test]
     fn production_enqueue_logs_for_shadow_session() {
         crate::game_logic::host_production_log::clear();
         let mut logic = GameLogic::new();
@@ -1670,8 +1754,16 @@ mod tests {
             if logic.enqueue_production(bid, name.to_string()) {
                 let ev = crate::game_logic::host_production_log::drain();
                 assert_eq!(ev.len(), 1, "enqueue should log once");
-                assert_eq!(ev[0].producer, bid);
-                assert_eq!(ev[0].template_name, name);
+                match &ev[0] {
+                    crate::game_logic::host_production_log::HostProductionEvent::Enqueue {
+                        producer,
+                        template_name,
+                    } => {
+                        assert_eq!(*producer, bid);
+                        assert_eq!(template_name, name);
+                    }
+                    other => panic!("expected Enqueue, got {other:?}"),
+                }
                 logged = true;
                 break;
             }

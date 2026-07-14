@@ -4778,9 +4778,10 @@ impl GameLogic {
         //   if ratio < 1.0: rate = min(rate, 0.8)
         let team_power_factor = self.compute_team_power_factors();
 
-        let mut completions: Vec<(Team, String, Vec3, Option<Vec3>)> = Vec::new();
+        // (team, template, spawn_pos, rally, producer_id)
+        let mut completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> = Vec::new();
 
-        for (_id, obj) in self.objects.iter_mut() {
+        for (&id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
@@ -4806,12 +4807,12 @@ impl GameLogic {
                     let radius = 3.0 + (hash as f32 % 5.0);
                     let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
                     let spawn_pos = base + jitter;
-                    completions.push((obj.team, completed, spawn_pos, rally));
+                    completions.push((obj.team, completed, spawn_pos, rally, id));
                 }
             }
         }
 
-        for (team, template, mut spawn_pos, rally) in completions {
+        for (team, template, mut spawn_pos, rally, producer_id) in completions {
             // Push spawn a bit off the footprint center to reduce stacking.
             let jitter_dir = Vec3::new(
                 (spawn_pos.x * 17.0 + spawn_pos.z).sin(),
@@ -4821,6 +4822,11 @@ impl GameLogic {
             .normalize_or_zero();
             // Use template selection heuristic later once the object is created.
             if let Some(new_id) = self.create_object(&template, team, spawn_pos) {
+                crate::game_logic::host_production_log::record_complete(
+                    producer_id,
+                    template.clone(),
+                    new_id,
+                );
                 // SCIENCE_StealthFighter residual: record gated production spawn.
                 if crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science(
                     &template,
@@ -12287,7 +12293,7 @@ impl GameLogic {
         self.mark_object_for_destruction(id, None);
     }
 
-    fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+    pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
     }
