@@ -1,3 +1,124 @@
+## Residual Host Playability — Wave 105: AI group / AI path / weapon fire / damage / veterancy residual peels (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Object/ThingFactory Waves 100–104):**
+1. **AI group residual peels** (`host_ai_path_combat_residual_wave105`):
+   - AIGroup ctor residual: speed **0**, dirty **false**, member count **0**, groundPath null.
+   - Membership add/remove/isMember/getCount residual; getSpeed = min member speed; getCenter average.
+   - AIData.ini group path residual: MinInfantry/VehiclesForGroup **3**, MinDistance **100**,
+     DistanceRequiresGroup **500**, MinClumpDensity **0.5**, SkirmishGroupFudge **5**,
+     GroupMoveClickToGather **0.5**, ForceIdleMSEC **67** → **2**f.
+   - CommandSourceType residual **4** names (PLAYER/SCRIPT/AI/DOZER).
+   - AIGroup group* command residual surface **≥40** names.
+   - Honesty: `honesty_ai_group_residual_pack_wave105`.
+2. **AI path residual deepen**:
+   - PATHFIND_CELL_SIZE **10** / CLOSE_ENOUGH **1.0** / CELLS_PER_FRAME **5000** /
+     PATH_MAX_PRIORITY **0x7FFFFFFF** / MAX_WALL_PIECES **128** / MAX_CPOP **20**.
+   - CellType residual **7** names CLEAR..IMPASSABLE; CellFlags residual occupancy table.
+   - PathfindLayerEnum LAYER_INVALID **0** / GROUND **1** / WALL **15**.
+   - Infantry/Vehicle PathfindDiameter **6**; world↔cell residual floor(/10).
+   - Path residual append/prepend/length/optimize bookkeeping.
+   - Honesty: `honesty_ai_path_residual_deepen_pack_wave105`.
+3. **Weapon fire residual deepen** (Weapon.cpp / WeaponStatus.h residual):
+   - WeaponStatus residual **5** names READY..PRE_ATTACK; NO_MAX_SHOTS_LIMIT **0x7fffffff**.
+   - WeaponBonus Field residual **5** (DAMAGE/RADIUS/RANGE/RATE_OF_FIRE/PRE_ATTACK).
+   - WeaponReloadType **3** / PrefireType **3**; Anti mask **8** bits; Affects mask **7** bits.
+   - privateFireWeapon residual pipeline **10** steps; host fire residual (clip/reload/range/bonus).
+   - Honesty: `honesty_weapon_fire_residual_deepen_pack_wave105`.
+4. **Damage residual application residual deepen**:
+   - BodyDamageType residual **4** (PRISTINE/DAMAGED/REALLYDAMAGED/RUBBLE).
+   - UnitDamagedThreshold **0.7** / ReallyDamaged **0.35**; MovementPenalty **REALLYDAMAGED**.
+   - calcDamageState residual formula; IsSubdual / IsHealthDamaging residual helpers.
+   - apply_damage residual: armor coeff × amount → dealt/clipped/health.
+   - Honesty: `honesty_damage_application_residual_deepen_pack_wave105`.
+5. **Veterancy residual deepen** (ExperienceTracker / GameData.ini):
+   - LEVEL_REGULAR..HEROIC **0..3**, COUNT **4**; HealthBonus **120/130/150%**;
+     WeaponBonus DAMAGE **110/120/130%**; ROF **120/140/160%**.
+   - ExperienceRequired/Value residual sample rows (Burton/Ranger/MissileDefender/Pathfinder).
+   - Tracker residual: ally kill **0** XP, level-up loop, setMinVeterancyLevel, AdvancedTraining ×2 scalar.
+   - Honesty: `honesty_veterancy_residual_deepen_pack_wave105`.
+6. **Combined pack**: `honesty_ai_path_combat_residual_pack_wave105`.
+
+**Wiring:**
+- `game_logic/host_ai_path_combat_residual_wave105.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — ai_group105/ai_path105/weapon_fire105/damage_app105/veterancy105 fields
+- `shell_smoke_gate.rs` — require wave105 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave105 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  ai_group105=true ai_path105=true weapon_fire105=true damage_app105=true veterancy105=true
+
+**Not claimed:**
+- Full AIGroup exclusive group path A* residual
+- Full Pathfinder open/closed list exclusive residual
+- Full Weapon::privateFireWeapon live projectile residual
+- Full ActiveBody attemptDamage exclusive module matrix residual
+- Full ExperienceTracker live Object XP sink residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
+## Residual Host Playability — Wave 106: shell / campaign / save residual deepen (2026-07-14)
+
+**Closed (host-testable residual peels; orthogonal to Wave 103/104 game-logic peels):**
+1. **GameState residual deepen** (`host_shell_campaign_save_residual_wave106`):
+   - SaveLoadLayoutType residual **4** names (SLLT_INVALID..SLLT_SAVE_ONLY).
+   - SNAPSHOT_SAVELOAD CHUNK_* block table **17** (GameState..GhostObject).
+   - SNAPSHOT_DEEPCRC_LOGICONLY subset **6** (excludes client/UI chunks).
+   - GAME_STATE_BLOCK_STRING / CAMPAIGN_BLOCK_STRING anchors; Save directory leaf.
+   - Honesty: `honesty_game_state_residual_deepen_pack_wave106`.
+2. **Campaign residual deepen** (mission residual tables):
+   - USA / GLA / China **5**-mission map tables (MD_USA* / MD_GLA* / MD_CHI*).
+   - TRAINING residual (Training01); CHALLENGE_0 map chain **7**.
+   - CampaignNameLabel residual for TRAINING/USA/GLA/China + CHALLENGE_0..8.
+   - Honesty: `honesty_campaign_mission_residual_deepen_pack_wave106`.
+3. **MainMenu residual deepen**:
+   - MainMenu.wnd retail window count **63**; button residual table **≥28**.
+   - Faction window residual **16**; shell roots + transition group residual.
+   - Host MainMenuState residual **5** names; layout `Menus/MainMenu.wnd`.
+   - Honesty: `honesty_main_menu_residual_deepen_pack_wave106`.
+4. **GameWindow residual deepen**:
+   - WIN_STATUS residual table **28** (NONE + **27** bits through SHORTCUT_BUTTON).
+   - GWM_* message residual **27** names; GWM_USER **32768**.
+   - MSG_IGNORED / MSG_HANDLED residual.
+   - Honesty: `honesty_game_window_residual_deepen_pack_wave106`.
+5. **WindowLayout residual deepen**:
+   - INIT/UPDATE/SHUTDOWN callback residual; layout operation residual table.
+   - Shell layout filename residual table (**≥12** including MainMenu + ControlBar).
+   - WindowLayoutPool name + ctor hide/count residual; hide pure residual.
+   - Honesty: `honesty_window_layout_residual_deepen_pack_wave106`.
+6. **Combined pack**: `honesty_shell_campaign_save_residual_pack_wave106`.
+
+**Wiring:**
+- `game_logic/host_shell_campaign_save_residual_wave106.rs` (new)
+- `game_logic/mod.rs` — module + pub use honesty
+- `shell_smoke.rs` — gamestate106/campaign106/mainmenu106/gamewindow106/layout106
+- `shell_smoke_gate.rs` — require wave106 honesty flags; playable_claim stays false
+
+**Gates:**
+- Unit: residual_pack_honesty_wave106 tests PASS
+- golden_skirmish_gate --frames 8 → playable_claim=true
+- shell_smoke_gate → playable_claim=false shell_host_playable_ok=true
+  gamestate106=true campaign106=true mainmenu106=true gamewindow106=true layout106=true
+
+**Not claimed:**
+- Full GameState xferSaveData file I/O / deep CRC network residual
+- Full CampaignManager live INI parse / mission progression residual
+- Full MainMenu.wnd W3D TransitionHandler retail UI residual
+- Full GameWindow GPU draw / WindowManager exclusive residual
+- Full WindowLayout::load .wnd script residual
+- shell playable_claim / network (deferred)
+
+**Honesty rules preserved:**
+- Shell playable_claim remains **false**
+- Golden playable_claim remains **true**
+- Network residual deferred
+
 ## Residual Host Playability — Wave 103: weapon/armor/locomotor/special-power/KindOf residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Waves 101/102 ThingFactory/graphics):**

@@ -80,6 +80,9 @@ pub mod host_dock_contain_exit_heal_residual;
 pub mod host_production_buildable_command_residual;
 pub mod host_thing_factory_module_xfer_residual;
 pub mod host_game_logic_residual_wave103;
+pub mod host_object_register_drawable_residual_wave104;
+pub mod host_ai_path_combat_residual_wave105;
+pub mod host_shell_campaign_save_residual_wave106;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -335,6 +338,30 @@ pub use host_game_logic_residual_wave103::{
     honesty_game_logic_residual_pack_wave103,
     honesty_object_kindof_residual_pack_wave103,
     honesty_special_power_superweapon_residual_deepen_wave103,
+};
+pub use host_object_register_drawable_residual_wave104::{
+    honesty_active_body_max_health_apply_residual_wave104,
+    honesty_drawable_create_residual_wave104,
+    honesty_gamelogic_register_object_residual_wave104,
+    honesty_object_create_order_residual_wave104,
+    honesty_object_register_drawable_crosslink_wave104,
+    honesty_object_register_drawable_residual_pack_wave104,
+    honesty_object_status_state_machine_residual_wave104,
+};
+pub use host_ai_path_combat_residual_wave105::{
+    honesty_ai_group_residual_pack_wave105, honesty_ai_path_combat_residual_pack_wave105,
+    honesty_ai_path_residual_deepen_pack_wave105,
+    honesty_damage_application_residual_deepen_pack_wave105,
+    honesty_veterancy_residual_deepen_pack_wave105,
+    honesty_weapon_fire_residual_deepen_pack_wave105,
+};
+pub use host_shell_campaign_save_residual_wave106::{
+    honesty_campaign_mission_residual_deepen_pack_wave106,
+    honesty_game_state_residual_deepen_pack_wave106,
+    honesty_game_window_residual_deepen_pack_wave106,
+    honesty_main_menu_residual_deepen_pack_wave106,
+    honesty_shell_campaign_save_residual_pack_wave106,
+    honesty_window_layout_residual_deepen_pack_wave106,
 };
 pub use host_armor_residual::honesty_armor_residual_expand_wave103;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
