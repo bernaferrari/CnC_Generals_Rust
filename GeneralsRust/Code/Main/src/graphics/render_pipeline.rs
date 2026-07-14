@@ -2828,6 +2828,18 @@ impl RenderPipeline {
         }
     }
 
+    /// Pack presentation attack-order lines into CPU buffer (no live GameLogic).
+    pub fn pack_presentation_attack_lines(
+        &self,
+    ) -> crate::graphics::attack_line_upload::AttackLineUpload {
+        match self.presentation_frame.as_ref() {
+            Some(frame) => {
+                crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame)
+            }
+            None => crate::graphics::attack_line_upload::AttackLineUpload::empty(),
+        }
+    }
+
     pub fn get_minimap_texture_id(&self) -> Option<UiTextureId> {
         self.minimap_renderer.as_ref()?.get_texture_id()
     }
