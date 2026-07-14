@@ -6088,24 +6088,10 @@ impl CnCGameEngine {
                     panic!("{e}");
                 }
             }
-            // Optional GameWorld shadow session (stable IDs + damage log drain).
-            // Opt-in: GENERALS_GAMEWORLD_SHADOW=1. Host remains production authority.
-            if let Some(ref mut shadow) = self.gameworld_shadow {
-                let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
-                    shadow,
-                    &mut self.game_logic,
-                );
-                if !probe.full_match() {
-                    log::warn!("{}", probe.format_report());
-                }
-            } else {
-                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
-            }
-
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.
-            // Host side systems (projectiles + path) run *before* PresentationFrame so the
-            // client snapshot matches end-of-frame identity (position/health), not mid-frame.
+            // Host side systems (projectiles + path) run *before* shadow session + PresentationFrame
+            // so damage/move logs and end-of-frame identity include this frame's side systems.
             if !self.game_logic.is_time_frozen_for_simulation() {
                 {
                     let objects = self.game_logic.get_objects();
@@ -6135,8 +6121,30 @@ impl CnCGameEngine {
                 }
             }
 
+            // Drain queued player/AI commands before shadow so set_target/move logs
+            // from this frame enter the same session (InGame only).
+            if self.current_state == GameState::InGame {
+                self.game_logic.process_commands();
+            }
+
+            // GameWorld shadow session AFTER host logic + projectiles + path so
+            // host_damage_log / host_move_log / attack logs from this frame are not
+            // drained a frame late. Defaults on (GENERALS_GAMEWORLD_SHADOW=0 to opt out).
+            // Host remains temporary mid-frame owner; shadow is last-writer for HP/cash/pose.
+            if let Some(ref mut shadow) = self.gameworld_shadow {
+                let probe = crate::gameworld_shadow::shadow_session_after_host_tick(
+                    shadow,
+                    &mut self.game_logic,
+                );
+                if !probe.full_match() {
+                    log::warn!("{}", probe.format_report());
+                }
+            } else {
+                let _ = crate::gameworld_shadow::maybe_shadow_after_host_tick(&self.game_logic);
+            }
+
             // Immutable presentation snapshot for client/render (borrow-first policy).
-            // Built after authority + host side systems so HUD/render see final frame state.
+            // Built after authority + host side systems + shadow writeback.
             let local_id = self.current_player_id;
             let mut pres = crate::presentation_frame::PresentationFrame::build_from_logic(
                 &self.game_logic,
@@ -6213,9 +6221,9 @@ impl CnCGameEngine {
             }
         }
 
-        // Process queued commands in game logic during active gameplay.
+        // Commands already drained in the logic-frame block (before shadow).
+        // Script camera requests still apply here after presentation build.
         if self.current_state == GameState::InGame {
-            self.game_logic.process_commands();
             self.apply_pending_script_camera_requests();
         }
 
