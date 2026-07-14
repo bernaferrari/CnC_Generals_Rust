@@ -66,7 +66,7 @@ Still not production authority for the full sim.
 
 ### Damage authority cutover (opt-in)
 
-`GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1` (implies shadow session): end-of-tick
+Gates call `ensure_gate_damage_authority()` so damage authority defaults on (set `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` to opt out). `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=1` writebacks player supplies/power from shadow. `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1` (implies shadow session): end-of-tick
 reapplies `host_damage_log` as `WorldMutation`s on `GameWorldShadow` and
 **writebacks** HP/destroyed onto Main objects. GameWorld is last writer for HP;
 mid-frame host combat still runs for C++ armor/side-effect parity.

@@ -1,6 +1,8 @@
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 
 fn main() {
+    // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
+    generals_main::gameworld_shadow::ensure_gate_damage_authority();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut map = None;
     let mut frames = 30u32;
