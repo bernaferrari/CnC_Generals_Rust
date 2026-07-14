@@ -480,6 +480,16 @@ impl UIManager {
     }
 
     /// Queue an event for processing
+    /// Mutable skirmish menu (runtime-host click residual / tests).
+    pub fn skirmish_menu_mut(&mut self) -> &mut SkirmishMenu {
+        &mut self.skirmish_menu
+    }
+
+    /// Immutable skirmish menu.
+    pub fn skirmish_menu(&self) -> &SkirmishMenu {
+        &self.skirmish_menu
+    }
+
     pub fn queue_event(&mut self, event: UIEvent) {
         self.event_queue.push(event);
     }
