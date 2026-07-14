@@ -476,6 +476,43 @@ impl GameWorldShadow {
         (queued, applied)
     }
 
+    /// Queue SetTransform for a mapped host object (move-command channel).
+    pub fn queue_set_transform_for_host(
+        &mut self,
+        host: ObjectId,
+        position: [f32; 3],
+        orientation: f32,
+    ) -> bool {
+        let Some(eid) = self.entity_for_host(host) else {
+            return false;
+        };
+        self.world.queue_mutation(WorldMutation::SetTransform {
+            target: eid,
+            position,
+            orientation,
+        });
+        true
+    }
+
+    /// Push current host positions onto shadow via SetTransform mutations.
+    pub fn apply_host_positions_as_transforms(&mut self, logic: &GameLogic) -> usize {
+        let mut queued = 0usize;
+        let keys: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        for hid in keys {
+            let Some(obj) = logic.get_objects().get(&ObjectId(hid)) else {
+                continue;
+            };
+            let pos = obj.get_position();
+            if self.queue_set_transform_for_host(ObjectId(hid), [pos.x, pos.y, pos.z], 0.0) {
+                queued += 1;
+            }
+        }
+        if queued > 0 {
+            let _ = self.apply_pending();
+        }
+        queued
+    }
+
     pub fn queue_damage_for_host(&mut self, host: ObjectId, amount: f32) -> bool {
         let Some(eid) = self.entity_for_host(host) else {
             return false;
@@ -723,6 +760,7 @@ pub fn shadow_session_after_host_tick(
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     let spawns_applied = shadow.apply_host_spawn_events(&spawn_events, logic);
     let (dest_q, _dest_a) = shadow.apply_host_destroy_events(&destroy_events);
+    let _poses = shadow.apply_host_positions_as_transforms(logic);
     let mut writebacks = 0usize;
     if auth && !events.is_empty() {
         let (queued, applied) = shadow.apply_host_damage_events(&events);
@@ -1008,6 +1046,62 @@ mod tests {
         let view = presentation_view_from_shadow(&shadow, 0);
         assert_eq!(view.frame, logic.get_frame() as u64);
         assert_eq!(view.entities.len(), logic.get_objects().len().min(4096));
+    }
+
+    #[test]
+    fn presentation_overlay_uses_shadow_health() {
+        use crate::presentation_frame::PresentationFrame;
+        crate::game_logic::host_damage_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("PresOverlay");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "OverlayUnit", 100.0);
+        let id = logic
+            .create_object("OverlayUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 0.0))
+            .expect("u");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.queue_damage_for_host(id, 40.0));
+        let _ = shadow.apply_pending();
+        let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+        let before = pres
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.health_current)
+            .unwrap();
+        let n = pres.overlay_gameworld_shadow(&shadow);
+        assert!(n >= 1);
+        let after = pres
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.health_current)
+            .unwrap();
+        assert!(
+            after < before,
+            "overlay should pull lower shadow HP {after} vs {before}"
+        );
+    }
+
+    #[test]
+    fn set_transform_mutation_moves_shadow_entity() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("MoveMut");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "MoveUnit", 50.0);
+        let id = logic
+            .create_object("MoveUnit", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("u");
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        assert!(shadow.queue_set_transform_for_host(id, [10.0, 0.0, 5.0], 1.5));
+        let _ = shadow.apply_pending();
+        let eid = shadow.entity_for_host(id).unwrap();
+        let e = shadow.world().entity(eid).unwrap();
+        assert!((e.transform.position.x - 10.0).abs() < 0.01);
+        assert!((e.transform.position.z - 5.0).abs() < 0.01);
+        assert!((e.transform.orientation - 1.5).abs() < 0.01);
     }
 
     #[test]
