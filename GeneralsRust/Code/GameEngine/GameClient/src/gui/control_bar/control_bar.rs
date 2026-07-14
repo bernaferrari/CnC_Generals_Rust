@@ -83,6 +83,12 @@ pub struct PortraitDisplayState {
     pub production_progress: Option<f32>,
     /// First production queue template from PresentationFrame.
     pub production_template: Option<String>,
+    /// Special power ready residual from PresentationFrame.
+    pub special_power_ready: bool,
+    /// Special power cooldown remaining residual (seconds).
+    pub special_power_cooldown_remaining: f32,
+    /// Structure rally point residual from PresentationFrame (xyz).
+    pub rally_point: Option<[f32; 3]>,
 }
 
 #[derive(Debug, Clone)]
@@ -2235,6 +2241,9 @@ impl ControlBar {
             selected_count: 1,
             production_progress: None,
             production_template: None,
+            special_power_ready: false,
+            special_power_cooldown_remaining: 0.0,
+            rally_point: None,
         };
     }
 
@@ -2302,6 +2311,12 @@ impl ControlBar {
                     selected_count,
                     production_progress,
                     production_template: production_template.map(str::to_string),
+                    // Upgrades/specials filled by sync_upgrades_and_specials_from_presentation.
+                    special_power_ready: self.portrait_state.special_power_ready,
+                    special_power_cooldown_remaining: self
+                        .portrait_state
+                        .special_power_cooldown_remaining,
+                    rally_point: self.portrait_state.rally_point,
                 };
                 // Feed construction queue residual from presentation snapshot (no OBJECT_REGISTRY).
                 if let Ok(mut context) = self.context.write() {
@@ -2347,6 +2362,36 @@ impl ControlBar {
     ///
     /// Prefer this over OBJECT_REGISTRY contain lookups for dual-tick / headless host.
     /// Fail-closed: does not claim full WND button layout parity.
+
+    /// Feed upgrade cameos, special-power ready, and rally residual from PresentationFrame.
+    ///
+    /// Prefer this over live OBJECT_REGISTRY / template graph for dual-tick host paths.
+    /// Fail-closed: cameo images are name placeholders (not full CommandSet INI art).
+    pub fn sync_upgrades_and_specials_from_presentation(
+        &mut self,
+        applied_upgrades: &[String],
+        rally_point: Option<[f32; 3]>,
+        special_power_ready: bool,
+        special_power_cooldown_remaining: f32,
+    ) {
+        let mut cameos: Vec<UpgradeCameoState> = applied_upgrades
+            .iter()
+            .map(|name| UpgradeCameoState {
+                upgrade_name: name.clone(),
+                button_image: name.clone(),
+                is_completed: true,
+                is_visible: true,
+            })
+            .collect();
+        // Stable order for deterministic UI.
+        cameos.sort_by(|a, b| a.upgrade_name.cmp(&b.upgrade_name));
+        self.portrait_state.upgrade_cameos = cameos;
+        self.portrait_state.special_power_ready = special_power_ready;
+        self.portrait_state.special_power_cooldown_remaining = special_power_cooldown_remaining;
+        self.portrait_state.rally_point = rally_point;
+        self.mark_ui_dirty();
+    }
+
     pub fn sync_structure_context_from_presentation(
         &mut self,
         max_garrison: usize,

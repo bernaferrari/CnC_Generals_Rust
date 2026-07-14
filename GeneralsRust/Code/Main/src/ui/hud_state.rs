@@ -313,6 +313,14 @@ pub struct ControlBarSelectionPanelState {
     pub under_construction: bool,
     /// Construction progress 0..1 residual.
     pub construction_percent: f32,
+    /// Applied upgrade tags residual from primary selection.
+    pub applied_upgrades: Vec<String>,
+    /// Structure rally point residual (presentation-only).
+    pub rally_point: Option<[f32; 3]>,
+    /// Special power ready residual on primary selection.
+    pub special_power_ready: bool,
+    /// Special power cooldown remaining residual (seconds).
+    pub special_power_cooldown_remaining: f32,
 }
 
 impl ControlBarSelectionPanelState {
@@ -343,6 +351,10 @@ impl ControlBarSelectionPanelState {
             garrisoned_count: 0,
             under_construction: false,
             construction_percent: 0.0,
+            applied_upgrades: Vec::new(),
+            rally_point: None,
+            special_power_ready: false,
+            special_power_cooldown_remaining: 0.0,
         }
     }
 
