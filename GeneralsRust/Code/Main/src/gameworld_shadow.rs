@@ -61,7 +61,15 @@ impl GameWorldShadowProbe {
 
 /// Whether the optional engine shadow path is enabled.
 pub fn gameworld_shadow_enabled() -> bool {
-    std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_some()
+    std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_some() || gameworld_damage_authority_enabled()
+}
+
+/// When set, GameWorld shadow mutations are the **last writer** for HP each tick.
+/// Host combat still runs mid-frame; end-of-tick reapplies drained damage events
+/// on the shadow and writebacks health/destroyed onto host objects.
+/// Implies a shadow session (separate GENERALS_GAMEWORLD_SHADOW not required).
+pub fn gameworld_damage_authority_enabled() -> bool {
+    std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_some()
 }
 
 /// Session holding GameWorld + stable host↔entity ID maps.
@@ -112,6 +120,12 @@ impl GameWorldShadow {
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
+        self.sync_from_host_with(logic, true);
+    }
+
+    /// Like [`sync_from_host`]; `write_health=false` keeps existing entity HP
+    /// (damage-authority path so mutations are last writer).
+    pub fn sync_from_host_with(&mut self, logic: &GameLogic, write_health: bool) {
         self.sync_players(logic);
 
         let mut obj_ids: Vec<ObjectId> = logic.get_objects().keys().copied().collect();
@@ -146,7 +160,9 @@ impl GameWorldShadow {
 
             if let Some(&eid) = self.host_to_entity.get(&oid.0) {
                 if let Some(e) = self.world.world_mut().entity_mut(eid) {
-                    e.health = health;
+                    if write_health {
+                        e.health = health;
+                    }
                     e.transform = transform;
                     e.owner = owner;
                     // Keep template name if host renamed (rare).
@@ -288,6 +304,33 @@ impl GameWorldShadow {
             Team::Neutral => None,
             _ => self.host_player_to_gw.values().next().copied(),
         }
+    }
+
+    /// Write shadow entity health/destroyed onto host objects.
+    pub fn writeback_health_to_host(&self, logic: &mut GameLogic) -> usize {
+        let mut updated = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(ent) = self.world.entity(eid) else {
+                continue;
+            };
+            let Some(obj) = logic.get_objects_mut().get_mut(&ObjectId(hid)) else {
+                continue;
+            };
+            let new_h = ent.health.max(0.0);
+            let changed = (obj.health.current - new_h).abs() > 0.000_1
+                || ((new_h <= 0.0) != obj.status.destroyed);
+            if !changed {
+                continue;
+            }
+            obj.health.current = new_h;
+            if new_h <= 0.0 {
+                obj.status.destroyed = true;
+                obj.ai_state = crate::game_logic::AIState::Idle;
+                obj.target = None;
+            }
+            updated += 1;
+        }
+        updated
     }
 
     /// Queue damage on the shadow entity mapped from a host object.
@@ -520,22 +563,44 @@ pub fn maybe_shadow_after_host_tick(logic: &GameLogic) -> Option<GameWorldShadow
 }
 
 /// Session tick: keep stable IDs, drain damage log, sync, probe.
+///
+/// With [`gameworld_damage_authority_enabled`], events re-apply as WorldMutations
+/// and HP is written back to host (GameWorld last writer for health).
 pub fn shadow_session_after_host_tick(
     shadow: &mut GameWorldShadow,
-    logic: &GameLogic,
+    logic: &mut GameLogic,
 ) -> GameWorldShadowProbe {
     let events = crate::game_logic::host_damage_log::drain();
-    shadow.sync_from_host(logic);
-    if !events.is_empty() {
+    let auth = gameworld_damage_authority_enabled();
+    // Keep pre-tick shadow HP when we will re-apply events as mutations.
+    let write_health = !(auth && !events.is_empty());
+    shadow.sync_from_host_with(logic, write_health);
+    let mut writebacks = 0usize;
+    if auth && !events.is_empty() {
+        let (queued, applied) = shadow.apply_host_damage_events(&events);
+        writebacks = shadow.writeback_health_to_host(logic);
         log::trace!(
-            "gameworld_shadow session saw {} damage events (health via sync)",
+            "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
+            events.len(),
+            queued,
+            applied,
+            writebacks
+        );
+    } else if !events.is_empty() {
+        log::trace!(
+            "gameworld_shadow session saw {} damage events (health via host sync)",
             events.len()
         );
     }
-    // Store last event count on probe detail via probe
     let mut probe = shadow.probe(logic);
     if !events.is_empty() {
-        probe.detail = format!("{}|dmg_events={}", probe.detail, events.len());
+        probe.detail = format!(
+            "{}|dmg_events={}|auth={}|wb={}",
+            probe.detail,
+            events.len(),
+            auth,
+            writebacks
+        );
     }
     probe
 }
@@ -780,10 +845,65 @@ mod tests {
 
     #[test]
     fn shadow_disabled_by_default() {
-        if std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_none() {
+        if std::env::var_os("GENERALS_GAMEWORLD_SHADOW").is_none()
+            && std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none()
+        {
             assert!(!gameworld_shadow_enabled());
+            assert!(!gameworld_damage_authority_enabled());
             assert!(maybe_shadow_after_host_tick(&GameLogic::new()).is_none());
         }
+    }
+
+    #[test]
+    fn damage_authority_writeback_is_last_writer() {
+        crate::game_logic::host_damage_log::clear();
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("DmgAuthority");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "AuthUnit", 100.0);
+        let id = logic
+            .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit");
+
+        let mut shadow = GameWorldShadow::new(4096);
+        shadow.sync_from_host(&logic);
+        let pre = logic.get_objects().get(&id).unwrap().health.current;
+
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            let _ = obj.take_damage(25.0);
+        }
+        let host_mid = logic.get_objects().get(&id).unwrap().health.current;
+        assert!(host_mid < pre);
+
+        let events = crate::game_logic::host_damage_log::drain();
+        assert!(!events.is_empty());
+        shadow.sync_from_host_with(&logic, false);
+        let eid = shadow.entity_for_host(id).unwrap();
+        let shadow_pre_mut = shadow.world().entity(eid).unwrap().health;
+        assert!(
+            (shadow_pre_mut - pre).abs() < 0.01,
+            "expected pre-tick shadow hp {pre} got {shadow_pre_mut}"
+        );
+        let _ = shadow.apply_host_damage_events(&events);
+        // Deliberately desync host so writeback must run.
+        if let Some(obj) = logic.get_objects_mut().get_mut(&id) {
+            obj.health.current = pre; // restore pre-damage on host
+            obj.status.destroyed = false;
+        }
+        let wb = shadow.writeback_health_to_host(&mut logic);
+        assert!(wb >= 1, "expected writeback after host desync");
+        let host_final = logic.get_objects().get(&id).unwrap().health.current;
+        let shadow_final = shadow.world().entity(eid).unwrap().health;
+        assert!(
+            (host_final - shadow_final).abs() < 0.05,
+            "writeback mismatch host={host_final} shadow={shadow_final}"
+        );
+        // Shadow applied logged actual_damage from mid-frame combat.
+        assert!(
+            (host_final - host_mid).abs() < 0.05,
+            "authority final {host_final} vs mid-frame host {host_mid}"
+        );
+        assert!(host_final < pre);
     }
 
     #[test]
