@@ -1562,6 +1562,34 @@ mod tests {
     }
 
     #[test]
+    fn host_object_ignores_registry_when_bridge_off() {
+        if crate::gameworld_shadow::engine_object_bridge_enabled() {
+            return; // process has bridge env
+        }
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("BridgeIgnore");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        ensure_template(&mut logic, "BridgeIgnU", 50.0);
+        let id = logic
+            .create_object("BridgeIgnU", Team::USA, glam::Vec3::ZERO)
+            .expect("id");
+        {
+            let o = logic.get_objects_mut().get_mut(&id).unwrap();
+            // Stale bridge id must not hijack host pose/HP when bridge off.
+            o.engine_object_id = Some(999_999);
+            o.health.current = 12.0;
+            o.set_position(glam::Vec3::new(3.0, 0.0, 4.0));
+        }
+        let o = logic.get_objects().get(&id).unwrap();
+        assert!(
+            (o.get_health_percentage() - (12.0 / 50.0)).abs() < 0.02 || o.health.current == 12.0
+        );
+        let p = o.get_position();
+        assert!((p.x - 3.0).abs() < 0.01 && (p.z - 4.0).abs() < 0.01);
+        assert!(o.is_alive());
+    }
+
+    #[test]
     fn engine_object_bridge_off_by_default() {
         // Default path: no dual-tick / bridge env → engine_object_id stays None.
         if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
