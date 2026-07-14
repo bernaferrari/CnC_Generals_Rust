@@ -9,6 +9,17 @@
 //! - AttackRange 350, MinimumAttackRange 200, clip 1 / 10s reload residual.
 //! - PreferredAgainst residual: secondary preferred vs infantry (toxin).
 //!
+//! Wave 70 residual pack (retail Weapon.ini / GLAVehicle.ini / System.ini):
+//! - Weapon residual: Explosive **300**/r**50** + **50**/r**100**; Toxin **200**/r**30** +
+//!   **25**/r**60**; range **350**/min **200**; Clip **1**/reload **10000**ms → **300**f;
+//!   PreAttack **500**ms → **15**f; Projectile **SCUDMissile**; DamageType **EXPLOSION**.
+//! - Poison residual: MediumPoisonFieldWeapon **2**/r**80**, tick **500**ms → **15**f,
+//!   lifetime **30000**ms → **900**f; upgraded **2.5**; DamageType **POISON**.
+//! - Body residual: MaxHealth **180**, BuildCost **1200**, BuildTime **15**s → **450**f,
+//!   Vision **180**/Shroud **300**, slots **3**, Geometry BOX **14**/**7**/**11.5**,
+//!   Speed **20**/Damaged **15**.
+//! - Honesty: `honesty_scud_launcher_residual_pack_ok` + layer honesty tests.
+//!
 //! Fail-closed honesty:
 //! - Not full SCUDMissile projectile lob / PreAttackDelay PER_SHOT animation
 //! - Not full salvage PlusOne/PlusTwo range/damage weapon-set matrix
@@ -50,10 +61,70 @@ pub const SCUD_ATTACK_RANGE: f32 = 350.0;
 pub const SCUD_MIN_RANGE: f32 = 200.0;
 /// Retail ClipReloadTime 10000ms → 300 frames @ 30 FPS.
 pub const SCUD_RELOAD_FRAMES: u32 = 300;
+/// Retail PreAttackDelay residual (msec).
+pub const SCUD_PRE_ATTACK_MS: u32 = 500;
 /// Retail PreAttackDelay 500ms → 15 frames (recorded residual only).
 pub const SCUD_PRE_ATTACK_FRAMES: u32 = 15;
+/// Retail ClipReloadTime residual (msec).
+pub const SCUD_RELOAD_MS: u32 = 10_000;
+/// Retail ClipSize residual.
+pub const SCUD_CLIP_SIZE: u32 = 1;
 /// Retail ScatterRadiusVsInfantry.
 pub const SCUD_SCATTER_VS_INFANTRY: f32 = 30.0;
+/// Retail SCUDLauncherGunExplosive DamageType residual.
+pub const SCUD_DAMAGE_TYPE: &str = "EXPLOSION";
+/// Retail SCUDLauncherGunExplosive DeathType residual.
+pub const SCUD_DEATH_TYPE: &str = "EXPLODED";
+/// Retail ProjectileObject residual.
+pub const SCUD_PROJECTILE: &str = "SCUDMissile";
+/// Retail FireFX residual.
+pub const SCUD_FIRE_FX: &str = "FX_ScudLauncherIgnition";
+/// Retail explosive ProjectileDetonationFX residual.
+pub const SCUD_EXP_DETONATION_FX: &str = "WeaponFX_SCUDMissileDetonationExplosive";
+/// Retail toxin ProjectileDetonationFX residual.
+pub const SCUD_TOX_DETONATION_FX: &str = "WeaponFX_SCUDMissileDetonationToxin";
+/// Retail toxin ProjectileDetonationOCL residual.
+pub const SCUD_TOX_DETONATION_OCL: &str = "OCL_PoisonFieldMedium";
+/// Retail MediumPoisonFieldWeapon DelayBetweenShots residual (msec).
+pub const SCUD_POISON_TICK_MS: u32 = 500;
+/// Retail PoisonFieldMedium LifetimeUpdate residual (msec).
+pub const SCUD_POISON_DURATION_MS: u32 = 30_000;
+/// Retail MediumPoisonFieldWeapon DamageType residual.
+pub const SCUD_POISON_DAMAGE_TYPE: &str = "POISON";
+/// Retail MediumPoisonFieldWeapon DeathType residual.
+pub const SCUD_POISON_DEATH_TYPE: &str = "POISONED";
+/// Retail MediumPoisonFieldWeapon template residual.
+pub const SCUD_POISON_WEAPON: &str = "MediumPoisonFieldWeapon";
+/// Logic frames per second (host fixed step).
+pub const SCUD_LOGIC_FPS: f32 = 30.0;
+/// Retail MaxHealth residual.
+pub const SCUD_MAX_HEALTH: f32 = 180.0;
+/// Retail VisionRange residual.
+pub const SCUD_VISION_RANGE: f32 = 180.0;
+/// Retail ShroudClearingRange residual.
+pub const SCUD_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual.
+pub const SCUD_BUILD_COST: u32 = 1_200;
+/// Retail BuildTime residual (seconds).
+pub const SCUD_BUILD_TIME_SEC: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS.
+pub const SCUD_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail TransportSlotCount residual.
+pub const SCUD_TRANSPORT_SLOT_COUNT: u32 = 3;
+/// Retail Geometry BOX MajorRadius residual.
+pub const SCUD_GEOMETRY_MAJOR: f32 = 14.0;
+/// Retail Geometry BOX MinorRadius residual.
+pub const SCUD_GEOMETRY_MINOR: f32 = 7.0;
+/// Retail GeometryHeight residual.
+pub const SCUD_GEOMETRY_HEIGHT: f32 = 11.5;
+/// Retail ScudLauncherLocomotor Speed residual.
+pub const SCUD_LOCOMOTOR_SPEED: f32 = 20.0;
+/// Retail ScudLauncherLocomotor SpeedDamaged residual.
+pub const SCUD_LOCOMOTOR_SPEED_DAMAGED: f32 = 15.0;
+/// Retail ExperienceValue residual.
+pub const SCUD_EXPERIENCE_VALUE: [u32; 4] = [50, 50, 100, 150];
+/// Retail ExperienceRequired residual.
+pub const SCUD_EXPERIENCE_REQUIRED: [u32; 4] = [0, 100, 200, 400];
 
 /// Retail MediumPoisonFieldWeapon PrimaryDamage / radius / lifetime.
 pub const SCUD_POISON_DAMAGE_PER_TICK: f32 = 2.0;
@@ -386,6 +457,100 @@ impl HostScudPoisonRegistry {
     }
 }
 
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn scud_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * SCUD_LOGIC_FPS / 1000.0).round() as u32
+}
+
+// --- Wave 70 residual honesty packs ---
+
+/// Wave 70 residual honesty: SCUD explosive / toxin warhead residual peel.
+pub fn honesty_scud_launcher_weapon_residual_ok() -> bool {
+    SCUD_GUN_EXPLOSIVE == "SCUDLauncherGunExplosive"
+        && SCUD_GUN_TOXIN == "SCUDLauncherGunToxin"
+        && SCUD_GUN_ANTHRAX == "SCUDLauncherGunAnthrax"
+        && (SCUD_EXP_PRIMARY_DAMAGE - 300.0).abs() < 0.01
+        && (SCUD_EXP_PRIMARY_RADIUS - 50.0).abs() < 0.01
+        && (SCUD_EXP_SECONDARY_DAMAGE - 50.0).abs() < 0.01
+        && (SCUD_EXP_SECONDARY_RADIUS - 100.0).abs() < 0.01
+        && (SCUD_TOX_PRIMARY_DAMAGE - 200.0).abs() < 0.01
+        && (SCUD_TOX_PRIMARY_RADIUS - 30.0).abs() < 0.01
+        && (SCUD_TOX_SECONDARY_DAMAGE - 25.0).abs() < 0.01
+        && (SCUD_TOX_SECONDARY_RADIUS - 60.0).abs() < 0.01
+        && (SCUD_ATTACK_RANGE - 350.0).abs() < 0.01
+        && (SCUD_MIN_RANGE - 200.0).abs() < 0.01
+        && (SCUD_SCATTER_VS_INFANTRY - 30.0).abs() < 0.01
+        && SCUD_RELOAD_MS == 10_000
+        && SCUD_RELOAD_FRAMES == scud_ms_to_frames(SCUD_RELOAD_MS)
+        && SCUD_RELOAD_FRAMES == 300
+        && SCUD_CLIP_SIZE == 1
+        && SCUD_PRE_ATTACK_MS == 500
+        && SCUD_PRE_ATTACK_FRAMES == scud_ms_to_frames(SCUD_PRE_ATTACK_MS)
+        && SCUD_PRE_ATTACK_FRAMES == 15
+        && SCUD_DAMAGE_TYPE == "EXPLOSION"
+        && SCUD_DEATH_TYPE == "EXPLODED"
+        && SCUD_PROJECTILE == "SCUDMissile"
+        && SCUD_FIRE_FX == "FX_ScudLauncherIgnition"
+        && SCUD_EXP_DETONATION_FX == "WeaponFX_SCUDMissileDetonationExplosive"
+        && SCUD_TOX_DETONATION_FX == "WeaponFX_SCUDMissileDetonationToxin"
+        && SCUD_TOX_DETONATION_OCL == "OCL_PoisonFieldMedium"
+        && SCUD_FIRE_AUDIO == "ScudLauncherWeapon"
+        && {
+            (scud_explosive_damage_at(0.0) - 300.0).abs() < 0.01
+                && (scud_toxin_blast_damage_at(10.0) - 200.0).abs() < 0.01
+                && scud_prefer_secondary_vs_infantry(true, true)
+        }
+}
+
+/// Wave 70 residual honesty: MediumPoisonField residual peel.
+pub fn honesty_scud_launcher_poison_residual_ok() -> bool {
+    SCUD_POISON_WEAPON == "MediumPoisonFieldWeapon"
+        && (SCUD_POISON_DAMAGE_PER_TICK - 2.0).abs() < 0.01
+        && (SCUD_POISON_DAMAGE_PER_TICK_UPGRADED - 2.5).abs() < 0.01
+        && (SCUD_POISON_RADIUS - 80.0).abs() < 0.01
+        && SCUD_POISON_TICK_MS == 500
+        && SCUD_POISON_TICK_INTERVAL_FRAMES == scud_ms_to_frames(SCUD_POISON_TICK_MS)
+        && SCUD_POISON_TICK_INTERVAL_FRAMES == 15
+        && SCUD_POISON_DURATION_MS == 30_000
+        && SCUD_POISON_DURATION_FRAMES == scud_ms_to_frames(SCUD_POISON_DURATION_MS)
+        && SCUD_POISON_DURATION_FRAMES == 900
+        && SCUD_POISON_DAMAGE_TYPE == "POISON"
+        && SCUD_POISON_DEATH_TYPE == "POISONED"
+        && SCUD_POISON_AUDIO == "ToxicPoolAmbientLoop"
+        && UPGRADE_GLA_ANTHRAX_BETA == "Upgrade_GLAAnthraxBeta"
+}
+
+/// Wave 70 residual honesty: SCUD Launcher body residual peel.
+pub fn honesty_scud_launcher_body_residual_ok() -> bool {
+    (SCUD_MAX_HEALTH - 180.0).abs() < 0.01
+        && (SCUD_VISION_RANGE - 180.0).abs() < 0.01
+        && (SCUD_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && SCUD_BUILD_COST == 1_200
+        && (SCUD_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && SCUD_BUILD_TIME_FRAMES == (SCUD_BUILD_TIME_SEC * SCUD_LOGIC_FPS).round() as u32
+        && SCUD_BUILD_TIME_FRAMES == 450
+        && SCUD_TRANSPORT_SLOT_COUNT == 3
+        && (SCUD_GEOMETRY_MAJOR - 14.0).abs() < 0.01
+        && (SCUD_GEOMETRY_MINOR - 7.0).abs() < 0.01
+        && (SCUD_GEOMETRY_HEIGHT - 11.5).abs() < 0.01
+        && (SCUD_LOCOMOTOR_SPEED - 20.0).abs() < 0.01
+        && (SCUD_LOCOMOTOR_SPEED_DAMAGED - 15.0).abs() < 0.01
+        && SCUD_EXPERIENCE_VALUE == [50, 50, 100, 150]
+        && SCUD_EXPERIENCE_REQUIRED == [0, 100, 200, 400]
+        && is_scud_launcher_template("GLAVehicleScudLauncher")
+}
+
+/// Combined Wave 70 SCUD Launcher residual honesty pack.
+pub fn honesty_scud_launcher_residual_pack_ok() -> bool {
+    honesty_scud_launcher_weapon_residual_ok()
+        && honesty_scud_launcher_poison_residual_ok()
+        && honesty_scud_launcher_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,5 +648,21 @@ mod tests {
         assert_eq!(plans.len(), 2);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
+    }
+
+    #[test]
+    fn scud_launcher_residual_pack_honesty_wave70() {
+        assert!(honesty_scud_launcher_weapon_residual_ok());
+        assert!(honesty_scud_launcher_poison_residual_ok());
+        assert!(honesty_scud_launcher_body_residual_ok());
+        assert!(honesty_scud_launcher_residual_pack_ok());
+        assert_eq!(scud_ms_to_frames(10_000), 300);
+        assert_eq!(scud_ms_to_frames(500), 15);
+        assert_eq!(scud_ms_to_frames(30_000), 900);
+        assert_eq!(SCUD_BUILD_TIME_FRAMES, 450);
+        assert_eq!(SCUD_PROJECTILE, "SCUDMissile");
+        assert_eq!(SCUD_TOX_DETONATION_OCL, "OCL_PoisonFieldMedium");
+        assert_eq!(SCUD_POISON_DAMAGE_TYPE, "POISON");
+        assert!((SCUD_EXP_PRIMARY_DAMAGE - 300.0).abs() < 0.01);
     }
 }
