@@ -1,3 +1,83 @@
+## Residual Host Playability — Wave 88: FX/OCL/particle/audio/cursor residual name tables (2026-07-13)
+
+**Closed (host-testable residual peels; C++ / INI name-table honesty for superweapon FX stack):**
+1. **RadiusCursor residual name table** (`host_fx_audio_cursor_residual`):
+   - Freezes C++ `RadiusCursorType` + `TheRadiusCursorNames` (InGameUI.h).
+   - `RADIUSCURSOR_COUNT` **30**; ordered names NONE..AMBULANCE (indices 0..29).
+   - Superweapon cluster residual: PARTICLECANNON **9**, A10STRIKE **10**,
+     CARPETBOMB **11**, DAISYCUTTER **12**, SPECTREGUNSHIP **15**,
+     NUCLEARMISSILE **17**, ARTILLERYBARRAGE **19**, SCUDSTORM **22**,
+     ANTHRAXBOMB **23**.
+   - Honesty: `honesty_radius_cursor_name_table_wave88`.
+2. **MouseCursor residual name table**:
+   - Freezes C++ `CursorININames` (Mouse.cpp) with ALLOW_SURRENDER /
+     ALLOW_DEMORALIZE **off**.
+   - `NUM_MOUSE_CURSORS` **40**; None..ParticleUplinkCannon (indices 0..39).
+   - Superweapon anchors: GenericInvalid **12** (InvalidCursor residual),
+     CaptureBuilding **21**, ParticleUplinkCannon **39**.
+   - Honesty: `honesty_mouse_cursor_name_table_wave88`.
+3. **FXList residual name table (superweapons)**:
+   - Freezes **28** retail `FXList.ini` superweapon FX residual names.
+   - Daisy (Explode/Ignite/Final), A10 ignition/explosion, ScudStormIgnition,
+     PUC BeamHitsGround / BeamLaunchIteration / DeathInitial, Nuke / NukeGLA /
+     BaikonurNuke, AnthraxBomb / AnthraxGammaBomb, CarpetBomb, ArtilleryBarrage,
+     Spectre howitzer/gattling/explosion, StructureLarge/Medium/Small/TinyDeath.
+   - Honesty: `honesty_superweapon_fxlist_name_table_wave88`.
+4. **ObjectCreationList residual names (OCL superweapons)**:
+   - Freezes **31** retail `ObjectCreationList.ini` SUPERWEAPON_* + aftermath OCL
+     residual names.
+   - Host core: DaisyCutter, NeutronMissile, ScudStorm, ArtilleryBarrage1/2/3,
+     A10ThunderboltMissileStrike1/2/3, AnthraxBomb(+Gamma), CarpetBomb +
+     AirF_/China_/Nuke_ variants, CruiseMissile, SupW_NeutronMissile.
+   - Aftermath: OCL_NukeRadiationField, OCL_PoisonFieldAnthraxBomb,
+     OCL_ParticleUplinkDeathFinal, OCL_SDILinkLasers, OCL_ABPowerPlantExplode,
+     OCL_GenericMissileDisintegrate, OCL_SpectreDeathFinalBlowUp.
+   - Honesty: `honesty_superweapon_ocl_name_table_wave88`.
+5. **Particle system residual name table expand**:
+   - Freezes **45** retail particle / laser residual names (expand Wave 81 PUC
+     outer-node flare residual).
+   - Full PUC set: OuterNode Light/Medium/Intense flares, InnerConnector
+     Medium/Intense flares, LaserBaseReady, LaunchFlare, Fire/Sparks/Magma/
+     Shockwave, Medium/IntenseConnectorLaser + OrbitalLaser objects, SupW_
+     variants.
+   - Superweapon anchors: DaisyExplosion(+Gas/Smoke), NukeMushroomRing/Stem/
+     Shockwave(+GLA), ScudMissleExplosion/Smoke/LenzFlare, AnthraxBombExplosion,
+     CarpetBombWave, ArtilleryBarrageDust/Shockwave/Trail, Spectre howitzer/
+     contrail/engine residual.
+   - Honesty: `honesty_superweapon_particle_name_table_wave88`.
+6. **Audio event residual name table expand**:
+   - Freezes **34** retail `SoundEffects.ini` AudioEvent residual names
+     (expand Wave 77 InitiateSound residual).
+   - Wave 77 anchors retained: ScudStormInitiated, FireArtilleryCannonSound,
+     AirRaidSiren.
+   - Expand: ScudStormLaunch/Select, Daisy weapon/gas/ignite/explosion, A10
+     weapon/ambient/dive/explosion, Neutron building open/launch/hiss +
+     ExplosionNeutron/MiniNuke, PUC Powerup/Unpack/Firing/GroundAnnihilation
+     loops (**4**), Anthrax explosion/pool, Carpet/Artillery explosion +
+     whistle, Spectre ambient/afterburner/gattling/howitzer,
+     Cin_CruiseMissileAmbientLoop.
+   - Honesty: `honesty_superweapon_audio_event_name_table_wave88`.
+7. Tests / gates:
+   - Combined honesty: `honesty_fx_audio_cursor_residual_pack_wave88`.
+   - shell_smoke: radius88/mouse88/fxlist88/ocl88/particle88/audio88
+     honesty flags wired (playable_claim stays false)
+   - Unit: 7 wave88 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     radius88=true mouse88=true fxlist88=true ocl88=true particle88=true
+     audio88=true
+
+**Still residual (fail-closed, not claimed):**
+- Full FXListExecutor particle/sound/decal application residual
+- Full OCL DeliverPayload / FireWeapon / Attack spawn matrix residual
+- Full ParticleSystemManager GPU / W3D bone-world FX attach residual
+- Full Miles positional playback / AudioEvent INI load residual
+- Full CursorManager / RadiusCursor GPU draw residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+---
+
 ## Residual Host Playability — Wave 87: weather/water/bridge/tunnel/garrison/transport residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal environment + contain residual):**

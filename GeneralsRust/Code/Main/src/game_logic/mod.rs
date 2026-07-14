@@ -66,6 +66,8 @@ pub mod host_structure_economy_residual;
 pub mod host_faction_skirmish_residual;
 pub mod host_gamedata_lobby_residual;
 pub mod host_env_contain_residual;
+pub mod host_rank_ui_residual;
+pub mod host_fx_audio_cursor_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -236,6 +238,18 @@ pub use host_env_contain_residual::{
     honesty_garrison_residual_pack_wave87, honesty_transport_residual_pack_wave87,
     honesty_tunnel_residual_deepen_wave87, honesty_water_residual_pack_wave87,
     honesty_weather_residual_pack_wave87,
+};
+pub use host_rank_ui_residual::{
+    honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
+    honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
+    honesty_rank_skill_points_application_residual_pack_wave89,
+    honesty_rank_ui_residual_pack_wave89, honesty_replay_residual_host_pack_wave89,
+};
+pub use host_fx_audio_cursor_residual::{
+    honesty_fx_audio_cursor_residual_pack_wave88, honesty_mouse_cursor_name_table_wave88,
+    honesty_radius_cursor_name_table_wave88, honesty_superweapon_audio_event_name_table_wave88,
+    honesty_superweapon_fxlist_name_table_wave88, honesty_superweapon_ocl_name_table_wave88,
+    honesty_superweapon_particle_name_table_wave88,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
