@@ -224,24 +224,43 @@ ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 # Compression Libraries
 generals_compression = { path = "Code/Libraries/Source/Compression" }
 
-# Profile configurations
+# Profile configurations — keep disk usage bounded in this huge workspace.
+# Full debug on every dependency + unpacked split-debuginfo previously blew
+# GeneralsRust/target past ~50GB (mostly target/debug/deps + incremental).
 [profile.dev]
 opt-level = 0
-debug = true
-split-debuginfo = "unpacked"
+# Line tables only for workspace crates (enough for backtraces).
+debug = 1
+# Packed dSYM/obj on macOS avoids tens of thousands of loose *.o debug files.
+split-debuginfo = "packed"
+# Incremental caches for generals_main/gamelogic alone were multi-GB each.
+incremental = false
+
+# Dependencies: no debug info; mild opts for runtime without fat objects.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.test]
+debug = 1
+incremental = false
+
+[profile.test.package."*"]
+debug = false
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-strip = false
+strip = "symbols"
 debug = false
+incremental = false
 
 [profile.release-with-debug]
 inherits = "release"
-debug = true
+debug = 1
 strip = false
 
 [profile.bench]
 inherits = "release"
-debug = true
+debug = 1

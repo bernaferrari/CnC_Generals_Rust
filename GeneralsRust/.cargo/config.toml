@@ -45,33 +45,36 @@ rustflags = [
     "-C", "link-arg=-Wl,-z,stack-size=8388608",
 ]
 
-# Profile configurations for better builds
+# NOTE: Cargo reads [profile.*] from Cargo.toml, not from this file on all
+# toolchains. Keep disk-bound profiles in the workspace Cargo.toml (source of
+# truth). Values below are retained as documentation / future Cargo support.
 [profile.dev]
 opt-level = 0
-debug = true
-split-debuginfo = "unpacked"
-# Keep disk usage bounded in this large workspace.
+debug = 1
+split-debuginfo = "packed"
 incremental = false
 
 [profile.dev.package."*"]
-opt-level = 2  # Optimize dependencies in dev mode
+opt-level = 2
+debug = false
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-strip = false
+strip = "symbols"
 debug = false
+incremental = false
 panic = "abort"
 
 [profile.release-with-debug]
 inherits = "release"
-debug = true
+debug = 1
 strip = false
 
 [profile.bench]
 inherits = "release"
-debug = true
+debug = 1
 
 # Feature resolver
 [unstable]
@@ -86,27 +89,32 @@ RUST_BACKTRACE = "1"
 # when commands are run from nested crate directories.
 CARGO_TARGET_DIR = { value = "target", relative = true }
 
-# Alias commands
+# Alias commands — prefer narrow crates over --workspace --all-features.
+# Full-matrix builds multiply artifacts (features × bins × tests × examples).
 [alias]
-# Quick checks
-check-all = "check --workspace --all-features --all-targets"
-test-all = "test --workspace --all-features"
-clippy-all = "clippy --workspace --all-targets --all-features -- -D warnings"
+# Quick checks (Main only — use cargo check -p <crate> for others)
+check-main = "check -p generals_main --all-targets"
+check-logic = "check -p gamelogic --all-targets"
+# Broad checks intentionally omit --all-features (feature matrices bloat target/)
+check-all = "check --workspace --all-targets"
+test-main = "test -p generals_main --lib"
+test-all = "test --workspace"
+clippy-main = "clippy -p generals_main --all-targets -- -D warnings"
+clippy-all = "clippy --workspace --all-targets -- -D warnings"
 
 # Build commands
-build-dev = "build --workspace --all-features"
-build-rel = "build --workspace --all-features --release"
+build-dev = "build -p generals_main"
+build-rel = "build -p generals_main --release"
 
 # Cross-platform builds
-build-windows = "build --target x86_64-pc-windows-msvc --release"
-build-macos-x86 = "build --target x86_64-apple-darwin --release"
-build-macos-arm = "build --target aarch64-apple-darwin --release"
-build-linux = "build --target x86_64-unknown-linux-gnu --release"
-build-linux-musl = "build --target x86_64-unknown-linux-musl --release"
+build-windows = "build -p generals_main --target x86_64-pc-windows-msvc --release"
+build-macos-x86 = "build -p generals_main --target x86_64-apple-darwin --release"
+build-macos-arm = "build -p generals_main --target aarch64-apple-darwin --release"
+build-linux = "build -p generals_main --target x86_64-unknown-linux-gnu --release"
+build-linux-musl = "build -p generals_main --target x86_64-unknown-linux-musl --release"
 
 # Test commands
-test-quick = "test --lib --all-features"
-test-integration = "test --test '*' --all-features"
+test-quick = "test -p generals_main --lib"
 
 # Clean commands
 clean-all = "clean --workspace"
