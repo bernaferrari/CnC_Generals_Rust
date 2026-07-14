@@ -1941,18 +1941,126 @@ impl CnCGameEngine {
             }
             "start_game" => {
                 let mode = Self::parse_runtime_host_mode(args.get("mode").map(String::as_str));
-                let faction = args
-                    .get("faction")
-                    .cloned()
-                    .unwrap_or_else(|| "USA".to_string());
                 let map = args
                     .get("map")
                     .cloned()
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+                // Prefer live client skirmish setup (WND path); else golden 2-slot host config.
+                let skirmish = if matches!(mode, GameMode::Skirmish) {
+                    #[cfg(feature = "game_client")]
+                    {
+                        crate::skirmish_config::config_from_client_skirmish_setup(Some(map.as_str()))
+                            .or_else(|| {
+                                Some(crate::skirmish_config::golden_skirmish_config(map.as_str()))
+                            })
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        Some(crate::skirmish_config::golden_skirmish_config(map.as_str()))
+                    }
+                } else {
+                    None
+                };
+                let faction = args
+                    .get("faction")
+                    .cloned()
+                    .or_else(|| {
+                        skirmish
+                            .as_ref()
+                            .map(crate::skirmish_config::local_faction_from_config)
+                    })
+                    .unwrap_or_else(|| "USA".to_string());
                 self.set_runtime_host_ui_screen_override(None);
-                self.start_game_from_ui(mode, faction, map, None);
+                self.start_game_from_ui(mode, faction, map, skirmish);
                 // start_game_from_ui transitions Loading -> InGame internally
+            }
+            // WND parity: enqueue MSG_NEW_GAME on the common stream so Menu drain
+            // (take_pending_new_game_start_request) is exercised on the live engine.
+            "queue_new_game" => {
+                use game_engine::common::message_stream::{
+                    get_message_stream, GameMessageType,
+                };
+                let mode_code = args
+                    .get("mode")
+                    .and_then(|m| match m.trim().to_ascii_lowercase().as_str() {
+                        "skirmish" | "2" => Some(2),
+                        "single" | "sp" | "0" => Some(0),
+                        "lan" | "1" => Some(1),
+                        "replay" | "3" => Some(3),
+                        _ => m.trim().parse::<i32>().ok(),
+                    })
+                    .unwrap_or(2);
+                let map = args
+                    .get("map")
+                    .cloned()
+                    .filter(|n| !n.trim().is_empty())
+                    .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+                {
+                    let mut global = game_engine::common::global_data::write();
+                    global.pending_file = map.clone();
+                }
+                #[cfg(feature = "game_client")]
+                {
+                    // Seed client setup map so config_from_client can resolve.
+                    let mut setup = game_client::gui::get_skirmish_setup();
+                    setup.set_selected_map(map.clone());
+                    setup.game_info_mut().game_info_mut().set_map(map.clone());
+                    if setup
+                        .game_info()
+                        .game_info()
+                        .get_slot(0)
+                        .map(|s| !s.is_occupied())
+                        .unwrap_or(true)
+                    {
+                        use game_client::SlotState;
+                        if let Some(slot) =
+                            setup.game_info_mut().game_info_mut().get_slot_mut(0)
+                        {
+                            slot.set_state(SlotState::Player, "Player".into(), 1);
+                            slot.set_player_template(-1);
+                            slot.set_team_number(0);
+                            slot.set_start_pos(0);
+                        }
+                        if let Some(slot) =
+                            setup.game_info_mut().game_info_mut().get_slot_mut(1)
+                        {
+                            slot.set_state(SlotState::MedAI, "AI".into(), 0);
+                            slot.set_player_template(-1);
+                            slot.set_team_number(1);
+                            slot.set_start_pos(1);
+                        }
+                    }
+                }
+                if let Ok(mut stream) = get_message_stream().write() {
+                    let msg = stream.append_message(GameMessageType::NewGame);
+                    msg.append_integer_argument(mode_code);
+                    msg.append_integer_argument(1); // DIFFICULTY_NORMAL
+                    msg.append_integer_argument(0); // rank points
+                    msg.append_integer_argument(30); // max fps residual
+                    info!(
+                        "Runtime host queued NewGame mode_code={mode_code} map={map}"
+                    );
+                } else {
+                    warn!("Runtime host failed to lock message stream for NewGame");
+                }
+                // Drain immediately (same helpers Menu update uses). Relying only on
+                // the next Menu frame races pump_message_stream / state transitions.
+                if let Some((mode, faction, map_name, skirmish)) =
+                    self.take_pending_new_game_start_request()
+                {
+                    info!(
+                        "Runtime host NewGame drain: mode={:?} faction={} map={}",
+                        mode, faction, map_name
+                    );
+                    self.set_runtime_host_ui_screen_override(None);
+                    self.start_game_from_ui(mode, faction, map_name, skirmish);
+                } else {
+                    warn!("Runtime host queued NewGame but drain produced no start request");
+                    if self.current_state != GameState::Menu {
+                        self.request_state_change(GameState::Menu);
+                    }
+                }
             }
             "load_game" => {
                 let slot = args.get("slot").map(|slot| slot.trim()).unwrap_or_default();

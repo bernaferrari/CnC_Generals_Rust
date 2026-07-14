@@ -394,6 +394,11 @@ impl CommandLineArgs {
                 | "fps"
                 | "shellmap"
                 | "jumptoframe"
+                // Runtime host / GPUI bridge control paths (value-taking).
+                | "runtime_host"
+                | "gpui_control"
+                | "gpui_status"
+                | "gpui_frame"
         )
     }
 
