@@ -165,7 +165,10 @@ pub fn honesty_control_bar_font_table_residual_ok() -> bool {
 ///
 /// When assets load, also requires window_count == 98. When assets absent,
 /// constant packs alone are honest residual (fail-closed vs GPU claim).
-pub fn honesty_control_bar_residual_pack_wave76_ok(window_loaded: bool, window_count: usize) -> bool {
+pub fn honesty_control_bar_residual_pack_wave76_ok(
+    window_loaded: bool,
+    window_count: usize,
+) -> bool {
     let constants_ok = honesty_control_bar_window_count_residual_ok()
         && honesty_control_bar_named_windows_residual_ok()
         && honesty_control_bar_font_table_residual_ok();
@@ -545,7 +548,11 @@ mod tests {
             h.status
         );
         if h.path_resolved {
-            assert!(h.wnd_validated, "resolved path must validate: {:?}", h.status);
+            assert!(
+                h.wnd_validated,
+                "resolved path must validate: {:?}",
+                h.status
+            );
             assert!(!h.window_loaded, "dry-run must not claim window_loaded");
             assert_eq!(h.window_count, 0, "dry-run window_count must be 0");
             if let GameplayLayoutStatus::Ready { path, .. } = &h.status {
@@ -573,13 +580,7 @@ mod tests {
         if h.path_resolved {
             assert!(h.wnd_validated, "path must structurally validate");
             // When assets are present on this host, prefer real load.
-            if matches!(
-                h.status,
-                GameplayLayoutStatus::Ready {
-                    loaded: true,
-                    ..
-                }
-            ) {
+            if matches!(h.status, GameplayLayoutStatus::Ready { loaded: true, .. }) {
                 assert!(
                     h.window_loaded && h.window_count > 0,
                     "WindowManager parse must materialise windows: {:?}",

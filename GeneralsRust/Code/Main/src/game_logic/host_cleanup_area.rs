@@ -207,12 +207,8 @@ impl HostCleanupAreaRegistry {
         self.radiation_cleared_total = self
             .radiation_cleared_total
             .saturating_add(entry.radiation_cleared);
-        self.toxin_cleared_total = self
-            .toxin_cleared_total
-            .saturating_add(entry.toxin_cleared);
-        self.mines_cleared_total = self
-            .mines_cleared_total
-            .saturating_add(entry.mines_cleared);
+        self.toxin_cleared_total = self.toxin_cleared_total.saturating_add(entry.toxin_cleared);
+        self.mines_cleared_total = self.mines_cleared_total.saturating_add(entry.mines_cleared);
         self.activations.push(entry);
         if self.activations.len() > 32 {
             let drain = self.activations.len() - 32;

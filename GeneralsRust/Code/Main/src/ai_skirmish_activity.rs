@@ -28,8 +28,7 @@ pub const AI_SKIRMISH_RESOURCES_POOR: i32 = gamelogic::ai::ai_player::RESOURCES_
 /// C++ m_resourcesWealthy residual.
 pub const AI_SKIRMISH_RESOURCES_WEALTHY: i32 = gamelogic::ai::ai_player::RESOURCES_WEALTHY;
 /// C++ m_structuresPoorMod residual.
-pub const AI_SKIRMISH_STRUCTURES_POOR_MOD: f32 =
-    gamelogic::ai::ai_player::STRUCTURES_POOR_MODIFIER;
+pub const AI_SKIRMISH_STRUCTURES_POOR_MOD: f32 = gamelogic::ai::ai_player::STRUCTURES_POOR_MODIFIER;
 /// C++ m_structuresWealthyMod residual.
 pub const AI_SKIRMISH_STRUCTURES_WEALTHY_MOD: f32 =
     gamelogic::ai::ai_player::STRUCTURES_WEALTHY_MODIFIER;
@@ -38,8 +37,7 @@ pub const AI_SKIRMISH_TEAMS_POOR_MOD: f32 = gamelogic::ai::ai_player::TEAMS_POOR
 /// C++ m_teamsWealthyMod residual.
 pub const AI_SKIRMISH_TEAMS_WEALTHY_MOD: f32 = gamelogic::ai::ai_player::TEAMS_WEALTHY_MODIFIER;
 /// C++ m_rebuildDelaySeconds residual.
-pub const AI_SKIRMISH_REBUILD_DELAY_SECONDS: u32 =
-    gamelogic::ai::ai_player::REBUILD_DELAY_SECONDS;
+pub const AI_SKIRMISH_REBUILD_DELAY_SECONDS: u32 = gamelogic::ai::ai_player::REBUILD_DELAY_SECONDS;
 /// C++ m_skirmishBaseDefenseExtraDistance residual.
 pub const AI_SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE: f32 =
     gamelogic::ai::ai_player::SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE;
@@ -292,10 +290,7 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
     let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
     let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
 
-    let difficulty_medium = matches!(
-        logic.host_ai_difficulty(1),
-        Some(AIDifficulty::Medium)
-    );
+    let difficulty_medium = matches!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
     let ai_active = logic.is_host_ai_active(1);
 
     let frame_before = logic.get_frame();
@@ -310,9 +305,7 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
 
     // Productive: multi-structure base, unit production, or activity counter.
     let productive = activity_count >= 1
-        && (ai_structures >= 2
-            || ai_units_or_queue >= 1
-            || activity_count >= 2);
+        && (ai_structures >= 2 || ai_units_or_queue >= 1 || activity_count >= 2);
 
     let status = if config_applied
         && cash_ok
@@ -485,7 +478,13 @@ mod tests {
         // World wipe + rebind (load_map residual without requiring retail map bytes).
         logic.objects.clear();
         logic.rebind_host_ai_after_map_load();
-        assert!(logic.get_player(1).map(|p| p.resources.supplies).unwrap_or(0) >= 10_000);
+        assert!(
+            logic
+                .get_player(1)
+                .map(|p| p.resources.supplies)
+                .unwrap_or(0)
+                >= 10_000
+        );
 
         // Seed constructed factories after rebind (map may not place GLA_*).
         for (name, pos) in [

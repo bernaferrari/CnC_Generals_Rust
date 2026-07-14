@@ -34,9 +34,7 @@
 //! - Not network suicide replication (network deferred)
 
 use super::Weapon;
-use crate::game_logic::host_toxin_tractor::{
-    is_chem_general_template, AnthraxResidualTier,
-};
+use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
 
 /// Logic frames per second (host fixed step).
 pub const TERRORIST_LOGIC_FPS: f32 = 30.0;
@@ -414,8 +412,7 @@ pub fn honesty_terrorist_profile_residual_ok() -> bool {
         && TerroristDeathProfile::Standard.fire_ocl().is_none()
         && TerroristDeathProfile::Demo.fire_fx() == DEMO_SUICIDE_DYNAMITE_FIRE_FX
         && TerroristDeathProfile::Standard.fire_fx() == SUICIDE_DYNAMITE_FIRE_FX
-        && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::ChemGamma, 0.0) - 600.0)
-            .abs()
+        && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::ChemGamma, 0.0) - 600.0).abs()
             < 0.01
         && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::Demo, 0.0) - 700.0).abs()
             < 0.01
@@ -502,9 +499,7 @@ mod tests {
 
     #[test]
     fn aoe_damage_rings() {
-        assert!(
-            (suicide_dynamite_damage_at(0.0) - SUICIDE_DYNAMITE_PRIMARY_DAMAGE).abs() < 0.01
-        );
+        assert!((suicide_dynamite_damage_at(0.0) - SUICIDE_DYNAMITE_PRIMARY_DAMAGE).abs() < 0.01);
         assert!(
             (suicide_dynamite_damage_at(SUICIDE_DYNAMITE_PRIMARY_RADIUS)
                 - SUICIDE_DYNAMITE_PRIMARY_DAMAGE)

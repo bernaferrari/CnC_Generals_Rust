@@ -1468,9 +1468,7 @@ impl RenderPipeline {
                 continue;
             }
 
-            let model_hint = model_hint_owned
-                .as_deref()
-                .or(Some(model_name));
+            let model_hint = model_hint_owned.as_deref().or(Some(model_name));
 
             let model_load_started = Instant::now();
             let render_model_load_result = Self::ensure_render_model_loaded(
@@ -2696,9 +2694,7 @@ impl RenderPipeline {
         &self,
     ) -> crate::graphics::laser_segment_upload::LaserSegmentUpload {
         match self.presentation_frame.as_ref() {
-            Some(frame) => {
-                crate::graphics::laser_segment_upload::pack_and_mark_upload_ready(frame)
-            }
+            Some(frame) => crate::graphics::laser_segment_upload::pack_and_mark_upload_ready(frame),
             None => crate::graphics::laser_segment_upload::LaserSegmentUpload::empty(),
         }
     }
@@ -2737,12 +2733,17 @@ impl RenderPipeline {
         }
 
         let dimensions = renderer.dimensions();
-        let bounds = self
-            .presentation_frame
-            .as_ref()
-            .map(|p| p.world_env.world_bounds_vec3());
+        // Prefer presentation-owned bounds + coarse height grid (no live height re-sample).
+        let (bounds, height_env) = if let Some(pres) = self.presentation_frame.as_ref() {
+            (
+                Some(pres.world_env.world_bounds_vec3()),
+                Some(&pres.world_env),
+            )
+        } else {
+            (None, None)
+        };
         let base_texture =
-            Self::build_minimap_terrain_base_texture(game_logic, dimensions, bounds);
+            Self::build_minimap_terrain_base_texture(game_logic, dimensions, bounds, height_env);
         renderer.set_base_terrain_texture(base_texture)?;
         self.minimap_base_needs_refresh = false;
         Ok(())
@@ -2752,6 +2753,7 @@ impl RenderPipeline {
         game_logic: &GameLogic,
         dimensions: MinimapDimensions,
         bounds_override: Option<(Vec3, Vec3)>,
+        height_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
     ) -> Vec<u8> {
         let width = dimensions.width.max(1);
         let height = dimensions.height.max(1);
@@ -2759,12 +2761,15 @@ impl RenderPipeline {
         let mut heights = vec![0.0f32; pixel_count];
         let mut has_sample = false;
 
-        let (world_min, world_max) =
-            bounds_override.unwrap_or_else(|| game_logic.world_bounds());
+        let (world_min, world_max) = bounds_override.unwrap_or_else(|| game_logic.world_bounds());
         let world_span_x = (world_max.x - world_min.x).max(1.0);
         let world_span_z = (world_max.z - world_min.z).max(1.0);
 
         let idx = |x: u32, y: u32| -> usize { (y * width + x) as usize };
+
+        let use_pres_heights = height_env
+            .map(|e| e.height_samples_from_terrain && !e.height_samples.is_empty())
+            .unwrap_or(false);
 
         for y in 0..height {
             for x in 0..width {
@@ -2775,7 +2780,13 @@ impl RenderPipeline {
                     0.0,
                     world_min.z + v * world_span_z,
                 );
-                if let Some(h) = game_logic.terrain_height_at(world) {
+                let sample = if use_pres_heights {
+                    height_env.and_then(|e| e.sample_height(world.x, world.z))
+                } else {
+                    // Live fallback only when presentation height residual is absent.
+                    game_logic.terrain_height_at(world)
+                };
+                if let Some(h) = sample {
                     heights[idx(x, y)] = h;
                     has_sample = true;
                 }
@@ -4378,11 +4389,7 @@ mod tests {
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("PresMeshUnit".into(), t);
         let id = logic
-            .create_object(
-                "PresMeshUnit",
-                Team::USA,
-                Vec3::new(15.0, 0.0, -3.0),
-            )
+            .create_object("PresMeshUnit", Team::USA, Vec3::new(15.0, 0.0, -3.0))
             .expect("unit");
         if let Some(o) = logic.get_object_mut(id) {
             o.selected = true;

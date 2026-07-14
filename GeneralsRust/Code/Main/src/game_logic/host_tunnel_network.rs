@@ -385,7 +385,9 @@ mod tests {
         assert!(is_tunnel_network_template("Chem_GLATunnelNetwork"));
         assert!(is_tunnel_network_template("TestTunnelNetwork"));
         assert!(!is_tunnel_network_template("GLAHoleTunnelNetwork"));
-        assert!(!is_tunnel_network_template("GLASneakAttackTunnelNetworkStart"));
+        assert!(!is_tunnel_network_template(
+            "GLASneakAttackTunnelNetworkStart"
+        ));
         assert!(!is_tunnel_network_template("GLATunnelNetworkNoSpawn"));
         assert!(!is_tunnel_network_template("GLA_Barracks"));
         assert!(!is_tunnel_network_template("TestBunker"));

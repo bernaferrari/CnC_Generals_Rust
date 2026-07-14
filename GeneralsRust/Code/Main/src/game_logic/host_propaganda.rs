@@ -102,11 +102,7 @@ pub fn is_legal_propaganda_target(
 }
 
 /// 2D distance check residual (C++ FROM_CENTER_2D).
-pub fn in_propaganda_radius_2d(
-    tower_pos: (f32, f32),
-    target_pos: (f32, f32),
-    radius: f32,
-) -> bool {
+pub fn in_propaganda_radius_2d(tower_pos: (f32, f32), target_pos: (f32, f32), radius: f32) -> bool {
     let dx = tower_pos.0 - target_pos.0;
     let dy = tower_pos.1 - target_pos.1;
     dx * dx + dy * dy <= radius * radius
@@ -231,7 +227,6 @@ pub fn honesty_propaganda_residual_pack_ok() -> bool {
     honesty_propaganda_residual_ok()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,8 +251,12 @@ mod tests {
     fn legal_propaganda_target_matrix() {
         assert!(is_legal_propaganda_target(false, true, true, false, false));
         assert!(!is_legal_propaganda_target(true, true, true, false, false));
-        assert!(!is_legal_propaganda_target(false, false, true, false, false));
-        assert!(!is_legal_propaganda_target(false, true, false, false, false));
+        assert!(!is_legal_propaganda_target(
+            false, false, true, false, false
+        ));
+        assert!(!is_legal_propaganda_target(
+            false, true, false, false, false
+        ));
         assert!(!is_legal_propaganda_target(false, true, true, true, false));
         assert!(!is_legal_propaganda_target(false, true, true, false, true));
     }
@@ -267,8 +266,7 @@ mod tests {
         assert!(HOST_PROPAGANDA_TOWER_RADIUS > 0.0);
         assert!(HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC > 0.0);
         assert!(
-            HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC
-                > HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC
+            HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC > HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC
         );
         assert!(in_propaganda_radius_2d((0.0, 0.0), (50.0, 0.0), 150.0));
         assert!(!in_propaganda_radius_2d((0.0, 0.0), (200.0, 0.0), 150.0));
@@ -302,10 +300,7 @@ mod tests {
         assert_eq!(SUBLIMINAL_CONDITION_NAME, "SUBLIMINAL");
         assert!((ENTHUSIASTIC_RATE_OF_FIRE_MULT - 1.25).abs() < 0.001);
         assert!((SUBLIMINAL_RATE_OF_FIRE_MULT - 1.25).abs() < 0.001);
-        assert_eq!(
-            propaganda_weapon_bonus_flags(false),
-            (true, false)
-        );
+        assert_eq!(propaganda_weapon_bonus_flags(false), (true, false));
         assert_eq!(propaganda_weapon_bonus_flags(true), (true, true));
         // UpgradeRequired residual.
         assert_eq!(
@@ -343,5 +338,4 @@ mod tests {
         assert!((HOST_PROPAGANDA_HEAL_PERCENT_PER_SEC - 0.02).abs() < 0.0001);
         assert_eq!(WEAPON_BONUS_ENTHUSIASTIC, 8);
     }
-
 }

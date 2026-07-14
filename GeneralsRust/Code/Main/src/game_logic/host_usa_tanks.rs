@@ -248,7 +248,11 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
             99999.0,
         )
     } else if laser {
-        (LAZR_CRUSADER_TANK_GUN_DAMAGE, USA_TANK_GUN_DELAY_FRAMES, 99999.0)
+        (
+            LAZR_CRUSADER_TANK_GUN_DAMAGE,
+            USA_TANK_GUN_DELAY_FRAMES,
+            99999.0,
+        )
     } else {
         // Shell residual: Paladin shares Crusader damage/delay; projectile speed differs.
         let speed = if is_paladin {
@@ -383,7 +387,6 @@ pub fn honesty_usa_tanks_residual_pack_ok() -> bool {
         && honesty_usa_tanks_body_residual_ok()
         && honesty_usa_tanks_composite_armor_residual_ok()
 }
-
 
 #[cfg(test)]
 mod tests {

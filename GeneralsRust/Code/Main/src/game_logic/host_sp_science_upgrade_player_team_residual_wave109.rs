@@ -322,8 +322,7 @@ pub fn honesty_special_power_template_store_residual_wave109() -> bool {
             SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
             "RequiredScience",
         ) == Some(1)
-        && residual_name_index(SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Enum")
-            == Some(5)
+        && residual_name_index(SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Enum") == Some(5)
         && residual_name_index(
             SPECIAL_POWER_TEMPLATE_FIELD_PARSE_NAMES_WAVE109,
             "SharedSyncedTimer",
@@ -439,8 +438,7 @@ pub const SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL: i32 = 0;
 pub const SCIENCE_GRANTABLE_DEFAULT_RESIDUAL: bool = true;
 
 /// C++ ScienceAvailabilityType residual names (Player.h DEFINE_SCIENCE_AVAILABILITY_NAMES).
-pub const SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109: &[&str] =
-    &["Available", "Disabled", "Hidden"];
+pub const SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109: &[&str] = &["Available", "Disabled", "Hidden"];
 pub const SCIENCE_AVAILABILITY_INVALID: i32 = -1;
 pub const SCIENCE_AVAILABLE: u32 = 0;
 pub const SCIENCE_DISABLED: u32 = 1;
@@ -597,10 +595,8 @@ pub fn honesty_science_store_residual_deepen_pack_wave109() -> bool {
         && SCIENCE_GRANTABLE_DEFAULT_RESIDUAL;
 
     let avail_ok = SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109.len() == SCIENCE_AVAILABILITY_COUNT
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Available")
-            == Some(0)
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Disabled")
-            == Some(1)
+        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Available") == Some(0)
+        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Disabled") == Some(1)
         && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Hidden") == Some(2)
         && SCIENCE_AVAILABILITY_INVALID == -1
         && SCIENCE_AVAILABLE == 0
@@ -694,8 +690,11 @@ pub const UPGRADE_TYPE_NAME_TABLE_WAVE109: &[&str] = &["PLAYER", "OBJECT"];
 pub const UPGRADE_STATUS_INVALID: u32 = 0;
 pub const UPGRADE_STATUS_IN_PRODUCTION: u32 = 1;
 pub const UPGRADE_STATUS_COMPLETE: u32 = 2;
-pub const UPGRADE_STATUS_NAME_TABLE_WAVE109: &[&str] =
-    &["UPGRADE_STATUS_INVALID", "UPGRADE_STATUS_IN_PRODUCTION", "UPGRADE_STATUS_COMPLETE"];
+pub const UPGRADE_STATUS_NAME_TABLE_WAVE109: &[&str] = &[
+    "UPGRADE_STATUS_INVALID",
+    "UPGRADE_STATUS_IN_PRODUCTION",
+    "UPGRADE_STATUS_COMPLETE",
+];
 
 /// C++ `UPGRADE_MAX_COUNT` residual (Upgrade.h).
 pub const UPGRADE_MAX_COUNT_RESIDUAL: usize = 128;
@@ -874,10 +873,8 @@ pub fn honesty_upgrade_store_residual_deepen_pack_wave109() -> bool {
         && UPGRADE_STATUS_INVALID == 0
         && UPGRADE_STATUS_IN_PRODUCTION == 1
         && UPGRADE_STATUS_COMPLETE == 2
-        && residual_name_index(
-            UPGRADE_STATUS_NAME_TABLE_WAVE109,
-            "UPGRADE_STATUS_COMPLETE",
-        ) == Some(2);
+        && residual_name_index(UPGRADE_STATUS_NAME_TABLE_WAVE109, "UPGRADE_STATUS_COMPLETE")
+            == Some(2);
 
     let caps_ok = UPGRADE_MAX_COUNT_RESIDUAL == 128
         && NAMEKEY_INVALID_RESIDUAL == 0
@@ -886,12 +883,9 @@ pub fn honesty_upgrade_store_residual_deepen_pack_wave109() -> bool {
         && (UPGRADE_TEMPLATE_CTOR_BUILD_TIME_DEFAULT - 0.0).abs() < 1e-6;
 
     let fields_ok = UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109.len() >= 6
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Type")
-            .is_some()
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildTime")
-            .is_some()
-        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildCost")
-            .is_some();
+        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "Type").is_some()
+        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildTime").is_some()
+        && residual_name_index(UPGRADE_TEMPLATE_FIELD_PARSE_NAMES_WAVE109, "BuildCost").is_some();
 
     let table_ok = UPGRADE_STORE_TABLE_WAVE109.len() >= 10;
     let mut names: Vec<&str> = UPGRADE_STORE_TABLE_WAVE109.iter().map(|r| r.name).collect();
@@ -1139,8 +1133,7 @@ pub fn special_power_ready_timer_clear_residual() -> (u32, u32) {
 pub fn honesty_player_residual_deepen_pack_wave109() -> bool {
     let type_ok = PLAYER_TYPE_NAME_TABLE_WAVE109.len() == PLAYER_TYPE_COUNT
         && residual_name_index(PLAYER_TYPE_NAME_TABLE_WAVE109, "PLAYER_HUMAN") == Some(0)
-        && residual_name_index(PLAYER_TYPE_NAME_TABLE_WAVE109, "PLAYER_COMPUTER")
-            == Some(1)
+        && residual_name_index(PLAYER_TYPE_NAME_TABLE_WAVE109, "PLAYER_COMPUTER") == Some(1)
         && PLAYER_TYPE_HUMAN == 0
         && PLAYER_TYPE_COMPUTER == 1
         && PLAYER_INDEX_INVALID_RESIDUAL == -1;
@@ -1194,13 +1187,12 @@ pub fn honesty_player_residual_deepen_pack_wave109() -> bool {
 
     // setLocal invalid → fall back to neutral residual.
     list.set_local(99);
-    let fallback_ok = list.local_index == Some(0)
-        && list.get_local().map(|p| p.player_index) == Some(0);
+    let fallback_ok =
+        list.local_index == Some(0) && list.get_local().map(|p| p.player_index) == Some(0);
 
     // Science availability residual cross-link.
     let sci_avail_ok = SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109.len() == 3
-        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Hidden")
-            == Some(2);
+        && residual_name_index(SCIENCE_AVAILABILITY_NAME_TABLE_WAVE109, "Hidden") == Some(2);
 
     type_ok
         && hotkey_ok
@@ -1267,8 +1259,7 @@ impl HostTeamFactoryResidualWave109 {
     pub fn init_team(&mut self, name: &str, is_singleton: bool) -> u32 {
         self.unique_team_prototype_id = self.unique_team_prototype_id.saturating_add(1);
         let id = self.unique_team_prototype_id;
-        self.prototypes
-            .push((name.to_string(), id, is_singleton));
+        self.prototypes.push((name.to_string(), id, is_singleton));
         id
     }
 
@@ -1353,12 +1344,8 @@ pub fn honesty_team_residual_deepen_pack_wave109() -> bool {
         && TEAM_MAX_GENERIC_SCRIPTS_WAVE109 == 16
         && TEAM_BEHAVIOR_NAME_TABLE_WAVE109.len() == 3
         && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "NORMAL") == Some(0)
-        && residual_name_index(
-            TEAM_BEHAVIOR_NAME_TABLE_WAVE109,
-            "IGNORE_DISTRACTIONS",
-        ) == Some(1)
-        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "DEAL_AGGRESSIVELY")
-            == Some(2)
+        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "IGNORE_DISTRACTIONS") == Some(1)
+        && residual_name_index(TEAM_BEHAVIOR_NAME_TABLE_WAVE109, "DEAL_AGGRESSIVELY") == Some(2)
         && TEAM_BEHAVIOR_NORMAL_WAVE109 == 0
         && TEAM_BEHAVIOR_IGNORE_DISTRACTIONS_WAVE109 == 1
         && TEAM_BEHAVIOR_DEAL_AGGRESSIVELY_WAVE109 == 2;
@@ -1375,8 +1362,7 @@ pub fn honesty_team_residual_deepen_pack_wave109() -> bool {
         && HostTeamFactoryResidualWave109::default_player_team_name("PlyrCivilian")
             == "teamPlyrCivilian"
         && HostTeamFactoryResidualWave109::default_player_team_name("") == "team"
-        && HostTeamFactoryResidualWave109::default_player_team_name("ThePlayer")
-            == "teamThePlayer";
+        && HostTeamFactoryResidualWave109::default_player_team_name("ThePlayer") == "teamThePlayer";
 
     // initTeam residual: ++proto id.
     let proto1 = factory.init_team("teamAmerica", true);

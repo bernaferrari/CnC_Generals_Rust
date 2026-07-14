@@ -128,7 +128,9 @@ impl HostSuperweaponKind {
 }
 
 /// Map host command-system power type to C++ SPECIAL_* residual name when known.
-pub fn host_command_power_cpp_enum_name(power: &HostCommandSpecialPowerType) -> Option<&'static str> {
+pub fn host_command_power_cpp_enum_name(
+    power: &HostCommandSpecialPowerType,
+) -> Option<&'static str> {
     match power {
         HostCommandSpecialPowerType::DaisyCutter | HostCommandSpecialPowerType::FuelAirBomb => {
             Some("SPECIAL_DAISY_CUTTER")
@@ -176,9 +178,7 @@ pub fn host_command_power_cpp_enum_name(power: &HostCommandSpecialPowerType) -> 
 
 /// Lookup bit-name list index for a C++ SPECIAL_* residual string.
 pub fn special_power_bit_name_index(name: &str) -> Option<usize> {
-    SPECIAL_POWER_BIT_NAME_LIST
-        .iter()
-        .position(|&n| n == name)
+    SPECIAL_POWER_BIT_NAME_LIST.iter().position(|&n| n == name)
 }
 
 /// Wave 80 honesty: SpecialPower enum residual discriminants pack.

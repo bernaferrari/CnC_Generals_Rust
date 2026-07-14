@@ -151,7 +151,6 @@ pub fn honesty_repair_residual_pack_ok() -> bool {
     honesty_repair_residual_ok()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,7 +160,9 @@ mod tests {
         assert!(building_provides_vehicle_repair(BuildingType::RepairPad));
         assert!(building_provides_vehicle_repair(BuildingType::WarFactory));
         assert!(!building_provides_vehicle_repair(BuildingType::Barracks));
-        assert!(!building_provides_vehicle_repair(BuildingType::CommandCenter));
+        assert!(!building_provides_vehicle_repair(
+            BuildingType::CommandCenter
+        ));
         assert!(building_provides_aircraft_repair(BuildingType::Airfield));
         assert!(!building_provides_aircraft_repair(BuildingType::WarFactory));
     }
@@ -225,5 +226,4 @@ mod tests {
         assert_eq!(REPAIR_DOCK_TIME_FOR_FULL_HEAL_FRAMES, 150);
         assert_eq!(TECH_REPAIR_PAD_TEMPLATE, "TechRepairPad");
     }
-
 }

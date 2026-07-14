@@ -19,9 +19,9 @@
 //! - Not full VictoryConditions multiplayer killPlayer / alliance reveal residual
 //! - Shell `playable_claim` stays false; network deferred
 
+use crate::ai::{AIDifficulty, AIPersonality};
 use crate::game_logic::game_logic::Player;
 use crate::game_logic::victory_conditions::VictoryType;
-use crate::ai::{AIDifficulty, AIPersonality};
 use crate::game_logic::Team;
 
 // ---------------------------------------------------------------------------
@@ -135,7 +135,13 @@ pub const FACTION_SIDE_RESIDUAL_TABLE: &[(&str, &str, &str, bool, bool)] = &[
         true,
         false,
     ),
-    ("FactionBossGeneral", SIDE_BOSS, BASE_SIDE_CHINA, true, false),
+    (
+        "FactionBossGeneral",
+        SIDE_BOSS,
+        BASE_SIDE_CHINA,
+        true,
+        false,
+    ),
 ];
 
 /// Preferred RGB residual from PlayerTemplate (R,G,B).
@@ -699,7 +705,9 @@ pub fn host_personality_for_team(team: Team) -> AIPersonality {
 
 /// Resource gatherer residual for side + difficulty (AIData SideInfo).
 pub fn resource_gatherers_for_side_difficulty(side: &str, diff: AIDifficulty) -> Option<u32> {
-    let info = SKIRMISH_AI_SIDE_INFO_RESIDUAL.iter().find(|s| s.side == side)?;
+    let info = SKIRMISH_AI_SIDE_INFO_RESIDUAL
+        .iter()
+        .find(|s| s.side == side)?;
     Some(match diff {
         AIDifficulty::Easy => info.resource_gatherers_easy,
         AIDifficulty::Medium => info.resource_gatherers_normal,

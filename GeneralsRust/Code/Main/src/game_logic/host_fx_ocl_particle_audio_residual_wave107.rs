@@ -30,9 +30,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 /// Lookup residual name index (case-insensitive).
 pub fn residual_name_index_ci(table: &[&str], name: &str) -> Option<usize> {
-    table
-        .iter()
-        .position(|&n| n.eq_ignore_ascii_case(name))
+    table.iter().position(|&n| n.eq_ignore_ascii_case(name))
 }
 
 /// Unique residual names check.
@@ -218,8 +216,10 @@ pub fn honesty_particle_system_residual_deepen_pack_wave107() -> bool {
 
     let sample_tsingma_ok = SAMPLE_PS_TSINGMA_NAME == "TsingMaTrailSmoke"
         && SAMPLE_PS_TSINGMA_SHADER == "ALPHA"
-        && residual_name_index(PARTICLE_SHADER_TYPE_NAMES_RESIDUAL, SAMPLE_PS_TSINGMA_SHADER)
-            == Some(2)
+        && residual_name_index(
+            PARTICLE_SHADER_TYPE_NAMES_RESIDUAL,
+            SAMPLE_PS_TSINGMA_SHADER,
+        ) == Some(2)
         && SAMPLE_PS_TSINGMA_TYPE == "PARTICLE"
         && residual_name_index(PARTICLE_TYPE_NAMES_RESIDUAL, SAMPLE_PS_TSINGMA_TYPE) == Some(1)
         && SAMPLE_PS_TSINGMA_PARTICLE_NAME == "EXSmokNew1.tga"
@@ -232,8 +232,10 @@ pub fn honesty_particle_system_residual_deepen_pack_wave107() -> bool {
     let sample_puc_ok = SAMPLE_PS_PUC_FLARE_NAME == "ParticleUplinkCannon_LaunchFlare"
         && SAMPLE_PS_PUC_FLARE_PRIORITY == "CRITICAL"
         && SAMPLE_PS_PUC_FLARE_SHADER == "ADDITIVE"
-        && residual_name_index(PARTICLE_SHADER_TYPE_NAMES_RESIDUAL, SAMPLE_PS_PUC_FLARE_SHADER)
-            == Some(1)
+        && residual_name_index(
+            PARTICLE_SHADER_TYPE_NAMES_RESIDUAL,
+            SAMPLE_PS_PUC_FLARE_SHADER,
+        ) == Some(1)
         && SAMPLE_PS_PUC_FLARE_TYPE == "PARTICLE"
         && SAMPLE_PS_PUC_FLARE_SYSTEM_LIFETIME == 1
         && (SAMPLE_PS_PUC_FLARE_LIFETIME - 80.0).abs() < 1e-5
@@ -388,8 +390,7 @@ pub fn honesty_fxlist_entry_residual_deepen_pack_wave107() -> bool {
     let ps_fields_ok = FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE.len() >= 14
         && residual_name_index(FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE, "Name") == Some(0)
         && residual_name_index(FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE, "Count").is_some()
-        && residual_name_index(FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE, "UseCallersRadius")
-            .is_some()
+        && residual_name_index(FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE, "UseCallersRadius").is_some()
         && residual_names_unique(FX_PARTICLE_SYSTEM_NUGGET_FIELD_TABLE)
         && FX_PARTICLE_SYSTEM_NUGGET_COUNT_CTOR == 1
         && (FX_PARTICLE_SYSTEM_NUGGET_DELAY_LEAVE_SENTINEL + 1.0).abs() < 1e-5
@@ -604,8 +605,10 @@ pub fn honesty_ocl_create_residual_deepen_pack_wave107() -> bool {
 
     let sample_create_ok = SAMPLE_OCL_A10_DEATH_FINAL_NAME == "OCL_A10DeathFinalBlowUp"
         && SAMPLE_OCL_A10_CREATE_KIND == "CreateObject"
-        && residual_name_index(OCL_NUGGET_ENTRY_KIND_TABLE_RESIDUAL, SAMPLE_OCL_A10_CREATE_KIND)
-            == Some(0)
+        && residual_name_index(
+            OCL_NUGGET_ENTRY_KIND_TABLE_RESIDUAL,
+            SAMPLE_OCL_A10_CREATE_KIND,
+        ) == Some(0)
         && SAMPLE_OCL_A10_OBJECT_NAME == "AmericaJetA10Hulk"
         && SAMPLE_OCL_A10_COUNT == 1
         && (SAMPLE_OCL_A10_DISPOSITION_INTENSITY - 0.4).abs() < 1e-5
@@ -618,8 +621,10 @@ pub fn honesty_ocl_create_residual_deepen_pack_wave107() -> bool {
 
     let sample_debris_ok = SAMPLE_OCL_A10_HIT_GROUND_NAME == "OCL_A10DeathHitGround"
         && SAMPLE_OCL_A10_DEBRIS_KIND == "CreateDebris"
-        && residual_name_index(OCL_NUGGET_ENTRY_KIND_TABLE_RESIDUAL, SAMPLE_OCL_A10_DEBRIS_KIND)
-            == Some(1)
+        && residual_name_index(
+            OCL_NUGGET_ENTRY_KIND_TABLE_RESIDUAL,
+            SAMPLE_OCL_A10_DEBRIS_KIND,
+        ) == Some(1)
         && SAMPLE_OCL_A10_DEBRIS_MODEL == "AVWarthog_D2"
         && (SAMPLE_OCL_A10_DEBRIS_MASS - 3.0).abs() < 1e-5
         && SAMPLE_OCL_A10_DEBRIS_COUNT == 1
@@ -652,8 +657,7 @@ pub const AP_LOW: u8 = 1;
 pub const AP_NORMAL: u8 = 2;
 pub const AP_HIGH: u8 = 3;
 pub const AP_CRITICAL: u8 = 4;
-pub const AUDIO_PRIORITY_NAMES_RESIDUAL: &[&str] =
-    &["LOWEST", "LOW", "NORMAL", "HIGH", "CRITICAL"];
+pub const AUDIO_PRIORITY_NAMES_RESIDUAL: &[&str] = &["LOWEST", "LOW", "NORMAL", "HIGH", "CRITICAL"];
 
 /// C++ SoundType residual bit flags + theSoundTypeNames order.
 pub const ST_UI: u32 = 0x0001;
@@ -666,15 +670,7 @@ pub const ST_ALLIES: u32 = 0x0040;
 pub const ST_ENEMIES: u32 = 0x0080;
 pub const ST_EVERYONE: u32 = 0x0100;
 pub const SOUND_TYPE_NAMES_RESIDUAL: &[&str] = &[
-    "UI",
-    "WORLD",
-    "SHROUDED",
-    "GLOBAL",
-    "VOICE",
-    "PLAYER",
-    "ALLIES",
-    "ENEMIES",
-    "EVERYONE",
+    "UI", "WORLD", "SHROUDED", "GLOBAL", "VOICE", "PLAYER", "ALLIES", "ENEMIES", "EVERYONE",
 ];
 
 /// C++ AudioControl residual bit flags + theAudioControlNames.
@@ -873,7 +869,9 @@ mod tests {
     #[test]
     fn residual_pack_honesty_wave107_fail_closed_unknowns() {
         assert!(residual_name_index(PARTICLE_SHADER_TYPE_NAMES_RESIDUAL, "NOT_A_SHADER").is_none());
-        assert!(residual_name_index(FXLIST_NUGGET_ENTRY_KIND_TABLE_RESIDUAL, "NotANugget").is_none());
+        assert!(
+            residual_name_index(FXLIST_NUGGET_ENTRY_KIND_TABLE_RESIDUAL, "NotANugget").is_none()
+        );
         assert!(residual_name_index(OCL_NUGGET_ENTRY_KIND_TABLE_RESIDUAL, "NotAnOcl").is_none());
         assert!(residual_name_index(AUDIO_PRIORITY_NAMES_RESIDUAL, "ULTRA").is_none());
         assert!(!audio_is_permanent_sound_residual(AC_INTERRUPT, 0));

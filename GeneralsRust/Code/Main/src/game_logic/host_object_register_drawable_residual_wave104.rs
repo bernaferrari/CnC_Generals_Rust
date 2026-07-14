@@ -34,13 +34,13 @@ use crate::game_logic::host_combat_sim_residual::{
     body_max_health_residual, honesty_body_max_health_residual_table_wave92,
 };
 use crate::game_logic::host_enum_table_residual::{
-    honesty_object_status_enum_table_wave82, object_status_bit_name_index, OBJECT_STATUS_COUNT,
-    OBJECT_STATUS_STEALTHED, OBJECT_STATUS_BIT_NAME_LIST,
+    honesty_object_status_enum_table_wave82, object_status_bit_name_index,
+    OBJECT_STATUS_BIT_NAME_LIST, OBJECT_STATUS_COUNT, OBJECT_STATUS_STEALTHED,
 };
 use crate::game_logic::host_thing_factory_module_xfer_residual::{
-    residual_name_index, DRAWABLE_STATUS_NONE, DRAWABLE_STATUS_SHADOWS,
-    MODULE_INTERFACE_BODY, MODULE_INTERFACE_CREATE, MODULE_TYPE_BEHAVIOR,
-    THING_FACTORY_OBJECT_STATUS_MASK_NONE, THING_FACTORY_POST_CREATE_STEPS_WAVE101,
+    residual_name_index, DRAWABLE_STATUS_NONE, DRAWABLE_STATUS_SHADOWS, MODULE_INTERFACE_BODY,
+    MODULE_INTERFACE_CREATE, MODULE_TYPE_BEHAVIOR, THING_FACTORY_OBJECT_STATUS_MASK_NONE,
+    THING_FACTORY_POST_CREATE_STEPS_WAVE101,
 };
 
 // ---------------------------------------------------------------------------
@@ -146,8 +146,7 @@ impl ObjectStatusStateMachineResidual {
     pub fn set_status_residual(&mut self, mask: u64, set: bool) -> bool {
         let changed = self.status.apply_set_status(mask, set);
         if changed {
-            self.status_change_applications =
-                self.status_change_applications.saturating_add(1);
+            self.status_change_applications = self.status_change_applications.saturating_add(1);
         } else {
             self.status_noop_applications = self.status_noop_applications.saturating_add(1);
         }
@@ -235,17 +234,17 @@ pub fn honesty_object_status_state_machine_residual_wave104() -> bool {
 /// Deepens Wave 101 post-create steps with Object-ctor-internal order residual
 /// (helpers first, behaviors, onObjectCreated, GameLogic registerObject).
 pub const OBJECT_CREATE_ORDER_STEPS_WAVE104: &[&str] = &[
-    "CTOR_STATUS_MASK",        // m_status = objectStatusMask
-    "ALLOCATE_OBJECT_ID",      // TheGameLogic->allocateObjectID
-    "HELPERS_FIRST",           // SMC/StatusDamage/Subdual/Repulsor/Defection/WS/Fire/TempBonus
-    "BEHAVIOR_MODULES",        // ModuleFactory newModule MODULETYPE_BEHAVIOR loop
-    "ON_OBJECT_CREATED",       // BehaviorModule::onObjectCreated inter-module resolution
-    "MODULES_READY",           // m_modulesReady = true
-    "RADAR_ADD",               // TheRadar->addObject
-    "GAMELOGIC_REGISTER",      // TheGameLogic->registerObject (m_objList prepend)
-    "TF_CREATE_ON_CREATE",     // ThingFactory CreateModuleInterface::onCreate loop
-    "PARTITION_REGISTER",      // ThePartitionManager->registerObject
-    "INIT_OBJECT",             // obj->initObject (sendObjectCreated / upgrades / battle plans)
+    "CTOR_STATUS_MASK",    // m_status = objectStatusMask
+    "ALLOCATE_OBJECT_ID",  // TheGameLogic->allocateObjectID
+    "HELPERS_FIRST",       // SMC/StatusDamage/Subdual/Repulsor/Defection/WS/Fire/TempBonus
+    "BEHAVIOR_MODULES",    // ModuleFactory newModule MODULETYPE_BEHAVIOR loop
+    "ON_OBJECT_CREATED",   // BehaviorModule::onObjectCreated inter-module resolution
+    "MODULES_READY",       // m_modulesReady = true
+    "RADAR_ADD",           // TheRadar->addObject
+    "GAMELOGIC_REGISTER",  // TheGameLogic->registerObject (m_objList prepend)
+    "TF_CREATE_ON_CREATE", // ThingFactory CreateModuleInterface::onCreate loop
+    "PARTITION_REGISTER",  // ThePartitionManager->registerObject
+    "INIT_OBJECT",         // obj->initObject (sendObjectCreated / upgrades / battle plans)
 ];
 
 /// Host residual counters for Object create residual order.
@@ -305,16 +304,14 @@ impl ObjectCreateOrderResidualCounters {
         }
         // 0 CTOR_STATUS_MASK
         let _ = initial_status_bits;
-        self.ctor_status_mask_applications =
-            self.ctor_status_mask_applications.saturating_add(1);
+        self.ctor_status_mask_applications = self.ctor_status_mask_applications.saturating_add(1);
         self.last_step_index = 0;
         // 1 ALLOCATE_OBJECT_ID
         let id = self.allocate_object_id_residual();
         self.last_step_index = 1;
         // 2 HELPERS_FIRST
-        self.helper_module_applications = self
-            .helper_module_applications
-            .saturating_add(helper_count);
+        self.helper_module_applications =
+            self.helper_module_applications.saturating_add(helper_count);
         self.last_step_index = 2;
         // 3 BEHAVIOR_MODULES
         self.behavior_module_applications = self
@@ -531,8 +528,7 @@ impl ActiveBodyResidual {
                 }
             }
         }
-        self.damage_state =
-            calc_body_damage_state_residual(self.current_health, self.max_health);
+        self.damage_state = calc_body_damage_state_residual(self.current_health, self.max_health);
     }
 
     /// Residual health ratio (current / max).
@@ -551,8 +547,7 @@ impl ActiveBodyResidual {
         }
         let prev_ratio = prev_health / self.max_health;
         let cur_ratio = self.current_health / self.max_health;
-        prev_ratio > YELLOW_DAMAGE_PERCENT_RESIDUAL
-            && cur_ratio < YELLOW_DAMAGE_PERCENT_RESIDUAL
+        prev_ratio > YELLOW_DAMAGE_PERCENT_RESIDUAL && cur_ratio < YELLOW_DAMAGE_PERCENT_RESIDUAL
     }
 }
 
@@ -695,13 +690,13 @@ pub const DRAWABLE_NEVER_EXPIRES_RESIDUAL: u32 = 0;
 
 /// C++ Drawable ctor + GameClient::registerDrawable residual step names.
 pub const DRAWABLE_CREATE_STEPS_WAVE104: &[&str] = &[
-    "ASSIGN_STATUS_BITS",  // m_status = statusBits (before complex init)
-    "INIT_LIST_LINKS",     // m_nextDrawable = m_prevDrawable = NULL
-    "REGISTER_DRAWABLE",   // TheGameClient->registerDrawable
-    "ALLOC_DRAWABLE_ID",   // allocDrawableID / setID (inside registerDrawable)
-    "PREPEND_DRAW_LIST",   // prependToList(&m_drawableList)
-    "INIT_OPACITY",        // explicit/stealth/effective = 1.0
-    "UNBOUND_OBJECT",      // m_object = NULL initially
+    "ASSIGN_STATUS_BITS", // m_status = statusBits (before complex init)
+    "INIT_LIST_LINKS",    // m_nextDrawable = m_prevDrawable = NULL
+    "REGISTER_DRAWABLE",  // TheGameClient->registerDrawable
+    "ALLOC_DRAWABLE_ID",  // allocDrawableID / setID (inside registerDrawable)
+    "PREPEND_DRAW_LIST",  // prependToList(&m_drawableList)
+    "INIT_OPACITY",       // explicit/stealth/effective = 1.0
+    "UNBOUND_OBJECT",     // m_object = NULL initially
 ];
 
 /// Host residual Drawable create bookkeeping node.
@@ -911,9 +906,9 @@ pub fn honesty_drawable_create_residual_wave104() -> bool {
 
 /// C++ GameLogic::registerObject residual step names.
 pub const GAMELOGIC_REGISTER_OBJECT_STEPS_WAVE104: &[&str] = &[
-    "PREPEND_OBJ_LIST",   // obj->prependToList(&m_objList)
-    "LOOKUP_TABLE_ADD",   // addObjectToLookupTable(obj)
-    "SLEEPY_WAKE_FRAME",  // when==0 → friend_setNextCallFrame(now); pushSleepyUpdate
+    "PREPEND_OBJ_LIST",  // obj->prependToList(&m_objList)
+    "LOOKUP_TABLE_ADD",  // addObjectToLookupTable(obj)
+    "SLEEPY_WAKE_FRAME", // when==0 → friend_setNextCallFrame(now); pushSleepyUpdate
 ];
 
 /// Host residual Object list node for m_objList.
@@ -962,9 +957,7 @@ impl GameLogicRegisterObjectResidual {
     /// C++ Object::isInList residual.
     pub fn is_in_list_residual(&self, index: usize) -> bool {
         let n = &self.nodes[index];
-        n.prev_index.is_some()
-            || n.next_index.is_some()
-            || self.list_head == Some(index)
+        n.prev_index.is_some() || n.next_index.is_some() || self.list_head == Some(index)
     }
 
     /// C++ Object::prependToList residual.
@@ -1024,8 +1017,7 @@ impl GameLogicRegisterObjectResidual {
         if id < self.lookup.len() {
             self.lookup[id] = None;
         }
-        self.lookup_remove_applications =
-            self.lookup_remove_applications.saturating_add(1);
+        self.lookup_remove_applications = self.lookup_remove_applications.saturating_add(1);
     }
 
     /// Find by object_id residual.
@@ -1250,10 +1242,7 @@ mod tests {
     #[test]
     fn active_body_max_health_apply_residual_wave104_honesty() {
         assert!(honesty_active_body_max_health_apply_residual_wave104());
-        assert_eq!(
-            body_max_health_residual("AmericaTankCrusader"),
-            Some(480.0)
-        );
+        assert_eq!(body_max_health_residual("AmericaTankCrusader"), Some(480.0));
     }
 
     #[test]

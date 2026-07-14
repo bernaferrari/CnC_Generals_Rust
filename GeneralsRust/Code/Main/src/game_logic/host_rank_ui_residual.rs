@@ -25,9 +25,8 @@
 use crate::game_logic::host_science_rank::{
     retail_cumulative_science_points_through, retail_rank_for_level,
     retail_rank_level_for_skill_points, RANK1_SKILL_POINTS_NEEDED, RANK2_SKILL_POINTS_NEEDED,
-    RANK3_SKILL_POINTS_NEEDED, RANK4_SKILL_POINTS_NEEDED, RANK5_SKILL_POINTS_NEEDED,
-    RANK5_SCIENCE_POINTS_GRANTED, RANK_SCIENCE_POINTS_DEFAULT, RETAIL_RANK_COUNT,
-    RETAIL_RANK_TABLE,
+    RANK3_SKILL_POINTS_NEEDED, RANK4_SKILL_POINTS_NEEDED, RANK5_SCIENCE_POINTS_GRANTED,
+    RANK5_SKILL_POINTS_NEEDED, RANK_SCIENCE_POINTS_DEFAULT, RETAIL_RANK_COUNT, RETAIL_RANK_TABLE,
 };
 
 // ---------------------------------------------------------------------------
@@ -64,9 +63,7 @@ pub fn skill_points_delta_after_modifier(delta: i32, modifier: f32) -> i32 {
 /// C++: `pointCap = getRankInfo(min(rankLevelLimit, rankCount))->m_skillPointsNeeded`
 /// — caps at the **lowest** point of the cap level (not highest).
 pub fn skill_point_cap_residual(rank_level_limit: i32) -> i32 {
-    let level_cap = rank_level_limit
-        .max(1)
-        .min(RETAIL_RANK_COUNT as i32) as u32;
+    let level_cap = rank_level_limit.max(1).min(RETAIL_RANK_COUNT as i32) as u32;
     retail_rank_for_level(level_cap)
         .map(|r| r.skill_points_needed)
         .unwrap_or(RANK5_SKILL_POINTS_NEEDED)
@@ -109,9 +106,7 @@ pub fn set_rank_level_residual(
     rank_level_limit: i32,
 ) -> RankSkillStateResidual {
     let mut target = new_level.max(1);
-    let hard_cap = rank_level_limit
-        .max(1)
-        .min(RETAIL_RANK_COUNT as i32) as u32;
+    let hard_cap = rank_level_limit.max(1).min(RETAIL_RANK_COUNT as i32) as u32;
     if target > hard_cap {
         target = hard_cap;
     }
@@ -221,8 +216,7 @@ pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
             && s.skill_points == RANK5_SKILL_POINTS_NEEDED
             && gained
             && s.level_up == i32::MAX
-            && s.science_purchase_points
-                == retail_cumulative_science_points_through(5)
+            && s.science_purchase_points == retail_cumulative_science_points_through(5)
     };
     let capped_by_limit = {
         // Rank level limit 3 → pointCap = Rank3 SkillPointsNeeded (1500).
@@ -244,8 +238,7 @@ pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
             level_down: RANK2_SKILL_POINTS_NEEDED,
         };
         // (1150-800)*100 / (1500-800) = 35000/700 = 50
-        rank_progress_percent_residual(&mid) == 50
-            && rank_progress_percent_residual(&reset) == 0
+        rank_progress_percent_residual(&mid) == 50 && rank_progress_percent_residual(&reset) == 0
     };
     let downgrade = {
         let high = set_rank_level_residual(reset, 4, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
@@ -318,7 +311,11 @@ pub const RANGER_EXPERIENCE_REQUIRED_RESIDUAL: [i32; 4] = [0, 40, 60, 120];
 pub const RANGER_EXPERIENCE_VALUE_RESIDUAL: [i32; 4] = [20, 20, 40, 60];
 
 /// Resolve skill-point value residual (ThingTemplate::getSkillPointValue).
-pub fn skill_point_value_residual(skill_point_values: [i32; 4], experience_values: [i32; 4], level: i32) -> i32 {
+pub fn skill_point_value_residual(
+    skill_point_values: [i32; 4],
+    experience_values: [i32; 4],
+    level: i32,
+) -> i32 {
     if !(0..LEVEL_COUNT_RESIDUAL).contains(&level) {
         return 0;
     }
@@ -336,9 +333,7 @@ pub fn experience_level_for_points(required: [i32; 4], experience: i32) -> i32 {
         return LEVEL_REGULAR_RESIDUAL;
     }
     let mut level = LEVEL_REGULAR_RESIDUAL;
-    while (level + 1) < LEVEL_COUNT_RESIDUAL
-        && experience >= required[(level + 1) as usize]
-    {
+    while (level + 1) < LEVEL_COUNT_RESIDUAL && experience >= required[(level + 1) as usize] {
         level += 1;
     }
     level
@@ -422,23 +417,13 @@ pub fn honesty_experience_residual_tables_pack_wave89() -> bool {
     };
     let scaled = {
         // AdvancedTraining AddXPScalar 1.0 → total scalar 2.0 residual path example.
-        let (xp, lvl) = add_experience_points_residual(
-            0,
-            40,
-            2.0,
-            true,
-            RANGER_EXPERIENCE_REQUIRED_RESIDUAL,
-        );
+        let (xp, lvl) =
+            add_experience_points_residual(0, 40, 2.0, true, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
         xp == 80 && lvl == LEVEL_ELITE_RESIDUAL
     };
     let no_scale = {
-        let (xp, _) = add_experience_points_residual(
-            0,
-            40,
-            2.0,
-            false,
-            RANGER_EXPERIENCE_REQUIRED_RESIDUAL,
-        );
+        let (xp, _) =
+            add_experience_points_residual(0, 40, 2.0, false, RANGER_EXPERIENCE_REQUIRED_RESIDUAL);
         xp == 40
     };
     let ally_zero = experience_value_for_kill_residual(
@@ -454,7 +439,9 @@ pub fn honesty_experience_residual_tables_pack_wave89() -> bool {
     let ladders_monotonic = EXP_REQUIRED_LIGHT_INFANTRY_RESIDUAL
         .windows(2)
         .all(|w| w[0] < w[1])
-        && EXP_REQUIRED_STANDARD_RESIDUAL.windows(2).all(|w| w[0] < w[1])
+        && EXP_REQUIRED_STANDARD_RESIDUAL
+            .windows(2)
+            .all(|w| w[0] < w[1])
         && EXP_REQUIRED_HEAVY_RESIDUAL.windows(2).all(|w| w[0] < w[1])
         && EXP_REQUIRED_VEHICLE_ALT_RESIDUAL
             .windows(2)

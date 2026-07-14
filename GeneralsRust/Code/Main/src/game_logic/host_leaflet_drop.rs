@@ -371,7 +371,6 @@ impl HostLeafletDropRegistry {
     }
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn leaflet_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -408,8 +407,7 @@ pub fn honesty_leaflet_drop_container_residual_ok() -> bool {
         && LEAFLET_DELAY_FRAMES == leaflet_ms_to_frames(LEAFLET_DELAY_MS)
         && LEAFLET_DELAY_FRAMES == 75
         && LEAFLET_DISABLED_DURATION_MS == 20_000
-        && LEAFLET_DISABLED_DURATION_FRAMES
-            == leaflet_ms_to_frames(LEAFLET_DISABLED_DURATION_MS)
+        && LEAFLET_DISABLED_DURATION_FRAMES == leaflet_ms_to_frames(LEAFLET_DISABLED_DURATION_MS)
         && LEAFLET_DISABLED_DURATION_FRAMES == 600
         && (HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01
         && (LEAFLET_CONTAINER_MAX_HEALTH - 100.0).abs() < 0.01
@@ -424,8 +422,7 @@ pub fn honesty_leaflet_drop_container_residual_ok() -> bool {
 
 /// Combined Wave 70 Leaflet Drop residual honesty pack.
 pub fn honesty_leaflet_drop_residual_pack_ok() -> bool {
-    honesty_leaflet_drop_special_power_residual_ok()
-        && honesty_leaflet_drop_container_residual_ok()
+    honesty_leaflet_drop_special_power_residual_ok() && honesty_leaflet_drop_container_residual_ok()
 }
 
 #[cfg(test)]

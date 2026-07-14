@@ -32,50 +32,50 @@ pub const NUM_AI_STATES_RESIDUAL: usize = 44;
 ///
 /// Source: `GeneralsMD/Code/GameEngine/Include/GameLogic/AIStateMachine.h`.
 pub const AI_STATE_TYPE_NAME_TABLE: &[&str] = &[
-    "AI_IDLE",                                     // 0
-    "AI_MOVE_TO",                                  // 1
-    "AI_FOLLOW_WAYPOINT_PATH_AS_TEAM",             // 2
-    "AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS",      // 3
-    "AI_FOLLOW_WAYPOINT_PATH_AS_TEAM_EXACT",       // 4
-    "AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS_EXACT",// 5
-    "AI_FOLLOW_PATH",                              // 6
-    "AI_FOLLOW_EXITPRODUCTION_PATH",               // 7
-    "AI_WAIT",                                     // 8
-    "AI_ATTACK_POSITION",                          // 9
-    "AI_ATTACK_OBJECT",                            // 10
-    "AI_FORCE_ATTACK_OBJECT",                      // 11
-    "AI_ATTACK_AND_FOLLOW_OBJECT",                 // 12
-    "AI_DEAD",                                     // 13
-    "AI_DOCK",                                     // 14
-    "AI_ENTER",                                    // 15
-    "AI_GUARD",                                    // 16
-    "AI_HUNT",                                     // 17
-    "AI_WANDER",                                   // 18
-    "AI_PANIC",                                    // 19
-    "AI_ATTACK_SQUAD",                             // 20
-    "AI_GUARD_TUNNEL_NETWORK",                     // 21
-    "AI_GET_REPAIRED",                             // 22
-    "AI_MOVE_OUT_OF_THE_WAY",                      // 23
-    "AI_MOVE_AND_TIGHTEN",                         // 24
-    "AI_MOVE_AND_EVACUATE",                        // 25
-    "AI_MOVE_AND_EVACUATE_AND_EXIT",               // 26
-    "AI_MOVE_AND_DELETE",                          // 27
-    "AI_ATTACK_AREA",                              // 28
-    "AI_HACK_INTERNET",                            // 29
-    "AI_ATTACK_MOVE_TO",                           // 30
-    "AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS",// 31
-    "AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM",       // 32
-    "AI_FACE_OBJECT",                              // 33
-    "AI_FACE_POSITION",                            // 34
-    "AI_RAPPEL_INTO",                              // 35
-    "AI_COMBATDROP",                               // 36
-    "AI_EXIT",                                     // 37
-    "AI_PICK_UP_CRATE",                            // 38
-    "AI_MOVE_AWAY_FROM_REPULSORS",                 // 39
-    "AI_WANDER_IN_PLACE",                          // 40
-    "AI_BUSY",                                     // 41
-    "AI_EXIT_INSTANTLY",                           // 42
-    "AI_GUARD_RETALIATE",                          // 43
+    "AI_IDLE",                                      // 0
+    "AI_MOVE_TO",                                   // 1
+    "AI_FOLLOW_WAYPOINT_PATH_AS_TEAM",              // 2
+    "AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS",       // 3
+    "AI_FOLLOW_WAYPOINT_PATH_AS_TEAM_EXACT",        // 4
+    "AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS_EXACT", // 5
+    "AI_FOLLOW_PATH",                               // 6
+    "AI_FOLLOW_EXITPRODUCTION_PATH",                // 7
+    "AI_WAIT",                                      // 8
+    "AI_ATTACK_POSITION",                           // 9
+    "AI_ATTACK_OBJECT",                             // 10
+    "AI_FORCE_ATTACK_OBJECT",                       // 11
+    "AI_ATTACK_AND_FOLLOW_OBJECT",                  // 12
+    "AI_DEAD",                                      // 13
+    "AI_DOCK",                                      // 14
+    "AI_ENTER",                                     // 15
+    "AI_GUARD",                                     // 16
+    "AI_HUNT",                                      // 17
+    "AI_WANDER",                                    // 18
+    "AI_PANIC",                                     // 19
+    "AI_ATTACK_SQUAD",                              // 20
+    "AI_GUARD_TUNNEL_NETWORK",                      // 21
+    "AI_GET_REPAIRED",                              // 22
+    "AI_MOVE_OUT_OF_THE_WAY",                       // 23
+    "AI_MOVE_AND_TIGHTEN",                          // 24
+    "AI_MOVE_AND_EVACUATE",                         // 25
+    "AI_MOVE_AND_EVACUATE_AND_EXIT",                // 26
+    "AI_MOVE_AND_DELETE",                           // 27
+    "AI_ATTACK_AREA",                               // 28
+    "AI_HACK_INTERNET",                             // 29
+    "AI_ATTACK_MOVE_TO",                            // 30
+    "AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS", // 31
+    "AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM",        // 32
+    "AI_FACE_OBJECT",                               // 33
+    "AI_FACE_POSITION",                             // 34
+    "AI_RAPPEL_INTO",                               // 35
+    "AI_COMBATDROP",                                // 36
+    "AI_EXIT",                                      // 37
+    "AI_PICK_UP_CRATE",                             // 38
+    "AI_MOVE_AWAY_FROM_REPULSORS",                  // 39
+    "AI_WANDER_IN_PLACE",                           // 40
+    "AI_BUSY",                                      // 41
+    "AI_EXIT_INSTANTLY",                            // 42
+    "AI_GUARD_RETALIATE",                           // 43
 ];
 
 /// Lookup C++ AI state residual name index.
@@ -638,8 +638,7 @@ pub fn honesty_upgrade_name_table_residual_wave94() -> bool {
     anchors.iter().all(|a| upgrade_residual_name_known(a))
         && UPGRADE_RESIDUAL_NAME_TABLE[0] == "Upgrade_Nationalism"
         && UPGRADE_RESIDUAL_NAME_TABLE[5] == "Upgrade_AmericaSupplyLines"
-        && UPGRADE_RESIDUAL_NAME_TABLE[UPGRADE_RESIDUAL_NAME_COUNT - 1]
-            == "RocketBuggyToxinUpgrade"
+        && UPGRADE_RESIDUAL_NAME_TABLE[UPGRADE_RESIDUAL_NAME_COUNT - 1] == "RocketBuggyToxinUpgrade"
         && UPGRADE_RESIDUAL_NAME_COUNT == 81
 }
 
@@ -666,7 +665,10 @@ pub const AMERICA_PARTICLE_UPLINK_COMMAND_SET: CommandSetBuildingResidual =
     CommandSetBuildingResidual {
         command_set_name: "AmericaParticleUplinkCannonCommandSet",
         object_template: "AmericaParticleCannonUplink",
-        slots: &[(1, "Command_FireParticleUplinkCannon"), (14, "Command_Sell")],
+        slots: &[
+            (1, "Command_FireParticleUplinkCannon"),
+            (14, "Command_Sell"),
+        ],
     };
 
 /// GLA Scud Storm CommandSet residual.
@@ -786,10 +788,7 @@ pub fn command_set_slot_button(
     pack: &CommandSetBuildingResidual,
     slot: u8,
 ) -> Option<&'static str> {
-    pack.slots
-        .iter()
-        .find(|(s, _)| *s == slot)
-        .map(|(_, b)| *b)
+    pack.slots.iter().find(|(s, _)| *s == slot).map(|(_, b)| *b)
 }
 
 /// Whether residual CommandSet has a button containing the given command fragment.

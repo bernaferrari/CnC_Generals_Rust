@@ -77,17 +77,17 @@ pub const RADAR_EVENT_NUM_EVENTS_RESIDUAL: usize = 11;
 
 /// Ordered C++ `RadarEventType` residual names (index = discriminant).
 pub const RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "RADAR_EVENT_INVALID",            // 0
-    "RADAR_EVENT_CONSTRUCTION",       // 1
-    "RADAR_EVENT_UPGRADE",            // 2
-    "RADAR_EVENT_UNDER_ATTACK",       // 3
-    "RADAR_EVENT_INFORMATION",        // 4
-    "RADAR_EVENT_BEACON_PULSE",       // 5
-    "RADAR_EVENT_INFILTRATION",       // 6
-    "RADAR_EVENT_BATTLE_PLAN",        // 7
-    "RADAR_EVENT_STEALTH_DISCOVERED", // 8
-    "RADAR_EVENT_STEALTH_NEUTRALIZED",// 9
-    "RADAR_EVENT_FAKE",               // 10
+    "RADAR_EVENT_INVALID",             // 0
+    "RADAR_EVENT_CONSTRUCTION",        // 1
+    "RADAR_EVENT_UPGRADE",             // 2
+    "RADAR_EVENT_UNDER_ATTACK",        // 3
+    "RADAR_EVENT_INFORMATION",         // 4
+    "RADAR_EVENT_BEACON_PULSE",        // 5
+    "RADAR_EVENT_INFILTRATION",        // 6
+    "RADAR_EVENT_BATTLE_PLAN",         // 7
+    "RADAR_EVENT_STEALTH_DISCOVERED",  // 8
+    "RADAR_EVENT_STEALTH_NEUTRALIZED", // 9
+    "RADAR_EVENT_FAKE",                // 10
 ];
 
 /// C++ `RADAR_PRIORITY_NUM_PRIORITIES` residual (keep-last sentinel).
@@ -208,8 +208,7 @@ pub fn honesty_radar_residual_deepen_pack_wave97() -> bool {
             RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL,
             "RADAR_EVENT_STEALTH_NEUTRALIZED",
         ) == Some(9)
-        && residual_name_index(RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL, "RADAR_EVENT_FAKE")
-            == Some(10)
+        && residual_name_index(RADAR_EVENT_TYPE_NAME_TABLE_RESIDUAL, "RADAR_EVENT_FAKE") == Some(10)
         && RADAR_PRIORITY_NUM_PRIORITIES_RESIDUAL == 5
         && RADAR_PRIORITY_NAME_TABLE_RESIDUAL.len() == 5
         && residual_name_index(RADAR_PRIORITY_NAME_TABLE_RESIDUAL, "STRUCTURE") == Some(2)
@@ -436,12 +435,12 @@ pub const STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL: &[StealthUnitSampleResidual] = &[
 
 /// C++ StealthLookType residual names (Drawable.h order).
 pub const STEALTH_LOOK_NAME_TABLE_RESIDUAL: &[&str] = &[
-    "STEALTHLOOK_NONE",                     // 0
-    "STEALTHLOOK_VISIBLE_FRIENDLY",         // 1
-    "STEALTHLOOK_DISGUISED_ENEMY",          // 2
-    "STEALTHLOOK_VISIBLE_DETECTED",         // 3
-    "STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED",// 4
-    "STEALTHLOOK_INVISIBLE",                // 5
+    "STEALTHLOOK_NONE",                      // 0
+    "STEALTHLOOK_VISIBLE_FRIENDLY",          // 1
+    "STEALTHLOOK_DISGUISED_ENEMY",           // 2
+    "STEALTHLOOK_VISIBLE_DETECTED",          // 3
+    "STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED", // 4
+    "STEALTHLOOK_INVISIBLE",                 // 5
 ];
 
 /// Wave 97 stealth residual deepen honesty pack.
@@ -476,8 +475,7 @@ pub fn honesty_stealth_residual_deepen_pack_wave97() -> bool {
         && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL.len() == 5
         && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].template == "AmericaInfantryPathfinder"
         && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].delay_frames == 0
-        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].forbidden_bits
-            == STEALTH_NOT_WHILE_MOVING_RESIDUAL
+        && STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].forbidden_bits == STEALTH_NOT_WHILE_MOVING_RESIDUAL
         && (STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[0].friendly_opacity_min - 0.30).abs() < 1e-6
         && residual_ms_to_frames(STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[1].delay_ms)
             == STEALTH_UNIT_SAMPLE_TABLE_RESIDUAL[1].delay_frames
@@ -485,8 +483,7 @@ pub fn honesty_stealth_residual_deepen_pack_wave97() -> bool {
         && residual_ms_to_frames(2000) == 60
         && STEALTH_LOOK_NAME_TABLE_RESIDUAL.len() == 6
         && residual_name_index(STEALTH_LOOK_NAME_TABLE_RESIDUAL, "STEALTHLOOK_NONE") == Some(0)
-        && residual_name_index(STEALTH_LOOK_NAME_TABLE_RESIDUAL, "STEALTHLOOK_INVISIBLE")
-            == Some(5)
+        && residual_name_index(STEALTH_LOOK_NAME_TABLE_RESIDUAL, "STEALTHLOOK_INVISIBLE") == Some(5)
 }
 
 // ---------------------------------------------------------------------------

@@ -685,12 +685,8 @@ mod tests {
     #[test]
     fn money_pickup_anim_record_honesty() {
         let mut reg = HostMoneyCrateRegistry::new();
-        let anim = HostMoneyCrateRegistry::money_pickup_anim(
-            ObjectId(3),
-            ObjectId(4),
-            Vec3::ZERO,
-            5,
-        );
+        let anim =
+            HostMoneyCrateRegistry::money_pickup_anim(ObjectId(3), ObjectId(4), Vec3::ZERO, 5);
         reg.record_money_pickup_anim(anim);
         assert!(reg.honesty_money_pickup_anim_ok());
         assert_eq!(reg.money_pickup_anims_total, 1);

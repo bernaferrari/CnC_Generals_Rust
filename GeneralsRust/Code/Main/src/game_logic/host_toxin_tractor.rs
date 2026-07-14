@@ -834,18 +834,10 @@ impl HostToxinTractorRegistry {
     /// Clear residual poison fields whose epicenters fall within cleanup radius.
     ///
     /// Wave 55 clean-up interaction residual (Ambulance / CleanupArea path).
-    pub fn clear_fields_in_radius(
-        &mut self,
-        center: (f32, f32),
-        cleanup_radius: f32,
-    ) -> u32 {
+    pub fn clear_fields_in_radius(&mut self, center: (f32, f32), cleanup_radius: f32) -> u32 {
         let before = self.active.len();
         self.active.retain(|z| {
-            !toxin_field_clearable_by_cleanup(
-                (z.position.x, z.position.z),
-                center,
-                cleanup_radius,
-            )
+            !toxin_field_clearable_by_cleanup((z.position.x, z.position.z), center, cleanup_radius)
         });
         let cleared = (before.saturating_sub(self.active.len())) as u32;
         self.expirations = self.expirations.saturating_add(cleared);
@@ -870,8 +862,7 @@ pub fn honesty_toxin_contaminate_puddle_residual_ok() -> bool {
         && TOXIN_MED_FIELD_TICK_FRAMES == 15
         && TOXIN_MED_FIELD_DURATION_FRAMES == 900
         && TOXIN_MED_FIELD_LIFETIME_MS == 30_000
-        && TOXIN_MED_FIELD_DURATION_FRAMES
-            == toxin_ms_to_frames(TOXIN_MED_FIELD_LIFETIME_MS)
+        && TOXIN_MED_FIELD_DURATION_FRAMES == toxin_ms_to_frames(TOXIN_MED_FIELD_LIFETIME_MS)
         && (TOXIN_MED_FIELD_MAX_HEALTH - 100.0).abs() < 0.01
         && (TOXIN_MED_FIELD_MAX_HEALTH_UPGRADED - 120.0).abs() < 0.01
         && (TOXIN_MED_FIELD_GEOMETRY_RADIUS - 40.0).abs() < 0.01
@@ -881,8 +872,7 @@ pub fn honesty_toxin_contaminate_puddle_residual_ok() -> bool {
         && (TOXIN_SMALL_FIELD_RADIUS_UPGRADED - 7.5).abs() < 0.01
         && TOXIN_SMALL_FIELD_DURATION_FRAMES == 300
         && TOXIN_SMALL_FIELD_LIFETIME_MS == 10_000
-        && TOXIN_SMALL_FIELD_DURATION_FRAMES
-            == toxin_ms_to_frames(TOXIN_SMALL_FIELD_LIFETIME_MS)
+        && TOXIN_SMALL_FIELD_DURATION_FRAMES == toxin_ms_to_frames(TOXIN_SMALL_FIELD_LIFETIME_MS)
         && (toxin_small_field_radius(AnthraxResidualTier::None) - 12.0).abs() < 0.01
         && (toxin_small_field_radius(AnthraxResidualTier::Beta) - 7.5).abs() < 0.01
         && (toxin_small_field_radius(AnthraxResidualTier::Gamma) - 7.5).abs() < 0.01
@@ -890,10 +880,8 @@ pub fn honesty_toxin_contaminate_puddle_residual_ok() -> bool {
         && TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM == "OCL_PoisonFieldUpgradedMedium"
         && TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM == "OCL_PoisonFieldGammaMedium"
         && toxin_spray_ocl_name(AnthraxResidualTier::None) == TOXIN_OCL_POISON_FIELD_MEDIUM
-        && toxin_spray_ocl_name(AnthraxResidualTier::Beta)
-            == TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM
-        && toxin_spray_ocl_name(AnthraxResidualTier::Gamma)
-            == TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM
+        && toxin_spray_ocl_name(AnthraxResidualTier::Beta) == TOXIN_OCL_POISON_FIELD_UPGRADED_MEDIUM
+        && toxin_spray_ocl_name(AnthraxResidualTier::Gamma) == TOXIN_OCL_POISON_FIELD_GAMMA_MEDIUM
 }
 
 /// Spray weapon residual (coast / min shots / range / salvage matrix).
@@ -937,8 +925,7 @@ pub fn honesty_toxin_spray_weapon_residual_ok() -> bool {
 
 /// Upgrade anthrax residual (stream salvage matrix + death types + OCL).
 pub fn honesty_toxin_anthrax_upgrade_residual_ok() -> bool {
-    (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Beta) - 12.5)
-        .abs()
+    (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Beta) - 12.5).abs()
         < 0.01
         && (toxin_stream_damage(ToxinTractorSalvageTier::One, AnthraxResidualTier::Beta) - 15.0)
             .abs()
@@ -946,16 +933,13 @@ pub fn honesty_toxin_anthrax_upgrade_residual_ok() -> bool {
         && (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Beta) - 20.0)
             .abs()
             < 0.01
-        && (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma)
-            - 20.5)
+        && (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma) - 20.5)
             .abs()
             < 0.01
-        && (toxin_stream_damage(ToxinTractorSalvageTier::One, AnthraxResidualTier::Gamma)
-            - 24.5)
+        && (toxin_stream_damage(ToxinTractorSalvageTier::One, AnthraxResidualTier::Gamma) - 24.5)
             .abs()
             < 0.01
-        && (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma)
-            - 28.5)
+        && (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma) - 28.5)
             .abs()
             < 0.01
         && toxin_death_type_name(AnthraxResidualTier::None) == TOXIN_DEATH_TYPE_POISONED
@@ -1032,8 +1016,7 @@ mod tests {
                 < 0.01
         );
         assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma)
-                - 20.5)
+            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma) - 20.5)
                 .abs()
                 < 0.01
         );
@@ -1055,7 +1038,9 @@ mod tests {
         assert!(!should_apply_toxin_spray(true, 0));
         assert!(should_apply_toxin_stream(true, 0));
         assert!(is_chem_general_template("Chem_GLAVehicleToxinTruck"));
-        assert!(is_anthrax_gamma_upgrade_name("Chem_Upgrade_GLAAnthraxGamma"));
+        assert!(is_anthrax_gamma_upgrade_name(
+            "Chem_Upgrade_GLAAnthraxGamma"
+        ));
         assert!(is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxGamma"));
         assert!(!is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxBeta"));
         assert_eq!(
@@ -1123,8 +1108,7 @@ mod tests {
                 < 0.01
         );
         assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma)
-                - 28.5)
+            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::Gamma) - 28.5)
                 .abs()
                 < 0.01
         );

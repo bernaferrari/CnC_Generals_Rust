@@ -209,12 +209,7 @@ pub fn should_microwave_disable(
     in_range: bool,
     legal_target: bool,
 ) -> bool {
-    is_microwave
-        && microwave_alive
-        && microwave_attacking
-        && has_target
-        && in_range
-        && legal_target
+    is_microwave && microwave_alive && microwave_attacking && has_target && in_range && legal_target
 }
 
 /// Whether residual garrison clearer is in range of structure.
@@ -425,9 +420,7 @@ mod tests {
         assert!(HOST_MICROWAVE_DISABLE_RANGE > HOST_MICROWAVE_CLEAR_RANGE);
         assert!(in_microwave_range_2d((0.0, 0.0), (150.0, 0.0), 200.0));
         assert!(!in_microwave_range_2d((0.0, 0.0), (250.0, 0.0), 200.0));
-        assert!(should_microwave_disable(
-            true, true, true, true, true, true
-        ));
+        assert!(should_microwave_disable(true, true, true, true, true, true));
         assert!(!should_microwave_disable(
             true, true, false, true, true, true
         ));
@@ -462,7 +455,11 @@ mod tests {
         assert_eq!(microwave_ms_to_frames(100), 3);
         assert_eq!(microwave_ms_to_frames(250), 8);
         assert_eq!(microwave_ms_to_frames(120), 4);
-        assert!(should_microwave_clear_garrison(true, true, true, true, true));
-        assert!(!should_microwave_clear_garrison(true, true, true, true, false));
+        assert!(should_microwave_clear_garrison(
+            true, true, true, true, true
+        ));
+        assert!(!should_microwave_clear_garrison(
+            true, true, true, true, false
+        ));
     }
 }

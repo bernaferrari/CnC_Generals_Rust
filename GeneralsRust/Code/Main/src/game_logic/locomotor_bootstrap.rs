@@ -278,7 +278,11 @@ pub fn honesty_locomotor_residual_table_wave81() -> bool {
         HUMVEE_LOCOMOTOR,
     ]
     .iter()
-    .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    .all(|n| {
+        HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE
+            .iter()
+            .any(|(name, ..)| name == n)
+    });
     if !names_ok {
         return false;
     }
@@ -328,9 +332,11 @@ pub fn honesty_locomotor_residual_expand_wave92() -> bool {
         AMERICA_DOZER_LOCOMOTOR,
         HELIX_LOCOMOTOR,
     ];
-    let names_ok = wave92_names
-        .iter()
-        .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    let names_ok = wave92_names.iter().all(|n| {
+        HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE
+            .iter()
+            .any(|(name, ..)| name == n)
+    });
     if !names_ok {
         return false;
     }
@@ -395,9 +401,11 @@ pub fn honesty_locomotor_residual_expand_wave103() -> bool {
         SABOTEUR_GROUND_LOCOMOTOR,
         MISSILE_DEFENDER_LOCOMOTOR,
     ];
-    let names_ok = wave103_names
-        .iter()
-        .all(|n| HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE.iter().any(|(name, ..)| name == n));
+    let names_ok = wave103_names.iter().all(|n| {
+        HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE
+            .iter()
+            .any(|(name, ..)| name == n)
+    });
     if !names_ok {
         return false;
     }

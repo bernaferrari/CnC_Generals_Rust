@@ -199,10 +199,7 @@ impl AiGroupResidual {
 ///
 /// Retail AIData.ini: need ≥ MinInfantryForGroup infantry AND
 /// distance ≥ MinDistanceForGroup (or force when ≥ DistanceRequiresGroup).
-pub fn group_path_should_engage_infantry(
-    infantry_count: i32,
-    move_distance: f32,
-) -> bool {
+pub fn group_path_should_engage_infantry(infantry_count: i32, move_distance: f32) -> bool {
     if move_distance >= DISTANCE_REQUIRES_GROUP_RESIDUAL {
         return infantry_count >= 1;
     }
@@ -576,13 +573,8 @@ pub const WEAPON_STATUS_COUNT: u32 = 5;
 pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7FFF_FFFF;
 
 /// C++ `WeaponBonus::Field` residual names.
-pub const WEAPON_BONUS_FIELD_NAME_LIST: &[&str] = &[
-    "DAMAGE",
-    "RADIUS",
-    "RANGE",
-    "RATE_OF_FIRE",
-    "PRE_ATTACK",
-];
+pub const WEAPON_BONUS_FIELD_NAME_LIST: &[&str] =
+    &["DAMAGE", "RADIUS", "RANGE", "RATE_OF_FIRE", "PRE_ATTACK"];
 
 /// C++ `WeaponBonus::DAMAGE` residual field ordinal.
 pub const WEAPON_BONUS_FIELD_DAMAGE: u32 = 0;
@@ -806,7 +798,6 @@ pub const PRIVATE_FIRE_WEAPON_STEPS: &[&str] = &[
     "SET_BETWEEN_OR_RELOAD_STATUS",
 ];
 
-
 /// Wave 105 honesty: weapon fire residual deepen pack.
 pub fn honesty_weapon_fire_residual_deepen_pack_wave105() -> bool {
     let status_ok = WEAPON_STATUS_NAME_LIST.len() == 5
@@ -907,8 +898,7 @@ pub const UNIT_REALLY_DAMAGED_THRESHOLD_RESIDUAL: f32 = 0.35;
 pub const MOVEMENT_PENALTY_DAMAGE_STATE_RESIDUAL: &str = "REALLYDAMAGED";
 
 /// C++ `BodyDamageType` residual names.
-pub const BODY_DAMAGE_TYPE_NAME_LIST: &[&str] =
-    &["PRISTINE", "DAMAGED", "REALLYDAMAGED", "RUBBLE"];
+pub const BODY_DAMAGE_TYPE_NAME_LIST: &[&str] = &["PRISTINE", "DAMAGED", "REALLYDAMAGED", "RUBBLE"];
 
 /// C++ `BODY_PRISTINE` residual.
 pub const BODY_PRISTINE: u32 = 0;
@@ -1222,8 +1212,7 @@ impl ExperienceTrackerResidual {
         self.current_experience += amount;
         let mut level_index = 0u32;
         while (level_index + 1) < LEVEL_COUNT
-            && self.current_experience
-                >= self.experience_required[(level_index + 1) as usize]
+            && self.current_experience >= self.experience_required[(level_index + 1) as usize]
         {
             level_index += 1;
         }

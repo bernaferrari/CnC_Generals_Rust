@@ -195,7 +195,6 @@ pub fn honesty_heal_residual_pack_ok() -> bool {
     honesty_ambulance_auto_heal_constants_ok()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,5 +329,4 @@ mod tests {
         assert_eq!(HOST_AMBULANCE_HEAL_RADIUS, 100.0);
         assert_eq!(AMBULANCE_TRANSPORT_SLOTS, 3);
     }
-
 }

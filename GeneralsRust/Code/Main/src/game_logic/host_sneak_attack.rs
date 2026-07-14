@@ -392,7 +392,8 @@ impl HostSneakAttackRegistry {
     pub fn plan_due_spawns(&self, current_frame: u32) -> Vec<HostSneakAttackSpawnPlan> {
         let mut plans = Vec::new();
         for mission in self.missions.values() {
-            if mission.phase != HostSneakAttackPhase::Queued || current_frame < mission.spawn_frame {
+            if mission.phase != HostSneakAttackPhase::Queued || current_frame < mission.spawn_frame
+            {
                 continue;
             }
             plans.push(HostSneakAttackSpawnPlan {
@@ -464,7 +465,6 @@ impl HostSneakAttackRegistry {
         self.honesty_activate_ok() && self.honesty_tunnel_spawn_ok()
     }
 }
-
 
 // --- Wave 62 residual honesty packs ---
 
@@ -578,7 +578,9 @@ mod tests {
             SNEAK_ATTACK_SPAWN_DELAY_FRAMES
         );
 
-        assert!(reg.plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1).is_empty());
+        assert!(reg
+            .plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1)
+            .is_empty());
         let plans = reg.plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].tunnel_template, SNEAK_ATTACK_RESIDUAL_TEMPLATE);

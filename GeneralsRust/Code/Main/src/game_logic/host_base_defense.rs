@@ -406,8 +406,7 @@ pub fn honesty_patriot_weapon_body_residual_ok() -> bool {
         && PATRIOT_DELAY_BETWEEN_SHOTS_MS == 250
         && PATRIOT_CLIP_RELOAD_MS == 2_000
         && PATRIOT_CLIP_RELOAD_FRAMES == 60
-        && (PATRIOT_CLIP_RELOAD_MS as f32 / 1000.0 * 30.0 - PATRIOT_CLIP_RELOAD_FRAMES as f32)
-            .abs()
+        && (PATRIOT_CLIP_RELOAD_MS as f32 / 1000.0 * 30.0 - PATRIOT_CLIP_RELOAD_FRAMES as f32).abs()
             < 0.01
         && (PATRIOT_PRIMARY_DAMAGE_RADIUS - 5.0).abs() < 0.01
         && (PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01
@@ -466,7 +465,6 @@ pub fn honesty_base_defense_residual_pack_ok() -> bool {
         && (PATRIOT_LASER_TILING_SCALAR - 0.25).abs() < 0.01
         && PATRIOT_ASSIST_LASER_LIFETIME_FRAMES == 18
 }
-
 
 /// C++ LaserUpdate::clientUpdate residual: refresh endpoints from live objects
 /// and advance W3DLaserDraw ScrollRate residual. Missing/dead `to` applies
@@ -1049,10 +1047,7 @@ pub fn init_stinger_hive_slave_roster() -> [ResidualHiveSlave; 3] {
 ///
 /// Sets alive residual soldiers to attacking the given host ObjectId.
 /// Returns how many residual slaves received the order.
-pub fn order_hive_slaves_to_attack_target(
-    slaves: &mut [ResidualHiveSlave],
-    target_id: u32,
-) -> u32 {
+pub fn order_hive_slaves_to_attack_target(slaves: &mut [ResidualHiveSlave], target_id: u32) -> u32 {
     if target_id == 0 {
         return 0;
     }
@@ -2593,7 +2588,8 @@ mod tests {
         let end_before = (live[1].to_x, live[1].to_y, live[1].to_z);
         let from_before = (live[1].from_x, live[1].from_y, live[1].from_z);
         track_patriot_assist_laser_endpoints(&mut live, |id| positions.get(&id).copied());
-        let expected = punch_through_laser_end(from_before, end_before, PATRIOT_LASER_PUNCH_THROUGH_SCALAR);
+        let expected =
+            punch_through_laser_end(from_before, end_before, PATRIOT_LASER_PUNCH_THROUGH_SCALAR);
         assert!((live[1].to_x - expected.0).abs() < 0.01);
         assert!((live[1].to_y - expected.1).abs() < 0.01);
         assert!((live[1].to_z - expected.2).abs() < 0.01);
@@ -2886,13 +2882,8 @@ mod tests {
         assert_eq!(seg.points.len(), PATRIOT_LASER_SEGMENTS as usize + 1);
         assert!((seg.points[0].0 - 0.0).abs() < 0.5);
         assert!((seg.points.last().unwrap().0 - 100.0).abs() < 0.5);
-        let direct = build_patriot_seglinerenderer_from_beam(
-            from,
-            to,
-            PATRIOT_LASER_ARC_HEIGHT,
-            -0.25,
-            0.0,
-        );
+        let direct =
+            build_patriot_seglinerenderer_from_beam(from, to, PATRIOT_LASER_ARC_HEIGHT, -0.25, 0.0);
         assert_eq!(direct.points.len(), seg.points.len());
     }
 
@@ -2914,7 +2905,9 @@ mod tests {
         let mut live = roster;
         let n = order_hive_slaves_to_attack_target(&mut live, 42);
         assert_eq!(n, 3);
-        assert!(live.iter().all(|s| s.ai_attacking && s.attack_target_id == 42));
+        assert!(live
+            .iter()
+            .all(|s| s.ai_attacking && s.attack_target_id == 42));
         // Dead slot does not receive order.
         live[1].alive = false;
         live[1].ai_attacking = false;
@@ -2928,7 +2921,10 @@ mod tests {
         let n_idle = order_hive_slaves_to_go_idle(&mut live);
         assert_eq!(n_idle, 2);
         assert!(live.iter().filter(|s| s.alive).all(|s| !s.ai_attacking));
-        assert!(live.iter().filter(|s| s.alive).all(|s| s.attack_target_id == 0));
+        assert!(live
+            .iter()
+            .filter(|s| s.alive)
+            .all(|s| s.attack_target_id == 0));
 
         // Attach presentation residual at site (10, 20).
         live[1].alive = true;
@@ -2980,5 +2976,4 @@ mod tests {
         // Clip residual: AssistingClipSize matches primary ClipSize.
         assert_eq!(PATRIOT_CLIP_SIZE, PATRIOT_ASSISTING_CLIP_SIZE);
     }
-
 }

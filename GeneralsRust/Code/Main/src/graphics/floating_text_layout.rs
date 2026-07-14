@@ -164,9 +164,9 @@ pub fn honesty_ingame_ui_font_table_residual_ok() -> bool {
         && INGAME_UI_FONT_RESIDUAL_TABLE
             .iter()
             .any(|f| f.role == "SuperweaponCountdownReadyFont" && f.bold)
-        && INGAME_UI_FONT_RESIDUAL_TABLE
-            .iter()
-            .any(|f| f.role == "MilitaryCaptionTitleFont" && f.name == "Courier New" && f.point_size == 12)
+        && INGAME_UI_FONT_RESIDUAL_TABLE.iter().any(|f| {
+            f.role == "MilitaryCaptionTitleFont" && f.name == "Courier New" && f.point_size == 12
+        })
         && INGAME_UI_FONT_RESIDUAL_TABLE
             .iter()
             .filter(|f| f.name == "Arial")
@@ -259,11 +259,7 @@ pub fn display_string_set_font_changed(previous_font: &str, new_font: &str) -> b
 }
 
 /// Honesty: setFont residual matches C++ early-out vs m_fontChanged path.
-pub fn honesty_display_string_set_font(
-    previous_font: &str,
-    new_font: &str,
-    changed: bool,
-) -> bool {
+pub fn honesty_display_string_set_font(previous_font: &str, new_font: &str, changed: bool) -> bool {
     display_string_set_font_changed(previous_font, new_font) == changed
 }
 
@@ -575,8 +571,18 @@ pub fn display_string_draw(
     text_or_font_dirty: bool,
 ) -> DisplayStringDrawResidual {
     display_string_draw_with_drop(
-        text, x, y, color, drop_color, 1, 1,
-        prev_x, prev_y, prev_color, prev_drop_color, text_or_font_dirty,
+        text,
+        x,
+        y,
+        color,
+        drop_color,
+        1,
+        1,
+        prev_x,
+        prev_y,
+        prev_color,
+        prev_drop_color,
+        text_or_font_dirty,
     )
 }
 
@@ -598,21 +604,33 @@ pub fn display_string_draw_with_drop(
 ) -> DisplayStringDrawResidual {
     if text.is_empty() {
         return DisplayStringDrawResidual {
-            x, y, color, drop_color, x_drop, y_drop,
-            shadow_x: x + x_drop, shadow_y: y + y_drop,
-            rebuilt: false, drew: false,
+            x,
+            y,
+            color,
+            drop_color,
+            x_drop,
+            y_drop,
+            shadow_x: x + x_drop,
+            shadow_y: y + y_drop,
+            rebuilt: false,
+            drew: false,
         };
     }
-    let pos_or_color_changed = x != prev_x
-        || y != prev_y
-        || color != prev_color
-        || drop_color != prev_drop_color;
+    let pos_or_color_changed =
+        x != prev_x || y != prev_y || color != prev_color || drop_color != prev_drop_color;
     let rebuilt = text_or_font_dirty || pos_or_color_changed;
     DisplayStringDrawResidual {
-        x, y, color, drop_color, x_drop, y_drop,
+        x,
+        y,
+        color,
+        drop_color,
+        x_drop,
+        y_drop,
         // Shadow drawn first at (x+xDrop, y+yDrop), then text at (x,y).
-        shadow_x: x + x_drop, shadow_y: y + y_drop,
-        rebuilt, drew: true,
+        shadow_x: x + x_drop,
+        shadow_y: y + y_drop,
+        rebuilt,
+        drew: true,
     }
 }
 
@@ -631,8 +649,16 @@ pub fn honesty_display_string_draw(
     sample: DisplayStringDrawResidual,
 ) -> bool {
     let expected = display_string_draw(
-        text, x, y, color, drop_color,
-        prev_x, prev_y, prev_color, prev_drop_color, text_or_font_dirty,
+        text,
+        x,
+        y,
+        color,
+        drop_color,
+        prev_x,
+        prev_y,
+        prev_color,
+        prev_drop_color,
+        text_or_font_dirty,
     );
     sample == expected
 }
@@ -737,7 +763,10 @@ impl DisplayStringManagerResidual {
 
     /// Stamp usingResources residual after a successful draw.
     pub fn using_resources(&mut self, id: DisplayStringNodeId, frame: u32) {
-        if self.next.contains_key(&id) || self.head == Some(id) || self.last_resource_frame.contains_key(&id) {
+        if self.next.contains_key(&id)
+            || self.head == Some(id)
+            || self.last_resource_frame.contains_key(&id)
+        {
             self.last_resource_frame.insert(id, frame);
         }
     }
@@ -775,7 +804,6 @@ impl DisplayStringManagerResidual {
         self.head.is_none() && self.next.is_empty()
     }
 }
-
 
 /// Honesty: DisplayStringManager free-resource pool residual (Wave 68).
 pub fn honesty_display_string_manager_free_pool() -> bool {
@@ -872,7 +900,8 @@ pub fn honesty_display_string_manager_link() -> bool {
     }
     m.unlink(2);
     // 3 → 1
-    if m.next.get(&3).copied().flatten() != Some(1) || m.prev.get(&1).copied().flatten() != Some(3) {
+    if m.next.get(&3).copied().flatten() != Some(1) || m.prev.get(&1).copied().flatten() != Some(3)
+    {
         return false;
     }
     if m.len() != 2 {
@@ -1548,9 +1577,7 @@ pub fn honesty_font_chars_spacing_residual_table_wave102() -> bool {
     if display_string_get_width("A", -1) != FONT_CHARS_MONO_GLYPH_WIDTH {
         return false;
     }
-    if display_string_get_width("+$150", -1)
-        != (5 * FONT_CHARS_MONO_GLYPH_WIDTH)
-    {
+    if display_string_get_width("+$150", -1) != (5 * FONT_CHARS_MONO_GLYPH_WIDTH) {
         return false;
     }
     true
@@ -1687,13 +1714,7 @@ pub fn honesty_display_string_stretch_rect_submit_residual_wave102() -> bool {
     if !sample.drew || !sample.rebuilt {
         return false;
     }
-    let from_draw = display_string_stretch_rect_submit_residual(
-        "+$100",
-        true,
-        true,
-        false,
-        false,
-    );
+    let from_draw = display_string_stretch_rect_submit_residual("+$100", true, true, false, false);
     from_draw.drew
         && from_draw.rebuilt
         && from_draw.draw_sentence_submit_total == 2
@@ -1705,7 +1726,6 @@ pub fn honesty_display_string_residual_deepen_pack_wave102() -> bool {
     honesty_font_chars_spacing_residual_table_wave102()
         && honesty_display_string_stretch_rect_submit_residual_wave102()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1737,7 +1757,10 @@ mod tests {
         assert_eq!(pack.honesty.texts_packed, 1);
         assert_eq!(pack.honesty.active_packed, 1);
         assert_eq!(pack.honesty.world_anims_observed, 1);
-        assert_eq!(pack.entries[0].lift_y, 3.0 * PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED);
+        assert_eq!(
+            pack.entries[0].lift_y,
+            3.0 * PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED
+        );
         assert!((pack.entries[0].alpha - 1.0).abs() < 0.001);
         assert_eq!(pack.entries[0].caption, "+$150");
         assert_eq!(pack.entries[0].text_key, GUI_ADD_CASH_KEY);
@@ -1745,10 +1768,7 @@ mod tests {
         // monospaced 8×8 residual: "+$150" = 5 glyphs → 40 px wide
         assert_eq!(pack.entries[0].measure_width, 5 * 8);
         assert_eq!(pack.entries[0].measure_height, 8);
-        assert_eq!(
-            pack.layout_bytes.len(),
-            FLOATING_TEXT_LAYOUT_BYTES
-        );
+        assert_eq!(pack.layout_bytes.len(), FLOATING_TEXT_LAYOUT_BYTES);
         let mut marked = pack;
         marked.mark_gpu_upload_ready();
         assert!(marked.honesty.honesty_upload_ready_ok());
@@ -1776,10 +1796,16 @@ mod tests {
         let green = normalize_display_string_color(FLOATING_TEXT_COLOR_GREEN_U8);
         assert!((green[1] - 1.0).abs() < 0.001);
         assert!((green[0] - 0.0).abs() < 0.001);
-        assert!(honesty_display_string_color(green, FLOATING_TEXT_COLOR_GREEN_U8));
+        assert!(honesty_display_string_color(
+            green,
+            FLOATING_TEXT_COLOR_GREEN_U8
+        ));
         let yellow = normalize_display_string_color(FLOATING_TEXT_COLOR_YELLOW_U8);
         assert!((yellow[0] - 1.0).abs() < 0.001 && (yellow[1] - 1.0).abs() < 0.001);
-        assert!(honesty_display_string_color(yellow, FLOATING_TEXT_COLOR_YELLOW_U8));
+        assert!(honesty_display_string_color(
+            yellow,
+            FLOATING_TEXT_COLOR_YELLOW_U8
+        ));
         assert_eq!(FLOATING_TEXT_COLOR_GREEN_U8, (0, 255, 0, 255));
         assert_eq!(FLOATING_TEXT_COLOR_YELLOW_U8, (255, 255, 0, 255));
     }
@@ -1839,13 +1865,19 @@ mod tests {
         let (appended, notified) = display_string_append_char("+$15", '0');
         assert_eq!(appended, "+$150");
         assert!(notified);
-        assert!(honesty_display_string_append_char("+$15", '0', "+$150", true));
-        assert!(!honesty_display_string_append_char("+$15", '0', "+$15", true));
+        assert!(honesty_display_string_append_char(
+            "+$15", '0', "+$150", true
+        ));
+        assert!(!honesty_display_string_append_char(
+            "+$15", '0', "+$15", true
+        ));
 
         let (removed, notified) = display_string_remove_last_char("+$150");
         assert_eq!(removed, "+$15");
         assert!(notified);
-        assert!(honesty_display_string_remove_last_char("+$150", "+$15", true));
+        assert!(honesty_display_string_remove_last_char(
+            "+$150", "+$15", true
+        ));
 
         // Empty remove still notifies (C++ call order residual).
         let (empty, notified) = display_string_remove_last_char("");
@@ -1901,10 +1933,14 @@ mod tests {
 
         let (c, notified) = display_string_set_word_wrap_centered(false, true);
         assert!(c && notified);
-        assert!(honesty_display_string_set_word_wrap_centered(false, true, true, true));
+        assert!(honesty_display_string_set_word_wrap_centered(
+            false, true, true, true
+        ));
         let (c, notified) = display_string_set_word_wrap_centered(true, true);
         assert!(c && !notified);
-        assert!(honesty_display_string_set_word_wrap_centered(true, true, true, false));
+        assert!(honesty_display_string_set_word_wrap_centered(
+            true, true, true, false
+        ));
     }
 
     #[test]
@@ -1921,8 +1957,7 @@ mod tests {
             true
         ));
         // Always notifies even when flag already true residual.
-        let (use_hk, _, notified) =
-            display_string_set_use_hotkey(false, (255, 0, 0, 255));
+        let (use_hk, _, notified) = display_string_set_use_hotkey(false, (255, 0, 0, 255));
         assert!(!use_hk && notified);
 
         let prev = (0, 0, 0, 0);
@@ -1930,12 +1965,16 @@ mod tests {
         let (region, changed) = display_string_set_clip_region(prev, next);
         assert_eq!(region, next);
         assert!(changed);
-        assert!(honesty_display_string_set_clip_region(prev, next, next, true));
+        assert!(honesty_display_string_set_clip_region(
+            prev, next, next, true
+        ));
         // Equal region → early-out residual.
         let (region, changed) = display_string_set_clip_region(next, next);
         assert_eq!(region, next);
         assert!(!changed);
-        assert!(honesty_display_string_set_clip_region(next, next, next, false));
+        assert!(honesty_display_string_set_clip_region(
+            next, next, next, false
+        ));
     }
 
     #[test]
@@ -1949,40 +1988,91 @@ mod tests {
     #[test]
     fn display_string_draw_residual_honesty() {
         let empty = display_string_draw(
-            "", 10, 20, (255, 255, 255, 255), (0, 0, 0, 255),
-            0, 0, (0, 0, 0, 0), (0, 0, 0, 0), true,
+            "",
+            10,
+            20,
+            (255, 255, 255, 255),
+            (0, 0, 0, 255),
+            0,
+            0,
+            (0, 0, 0, 0),
+            (0, 0, 0, 0),
+            true,
         );
         assert!(!empty.drew);
         assert!(!empty.rebuilt);
         assert_eq!(empty.x_drop, 1);
         assert_eq!(empty.y_drop, 1);
         assert!(honesty_display_string_draw(
-            "", 10, 20, (255, 255, 255, 255), (0, 0, 0, 255),
-            0, 0, (0, 0, 0, 0), (0, 0, 0, 0), true, empty,
+            "",
+            10,
+            20,
+            (255, 255, 255, 255),
+            (0, 0, 0, 255),
+            0,
+            0,
+            (0, 0, 0, 0),
+            (0, 0, 0, 0),
+            true,
+            empty,
         ));
 
         let same = display_string_draw(
-            "+$100", 10, 20, (0, 255, 0, 255), (0, 0, 0, 255),
-            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), false,
+            "+$100",
+            10,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            10,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            false,
         );
         assert!(same.drew);
         assert!(!same.rebuilt);
 
         let moved = display_string_draw(
-            "+$100", 12, 20, (0, 255, 0, 255), (0, 0, 0, 255),
-            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), false,
+            "+$100",
+            12,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            10,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            false,
         );
         assert!(moved.drew && moved.rebuilt);
 
         let dirty = display_string_draw(
-            "+$100", 10, 20, (0, 255, 0, 255), (0, 0, 0, 255),
-            10, 20, (0, 255, 0, 255), (0, 0, 0, 255), true,
+            "+$100",
+            10,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            10,
+            20,
+            (0, 255, 0, 255),
+            (0, 0, 0, 255),
+            true,
         );
         assert!(dirty.drew && dirty.rebuilt);
 
         let drop = display_string_draw_with_drop(
-            "X", 0, 0, (255, 255, 0, 255), (0, 0, 0, 128),
-            2, 3, 0, 0, (255, 255, 0, 255), (0, 0, 0, 128), false,
+            "X",
+            0,
+            0,
+            (255, 255, 0, 255),
+            (0, 0, 0, 128),
+            2,
+            3,
+            0,
+            0,
+            (255, 255, 0, 255),
+            (0, 0, 0, 128),
+            false,
         );
         assert!(drop.drew);
         assert!(!drop.rebuilt);

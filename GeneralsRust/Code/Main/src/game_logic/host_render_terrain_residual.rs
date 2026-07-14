@@ -196,7 +196,9 @@ pub fn honesty_particle_system_emit_rate_residual_deepen_pack_wave93() -> bool {
         && (SAMPLE_PARTICLE_TSINGMA_INITIAL_DELAY_RESIDUAL - 20.0).abs() < 1e-5
         && !SAMPLE_PARTICLE_TSINGMA_IS_ONE_SHOT_RESIDUAL
         && particle_system_is_forever_residual(SAMPLE_PARTICLE_TSINGMA_SYSTEM_LIFETIME_RESIDUAL)
-        && !particle_system_is_forever_residual(SAMPLE_PARTICLE_WATER_SPLASH_SYSTEM_LIFETIME_RESIDUAL)
+        && !particle_system_is_forever_residual(
+            SAMPLE_PARTICLE_WATER_SPLASH_SYSTEM_LIFETIME_RESIDUAL,
+        )
         && SAMPLE_PARTICLE_WATER_SPLASH_SYSTEM_LIFETIME_RESIDUAL == 30
         && (SAMPLE_PARTICLE_WATER_SPLASH_BURST_DELAY_RESIDUAL - 1.0).abs() < 1e-5
         && (SAMPLE_PARTICLE_WATER_SPLASH_BURST_COUNT_RESIDUAL - 10.0).abs() < 1e-5
@@ -359,8 +361,9 @@ pub fn honesty_drawable_opacity_shroud_residual_deepen_pack_wave93() -> bool {
             - 0.5)
             .abs()
             < 1e-5
-        && (drawable_stealth_look_second_pass_opacity_residual(StealthLookResidual::VisibleDetected)
-            - 1.0)
+        && (drawable_stealth_look_second_pass_opacity_residual(
+            StealthLookResidual::VisibleDetected,
+        ) - 1.0)
             .abs()
             < 1e-5
         && (drawable_stealth_look_second_pass_opacity_residual(StealthLookResidual::None) - 0.0)
@@ -732,7 +735,10 @@ mod tests {
     #[test]
     fn shadow_deepen_wave93_honesty() {
         assert!(honesty_shadow_residual_deepen_pack_wave93());
-        assert_eq!(shadow_color_argb_residual(0x7f, 0xa0, 0xa0, 0xa0), 0x7fa0a0a0);
+        assert_eq!(
+            shadow_color_argb_residual(0x7f, 0xa0, 0xa0, 0xa0),
+            0x7fa0a0a0
+        );
     }
 
     #[test]

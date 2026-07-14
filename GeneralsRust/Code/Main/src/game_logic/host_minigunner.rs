@@ -398,7 +398,6 @@ pub fn should_apply_minigunner_residual(is_minigunner: bool) -> bool {
     is_minigunner
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn minigunner_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -495,7 +494,9 @@ mod tests {
         assert!(!is_minigunner_template("Upgrade_ChinaChainGuns"));
         assert!(!is_minigunner_template("ChinaInfantryRedguard"));
         assert!(!is_minigunner_template("ChinaTankGattling"));
-        assert!(!is_minigunner_template("Command_ConstructChinaInfantryMiniGunner"));
+        assert!(!is_minigunner_template(
+            "Command_ConstructChinaInfantryMiniGunner"
+        ));
     }
 
     #[test]
@@ -565,26 +566,14 @@ mod tests {
     #[test]
     fn continuous_fire_shot_thresholds() {
         // Need consecutive > 6 for MEAN.
-        let (lvl, c, _) = minigunner_on_shot_fired(
-            GattlingFireLevel::Base,
-            6,
-            Some(1),
-            Some(1),
-            10,
-            100,
-        );
+        let (lvl, c, _) =
+            minigunner_on_shot_fired(GattlingFireLevel::Base, 6, Some(1), Some(1), 10, 100);
         assert_eq!(c, 7);
         assert_eq!(lvl, GattlingFireLevel::Mean);
 
         // Need consecutive > 12 for FAST.
-        let (lvl2, c2, entered) = minigunner_on_shot_fired(
-            GattlingFireLevel::Mean,
-            12,
-            Some(1),
-            Some(1),
-            20,
-            100,
-        );
+        let (lvl2, c2, entered) =
+            minigunner_on_shot_fired(GattlingFireLevel::Mean, 12, Some(1), Some(1), 20, 100);
         assert_eq!(c2, 13);
         assert_eq!(lvl2, GattlingFireLevel::Fast);
         assert!(entered);

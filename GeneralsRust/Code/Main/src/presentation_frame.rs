@@ -8,8 +8,8 @@
 
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::host_base_defense::{
-    build_patriot_laser_line3d_segments, ResidualPatriotAssistLaser, PATRIOT_BINARY_DATA_STREAM,
-    PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE, PatriotAssistLaserKind,
+    build_patriot_laser_line3d_segments, PatriotAssistLaserKind, ResidualPatriotAssistLaser,
+    PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE,
 };
 use crate::game_logic::{
     CombatParticleKind, CombatParticleSystemEntry, GameLogic, KindOf, ObjectId, Team,
@@ -120,8 +120,7 @@ impl UnitRenderInput {
 
     /// World matrix for the unit mesh pass (translation + Y rotation).
     pub fn world_matrix(&self) -> glam::Mat4 {
-        glam::Mat4::from_translation(self.position)
-            * glam::Mat4::from_rotation_y(self.orientation)
+        glam::Mat4::from_translation(self.position) * glam::Mat4::from_rotation_y(self.orientation)
     }
 
     /// Never-explored skip for the main mesh pass (snapshot FOW only).
@@ -134,10 +133,21 @@ impl UnitRenderInput {
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PresentationEvent {
-    ObjectDestroyed { id: ObjectId, team: Team },
-    ConstructionComplete { id: ObjectId, template: String },
-    Victory { winner_player: Option<u32> },
-    RadarMessage { team: Team, text: String },
+    ObjectDestroyed {
+        id: ObjectId,
+        team: Team,
+    },
+    ConstructionComplete {
+        id: ObjectId,
+        template: String,
+    },
+    Victory {
+        winner_player: Option<u32>,
+    },
+    RadarMessage {
+        team: Team,
+        text: String,
+    },
     /// Combat residual: particle system spawned (host registry id + template).
     ParticleSystemSpawned {
         id: u32,
@@ -717,9 +727,9 @@ impl PresentationWorldAnim {
             && self.display_time_seconds > 0.0
             && {
                 // Sample fade curve residual around display boundary.
-                let mid = self.spawn_frame.saturating_add(
-                    (self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32,
-                );
+                let mid = self
+                    .spawn_frame
+                    .saturating_add((self.display_time_seconds * PRESENTATION_LOGIC_FPS) as u32);
                 let before = mid.saturating_sub(1);
                 let half = mid.saturating_add((PRESENTATION_LOGIC_FPS * 0.5) as u32);
                 let end = mid.saturating_add(PRESENTATION_LOGIC_FPS as u32);
@@ -841,12 +851,8 @@ pub const PRESENTATION_SPECTRE_ATTACK_AREA_DECAL: &str = "SCCSpecTarg";
 /// Retail Spectre TargetingReticleDecal Texture residual (`SCCSpecRet`).
 pub const PRESENTATION_SPECTRE_TARGETING_RETICLE_DECAL: &str = "SCCSpecRet";
 /// Retail Spectre decal Color residual (R:127 G:177 B:222 A:255) as RGBA 0..1.
-pub const PRESENTATION_SPECTRE_DECAL_COLOR: [f32; 4] = [
-    127.0 / 255.0,
-    177.0 / 255.0,
-    222.0 / 255.0,
-    1.0,
-];
+pub const PRESENTATION_SPECTRE_DECAL_COLOR: [f32; 4] =
+    [127.0 / 255.0, 177.0 / 255.0, 222.0 / 255.0, 1.0];
 /// Retail AttackAreaDecal OpacityMin residual (25%).
 pub const PRESENTATION_SPECTRE_ATTACK_AREA_OPACITY_MIN: f32 = 0.25;
 /// Retail AttackAreaDecal OpacityMax residual (50%).
@@ -1055,6 +1061,13 @@ pub struct PresentationWorldEnv {
     /// Placed-object count from last parsed map metadata (prewarm signature).
     pub map_object_count: u32,
     pub has_map_metadata: bool,
+    /// Coarse height samples for minimap/terrain residual (row-major, width×height).
+    /// Fail-closed: not full SAGE heightmap mesh / bilinear retail sample grid.
+    pub height_grid_w: u32,
+    pub height_grid_h: u32,
+    pub height_samples: Vec<f32>,
+    /// True when at least one sample came from live terrain (not empty default).
+    pub height_samples_from_terrain: bool,
 }
 
 impl PresentationWorldEnv {
@@ -1069,15 +1082,32 @@ impl PresentationWorldEnv {
                     .and_then(|m| m.heightmap_path.as_ref())
                     .and_then(|p| p.to_str().map(|s| s.to_string()))
             });
+        // Coarse height grid for minimap residual (fixed 64×64 — small, deterministic).
+        const HG_W: u32 = 64;
+        const HG_H: u32 = 64;
+        let span_x = (wmax.x - wmin.x).max(1.0);
+        let span_z = (wmax.z - wmin.z).max(1.0);
+        let mut height_samples = vec![0.0f32; (HG_W * HG_H) as usize];
+        let mut height_samples_from_terrain = false;
+        for y in 0..HG_H {
+            for x in 0..HG_W {
+                let u = (x as f32 + 0.5) / HG_W as f32;
+                let v = (y as f32 + 0.5) / HG_H as f32;
+                let world = glam::Vec3::new(wmin.x + u * span_x, 0.0, wmin.z + v * span_z);
+                if let Some(h) = logic.terrain_height_at(world) {
+                    height_samples[(y * HG_W + x) as usize] = h;
+                    height_samples_from_terrain = true;
+                }
+            }
+        }
+
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
             world_min: [wmin.x, wmin.y, wmin.z],
             world_max: [wmax.x, wmax.y, wmax.z],
             heightmap_hint,
             sun_direction: meta.as_ref().and_then(|m| m.sun_direction),
-            sun_color: meta
-                .as_ref()
-                .and_then(|m| m.sun_color.or(m.sky_color)),
+            sun_color: meta.as_ref().and_then(|m| m.sun_color.or(m.sky_color)),
             ambient_color: meta
                 .as_ref()
                 .and_then(|m| m.ambient_color.or(m.fog_color).or(m.sky_color)),
@@ -1088,6 +1118,10 @@ impl PresentationWorldEnv {
             fog_end: meta.as_ref().and_then(|m| m.fog_end),
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),
+            height_grid_w: HG_W,
+            height_grid_h: HG_H,
+            height_samples,
+            height_samples_from_terrain,
         }
     }
 
@@ -1102,6 +1136,29 @@ impl PresentationWorldEnv {
     #[inline]
     pub fn fog_range(&self) -> Option<(f32, f32)> {
         self.fog_start.zip(self.fog_end)
+    }
+
+    /// Bilinear-ish nearest sample from the coarse height grid (world XZ).
+    /// Returns None when the grid is empty / not from terrain.
+    pub fn sample_height(&self, world_x: f32, world_z: f32) -> Option<f32> {
+        if !self.height_samples_from_terrain
+            || self.height_grid_w == 0
+            || self.height_grid_h == 0
+            || self.height_samples.is_empty()
+        {
+            return None;
+        }
+        let (wmin, wmax) = self.world_bounds_vec3();
+        let span_x = (wmax.x - wmin.x).max(1.0);
+        let span_z = (wmax.z - wmin.z).max(1.0);
+        let u = ((world_x - wmin.x) / span_x).clamp(0.0, 1.0);
+        let v = ((world_z - wmin.z) / span_z).clamp(0.0, 1.0);
+        let x = ((u * (self.height_grid_w as f32 - 1.0)).round() as u32)
+            .min(self.height_grid_w.saturating_sub(1));
+        let y = ((v * (self.height_grid_h as f32 - 1.0)).round() as u32)
+            .min(self.height_grid_h.saturating_sub(1));
+        let idx = (y * self.height_grid_w + x) as usize;
+        self.height_samples.get(idx).copied()
     }
 
     /// Prewarm signature fragment (map|meta|objects|heightmap|shell) without live logic.
@@ -1167,8 +1224,7 @@ impl PresentationFrame {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
         // Freeze terrain FOW grid once for this presentation frame (local player only).
-        let fow_grid =
-            FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
+        let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
         let mut objects = Vec::with_capacity(logic.get_objects().len());
         for obj in logic.get_objects().values() {
             let is_structure = obj.is_kind_of(KindOf::Structure);
@@ -1592,14 +1648,17 @@ impl PresentationFrame {
         if self.world_anims.is_empty() {
             return PresentationWorldAnim::honesty_money_pickup_fade_params_ok();
         }
-        self.world_anims.iter().all(|a| a.honesty_fade_residual_ok())
+        self.world_anims
+            .iter()
+            .all(|a| a.honesty_fade_residual_ok())
     }
 
     /// Honesty: laser ground-height + multi-beam soft-edge presentation residual.
     pub fn laser_presentation_residual_ok(&self) -> bool {
-        self.laser_beams.iter().all(|b| {
-            b.honesty_ground_height_ok() && b.honesty_soft_edge_presentation_ok()
-        }) && PRESENTATION_ORBITAL_SOFT_EDGE.honesty_orbital_residual_ok()
+        self.laser_beams
+            .iter()
+            .all(|b| b.honesty_ground_height_ok() && b.honesty_soft_edge_presentation_ok())
+            && PRESENTATION_ORBITAL_SOFT_EDGE.honesty_orbital_residual_ok()
             && honesty_ground_height_residual_ok(PRESENTATION_DEFAULT_GROUND_HEIGHT, false)
     }
 
@@ -1619,10 +1678,14 @@ impl PresentationFrame {
     /// Fail-closed: not full Object INI Scale field / draw-scale bone matrix.
     pub fn mesh_scale_presentation_residual_ok(&self) -> bool {
         crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok()
-            && self.objects.iter().all(|o| o.mesh_scale.is_finite() && o.mesh_scale > 0.0)
-            && self.unit_render_inputs().iter().all(|u| {
-                u.mesh_scale.is_finite() && u.mesh_scale > 0.0
-            })
+            && self
+                .objects
+                .iter()
+                .all(|o| o.mesh_scale.is_finite() && o.mesh_scale > 0.0)
+            && self
+                .unit_render_inputs()
+                .iter()
+                .all(|u| u.mesh_scale.is_finite() && u.mesh_scale > 0.0)
     }
 
     /// Honesty: unit/structure ground-height residual frozen on objects (Wave 77).
@@ -1813,11 +1876,7 @@ impl PresentationFrame {
         let ids: Vec<u32> = if !self.selected.is_empty() {
             self.selected.iter().map(|id| id.0).collect()
         } else {
-            panel
-                .unit_infos
-                .iter()
-                .map(|u| u.object_id.0)
-                .collect()
+            panel.unit_infos.iter().map(|u| u.object_id.0).collect()
         };
         let _ = control_bar.update_for_selection(ids);
         control_bar.sync_selection_display_from_presentation(
@@ -2442,7 +2501,6 @@ mod tests {
         assert!(!snap.terrain_fow_overlay_active());
     }
 
-
     #[test]
     fn presentation_world_env_freezes_bounds_and_map_name() {
         use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -2462,6 +2520,24 @@ mod tests {
     }
 
     #[test]
+    fn world_env_height_grid_is_self_consistent() {
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("HeightGridMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(snap.world_env.height_grid_w, 64);
+        assert_eq!(snap.world_env.height_grid_h, 64);
+        assert_eq!(snap.world_env.height_samples.len(), (64 * 64) as usize);
+        if snap.world_env.height_samples_from_terrain {
+            let (a, b) = snap.world_env.world_bounds_vec3();
+            let mid_x = (a.x + b.x) * 0.5;
+            let mid_z = (a.z + b.z) * 0.5;
+            assert!(snap.world_env.sample_height(mid_x, mid_z).is_some());
+        }
+    }
+
+    #[test]
     fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         use crate::fow_rendering::{FOWRenderingBridge, PresentationFowGrid};
         use gamelogic::system::shroud_manager::get_shroud_manager;
@@ -2474,7 +2550,7 @@ mod tests {
             shroud.force_update();
             // Mark as updated so snapshot does not fail-open to fully visible.
             let _ = shroud.update(1);
-            // Leave most cells Hidden; reveal whole map for player 0 after first snap? 
+            // Leave most cells Hidden; reveal whole map for player 0 after first snap?
             // First: capture hidden baseline.
         }
 
@@ -2495,11 +2571,7 @@ mod tests {
         assert!(snap.fow_grid.active, "grid should be active after init");
         assert_eq!(snap.fow_grid.width, 10);
         assert_eq!(snap.fow_grid.height, 10);
-        assert_eq!(
-            snap.fow_grid.cell_count(),
-            100,
-            "10x10 compact grid"
-        );
+        assert_eq!(snap.fow_grid.cell_count(), 100, "10x10 compact grid");
 
         // R8 payload length matches grid; encoding is deterministic.
         let r8 = snap.terrain_fow_r8().expect("active grid has r8");
@@ -2520,9 +2592,7 @@ mod tests {
         {
             let mut shroud = get_shroud_manager().lock().expect("shroud");
             // Permanent reveal → all cells Visible on the live manager.
-            shroud
-                .reveal_map_for_player_permanently(0)
-                .expect("reveal");
+            shroud.reveal_map_for_player_permanently(0).expect("reveal");
         }
         assert_eq!(
             snap.fow_grid.content_fingerprint(),
@@ -2847,10 +2917,9 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(
-            snap.events.iter().any(|e| matches!(
-                e,
-                PresentationEvent::ParticleSystemSpawned { .. }
-            )),
+            snap.events
+                .iter()
+                .any(|e| matches!(e, PresentationEvent::ParticleSystemSpawned { .. })),
             "presentation events should include ParticleSystemSpawned"
         );
         assert!(
@@ -2922,23 +2991,20 @@ mod tests {
         assert_eq!(snap.floating_texts.len(), 2);
         assert_eq!(snap.world_anims.len(), 1);
         assert_eq!(snap.world_anims[0].template, MONEY_PICKUP_ANIM_TEMPLATE);
-        assert!(
-            snap.floating_texts
-                .iter()
-                .any(|t| t.kind == PresentationFloatingTextKind::AutoDeposit && t.amount == 100)
-        );
-        assert!(
-            snap.floating_texts
-                .iter()
-                .any(|t| t.kind == PresentationFloatingTextKind::MoneyCrate
-                    && t.amount == 125
-                    && t.color_rgba == (0, 255, 0, 255))
-        );
+        assert!(snap
+            .floating_texts
+            .iter()
+            .any(|t| t.kind == PresentationFloatingTextKind::AutoDeposit && t.amount == 100));
+        assert!(snap
+            .floating_texts
+            .iter()
+            .any(|t| t.kind == PresentationFloatingTextKind::MoneyCrate
+                && t.amount == 125
+                && t.color_rgba == (0, 255, 0, 255)));
         assert_eq!(snap.active_floating_texts_at(frame).len(), 2);
-        assert!(
-            snap.active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
-                .is_empty()
-        );
+        assert!(snap
+            .active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
+            .is_empty());
 
         // Snapshot stays frozen after host clears residual registries.
         let frozen_count = snap.floating_texts.len();
@@ -3127,7 +3193,10 @@ mod tests {
         assert!(frame.dual_tick_presentation_residual_ok());
         assert!(frame.dual_tick_presentation_residual_deepen_ok());
         assert_eq!(frame.dual_tick.selected_count, frame.selected.len() as u32);
-        assert_eq!(frame.dual_tick.particle_count, frame.particle_systems.len() as u32);
+        assert_eq!(
+            frame.dual_tick.particle_count,
+            frame.particle_systems.len() as u32
+        );
         assert!(frame.dual_tick.honesty_apply_ok());
     }
 }

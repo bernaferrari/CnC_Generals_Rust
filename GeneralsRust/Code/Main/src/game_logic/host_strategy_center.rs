@@ -1789,7 +1789,6 @@ impl HostBattlePlanRegistry {
     }
 }
 
-
 // --- Wave 62 residual honesty packs (retail INI constants; additive) ---
 
 /// Battle plan army residual parameters honesty.
@@ -1849,8 +1848,7 @@ pub fn honesty_strategy_center_body_residual_ok() -> bool {
         && BATTLE_PLAN_SPECIAL_POWER_TEMPLATE == "SpecialAbilityChangeBattlePlans"
         && BATTLE_PLAN_BOMBARDMENT_MESSAGE == "MESSAGE:BattlePlanBombardmentInitiated"
         && BATTLE_PLAN_HOLD_THE_LINE_MESSAGE == "MESSAGE:BattlePlanHoldTheLineInitiated"
-        && BATTLE_PLAN_SEARCH_AND_DESTROY_MESSAGE
-            == "MESSAGE:BattlePlanSearchAndDestroyInitiated"
+        && BATTLE_PLAN_SEARCH_AND_DESTROY_MESSAGE == "MESSAGE:BattlePlanSearchAndDestroyInitiated"
         && BATTLE_PLAN_VALID_MEMBER_KINDOF.contains("INFANTRY")
         && BATTLE_PLAN_VALID_MEMBER_KINDOF.contains("VEHICLE")
         && BATTLE_PLAN_INVALID_MEMBER_KINDOF.contains("DOZER")

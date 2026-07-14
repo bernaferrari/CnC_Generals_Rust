@@ -304,8 +304,7 @@ pub fn honesty_pathfinder_stealth_update_residual_ok() -> bool {
 /// Wave 54 residual honesty: StealthDetectorUpdate residual.
 pub fn honesty_pathfinder_detector_residual_ok() -> bool {
     PATHFINDER_DETECTION_RATE_MS == 500
-        && PATHFINDER_DETECTION_RATE_FRAMES
-            == pathfinder_ms_to_frames(PATHFINDER_DETECTION_RATE_MS)
+        && PATHFINDER_DETECTION_RATE_FRAMES == pathfinder_ms_to_frames(PATHFINDER_DETECTION_RATE_MS)
         && !PATHFINDER_CAN_DETECT_WHILE_GARRISONED
         && !PATHFINDER_CAN_DETECT_WHILE_CONTAINED
         && (PATHFINDER_BUILD_COST == 600)

@@ -222,8 +222,7 @@ pub fn honesty_worker_body_supply_residual_ok() -> bool {
         && (WORKER_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
         && WORKER_BUILD_COST == 200
         && (WORKER_BUILD_TIME_SEC - 3.0).abs() < 0.01
-        && WORKER_BUILD_TIME_FRAMES
-            == ((WORKER_BUILD_TIME_SEC * WORKER_LOGIC_FPS).round() as u32)
+        && WORKER_BUILD_TIME_FRAMES == ((WORKER_BUILD_TIME_SEC * WORKER_LOGIC_FPS).round() as u32)
         && WORKER_BUILD_TIME_FRAMES == 90
         && WORKER_TRANSPORT_SLOT_COUNT == 1
         && WORKER_MAX_BOXES == 1

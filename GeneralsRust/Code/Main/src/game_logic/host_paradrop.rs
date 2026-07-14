@@ -152,9 +152,7 @@ impl ParadropScienceTier {
     pub fn drop_delay_ms(self) -> u32 {
         match self {
             ParadropScienceTier::Level1 => PARADROP_DROP_DELAY_L1_MS,
-            ParadropScienceTier::Level2 | ParadropScienceTier::Level3 => {
-                PARADROP_DROP_DELAY_L2_MS
-            }
+            ParadropScienceTier::Level2 | ParadropScienceTier::Level3 => PARADROP_DROP_DELAY_L2_MS,
         }
     }
 
@@ -553,7 +551,6 @@ impl HostParadropRegistry {
     }
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn paradrop_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -726,7 +723,13 @@ mod tests {
         assert!((mid.x - 100.0).abs() < 0.1);
         assert!((mid.z - 50.0).abs() < 0.1);
 
-        let spawned = vec![ObjectId(10), ObjectId(11), ObjectId(12), ObjectId(13), ObjectId(14)];
+        let spawned = vec![
+            ObjectId(10),
+            ObjectId(11),
+            ObjectId(12),
+            ObjectId(13),
+            ObjectId(14),
+        ];
         reg.record_drop_complete(id, spawned.clone());
         assert!(reg.honesty_complete_ok(HostParadropKind::AmericaParadrop));
         assert!(reg.honesty_host_path_ok(HostParadropKind::AmericaParadrop));
@@ -793,10 +796,7 @@ mod tests {
         assert_eq!(PARADROP_DECAL_TEXTURE, "SCCParadrop_USA");
         assert_eq!(PARADROP_DECAL_COLOR, (227, 229, 22, 255));
         assert_eq!(
-            ParadropScienceTier::highest_from_sciences([
-                SCIENCE_PARADROP1,
-                SCIENCE_PARADROP2,
-            ]),
+            ParadropScienceTier::highest_from_sciences([SCIENCE_PARADROP1, SCIENCE_PARADROP2,]),
             ParadropScienceTier::Level2
         );
         // L3 total = 2 planes × 10 rangers.

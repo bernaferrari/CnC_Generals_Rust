@@ -5,8 +5,8 @@
 //! RTS interface elements that appear during gameplay.
 
 use super::{
-    color_for_player, layout, utils, BeaconDot, ControlBarSelectionPanelState, Interactive, KeyCode,
-    MinimapUIState, MouseButton, Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
+    color_for_player, layout, utils, BeaconDot, ControlBarSelectionPanelState, Interactive,
+    KeyCode, MinimapUIState, MouseButton, Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
 };
 use crate::game_logic::ObjectId;
 use crate::localization;

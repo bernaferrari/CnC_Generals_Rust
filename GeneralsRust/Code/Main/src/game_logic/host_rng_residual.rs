@@ -49,9 +49,7 @@ pub struct HostRandomState {
 
 impl Default for HostRandomState {
     fn default() -> Self {
-        Self {
-            seed: INITIAL_SEED,
-        }
+        Self { seed: INITIAL_SEED }
     }
 }
 
@@ -176,7 +174,12 @@ pub fn pure_logic_random_int(index: u32, draw_skip: u32, lo: i32, hi: i32) -> i3
 ///
 /// C++ AutoDepositUpdate: `GameClientRandomValue(-width, width)` with Real→Int
 /// truncation of the geometry radius * 0.3 scatter half-width.
-pub fn pure_client_structure_scatter(seed: u32, major_radius: f32, minor_radius: f32, scale: f32) -> (f32, f32) {
+pub fn pure_client_structure_scatter(
+    seed: u32,
+    major_radius: f32,
+    minor_radius: f32,
+    scale: f32,
+) -> (f32, f32) {
     let width = (major_radius * scale).max(0.0);
     let depth = (minor_radius * scale).max(0.0);
     if width <= 0.0 && depth <= 0.0 {
@@ -202,7 +205,11 @@ pub fn pure_client_structure_scatter(seed: u32, major_radius: f32, minor_radius:
 ///
 /// Advances the global client stream (presentation residual). Prefer for live
 /// deposit paths; store the result on the floating-text entry.
-pub fn client_stream_structure_scatter(major_radius: f32, minor_radius: f32, scale: f32) -> (f32, f32) {
+pub fn client_stream_structure_scatter(
+    major_radius: f32,
+    minor_radius: f32,
+    scale: f32,
+) -> (f32, f32) {
     let width = (major_radius * scale).max(0.0);
     let depth = (minor_radius * scale).max(0.0);
     if width <= 0.0 && depth <= 0.0 {
@@ -314,8 +321,7 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
     // Structure scatter via live client stream residual.
     init_random_with_seed(seed);
     let (dx, dz) = client_stream_structure_scatter(50.0, 40.0, STRUCTURE_SCATTER_SCALE);
-    honesty.structure_scatter_stream_ok =
-        dx.abs() <= 15.0 + 0.001 && dz.abs() <= 12.0 + 0.001;
+    honesty.structure_scatter_stream_ok = dx.abs() <= 15.0 + 0.001 && dz.abs() <= 12.0 + 0.001;
 
     // Error radius via live logic stream residual.
     init_random_with_seed(seed);

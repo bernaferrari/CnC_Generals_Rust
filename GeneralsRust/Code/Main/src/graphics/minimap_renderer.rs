@@ -70,9 +70,12 @@ impl MinimapDimensions {
 /// Fail-closed: not full SAGE Radar/Minimap GPU atlas or live click-to-scroll camera.
 pub fn honesty_minimap_residual_pack_wave79() -> bool {
     let std = MinimapDimensions::standard();
-    let visible = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Visible);
-    let explored = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Explored);
-    let hidden = MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Hidden);
+    let visible =
+        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Visible);
+    let explored =
+        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Explored);
+    let hidden =
+        MinimapFowManager::blend_fow_with_base([200, 180, 160, 255], MinimapFowState::Hidden);
     std.width == MINIMAP_STANDARD_SIZE
         && std.height == MINIMAP_STANDARD_SIZE
         && (MINIMAP_DEFAULT_WORLD_SPAN - 1024.0).abs() < 0.01

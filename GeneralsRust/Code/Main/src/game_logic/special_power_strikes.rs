@@ -772,11 +772,9 @@ pub const PARTICLE_ORBITAL_LASER_TILING_SCALAR: f32 = 0.15;
 /// Retail W3DLaserDraw Texture residual.
 pub const PARTICLE_ORBITAL_LASER_TEXTURE: &str = "EXNoise02.tga";
 /// Retail OrbitalLaser InnerColor residual (R:255 G:255 B:255 A:250).
-pub const PARTICLE_ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) =
-    (1.0, 1.0, 1.0, 250.0 / 255.0);
+pub const PARTICLE_ORBITAL_LASER_INNER_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 250.0 / 255.0);
 /// Retail OrbitalLaser OuterColor residual (R:0 G:0 B:255 A:150).
-pub const PARTICLE_ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) =
-    (0.0, 0.0, 1.0, 150.0 / 255.0);
+pub const PARTICLE_ORBITAL_LASER_OUTER_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 1.0, 150.0 / 255.0);
 /// Retail OrbitalLaser Tile residual (`Tile = Yes`).
 pub const PARTICLE_ORBITAL_LASER_TILE: bool = true;
 /// Host residual texture aspect for tile-factor honesty (fail-closed vs live surface desc).
@@ -812,18 +810,15 @@ pub const PARTICLE_CONNECTOR_INTENSE_INNER_BEAM_WIDTH: f32 = 0.6;
 /// Retail Medium connector InnerBeamWidth residual.
 pub const PARTICLE_CONNECTOR_MEDIUM_INNER_BEAM_WIDTH: f32 = 0.4;
 /// Retail connector InnerColor residual (R:255 G:255 B:255 A:250).
-pub const PARTICLE_CONNECTOR_INNER_COLOR: (f32, f32, f32, f32) =
-    (1.0, 1.0, 1.0, 250.0 / 255.0);
+pub const PARTICLE_CONNECTOR_INNER_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 250.0 / 255.0);
 /// Retail connector OuterColor residual (R:0 G:0 B:255 A:150).
-pub const PARTICLE_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
-    (0.0, 0.0, 1.0, 150.0 / 255.0);
+pub const PARTICLE_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 1.0, 150.0 / 255.0);
 /// Retail SupW (superweapon general) connector/orbital OuterColor residual
 /// (R:255 G:0 B:255 A:150 magenta vs normal blue).
 pub const PARTICLE_SUPW_CONNECTOR_OUTER_COLOR: (f32, f32, f32, f32) =
     (1.0, 0.0, 1.0, 150.0 / 255.0);
 /// Retail SupW_ParticleUplinkCannon_OrbitalLaser OuterColor residual (magenta).
-pub const PARTICLE_SUPW_ORBITAL_OUTER_COLOR: (f32, f32, f32, f32) =
-    (1.0, 0.0, 1.0, 150.0 / 255.0);
+pub const PARTICLE_SUPW_ORBITAL_OUTER_COLOR: (f32, f32, f32, f32) = (1.0, 0.0, 1.0, 150.0 / 255.0);
 /// Retail SupW medium/intense/orbital object name residual prefixes.
 pub const PARTICLE_SUPW_MEDIUM_CONNECTOR: &str = "SupW_ParticleUplinkCannon_MediumConnectorLaser";
 pub const PARTICLE_SUPW_INTENSE_CONNECTOR: &str = "SupW_ParticleUplinkCannon_IntenseConnectorLaser";
@@ -892,8 +887,7 @@ pub const PARTICLE_ORBITAL_LASER_NAME: &str = "ParticleUplinkCannon_OrbitalLaser
 ///
 /// Present as residual name table honesty only — retail block is commented out;
 /// host does **not** claim live ParticleSystemManager connector-flare spawn.
-pub const PARTICLE_CONNECTOR_MEDIUM_FLARE: &str =
-    "ParticleUplinkCannon_InnerConnectorMediumFlare";
+pub const PARTICLE_CONNECTOR_MEDIUM_FLARE: &str = "ParticleUplinkCannon_InnerConnectorMediumFlare";
 /// Retail commented ConnectorIntenseFlare residual name.
 pub const PARTICLE_CONNECTOR_INTENSE_FLARE: &str =
     "ParticleUplinkCannon_InnerConnectorIntenseFlare";
@@ -1273,8 +1267,7 @@ fn apply_particle_charge_status(strike: &mut HostSpecialPowerStrike, now: u32) {
         return;
     }
     strike.particle_status = next;
-    strike.particle_intensity_transitions =
-        strike.particle_intensity_transitions.saturating_add(1);
+    strike.particle_intensity_transitions = strike.particle_intensity_transitions.saturating_add(1);
     if next.as_u8() > strike.particle_status_peak.as_u8() {
         strike.particle_status_peak = next;
     }
@@ -1581,7 +1574,6 @@ pub fn particle_orbital_single_beam_color_premul() -> (f32, f32, f32, f32) {
     (ir * ia, ig * ia, ib * ia, ia)
 }
 
-
 /// Soft-edge tile-factor residual for a beam cylinder of given length + width.
 ///
 /// C++: `tileFactor = length / width * textureAspect * TilingScalar` when Tile=Yes.
@@ -1591,9 +1583,7 @@ pub fn particle_orbital_soft_edge_tile_factor(length: f32, width: f32) -> f32 {
     if !PARTICLE_ORBITAL_LASER_TILE || width <= f32::EPSILON {
         return 1.0;
     }
-    (length / width)
-        * PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT
-        * PARTICLE_ORBITAL_LASER_TILING_SCALAR
+    (length / width) * PARTICLE_ORBITAL_LASER_TEXTURE_ASPECT * PARTICLE_ORBITAL_LASER_TILING_SCALAR
 }
 
 /// Peak soft-edge outer cylinder width residual (index NumBeams-1 at full scalar).
@@ -1681,9 +1671,7 @@ pub fn particle_connector_intense_soft_edge_color(beam_index: u32) -> (f32, f32,
 /// C++ W3DLaserDraw: `red = inner + scale * (outer - inner) * innerAlpha`.
 /// Fail-closed: not full LaserUpdate drawable / GPU SegLine submit.
 #[inline]
-pub fn particle_connector_intense_soft_edge_color_premul(
-    beam_index: u32,
-) -> (f32, f32, f32, f32) {
+pub fn particle_connector_intense_soft_edge_color_premul(beam_index: u32) -> (f32, f32, f32, f32) {
     let scale = particle_connector_intense_soft_edge_scale(beam_index);
     let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
     let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
@@ -1731,9 +1719,7 @@ pub fn particle_connector_medium_soft_edge_color(beam_index: u32) -> (f32, f32, 
 
 /// Medium connector soft-edge RGB residual with C++ innerAlpha premultiply.
 #[inline]
-pub fn particle_connector_medium_soft_edge_color_premul(
-    beam_index: u32,
-) -> (f32, f32, f32, f32) {
+pub fn particle_connector_medium_soft_edge_color_premul(beam_index: u32) -> (f32, f32, f32, f32) {
     let scale = particle_connector_medium_soft_edge_scale(beam_index);
     let (ir, ig, ib, ia) = PARTICLE_CONNECTOR_INNER_COLOR;
     let (or, og, ob, oa) = PARTICLE_CONNECTOR_OUTER_COLOR;
@@ -1778,11 +1764,7 @@ pub fn particle_ground_to_orbit_laser_segment(laser_origin: Vec3) -> (Vec3, Vec3
 /// C++: start = target + 500 height, end = target position.
 #[inline]
 pub fn particle_orbit_to_target_laser_segment(target: Vec3) -> (Vec3, Vec3) {
-    let start = Vec3::new(
-        target.x,
-        target.y + PARTICLE_LASER_ORBIT_ALTITUDE,
-        target.z,
-    );
+    let start = Vec3::new(target.x, target.y + PARTICLE_LASER_ORBIT_ALTITUDE, target.z);
     (start, target)
 }
 
@@ -1943,8 +1925,7 @@ pub const PARTICLE_REMNANT_MIN_LIFETIME_MS: u32 = 4000;
 /// Retail DeletionUpdate MaxLifetime residual (msec; equals Min for fixed lifetime).
 pub const PARTICLE_REMNANT_MAX_LIFETIME_MS: u32 = 4000;
 /// Retail DeletionUpdate Min/MaxLifetime 4000 ms → 120 frames.
-pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 =
-    (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
+pub const PARTICLE_REMNANT_DURATION_FRAMES: u32 = (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
 /// Retail remnant Object template name residual (honesty).
 pub const PARTICLE_REMNANT_OBJECT_NAME: &str = "ParticleUplinkCannonTrailRemnant";
 /// Retail remnant weapon name residual (honesty).
@@ -1978,9 +1959,11 @@ pub const PARTICLE_REMNANT_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRAL
 /// Retail remnant weapon WeaponSpeed residual (dist/sec).
 pub const PARTICLE_REMNANT_WEAPON_SPEED: f32 = 250.0;
 /// Retail DeletionUpdate MinLifetime residual frames (4000 ms → 120 @ 30 FPS).
-pub const PARTICLE_REMNANT_DELETION_MIN_FRAMES: u32 = (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
+pub const PARTICLE_REMNANT_DELETION_MIN_FRAMES: u32 =
+    (PARTICLE_REMNANT_MIN_LIFETIME_MS * 30) / 1000;
 /// Retail DeletionUpdate MaxLifetime residual frames (same as min for remnant).
-pub const PARTICLE_REMNANT_DELETION_MAX_FRAMES: u32 = (PARTICLE_REMNANT_MAX_LIFETIME_MS * 30) / 1000;
+pub const PARTICLE_REMNANT_DELETION_MAX_FRAMES: u32 =
+    (PARTICLE_REMNANT_MAX_LIFETIME_MS * 30) / 1000;
 
 /// Host residual for C++ `DeletionUpdate::calcSleepDelay`.
 ///
@@ -2226,8 +2209,7 @@ pub fn honesty_carpet_bomb_residual_pack() -> bool {
         && CarpetBombFactionTier::AirForce.drop_delay_frames() == 4
         && CarpetBombFactionTier::China.drop_delay_frames() == 9
         && (CarpetBombFactionTier::America.line_length() - 14.0 * CARPET_BOMB_SPACING).abs() < 0.01
-        && (CarpetBombFactionTier::AirForce.line_length() - 11.0 * CARPET_BOMB_SPACING).abs()
-            < 0.01
+        && (CarpetBombFactionTier::AirForce.line_length() - 11.0 * CARPET_BOMB_SPACING).abs() < 0.01
         && (CarpetBombFactionTier::China.line_length() - 9.0 * CARPET_BOMB_SPACING).abs() < 0.01
         && CarpetBombFactionTier::from_science_or_ocl_name("AirF_SUPERWEAPON_CarpetBomb")
             == Some(CarpetBombFactionTier::AirForce)
@@ -2909,7 +2891,6 @@ pub fn honesty_special_power_residual_pack_wave78_ok() -> bool {
         && honesty_carpet_bomb_science_tier_residual_pack_wave78()
         && honesty_artillery_science_tier_residual_pack_wave78()
 }
-
 
 /// Honesty: DeletionUpdate calcSleepDelay residual (remnant fixed 120; clamp ≥1).
 pub fn honesty_deletion_update_sleep_delay() -> bool {
@@ -4023,10 +4004,12 @@ impl A10StrikeScienceTier {
         for s in sciences {
             if let Some(tier) = Self::from_science_name(s) {
                 best = match (best, tier) {
-                    (_, A10StrikeScienceTier::Level3)
-                    | (A10StrikeScienceTier::Level3, _) => A10StrikeScienceTier::Level3,
-                    (_, A10StrikeScienceTier::Level2)
-                    | (A10StrikeScienceTier::Level2, _) => A10StrikeScienceTier::Level2,
+                    (_, A10StrikeScienceTier::Level3) | (A10StrikeScienceTier::Level3, _) => {
+                        A10StrikeScienceTier::Level3
+                    }
+                    (_, A10StrikeScienceTier::Level2) | (A10StrikeScienceTier::Level2, _) => {
+                        A10StrikeScienceTier::Level2
+                    }
                     _ => A10StrikeScienceTier::Level1,
                 };
             }
@@ -4400,9 +4383,7 @@ pub fn scud_missile_loft_phase(
     distance_to_target: f32,
     current_height: f32,
 ) -> ScudMissileLoftPhase {
-    if current_height <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET
-        && distance_traveled > 0.0
-    {
+    if current_height <= SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET && distance_traveled > 0.0 {
         return ScudMissileLoftPhase::HeightDie;
     }
     if distance_to_target <= SCUD_STORM_MISSILE_DISTANCE_BEFORE_DIVING {
@@ -4677,7 +4658,6 @@ impl SpectreGunshipScienceTier {
     }
 }
 
-
 /// Host-supported superweapon strike kinds for this residual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostSuperweaponKind {
@@ -4914,9 +4894,7 @@ impl HostSuperweaponKind {
 
     /// Whether this kind uses multi-point epicenter damage at impact.
     pub fn is_multi_strike(self) -> bool {
-        self.is_line_multi_strike()
-            || self.is_scatter_multi_strike()
-            || self.is_scud_multi_strike()
+        self.is_line_multi_strike() || self.is_scatter_multi_strike() || self.is_scud_multi_strike()
     }
 
     /// Whether retail `RadiusDamageAffects` includes ALLIES for the primary blast.
@@ -4933,8 +4911,7 @@ impl HostSuperweaponKind {
                 | HostSuperweaponKind::AnthraxBomb
                 | HostSuperweaponKind::CarpetBomb
                 | HostSuperweaponKind::ArtilleryBarrage
-                | HostSuperweaponKind::CruiseMissile
-            // Continuous Spectre/PUC field paths already have their own team filters.
+                | HostSuperweaponKind::CruiseMissile // Continuous Spectre/PUC field paths already have their own team filters.
         )
     }
 
@@ -5109,11 +5086,7 @@ pub fn artillery_shell_impact_frame(activate_frame: u32, formation_index: u32) -
 ///
 /// First bomb at approach residual; subsequent bombs every `CARPET_BOMB_DROP_DELAY_FRAMES`.
 pub fn carpet_bomb_impact_frame(activate_frame: u32, bomb_index: u32) -> u32 {
-    carpet_bomb_impact_frame_for_tier(
-        activate_frame,
-        bomb_index,
-        CarpetBombFactionTier::America,
-    )
+    carpet_bomb_impact_frame_for_tier(activate_frame, bomb_index, CarpetBombFactionTier::America)
 }
 
 /// Absolute impact frame for carpet bomb index with faction DropDelay residual.
@@ -5243,7 +5216,6 @@ pub fn artillery_barrage_points_for_tier(
     }
     points
 }
-
 
 /// Residual DelayBetweenShots frames for ScudStorm missile index.
 ///
@@ -6383,8 +6355,7 @@ impl HostParticleBeamField {
         }
         // Multi-beam soft-edge width/alpha/tile residual (W3DLaserDraw cylinders).
         let outer_idx = PARTICLE_ORBITAL_LASER_NUM_BEAMS.saturating_sub(1);
-        let soft_w =
-            particle_orbital_soft_edge_width(outer_idx, self.spawn_frame, current_frame);
+        let soft_w = particle_orbital_soft_edge_width(outer_idx, self.spawn_frame, current_frame);
         self.last_soft_edge_outer_width = soft_w;
         if soft_w > self.peak_soft_edge_outer_width {
             self.peak_soft_edge_outer_width = soft_w;
@@ -6401,8 +6372,7 @@ impl HostParticleBeamField {
         self.soft_edge_premul_samples = self.soft_edge_premul_samples.saturating_add(1);
         // Intense connector soft-edge RGB premul residual (W3DLaserDraw channel delta).
         let conn_idx = PARTICLE_CONNECTOR_INTENSE_NUM_BEAMS.saturating_sub(1);
-        let (cr_p, _cg_p, _cb_p, _) =
-            particle_connector_intense_soft_edge_color_premul(conn_idx);
+        let (cr_p, _cg_p, _cb_p, _) = particle_connector_intense_soft_edge_color_premul(conn_idx);
         self.last_connector_soft_edge_premul_outer_r = cr_p;
         self.connector_soft_edge_premul_samples =
             self.connector_soft_edge_premul_samples.saturating_add(1);
@@ -7355,11 +7325,7 @@ impl HostSpecialPowerStrikeRegistry {
                 let is_final = applied_after >= total;
                 (due, due_count, is_final)
             } else {
-                (
-                    vec![strike.target_position],
-                    1,
-                    true,
-                )
+                (vec![strike.target_position], 1, true)
             };
 
             let mut hits = Vec::new();
@@ -7386,7 +7352,11 @@ impl HostSpecialPowerStrikeRegistry {
                         .fold(0.0_f32, f32::max)
                 } else {
                     let dist = horizontal_distance(pos, strike.target_position);
-                    let primary = Self::damage_at_distance_with_scud_tier(strike.kind, dist, strike.scud_anthrax_tier);
+                    let primary = Self::damage_at_distance_with_scud_tier(
+                        strike.kind,
+                        dist,
+                        strike.scud_anthrax_tier,
+                    );
                     // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
                     // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
                     let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS {
@@ -7472,12 +7442,12 @@ impl HostSpecialPowerStrikeRegistry {
         let mut spawn_toxin: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         let mut spawn_scud_poison: Vec<(ObjectId, super::Team, Vec3, u32, ScudStormAnthraxTier)> =
             Vec::new();
-        let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32, SpectreGunshipScienceTier)> = None;
+        let mut spawn_orbit: Option<(ObjectId, super::Team, Vec3, u32, SpectreGunshipScienceTier)> =
+            None;
         let mut spawn_beam: Option<(ObjectId, super::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
-                strike.total_damage_applied =
-                    strike.total_damage_applied + total_damage;
+                strike.total_damage_applied = strike.total_damage_applied + total_damage;
                 strike.objects_hit = strike.objects_hit.saturating_add(objects_hit);
                 strike.objects_destroyed =
                     strike.objects_destroyed.saturating_add(objects_destroyed);
@@ -7492,29 +7462,23 @@ impl HostSpecialPowerStrikeRegistry {
                 }
                 // Wave 56: ArtilleryBarrage detonation FX residual per shell wave.
                 if strike.kind == HostSuperweaponKind::ArtilleryBarrage {
-                    strike.artillery_fire_fx_applications = strike
-                        .artillery_fire_fx_applications
-                        .saturating_add(shells);
+                    strike.artillery_fire_fx_applications =
+                        strike.artillery_fire_fx_applications.saturating_add(shells);
                 }
                 // Wave 56: CruiseMissile MOAB primary + flame + FireFX residual.
                 if strike.kind == HostSuperweaponKind::CruiseMissile {
-                    strike.cruise_moab_weapon_applications = strike
-                        .cruise_moab_weapon_applications
-                        .saturating_add(1);
-                    strike.cruise_moab_flame_applications = strike
-                        .cruise_moab_flame_applications
-                        .saturating_add(1);
-                    strike.cruise_moab_fire_fx_applications = strike
-                        .cruise_moab_fire_fx_applications
-                        .saturating_add(1);
+                    strike.cruise_moab_weapon_applications =
+                        strike.cruise_moab_weapon_applications.saturating_add(1);
+                    strike.cruise_moab_flame_applications =
+                        strike.cruise_moab_flame_applications.saturating_add(1);
+                    strike.cruise_moab_fire_fx_applications =
+                        strike.cruise_moab_fire_fx_applications.saturating_add(1);
                     strike.cruise_loft_applications =
                         strike.cruise_loft_applications.saturating_add(1);
-                    strike.cruise_height_die_applications = strike
-                        .cruise_height_die_applications
-                        .saturating_add(1);
-                    strike.cruise_projectile_applications = strike
-                        .cruise_projectile_applications
-                        .saturating_add(1);
+                    strike.cruise_height_die_applications =
+                        strike.cruise_height_die_applications.saturating_add(1);
+                    strike.cruise_projectile_applications =
+                        strike.cruise_projectile_applications.saturating_add(1);
                 }
                 // ScudStorm: per-missile LargePoisonField residual (each detonation).
                 if strike.kind.spawns_scud_poison_field() {
@@ -7529,8 +7493,9 @@ impl HostSpecialPowerStrikeRegistry {
                     let shells = wave_shell_count.max(1);
                     strike.scud_fire_fx_applications =
                         strike.scud_fire_fx_applications.saturating_add(shells);
-                    strike.scud_detonation_fx_applications =
-                        strike.scud_detonation_fx_applications.saturating_add(shells);
+                    strike.scud_detonation_fx_applications = strike
+                        .scud_detonation_fx_applications
+                        .saturating_add(shells);
                     strike.scud_launch_bone_applications =
                         strike.scud_launch_bone_applications.saturating_add(shells);
                     // ScudStormMissile loft residual (MissileAIUpdate / HeightDie /
@@ -7552,9 +7517,8 @@ impl HostSpecialPowerStrikeRegistry {
                     // Host residual: spawn at PreferredHeight, spring sample, and
                     // loft phase honesty per missile wave. Fail-closed: not full
                     // live MissileAIUpdate physics / ThingFactory Object.
-                    strike.scud_spawn_height_applications = strike
-                        .scud_spawn_height_applications
-                        .saturating_add(shells);
+                    strike.scud_spawn_height_applications =
+                        strike.scud_spawn_height_applications.saturating_add(shells);
                     strike.scud_preferred_height_spring_applications = strike
                         .scud_preferred_height_spring_applications
                         .saturating_add(shells);
@@ -7594,21 +7558,18 @@ impl HostSpecialPowerStrikeRegistry {
                     strike.scud_snap_to_ground_applications = strike
                         .scud_snap_to_ground_applications
                         .saturating_add(shells);
-                    strike.scud_model_draw_applications = strike
-                        .scud_model_draw_applications
-                        .saturating_add(shells);
+                    strike.scud_model_draw_applications =
+                        strike.scud_model_draw_applications.saturating_add(shells);
                     // Geometry residual (Cylinder / radius / height / mass / max health).
-                    strike.scud_geometry_applications = strike
-                        .scud_geometry_applications
-                        .saturating_add(shells);
+                    strike.scud_geometry_applications =
+                        strike.scud_geometry_applications.saturating_add(shells);
                     // VisionRange / KindOf / Armor / TransportSlot residual.
                     strike.scud_object_params_applications = strike
                         .scud_object_params_applications
                         .saturating_add(shells);
                     // MissileAIUpdate residual (TryToFollow/Fuel/InitialVel/DistTurning/Diving).
-                    strike.scud_missile_ai_applications = strike
-                        .scud_missile_ai_applications
-                        .saturating_add(shells);
+                    strike.scud_missile_ai_applications =
+                        strike.scud_missile_ai_applications.saturating_add(shells);
                     // FireWeaponWhenDead death-weapon matrix residual.
                     strike.scud_fire_weapon_when_dead_applications = strike
                         .scud_fire_weapon_when_dead_applications
@@ -7651,10 +7612,7 @@ impl HostSpecialPowerStrikeRegistry {
                         .saturating_add(shells);
                     // Wave 74: ScudStormMissile ThingFactory residual spawn
                     // bookkeeping on impact (object pack ledger; not full Object).
-                    let _scud_spawn = scud_storm_missile_spawn_residual(
-                        frame,
-                        flight_target,
-                    );
+                    let _scud_spawn = scud_storm_missile_spawn_residual(frame, flight_target);
                     debug_assert!(honesty_thing_factory_spawn_residual(&_scud_spawn));
                     strike.scud_thing_factory_spawn_applications = strike
                         .scud_thing_factory_spawn_applications
@@ -7664,13 +7622,12 @@ impl HostSpecialPowerStrikeRegistry {
                         strike.scud_peak_flight_distance = flight_dist;
                     }
                     // Pre-snap height residual lives in spring sample; snap sets Y=0.
-                    strike.scud_last_flight_height = if flight_phase
-                        == ScudMissileLoftPhase::HeightDie
-                    {
-                        0.0
-                    } else {
-                        flight_pos.y
-                    };
+                    strike.scud_last_flight_height =
+                        if flight_phase == ScudMissileLoftPhase::HeightDie {
+                            0.0
+                        } else {
+                            flight_pos.y
+                        };
                     // ThrustRoll / ThrustWobble residual honesty (locomotor thrust path).
                     strike.scud_thrust_wobble_applications = strike
                         .scud_thrust_wobble_applications
@@ -7827,8 +7784,7 @@ impl HostSpecialPowerStrikeRegistry {
         };
         self.radiation_fields.push(field);
         self.radiation_spawned_this_frame.push(id);
-        self.radiation_fields_spawned_total =
-            self.radiation_fields_spawned_total.saturating_add(1);
+        self.radiation_fields_spawned_total = self.radiation_fields_spawned_total.saturating_add(1);
         // Wave 56: arm parent strike radiation residual pack honesty.
         if parent_strike_id != 0 {
             if let Some(s) = self.strikes.get_mut(&parent_strike_id) {
@@ -8015,9 +7971,8 @@ impl HostSpecialPowerStrikeRegistry {
         if parent_strike_id != 0 {
             if let Some(s) = self.strikes.get_mut(&parent_strike_id) {
                 if s.kind == HostSuperweaponKind::AnthraxBomb {
-                    s.anthrax_toxin_residual_pack_applications = s
-                        .anthrax_toxin_residual_pack_applications
-                        .saturating_add(1);
+                    s.anthrax_toxin_residual_pack_applications =
+                        s.anthrax_toxin_residual_pack_applications.saturating_add(1);
                 }
             }
         }
@@ -8079,8 +8034,7 @@ impl HostSpecialPowerStrikeRegistry {
             field.total_damage_applied += total_damage;
             field.damage_applications += applications;
             field.objects_destroyed += objects_destroyed;
-            field.next_tick_frame =
-                current_frame.saturating_add(field.tick_interval_frames.max(1));
+            field.next_tick_frame = current_frame.saturating_add(field.tick_interval_frames.max(1));
             self.toxin_damage_applications_total = self
                 .toxin_damage_applications_total
                 .saturating_add(applications);
@@ -8304,10 +8258,8 @@ impl HostSpecialPowerStrikeRegistry {
                 // SpectreHowitzerShell projectile residual honesty (not full Object).
                 // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
                 // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
-                field.howitzer_shells_spawned =
-                    field.howitzer_shells_spawned.saturating_add(1);
-                field.howitzer_shell_fire_fx =
-                    field.howitzer_shell_fire_fx.saturating_add(1);
+                field.howitzer_shells_spawned = field.howitzer_shells_spawned.saturating_add(1);
+                field.howitzer_shell_fire_fx = field.howitzer_shell_fire_fx.saturating_add(1);
                 field.howitzer_shell_detonation_fx =
                     field.howitzer_shell_detonation_fx.saturating_add(1);
                 field.howitzer_shell_height_die_delays =
@@ -8358,9 +8310,8 @@ impl HostSpecialPowerStrikeRegistry {
                     .howitzer_shell_thing_factory_spawn_applications
                     .saturating_add(1);
                 // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
-                field.howitzer_gun_aim_params_applications = field
-                    .howitzer_gun_aim_params_applications
-                    .saturating_add(1);
+                field.howitzer_gun_aim_params_applications =
+                    field.howitzer_gun_aim_params_applications.saturating_add(1);
                 // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
                 field.howitzer_gun_fire_params_applications = field
                     .howitzer_gun_fire_params_applications
@@ -8377,15 +8328,12 @@ impl HostSpecialPowerStrikeRegistry {
                 field.howitzer_shell_model_draw_applications = field
                     .howitzer_shell_model_draw_applications
                     .saturating_add(1);
-                field.howitzer_shell_scale_applications = field
-                    .howitzer_shell_scale_applications
-                    .saturating_add(1);
-                field.howitzer_shell_shadow_applications = field
-                    .howitzer_shell_shadow_applications
-                    .saturating_add(1);
-                field.howitzer_shell_geometry_applications = field
-                    .howitzer_shell_geometry_applications
-                    .saturating_add(1);
+                field.howitzer_shell_scale_applications =
+                    field.howitzer_shell_scale_applications.saturating_add(1);
+                field.howitzer_shell_shadow_applications =
+                    field.howitzer_shell_shadow_applications.saturating_add(1);
+                field.howitzer_shell_geometry_applications =
+                    field.howitzer_shell_geometry_applications.saturating_add(1);
                 field.howitzer_shell_max_health_applications = field
                     .howitzer_shell_max_health_applications
                     .saturating_add(1);
@@ -8432,9 +8380,8 @@ impl HostSpecialPowerStrikeRegistry {
                 field.next_gattling_tick_frame = current_frame.saturating_add(interval);
                 field.gattling_ticks = field.gattling_ticks.saturating_add(1);
                 // SpectreGattlingGun anti/fire residual (Anti*/ProjectileObject NONE/Clip).
-                field.gattling_gun_params_applications = field
-                    .gattling_gun_params_applications
-                    .saturating_add(1);
+                field.gattling_gun_params_applications =
+                    field.gattling_gun_params_applications.saturating_add(1);
                 // ContinuousFire WeaponBonus ROF residual applications: the interval
                 // just computed used MEAN (200%) or FAST (300%) when consecutive
                 // crosses One/Two thresholds (exclusive `>`).
@@ -8553,7 +8500,11 @@ impl HostSpecialPowerStrikeRegistry {
             return false;
         }
         // Constants-only path when no carpet strike queued.
-        if !self.strikes.values().any(|s| s.kind == HostSuperweaponKind::CarpetBomb) {
+        if !self
+            .strikes
+            .values()
+            .any(|s| s.kind == HostSuperweaponKind::CarpetBomb)
+        {
             return true;
         }
         self.strikes.values().any(|s| {
@@ -8572,7 +8523,11 @@ impl HostSpecialPowerStrikeRegistry {
         if !honesty_cruise_missile_residual_pack() {
             return false;
         }
-        if !self.strikes.values().any(|s| s.kind == HostSuperweaponKind::CruiseMissile) {
+        if !self
+            .strikes
+            .values()
+            .any(|s| s.kind == HostSuperweaponKind::CruiseMissile)
+        {
             return true;
         }
         self.strikes.values().any(|s| {
@@ -8647,7 +8602,6 @@ impl HostSpecialPowerStrikeRegistry {
         })
     }
 
-
     /// Residual honesty: howitzer continuous-fire ramp reached MEAN or FAST.
     pub fn honesty_howitzer_continuous_fire_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| f.howitzer_fire_level >= 1)
@@ -8655,14 +8609,17 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Residual honesty: ContinuousFireCoast cool-down applied at least once.
     pub fn honesty_continuous_fire_coast_ok(&self) -> bool {
-        self.orbit_fields.iter().any(|f| {
-            f.gattling_coast_applications > 0 || f.howitzer_coast_applications > 0
-        }) && SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES == 60
+        self.orbit_fields
+            .iter()
+            .any(|f| f.gattling_coast_applications > 0 || f.howitzer_coast_applications > 0)
+            && SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES == 60
     }
 
     /// Residual honesty: VoiceRapidFire cue when ContinuousFire entered FAST.
     pub fn honesty_voice_rapid_fire_ok(&self) -> bool {
-        self.orbit_fields.iter().any(|f| f.rapid_fire_voice_cues > 0)
+        self.orbit_fields
+            .iter()
+            .any(|f| f.rapid_fire_voice_cues > 0)
             && SPECTRE_VOICE_RAPID_FIRE_AUDIO.contains("Rapid")
     }
 
@@ -8748,8 +8705,7 @@ impl HostSpecialPowerStrikeRegistry {
                 && f.howitzer_shell_design_params_applications >= f.howitzer_shells_spawned
         }) && !SPECTRE_HOWITZER_SHELL_HEIGHT_DIE_INCLUDES_STRUCTURES
             && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - 100.0).abs() < 0.01
-            && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - SPECTRE_HOWITZER_SHELL_MAX_HEALTH)
-                .abs()
+            && (SPECTRE_HOWITZER_SHELL_INITIAL_HEALTH - SPECTRE_HOWITZER_SHELL_MAX_HEALTH).abs()
                 < 0.01
             && SPECTRE_HOWITZER_SHELL_DISPLAY_NAME == "OBJECT:Missile"
             && SPECTRE_HOWITZER_SHELL_EDITOR_SORTING == "SYSTEM"
@@ -8763,10 +8719,8 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn honesty_howitzer_shell_model_draw_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shell_model_draw_applications > 0
-                && f.howitzer_shell_scale_applications
-                    >= f.howitzer_shell_model_draw_applications
-                && f.howitzer_shell_shadow_applications
-                    >= f.howitzer_shell_model_draw_applications
+                && f.howitzer_shell_scale_applications >= f.howitzer_shell_model_draw_applications
+                && f.howitzer_shell_shadow_applications >= f.howitzer_shell_model_draw_applications
                 && f.howitzer_shell_geometry_applications
                     >= f.howitzer_shell_model_draw_applications
                 && f.howitzer_shell_max_health_applications
@@ -8790,23 +8744,23 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn honesty_howitzer_shell_object_params_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shell_object_params_applications > 0
-                && f.howitzer_shell_object_params_applications
-                    >= f.howitzer_shells_spawned
+                && f.howitzer_shell_object_params_applications >= f.howitzer_shells_spawned
         }) && SPECTRE_HOWITZER_SHELL_KIND_OF == "PROJECTILE"
             && (SPECTRE_HOWITZER_SHELL_VISION_RANGE - 0.0).abs() < 0.01
             && SPECTRE_HOWITZER_SHELL_ARMOR == "ProjectileArmor"
     }
 
-
     pub fn honesty_model_condition_continuous_fire_ok(&self) -> bool {
-        self.orbit_fields.iter().any(|f| {
-            f.model_condition_mean_sets > 0 || f.model_condition_fast_sets > 0
-        })
+        self.orbit_fields
+            .iter()
+            .any(|f| f.model_condition_mean_sets > 0 || f.model_condition_fast_sets > 0)
     }
 
     /// Residual honesty: MODELCONDITION_CONTINUOUS_FIRE_SLOW residual on coolDown.
     pub fn honesty_model_condition_slow_ok(&self) -> bool {
-        self.orbit_fields.iter().any(|f| f.model_condition_slow_sets > 0)
+        self.orbit_fields
+            .iter()
+            .any(|f| f.model_condition_slow_sets > 0)
     }
 
     /// Drop expired Spectre orbit fields.
@@ -9040,11 +8994,9 @@ impl HostSpecialPowerStrikeRegistry {
                 field.current_target_position.z += dz * scale;
                 // Host residual keeps Y at click height (terrain Z fail-closed).
                 field.manual_drive_distance_total += step;
-                field.manual_drive_applications =
-                    field.manual_drive_applications.saturating_add(1);
+                field.manual_drive_applications = field.manual_drive_applications.saturating_add(1);
                 if fast {
-                    field.fast_drive_applications =
-                        field.fast_drive_applications.saturating_add(1);
+                    field.fast_drive_applications = field.fast_drive_applications.saturating_add(1);
                 }
             }
             field.last_drive_update_frame = current_frame;
@@ -9412,16 +9364,12 @@ impl HostSpecialPowerStrikeRegistry {
     /// Residual honesty: SwathOfDeath epicenter walked off the click point.
     pub fn honesty_beam_swath_ok(&self) -> bool {
         self.beam_fields.iter().any(|f| f.swath_applications > 0)
-            || self
-                .beam_fields
-                .iter()
-                .any(|f| f.max_swath_offset > 0.01)
+            || self.beam_fields.iter().any(|f| f.max_swath_offset > 0.01)
     }
 
     /// Residual honesty: DamagePulseRemnant trail residual spawned from beam pulses.
     pub fn honesty_beam_remnant_ok(&self) -> bool {
-        self.remnant_fields_spawned_total > 0
-            || !self.remnant_fields.is_empty()
+        self.remnant_fields_spawned_total > 0 || !self.remnant_fields.is_empty()
     }
 
     /// Residual honesty: remnant trail applied damage at least once.
@@ -9517,17 +9465,18 @@ impl HostSpecialPowerStrikeRegistry {
     /// Tracks C++ W3DLaserDraw channel-delta × innerAlpha on outer cylinder.
     /// Fail-closed: not full SegLineRenderer additive GPU submit.
     pub fn honesty_beam_soft_edge_premul_ok(&self) -> bool {
-        self.beam_fields.iter().any(|f| {
-            f.soft_edge_premul_samples >= 1 && f.soft_edge_color_armed >= 1
-        }) && {
-            let (r0, _, _, _) = particle_orbital_soft_edge_color_premul(0);
-            let (r11, _, _, a11) = particle_orbital_soft_edge_color_premul(11);
-            // Outer red at scale=1: 1.0 + 1.0*(0-1)*ia = 1 - ia
-            let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
-            (r0 - 1.0).abs() < 0.01
-                && (r11 - (1.0 - ia)).abs() < 0.01
-                && (a11 - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01
-        }
+        self.beam_fields
+            .iter()
+            .any(|f| f.soft_edge_premul_samples >= 1 && f.soft_edge_color_armed >= 1)
+            && {
+                let (r0, _, _, _) = particle_orbital_soft_edge_color_premul(0);
+                let (r11, _, _, a11) = particle_orbital_soft_edge_color_premul(11);
+                // Outer red at scale=1: 1.0 + 1.0*(0-1)*ia = 1 - ia
+                let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
+                (r0 - 1.0).abs() < 0.01
+                    && (r11 - (1.0 - ia)).abs() < 0.01
+                    && (a11 - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01
+            }
     }
 
     /// Residual honesty: single-beam RGB × innerAlpha residual (NumBeams==1 path).
@@ -9547,17 +9496,18 @@ impl HostSpecialPowerStrikeRegistry {
     /// Tracks C++ W3DLaserDraw channel-delta × innerAlpha on connector cylinders.
     /// Fail-closed: not full LaserUpdate drawable / GPU SegLine submit.
     pub fn honesty_beam_connector_soft_edge_premul_ok(&self) -> bool {
-        self.beam_fields.iter().any(|f| {
-            f.connector_soft_edge_premul_samples >= 1 && f.connector_soft_edge_armed >= 1
-        }) && {
-            let ia = PARTICLE_CONNECTOR_INNER_COLOR.3;
-            let (r0, _, _, _) = particle_connector_intense_soft_edge_color_premul(0);
-            let (r4, _, _, a4) = particle_connector_intense_soft_edge_color_premul(4);
-            // Outer red at scale=1: 1 + (0-1)*ia = 1 - ia (connector outer is pure blue).
-            (r0 - 1.0).abs() < 0.01
-                && (r4 - (1.0 - ia)).abs() < 0.01
-                && (a4 - PARTICLE_CONNECTOR_OUTER_COLOR.3).abs() < 0.01
-        }
+        self.beam_fields
+            .iter()
+            .any(|f| f.connector_soft_edge_premul_samples >= 1 && f.connector_soft_edge_armed >= 1)
+            && {
+                let ia = PARTICLE_CONNECTOR_INNER_COLOR.3;
+                let (r0, _, _, _) = particle_connector_intense_soft_edge_color_premul(0);
+                let (r4, _, _, a4) = particle_connector_intense_soft_edge_color_premul(4);
+                // Outer red at scale=1: 1 + (0-1)*ia = 1 - ia (connector outer is pure blue).
+                (r0 - 1.0).abs() < 0.01
+                    && (r4 - (1.0 - ia)).abs() < 0.01
+                    && (a4 - PARTICLE_CONNECTOR_OUTER_COLOR.3).abs() < 0.01
+            }
     }
 
     /// Residual honesty: OrbitalLaser KindOf IMMOBILE + Segments/ArcHeight residual.
@@ -9584,9 +9534,7 @@ impl HostSpecialPowerStrikeRegistry {
                 && f.peak_retail_laser_radius
                     >= particle_orbital_laser_template_width() * 0.5 - f32::EPSILON
                 && f.peak_retail_damage_radius
-                    >= particle_orbital_laser_template_width()
-                        * 0.5
-                        * PARTICLE_DAMAGE_RADIUS_SCALAR
+                    >= particle_orbital_laser_template_width() * 0.5 * PARTICLE_DAMAGE_RADIUS_SCALAR
                         - 0.1
         }) && (PARTICLE_ORBITAL_LASER_OUTER_BEAM_WIDTH - 26.0).abs() < 0.01
             && (PARTICLE_ORBITAL_LASER_INNER_BEAM_WIDTH - 0.6).abs() < 0.01
@@ -9603,14 +9551,17 @@ impl HostSpecialPowerStrikeRegistry {
     /// Fail-closed: not full scripted waypoint mode / disabled-object reject /
     /// terrain height snap on every frame.
     pub fn honesty_beam_manual_drive_ok(&self) -> bool {
-        self.beam_fields.iter().any(|f| {
-            f.manual_target_mode && f.manual_drive_distance_total > 0.01
-        }) && (PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01
+        self.beam_fields
+            .iter()
+            .any(|f| f.manual_target_mode && f.manual_drive_distance_total > 0.01)
+            && (PARTICLE_MANUAL_DRIVING_SPEED - 20.0).abs() < 0.01
     }
 
     /// Residual honesty: ManualFastDrivingSpeed used after double-click residual.
     pub fn honesty_beam_fast_drive_ok(&self) -> bool {
-        self.beam_fields.iter().any(|f| f.fast_drive_applications > 0)
+        self.beam_fields
+            .iter()
+            .any(|f| f.fast_drive_applications > 0)
             && (PARTICLE_MANUAL_FAST_DRIVING_SPEED - 40.0).abs() < 0.01
             && PARTICLE_DOUBLE_CLICK_FAST_DRIVE_FRAMES == 15
     }
@@ -9720,7 +9671,6 @@ impl HostSpecialPowerStrikeRegistry {
             && (PARTICLE_ORBITAL_LASER_SHROUD_CLEARING_RANGE - 120.0).abs() < 0.01
     }
 
-
     pub fn honesty_beam_intensity_schedule_ok(&self) -> bool {
         // Pre-fire residual: host impact_delay (120) only covers PREPARING→
         // ALMOST_READY→READY (full CHARGING needs BeginCharge+RaiseAntenna
@@ -9732,8 +9682,7 @@ impl HostSpecialPowerStrikeRegistry {
                     || s.particle_almost_ready_applications > 0
                     || s.particle_ready_applications > 0
                     || s.particle_charging_applications > 0)
-                && s.particle_status_peak.as_u8()
-                    >= ParticleUplinkStatus::Preparing.as_u8()
+                && s.particle_status_peak.as_u8() >= ParticleUplinkStatus::Preparing.as_u8()
         });
         let beam_ok = self.beam_fields.iter().any(|f| {
             f.beam_launch_fx_applications >= 1
@@ -9798,8 +9747,7 @@ impl HostSpecialPowerStrikeRegistry {
                 && s.scud_launch_sound_applications >= s.scud_missile_loft_applications
                 && s.scud_exhaust_applications >= s.scud_missile_loft_applications
                 && s.scud_height_die_applications >= s.scud_missile_loft_applications
-                && s.scud_special_power_completion_applications
-                    >= s.scud_missile_loft_applications
+                && s.scud_special_power_completion_applications >= s.scud_missile_loft_applications
                 && s.scud_fire_fx_applications >= s.scud_missile_loft_applications
         }) && SCUD_STORM_MISSILE_OBJECT == "ScudStormMissile"
             && !SCUD_STORM_MISSILE_TRY_FOLLOW_TARGET
@@ -9852,10 +9800,8 @@ impl HostSpecialPowerStrikeRegistry {
         self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ScudStorm
                 && s.scud_ballistic_flight_applications > 0
-                && s.scud_only_moving_down_applications
-                    >= s.scud_ballistic_flight_applications
-                && s.scud_snap_to_ground_applications
-                    >= s.scud_ballistic_flight_applications
+                && s.scud_only_moving_down_applications >= s.scud_ballistic_flight_applications
+                && s.scud_snap_to_ground_applications >= s.scud_ballistic_flight_applications
                 && s.scud_model_draw_applications >= s.scud_ballistic_flight_applications
                 && s.scud_peak_flight_distance > 0.0
                 && s.scud_loft_phase_peak.as_u8() >= ScudMissileLoftPhase::HeightDie.as_u8()
@@ -9972,8 +9918,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Yes, DAMAGED model **NONE**. Fail-closed: not full ActiveBody / W3D ModelDraw.
     pub fn honesty_scud_body_draw_params_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_body_draw_params_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_body_draw_params_applications > 0
         }) && (SCUD_STORM_MISSILE_INITIAL_HEALTH - 10000.0).abs() < 0.01
             && (SCUD_STORM_MISSILE_INITIAL_HEALTH - SCUD_STORM_MISSILE_MAX_HEALTH).abs() < 0.01
             && SCUD_STORM_MISSILE_EDITOR_SORTING == "SYSTEM"
@@ -9987,8 +9932,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Braking **0**. Fail-closed: not full Locomotor physics motive force matrix.
     pub fn honesty_scud_locomotor_appearance_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_locomotor_appearance_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_locomotor_appearance_applications > 0
         }) && SCUD_STORM_MISSILE_LOCOMOTOR_SURFACES == "AIR"
             && SCUD_STORM_MISSILE_LOCOMOTOR_APPEARANCE == "THRUST"
             && SCUD_STORM_MISSILE_LOCOMOTOR_ALLOW_AIRBORNE_MOTIVE
@@ -10017,8 +9961,7 @@ impl HostSpecialPowerStrikeRegistry {
         self.strikes.values().any(|s| {
             s.kind == HostSuperweaponKind::ScudStorm
                 && s.scud_thing_factory_spawn_applications > 0
-                && s.scud_thing_factory_spawn_applications
-                    >= s.scud_object_params_applications
+                && s.scud_thing_factory_spawn_applications >= s.scud_object_params_applications
         }) && honesty_thing_factory_spawn_bookkeeping_wave74()
             && honesty_scud_storm_missile_thing_factory_pack()
     }
@@ -10027,8 +9970,7 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn honesty_howitzer_shell_thing_factory_spawn_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shell_thing_factory_spawn_applications > 0
-                && f.howitzer_shell_thing_factory_spawn_applications
-                    >= f.howitzer_shells_spawned
+                && f.howitzer_shell_thing_factory_spawn_applications >= f.howitzer_shells_spawned
         }) && honesty_spectre_howitzer_shell_thing_factory_pack()
     }
 
@@ -10047,8 +9989,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// (AnthraxBeta). Fail-closed: not full FireWeaponWhenDead OCL spawn Object.
     pub fn honesty_scud_death_fire_ocl_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_death_fire_ocl_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_death_fire_ocl_applications > 0
         }) && SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE == "OCL_PoisonFieldLarge"
             && SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED == "OCL_PoisonFieldUpgradedLarge"
     }
@@ -10078,8 +10019,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Fail-closed: not full FireWeaponWhenDeadBehavior exclusive module matrix.
     pub fn honesty_scud_death_damage_table_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_death_damage_table_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_death_damage_table_applications > 0
         }) && (SCUD_STORM_PRIMARY_DAMAGE - 500.0).abs() < 0.01
             && (SCUD_STORM_PRIMARY_RADIUS - 50.0).abs() < 0.01
             && (SCUD_STORM_SECONDARY_DAMAGE - 150.0).abs() < 0.01
@@ -10105,8 +10045,7 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn honesty_howitzer_shell_locomotor_template_ok(&self) -> bool {
         self.orbit_fields.iter().any(|f| {
             f.howitzer_shell_locomotor_template_applications > 0
-                && f.howitzer_shell_locomotor_template_applications
-                    >= f.howitzer_shells_spawned
+                && f.howitzer_shell_locomotor_template_applications >= f.howitzer_shells_spawned
         }) && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_NAME == "SpectreHowitzerShellLocomotor"
             && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_SURFACES == "AIR"
             && SPECTRE_HOWITZER_SHELL_LOCOMOTOR_APPEARANCE == "THRUST"
@@ -10179,8 +10118,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// **0**. Fail-closed: not full WeaponTemplate store / live pad reload matrix.
     pub fn honesty_scud_weapon_launch_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_weapon_launch_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_weapon_launch_applications > 0
         }) && SCUD_STORM_CLIP_SIZE == 9
             && SCUD_STORM_CLIP_SIZE == SCUD_STORM_MISSILE_COUNT
             && SCUD_STORM_CLIP_RELOAD_TIME_MS == 10000
@@ -10233,8 +10171,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// Fail-closed: not full WeaponTemplate store / live pad launch matrix.
     pub fn honesty_scud_weapon_special_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_weapon_special_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_weapon_special_applications > 0
         }) && (SCUD_STORM_WEAPON_PRIMARY_DAMAGE - 0.0).abs() < 0.01
             && (SCUD_STORM_WEAPON_PRIMARY_RADIUS - 0.0).abs() < 0.01
             && (SCUD_STORM_WEAPON_ATTACK_RANGE - 999_999.0).abs() < 0.01
@@ -10262,8 +10199,7 @@ impl HostSpecialPowerStrikeRegistry {
     /// state machine / live fuel/jam/kill-self path.
     pub fn honesty_scud_missile_ai_defaults_ok(&self) -> bool {
         self.strikes.values().any(|s| {
-            s.kind == HostSuperweaponKind::ScudStorm
-                && s.scud_missile_ai_defaults_applications > 0
+            s.kind == HostSuperweaponKind::ScudStorm && s.scud_missile_ai_defaults_applications > 0
         }) && SCUD_STORM_MISSILE_IGNITION_DELAY_FRAMES == 0
             && !SCUD_STORM_MISSILE_USE_WEAPON_SPEED
             && !SCUD_STORM_MISSILE_DETONATE_ON_NO_FUEL
@@ -10333,9 +10269,10 @@ impl HostSpecialPowerStrikeRegistry {
     /// **50**, InitialHealth **50**, EditorSorting **SYSTEM**. Fail-closed: not
     /// full ThingFactory Object / ImmortalBody / DeletionUpdate module stack.
     pub fn honesty_beam_remnant_object_params_ok(&self) -> bool {
-        self.remnant_fields.iter().any(|f| {
-            f.remnant_object_params_applications >= 1
-        }) && PARTICLE_REMNANT_KIND_OF == "NO_COLLIDE UNATTACKABLE IMMOBILE"
+        self.remnant_fields
+            .iter()
+            .any(|f| f.remnant_object_params_applications >= 1)
+            && PARTICLE_REMNANT_KIND_OF == "NO_COLLIDE UNATTACKABLE IMMOBILE"
             && (PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01
             && (PARTICLE_REMNANT_INITIAL_HEALTH - 50.0).abs() < 0.01
             && (PARTICLE_REMNANT_INITIAL_HEALTH - PARTICLE_REMNANT_MAX_HEALTH).abs() < 0.01
@@ -10352,9 +10289,10 @@ impl HostSpecialPowerStrikeRegistry {
     /// Lifetime **4000** ms. Fail-closed: not full ThingFactory Object / live
     /// FireWeaponUpdate + DeletionUpdate module stack.
     pub fn honesty_beam_remnant_fire_deletion_ok(&self) -> bool {
-        self.remnant_fields.iter().any(|f| {
-            f.remnant_fire_deletion_applications >= 1
-        }) && PARTICLE_REMNANT_FIRE_WEAPON_UPDATE
+        self.remnant_fields
+            .iter()
+            .any(|f| f.remnant_fire_deletion_applications >= 1)
+            && PARTICLE_REMNANT_FIRE_WEAPON_UPDATE
             && PARTICLE_REMNANT_DELETION_UPDATE
             && PARTICLE_REMNANT_WEAPON_NAME == "ParticleUplinkCannonBeamTrailRemnantWeapon"
             && (PARTICLE_REMNANT_DAMAGE_PER_TICK - 15.0).abs() < 0.01
@@ -10376,9 +10314,10 @@ impl HostSpecialPowerStrikeRegistry {
     /// never-dead residual. Fail-closed: not full ActiveBody / Object death flag
     /// / ThingFactory ImmortalBody module stack.
     pub fn honesty_beam_remnant_immortal_body_ok(&self) -> bool {
-        self.remnant_fields.iter().any(|f| {
-            f.remnant_immortal_body_applications >= 1
-        }) && (PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR - 1.0).abs() < 0.01
+        self.remnant_fields
+            .iter()
+            .any(|f| f.remnant_immortal_body_applications >= 1)
+            && (PARTICLE_REMNANT_IMMORTAL_HEALTH_FLOOR - 1.0).abs() < 0.01
             && PARTICLE_REMNANT_IMMORTAL_NEVER_DEAD
             && PARTICLE_REMNANT_BODY == "ImmortalBody"
             && (PARTICLE_REMNANT_MAX_HEALTH - 50.0).abs() < 0.01
@@ -10412,13 +10351,17 @@ impl HostSpecialPowerStrikeRegistry {
         }) && (PARTICLE_LASER_ORBIT_ALTITUDE - 500.0).abs() < 0.01
             && PARTICLE_WIDTH_GROW_FRAMES == 60
             && (laser_update_width_scalar_widen(0, PARTICLE_WIDTH_GROW_FRAMES) - 0.0).abs() < 0.01
-            && (laser_update_width_scalar_widen(PARTICLE_WIDTH_GROW_FRAMES, PARTICLE_WIDTH_GROW_FRAMES)
-                - 1.0)
+            && (laser_update_width_scalar_widen(
+                PARTICLE_WIDTH_GROW_FRAMES,
+                PARTICLE_WIDTH_GROW_FRAMES,
+            ) - 1.0)
                 .abs()
                 < 0.01
             && (laser_update_width_scalar_decay(0, PARTICLE_WIDTH_GROW_FRAMES) - 1.0).abs() < 0.01
-            && (laser_update_width_scalar_decay(PARTICLE_WIDTH_GROW_FRAMES, PARTICLE_WIDTH_GROW_FRAMES)
-                - 0.0)
+            && (laser_update_width_scalar_decay(
+                PARTICLE_WIDTH_GROW_FRAMES,
+                PARTICLE_WIDTH_GROW_FRAMES,
+            ) - 0.0)
                 .abs()
                 < 0.01
     }
@@ -10448,8 +10391,7 @@ impl HostSpecialPowerStrikeRegistry {
             .strikes
             .values()
             .filter(|s| {
-                s.kind == HostSuperweaponKind::ParticleCannon
-                    && s.phase == HostStrikePhase::Queued
+                s.kind == HostSuperweaponKind::ParticleCannon && s.phase == HostStrikePhase::Queued
             })
             .map(|s| s.id)
             .collect();
@@ -10467,24 +10409,19 @@ impl HostSpecialPowerStrikeRegistry {
                 && current_frame >= strike.activate_frame
                 && current_frame < strike.impact_frame
             {
-                strike.scud_pre_attack_frames =
-                    strike.scud_pre_attack_frames.saturating_add(1);
+                strike.scud_pre_attack_frames = strike.scud_pre_attack_frames.saturating_add(1);
             }
         }
 
         // Beam attack-phase intensity residual (FIRING → POSTFIRE → PACKING).
         for field in &mut self.beam_fields {
-            if field.is_expired(current_frame)
-                && field.status != ParticleUplinkStatus::Packing
-            {
+            if field.is_expired(current_frame) && field.status != ParticleUplinkStatus::Packing {
                 // Past orbital death: PACKING residual (effects cleared).
                 if field.status != ParticleUplinkStatus::Packing {
-                    field.intensity_transitions =
-                        field.intensity_transitions.saturating_add(1);
+                    field.intensity_transitions = field.intensity_transitions.saturating_add(1);
                 }
                 field.status = ParticleUplinkStatus::Packing;
-                field.packing_applications =
-                    field.packing_applications.saturating_add(1);
+                field.packing_applications = field.packing_applications.saturating_add(1);
                 field.outer_intensity = ParticleIntensity::None;
                 field.connector_intensity = ParticleIntensity::None;
                 field.laser_base_intensity = ParticleIntensity::None;
@@ -10505,8 +10442,7 @@ impl HostSpecialPowerStrikeRegistry {
                 PARTICLE_WIDTH_GROW_FRAMES,
             );
             if next_status != field.status {
-                field.intensity_transitions =
-                    field.intensity_transitions.saturating_add(1);
+                field.intensity_transitions = field.intensity_transitions.saturating_add(1);
                 field.status = next_status;
                 let fx = particle_client_effects_for_status(next_status);
                 field.outer_node_systems_created = fx.outer_nodes;
@@ -10519,8 +10455,7 @@ impl HostSpecialPowerStrikeRegistry {
                 field.ground_to_orbit_laser_created = fx.ground_to_orbit;
                 match next_status {
                     ParticleUplinkStatus::Postfire => {
-                        field.postfire_applications =
-                            field.postfire_applications.saturating_add(1);
+                        field.postfire_applications = field.postfire_applications.saturating_add(1);
                         // Medium connector soft-edge residual (NumBeams 4, 0.4→1.2).
                         if field.connector_intensity == ParticleIntensity::Medium {
                             field.medium_connector_soft_edge_armed =
@@ -10538,8 +10473,7 @@ impl HostSpecialPowerStrikeRegistry {
                         field.laser_update_dirty = true;
                     }
                     ParticleUplinkStatus::Packing => {
-                        field.packing_applications =
-                            field.packing_applications.saturating_add(1);
+                        field.packing_applications = field.packing_applications.saturating_add(1);
                     }
                     _ => {}
                 }
@@ -10661,8 +10595,7 @@ impl HostSpecialPowerStrikeRegistry {
                     particle_next_scorch_frame(field.spawn_frame, field.scorch_marks_made);
                 // Advance by schedule factor; allow multi-mark catch-up when
                 // frames were skipped (do not clamp to current+1 inside the loop).
-                field.next_scorch_frame =
-                    scheduled.max(field.next_scorch_frame.saturating_add(1));
+                field.next_scorch_frame = scheduled.max(field.next_scorch_frame.saturating_add(1));
                 events.push(HostParticleScorchRevealEvent {
                     field_id: field.id,
                     source_object: field.source_object,
@@ -10909,9 +10842,7 @@ mod tests {
         // Decay half-way: scalar 0.5, death at orbital lifetime.
         let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
         assert!((particle_width_scalar(100, half_decay) - 0.5).abs() < 0.01);
-        assert!(
-            (particle_beam_damage_radius(100, half_decay) - 25.0).abs() < 0.1
-        );
+        assert!((particle_beam_damage_radius(100, half_decay) - 25.0).abs() < 0.1);
         let death = particle_death_frame(100);
         assert_eq!(death, 100 + PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES);
         assert!((particle_width_scalar(100, death) - 0.0).abs() < 0.01);
@@ -10927,7 +10858,11 @@ mod tests {
         // Mid pulse (factor 0.5): at click epicenter offset.
         let mid_idx = PARTICLE_BEAM_TOTAL_PULSES / 2;
         let o_mid = particle_swath_offset(mid_idx);
-        assert!(o_mid.x.abs() < 1.0, "mid swath along-axis near 0, got {}", o_mid.x);
+        assert!(
+            o_mid.x.abs() < 1.0,
+            "mid swath along-axis near 0, got {}",
+            o_mid.x
+        );
         // Fractional nextFactor schedule residual.
         assert_eq!(particle_next_pulse_frame(100, 0), 101); // strict forward when 0
         assert_eq!(
@@ -10988,9 +10923,18 @@ mod tests {
         assert!((beam_plans[0].width_scalar - 0.0).abs() < 0.01);
         assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under width=0
         assert_eq!(beam_plans[0].hits[0].target_id, ObjectId(2));
-        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
-        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        assert!(!beam_plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)));
+        assert!(!beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3)));
+        assert!(!beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(4)));
+        assert!(!beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5)));
 
         reg.record_beam_tick_complete(
             beam_plans[0].field_id,
@@ -11011,7 +10955,9 @@ mod tests {
         assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 
         // Not due again until scheduled frame.
-        assert!(reg.plan_due_beam_ticks(expected_next.saturating_sub(1), &objects).is_empty());
+        assert!(reg
+            .plan_due_beam_ticks(expected_next.saturating_sub(1), &objects)
+            .is_empty());
         let later = reg.plan_due_beam_ticks(expected_next, &objects);
         assert_eq!(later.len(), 1);
     }
@@ -11100,7 +11046,10 @@ mod tests {
         assert!((CARPET_BOMB_DROP_VARIANCE_Z - 0.0).abs() < 0.01);
         assert_eq!(CARPET_BOMB_DROP_DELAY_FRAMES, 9);
         // DropDelay residual: bomb i at approach + i * DropDelay.
-        assert_eq!(carpet_bomb_impact_frame(0, 0), CARPET_BOMB_IMPACT_DELAY_FRAMES);
+        assert_eq!(
+            carpet_bomb_impact_frame(0, 0),
+            CARPET_BOMB_IMPACT_DELAY_FRAMES
+        );
         assert_eq!(
             carpet_bomb_impact_frame(0, 1),
             CARPET_BOMB_IMPACT_DELAY_FRAMES + CARPET_BOMB_DROP_DELAY_FRAMES
@@ -11183,8 +11132,14 @@ mod tests {
             .iter()
             .any(|h| h.target_id == ObjectId(6) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
         // Center (index 7) and outer (index 14) not yet due.
-        assert!(!first_wave[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
-        assert!(!first_wave[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        assert!(!first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2)));
+        assert!(!first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3)));
         reg.record_impact_wave(
             id,
             CARPET_BOMB_DAMAGE,
@@ -11207,13 +11162,19 @@ mod tests {
         assert!(plans[0].is_final_wave);
         assert!(plans[0].wave_shell_count >= 14);
         // Center + outer-bomb enemies + friendly (ALLIES residual); far excluded.
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
-            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)
-            && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
 
         reg.record_impact_wave(
             id,
@@ -11230,10 +11191,7 @@ mod tests {
         assert!(reg.toxin_fields().is_empty());
         assert!(reg.orbit_fields().is_empty());
         assert!(reg.beam_fields().is_empty());
-        assert_eq!(
-            reg.get(id).unwrap().multi_strike_applied,
-            CARPET_BOMB_COUNT
-        );
+        assert_eq!(reg.get(id).unwrap().multi_strike_applied, CARPET_BOMB_COUNT);
     }
 
     #[test]
@@ -11292,13 +11250,19 @@ mod tests {
         assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
         assert!((ARTILLERY_BARRAGE_RING_RADIUS - 75.0).abs() < 0.1);
         // Lead shell DelayDelivery residual is 0; others in [0, max].
-        assert_eq!(delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES), 0);
+        assert_eq!(
+            delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES),
+            0
+        );
         for i in 1..12 {
             let d = delay_delivery_frames(i, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
             assert!(d <= ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
         }
         // WeaponErrorRadius residual: index 0 spot-on; others within error radius.
-        assert_eq!(weapon_error_radius_offset(0, ARTILLERY_BARRAGE_ERROR_RADIUS), Vec3::ZERO);
+        assert_eq!(
+            weapon_error_radius_offset(0, ARTILLERY_BARRAGE_ERROR_RADIUS),
+            Vec3::ZERO
+        );
         let points = artillery_barrage_points(Vec3::new(100.0, 0.0, 50.0));
         assert_eq!(points.len(), ARTILLERY_BARRAGE_SHELL_COUNT as usize);
         // First shell at target; remaining scattered inside WeaponErrorRadius.
@@ -11315,7 +11279,10 @@ mod tests {
                 any_scatter = true;
             }
         }
-        assert!(any_scatter, "WeaponErrorRadius residual must scatter non-lead shells");
+        assert!(
+            any_scatter,
+            "WeaponErrorRadius residual must scatter non-lead shells"
+        );
         let points_l3 = artillery_barrage_points_for_tier(
             Vec3::new(0.0, 0.0, 0.0),
             ArtilleryBarrageScienceTier::Level3,
@@ -11359,11 +11326,9 @@ mod tests {
         // First wave: lead shell (DelayDelivery 0) — center hit; not necessarily final.
         let first = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
         assert_eq!(first.len(), 1);
-        assert!(first[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(2)
-                && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
+        assert!(first[0].hits.iter().any(
+            |h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
+        ));
         reg.record_impact_wave(
             id,
             ARTILLERY_BARRAGE_DAMAGE,
@@ -11388,12 +11353,11 @@ mod tests {
             assert_eq!(plans.len(), 1);
             assert!(plans[0].is_final_wave);
             // Scatter-shell enemy hit when its shell is due; far excluded; ALLIES residual allows friendly.
-            assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
-                && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1)
-                || first[0]
-                    .hits
-                    .iter()
-                    .any(|h| h.target_id == ObjectId(3)));
+            assert!(
+                plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
+                    && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1)
+                    || first[0].hits.iter().any(|h| h.target_id == ObjectId(3))
+            );
             assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
             // Friendly at center may take shell damage under RadiusDamageAffects ALLIES.
             let _friendly_ok = plans[0].hits.iter().any(|h| h.target_id == ObjectId(5))
@@ -11442,16 +11406,16 @@ mod tests {
                 any_positive = true;
             }
         }
-        assert!(any_positive, "DelayDelivery residual must stagger some shells");
+        assert!(
+            any_positive,
+            "DelayDelivery residual must stagger some shells"
+        );
         // Shell impact frames: base + delay.
         assert_eq!(
             artillery_shell_impact_frame(10, 0),
             10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
         );
-        assert!(
-            artillery_shell_impact_frame(10, 5)
-                >= 10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
-        );
+        assert!(artillery_shell_impact_frame(10, 5) >= 10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
     }
 
     #[test]
@@ -11516,14 +11480,18 @@ mod tests {
         // Epicenter damage = MOAB primary + MOABFlame secondary residual.
         let expected_epicenter = CRUISE_MISSILE_DAMAGE + MOAB_FLAME_DAMAGE;
         assert_eq!(plans[0].hits.len(), 3);
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - expected_epicenter).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - expected_epicenter).abs() < 0.1));
         assert!(plans[0]
             .hits
             .iter()
             .any(|h| h.target_id == ObjectId(3) && h.damage > MOAB_FLAME_DAMAGE));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(5)
-            && (h.damage - expected_epicenter).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5) && (h.damage - expected_epicenter).abs() < 0.1));
         assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
 
         reg.record_impact_complete(id, expected_epicenter * 2.0, 3, 0);
@@ -11586,8 +11554,10 @@ mod tests {
         assert!(outer.damage > 0.0 && outer.damage < 2000.0);
         assert!((outer.damage - MOAB_FLAME_DAMAGE).abs() > 1.0 || outer.damage < MOAB_FLAME_DAMAGE);
         // Flame residual alone would be 5; falloff primary at 160 should be non-trivial.
-        let primary_only =
-            HostSpecialPowerStrikeRegistry::damage_at_distance(HostSuperweaponKind::DaisyCutter, 160.0);
+        let primary_only = HostSpecialPowerStrikeRegistry::damage_at_distance(
+            HostSuperweaponKind::DaisyCutter,
+            160.0,
+        );
         assert!((outer.damage - primary_only).abs() < 0.1);
         let _ = id;
     }
@@ -11658,12 +11628,11 @@ mod tests {
         );
 
         // Gattling-only tick after 3 frames (howitzer still waiting).
-        let gattling_only = reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects);
+        let gattling_only =
+            reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects);
         assert_eq!(gattling_only.len(), 1);
         assert_eq!(gattling_only[0].hits.len(), 1);
-        assert!(
-            (gattling_only[0].hits[0].damage - SPECTRE_GATTLING_DAMAGE).abs() < 0.01
-        );
+        assert!((gattling_only[0].hits[0].damage - SPECTRE_GATTLING_DAMAGE).abs() < 0.01);
         reg.record_orbit_tick_complete(
             gattling_only[0].field_id,
             SPECTRE_GATTLING_DAMAGE,
@@ -11706,10 +11675,14 @@ mod tests {
         assert_eq!(plans.len(), 1);
         // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
         assert_eq!(plans[0].hits.len(), 2);
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - 200.0).abs() < 0.1));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
-            && (h.damage - 200.0).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - 200.0).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && (h.damage - 200.0).abs() < 0.1));
 
         reg.record_impact_complete(id, 400.0, 2, 0);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
@@ -11726,10 +11699,7 @@ mod tests {
         assert_eq!(tox_plans[0].hits.len(), 2);
         assert!(tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
             && (h.damage - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01));
-        assert!(tox_plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(3)));
+        assert!(tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
 
         reg.record_toxin_tick_complete(tox_plans[0].field_id, 80.0, 2, 0, 90);
         assert!(reg.honesty_toxin_damage_ok());
@@ -11764,10 +11734,14 @@ mod tests {
         assert_eq!(plans.len(), 1);
         // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
         assert_eq!(plans[0].hits.len(), 2);
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - 3500.0).abs() < 0.1));
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)
-            && (h.damage - 3500.0).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - 3500.0).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && (h.damage - 3500.0).abs() < 0.1));
 
         reg.record_impact_complete(id, 7000.0, 2, 1);
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::NuclearMissile));
@@ -11781,15 +11755,9 @@ mod tests {
         assert_eq!(rad_plans.len(), 1);
         // source (1) excluded; epicenter USA (2) + China friendly (3) hit; far (4) not.
         assert_eq!(rad_plans[0].hits.len(), 2);
-        assert!(rad_plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(2)
-                && (h.damage - NUKE_RADIATION_DAMAGE_PER_TICK).abs() < 0.01));
-        assert!(rad_plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(3)));
+        assert!(rad_plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - NUKE_RADIATION_DAMAGE_PER_TICK).abs() < 0.01));
+        assert!(rad_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
 
         reg.record_radiation_tick_complete(rad_plans[0].field_id, 50.0, 2, 0, 180);
         assert!(reg.honesty_radiation_damage_ok());
@@ -11837,12 +11805,17 @@ mod tests {
     #[test]
     fn falloff_two_stage_matches_fab_shape() {
         let kind = HostSuperweaponKind::DaisyCutter;
-        assert!((HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 0.0) - 2000.0).abs() < 0.1);
+        assert!(
+            (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 0.0) - 2000.0).abs() < 0.1
+        );
         assert!(
             (HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 100.0) - 2000.0).abs() < 0.1
         );
         let mid = HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 135.0);
-        assert!((mid - 1000.0).abs() < 1.0, "mid falloff expected ~1000, got {mid}");
+        assert!(
+            (mid - 1000.0).abs() < 1.0,
+            "mid falloff expected ~1000, got {mid}"
+        );
         assert_eq!(
             HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 170.0),
             0.0
@@ -11942,9 +11915,7 @@ mod tests {
                 .abs()
                 < 0.1
         );
-        assert!(
-            HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 201.0).abs() < 0.1
-        );
+        assert!(HostSpecialPowerStrikeRegistry::damage_at_distance(kind, 201.0).abs() < 0.1);
 
         let target = Vec3::new(100.0, 0.0, 50.0);
         let points = scud_storm_points(target);
@@ -11957,15 +11928,17 @@ mod tests {
         assert!((points[4].z - 50.0).abs() < 0.1);
 
         // Stagger residual: first at PreAttack; later missiles later.
-        assert_eq!(scud_missile_impact_frame(0, 0), SCUD_STORM_PRE_ATTACK_FRAMES);
+        assert_eq!(
+            scud_missile_impact_frame(0, 0),
+            SCUD_STORM_PRE_ATTACK_FRAMES
+        );
         assert!(scud_missile_impact_frame(0, 1) > scud_missile_impact_frame(0, 0));
         assert!(scud_missile_impact_frame(0, 8) > scud_missile_impact_frame(0, 1));
-        let last = multi_strike_last_impact_frame(
-            kind,
-            0,
-            ArtilleryBarrageScienceTier::Level1,
+        let last = multi_strike_last_impact_frame(kind, 0, ArtilleryBarrageScienceTier::Level1);
+        assert_eq!(
+            last,
+            scud_missile_impact_frame(0, SCUD_STORM_MISSILE_COUNT - 1)
         );
-        assert_eq!(last, scud_missile_impact_frame(0, SCUD_STORM_MISSILE_COUNT - 1));
 
         // Multi-wave impact + LargePoisonField on complete.
         let mut reg = HostSpecialPowerStrikeRegistry::new();
@@ -11989,15 +11962,20 @@ mod tests {
         ];
 
         // Before first missile: nothing.
-        assert!(reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES - 1, &objects).is_empty());
+        assert!(reg
+            .plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES - 1, &objects)
+            .is_empty());
 
         // First missile wave.
         let plans = reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         assert!(!plans[0].is_final_wave);
         assert!(plans[0].wave_shell_count >= 1);
-        assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
-            && (h.damage - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1));
+        assert!(plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2)
+                && (h.damage - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1));
         assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
         reg.record_impact_wave(
             id,
@@ -12036,7 +12014,10 @@ mod tests {
         let field = &reg.toxin_fields()[0];
         assert!((field.damage_per_tick - SCUD_STORM_POISON_DAMAGE_PER_TICK).abs() < 0.1);
         assert!((field.radius - SCUD_STORM_POISON_RADIUS).abs() < 0.1);
-        assert_eq!(field.tick_interval_frames, SCUD_STORM_POISON_TICK_INTERVAL_FRAMES);
+        assert_eq!(
+            field.tick_interval_frames,
+            SCUD_STORM_POISON_TICK_INTERVAL_FRAMES
+        );
         assert_eq!(
             field.expires_frame,
             field.spawn_frame + SCUD_STORM_POISON_DURATION_FRAMES
@@ -12058,9 +12039,18 @@ mod tests {
 
     #[test]
     fn spectre_orbit_time_science_tier_residual() {
-        assert_eq!(SpectreGunshipScienceTier::Level1.orbit_duration_frames(), 300);
-        assert_eq!(SpectreGunshipScienceTier::Level2.orbit_duration_frames(), 450);
-        assert_eq!(SpectreGunshipScienceTier::Level3.orbit_duration_frames(), 600);
+        assert_eq!(
+            SpectreGunshipScienceTier::Level1.orbit_duration_frames(),
+            300
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::Level2.orbit_duration_frames(),
+            450
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::Level3.orbit_duration_frames(),
+            600
+        );
         assert_eq!(
             SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship3"),
             Some(SpectreGunshipScienceTier::Level3)
@@ -12099,7 +12089,10 @@ mod tests {
             ArtilleryBarrageScienceTier::Level1,
             SpectreGunshipScienceTier::Level3,
         );
-        assert_eq!(reg.get(id).unwrap().spectre_tier, SpectreGunshipScienceTier::Level3);
+        assert_eq!(
+            reg.get(id).unwrap().spectre_tier,
+            SpectreGunshipScienceTier::Level3
+        );
         reg.record_impact_complete(id, 0.0, 0, 0);
         assert_eq!(reg.orbit_fields().len(), 1);
         assert_eq!(
@@ -12124,7 +12117,6 @@ mod tests {
             90 + SpectreGunshipScienceTier::Level1.orbit_duration_frames()
         );
     }
-
 
     #[test]
     fn spectre_gattling_and_howitzer_residual_honesty() {
@@ -12246,7 +12238,8 @@ mod tests {
         let plans = reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES, &objects);
         assert_eq!(plans.len(), 1);
         assert!(plans[0].hits.iter().any(|h| {
-            h.target_id == ObjectId(2) && (h.damage - SCUD_STORM_SECONDARY_DAMAGE_UPGRADED).abs() < 0.1
+            h.target_id == ObjectId(2)
+                && (h.damage - SCUD_STORM_SECONDARY_DAMAGE_UPGRADED).abs() < 0.1
         }));
         reg.record_impact_wave(
             id,
@@ -12270,7 +12263,7 @@ mod tests {
         assert_eq!(spectre_gattling_interval_frames(1), 3);
         assert_eq!(spectre_gattling_interval_frames(2), 1); // > ContinuousFireOne=1
         assert_eq!(spectre_gattling_interval_frames(3), 1); // > ContinuousFireTwo=2
-        // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
+                                                            // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
         assert_eq!(spectre_howitzer_interval_frames(0), 9);
         assert_eq!(spectre_howitzer_interval_frames(1), 9);
         assert_eq!(spectre_howitzer_interval_frames(2), 6);
@@ -12327,7 +12320,10 @@ mod tests {
             assert!(f.rapid_fire_voice_cues >= 1);
         }
         assert!(reg.honesty_voice_rapid_fire_ok());
-        assert_eq!(SPECTRE_VOICE_RAPID_FIRE_AUDIO, "SpectreGunshipVoiceRapidFire");
+        assert_eq!(
+            SPECTRE_VOICE_RAPID_FIRE_AUDIO,
+            "SpectreGunshipVoiceRapidFire"
+        );
         assert!(reg.honesty_model_condition_continuous_fire_ok());
         assert!(reg.orbit_fields()[0].model_condition_mean_sets >= 1);
         assert!(reg.orbit_fields()[0].model_condition_fast_sets >= 1);
@@ -12420,7 +12416,10 @@ mod tests {
         assert!((PARTICLE_REMNANT_RADIUS - 10.0).abs() < 0.01);
         assert_eq!(PARTICLE_REMNANT_TICK_INTERVAL_FRAMES, 7);
         assert_eq!(PARTICLE_REMNANT_DURATION_FRAMES, 120);
-        assert_eq!(PARTICLE_REMNANT_OBJECT_NAME, "ParticleUplinkCannonTrailRemnant");
+        assert_eq!(
+            PARTICLE_REMNANT_OBJECT_NAME,
+            "ParticleUplinkCannonTrailRemnant"
+        );
         assert_eq!(
             PARTICLE_REMNANT_WEAPON_NAME,
             "ParticleUplinkCannonBeamTrailRemnantWeapon"
@@ -12464,7 +12463,12 @@ mod tests {
         let objects = vec![
             (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::USA, true),
             (ObjectId(2), rem_pos, Team::USA, true), // ally in remnant radius
-            (ObjectId(3), rem_pos + Vec3::new(50.0, 0.0, 0.0), Team::GLA, true),
+            (
+                ObjectId(3),
+                rem_pos + Vec3::new(50.0, 0.0, 0.0),
+                Team::GLA,
+                true,
+            ),
         ];
         let plans = reg.plan_due_remnant_ticks(spawn, &objects);
         assert_eq!(plans.len(), 1);
@@ -12488,10 +12492,9 @@ mod tests {
         reg.prune_expired_remnant(spawn + PARTICLE_REMNANT_DURATION_FRAMES);
         // First remnant expired; second may still be live if spawned later.
         assert!(
-            reg.remnant_fields()
-                .iter()
-                .all(|f| f.spawn_frame > spawn || f.is_expired(spawn + PARTICLE_REMNANT_DURATION_FRAMES)
-                    || f.expires_frame > spawn + PARTICLE_REMNANT_DURATION_FRAMES)
+            reg.remnant_fields().iter().all(|f| f.spawn_frame > spawn
+                || f.is_expired(spawn + PARTICLE_REMNANT_DURATION_FRAMES)
+                || f.expires_frame > spawn + PARTICLE_REMNANT_DURATION_FRAMES)
                 || reg.remnant_fields().len() <= 1
         );
     }
@@ -12561,13 +12564,7 @@ mod tests {
         assert!((late[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
         assert_eq!(late[0].hits.len(), 1);
         assert_eq!(late[0].hits[0].target_id, ObjectId(2));
-        reg.record_beam_tick_complete(
-            field_id,
-            PARTICLE_BEAM_DAMAGE_PER_PULSE,
-            1,
-            0,
-            full,
-        );
+        reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, full);
         assert!(reg.honesty_beam_width_grow_ok());
         assert!((reg.beam_fields()[0].peak_width_scalar - 1.0).abs() < 0.01);
         assert!((reg.beam_fields()[0].last_damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
@@ -12621,13 +12618,7 @@ mod tests {
         assert!((hold[0].width_scalar - 1.0).abs() < 0.01);
         assert!((hold[0].damage_radius - PARTICLE_BEAM_RADIUS).abs() < 0.1);
         assert_eq!(hold[0].hits.len(), 1);
-        reg.record_beam_tick_complete(
-            field_id,
-            PARTICLE_BEAM_DAMAGE_PER_PULSE,
-            1,
-            0,
-            decay_start,
-        );
+        reg.record_beam_tick_complete(field_id, PARTICLE_BEAM_DAMAGE_PER_PULSE, 1, 0, decay_start);
 
         // Half-decay: scalar 0.5 → radius 25 → miss unit at dist 30.
         let half_decay = decay_start + PARTICLE_WIDTH_GROW_FRAMES / 2;
@@ -12652,10 +12643,10 @@ mod tests {
         let later = half_decay + 10;
         reg.sample_beam_width_honesty(later);
         assert!(reg.beam_fields()[0].trough_width_scalar < 0.4);
-        assert!((reg.beam_fields()[0].last_width_scalar
-            - particle_width_scalar(spawn, later))
-            .abs()
-            < 0.01);
+        assert!(
+            (reg.beam_fields()[0].last_width_scalar - particle_width_scalar(spawn, later)).abs()
+                < 0.01
+        );
 
         // Beam still alive during decay tail; dies at orbital death frame.
         assert!(!reg.beam_fields()[0].is_expired(later));
@@ -12710,15 +12701,19 @@ mod tests {
 
         // Not due again until scheduled scorch frame.
         let next = reg.beam_fields()[0].next_scorch_frame;
-        assert!(reg.apply_due_beam_scorch_reveals(next.saturating_sub(1)).is_empty());
+        assert!(reg
+            .apply_due_beam_scorch_reveals(next.saturating_sub(1))
+            .is_empty());
 
         // Catch-up: jump past several scorch slots → multiple residual events.
         let late = spawn + PARTICLE_BEAM_DURATION_FRAMES;
         let caught = reg.apply_due_beam_scorch_reveals(late);
-        assert!(caught.len() >= 5, "fractional scorch schedule catch-up, got {}", caught.len());
         assert!(
-            reg.beam_fields()[0].scorch_marks_made <= PARTICLE_TOTAL_SCORCH_MARKS
+            caught.len() >= 5,
+            "fractional scorch schedule catch-up, got {}",
+            caught.len()
         );
+        assert!(reg.beam_fields()[0].scorch_marks_made <= PARTICLE_TOTAL_SCORCH_MARKS);
         assert_eq!(
             reg.beam_fields()[0].reveal_applications,
             reg.beam_fields()[0].scorch_marks_made
@@ -12947,7 +12942,7 @@ mod tests {
         assert!(!particle_is_fast_drive(100, 0)); // first click after zero init
         assert!(particle_is_fast_drive(110, 100)); // 10 < 15
         assert!(!particle_is_fast_drive(120, 100)); // 20 >= 15
-        // Outer-node residual retail honesty.
+                                                    // Outer-node residual retail honesty.
         assert_eq!(PARTICLE_OUTER_EFFECT_NUM_BONES, 5);
         assert_eq!(PARTICLE_OUTER_EFFECT_BONE_NAME, "FX");
         assert_eq!(PARTICLE_CONNECTOR_BONE_NAME, "FXConnector");
@@ -12972,7 +12967,10 @@ mod tests {
         // STATUS_FIRING outer-node / connector residual on spawn.
         {
             let f = &reg.beam_fields()[0];
-            assert_eq!(f.outer_node_systems_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+            assert_eq!(
+                f.outer_node_systems_created,
+                PARTICLE_OUTER_EFFECT_NUM_BONES
+            );
             assert_eq!(f.connector_lasers_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
             assert_eq!(f.laser_base_flare_created, 1);
             assert_eq!(f.ground_to_orbit_laser_created, 1);
@@ -13243,15 +13241,7 @@ mod tests {
         assert!(!reg.honesty_scud_missile_loft_ok());
 
         // First missile wave: loft residual + IgnitionFX + HeightDie honesty.
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_missile_loft_applications, 1);
@@ -13267,15 +13257,7 @@ mod tests {
         assert!(reg.honesty_scud_pre_attack_and_chem_fx_ok());
 
         // Second wave accumulates loft residual.
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(110.0, 0.0, 90.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(110.0, 0.0, 90.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_missile_loft_applications, 2);
@@ -13410,15 +13392,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_preferred_height_spring_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_spawn_height_applications, 1);
@@ -13550,7 +13524,9 @@ mod tests {
             let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
             assert_eq!(f.soft_edge_samples, 1);
             assert!((f.peak_soft_edge_outer_width - 26.0).abs() < 0.1);
-            assert!((f.last_soft_edge_outer_alpha - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01);
+            assert!(
+                (f.last_soft_edge_outer_alpha - PARTICLE_ORBITAL_LASER_OUTER_COLOR.3).abs() < 0.01
+            );
             assert!(f.last_soft_edge_tile_factor > 0.0);
         }
         assert!(reg.honesty_beam_soft_edge_ok());
@@ -13594,10 +13570,11 @@ mod tests {
             let f = reg.beam_fields().iter().find(|b| b.id == field_id).unwrap();
             assert_eq!(f.outer_node_bone_layout_applications, 5);
             assert_eq!(f.connector_bone_layout_applications, 1);
-            assert!((f.last_outer_node_bone_position.x
-                - (origin.x + PARTICLE_OUTER_NODE_RING_RADIUS))
-                .abs()
-                < 0.01);
+            assert!(
+                (f.last_outer_node_bone_position.x - (origin.x + PARTICLE_OUTER_NODE_RING_RADIUS))
+                    .abs()
+                    < 0.01
+            );
         }
         assert!(reg.honesty_beam_outer_node_bone_layout_ok());
         assert!(reg.honesty_beam_outer_nodes_ok());
@@ -13619,8 +13596,7 @@ mod tests {
         // Ballistic sample over enough frames to reach HeightDie residual.
         let launch = Vec3::new(0.0, 0.0, 0.0);
         let target = Vec3::new(700.0, 0.0, 0.0);
-        let (pos, traveled, dist_to, phase) =
-            scud_missile_ballistic_sample(launch, target, 120);
+        let (pos, traveled, dist_to, phase) = scud_missile_ballistic_sample(launch, target, 120);
         assert!(traveled > 0.0);
         assert!(phase == ScudMissileLoftPhase::HeightDie || dist_to < 200.0 || pos.y <= 15.0);
         // After HeightDie snap, Y is surface.
@@ -13637,15 +13613,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_ballistic_flight_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_ballistic_flight_applications, 1);
@@ -13755,15 +13723,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_thrust_wobble_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_thrust_wobble_applications, 1);
@@ -13772,7 +13732,6 @@ mod tests {
         assert!(reg.honesty_scud_thrust_wobble_ok());
         assert!(reg.honesty_scud_ballistic_flight_ok());
     }
-
 
     #[test]
     fn particle_uplink_medium_connector_soft_edge_residual_honesty() {
@@ -13832,7 +13791,6 @@ mod tests {
         assert!(reg.honesty_beam_vision_shroud_ok());
     }
 
-
     #[test]
     fn particle_uplink_soft_edge_premul_residual_honesty() {
         let ia = PARTICLE_ORBITAL_LASER_INNER_COLOR.3;
@@ -13883,15 +13841,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_object_params_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_object_params_applications, 1);
@@ -13944,15 +13894,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_geometry_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_geometry_applications, 1);
@@ -14062,12 +14004,10 @@ mod tests {
     fn spectre_howitzer_shell_loft_flight_residual_honesty() {
         let spawn = Vec3::new(0.0, 80.0, 0.0);
         let target = Vec3::new(10.0, 0.0, 0.0);
-        let (pos_early, moving_early, die_early) =
-            howitzer_shell_loft_sample(spawn, target, 10);
+        let (pos_early, moving_early, die_early) = howitzer_shell_loft_sample(spawn, target, 10);
         assert!(!die_early, "pad-safe: no HeightDie before InitialDelay");
         assert!(!moving_early || pos_early.y >= SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT);
-        let (pos_late, _moving_late, die_late) =
-            howitzer_shell_loft_sample(spawn, target, 45);
+        let (pos_late, _moving_late, die_late) = howitzer_shell_loft_sample(spawn, target, 45);
         assert!(die_late, "HeightDie after InitialDelay + sink");
         assert!((pos_late.y - 0.0).abs() < 0.01);
 
@@ -14173,15 +14113,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_missile_ai_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_missile_ai_applications, 1);
@@ -14221,13 +14153,22 @@ mod tests {
 
     #[test]
     fn scud_fire_weapon_when_dead_residual_honesty() {
-        assert_eq!(SCUD_STORM_MISSILE_DEATH_WEAPON_BASE, "ScudStormDamageWeapon");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_WEAPON_BASE,
+            "ScudStormDamageWeapon"
+        );
         assert_eq!(
             SCUD_STORM_MISSILE_DEATH_WEAPON_UPGRADED,
             "ScudStormDamageWeaponUpgraded"
         );
-        assert_eq!(SCUD_STORM_MISSILE_DEATH_CONFLICTS_WITH, "Upgrade_GLAAnthraxBeta");
-        assert_eq!(SCUD_STORM_MISSILE_DEATH_TRIGGERED_BY, "Upgrade_GLAAnthraxBeta");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_CONFLICTS_WITH,
+            "Upgrade_GLAAnthraxBeta"
+        );
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_TRIGGERED_BY,
+            "Upgrade_GLAAnthraxBeta"
+        );
         assert!(SCUD_STORM_MISSILE_DEATH_BASE_STARTS_ACTIVE);
         assert!(!SCUD_STORM_MISSILE_DEATH_UPGRADED_STARTS_ACTIVE);
 
@@ -14240,15 +14181,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_fire_weapon_when_dead_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_fire_weapon_when_dead_applications, 1);
@@ -14278,15 +14211,7 @@ mod tests {
         );
         assert!(!reg.honesty_scud_body_draw_params_ok());
         assert!(!reg.honesty_scud_locomotor_appearance_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(50.0, 0.0, 50.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(50.0, 0.0, 50.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_body_draw_params_applications, 1);
@@ -14333,19 +14258,23 @@ mod tests {
         assert!((g - ia).abs() < 0.01);
         assert!((b - ia).abs() < 0.01);
         assert!((a - ia).abs() < 0.01);
-        assert!(HostSpecialPowerStrikeRegistry::new().honesty_beam_single_beam_premul_ok()
-            || {
+        assert!(
+            HostSpecialPowerStrikeRegistry::new().honesty_beam_single_beam_premul_ok() || {
                 // honesty is pure constant residual — true without live field
                 let reg = HostSpecialPowerStrikeRegistry::new();
                 reg.honesty_beam_single_beam_premul_ok()
-            });
+            }
+        );
         assert!((particle_orbital_single_beam_color_premul().0 - ia).abs() < 0.01);
     }
 
     #[test]
     fn scud_destroy_die_locomotor_name_residual_honesty() {
         assert!(SCUD_STORM_MISSILE_DESTROY_DIE);
-        assert_eq!(SCUD_STORM_MISSILE_LOCOMOTOR_NAME, "SCUDStormMissileLocomotor");
+        assert_eq!(
+            SCUD_STORM_MISSILE_LOCOMOTOR_NAME,
+            "SCUDStormMissileLocomotor"
+        );
         assert_eq!(SCUD_STORM_MISSILE_DAMAGE_FX, "None");
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
@@ -14357,15 +14286,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_destroy_die_locomotor_name_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(50.0, 0.0, 50.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(50.0, 0.0, 50.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_destroy_die_locomotor_name_applications, 1);
@@ -14453,14 +14374,8 @@ mod tests {
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         assert!(!reg.honesty_beam_remnant_object_params_ok());
-        let rid = reg.spawn_remnant_field(
-            ObjectId(1),
-            Team::USA,
-            Vec3::new(10.0, 0.0, 10.0),
-            0,
-            0,
-            0,
-        );
+        let rid =
+            reg.spawn_remnant_field(ObjectId(1), Team::USA, Vec3::new(10.0, 0.0, 10.0), 0, 0, 0);
         {
             let f = reg.remnant_fields().iter().find(|r| r.id == rid).unwrap();
             assert_eq!(f.remnant_object_params_applications, 1);
@@ -14471,7 +14386,10 @@ mod tests {
 
     #[test]
     fn scud_death_fire_ocl_and_speed_table_residual_honesty() {
-        assert_eq!(SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE, "OCL_PoisonFieldLarge");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_FIRE_OCL_BASE,
+            "OCL_PoisonFieldLarge"
+        );
         assert_eq!(
             SCUD_STORM_MISSILE_DEATH_FIRE_OCL_UPGRADED,
             "OCL_PoisonFieldUpgradedLarge"
@@ -14490,15 +14408,7 @@ mod tests {
         );
         assert!(!reg.honesty_scud_death_fire_ocl_ok());
         assert!(!reg.honesty_scud_locomotor_speed_table_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(80.0, 0.0, 80.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(80.0, 0.0, 80.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_death_fire_ocl_applications, 1);
@@ -14513,7 +14423,10 @@ mod tests {
     fn spectre_howitzer_gun_aim_params_residual_honesty() {
         assert!((SPECTRE_HOWITZER_ACCEPTABLE_AIM_DELTA - 180.0).abs() < 0.01);
         assert!((SPECTRE_HOWITZER_ATTACK_RANGE - 2222.0).abs() < 0.01);
-        assert_eq!(SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH, "STRUCTURES WALLS");
+        assert_eq!(
+            SPECTRE_HOWITZER_PROJECTILE_COLLIDES_WITH,
+            "STRUCTURES WALLS"
+        );
         assert!(SPECTRE_HOWITZER_ANTI_GROUND);
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
@@ -14547,7 +14460,10 @@ mod tests {
         assert_eq!(SCUD_STORM_MISSILE_DEATH_DEATH_TYPE, "EXPLODED");
         assert!((SCUD_STORM_MISSILE_DEATH_WEAPON_SPEED - 600.0).abs() < 0.01);
         assert!((SCUD_STORM_MISSILE_DEATH_ATTACK_RANGE - 200.0).abs() < 0.01);
-        assert_eq!(SCUD_STORM_MISSILE_DEATH_FIRE_FX, "ScudStormMissileDetonation");
+        assert_eq!(
+            SCUD_STORM_MISSILE_DEATH_FIRE_FX,
+            "ScudStormMissileDetonation"
+        );
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         let id = reg.queue(
@@ -14558,15 +14474,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_death_damage_table_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(80.0, 0.0, 80.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(80.0, 0.0, 80.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_death_damage_table_applications, 1);
@@ -14583,9 +14491,15 @@ mod tests {
         assert_eq!(SPECTRE_HOWITZER_DELAY_BETWEEN_SHOTS_FRAMES, 23);
         assert_eq!(SPECTRE_HOWITZER_DAMAGE_TYPE, "EXPLOSION");
         assert_eq!(SPECTRE_HOWITZER_DEATH_TYPE, "EXPLODED");
-        assert_eq!(SPECTRE_HOWITZER_RADIUS_DAMAGE_AFFECTS, "ALLIES ENEMIES NEUTRALS");
+        assert_eq!(
+            SPECTRE_HOWITZER_RADIUS_DAMAGE_AFFECTS,
+            "ALLIES ENEMIES NEUTRALS"
+        );
         assert_eq!(SPECTRE_HOWITZER_CLIP_SIZE, 0);
-        assert_eq!(SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY, "MOVES_BACK");
+        assert_eq!(
+            SPECTRE_HOWITZER_SHELL_LOCOMOTOR_GROUP_PRIORITY,
+            "MOVES_BACK"
+        );
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         let id = reg.queue(
@@ -14625,14 +14539,8 @@ mod tests {
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         assert!(!reg.honesty_beam_remnant_fire_deletion_ok());
-        let _id = reg.spawn_remnant_field(
-            ObjectId(1),
-            Team::USA,
-            Vec3::new(10.0, 0.0, 10.0),
-            0,
-            0,
-            0,
-        );
+        let _id =
+            reg.spawn_remnant_field(ObjectId(1), Team::USA, Vec3::new(10.0, 0.0, 10.0), 0, 0, 0);
         {
             let f = &reg.remnant_fields()[0];
             assert_eq!(f.remnant_fire_deletion_applications, 1);
@@ -14670,15 +14578,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_weapon_launch_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(80.0, 0.0, 80.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(80.0, 0.0, 80.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_weapon_launch_applications, 1);
@@ -14695,7 +14595,10 @@ mod tests {
         assert!(!SPECTRE_HOWITZER_ANTI_BALLISTIC_MISSILE);
         assert!(SPECTRE_HOWITZER_ANTI_GROUND);
         assert_eq!(SPECTRE_HOWITZER_PROJECTILE_OBJECT, "SpectreHowitzerShell");
-        assert_eq!(SPECTRE_HOWITZER_PROJECTILE_OBJECT, SPECTRE_HOWITZER_SHELL_OBJECT);
+        assert_eq!(
+            SPECTRE_HOWITZER_PROJECTILE_OBJECT,
+            SPECTRE_HOWITZER_SHELL_OBJECT
+        );
         assert_eq!(SPECTRE_HOWITZER_CONTINUOUS_FIRE_COAST_MS, 2000);
         assert_eq!(SPECTRE_CONTINUOUS_FIRE_COAST_FRAMES, 60);
         assert_eq!(SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE, 1);
@@ -14745,15 +14648,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_weapon_special_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(80.0, 0.0, 80.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(80.0, 0.0, 80.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_weapon_special_applications, 1);
@@ -14813,7 +14708,10 @@ mod tests {
         assert!((SCUD_STORM_MISSILE_DISTANCE_SCATTER_WHEN_JAMMED - 75.0).abs() < 0.01);
         assert!(!SCUD_STORM_MISSILE_DETONATE_CALLS_KILL);
         assert_eq!(SCUD_STORM_MISSILE_KILL_SELF_DELAY_FRAMES, 3);
-        assert_eq!(SCUD_STORM_PROJECTILE_DETONATION_FX, "ScudStormMissileDetonation");
+        assert_eq!(
+            SCUD_STORM_PROJECTILE_DETONATION_FX,
+            "ScudStormMissileDetonation"
+        );
         assert_eq!(
             SCUD_STORM_WEAPON_RADIUS_DAMAGE_AFFECTS,
             "ALLIES ENEMIES NEUTRALS"
@@ -14828,15 +14726,7 @@ mod tests {
             0,
         );
         assert!(!reg.honesty_scud_missile_ai_defaults_ok());
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(100.0, 0.0, 100.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(100.0, 0.0, 100.0)]);
         {
             let s = reg.get(id).unwrap();
             assert_eq!(s.scud_missile_ai_defaults_applications, 1);
@@ -14860,14 +14750,8 @@ mod tests {
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         assert!(!reg.honesty_beam_remnant_immortal_body_ok());
-        let rid = reg.spawn_remnant_field(
-            ObjectId(1),
-            Team::USA,
-            Vec3::new(10.0, 0.0, 10.0),
-            0,
-            0,
-            0,
-        );
+        let rid =
+            reg.spawn_remnant_field(ObjectId(1), Team::USA, Vec3::new(10.0, 0.0, 10.0), 0, 0, 0);
         {
             let f = reg.remnant_fields().iter().find(|r| r.id == rid).unwrap();
             assert_eq!(f.remnant_immortal_body_applications, 1);
@@ -15013,10 +14897,13 @@ mod tests {
         // Scorch radius = (50 / 3.4) * 2.4 * width_scalar(0) ≈ 0 at spawn grow.
         // Peak scorch at full width: (50/3.4)*2.4 ≈ 35.29.
         let peak_scorch = particle_scorch_radius(spawn, spawn + PARTICLE_WIDTH_GROW_FRAMES);
-        assert!((peak_scorch - (PARTICLE_BEAM_RADIUS / PARTICLE_DAMAGE_RADIUS_SCALAR
-            * PARTICLE_SCORCH_MARK_SCALAR))
-            .abs()
-            < 0.1);
+        assert!(
+            (peak_scorch
+                - (PARTICLE_BEAM_RADIUS / PARTICLE_DAMAGE_RADIUS_SCALAR
+                    * PARTICLE_SCORCH_MARK_SCALAR))
+                .abs()
+                < 0.1
+        );
         assert!(reg.honesty_beam_scorch_ok());
         assert!((particle_manual_speed_per_frame(false) - 20.0 / 30.0).abs() < 0.01);
         assert!((particle_manual_speed_per_frame(true) - 40.0 / 30.0).abs() < 0.01);
@@ -15113,7 +15000,10 @@ mod tests {
         {
             let f = &reg.beam_fields()[0];
             assert_eq!(f.outer_node_flare_pack_armed, 1);
-            assert_eq!(f.outer_node_systems_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
+            assert_eq!(
+                f.outer_node_systems_created,
+                PARTICLE_OUTER_EFFECT_NUM_BONES
+            );
             assert_eq!(f.outer_intensity, ParticleIntensity::Intense);
             assert_eq!(f.laser_base_flare_created, 1);
             assert_eq!(f.connector_lasers_created, PARTICLE_OUTER_EFFECT_NUM_BONES);
@@ -15165,10 +15055,7 @@ mod tests {
             PARTICLE_UPLINK_INSTANT_DEATH_REQUIRED_STATUS,
             "UNDER_CONSTRUCTION"
         );
-        assert_eq!(
-            PARTICLE_UPLINK_INSTANT_DEATH_OCL,
-            "OCL_ABPowerPlantExplode"
-        );
+        assert_eq!(PARTICLE_UPLINK_INSTANT_DEATH_OCL, "OCL_ABPowerPlantExplode");
         assert_eq!(PARTICLE_UPLINK_INSTANT_DEATH_FX, "FX_StructureMediumDeath");
 
         // Constant pack honesty without a beam field.
@@ -15257,9 +15144,7 @@ mod tests {
             CARPET_BOMB_IMPACT_DELAY_FRAMES + CARPET_BOMB_DROP_DELAY_AIRF_FRAMES
         );
         // America line length residual: (15-1)*25 = 350.
-        assert!(
-            (CarpetBombFactionTier::America.line_length() - 350.0).abs() < 0.01
-        );
+        assert!((CarpetBombFactionTier::America.line_length() - 350.0).abs() < 0.01);
 
         let mut reg = HostSpecialPowerStrikeRegistry::new();
         assert!(reg.honesty_carpet_bomb_residual_pack_ok());
@@ -15418,7 +15303,10 @@ mod tests {
     #[test]
     fn anthrax_toxin_residual_pack_wave56_honesty() {
         assert!(honesty_anthrax_toxin_residual_pack());
-        assert_eq!(ANTHRAX_TOXIN_FIRE_FX, "WeaponFX_LargePoisonFieldWeaponUpgraded");
+        assert_eq!(
+            ANTHRAX_TOXIN_FIRE_FX,
+            "WeaponFX_LargePoisonFieldWeaponUpgraded"
+        );
         assert_eq!(ANTHRAX_TOXIN_DEATH_TYPE, "POISONED_BETA");
         assert!((ANTHRAX_TOXIN_WEAPON_SPEED - 600.0).abs() < 0.1);
         assert_eq!(ANTHRAX_TOXIN_OCL, "OCL_PoisonFieldAnthraxBomb");
@@ -15476,15 +15364,7 @@ mod tests {
             Vec3::new(50.0, 0.0, 50.0),
             0,
         );
-        reg.record_impact_wave(
-            id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(50.0, 0.0, 50.0)],
-        );
+        reg.record_impact_wave(id, 0.0, 0, 0, 1, false, &[Vec3::new(50.0, 0.0, 50.0)]);
         {
             let s = reg.get(id).unwrap();
             assert!(s.scud_object_params_applications >= 1);
@@ -15556,10 +15436,7 @@ mod tests {
     #[test]
     fn trail_remnant_thing_factory_pack_wave65_honesty() {
         assert!(honesty_trail_remnant_thing_factory_pack());
-        assert_eq!(
-            PARTICLE_REMNANT_KIND_OF,
-            "NO_COLLIDE UNATTACKABLE IMMOBILE"
-        );
+        assert_eq!(PARTICLE_REMNANT_KIND_OF, "NO_COLLIDE UNATTACKABLE IMMOBILE");
         assert!(PARTICLE_REMNANT_KIND_OF_NO_COLLIDE);
         assert!(PARTICLE_REMNANT_KIND_OF_UNATTACKABLE);
         assert!(PARTICLE_REMNANT_KIND_OF_IMMOBILE);
@@ -15590,22 +15467,11 @@ mod tests {
             Vec3::new(50.0, 0.0, 50.0),
             0,
         );
-        reg.record_impact_wave(
-            scud_id,
-            0.0,
-            0,
-            0,
-            1,
-            false,
-            &[Vec3::new(50.0, 0.0, 50.0)],
-        );
+        reg.record_impact_wave(scud_id, 0.0, 0, 0, 1, false, &[Vec3::new(50.0, 0.0, 50.0)]);
         {
             let s = reg.get(scud_id).unwrap();
             assert!(s.scud_thing_factory_spawn_applications >= 1);
-            let spawn = scud_storm_missile_spawn_residual(
-                s.impact_frame,
-                s.target_position,
-            );
+            let spawn = scud_storm_missile_spawn_residual(s.impact_frame, s.target_position);
             assert!(honesty_thing_factory_spawn_residual(&spawn));
             assert_eq!(spawn.object_name, "ScudStormMissile");
             assert!((spawn.mass - 500.0).abs() < 0.01);
@@ -15639,14 +15505,8 @@ mod tests {
         assert!(reg.honesty_howitzer_shell_thing_factory_spawn_ok());
 
         // TrailRemnant residual spawn bookkeeping (ImmortalBody/DeletionUpdate closed).
-        let remnant_id = reg.spawn_remnant_field(
-            ObjectId(3),
-            Team::USA,
-            Vec3::new(7.0, 0.0, 8.0),
-            40,
-            0,
-            0,
-        );
+        let remnant_id =
+            reg.spawn_remnant_field(ObjectId(3), Team::USA, Vec3::new(7.0, 0.0, 8.0), 40, 0, 0);
         assert!(remnant_id >= 1);
         {
             let f = reg
@@ -15676,10 +15536,7 @@ mod tests {
         assert_eq!(A10_STRIKE_RELOAD_FRAMES, 7_200);
         assert!((DAISY_CUTTER_RADIUS_CURSOR - 170.0).abs() < 0.01);
         assert!((A10_STRIKE_RADIUS_CURSOR - 50.0).abs() < 0.01);
-        assert_eq!(
-            HostSuperweaponKind::DaisyCutter.impact_delay_frames(),
-            90
-        );
+        assert_eq!(HostSuperweaponKind::DaisyCutter.impact_delay_frames(), 90);
         assert_eq!(HostSuperweaponKind::A10Strike.impact_delay_frames(), 60);
         assert!((A10_MISSILE_PRIMARY_DAMAGE - 200.0).abs() < 0.1);
         assert!((DAISY_CUTTER_FLAME_DAMAGE - 5.0).abs() < 0.01);
@@ -15709,9 +15566,18 @@ mod tests {
         ] {
             assert!((tier.attack_area_radius() - 200.0).abs() < 0.01);
         }
-        assert_eq!(SpectreGunshipScienceTier::Level1.orbit_duration_frames(), 300);
-        assert_eq!(SpectreGunshipScienceTier::Level2.orbit_duration_frames(), 450);
-        assert_eq!(SpectreGunshipScienceTier::Level3.orbit_duration_frames(), 600);
+        assert_eq!(
+            SpectreGunshipScienceTier::Level1.orbit_duration_frames(),
+            300
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::Level2.orbit_duration_frames(),
+            450
+        );
+        assert_eq!(
+            SpectreGunshipScienceTier::Level3.orbit_duration_frames(),
+            600
+        );
         // Dual-weapon ROF residual schedule.
         assert_eq!(spectre_howitzer_interval_frames(0), 9);
         assert_eq!(spectre_howitzer_interval_frames(2), 6);
@@ -15757,7 +15623,10 @@ mod tests {
         assert!((NUKE_RADIATION_GEOMETRY_HEIGHT - 1.0).abs() < 0.01);
         assert!(!NUKE_RADIATION_GEOMETRY_IS_SMALL);
         assert_eq!(NUKE_RADIATION_DEATH_FX, "FX_RadiationPoolDie");
-        assert_eq!(NUKE_RADIATION_HAZARD_FIELD_CORE_WEAPON, "HazardFieldCoreWeapon");
+        assert_eq!(
+            NUKE_RADIATION_HAZARD_FIELD_CORE_WEAPON,
+            "HazardFieldCoreWeapon"
+        );
         assert_eq!(NUCLEAR_MISSILE_RELOAD_MS, 360_000);
         assert_eq!(NUCLEAR_MISSILE_RELOAD_FRAMES, 10_800);
         assert_eq!(duration_ms_to_logic_frames(360_000), 10_800);
@@ -15837,10 +15706,7 @@ mod tests {
             Some(A10StrikeScienceTier::Level3)
         );
         assert_eq!(
-            A10StrikeScienceTier::highest_from_sciences([
-                A10_SCIENCE_TIER1,
-                A10_SCIENCE_TIER2,
-            ]),
+            A10StrikeScienceTier::highest_from_sciences([A10_SCIENCE_TIER1, A10_SCIENCE_TIER2,]),
             A10StrikeScienceTier::Level2
         );
         // FormationSize scales with science tier only; damage/reload shared.
@@ -15860,7 +15726,9 @@ mod tests {
         assert_eq!(NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND, "AirRaidSiren");
         // Neutron InitiateSound commented out in retail — empty residual honesty.
         assert!(NUCLEAR_MISSILE_INITIATE_SOUND.is_empty());
-        assert!(HostSuperweaponKind::DaisyCutter.retail_initiate_sound().is_empty());
+        assert!(HostSuperweaponKind::DaisyCutter
+            .retail_initiate_sound()
+            .is_empty());
         // Host residual queue labels stay special-power template names.
         assert_eq!(
             HostSuperweaponKind::ScudStorm.activate_audio(),
@@ -15899,7 +15767,10 @@ mod tests {
             CarpetBombFactionTier::AirForce.delivery_decal_color(),
             (255, 0, 0, 255)
         );
-        assert_eq!(CarpetBombFactionTier::China.ocl_name(), "SUPERWEAPON_ChinaCarpetBomb");
+        assert_eq!(
+            CarpetBombFactionTier::China.ocl_name(),
+            "SUPERWEAPON_ChinaCarpetBomb"
+        );
     }
 
     #[test]
@@ -15914,7 +15785,10 @@ mod tests {
             ArtilleryBarrageScienceTier::Level2.ocl_name(),
             "SUPERWEAPON_ArtilleryBarrage2"
         );
-        assert_eq!(ARTILLERY_DELIVERY_DECAL_TEXTURE, "SCCArtilleryBarrage_China");
+        assert_eq!(
+            ARTILLERY_DELIVERY_DECAL_TEXTURE,
+            "SCCArtilleryBarrage_China"
+        );
         assert_eq!(ARTILLERY_DELIVERY_DECAL_COLOR, (255, 156, 0, 255));
         assert_eq!(ARTILLERY_SCIENCE_POINT_COST, 1);
         assert_eq!(
@@ -15925,5 +15799,4 @@ mod tests {
             ArtilleryBarrageScienceTier::Level3
         );
     }
-
 }

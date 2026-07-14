@@ -117,7 +117,6 @@ pub const NUKE_NUKE_MISSILE_WEAPON: &str = "Nuke_NukeMissileWeapon";
 /// Retail America Fire Base howitzer residual weapon.
 pub const FIRE_BASE_HOWITZER_WEAPON: &str = "FireBaseHowitzerGun";
 
-
 /// Retail Sentry Drone gun residual weapon (PLAYER_UPGRADE primary).
 pub const SENTRY_DRONE_GUN_WEAPON: &str = "SentryDroneGun";
 
@@ -255,9 +254,7 @@ pub fn honesty_weapon_store_host_seed_residual_wave77() -> bool {
         store
             .find_weapon_template(RANGER_PRIMARY_WEAPON)
             .map(|t| {
-                t.primary_damage > 0.0
-                    && t.attack_range > 0.0
-                    && t.name == RANGER_PRIMARY_WEAPON
+                t.primary_damage > 0.0 && t.attack_range > 0.0 && t.name == RANGER_PRIMARY_WEAPON
             })
             .unwrap_or(false)
     })
@@ -490,9 +487,9 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AmericaPatriotBattery"
         | "PatriotMissile"
         | "TestPatriot" => Some(PATRIOT_PRIMARY_WEAPON),
-        "Lazr_AmericaPatriotBattery"
-        | "Lazr_PatriotMissileSystem"
-        | "TestLazrPatriot" => Some(LAZR_PATRIOT_PRIMARY_WEAPON),
+        "Lazr_AmericaPatriotBattery" | "Lazr_PatriotMissileSystem" | "TestLazrPatriot" => {
+            Some(LAZR_PATRIOT_PRIMARY_WEAPON)
+        }
         "SupW_AmericaPatriotBattery"
         | "SupW_PatriotMissileSystem"
         | "TestSupWPatriot"
@@ -552,13 +549,9 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaVehicleComanche"
         | "SupW_AmericaVehicleComanche"
         | "Lazr_AmericaVehicleComanche" => Some(COMANCHE_PRIMARY_WEAPON),
-        
+
         // China MiG residual napalm missiles.
-        "ChinaJetMIG"
-        | "China_MiG"
-        | "TestMiG"
-        | "Tank_ChinaJetMIG"
-        | "Infa_ChinaJetMIG"
+        "ChinaJetMIG" | "China_MiG" | "TestMiG" | "Tank_ChinaJetMIG" | "Infa_ChinaJetMIG"
         | "Boss_JetMIG" => Some(NAPALM_MISSILE_WEAPON),
         "Nuke_ChinaJetMIG" => Some(NUKE_MIG_MISSILE_WEAPON),
         // America Fire Base residual howitzer.
@@ -918,9 +911,9 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "AmericaPatriotBattery"
         | "PatriotMissile"
         | "TestPatriot" => Some(PATRIOT_SECONDARY_WEAPON),
-        "Lazr_AmericaPatriotBattery"
-        | "Lazr_PatriotMissileSystem"
-        | "TestLazrPatriot" => Some(LAZR_PATRIOT_SECONDARY_WEAPON),
+        "Lazr_AmericaPatriotBattery" | "Lazr_PatriotMissileSystem" | "TestLazrPatriot" => {
+            Some(LAZR_PATRIOT_SECONDARY_WEAPON)
+        }
         "SupW_AmericaPatriotBattery"
         | "SupW_PatriotMissileSystem"
         | "TestSupWPatriot"
@@ -1433,7 +1426,6 @@ fn seed_known_host_weapons() -> usize {
             clip_size: 2,
             weapon_speed: 1000.0,
         },
-        
         // NapalmMissileWeapon PRIMARY — PrimaryDamage 75, Range 320, min 80,
         // Delay 300ms → 9 frames. ClipSize 2. FireField residual on impact.
         SeedWeapon {
@@ -2146,10 +2138,7 @@ fn seed_known_host_weapons() -> usize {
             store.add_weapon_template(t);
         }) {
             Ok(()) => {
-                log::debug!(
-                    "Host WeaponStore: seeded AA weapon {}",
-                    MINIGUNNER_GUN_AIR
-                );
+                log::debug!("Host WeaponStore: seeded AA weapon {}", MINIGUNNER_GUN_AIR);
                 added += 1;
             }
             Err(e) => {
@@ -2236,7 +2225,10 @@ mod tests {
     fn weapon_store_deepen_residual_pack_honesty_wave103() {
         assert!(honesty_weapon_store_deepen_residual_wave103());
         for name in HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103 {
-            assert!(store_has(name), "missing wave103 deepen seed residual: {name}");
+            assert!(
+                store_has(name),
+                "missing wave103 deepen seed residual: {name}"
+            );
         }
         assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&NUKE_CANNON_PRIMARY_WEAPON));
         assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE103.contains(&JARMEN_KELL_RIFLE));

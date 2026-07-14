@@ -197,18 +197,23 @@ pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
 }
 
 /// Ground gun residual stats (damage, range, delay_frames) for level + chain guns.
-pub fn gattling_ground_stats(
-    level: GattlingFireLevel,
-    has_chain_guns: bool,
-) -> (f32, f32, u32) {
+pub fn gattling_ground_stats(level: GattlingFireLevel, has_chain_guns: bool) -> (f32, f32, u32) {
     let dmg = gattling_damage_with_chain_guns(GATTLING_GROUND_DAMAGE, has_chain_guns);
-    (dmg, GATTLING_GROUND_RANGE, gattling_delay_frames_for_level(level))
+    (
+        dmg,
+        GATTLING_GROUND_RANGE,
+        gattling_delay_frames_for_level(level),
+    )
 }
 
 /// Air gun residual stats (damage, range, delay_frames) for level + chain guns.
 pub fn gattling_air_stats(level: GattlingFireLevel, has_chain_guns: bool) -> (f32, f32, u32) {
     let dmg = gattling_damage_with_chain_guns(GATTLING_AIR_DAMAGE, has_chain_guns);
-    (dmg, GATTLING_AIR_RANGE, gattling_delay_frames_for_level(level))
+    (
+        dmg,
+        GATTLING_AIR_RANGE,
+        gattling_delay_frames_for_level(level),
+    )
 }
 
 /// Build residual ground Weapon for level + chain guns.
@@ -300,10 +305,7 @@ pub fn gattling_on_shot_fired(
 /// Next coast-until frame after a shot (next possible shot frame + coast residual).
 ///
 /// Fail-closed: uses current_frame + delay_frames + coast (not full PossibleNextShotFrame).
-pub fn gattling_coast_until_after_shot(
-    current_frame: u32,
-    level: GattlingFireLevel,
-) -> u32 {
+pub fn gattling_coast_until_after_shot(current_frame: u32, level: GattlingFireLevel) -> u32 {
     let delay = gattling_delay_frames_for_level(level);
     current_frame
         .saturating_add(delay)
@@ -336,7 +338,6 @@ pub fn is_legal_gattling_target(
 ) -> bool {
     is_alive && !is_self && !under_construction && is_combat_kind
 }
-
 
 // --- Wave 69 residual honesty peels (retail weapons / body / continuous fire) ---
 
@@ -465,7 +466,9 @@ mod tests {
         assert!(!is_gattling_tank_template("China_GattlingCannon"));
         assert!(!is_gattling_tank_template("ChinaGattlingCannon"));
         // Overlord / Helix payload — not tank residual.
-        assert!(!is_gattling_tank_template("ChinaTankOverlordGattlingCannon"));
+        assert!(!is_gattling_tank_template(
+            "ChinaTankOverlordGattlingCannon"
+        ));
         assert!(!is_gattling_tank_template("ChinaHelixGattlingCannon"));
         // Weapons / upgrades.
         assert!(!is_gattling_tank_template("GattlingTankGun"));
@@ -479,21 +482,18 @@ mod tests {
     #[test]
     fn continuous_fire_ramp_thresholds() {
         // Shot 1 → consecutive 1, stay Base.
-        let (l1, c1, f1) =
-            gattling_on_shot_fired(GattlingFireLevel::Base, 0, None, Some(10), 0, 0);
+        let (l1, c1, f1) = gattling_on_shot_fired(GattlingFireLevel::Base, 0, None, Some(10), 0, 0);
         assert_eq!(l1, GattlingFireLevel::Base);
         assert_eq!(c1, 1);
         assert!(!f1);
 
         // Shot 2 → consecutive 2, still Base (need > 2).
-        let (l2, c2, _) =
-            gattling_on_shot_fired(l1, c1, Some(10), Some(10), 12, 100);
+        let (l2, c2, _) = gattling_on_shot_fired(l1, c1, Some(10), Some(10), 12, 100);
         assert_eq!(l2, GattlingFireLevel::Base);
         assert_eq!(c2, 2);
 
         // Shot 3 → consecutive 3 > 2 → Mean.
-        let (l3, c3, f3) =
-            gattling_on_shot_fired(l2, c2, Some(10), Some(10), 24, 100);
+        let (l3, c3, f3) = gattling_on_shot_fired(l2, c2, Some(10), Some(10), 24, 100);
         assert_eq!(l3, GattlingFireLevel::Mean);
         assert_eq!(c3, 3);
         assert!(!f3);

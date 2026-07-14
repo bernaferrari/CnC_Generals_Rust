@@ -305,7 +305,6 @@ pub fn honesty_frenzy_residual_pack_ok() -> bool {
     honesty_frenzy_residual_ok()
 }
 
-
 /// One active residual Frenzy activation bookkeeping entry (honesty / debug).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostFrenzy {
@@ -426,9 +425,18 @@ mod tests {
         assert_eq!(SCIENCE_FRENZY1, "SCIENCE_Frenzy1");
         assert_eq!(SCIENCE_FRENZY2, "SCIENCE_Frenzy2");
         assert_eq!(SCIENCE_FRENZY3, "SCIENCE_Frenzy3");
-        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY1), HostFrenzyLevel::One);
-        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY2), HostFrenzyLevel::Two);
-        assert_eq!(frenzy_level_from_science(SCIENCE_FRENZY3), HostFrenzyLevel::Three);
+        assert_eq!(
+            frenzy_level_from_science(SCIENCE_FRENZY1),
+            HostFrenzyLevel::One
+        );
+        assert_eq!(
+            frenzy_level_from_science(SCIENCE_FRENZY2),
+            HostFrenzyLevel::Two
+        );
+        assert_eq!(
+            frenzy_level_from_science(SCIENCE_FRENZY3),
+            HostFrenzyLevel::Three
+        );
         assert_eq!(
             frenzy_level_from_science("Early_SCIENCE_Frenzy2"),
             HostFrenzyLevel::Two
@@ -502,5 +510,4 @@ mod tests {
         assert_eq!(FRENZY_LEVEL3_DURATION_FRAMES, 900);
         assert!((FRENZY_LEVEL2_DAMAGE_MULT - 1.20).abs() < 0.001);
     }
-
 }

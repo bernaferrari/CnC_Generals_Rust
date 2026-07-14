@@ -40,14 +40,7 @@ pub fn raw_height_sample_to_world(sample: u8) -> f32 {
 /// Mirrors host `TerrainData::height_at_world` corner blend (h00/h10/h01/h11).
 /// Fail-closed: not full cliff-aware triangle split / bridge overlay.
 #[inline]
-pub fn bilinear_height_sample(
-    h00: f32,
-    h10: f32,
-    h01: f32,
-    h11: f32,
-    tx: f32,
-    tz: f32,
-) -> f32 {
+pub fn bilinear_height_sample(h00: f32, h10: f32, h01: f32, h11: f32, tx: f32, tz: f32) -> f32 {
     let tx = tx.clamp(0.0, 1.0);
     let tz = tz.clamp(0.0, 1.0);
     let hx0 = h00 * (1.0 - tx) + h10 * tx;

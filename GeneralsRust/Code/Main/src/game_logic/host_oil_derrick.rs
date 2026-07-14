@@ -188,10 +188,7 @@ pub fn oil_derrick_deposit_amount(has_supply_lines: bool) -> (u32, u32) {
     } else {
         0
     };
-    (
-        OIL_DERRICK_DEPOSIT_AMOUNT.saturating_add(boost),
-        boost,
-    )
+    (OIL_DERRICK_DEPOSIT_AMOUNT.saturating_add(boost), boost)
 }
 
 /// C++ AutoDepositUpdate / HackInternetAIUpdate floating-text local display gate.
@@ -330,15 +327,19 @@ impl HostOilDerrickRegistry {
 
     /// Combined residual cash (periodic + capture bonus).
     pub fn total_cash_awarded(&self) -> u32 {
-        self.cash_total.saturating_add(self.capture_bonus_cash_total)
+        self.cash_total
+            .saturating_add(self.capture_bonus_cash_total)
     }
 
     /// Ensure derrick is tracked; returns the next deposit frame.
     /// Matches C++ AutoDepositUpdate ctor: depositOnFrame = now + depositFrame.
     pub fn ensure_scheduled(&mut self, derrick_id: ObjectId, current_frame: u32) -> u32 {
-        *self.next_deposit_frame.entry(derrick_id).or_insert_with(|| {
-            current_frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1))
-        })
+        *self
+            .next_deposit_frame
+            .entry(derrick_id)
+            .or_insert_with(|| {
+                current_frame.saturating_add(OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES.max(1))
+            })
     }
 
     /// When due, schedule next interval and record a deposit of `amount`.
@@ -389,8 +390,7 @@ impl HostOilDerrickRegistry {
 
     /// Record structure geometry scatter residual application on floating text.
     pub fn record_geometry_scatter(&mut self) {
-        self.geometry_scatter_applications =
-            self.geometry_scatter_applications.saturating_add(1);
+        self.geometry_scatter_applications = self.geometry_scatter_applications.saturating_add(1);
     }
 
     /// Award InitialCaptureBonus once when derrick first becomes non-neutral.
@@ -671,7 +671,10 @@ mod tests {
                 break;
             }
         }
-        assert!(any_nonzero, "non-zero scatter expected for r>0 across seeds");
+        assert!(
+            any_nonzero,
+            "non-zero scatter expected for r>0 across seeds"
+        );
         let zero = structure_floating_text_scatter(1, 0.0, 0.0);
         assert_eq!(zero, (0.0, 0.0));
         // Deterministic for same seed (pure ADC residual).
@@ -681,7 +684,11 @@ mod tests {
 
         let mut reg = HostOilDerrickRegistry::new();
         let id = ObjectId(9);
-        let (sx, sz) = structure_floating_text_scatter(9, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS);
+        let (sx, sz) = structure_floating_text_scatter(
+            9,
+            OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+            OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+        );
         let base = Vec3::new(100.0, 0.0, 200.0);
         let ft = HostAutoDepositFloatingText::new(
             id,

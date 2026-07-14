@@ -323,7 +323,6 @@ pub fn counts_toward_battlemaster_horde(
         && distance >= 0.0
 }
 
-
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Battlemaster weapon residual peel.
@@ -333,8 +332,7 @@ pub fn honesty_battlemaster_weapon_residual_ok() -> bool {
         && (BATTLE_MASTER_SPLASH_RADIUS - 5.0).abs() < 0.01
         && (BATTLE_MASTER_RANGE - 150.0).abs() < 0.01
         && BATTLE_MASTER_BASE_DELAY_MS == 2_000
-        && BATTLE_MASTER_BASE_DELAY_FRAMES
-            == battlemaster_ms_to_frames(BATTLE_MASTER_BASE_DELAY_MS)
+        && BATTLE_MASTER_BASE_DELAY_FRAMES == battlemaster_ms_to_frames(BATTLE_MASTER_BASE_DELAY_MS)
         && BATTLE_MASTER_BASE_DELAY_FRAMES == 60
         && (BATTLE_MASTER_PROJECTILE_SPEED - 400.0).abs() < 0.01
         && (BATTLE_MASTER_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01

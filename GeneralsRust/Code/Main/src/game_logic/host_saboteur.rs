@@ -118,8 +118,12 @@ impl SaboteurEffectKind {
     /// Absolute until-frame for DISABLED_HACKED residual kinds (None otherwise).
     pub fn disabled_hacked_until(self, current_frame: u32) -> Option<u32> {
         match self {
-            Self::MilitaryFactory => Some(current_frame.saturating_add(SABOTEUR_MILITARY_DURATION_FRAMES)),
-            Self::InternetCenter => Some(current_frame.saturating_add(SABOTEUR_INTERNET_DURATION_FRAMES)),
+            Self::MilitaryFactory => {
+                Some(current_frame.saturating_add(SABOTEUR_MILITARY_DURATION_FRAMES))
+            }
+            Self::InternetCenter => {
+                Some(current_frame.saturating_add(SABOTEUR_INTERNET_DURATION_FRAMES))
+            }
             _ => None,
         }
     }
@@ -305,10 +309,7 @@ pub fn classify_sabotage_target(
         return Some(SaboteurEffectKind::SupplyCenter);
     }
     // Internet centers before generic factory names.
-    if is_fs_internet_center
-        || n.contains("internetcenter")
-        || n.contains("internet_center")
-    {
+    if is_fs_internet_center || n.contains("internetcenter") || n.contains("internet_center") {
         return Some(SaboteurEffectKind::InternetCenter);
     }
     // Superweapon / strategy / command.
@@ -361,7 +362,6 @@ pub fn internet_disable_until_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(SABOTEUR_INTERNET_DURATION_FRAMES)
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn saboteur_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -378,12 +378,10 @@ pub fn honesty_saboteur_effect_residual_ok() -> bool {
         && SABOTEUR_POWER_DURATION_FRAMES == saboteur_ms_to_frames(SABOTEUR_POWER_DURATION_MS)
         && SABOTEUR_POWER_DURATION_FRAMES == 900
         && SABOTEUR_MILITARY_DURATION_MS == 30_000
-        && SABOTEUR_MILITARY_DURATION_FRAMES
-            == saboteur_ms_to_frames(SABOTEUR_MILITARY_DURATION_MS)
+        && SABOTEUR_MILITARY_DURATION_FRAMES == saboteur_ms_to_frames(SABOTEUR_MILITARY_DURATION_MS)
         && SABOTEUR_MILITARY_DURATION_FRAMES == 900
         && SABOTEUR_INTERNET_DURATION_MS == 15_000
-        && SABOTEUR_INTERNET_DURATION_FRAMES
-            == saboteur_ms_to_frames(SABOTEUR_INTERNET_DURATION_MS)
+        && SABOTEUR_INTERNET_DURATION_FRAMES == saboteur_ms_to_frames(SABOTEUR_INTERNET_DURATION_MS)
         && SABOTEUR_INTERNET_DURATION_FRAMES == 450
         && SABOTEUR_STEAL_CASH_AMOUNT == 1_000
         && SaboteurEffectKind::SupplyCenter.steals_cash()
@@ -440,57 +438,136 @@ mod tests {
         assert!(!is_saboteur_template("GLAInfantryRebel"));
         assert!(!is_saboteur_template("GLAInfantryHijacker"));
         assert!(!is_saboteur_template("SaboteurWeapon"));
-        assert!(!is_saboteur_template("Command_ConstructGLAInfantrySaboteur"));
+        assert!(!is_saboteur_template(
+            "Command_ConstructGLAInfantrySaboteur"
+        ));
     }
 
     #[test]
     fn classify_sabotage_target_matrix() {
         assert_eq!(
             classify_sabotage_target(
-                "AmericaPowerPlant", true, true, false, false, false, false, false, false, false,
-                false, false, false
+                "AmericaPowerPlant",
+                true,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
             ),
             Some(SaboteurEffectKind::PowerPlant)
         );
         assert_eq!(
             classify_sabotage_target(
-                "AmericaSupplyCenter", false, false, true, true, false, false, false, false, false,
-                false, false, false
+                "AmericaSupplyCenter",
+                false,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
             ),
             Some(SaboteurEffectKind::SupplyCenter)
         );
         assert_eq!(
             classify_sabotage_target(
-                "AmericaWarFactory", false, false, false, false, false, true, false, false, false,
-                false, false, false
+                "AmericaWarFactory",
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
             ),
             Some(SaboteurEffectKind::MilitaryFactory)
         );
         assert_eq!(
             classify_sabotage_target(
-                "AmericaCommandCenter", false, false, false, false, false, false, false, false,
-                false, true, false, false
+                "AmericaCommandCenter",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false
             ),
             Some(SaboteurEffectKind::SuperweaponOrCommand)
         );
         assert_eq!(
             classify_sabotage_target(
-                "ChinaInternetCenter", false, false, false, false, false, false, false, false,
-                false, false, true, false
+                "ChinaInternetCenter",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
             ),
             Some(SaboteurEffectKind::InternetCenter)
         );
         assert_eq!(
             classify_sabotage_target(
-                "GLAFakeBarracks", false, false, false, false, false, false, false, false, false,
-                false, false, true
+                "GLAFakeBarracks",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
             ),
             Some(SaboteurEffectKind::FakeBuilding)
         );
         assert_eq!(
             classify_sabotage_target(
-                "AmericaBunker", false, false, false, false, false, false, false, false, false,
-                false, false, false
+                "AmericaBunker",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
             ),
             None
         );

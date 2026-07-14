@@ -366,7 +366,12 @@ mod tests {
             Team::China
         ));
         // Undisguised GLA is enemy of USA.
-        assert!(is_auto_targetable_as_enemy(Team::GLA, None, false, Team::USA));
+        assert!(is_auto_targetable_as_enemy(
+            Team::GLA,
+            None,
+            false,
+            Team::USA
+        ));
     }
 
     #[test]
@@ -397,6 +402,9 @@ mod tests {
         assert!(honesty_bomb_truck_disguise_residual_pack_ok());
         assert!(BOMB_TRUCK_DISGUISES_AS_TEAM);
         assert_eq!(BOMB_TRUCK_BUILD_TIME_FRAMES, 450);
-        assert_eq!(BOMB_TRUCK_DISGUISE_SPECIAL_POWER, "SpecialAbilityDisguiseAsVehicle");
+        assert_eq!(
+            BOMB_TRUCK_DISGUISE_SPECIAL_POWER,
+            "SpecialAbilityDisguiseAsVehicle"
+        );
     }
 }

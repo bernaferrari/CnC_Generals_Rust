@@ -231,10 +231,7 @@ pub fn marauder_weapon_for_tier(tier: MarauderWeaponTier) -> Weapon {
 ///
 /// Intended target takes full PrimaryDamage; others within PrimaryDamageRadius
 /// take full PrimaryDamage residual (fail-closed vs continuous falloff).
-pub fn marauder_splash_damage_at(
-    is_intended_target: bool,
-    distance_from_impact: f32,
-) -> f32 {
+pub fn marauder_splash_damage_at(is_intended_target: bool, distance_from_impact: f32) -> f32 {
     if is_intended_target {
         return MARAUDER_DAMAGE;
     }
@@ -287,8 +284,7 @@ pub fn honesty_marauder_weapon_residual_ok() -> bool {
         && MARAUDER_CLIP_SIZE_BASE == 0
         && MARAUDER_CLIP_SIZE_TIER2 == 2
         && MARAUDER_CLIP_RELOAD_MS_TIER2 == 100
-        && MARAUDER_CLIP_RELOAD_FRAMES_TIER2
-            == marauder_ms_to_frames(MARAUDER_CLIP_RELOAD_MS_TIER2)
+        && MARAUDER_CLIP_RELOAD_FRAMES_TIER2 == marauder_ms_to_frames(MARAUDER_CLIP_RELOAD_MS_TIER2)
         && (MARAUDER_SPEED_TIER0 - 300.0).abs() < 0.01
         && (MARAUDER_SPEED_TIER1 - 400.0).abs() < 0.01
         && (MARAUDER_SPEED_TIER2 - 500.0).abs() < 0.01

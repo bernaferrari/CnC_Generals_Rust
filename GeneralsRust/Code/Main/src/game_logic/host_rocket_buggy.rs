@@ -246,8 +246,7 @@ pub fn honesty_rocket_buggy_weapon_residual_ok() -> bool {
         && BUGGY_CLIP_RELOAD_FRAMES == 180
         && BUGGY_AUTO_RELOADS_CLIP
         && BUGGY_AUTO_RELOAD_WHEN_IDLE_MS == 6_100
-        && BUGGY_AUTO_RELOAD_WHEN_IDLE_FRAMES
-            == buggy_ms_to_frames(BUGGY_AUTO_RELOAD_WHEN_IDLE_MS)
+        && BUGGY_AUTO_RELOAD_WHEN_IDLE_FRAMES == buggy_ms_to_frames(BUGGY_AUTO_RELOAD_WHEN_IDLE_MS)
         && BUGGY_AUTO_RELOAD_WHEN_IDLE_FRAMES == 183
         && (BUGGY_PROJECTILE_SPEED - 600.0).abs() < 0.01
         && (BUGGY_SCATTER_VS_INFANTRY - 20.0).abs() < 0.01
@@ -285,8 +284,7 @@ pub fn honesty_rocket_buggy_body_residual_ok() -> bool {
         && (BUGGY_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
         && BUGGY_BUILD_COST == 900
         && (BUGGY_BUILD_TIME_SEC - 10.0).abs() < 0.01
-        && BUGGY_BUILD_TIME_FRAMES
-            == ((BUGGY_BUILD_TIME_SEC * BUGGY_LOGIC_FPS).round() as u32)
+        && BUGGY_BUILD_TIME_FRAMES == ((BUGGY_BUILD_TIME_SEC * BUGGY_LOGIC_FPS).round() as u32)
         && BUGGY_BUILD_TIME_FRAMES == 300
         && BUGGY_TRANSPORT_SLOT_COUNT == 3
         && should_apply_rocket_buggy_residual(true)
@@ -320,13 +318,9 @@ mod tests {
 
     #[test]
     fn damage_primary_and_splash() {
-        assert!(
-            (rocket_buggy_damage_at(true, 0.0, false) - BUGGY_PRIMARY_DAMAGE).abs() < 0.01
-        );
+        assert!((rocket_buggy_damage_at(true, 0.0, false) - BUGGY_PRIMARY_DAMAGE).abs() < 0.01);
         assert!((rocket_buggy_damage_at(true, 0.0, true)).abs() < 0.01);
-        assert!(
-            (rocket_buggy_damage_at(false, 5.0, false) - BUGGY_SECONDARY_DAMAGE).abs() < 0.01
-        );
+        assert!((rocket_buggy_damage_at(false, 5.0, false) - BUGGY_SECONDARY_DAMAGE).abs() < 0.01);
         assert!((rocket_buggy_damage_at(false, 15.0, false)).abs() < 0.01);
     }
 
@@ -352,11 +346,21 @@ mod tests {
 
     #[test]
     fn splash_target_matrix() {
-        assert!(is_legal_rocket_buggy_splash_target(true, false, false, true));
-        assert!(!is_legal_rocket_buggy_splash_target(false, false, false, true));
-        assert!(!is_legal_rocket_buggy_splash_target(true, true, false, true));
-        assert!(!is_legal_rocket_buggy_splash_target(true, false, true, true));
-        assert!(!is_legal_rocket_buggy_splash_target(true, false, false, false));
+        assert!(is_legal_rocket_buggy_splash_target(
+            true, false, false, true
+        ));
+        assert!(!is_legal_rocket_buggy_splash_target(
+            false, false, false, true
+        ));
+        assert!(!is_legal_rocket_buggy_splash_target(
+            true, true, false, true
+        ));
+        assert!(!is_legal_rocket_buggy_splash_target(
+            true, false, true, true
+        ));
+        assert!(!is_legal_rocket_buggy_splash_target(
+            true, false, false, false
+        ));
     }
 
     #[test]

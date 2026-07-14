@@ -442,11 +442,17 @@ mod tests {
     #[test]
     fn burton_name_matrix() {
         assert!(is_colonel_burton_template("AmericaInfantryColonelBurton"));
-        assert!(is_colonel_burton_template("SupW_AmericaInfantryColonelBurton"));
-        assert!(is_colonel_burton_template("CINE_AmericaInfantryColonelBurton"));
+        assert!(is_colonel_burton_template(
+            "SupW_AmericaInfantryColonelBurton"
+        ));
+        assert!(is_colonel_burton_template(
+            "CINE_AmericaInfantryColonelBurton"
+        ));
         assert!(is_colonel_burton_template("TestBurton"));
         assert!(is_colonel_burton_template("USA_ColonelBurton"));
-        assert!(!is_colonel_burton_template("ColonelBurtonSniperRifleWeapon"));
+        assert!(!is_colonel_burton_template(
+            "ColonelBurtonSniperRifleWeapon"
+        ));
         assert!(!is_colonel_burton_template("ColonelBurtonKnifeWeapon"));
         assert!(!is_colonel_burton_template("ColonelBurtonSetDemoCharge"));
         assert!(!is_colonel_burton_template("ColonelBurtonSetRemoteCharge"));

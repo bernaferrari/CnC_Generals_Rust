@@ -89,9 +89,7 @@ pub fn is_demo_suicide_bomb_eligible_template(template_name: &str) -> bool {
         return true;
     }
     // Must be Demo general prefix or host test alias.
-    let is_demo = n.starts_with("demo_")
-        || n.starts_with("demo")
-        || n.contains("testdemo");
+    let is_demo = n.starts_with("demo_") || n.starts_with("demo") || n.contains("testdemo");
     if !is_demo {
         return false;
     }
@@ -106,7 +104,10 @@ pub fn is_demo_suicide_bomb_eligible_template(template_name: &str) -> bool {
         || n.contains("effect")
         || n.contains("hole")
         || n.contains("dynamite")
-        || n.contains("suicide") && !n.contains("infantry") && !n.contains("vehicle") && !n.contains("structure")
+        || n.contains("suicide")
+            && !n.contains("infantry")
+            && !n.contains("vehicle")
+            && !n.contains("structure")
         || n.starts_with("upgrade")
         || n.contains("science")
         || n.contains("crate")
@@ -180,9 +181,7 @@ pub fn demo_plus_fire_damage_at(distance: f32) -> f32 {
 }
 
 /// Whether object tags indicate SuicideBomb residual is armed.
-pub fn has_demo_suicide_bomb_upgrade(
-    applied_upgrades: &std::collections::HashSet<String>,
-) -> bool {
+pub fn has_demo_suicide_bomb_upgrade(applied_upgrades: &std::collections::HashSet<String>) -> bool {
     applied_upgrades
         .iter()
         .any(|u| is_demo_suicide_bomb_upgrade(u))
@@ -343,9 +342,7 @@ impl HostDemoSuicideBombRegistry {
     }
 
     pub fn honesty_suicided_ok(&self) -> bool {
-        self.suicided_detonations > 0
-            && self.tertiary_suicides_issued > 0
-            && self.blast_hits > 0
+        self.suicided_detonations > 0 && self.tertiary_suicides_issued > 0 && self.blast_hits > 0
     }
 
     pub fn honesty_host_path_ok(&self) -> bool {
@@ -355,9 +352,7 @@ impl HostDemoSuicideBombRegistry {
 
     /// Full residual path for PlusFire + CommandSetUpgrade slice.
     pub fn honesty_plus_fire_path_ok(&self) -> bool {
-        self.honesty_upgrade_ok()
-            && self.honesty_command_set_ok()
-            && self.honesty_suicided_ok()
+        self.honesty_upgrade_ok() && self.honesty_command_set_ok() && self.honesty_suicided_ok()
     }
 }
 
@@ -425,7 +420,6 @@ pub fn plan_demo_plus_fire_hits(
     }
     hits
 }
-
 
 // --- Wave 69 residual honesty peels (retail death weapons / upgrade) ---
 
@@ -523,16 +517,32 @@ mod tests {
         assert!(is_demo_suicide_bomb_upgrade("Demo_Upgrade_SuicideBomb"));
         assert!(!is_demo_suicide_bomb_upgrade("Upgrade_GLACamouflage"));
 
-        assert!(is_demo_suicide_bomb_eligible_template("Demo_GLAInfantryRebel"));
-        assert!(is_demo_suicide_bomb_eligible_template("Demo_GLATunnelNetwork"));
-        assert!(is_demo_suicide_bomb_eligible_template("Demo_GLAStingerSite"));
-        assert!(is_demo_suicide_bomb_eligible_template("Demo_GLAVehicleScorpion"));
+        assert!(is_demo_suicide_bomb_eligible_template(
+            "Demo_GLAInfantryRebel"
+        ));
+        assert!(is_demo_suicide_bomb_eligible_template(
+            "Demo_GLATunnelNetwork"
+        ));
+        assert!(is_demo_suicide_bomb_eligible_template(
+            "Demo_GLAStingerSite"
+        ));
+        assert!(is_demo_suicide_bomb_eligible_template(
+            "Demo_GLAVehicleScorpion"
+        ));
         assert!(is_demo_suicide_bomb_eligible_template("TestDemoRebel"));
         assert!(!is_demo_suicide_bomb_eligible_template("GLAInfantryRebel"));
-        assert!(!is_demo_suicide_bomb_eligible_template("Demo_SuicideDynamitePack"));
-        assert!(!is_demo_suicide_bomb_eligible_template("Demo_DestroyedWeapon"));
-        assert!(!is_demo_suicide_bomb_eligible_template("Demo_Upgrade_SuicideBomb"));
-        assert!(!is_demo_suicide_bomb_eligible_template("Demo_GLAHoleTunnelNetwork"));
+        assert!(!is_demo_suicide_bomb_eligible_template(
+            "Demo_SuicideDynamitePack"
+        ));
+        assert!(!is_demo_suicide_bomb_eligible_template(
+            "Demo_DestroyedWeapon"
+        ));
+        assert!(!is_demo_suicide_bomb_eligible_template(
+            "Demo_Upgrade_SuicideBomb"
+        ));
+        assert!(!is_demo_suicide_bomb_eligible_template(
+            "Demo_GLAHoleTunnelNetwork"
+        ));
     }
 
     #[test]

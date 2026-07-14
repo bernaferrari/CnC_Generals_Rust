@@ -417,7 +417,6 @@ impl HostBombTruckDetonateRegistry {
     }
 }
 
-
 // --- Wave 69 residual honesty peels (retail death weapons / poison / upgrades) ---
 
 /// Retail default death weapon name residual.
