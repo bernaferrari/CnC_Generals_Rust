@@ -96,6 +96,11 @@ pub struct GoldenCampaignResult {
     /// True when production SP path advanced with scripts + victory path.
     /// Does **not** claim full retail campaign playthrough.
     pub campaign_playable_claim: bool,
+    /// Wave 75 mesh asset residual honesty (common unit keys / scale / W3D search).
+    /// Host-testable; does **not** claim campaign GPU mesh draw.
+    pub mesh_asset_residual_ok: bool,
+    /// Wave 75 presentation mesh-scale residual honesty (defaults + CINE peels).
+    pub mesh_scale_presentation_ok: bool,
     pub status: String,
 }
 
@@ -480,6 +485,12 @@ pub fn run_golden_campaign_ex(
         && frames_advanced > 0
         && (host_map_loaded || campaign_scripts_resolved || scripts_installed);
 
+    // Wave 75 residual honesty (mesh keys / scale) — does not gate campaign_playable_claim.
+    let mesh_asset_residual_ok =
+        crate::assets::mesh_asset_resolve::honesty_mesh_asset_residual_ok();
+    let mesh_scale_presentation_ok =
+        crate::assets::mesh_asset_resolve::honesty_mesh_scale_residual_ok();
+
     let status = if campaign_playable_claim {
         "success"
     } else if frames_advanced > 0 && campaign_started {
@@ -515,13 +526,15 @@ pub fn run_golden_campaign_ex(
         objectives_from_campaign,
         retail_campaign_map_loaded,
         campaign_playable_claim,
+        mesh_asset_residual_ok,
+        mesh_scale_presentation_ok,
         status: status.into(),
     }
 }
 
 pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
     format!(
-        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={}",
+        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={}",
         r.status,
         r.campaign_started,
         r.single_player,
@@ -542,6 +555,8 @@ pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
         r.objectives_from_campaign,
         r.retail_campaign_map_loaded,
         r.campaign_playable_claim,
+        r.mesh_asset_residual_ok,
+        r.mesh_scale_presentation_ok,
     )
 }
 
@@ -588,10 +603,23 @@ mod tests {
             "objectives residual must load: {}",
             format_campaign_report(&result)
         );
+        // Wave 75 mesh residual honesty (does not gate campaign_playable_claim).
+        assert!(
+            result.mesh_asset_residual_ok,
+            "mesh asset residual: {}",
+            format_campaign_report(&result)
+        );
+        assert!(
+            result.mesh_scale_presentation_ok,
+            "mesh scale residual: {}",
+            format_campaign_report(&result)
+        );
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
         assert!(report.contains("retail_campaign_map_loaded="));
         assert!(report.contains("objectives_from_campaign="));
+        assert!(report.contains("mesh_asset=true"));
+        assert!(report.contains("mesh_scale=true"));
         // When retail assets exist, default path should prefer MD_*/GC_* load.
         if result.campaign_map_resolved.is_some() && prefer_retail_campaign_load() {
             assert!(

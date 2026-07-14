@@ -1,3 +1,54 @@
+## Residual Host Playability — Wave 75: mesh/shell residual deepen + campaign residual (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **mesh_asset_resolve deepen** (`assets/mesh_asset_resolve`):
+   - Expanded common unit model_key table (air / hero / defense / ZH host units:
+     Raptor, Comanche, Chinook, Spectre, Patriot, Overlord, MiG, Helix, Scud,
+     BombTruck, Jarmen, Stinger, etc.) — **50+** template→key pairs.
+   - Retail archive basename residual map (`airanger_s` → `AIRanger_S`,
+     `avhummer` → `AvHummer`, `avraptorag` → `AVRaptorAG`, …).
+   - W3D search residual: **W3DEnglishZH** roots + mixed-case filename variants.
+   - Mesh scale residual table: common ZH combat units retail **1.0**; known
+     non-default CINE/weapon peels (0.66 / 0.8 / …).
+   - Honesty: `honesty_mesh_asset_residual_ok` + `honesty_retail_basename_residual_ok`
+     + `honesty_mesh_scale_residual_ok`.
+2. **shell_smoke residual honesty (Wave 72–73, no playable_claim flip)**:
+   - `mesh_asset_residual_ok` — W3D resolve residual pack.
+   - `rng_residual_pack_ok` — Wave 72 host RNG residual pack.
+   - `special_power_wave72_residual_ok` — Daisy/A10 special-power pack.
+   - `special_power_wave73_residual_ok` — Spectre/Nuke/SupW pack.
+   - `spectre_orbit_decal_presentation_ok` — Wave 73 presentation decal residual.
+3. **presentation_frame mesh scale residual**:
+   - `RenderableObject.mesh_scale` + `UnitRenderInput.mesh_scale` frozen from
+     template residual table at presentation build.
+   - Honesty: `mesh_scale_presentation_residual_ok`.
+4. **golden_campaign residual**:
+   - `mesh_asset_residual_ok` / `mesh_scale_presentation_ok` honesty flags on
+     campaign result (does not gate `campaign_playable_claim`).
+5. **host_base_defense residual deepen** (Weapon.ini / FactionBuilding.ini):
+   - Patriot clip residual: ClipSize **4**, ClipReload **2000**ms, DamageRadius **5**,
+     ScatterVsInfantry **10**, AutoReloadsClip **Yes**, Projectile **PatriotMissile**.
+   - Patriot body: BuildCost **1000**, BuildTime **25**s, Energy **-3**, Vision/Shroud
+     **360**, MaxHealth **1000**, model **ABPatriot**.
+   - Stinger Site body: BuildCost **900**, BuildTime **15**s, Vision **600**,
+     Shroud **400**, MaxHealth **1000**, HoleMaxHealth **500**, model **UBStingerS**.
+   - Honesty: `honesty_patriot_weapon_body_residual_ok` +
+     `honesty_stinger_site_body_residual_ok` (wired into residual pack).
+6. Tests / gates:
+   - mesh_asset lib suite: **15** ok (includes wave75 pack)
+   - shell_smoke: **4** ok
+   - `base_defense_body_clip_residual_honesty_wave75` / `mesh_scale_presentation_residual_wave75`
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true mesh=true
+   - golden_campaign_gate → PASS campaign_playable_claim=true mesh_asset=true
+
+**Still residual (fail-closed, not claimed):**
+- Full ThingTemplate.scale field / draw-scale bone matrix / W3D material-animation GPU
+- Full Patriot ClipSize in-clip volley state machine / live projectile Object spawn
+- Full Stinger HiveStructureBody slave W3D bone GPU attach
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 73: Spectre/Nuke/SupW residual deepen + presentation decal (2026-07-13)
 
 **Closed (host-testable residual peels):**

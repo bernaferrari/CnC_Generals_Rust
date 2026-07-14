@@ -13,6 +13,13 @@
 //! - W3DZH/Art/W3D path search residual honesty constants
 //! - Mesh scale residual default 1.0 (ThingTemplate Scale not yet ported)
 //!
+//! Wave 75 residual peels:
+//! - Expanded common unit model_key table (air / hero / defense / ZH host units)
+//! - Retail archive basename residual map (airanger_s → AIRanger_S, etc.)
+//! - W3D search residual: W3DEnglishZH root + mixed-case archive filename variants
+//! - Mesh scale residual table for common ZH combat units (retail default 1.0)
+//!   plus known non-default CINE/weapon scales (honesty only)
+//!
 //! Production GPU upload remains `GraphicsSystem` / deferred load budget.
 
 use crate::assets::models::{W3DLoader, W3DModel};
@@ -37,15 +44,21 @@ pub const PLACEHOLDER_KEY_RING_CAPACITY: usize = 32;
 /// Retail / extract W3D search root residual path fragments (honesty constants).
 ///
 /// Production `filesystem_w3d_candidates` joins these under CWD / manifest roots.
+/// Wave 75: W3DEnglishZH + EnglishZH extract roots residual.
 pub const W3D_SEARCH_ROOT_RESIDUALS: &[&str] = &[
     "windows_game/extracted_big_files/W3DZH/Art/W3D",
     "windows_game/extracted_big_files_v2/W3DZH/Art/W3D",
+    "windows_game/extracted_big_files/W3DEnglishZH/Art/W3D",
+    "windows_game/extracted_big_files_v2/W3DEnglishZH/Art/W3D",
     "windows_game/extracted_big_files/Art/W3D",
     "GeneralsRust/Code/Tools/w3d_to_gltf/W3D",
     "Code/Tools/w3d_to_gltf/W3D",
     "Art/W3D",
     "Data/Art/W3D",
 ];
+
+/// Minimum residual roots required for honesty (W3DZH + English + tools + Art).
+pub const W3D_SEARCH_ROOT_MIN_COUNT: usize = 7;
 
 static RESOLVE_LOADED: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_PLACEHOLDER: AtomicUsize = AtomicUsize::new(0);
@@ -126,35 +139,100 @@ pub fn honesty_w3d_path_search_roots_ok() -> bool {
     let has_w3dzh = W3D_SEARCH_ROOT_RESIDUALS
         .iter()
         .any(|p| p.contains("W3DZH/Art/W3D"));
+    let has_english = W3D_SEARCH_ROOT_RESIDUALS
+        .iter()
+        .any(|p| p.contains("W3DEnglishZH"));
     let has_art = W3D_SEARCH_ROOT_RESIDUALS
         .iter()
         .any(|p| *p == "Art/W3D" || p.ends_with("/Art/W3D") || p.ends_with("Art/W3D"));
     let has_tools = W3D_SEARCH_ROOT_RESIDUALS
         .iter()
         .any(|p| p.contains("w3d_to_gltf"));
-    has_w3dzh && has_art && has_tools && !W3D_SEARCH_ROOT_RESIDUALS.is_empty()
+    has_w3dzh
+        && has_english
+        && has_art
+        && has_tools
+        && W3D_SEARCH_ROOT_RESIDUALS.len() >= W3D_SEARCH_ROOT_MIN_COUNT
+}
+
+/// Known non-default Object INI Scale residual peels (CINE / weapon / nature).
+///
+/// Retail combat units omit Scale → 1.0. These honesty entries document the
+/// sparse non-default peels so presentation/mesh scale residual is not silent.
+/// Fail-closed: not full ThingTemplate.scale field / draw-scale bone matrix.
+pub fn known_non_default_mesh_scales() -> &'static [(&'static str, f32)] {
+    &[
+        // AmericaCINEUnit.ini residual
+        ("CINE_AmericaInfantryRanger", 0.66),
+        ("CINE_AmericaInfantryMissileDefender", 0.66),
+        // GLACINEUnit.ini residual
+        ("CINE_GLAInfantryRebel", 0.8),
+        ("CINE_GLAInfantryRPGTrooper", 0.8),
+        // WeaponObjects.ini residual
+        ("ClusterMine", 0.6),
+        ("SpectreHowitzerShell", 0.7),
+        // NatureUnit.ini residual
+        ("Tree01", 5.0),
+        ("Tree02", 1.5),
+    ]
+}
+
+/// Mesh scale residual for a known unit / object template name.
+///
+/// Common ZH combat units retail-default to **1.0** (Scale field omitted in Object INI).
+/// Non-default peels from `known_non_default_mesh_scales` apply when listed.
+pub fn mesh_scale_for_unit(template_name: &str) -> f32 {
+    if let Some((_, scale)) = known_non_default_mesh_scales()
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(template_name))
+    {
+        return *scale;
+    }
+    // Host residual: common combat units + unmapped names default to 1.0.
+    DEFAULT_MESH_SCALE
 }
 
 /// Mesh scale residual from template (default 1.0 — Scale field not yet on ThingTemplate).
 ///
+/// Prefer `template.name` residual table lookup; model_name does not carry Scale.
 /// Fail-closed: not full Object INI Scale / draw-scale bone parity.
 pub fn mesh_scale_from_template(template: &ThingTemplate) -> f32 {
-    let _ = template;
-    DEFAULT_MESH_SCALE
+    mesh_scale_for_unit(&template.name)
 }
 
-/// Mesh scale residual for a known unit template name (default 1.0).
-pub fn mesh_scale_for_unit(template_name: &str) -> f32 {
-    let _ = template_name;
-    // Host residual: all common units use default scale until ThingTemplate.scale ports.
-    DEFAULT_MESH_SCALE
-}
-
-/// Honesty: mesh scale residual defaults are retail 1.0.
+/// Honesty: mesh scale residual for common ZH combat units is retail 1.0, and
+/// known non-default CINE/weapon peels are present.
 pub fn honesty_mesh_scale_residual_ok() -> bool {
-    (DEFAULT_MESH_SCALE - 1.0).abs() < 0.001
+    let common_ok = (DEFAULT_MESH_SCALE - 1.0).abs() < 0.001
         && (mesh_scale_for_unit("USA_Ranger") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("USA_Humvee") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("USA_Crusader") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("USA_Tomahawk") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("USA_Raptor") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("China_BattleTank") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("China_DragonTank") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("China_GattlingTank") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("China_OverlordTank") - 1.0).abs() < 0.001
         && (mesh_scale_for_unit("GLA_Scorpion") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("GLA_Technical") - 1.0).abs() < 0.001
+        && (mesh_scale_for_unit("GLA_MarauderTank") - 1.0).abs() < 0.001;
+    let non_default_ok = known_non_default_mesh_scales().len() >= 4
+        && (mesh_scale_for_unit("CINE_AmericaInfantryRanger") - 0.66).abs() < 0.001
+        && (mesh_scale_for_unit("CINE_GLAInfantryRebel") - 0.8).abs() < 0.001;
+    common_ok && non_default_ok
+}
+
+/// Combined mesh-asset residual honesty (keys + search + scale + ring).
+pub fn honesty_mesh_asset_residual_ok() -> bool {
+    honesty_w3d_path_search_roots_ok()
+        && honesty_placeholder_key_ring_ok()
+        && honesty_mesh_scale_residual_ok()
+        && honesty_retail_basename_residual_ok()
+        && common_unit_model_keys().len() >= 30
+        && common_unit_has_model_key("USA_Ranger")
+        && common_unit_has_model_key("USA_Raptor")
+        && common_unit_has_model_key("China_OverlordTank")
+        && common_unit_has_model_key("GLA_ScudLauncher")
 }
 
 /// Outcome of resolving a presentation `model_key` to mesh data.
@@ -235,6 +313,39 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "airanger" => "airanger_s".to_string(),
         "usa_infantry_ranger" | "usa_ranger" => "airanger_s".to_string(),
         "americainfantryranger" => "airanger_s".to_string(),
+        // Missile Defender — retail AIMissleTm.W3D (engine typo "Missle").
+        "usa_missiledefender" | "americainfantrymissiledefender" => "aimissletm".to_string(),
+        // Pathfinder / Colonel Burton retail basenames.
+        "usa_pathfinder" | "americainfantrypathfinder" => "aipthfindr".to_string(),
+        "usa_colonelburton" | "americainfantrycolonelburton" => "aihero01".to_string(),
+        // Common vehicle template aliases → host model keys.
+        "usa_crusadertank" | "americatankcrusader" => "avcrusader".to_string(),
+        "usa_paladintank" | "americatankpaladin" => "avcrusader".to_string(),
+        "usa_raptor" | "americajetraptor" => "avraptorag".to_string(),
+        "usa_comanche" | "americavehiclecomanche" => "avcomanche".to_string(),
+        "usa_chinook" | "americavehiclechinook" => "avchinook".to_string(),
+        "usa_sentrydrone" | "americavehiclesentrydrone" => "avsentry".to_string(),
+        "usa_ambulance" | "americavehiclemedic" => "avambulance".to_string(),
+        "usa_stealthfighter" | "americajetstealthfighter" => "avstealth".to_string(),
+        "usa_aurora" | "americajetaurora" => "avaurora".to_string(),
+        "usa_spectregunship" | "americajetspectregunship" => "avsgunship".to_string(),
+        "usa_patriot" | "americapatriotbattery" => "abpatriot".to_string(),
+        // China aliases (host uses both units.rs and game_logic names).
+        "china_redguard" | "chinainfantryredguard" => "cirifle".to_string(),
+        "china_battlemastertank" | "chinatankbattlemaster" => "nvbtmstr".to_string(),
+        "china_overlordtank" | "chinatankoverlord" => "nvovrlrd".to_string(),
+        "china_infernocannon" | "chinavehicleinfernocannon" => "nvinferno".to_string(),
+        "china_mig" | "chinajetmig" => "nvmign".to_string(),
+        "china_helix" | "chinavehiclehelix" => "nvhelix".to_string(),
+        // GLA aliases.
+        "gla_scorpiontank" | "glavehiclescorpion" => "gvscorpion".to_string(),
+        "gla_scudlauncher" | "glavehiclescudlauncher" => "uvscudlchr".to_string(),
+        "gla_bombtruck" | "glavehiclebombtruck" => "uvbombtruck".to_string(),
+        "gla_quadcannon" | "glavehiclequadcannon" => "uvquadcannon".to_string(),
+        "gla_rocketbuggy" | "glavehiclerocketbuggy" => "uvbuggy".to_string(),
+        "gla_battlebus" | "glavehiclebattlebus" => "uvbattlebus".to_string(),
+        "gla_stingersite" | "glastingersite" => "ubstingers".to_string(),
+        "gla_jarmenkell" | "glainfantryjarmenkell" => "gijarmen".to_string(),
         other => {
             // Preserve original casing when no alias; archive open is case-insensitive.
             if other == lower {
@@ -244,6 +355,69 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
             }
         }
     }
+}
+
+/// Retail archive basename residual map (canonical lower key → shipped casing).
+///
+/// macOS APFS is case-insensitive; Linux extract trees are not. Wave 75 residual
+/// peels the known mixed-case ZH basenames used in W3DZH/Art/W3D.
+pub fn retail_w3d_basename_residuals() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("airanger_s", "AIRanger_S"),
+        ("aimissletm", "AIMissleTm"),
+        ("aipthfindr", "AIPthFindr"),
+        ("aihero01", "AIHero01"),
+        ("avhummer", "AvHummer"),
+        ("avcrusader", "AVCrusader"),
+        ("avtomahawk", "AVTomahawk"),
+        ("avdozer", "AVDozer"),
+        ("avraptorag", "AVRaptorAG"),
+        ("avcomanche", "AVComanche"),
+        ("avchinook", "AVChinook"),
+        ("avsentry", "AVSentry"),
+        ("avambulance", "AVAmbulance"),
+        ("avstealth", "AVStealth"),
+        ("avaurora", "AVAurora"),
+        ("avsgunship", "AVSGunship"),
+        ("abpatriot", "ABPatriot"),
+        ("ubstingers", "UBStingerS"),
+        ("uirebel", "UIRebel"),
+        ("uirguard02", "UIRGuard02"),
+        ("uvlitetank", "UVLiteTank"),
+        ("uvscudlchr", "UVScudLchr"),
+        ("uvbuggy", "UVBuggy"),
+        ("uvtechvan_d1", "UVTechVan_d1"),
+        ("nvbtmstr", "NVBtMstr"),
+        ("nvovrlrd", "NVOvrlrd"),
+        ("nvovrlrdt", "NVOvrlrdT"),
+        ("nvinferno", "NVInferno"),
+        ("nvmign", "NVMigN"),
+        ("nvhelix", "NVHelix"),
+        ("nvdragon", "NVDragon"),
+        ("nvgatttank", "NVGattTank"),
+    ]
+}
+
+/// Resolve the preferred retail archive basename for a model key (case residual).
+pub fn retail_w3d_basename_for_key(model_key: &str) -> String {
+    let key = remap_model_key_alias(model_key);
+    let lower = key.to_ascii_lowercase();
+    if let Some((_, retail)) = retail_w3d_basename_residuals()
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(&lower))
+    {
+        return (*retail).to_string();
+    }
+    key
+}
+
+/// Honesty: retail basename residual map covers AIRanger_S + AvHummer + AVRaptorAG.
+pub fn honesty_retail_basename_residual_ok() -> bool {
+    retail_w3d_basename_for_key("airanger_s").eq_ignore_ascii_case("AIRanger_S")
+        && retail_w3d_basename_for_key("avhummer").eq_ignore_ascii_case("AvHummer")
+        && retail_w3d_basename_for_key("avraptorag").eq_ignore_ascii_case("AVRaptorAG")
+        && retail_w3d_basename_for_key("aimissletm").eq_ignore_ascii_case("AIMissleTm")
+        && retail_w3d_basename_residuals().len() >= 20
 }
 
 /// Model key from a template (presentation parity with get_model_name + alias).
@@ -271,31 +445,71 @@ pub fn model_key_from_presentation(
 
 /// Known common unit template → model key pairs used by host setup / prewarm.
 ///
-/// Expanded Wave 53 residual: top ZH host units from `units.rs` create templates.
+/// Wave 53 residual: top ZH host units from `units.rs` create templates.
+/// Wave 75 residual: air / hero / defense / ZH host units from `game_logic` setup.
 pub fn common_unit_model_keys() -> &'static [(&'static str, &'static str)] {
     &[
-        // USA
+        // USA infantry / hero
         ("USA_Ranger", "airanger_s"),
         ("AmericaInfantryRanger", "airanger_s"),
+        ("USA_MissileDefender", "aimissletm"),
+        ("USA_Pathfinder", "aipthfindr"),
+        ("USA_ColonelBurton", "aihero01"),
+        // USA vehicles / tanks
         ("USA_Humvee", "avhummer"),
         ("USA_Crusader", "avcrusader"),
+        ("USA_CrusaderTank", "avcrusader"),
         ("USA_Paladin", "avcrusader"),
+        ("USA_PaladinTank", "avcrusader"),
         ("USA_Dozer", "avdozer"),
         ("USA_Tomahawk", "avtomahawk"),
+        ("USA_Ambulance", "avambulance"),
+        ("USA_SentryDrone", "avsentry"),
+        ("USA_Avenger", "avavenger"),
+        ("USA_Microwave", "avmicrowave"),
+        // USA air
+        ("USA_Raptor", "avraptorag"),
+        ("USA_Comanche", "avcomanche"),
+        ("USA_Chinook", "avchinook"),
+        ("USA_StealthFighter", "avstealth"),
+        ("USA_Aurora", "avaurora"),
+        ("USA_SpectreGunship", "avsgunship"),
+        // USA defense
+        ("USA_Patriot", "abpatriot"),
+        ("AmericaPatriotBattery", "abpatriot"),
         // China
         ("China_Soldier", "cirifle"),
+        ("China_RedGuard", "cirifle"),
         ("China_Dozer", "cvdozer"),
         ("China_BattleTank", "cvbattlemaster"),
-        ("China_DragonTank", "cvdragon"),
-        ("China_GattlingTank", "cvgattling"),
+        ("China_BattlemasterTank", "nvbtmstr"),
+        ("China_DragonTank", "nvdragon"),
+        ("China_GattlingTank", "nvgatttank"),
         ("China_TankHunter", "uirguard02"),
+        ("China_OverlordTank", "nvovrlrd"),
+        ("China_InfernoCannon", "nvinferno"),
+        ("China_MiG", "nvmign"),
+        ("China_Helix", "nvhelix"),
+        ("China_NukeCannon", "nvnukecn"),
+        ("China_TroopCrawler", "nvtcrawler"),
+        ("China_ListeningOutpost", "nvlistout"),
+        ("China_ECMTank", "nvecm"),
         // GLA
         ("GLA_Soldier", "githrpf"),
         ("GLA_Worker", "giworker"),
         ("GLA_Technical", "gvtchncl"),
         ("GLA_Scorpion", "gvscorpion"),
+        ("GLA_ScorpionTank", "gvscorpion"),
         ("GLA_RPGTrooper", "uirguard02"),
         ("GLA_MarauderTank", "uvlitetank"),
+        ("GLA_ScudLauncher", "uvscudlchr"),
+        ("GLA_BombTruck", "uvbombtruck"),
+        ("GLA_QuadCannon", "uvquadcannon"),
+        ("GLA_RocketBuggy", "uvbuggy"),
+        ("GLA_BattleBus", "uvbattlebus"),
+        ("GLA_JarmenKell", "gijarmen"),
+        ("GLA_StingerSite", "ubstingers"),
+        ("GLA_TunnelNetwork", "ubhole_a4"),
     ]
 }
 
@@ -315,31 +529,53 @@ pub fn expected_model_key_for_unit(template_name: &str) -> Option<&'static str> 
         .map(|(_, key)| *key)
 }
 
+/// Build residual filename variants for a model key (case + retail archive peel).
+fn w3d_filename_variants(model_key: &str) -> Vec<String> {
+    let key = canonical_model_key(model_key);
+    let lower = key.to_ascii_lowercase();
+    let retail = retail_w3d_basename_for_key(&key);
+    let title = format!(
+        "{}{}",
+        key.chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase().to_string())
+            .unwrap_or_default(),
+        key.chars().skip(1).collect::<String>()
+    );
+    let mut names = vec![
+        format!("{key}.w3d"),
+        format!("{key}.W3D"),
+        format!("{lower}.w3d"),
+        format!("{lower}.W3D"),
+        format!("{}.W3D", key.to_ascii_uppercase()),
+        format!("{}.w3d", key.to_ascii_uppercase()),
+        // AIRanger_S / first-char-upper residual.
+        format!("{title}.W3D"),
+        format!("{title}.w3d"),
+        // Retail archive basename residual (AIRanger_S.W3D, AvHummer.W3D, …).
+        format!("{retail}.W3D"),
+        format!("{retail}.w3d"),
+        format!("{}.W3D", retail.to_ascii_lowercase()),
+        format!("{}.w3d", retail.to_ascii_lowercase()),
+    ];
+    // Dedup while preserving order.
+    let mut seen = std::collections::HashSet::new();
+    names.retain(|n| seen.insert(n.to_ascii_lowercase()));
+    names
+}
+
 /// Filesystem candidates for a model key (repo / extracted BIG / tools samples).
 ///
 /// Roots include residual honesty constants from `W3D_SEARCH_ROOT_RESIDUALS`
-/// (W3DZH/Art/W3D, Art/W3D, tools samples) plus manifest-relative fallbacks.
+/// (W3DZH/Art/W3D, W3DEnglishZH, Art/W3D, tools samples) plus manifest-relative
+/// fallbacks. Wave 75: retail archive basename variants (AIRanger_S etc.).
 pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
-    let key = canonical_model_key(model_key);
+    let key = remap_model_key_alias(model_key);
     if key.is_empty() || key == PLACEHOLDER_MODEL_KEY {
         return Vec::new();
     }
 
-    let file_names = [
-        format!("{key}.w3d"),
-        format!("{key}.W3D"),
-        format!("{}.w3d", key.to_ascii_lowercase()),
-        format!("{}.W3D", key.to_ascii_uppercase()),
-        // AIRanger_S style mixed case used in archives.
-        format!(
-            "{}{}.W3D",
-            key.chars()
-                .next()
-                .map(|c| c.to_ascii_uppercase().to_string())
-                .unwrap_or_default(),
-            key.chars().skip(1).collect::<String>()
-        ),
-    ];
+    let file_names = w3d_filename_variants(&key);
 
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
@@ -350,6 +586,7 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
         }
         // When running from GeneralsRust/Code/Main
         roots.push(cwd.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
+        roots.push(cwd.join("../../../windows_game/extracted_big_files/W3DEnglishZH/Art/W3D"));
         roots.push(cwd.join("../../Tools/w3d_to_gltf/W3D"));
         roots.push(cwd.join("../Tools/w3d_to_gltf/W3D"));
     }
@@ -359,6 +596,7 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
     roots.push(manifest.join("../Tools/w3d_to_gltf/W3D"));
     roots.push(manifest.join("../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
     roots.push(manifest.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
+    roots.push(manifest.join("../../../windows_game/extracted_big_files/W3DEnglishZH/Art/W3D"));
     for rel in W3D_SEARCH_ROOT_RESIDUALS {
         roots.push(manifest.join("../../../").join(rel));
     }
@@ -818,22 +1056,44 @@ mod tests {
     #[test]
     fn expanded_common_unit_table_covers_top_zh_host_units() {
         // Wave 53 residual: top ZH host units from units.rs must map.
+        // Wave 75 residual: air / hero / defense / ZH host units.
         let required = [
             "USA_Ranger",
             "USA_Humvee",
             "USA_Crusader",
             "USA_Paladin",
             "USA_Tomahawk",
+            "USA_MissileDefender",
+            "USA_Raptor",
+            "USA_Comanche",
+            "USA_Chinook",
+            "USA_ColonelBurton",
+            "USA_Pathfinder",
+            "USA_SpectreGunship",
+            "USA_Patriot",
             "China_Soldier",
             "China_BattleTank",
             "China_DragonTank",
             "China_GattlingTank",
+            "China_OverlordTank",
+            "China_MiG",
+            "China_Helix",
+            "China_InfernoCannon",
             "GLA_Soldier",
             "GLA_Technical",
             "GLA_Scorpion",
             "GLA_MarauderTank",
+            "GLA_ScudLauncher",
+            "GLA_BombTruck",
+            "GLA_RocketBuggy",
+            "GLA_JarmenKell",
+            "GLA_StingerSite",
         ];
-        assert!(common_unit_model_keys().len() >= required.len());
+        assert!(
+            common_unit_model_keys().len() >= required.len(),
+            "common unit table too small: {}",
+            common_unit_model_keys().len()
+        );
         for name in required {
             assert!(
                 common_unit_has_model_key(name),
@@ -850,6 +1110,9 @@ mod tests {
         assert!(W3D_SEARCH_ROOT_RESIDUALS
             .iter()
             .any(|p| p.contains("W3DZH/Art/W3D")));
+        assert!(W3D_SEARCH_ROOT_RESIDUALS
+            .iter()
+            .any(|p| p.contains("W3DEnglishZH")));
         let candidates = filesystem_w3d_candidates("airanger_s");
         assert!(
             candidates.iter().any(|p| {
@@ -857,6 +1120,33 @@ mod tests {
                 s.contains("W3DZH") || s.contains("Art/W3D") || s.contains("w3d_to_gltf")
             }),
             "filesystem candidates must include residual W3D search roots"
+        );
+        // Wave 75: retail basename residual must appear in candidate filenames.
+        assert!(
+            candidates.iter().any(|p| {
+                let s = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                s.eq_ignore_ascii_case("AIRanger_S.W3D") || s.eq_ignore_ascii_case("AIRanger_S.w3d")
+            }),
+            "candidates must include AIRanger_S retail basename residual"
+        );
+    }
+
+    #[test]
+    fn retail_basename_residual_map_wave75() {
+        assert!(honesty_retail_basename_residual_ok());
+        assert_eq!(
+            retail_w3d_basename_for_key("airanger_s").to_ascii_lowercase(),
+            "airanger_s"
+        );
+        assert!(retail_w3d_basename_for_key("airanger_s").contains('R')
+            || retail_w3d_basename_for_key("airanger_s") == "AIRanger_S");
+        assert_eq!(
+            remap_model_key_alias("USA_Raptor").to_ascii_lowercase(),
+            "avraptorag"
+        );
+        assert_eq!(
+            remap_model_key_alias("AmericaPatriotBattery").to_ascii_lowercase(),
+            "abpatriot"
         );
     }
 
@@ -895,5 +1185,29 @@ mod tests {
         t.set_model("airanger_s");
         assert!((mesh_scale_from_template(&t) - 1.0).abs() < 0.001);
         assert!((mesh_scale_for_unit("China_BattleTank") - DEFAULT_MESH_SCALE).abs() < 0.001);
+        // Wave 75: common ZH combat units scale residual 1.0.
+        for name in [
+            "USA_Humvee",
+            "USA_Raptor",
+            "China_OverlordTank",
+            "GLA_ScudLauncher",
+        ] {
+            assert!(
+                (mesh_scale_for_unit(name) - 1.0).abs() < 0.001,
+                "{name} combat scale residual must be 1.0"
+            );
+        }
+        // Known non-default CINE residual peel.
+        assert!((mesh_scale_for_unit("CINE_AmericaInfantryRanger") - 0.66).abs() < 0.001);
+        assert!((mesh_scale_for_unit("CINE_GLAInfantryRebel") - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn mesh_asset_residual_pack_honesty_wave75() {
+        assert!(honesty_mesh_asset_residual_ok());
+        assert!(common_unit_model_keys().len() >= 30);
+        assert!(honesty_retail_basename_residual_ok());
+        assert!(honesty_mesh_scale_residual_ok());
+        assert!(honesty_w3d_path_search_roots_ok());
     }
 }
