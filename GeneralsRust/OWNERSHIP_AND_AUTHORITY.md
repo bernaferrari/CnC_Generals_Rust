@@ -10,7 +10,7 @@ Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 OS input → normalized commands → Main GameLogic (30 Hz host sim)
   → host_* logs (damage/economy/spawn/destroy/attack)
   → GameWorldShadow session (always-on) → WorldMutations last-writer
-  → host writeback (HP/cash) → PresentationFrame + shadow overlay
+  → host writeback (HP/cash) → PresentationFrame (minimap terrain base prefers snapshot heights; execute passes `None` live GameLogic when frame is set) + shadow overlay
   → GameClient / audio / renderer
 ```
 

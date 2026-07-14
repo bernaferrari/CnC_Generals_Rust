@@ -814,11 +814,10 @@ impl RenderPipeline {
             .map(|p| p.fow_shell_bypass)
             .unwrap_or_else(|| game_logic.map(|g| g.isInShellGame()).unwrap_or(false));
         if render_world_scene && !shell_scene {
-            // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
-            if let Some(gl) = game_logic {
-                if let Err(e) = self.refresh_minimap_terrain_base(Some(gl)) {
-                    error!("Failed to refresh minimap terrain base: {}", e);
-                }
+            // Presentation-owned bounds/heights when frame is set; live GameLogic
+            // is only a boot fallback (execute already passes None with snapshot).
+            if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
+                error!("Failed to refresh minimap terrain base: {}", e);
             }
 
             // Update minimap FOW texture before rendering UI
@@ -4603,6 +4602,11 @@ mod tests {
         assert!(
             src.contains("game_logic: Option<&GameLogic>,")
                 && src.contains("load_heightmap_from_runtime_terrain")
+        );
+        // Presentation path must refresh minimap without requiring live GameLogic.
+        assert!(
+            src.contains("self.refresh_minimap_terrain_base(game_logic)"),
+            "minimap base refresh must accept Option GameLogic (None with snapshot)"
         );
     }
 
