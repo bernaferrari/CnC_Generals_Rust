@@ -2342,6 +2342,66 @@ impl ControlBar {
     }
 
     /// Selection panel health currently shown (presentation-fed when available).
+
+    /// Feed garrison inventory + under-construction commands from PresentationFrame.
+    ///
+    /// Prefer this over OBJECT_REGISTRY contain lookups for dual-tick / headless host.
+    /// Fail-closed: does not claim full WND button layout parity.
+    pub fn sync_structure_context_from_presentation(
+        &mut self,
+        max_garrison: usize,
+        garrisoned_count: usize,
+        under_construction: bool,
+        _construction_percent: f32,
+    ) {
+        if let Ok(mut context) = self.context.write() {
+            context.last_recorded_inventory_count = garrisoned_count as u32;
+            if under_construction {
+                let cancel = CommandButton {
+                    command_name: "Command_CancelConstruction".into(),
+                    ..CommandButton::default()
+                };
+                if !context
+                    .available_commands
+                    .iter()
+                    .any(|b| b.command_name.eq_ignore_ascii_case(&cancel.command_name))
+                {
+                    context.available_commands.push(cancel);
+                }
+            }
+            if max_garrison > 0 {
+                let exit = CommandButton {
+                    command_name: "Command_StructureExit".into(),
+                    ..CommandButton::default()
+                };
+                if !context
+                    .available_commands
+                    .iter()
+                    .any(|b| b.command_name.eq_ignore_ascii_case(&exit.command_name))
+                {
+                    context.available_commands.push(exit);
+                }
+                if garrisoned_count > 0 {
+                    for name in ["Command_Evacuate", "Command_Stop"] {
+                        let btn = CommandButton {
+                            command_name: name.into(),
+                            ..CommandButton::default()
+                        };
+                        if !context
+                            .available_commands
+                            .iter()
+                            .any(|b| b.command_name.eq_ignore_ascii_case(&btn.command_name))
+                        {
+                            context.available_commands.push(btn);
+                        }
+                    }
+                }
+            }
+            context.ui_dirty = true;
+        }
+        self.mark_ui_dirty();
+    }
+
     pub fn selection_panel_health(&self) -> Option<(f32, f32)> {
         if self.portrait_state.is_visible && self.portrait_state.health_maximum > 0.0 {
             Some((
