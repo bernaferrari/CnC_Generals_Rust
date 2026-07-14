@@ -63,6 +63,61 @@
 - Golden playable_claim remains **true**
 - Network residual deferred
 
+## Residual Host Playability — Wave 90: GameSpeed / frame-rate deepen / debug tables / language deepen / credits residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal engine timing + shell UI residual):**
+1. **GameSpeed residual** (`host_timing_shell_residual`, GameCommon.h / GameEngine.h):
+   - LOGICFRAMES_PER_SECOND **30**; MSEC_PER_SECOND **1000**.
+   - MSEC_PER_LOGICFRAME_REAL **1000/30**; LOGICFRAMES_PER_MSEC_REAL **0.03**.
+   - SECONDS_PER_LOGICFRAME_REAL **1/30**.
+   - DEFAULT_MAX_FPS **45** (GameEngine constructor); GameData FramesPerSecondLimit **30**.
+   - GlobalData ctor FPS limit **0** / UseFPSLimit **false** before INI.
+   - ConvertDurationFromMsecsToFrames residual + ceil call pattern (1000ms→30f, 33ms→1f).
+   - Honesty: `honesty_gamespeed_residual_pack_wave90`.
+2. **Frame rate residual deepen** (beyond Wave 86 FPSLimit constants):
+   - W3DDisplay FPS_HISTORY_SIZE **30** (matches logic FPS).
+   - GameEngine sleep residual `(1000/maxFPS)-1` → 30→**32**ms, 45→**21**ms, 60→**15**ms.
+   - Average FPS history residual; post-load FPS lock state UseFPSLimit **Yes** / limit **30**.
+   - Honesty: `honesty_frame_rate_residual_deepen_pack_wave90`.
+3. **Debug residual tables** (host-only; DebugDisplay.h + W3DDisplay.h):
+   - DebugDisplay Color residual WHITE..BLUE **6** (NUM_COLORS).
+   - W3DDisplay DisplayString slots FPS..TerrainStats **16** (DisplayStringCount).
+   - Anchors: Particles **8**, Objects **9**, NetFPSAverages **13**.
+   - Honesty: `honesty_debug_residual_tables_pack_wave90`.
+4. **Language residual deepen** (beyond CSF multi-locale path tables):
+   - LanguageFilter LANGUAGE_XOR_KEY **0x5555**; BadWordFileName **langdata.dat**.
+   - unHaxor residual (leet 1/3/4/5/6/7/0/@/$/+/ph→f; strip `-_*'"`).
+   - English Language.ini: MilitaryCaptionSpeed **1**, DelayMS **750**, ResolutionFontAdjustment **0.7**.
+   - Credits fonts Arial **22** / **16** bold / **14**; NativeDebugDisplay FixedSys **8**.
+   - adjustFontSize residual (base 800, clamp 1.0..2.0; 1600→floor(12*1.7)=**20**).
+   - Honesty: `honesty_language_residual_deepen_pack_wave90`.
+5. **Credits residual** (Credits.h/.cpp + Credits.ini):
+   - Styles TITLE/MINORTITLE/NORMAL/COLUMN; MAX_CREDIT_STYLES **5**; SPACE_OFFSET **2**.
+   - Ctor ScrollRate **1**/frame every **1**; ScrollDown **Yes**; default white.
+   - Credits.ini ScrollRate **2**, ScrollRateEveryFrames **1**, ScrollDown **No**.
+   - Title/MinorTitleColor **161,179,255,255**; NormalColor **209,218,255,255**.
+   - GameMakeColor residual (A<<24)|(R<<16)|(G<<8)|B; path Data\\INI\\Credits.ini.
+   - String-label residual via ':' (CREDITS:ExecutiveProducer vs quoted names).
+   - Honesty: `honesty_credits_residual_pack_wave90`.
+6. Tests / gates:
+   - Combined honesty: `honesty_timing_shell_residual_pack_wave90`.
+   - shell_smoke: gamespeed90/framerate90/debug90/lang90/credits90 honesty flags wired
+     (playable_claim stays false)
+   - Unit: 6 wave90 honesty tests PASS
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     gamespeed90=true framerate90=true debug90=true lang90=true credits90=true
+
+**Still residual (fail-closed, not claimed):**
+- Full GameEngine main-loop sleep / live FPS lock residual
+- Full W3DDisplay drawDebugStats GPU residual
+- Full LanguageFilter langdata.dat live load / network chat filter residual
+- Full CreditsMenu.wnd GPU / scroll DisplayString residual
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+---
+
 ## Residual Host Playability — Wave 89: rank skill-points / experience / hotkey / chat / replay / options residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal GeneralsExperience + local UI residual):**
