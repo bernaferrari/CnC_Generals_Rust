@@ -611,6 +611,11 @@ impl RenderPipeline {
         self.presentation_frame = frame;
     }
 
+    #[inline]
+    pub fn presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
+        self.presentation_frame.as_ref()
+    }
+
     /// Pure unit-identity + FOW collection for the main mesh pass (no GameLogic borrow).
     ///
     /// Production `collect_render_items` uses this when a presentation frame is set.
@@ -958,18 +963,35 @@ impl RenderPipeline {
             return;
         }
 
-        // Map placed-object templates for prewarm still come from live parse residual
-        // (not on PresentationWorldEnv — object list is large). Signature alone is snapshot.
-        let metadata = game_logic.last_parsed_map_settings();
+        // Prefer frozen prewarm names from PresentationWorldEnv (capped list).
+        // Fall back to live map metadata only when presentation has none.
+        let template_names: Vec<String> = self
+            .presentation_frame
+            .as_ref()
+            .map(|p| p.world_env.prewarm_template_names.clone())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| {
+                game_logic
+                    .last_parsed_map_settings()
+                    .map(|m| {
+                        m.objects
+                            .iter()
+                            .map(|o| o.template.clone())
+                            .filter(|s| !s.trim().is_empty())
+                            .take(256)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            });
 
         let mut candidates: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
 
-        if let Some(meta) = metadata.as_ref() {
+        if !template_names.is_empty() {
             if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
                 if let Ok(asset_manager) = asset_manager_arc.lock() {
-                    for placed in &meta.objects {
-                        let template = placed.template.trim();
+                    for template_raw in &template_names {
+                        let template = template_raw.trim();
                         if template.is_empty() {
                             continue;
                         }
@@ -2499,9 +2521,22 @@ impl RenderPipeline {
             game_client::terrain::terrain_visual::init_terrain_visual()
                 .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
 
-            let source_hint = game_logic.heightmap_hint();
-            let source_hint_ref = source_hint.as_deref();
-            let world_bounds = game_logic.world_bounds();
+            let source_hint_owned: Option<std::path::PathBuf> = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|p| {
+                    p.world_env
+                        .heightmap_hint
+                        .as_ref()
+                        .map(std::path::PathBuf::from)
+                })
+                .or_else(|| game_logic.heightmap_hint().map(|p| p.to_path_buf()));
+            let source_hint_ref = source_hint_owned.as_deref();
+            let world_bounds = self
+                .presentation_frame
+                .as_ref()
+                .map(|p| p.world_env.world_bounds_vec3())
+                .unwrap_or_else(|| game_logic.world_bounds());
             let world_size = (
                 (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
                 (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
@@ -2575,40 +2610,76 @@ impl RenderPipeline {
         }
     }
 
-    /// Sync map roads/bridges from GameLogic into the terrain-road render path.
+    /// Sync map roads/bridges into the terrain-road render path.
+    /// Prefers frozen `PresentationWorldEnv` road/bridge segments when present.
     pub fn sync_runtime_map_roads(&mut self, game_logic: &GameLogic) -> Result<()> {
         #[cfg(feature = "game_client")]
         {
-            let road_segments: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
-                game_logic
-                    .terrain_road_segments_snapshot()
-                    .into_iter()
-                    .map(
-                        |segment| game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
-                            start: [segment.from.x, segment.from.z, segment.from.y],
-                            end: [segment.to.x, segment.to.z, segment.to.y],
-                            width: segment.width,
-                            template_name: segment.template_name,
-                            width_in_texture: segment.width_in_texture,
-                            road_type_id: segment.road_type_id,
-                            start_is_angled: segment.start_is_angled,
-                            start_is_join: segment.start_is_join,
-                            end_is_angled: segment.end_is_angled,
-                            end_is_join: segment.end_is_join,
-                            curve_radius: segment.curve_radius,
-                        },
-                    )
+            let (road_segments, bridge_segments) = if let Some(env) = self
+                .presentation_frame
+                .as_ref()
+                .map(|p| &p.world_env)
+                .filter(|e| !e.road_segments.is_empty() || !e.bridge_segments.is_empty())
+            {
+                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
+                    env.road_segments
+                        .iter()
+                        .map(|segment| {
+                            game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                                // Presentation stores [x,y,z]; visual wants [x,z,y] like live path.
+                                start: [segment.from[0], segment.from[2], segment.from[1]],
+                                end: [segment.to[0], segment.to[2], segment.to[1]],
+                                width: segment.width,
+                                template_name: segment.template_name.clone(),
+                                width_in_texture: segment.width_in_texture,
+                                road_type_id: segment.road_type_id,
+                                start_is_angled: segment.start_is_angled,
+                                start_is_join: segment.start_is_join,
+                                end_is_angled: segment.end_is_angled,
+                                end_is_join: segment.end_is_join,
+                                curve_radius: segment.curve_radius,
+                            }
+                        })
+                        .collect();
+                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = env
+                    .bridge_segments
+                    .iter()
+                    .map(|b| (b.start, b.end, b.width, b.template_name.clone()))
                     .collect();
-            let bridge_segments = game_logic.terrain_bridge_segments_snapshot();
+                (roads, bridges)
+            } else {
+                let roads: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
+                    game_logic
+                        .terrain_road_segments_snapshot()
+                        .into_iter()
+                        .map(|segment| {
+                            game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                                start: [segment.from.x, segment.from.z, segment.from.y],
+                                end: [segment.to.x, segment.to.z, segment.to.y],
+                                width: segment.width,
+                                template_name: segment.template_name,
+                                width_in_texture: segment.width_in_texture,
+                                road_type_id: segment.road_type_id,
+                                start_is_angled: segment.start_is_angled,
+                                start_is_join: segment.start_is_join,
+                                end_is_angled: segment.end_is_angled,
+                                end_is_join: segment.end_is_join,
+                                curve_radius: segment.curve_radius,
+                            }
+                        })
+                        .collect();
+                let bridges: Vec<([f32; 3], [f32; 3], f32, String)> = game_logic
+                    .terrain_bridge_segments_snapshot()
+                    .into_iter()
+                    .map(|(start, end, width, template_name)| {
+                        (start.to_array(), end.to_array(), width, template_name)
+                    })
+                    .collect();
+                (roads, bridges)
+            };
             if road_segments.is_empty() && bridge_segments.is_empty() {
                 return Ok(());
             }
-            let bridge_segments: Vec<([f32; 3], [f32; 3], f32, String)> = bridge_segments
-                .into_iter()
-                .map(|(start, end, width, template_name)| {
-                    (start.to_array(), end.to_array(), width, template_name)
-                })
-                .collect();
 
             if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
                 if let Some(visual) = guard.as_mut() {
