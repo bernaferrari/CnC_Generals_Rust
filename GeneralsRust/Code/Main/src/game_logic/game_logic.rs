@@ -34760,6 +34760,9 @@ impl GameLogic {
                         } else {
                             "Idle".to_string()
                         },
+                        veterancy_overlay: None,
+                        production_progress: None,
+                        production_template: None,
                     });
                 }
             }
