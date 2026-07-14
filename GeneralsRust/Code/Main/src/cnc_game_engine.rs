@@ -6211,8 +6211,15 @@ impl CnCGameEngine {
                 } else {
                     game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
                 };
-                if let Err(e) = self.game_client.update_drawables(visual_delta) {
-                    log::trace!("GameClient update_drawables failed (non-fatal): {}", e);
+                // Presentation owns unit mesh/HUD identity when a frame exists: skip
+                // OBJECT_REGISTRY-backed drawable shroud binding (dual-world residual).
+                let drawable_result = if self.last_presentation_frame.is_some() {
+                    self.game_client.update_drawables_local(visual_delta)
+                } else {
+                    self.game_client.update_drawables(visual_delta)
+                };
+                if let Err(e) = drawable_result {
+                    log::trace!("GameClient drawable update failed (non-fatal): {}", e);
                 }
                 // C++ parity: GameClient::update() also runs shell activation
                 // (ensure_shell_visible → show_shell_map + show_shell), input processing,

@@ -372,3 +372,6 @@ Still residual (not claimed by shell_smoke):
 | Full shadow mesh GPU allocation (volumetric/projected) | Enable/status wired; `allocate_shadows` does not create GPU meshes |
 | Full dual Drawable (GameLogic vs GameClient) unification | Two ports still co-exist; condition bits mirrored via body path |
 
+
+
+With a presentation frame, GameClient uses `update_drawables_local` (no OBJECT_REGISTRY shroud bind).
