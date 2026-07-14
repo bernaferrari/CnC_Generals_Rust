@@ -4,12 +4,82 @@
 ** Lightweight terrain representation used by the Rust main runtime for:
 ** - height queries (placing objects on ground)
 ** - coarse impassability for pathfinding (until full SAGE terrain decoding lands)
+**
+** Wave 81 residual: map height sample scale / bilinear residual honesty pack.
+** Fail-closed: not full SAGE bridge-aware HeightMap / cliff seam matrix.
 */
 
 use glam::Vec3;
 
 #[cfg(feature = "game_client")]
 use game_client::terrain::height_map::HeightMap;
+
+// --- Wave 81 map height sample residual (C++ MAP_XY_FACTOR / MAP_HEIGHT_SCALE) ---
+
+/// C++ `MAP_XY_FACTOR` residual — world units per heightmap cell (X/Y).
+pub const MAP_HEIGHT_SAMPLE_XY_FACTOR: f32 = 10.0;
+/// C++ `MAP_HEIGHT_SCALE` residual — raw 8-bit sample → world Z (`MAP_XY_FACTOR / 16`).
+pub const MAP_HEIGHT_SAMPLE_SCALE: f32 = MAP_HEIGHT_SAMPLE_XY_FACTOR / 16.0;
+/// Raw heightmap sample bit depth residual (HeightMapData is u8).
+pub const MAP_HEIGHT_SAMPLE_RAW_MAX: u8 = 255;
+/// World Z residual at raw sample 0.
+pub const MAP_HEIGHT_SAMPLE_WORLD_MIN: f32 = 0.0;
+/// World Z residual at raw sample 255 = `255 * MAP_HEIGHT_SCALE`.
+pub const MAP_HEIGHT_SAMPLE_WORLD_MAX: f32 = 255.0 * MAP_HEIGHT_SAMPLE_SCALE;
+/// Pathfinding height-sample grid residual: cell center uses half-cell offset (0.5).
+pub const PATHFINDING_HEIGHT_SAMPLE_CELL_CENTER: f32 = 0.5;
+
+/// Convert a raw 8-bit height sample to world Z (C++ sample * MAP_HEIGHT_SCALE).
+#[inline]
+pub fn raw_height_sample_to_world(sample: u8) -> f32 {
+    (sample as f32) * MAP_HEIGHT_SAMPLE_SCALE
+}
+
+/// Bilinear height residual from four corner samples + fractional offsets in [0,1].
+///
+/// Mirrors host `TerrainData::height_at_world` corner blend (h00/h10/h01/h11).
+/// Fail-closed: not full cliff-aware triangle split / bridge overlay.
+#[inline]
+pub fn bilinear_height_sample(
+    h00: f32,
+    h10: f32,
+    h01: f32,
+    h11: f32,
+    tx: f32,
+    tz: f32,
+) -> f32 {
+    let tx = tx.clamp(0.0, 1.0);
+    let tz = tz.clamp(0.0, 1.0);
+    let hx0 = h00 * (1.0 - tx) + h10 * tx;
+    let hx1 = h01 * (1.0 - tx) + h11 * tx;
+    hx0 * (1.0 - tz) + hx1 * tz
+}
+
+/// Wave 81 residual honesty: map height sample scale + bilinear residual pack.
+///
+/// Fail-closed: not full SAGE HeightMap bridge/cliff matrix / live map decode.
+pub fn honesty_map_height_sample_residual_pack_wave81() -> bool {
+    (MAP_HEIGHT_SAMPLE_XY_FACTOR - 10.0).abs() < 0.001
+        && (MAP_HEIGHT_SAMPLE_SCALE - 0.625).abs() < 0.001
+        && (MAP_HEIGHT_SAMPLE_SCALE - MAP_HEIGHT_SAMPLE_XY_FACTOR / 16.0).abs() < 0.0001
+        && MAP_HEIGHT_SAMPLE_RAW_MAX == 255
+        && (MAP_HEIGHT_SAMPLE_WORLD_MIN - 0.0).abs() < 0.001
+        && (MAP_HEIGHT_SAMPLE_WORLD_MAX - 255.0 * 0.625).abs() < 0.01
+        && (raw_height_sample_to_world(0) - 0.0).abs() < 0.001
+        && (raw_height_sample_to_world(16) - 10.0).abs() < 0.01 // 16 * 0.625 = 10
+        && (raw_height_sample_to_world(255) - MAP_HEIGHT_SAMPLE_WORLD_MAX).abs() < 0.01
+        && (PATHFINDING_HEIGHT_SAMPLE_CELL_CENTER - 0.5).abs() < 0.001
+        // Bilinear mid-cell residual: all corners equal → same height.
+        && {
+            let mid = bilinear_height_sample(10.0, 10.0, 10.0, 10.0, 0.5, 0.5);
+            (mid - 10.0).abs() < 0.001
+        }
+        // Bilinear residual along X edge between h00=0 and h10=20 at tx=0.5.
+        && {
+            let edge = bilinear_height_sample(0.0, 20.0, 0.0, 20.0, 0.5, 0.0);
+            (edge - 10.0).abs() < 0.001
+        }
+}
 
 /// Terrain data loaded from a heightmap with a world-space mapping.
 #[derive(Debug, Clone)]
@@ -109,5 +179,20 @@ impl TerrainData {
         let gx = (h_r - h_l) / (2.0 * dx);
         let gz = (h_u - h_d) / (2.0 * dz);
         (gx * gx + gz * gz).sqrt()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_height_sample_residual_pack_wave81_honesty() {
+        assert!(honesty_map_height_sample_residual_pack_wave81());
+        assert!((raw_height_sample_to_world(32) - 20.0).abs() < 0.01);
+        // Corner blend at (0,0) returns h00.
+        assert!((bilinear_height_sample(3.0, 7.0, 11.0, 13.0, 0.0, 0.0) - 3.0).abs() < 0.001);
+        // Corner blend at (1,1) returns h11.
+        assert!((bilinear_height_sample(3.0, 7.0, 11.0, 13.0, 1.0, 1.0) - 13.0).abs() < 0.001);
     }
 }
