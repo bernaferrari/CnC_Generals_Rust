@@ -4,6 +4,14 @@
 //! queues a drop at the target location. After a flight/approach delay,
 //! infantry units spawn near the target (line formation residual).
 //!
+//! Wave 70 residual pack (retail SpecialPower.ini / ObjectCreationList.ini):
+//! - Special power residual: SuperweaponParadropAmerica ReloadTime **240000**ms → **7200**f,
+//!   RadiusCursor **50**, RequiredScience **SCIENCE_Paradrop1**, SharedSyncedTimer **Yes**.
+//! - Payload residual: SUPERWEAPON_Paradrop1 → AmericaInfantryRanger × **5**,
+//!   DropDelay **150**ms → **5**f, DropSpacing **30**, approach residual **90**f,
+//!   PutInContainer **AmericaParachute**, Transport **AmericaJetCargoPlane**.
+//! - Honesty: `honesty_paradrop_residual_pack_ok` + layer honesty tests.
+//!
 //! Fail-closed honesty:
 //! - Not full OCL DeliverPayload cargo plane path
 //! - Not full parachute containers / AmericaParachute fall physics
@@ -30,6 +38,37 @@ pub const PARADROP_RESIDUAL_TEMPLATE: &str = "TestInfantry";
 
 /// Preferred retail template name for America airborne residual.
 pub const AMERICA_RANGER_TEMPLATE: &str = "AmericaInfantryRanger";
+
+/// Retail SuperweaponParadropAmerica template residual.
+pub const PARADROP_SPECIAL_POWER: &str = "SuperweaponParadropAmerica";
+/// Retail Enum SPECIAL_PARADROP_AMERICA residual.
+pub const PARADROP_SPECIAL_ENUM: &str = "SPECIAL_PARADROP_AMERICA";
+/// Retail ReloadTime residual (msec).
+pub const PARADROP_RELOAD_MS: u32 = 240_000;
+/// ReloadTime 240000ms → 7200 frames @ 30 FPS.
+pub const PARADROP_RELOAD_FRAMES: u32 = 7_200;
+/// Retail RequiredScience residual.
+pub const PARADROP_REQUIRED_SCIENCE: &str = "SCIENCE_Paradrop1";
+/// Retail RadiusCursorRadius residual.
+pub const PARADROP_RADIUS_CURSOR: f32 = 50.0;
+/// Retail SharedSyncedTimer residual.
+pub const PARADROP_SHARED_SYNCED_TIMER: bool = true;
+/// Retail ShortcutPower residual.
+pub const PARADROP_SHORTCUT_POWER: bool = true;
+/// Retail SUPERWEAPON_Paradrop1 OCL residual.
+pub const PARADROP_OCL: &str = "SUPERWEAPON_Paradrop1";
+/// Retail AmericaJetCargoPlane transport residual.
+pub const PARADROP_TRANSPORT: &str = "AmericaJetCargoPlane";
+/// Retail DropDelay residual (msec between drops).
+pub const PARADROP_DROP_DELAY_MS: u32 = 150;
+/// DropDelay 150ms → 5 frames @ 30 FPS.
+pub const PARADROP_DROP_DELAY_FRAMES: u32 = 5;
+/// Retail PutInContainer residual.
+pub const PARADROP_PARACHUTE_CONTAINER: &str = "AmericaParachute";
+/// Residual flight/approach delay frames (~3s host residual, not full OCL transit).
+pub const PARADROP_APPROACH_DELAY_FRAMES: u32 = 90;
+/// Retail MaxAttempts residual.
+pub const PARADROP_MAX_ATTEMPTS: u32 = 4;
 
 /// Host residual paradrop kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -353,6 +392,60 @@ impl HostParadropRegistry {
     }
 }
 
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn paradrop_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * PARADROP_LOGIC_FPS / 1000.0).round() as u32
+}
+
+// --- Wave 70 residual honesty packs ---
+
+/// Wave 70 residual honesty: SuperweaponParadropAmerica special-power residual peel.
+pub fn honesty_paradrop_special_power_residual_ok() -> bool {
+    PARADROP_SPECIAL_POWER == "SuperweaponParadropAmerica"
+        && PARADROP_SPECIAL_ENUM == "SPECIAL_PARADROP_AMERICA"
+        && PARADROP_REQUIRED_SCIENCE == "SCIENCE_Paradrop1"
+        && PARADROP_RELOAD_MS == 240_000
+        && PARADROP_RELOAD_FRAMES == paradrop_ms_to_frames(PARADROP_RELOAD_MS)
+        && PARADROP_RELOAD_FRAMES == 7_200
+        && (PARADROP_RADIUS_CURSOR - 50.0).abs() < 0.01
+        && PARADROP_SHARED_SYNCED_TIMER
+        && PARADROP_SHORTCUT_POWER
+        && HostParadropKind::from_command_power(&SpecialPowerType::Paradrop)
+            == Some(HostParadropKind::AmericaParadrop)
+}
+
+/// Wave 70 residual honesty: SUPERWEAPON_Paradrop1 payload residual peel.
+pub fn honesty_paradrop_payload_residual_ok() -> bool {
+    PARADROP_OCL == "SUPERWEAPON_Paradrop1"
+        && PARADROP_TRANSPORT == "AmericaJetCargoPlane"
+        && AMERICA_PARADROP_UNIT_COUNT == 5
+        && AMERICA_RANGER_TEMPLATE == "AmericaInfantryRanger"
+        && PARADROP_PARACHUTE_CONTAINER == "AmericaParachute"
+        && PARADROP_DROP_DELAY_MS == 150
+        && PARADROP_DROP_DELAY_FRAMES == paradrop_ms_to_frames(PARADROP_DROP_DELAY_MS)
+        && PARADROP_DROP_DELAY_FRAMES == 5
+        && (PARADROP_DROP_SPACING - 30.0).abs() < 0.01
+        && PARADROP_APPROACH_DELAY_FRAMES == 90
+        && HostParadropKind::AmericaParadrop.drop_delay_frames() == 90
+        && HostParadropKind::AmericaParadrop.unit_count() == 5
+        && PARADROP_MAX_ATTEMPTS == 4
+        && HostParadropKind::AmericaParadrop.activate_audio() == "SuperweaponParadrop"
+        && HostParadropKind::AmericaParadrop.drop_audio() == "ParadropLanding"
+        && {
+            let positions = HostParadropRegistry::drop_positions(glam::Vec3::ZERO, 5, 30.0);
+            positions.len() == 5 && (positions[2].x).abs() < 0.01
+        }
+}
+
+/// Combined Wave 70 Paradrop residual honesty pack.
+pub fn honesty_paradrop_residual_pack_ok() -> bool {
+    honesty_paradrop_special_power_residual_ok() && honesty_paradrop_payload_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +537,19 @@ mod tests {
         assert_eq!(m.drop_frame, 100);
         assert_eq!(m.phase, HostParadropPhase::Queued);
         assert_eq!(loaded.next_id(), next);
+    }
+
+    #[test]
+    fn paradrop_residual_pack_honesty_wave70() {
+        assert!(honesty_paradrop_special_power_residual_ok());
+        assert!(honesty_paradrop_payload_residual_ok());
+        assert!(honesty_paradrop_residual_pack_ok());
+        assert_eq!(paradrop_ms_to_frames(240_000), 7_200);
+        assert_eq!(paradrop_ms_to_frames(150), 5);
+        assert_eq!(AMERICA_PARADROP_UNIT_COUNT, 5);
+        assert_eq!(PARADROP_OCL, "SUPERWEAPON_Paradrop1");
+        assert_eq!(PARADROP_REQUIRED_SCIENCE, "SCIENCE_Paradrop1");
+        assert!((PARADROP_RADIUS_CURSOR - 50.0).abs() < 0.01);
+        assert!(PARADROP_SHARED_SYNCED_TIMER);
     }
 }

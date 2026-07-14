@@ -14,6 +14,14 @@
 //!   - **Fake building** (`FS_FAKE`): kill structure (unresistable residual)
 //! - On success saboteur is consumed (C++ CrateCollide destroyObject).
 //!
+//! Wave 70 residual pack (retail GLAInfantry.ini sabotage crate modules):
+//! - Effect residual: Power/Military SabotageDuration **30000**ms → **900**f,
+//!   Internet **15000**ms → **450**f, StealCashAmount **1000**.
+//! - Body residual: MaxHealth **120**, Vision **150**/Shroud **300**, BuildCost **800**,
+//!   BuildTime **15**s → **450**f, slots **1**, Geometry CYLINDER **10**/**12**,
+//!   Speed **30**/Damaged **20**, IsTrainable **No**, StealthDelay **2500**ms → **75**f.
+//! - Honesty: `honesty_saboteur_residual_pack_ok` + layer honesty tests.
+//!
 //! Fail-closed honesty:
 //! - Not full BuildingPickup CrateCollide goal-object gate edge matrix
 //! - Not full EVA / floating-text / radar infiltration FX matrix
@@ -34,6 +42,42 @@ pub const SABOTEUR_MILITARY_DURATION_FRAMES: u32 = 900;
 pub const SABOTEUR_INTERNET_DURATION_FRAMES: u32 = 450;
 /// Retail Supply Center StealCashAmount.
 pub const SABOTEUR_STEAL_CASH_AMOUNT: u32 = 1000;
+/// Retail SabotagePowerDuration residual (msec).
+pub const SABOTEUR_POWER_DURATION_MS: u32 = 30_000;
+/// Retail military factory SabotageDuration residual (msec).
+pub const SABOTEUR_MILITARY_DURATION_MS: u32 = 30_000;
+/// Retail Internet Center SabotageDuration residual (msec).
+pub const SABOTEUR_INTERNET_DURATION_MS: u32 = 15_000;
+/// Retail MaxHealth residual.
+pub const SABOTEUR_MAX_HEALTH: f32 = 120.0;
+/// Retail VisionRange residual.
+pub const SABOTEUR_VISION_RANGE: f32 = 150.0;
+/// Retail ShroudClearingRange residual.
+pub const SABOTEUR_SHROUD_CLEARING_RANGE: f32 = 300.0;
+/// Retail BuildCost residual.
+pub const SABOTEUR_BUILD_COST: u32 = 800;
+/// Retail BuildTime residual (seconds).
+pub const SABOTEUR_BUILD_TIME_SEC: f32 = 15.0;
+/// BuildTime 15s → 450 frames @ 30 FPS.
+pub const SABOTEUR_BUILD_TIME_FRAMES: u32 = 450;
+/// Retail TransportSlotCount residual.
+pub const SABOTEUR_TRANSPORT_SLOT_COUNT: u32 = 1;
+/// Retail Geometry CYLINDER MajorRadius residual.
+pub const SABOTEUR_GEOMETRY_RADIUS: f32 = 10.0;
+/// Retail GeometryHeight residual.
+pub const SABOTEUR_GEOMETRY_HEIGHT: f32 = 12.0;
+/// Retail SaboteurGroundLocomotor Speed residual.
+pub const SABOTEUR_LOCOMOTOR_SPEED: f32 = 30.0;
+/// Retail SaboteurGroundLocomotor SpeedDamaged residual.
+pub const SABOTEUR_LOCOMOTOR_SPEED_DAMAGED: f32 = 20.0;
+/// Retail ExperienceValue residual.
+pub const SABOTEUR_EXPERIENCE_VALUE: [u32; 4] = [15, 15, 30, 40];
+/// Retail IsTrainable residual (Saboteur cannot gain XP).
+pub const SABOTEUR_IS_TRAINABLE: bool = false;
+/// Retail StealthUpdate StealthDelay residual (msec) — innate stealth residual.
+pub const SABOTEUR_STEALTH_DELAY_MS: u32 = 2_500;
+/// StealthDelay 2500ms → 75 frames @ 30 FPS.
+pub const SABOTEUR_STEALTH_DELAY_FRAMES: u32 = 75;
 
 /// Residual audio when sabotage succeeds (building sabotaged cue).
 pub const SABOTEUR_SUCCESS_AUDIO: &str = "BuildingSabotaged";
@@ -317,6 +361,70 @@ pub fn internet_disable_until_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(SABOTEUR_INTERNET_DURATION_FRAMES)
 }
 
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn saboteur_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * SABOTEUR_LOGIC_FPS / 1000.0).round() as u32
+}
+
+// --- Wave 70 residual honesty packs ---
+
+/// Wave 70 residual honesty: Saboteur effect durations / cash residual peel.
+pub fn honesty_saboteur_effect_residual_ok() -> bool {
+    SABOTEUR_POWER_DURATION_MS == 30_000
+        && SABOTEUR_POWER_DURATION_FRAMES == saboteur_ms_to_frames(SABOTEUR_POWER_DURATION_MS)
+        && SABOTEUR_POWER_DURATION_FRAMES == 900
+        && SABOTEUR_MILITARY_DURATION_MS == 30_000
+        && SABOTEUR_MILITARY_DURATION_FRAMES
+            == saboteur_ms_to_frames(SABOTEUR_MILITARY_DURATION_MS)
+        && SABOTEUR_MILITARY_DURATION_FRAMES == 900
+        && SABOTEUR_INTERNET_DURATION_MS == 15_000
+        && SABOTEUR_INTERNET_DURATION_FRAMES
+            == saboteur_ms_to_frames(SABOTEUR_INTERNET_DURATION_MS)
+        && SABOTEUR_INTERNET_DURATION_FRAMES == 450
+        && SABOTEUR_STEAL_CASH_AMOUNT == 1_000
+        && SaboteurEffectKind::SupplyCenter.steals_cash()
+        && SaboteurEffectKind::FakeBuilding.destroys_target()
+        && SaboteurEffectKind::SuperweaponOrCommand.resets_special_power()
+        && SaboteurEffectKind::MilitaryFactory.disabled_hacked_until(0) == Some(900)
+        && SaboteurEffectKind::InternetCenter.disabled_hacked_until(0) == Some(450)
+        && SaboteurEffectKind::PowerPlant.power_sabotage_until(0) == Some(900)
+        && SABOTEUR_SUCCESS_AUDIO == "BuildingSabotaged"
+        && SABOTEUR_CASH_STEAL_AUDIO == "MoneyWithdrawSound"
+        && SABOTEUR_RESET_TIMER_AUDIO == "SabotageResetTimerBuilding"
+}
+
+/// Wave 70 residual honesty: Saboteur body residual peel.
+pub fn honesty_saboteur_body_residual_ok() -> bool {
+    (SABOTEUR_MAX_HEALTH - 120.0).abs() < 0.01
+        && (SABOTEUR_VISION_RANGE - 150.0).abs() < 0.01
+        && (SABOTEUR_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && SABOTEUR_BUILD_COST == 800
+        && (SABOTEUR_BUILD_TIME_SEC - 15.0).abs() < 0.01
+        && SABOTEUR_BUILD_TIME_FRAMES
+            == (SABOTEUR_BUILD_TIME_SEC * SABOTEUR_LOGIC_FPS).round() as u32
+        && SABOTEUR_BUILD_TIME_FRAMES == 450
+        && SABOTEUR_TRANSPORT_SLOT_COUNT == 1
+        && (SABOTEUR_GEOMETRY_RADIUS - 10.0).abs() < 0.01
+        && (SABOTEUR_GEOMETRY_HEIGHT - 12.0).abs() < 0.01
+        && (SABOTEUR_LOCOMOTOR_SPEED - 30.0).abs() < 0.01
+        && (SABOTEUR_LOCOMOTOR_SPEED_DAMAGED - 20.0).abs() < 0.01
+        && SABOTEUR_EXPERIENCE_VALUE == [15, 15, 30, 40]
+        && !SABOTEUR_IS_TRAINABLE
+        && SABOTEUR_STEALTH_DELAY_MS == 2_500
+        && SABOTEUR_STEALTH_DELAY_FRAMES == saboteur_ms_to_frames(SABOTEUR_STEALTH_DELAY_MS)
+        && SABOTEUR_STEALTH_DELAY_FRAMES == 75
+        && is_saboteur_template("GLAInfantrySaboteur")
+}
+
+/// Combined Wave 70 Saboteur residual honesty pack.
+pub fn honesty_saboteur_residual_pack_ok() -> bool {
+    honesty_saboteur_effect_residual_ok() && honesty_saboteur_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +521,18 @@ mod tests {
             SaboteurEffectKind::MilitaryFactory.disabled_hacked_until(5),
             Some(905)
         );
+    }
+
+    #[test]
+    fn saboteur_residual_pack_honesty_wave70() {
+        assert!(honesty_saboteur_effect_residual_ok());
+        assert!(honesty_saboteur_body_residual_ok());
+        assert!(honesty_saboteur_residual_pack_ok());
+        assert_eq!(saboteur_ms_to_frames(30_000), 900);
+        assert_eq!(saboteur_ms_to_frames(15_000), 450);
+        assert_eq!(saboteur_ms_to_frames(2_500), 75);
+        assert_eq!(SABOTEUR_BUILD_TIME_FRAMES, 450);
+        assert_eq!(SABOTEUR_STEAL_CASH_AMOUNT, 1_000);
+        assert!(!SABOTEUR_IS_TRAINABLE);
     }
 }

@@ -9,6 +9,15 @@
 //!   LeafletDropBehavior::doDisableAttack setDisabledUntil(DISABLED_EMP, ...).
 //! - Honesty counters/flags for residual gates and tests.
 //!
+//! Wave 70 residual pack (retail SpecialPower.ini / WeaponObjects.ini / OCL):
+//! - Special power residual: SuperweaponLeafletDrop ReloadTime **300000**ms → **9000**f,
+//!   RadiusCursor **110**, ViewObjectDuration **30000**ms → **900**f / Range **250**,
+//!   RequiredScience **SCIENCE_LeafletDrop**, SharedSyncedTimer **Yes**.
+//! - Container residual: Delay **2500**ms → **75**f, DisabledDuration **20000**ms → **600**f,
+//!   AffectRadius **110**, MaxHealth **100**, Geometry radius **30**,
+//!   LeafletFX **LeafletParticles1**.
+//! - Honesty: `honesty_leaflet_drop_residual_pack_ok` + layer honesty tests.
+//!
 //! Fail-closed honesty:
 //! - Not full OCL AmericaJetB52 / LeafletContainer drawable / LeafletFX particles
 //! - Not full relationship matrix beyond residual enemy-team filter
@@ -37,6 +46,37 @@ pub const LEAFLET_DELAY_FRAMES: u32 = (LEAFLET_DELAY_MS * 30) / 1000;
 pub const LEAFLET_DISABLED_DURATION_MS: u32 = 20_000;
 /// DISABLED_EMP residual duration after leaflets hit.
 pub const LEAFLET_DISABLED_DURATION_FRAMES: u32 = (LEAFLET_DISABLED_DURATION_MS * 30) / 1000;
+
+/// Retail SuperweaponLeafletDrop ReloadTime residual (msec).
+pub const LEAFLET_RELOAD_MS: u32 = 300_000;
+/// ReloadTime 300000ms → 9000 frames @ 30 FPS.
+pub const LEAFLET_RELOAD_FRAMES: u32 = 9_000;
+/// Retail SuperweaponLeafletDrop Enum residual.
+pub const LEAFLET_SPECIAL_POWER: &str = "SuperweaponLeafletDrop";
+/// Retail Enum SPECIAL_LEAFLET_DROP residual.
+pub const LEAFLET_SPECIAL_ENUM: &str = "SPECIAL_LEAFLET_DROP";
+/// Retail RequiredScience residual.
+pub const LEAFLET_REQUIRED_SCIENCE: &str = "SCIENCE_LeafletDrop";
+/// Retail ViewObjectDuration residual (msec).
+pub const LEAFLET_VIEW_OBJECT_DURATION_MS: u32 = 30_000;
+/// ViewObjectDuration 30000ms → 900 frames.
+pub const LEAFLET_VIEW_OBJECT_DURATION_FRAMES: u32 = 900;
+/// Retail ViewObjectRange residual.
+pub const LEAFLET_VIEW_OBJECT_RANGE: f32 = 250.0;
+/// Retail SharedSyncedTimer residual.
+pub const LEAFLET_SHARED_SYNCED_TIMER: bool = true;
+/// Retail ShortcutPower residual.
+pub const LEAFLET_SHORTCUT_POWER: bool = true;
+/// Retail LeafletContainer MaxHealth residual.
+pub const LEAFLET_CONTAINER_MAX_HEALTH: f32 = 100.0;
+/// Retail LeafletContainer GeometryMajorRadius residual.
+pub const LEAFLET_CONTAINER_GEOMETRY_RADIUS: f32 = 30.0;
+/// Retail SUPERWEAPON_LeafletDrop OCL residual.
+pub const LEAFLET_OCL: &str = "SUPERWEAPON_LeafletDrop";
+/// Retail AmericaJetB52 transport residual.
+pub const LEAFLET_TRANSPORT: &str = "AmericaJetB52";
+/// Retail LeafletDropBehavior LeafletFXParticleSystem residual.
+pub const LEAFLET_FX_PARTICLE: &str = "LeafletParticles1";
 
 /// Activate audio residual (SoundEffects.ini LeafletDrop).
 pub const LEAFLET_ACTIVATE_AUDIO: &str = "LeafletDrop";
@@ -331,6 +371,63 @@ impl HostLeafletDropRegistry {
     }
 }
 
+
+/// Convert msec residual → logic frames @ 30 FPS (round half-up).
+pub fn leaflet_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * LEAFLET_LOGIC_FPS / 1000.0).round() as u32
+}
+
+// --- Wave 70 residual honesty packs ---
+
+/// Wave 70 residual honesty: SuperweaponLeafletDrop special-power residual peel.
+pub fn honesty_leaflet_drop_special_power_residual_ok() -> bool {
+    LEAFLET_SPECIAL_POWER == "SuperweaponLeafletDrop"
+        && LEAFLET_SPECIAL_ENUM == "SPECIAL_LEAFLET_DROP"
+        && LEAFLET_REQUIRED_SCIENCE == "SCIENCE_LeafletDrop"
+        && LEAFLET_RELOAD_MS == 300_000
+        && LEAFLET_RELOAD_FRAMES == leaflet_ms_to_frames(LEAFLET_RELOAD_MS)
+        && LEAFLET_RELOAD_FRAMES == 9_000
+        && (HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01
+        && LEAFLET_VIEW_OBJECT_DURATION_MS == 30_000
+        && LEAFLET_VIEW_OBJECT_DURATION_FRAMES
+            == leaflet_ms_to_frames(LEAFLET_VIEW_OBJECT_DURATION_MS)
+        && LEAFLET_VIEW_OBJECT_DURATION_FRAMES == 900
+        && (LEAFLET_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
+        && LEAFLET_SHARED_SYNCED_TIMER
+        && LEAFLET_SHORTCUT_POWER
+        && LEAFLET_OCL == "SUPERWEAPON_LeafletDrop"
+        && LEAFLET_TRANSPORT == "AmericaJetB52"
+}
+
+/// Wave 70 residual honesty: LeafletContainer behavior residual peel.
+pub fn honesty_leaflet_drop_container_residual_ok() -> bool {
+    LEAFLET_DELAY_MS == 2_500
+        && LEAFLET_DELAY_FRAMES == leaflet_ms_to_frames(LEAFLET_DELAY_MS)
+        && LEAFLET_DELAY_FRAMES == 75
+        && LEAFLET_DISABLED_DURATION_MS == 20_000
+        && LEAFLET_DISABLED_DURATION_FRAMES
+            == leaflet_ms_to_frames(LEAFLET_DISABLED_DURATION_MS)
+        && LEAFLET_DISABLED_DURATION_FRAMES == 600
+        && (HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01
+        && (LEAFLET_CONTAINER_MAX_HEALTH - 100.0).abs() < 0.01
+        && (LEAFLET_CONTAINER_GEOMETRY_RADIUS - 30.0).abs() < 0.01
+        && LEAFLET_FX_PARTICLE == "LeafletParticles1"
+        && LEAFLET_ACTIVATE_AUDIO == "LeafletDrop"
+        && LEAFLET_IMPACT_AUDIO == "LeafletDropEffect"
+        && is_legal_leaflet_disable_target(true, false, true, true, false)
+        && is_legal_leaflet_disable_target(false, true, true, true, false)
+        && !is_legal_leaflet_disable_target(false, false, true, true, false)
+}
+
+/// Combined Wave 70 Leaflet Drop residual honesty pack.
+pub fn honesty_leaflet_drop_residual_pack_ok() -> bool {
+    honesty_leaflet_drop_special_power_residual_ok()
+        && honesty_leaflet_drop_container_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +511,19 @@ mod tests {
     fn radius_filter() {
         assert!(in_leaflet_radius_2d((0.0, 0.0), (110.0, 0.0), 110.0));
         assert!(!in_leaflet_radius_2d((0.0, 0.0), (111.0, 0.0), 110.0));
+    }
+
+    #[test]
+    fn leaflet_drop_residual_pack_honesty_wave70() {
+        assert!(honesty_leaflet_drop_special_power_residual_ok());
+        assert!(honesty_leaflet_drop_container_residual_ok());
+        assert!(honesty_leaflet_drop_residual_pack_ok());
+        assert_eq!(leaflet_ms_to_frames(300_000), 9_000);
+        assert_eq!(leaflet_ms_to_frames(2_500), 75);
+        assert_eq!(leaflet_ms_to_frames(20_000), 600);
+        assert_eq!(LEAFLET_SPECIAL_POWER, "SuperweaponLeafletDrop");
+        assert_eq!(LEAFLET_REQUIRED_SCIENCE, "SCIENCE_LeafletDrop");
+        assert!((HOST_LEAFLET_RADIUS - 110.0).abs() < 0.01);
+        assert!(LEAFLET_SHARED_SYNCED_TIMER);
     }
 }
