@@ -1,3 +1,101 @@
+## Residual Host Playability — Wave 83: production/supply/dozer/capture/power/command residual peels (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal structure/economy residual):**
+1. **Production queue residual deepen** (`host_structure_economy_residual`):
+   - ProductionUpdate MaxQueueEntries **9** (matches `DEFAULT_PRODUCTION_QUEUE_LIMIT`).
+   - GameData.ini RefundPercent **50%**, Min/MaxLowEnergyProductionSpeed **0.5/0.8**,
+     LowEnergyPenaltyModifier **1.0**, MultipleFactory **1.0**, BuildSpeed **1.0**.
+   - USA CC door residual Opening/Wait/Close **1500/3000/1500**ms → **45/90/45**f;
+     China CC door **3000/3000/3000**ms → **90/90/90**f; ConstructionComplete **1500**ms → **45**f.
+   - `production_power_factor_from_energy_ratio` + cancel-refund helpers.
+   - Honesty: `honesty_production_queue_residual_pack_wave83`.
+2. **Supply warehouse residual deepen**:
+   - SupplyWarehouse StartingBoxes **400**, ApproachPositions **9**, MaxHealth **1000**.
+   - SupplyDock **400** boxes / Approach **-1**; SupplyPile **150**/5 + DeleteWhenEmpty;
+     SupplyPileSmall **50** + DeleteWhenEmpty.
+   - GameData ValuePerSupplyBox **75** (ZH retail override of C++ default 100).
+   - CripplingBehavior SelfHealSupression **3000**ms→**90**f / Delay **500**ms→**15**f / Amount **5**.
+   - Cash/box helpers + take-one-box empty-destroy residual.
+   - Honesty: `honesty_supply_warehouse_residual_pack_wave83`.
+3. **Dozer build residual deepen**:
+   - AmericaDozer BuildCost **1000** / BuildTime **5**s→**150**f / MaxHealth **250** /
+     Vision **200** / TransportSlotCount **5**.
+   - DozerAIUpdate RepairHealthPercent **2%**, BoredTime **5000**ms→**150**f, BoredRange **150**.
+   - DozerTask ordinals BUILD/REPAIR/FORTIFY **0/1/2**; BuildSubTask residual ordinals.
+   - GameData MinDistFromEdge **30**, SupplyBuildBorder **20**, AllowedHeightVariation **10**,
+     MaxLineBuildObjects **50**.
+   - Construction progress residual: `1/build_time * dozers * power * BuildSpeed`.
+   - Honesty: `honesty_dozer_build_residual_pack_wave83`.
+4. **Capture building residual deepen**:
+   - SpecialAbilityRangerCaptureBuilding / SPECIAL_INFANTRY_CAPTURE_BUILDING.
+   - Reload **15000**ms→**450**f, StartAbilityRange **5**, Unpack **3000**ms→**90**f,
+     Prep **20000**ms→**600**f, Pack **2000**ms→**60**f, AwardXP **15**, DoCaptureFX **Yes**.
+   - Upgrade_InfantryCaptureBuilding gate + hero bypass residual legality matrix.
+   - CommandButton CaptureBuilding / SSCaptureBuilding / CONTROLBAR:CaptureBuilding.
+   - Honesty: `honesty_capture_building_residual_pack_wave83`.
+5. **Power plant residual energy residual**:
+   - AmericaPowerPlant EnergyProduction **5** / EnergyBonus **5** / BuildCost **800** /
+     BuildTime **10**s / MaxHealth **800** / RodsExtendTime **600**ms→**18**f.
+   - ChinaPowerPlant EnergyProduction **10** / EnergyBonus **5** / BuildCost **1000** /
+     MaxHealth **1500** / RodsExtend **1**ms→**1**f / Overcharge drain **3%**/sec.
+   - Upgrade_AmericaAdvancedControlRods residual; effective energy = base + bonus when upgraded.
+   - Honesty: `honesty_power_plant_residual_pack_wave83`.
+6. **Command center residual peels**:
+   - America/China/GLA CommandCenter BuildCost **2000** / BuildTime **45**s→**1350**f /
+     EnergyProduction **0** / MaxHealth **5000** / Vision **300** / XP **200**.
+   - KindOf residual tokens (COMMANDCENTER/FS_FACTORY/AUTO_RALLYPOINT/…).
+   - GameData CommandCenterHealRange **500** / HealAmount **0.01** per logic frame.
+   - USA radar grant Upgrade_AmericaRadar residual name.
+   - Honesty: `honesty_command_center_residual_pack_wave83`.
+7. Tests / gates:
+   - shell_smoke: prod83/supply83/dozer83/capture83/power83/cc83 honesty flags wired
+     (playable_claim stays false)
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+     prod83=true supply83=true dozer83=true capture83=true power83=true cc83=true
+
+**Still residual (fail-closed, not claimed):**
+- Full ProductionUpdate door-anim / QuantityModifier / parking-place matrix
+- Full SupplyWarehouseDockUpdate approach-bone path / ResourceGatheringManager graph
+- Full DozerAIUpdate primary state machine / construct scaffolding / fortify
+- Full CaptureBuilding BinaryDataStream / ActionManager edge matrix
+- Full PowerPlantUpgrade MODELCONDITION rod draw / OverchargeBehavior live drain
+- Full CommandCenter radar-extend anim / PreorderCreate / heal update loop wiring
+- Shell `playable_claim` remains false (no windowed W3D retail claim)
+- Network residual replication (network deferred)
+
+## Residual Host Playability — Wave 82: DamageType/DeathType/ModelCondition/WeaponBonus/ObjectStatus enum residual tables (2026-07-13)
+
+**Closed (host-testable residual peels; orthogonal enum/bit-name tables):**
+1. **DamageType residual enum table** (`host_enum_table_residual`):
+   - C++ DamageTypeFlags::s_bitNameList residual; DAMAGE_NUM_TYPES **38**.
+   - Honesty: `honesty_damage_type_enum_table_wave82`.
+2. **DeathType residual enum table**:
+   - DEFINE_DEATH_NAMES residual; DEATH_NUM_TYPES **21**.
+   - Honesty: `honesty_death_type_enum_table_wave82`.
+3. **ModelCondition residual flags**:
+   - ModelConditionFlags::s_bitNameList residual; MODELCONDITION_COUNT **117**
+     (ALLOW_SURRENDER off — no SURRENDER bit between SOLD and RAPPELLING).
+   - CONTINUOUS_FIRE_* residual names frozen.
+   - Honesty: `honesty_model_condition_enum_table_wave82`.
+4. **WeaponBonus residual type table**:
+   - TheWeaponBonusNames residual (ALLOW_DEMORALIZE off); COUNT **27**.
+   - Honesty: `honesty_weapon_bonus_enum_table_wave82`.
+5. **ObjectStatus residual table**:
+   - ObjectStatusMaskType::s_bitNameList residual; COUNT **45**.
+   - Honesty: `honesty_object_status_enum_table_wave82`.
+6. Tests / gates:
+   - shell_smoke: dmg82/death82/mc82/wbonus82/ostatus82 honesty flags wired
+     (playable_claim stays false)
+   - Combined honesty: `honesty_enum_table_residual_pack_wave82`
+
+**Still residual (fail-closed, not claimed):**
+- Full armor/weapon combat application of every discriminant
+- Full W3D MODELCONDITION anim draw matrix
+- Full ObjectStatus Xfer rebind / StatusBitsUpgrade matrix
+- Shell `playable_claim` remains false
+- Network residual (deferred)
+
 ## Residual Host Playability — Wave 81: terrain/pathfinder/locomotor/armor/PUC residual peels (2026-07-13)
 
 **Closed (host-testable residual peels; orthogonal to Wave 80 command-button/science):**

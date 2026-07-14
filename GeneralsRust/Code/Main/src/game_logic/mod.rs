@@ -61,6 +61,8 @@ pub mod host_overlord_addons;
 pub mod host_overlord_gun;
 pub mod host_paradrop;
 pub mod host_armor_residual;
+pub mod host_enum_table_residual;
+pub mod host_structure_economy_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -201,6 +203,17 @@ pub use host_cash_bounty::{
 pub use host_command_button_residual::honesty_command_button_superweapon_residual_pack_wave80;
 pub use host_science_rank::honesty_science_rank_residual_pack_wave80;
 pub use host_special_power_enum_residual::honesty_special_power_enum_residual_pack_wave80;
+pub use host_enum_table_residual::{
+    honesty_damage_type_enum_table_wave82, honesty_death_type_enum_table_wave82,
+    honesty_enum_table_residual_pack_wave82, honesty_model_condition_enum_table_wave82,
+    honesty_object_status_enum_table_wave82, honesty_weapon_bonus_enum_table_wave82,
+};
+pub use host_structure_economy_residual::{
+    honesty_capture_building_residual_pack_wave83, honesty_command_center_residual_pack_wave83,
+    honesty_dozer_build_residual_pack_wave83, honesty_power_plant_residual_pack_wave83,
+    honesty_production_queue_residual_pack_wave83, honesty_structure_economy_residual_pack_wave83,
+    honesty_supply_warehouse_residual_pack_wave83,
+};
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
     HostCiaIntelligence, HostCiaIntelligenceRegistry, HostCiaIntelligenceSpiedUnit,

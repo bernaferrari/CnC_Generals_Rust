@@ -55,10 +55,23 @@ fn main() {
         && r.pathfinder_wave81_residual_ok
         && r.locomotor_table_wave81_ok
         && r.armor_table_wave81_ok
-        && r.puc_flare_table_wave81_ok;
+        && r.puc_flare_table_wave81_ok
+        // Wave 82 residual honesty (enum/bit-name tables; never flips playable_claim).
+        && r.damage_type_wave82_ok
+        && r.death_type_wave82_ok
+        && r.model_condition_wave82_ok
+        && r.weapon_bonus_wave82_ok
+        && r.object_status_wave82_ok
+        // Wave 83 residual honesty (structure/economy residual; never flips playable_claim).
+        && r.production_queue_wave83_ok
+        && r.supply_warehouse_wave83_ok
+        && r.dozer_build_wave83_ok
+        && r.capture_building_wave83_ok
+        && r.power_plant_wave83_ok
+        && r.command_center_wave83_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -102,6 +115,17 @@ fn main() {
             r.locomotor_table_wave81_ok,
             r.armor_table_wave81_ok,
             r.puc_flare_table_wave81_ok,
+            r.damage_type_wave82_ok,
+            r.death_type_wave82_ok,
+            r.model_condition_wave82_ok,
+            r.weapon_bonus_wave82_ok,
+            r.object_status_wave82_ok,
+            r.production_queue_wave83_ok,
+            r.supply_warehouse_wave83_ok,
+            r.dozer_build_wave83_ok,
+            r.capture_building_wave83_ok,
+            r.power_plant_wave83_ok,
+            r.command_center_wave83_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );
