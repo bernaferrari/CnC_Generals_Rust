@@ -108,10 +108,23 @@ fn main() {
         && r.hotkey_wave89_ok
         && r.chat_wave89_ok
         && r.replay_wave89_ok
-        && r.options_wave89_ok;
+        && r.options_wave89_ok
+        // Wave 90 residual honesty (gamespeed/framerate/debug/language/credits; never flips playable_claim).
+        && r.gamespeed_wave90_ok
+        && r.frame_rate_wave90_ok
+        && r.debug_tables_wave90_ok
+        && r.language_wave90_ok
+        && r.credits_wave90_ok
+        // Wave 91 residual honesty (tooltip/helpbox/message/eva/video/briefing; never flips playable_claim).
+        && r.tooltip_wave91_ok
+        && r.help_box_wave91_ok
+        && r.message_wave91_ok
+        && r.eva_wave91_ok
+        && r.video_wave91_ok
+        && r.mission_briefing_wave91_ok;
     if pass {
         println!(
-            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} radius88={} mouse88={} fxlist88={} ocl88={} particle88={} audio88={} rank89={} exp89={} hotkey89={} chat89={} replay89={} options89={} screen={} map_loaded={})",
+            "shell_smoke_gate: PASS (playable_claim={} shell_host_playable_ok={} control_bar={} cb_valid={} cb_loaded={} cb_windows={} dual_tick={} hud_sel={} sel_consumers={} minimap_fow={} laser_upload={} mesh={} sp72={} sp73={} sp76={} paradrop76={} cb76={} gfx76={} spectre_decal={} sp77={} fow77={} gh77={} weapon77={} ai77={} sp78={} cluster78={} gps78={} cash78={} minimap79={} sel79={} input79={} draw79={} train79={} upg79={} cmdbtn80={} rank80={} kindof80={} spenum80={} height81={} path81={} loco81={} armor81={} puc81={} dmg82={} death82={} mc82={} wbonus82={} ostatus82={} prod83={} supply83={} dozer83={} capture83={} power83={} cc83={} kindof84={} wslot84={} vet84={} rel84={} geom84={} shadow84={} faction85={} ptpl85={} cash85={} aiperson85={} victory85={} cam86={} world86={} mpopt86={} mapsel86={} crate86={} weather87={} water87={} bridge87={} tunnel87={} garrison87={} transport87={} radius88={} mouse88={} fxlist88={} ocl88={} particle88={} audio88={} rank89={} exp89={} hotkey89={} chat89={} replay89={} options89={} gamespeed90={} framerate90={} debug90={} lang90={} credits90={} tooltip91={} helpbox91={} message91={} eva91={} video91={} briefing91={} screen={} map_loaded={})",
             r.playable_claim,
             r.shell_host_playable_ok,
             r.control_bar_layout_ok,
@@ -200,6 +213,17 @@ fn main() {
             r.chat_wave89_ok,
             r.replay_wave89_ok,
             r.options_wave89_ok,
+            r.gamespeed_wave90_ok,
+            r.frame_rate_wave90_ok,
+            r.debug_tables_wave90_ok,
+            r.language_wave90_ok,
+            r.credits_wave90_ok,
+            r.tooltip_wave91_ok,
+            r.help_box_wave91_ok,
+            r.message_wave91_ok,
+            r.eva_wave91_ok,
+            r.video_wave91_ok,
+            r.mission_briefing_wave91_ok,
             r.screen_skirmish_ok,
             r.map_loaded
         );

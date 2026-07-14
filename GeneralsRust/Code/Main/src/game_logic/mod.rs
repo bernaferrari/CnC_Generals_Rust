@@ -68,6 +68,8 @@ pub mod host_gamedata_lobby_residual;
 pub mod host_env_contain_residual;
 pub mod host_rank_ui_residual;
 pub mod host_fx_audio_cursor_residual;
+pub mod host_ui_presentation_residual;
+pub mod host_timing_shell_residual;
 pub mod host_pathfinder;
 pub mod host_point_defense;
 pub mod host_propaganda;
@@ -250,6 +252,17 @@ pub use host_fx_audio_cursor_residual::{
     honesty_radius_cursor_name_table_wave88, honesty_superweapon_audio_event_name_table_wave88,
     honesty_superweapon_fxlist_name_table_wave88, honesty_superweapon_ocl_name_table_wave88,
     honesty_superweapon_particle_name_table_wave88,
+};
+pub use host_ui_presentation_residual::{
+    honesty_eva_residual_pack_wave91, honesty_help_box_residual_pack_wave91,
+    honesty_message_residual_pack_wave91, honesty_mission_briefing_residual_pack_wave91,
+    honesty_tooltip_residual_pack_wave91, honesty_ui_presentation_residual_pack_wave91,
+    honesty_video_residual_name_table_wave91,
+};
+pub use host_timing_shell_residual::{
+    honesty_credits_residual_pack_wave90, honesty_debug_residual_tables_pack_wave90,
+    honesty_frame_rate_residual_deepen_pack_wave90, honesty_gamespeed_residual_pack_wave90,
+    honesty_language_residual_deepen_pack_wave90, honesty_timing_shell_residual_pack_wave90,
 };
 pub use host_superweapon_kindof::honesty_superweapon_kindof_residual_pack_wave80;
 pub use host_cia_intelligence::{
