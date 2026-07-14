@@ -123,7 +123,7 @@ fn kill_stale_runtime_host_generals(exe: &Path) {
                 .stderr(std::process::Stdio::null())
                 .status();
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(800));
     }
     let _ = exe;
 }

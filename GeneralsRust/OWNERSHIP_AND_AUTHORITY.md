@@ -4,16 +4,27 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
-## Authoritative simulation
+## Authoritative simulation (production surface, 2026-07-14)
 
 ```
-OS input → normalized commands → Main GameLogic (30 Hz, temporary host)
-  → PresentationFrame (immutable) → GameClient / audio / renderer
+OS input → normalized commands → Main GameLogic (30 Hz host sim)
+  → host_* logs (damage/economy/spawn/destroy/attack)
+  → GameWorldShadow session (always-on) → WorldMutations last-writer
+  → host writeback (HP/cash) → PresentationFrame + shadow overlay
+  → GameClient / audio / renderer
 ```
 
-- **Default**: single Main `GameLogic` authority (`authoritative_world::dual_tick_policy` → `AuthorityOnly`).
-- Dual `gamelogic` crate tick is **opt-in** (`GENERALS_ALLOW_DUAL_TICK` only).
-- Target end state: `gamelogic` crate `GameWorld` becomes host; Main shrinks to composition root.
+| Concern | Production default | Opt out |
+|---------|-------------------|---------|
+| Dual `gamelogic` crate tick | **off** (`AuthorityOnly`) | `GENERALS_ALLOW_DUAL_TICK` |
+| Shadow session | **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
+| HP last-writer (damage auth) | **on** | `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` |
+| Cash last-writer (economy auth) | **on** | `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=0` |
+| `engine_object_id` bridge | **off** unless dual/bridge env | `GENERALS_BRIDGE_ENGINE_OBJECTS` |
+| Full `GameClient::update()` | **not** called (Main owns input/audio) | — |
+
+- Target end state: `gamelogic::GameWorld` sole host; Main = composition root only.
+- Current honesty: Main still owns mid-frame AI/path/combat *execution*; GameWorld is last-writer for HP/cash/pose/targets + presentation overlay.
 
 ## Ownership rules
 
