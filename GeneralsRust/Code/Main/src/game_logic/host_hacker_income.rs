@@ -416,6 +416,98 @@ impl HostHackerIncomeRegistry {
     }
 }
 
+
+// --- Wave 69 residual honesty peels (retail HackInternet / body / floating text) ---
+
+/// Retail unpack residual (msec) — honesty peel only (host skips anim matrix).
+pub const HACKER_UNPACK_TIME_MS: u32 = 7_300;
+/// Retail pack residual (msec).
+pub const HACKER_PACK_TIME_MS: u32 = 5_133;
+/// Retail PackUnpackVariationFactor residual.
+pub const HACKER_PACK_UNPACK_VARIATION: f32 = 0.5;
+
+/// Retail ChinaInfantryHacker body residual.
+pub const HACKER_MAX_HEALTH: f32 = 100.0;
+pub const HACKER_BUILD_COST: u32 = 625;
+pub const HACKER_BUILD_TIME_SEC: f32 = 20.0;
+pub const HACKER_BUILD_TIME_FRAMES: u32 = 600;
+pub const HACKER_VISION_RANGE: f32 = 150.0;
+pub const HACKER_SHROUD_CLEARING_RANGE: f32 = 300.0;
+pub const HACKER_TRANSPORT_SLOT_COUNT: u32 = 1;
+
+/// Wave 69 residual honesty: HackInternet cash residual peel.
+pub fn honesty_hacker_income_cash_residual_ok() -> bool {
+    HACKER_CASH_UPDATE_DELAY_MS == 2_000
+        && HACKER_CASH_UPDATE_DELAY_FAST_MS == 1_800
+        && HACKER_CASH_INTERVAL_FRAMES
+            == cash_interval_frames_from_ms(HACKER_CASH_UPDATE_DELAY_MS)
+        && HACKER_CASH_INTERVAL_FRAMES == 60
+        && HACKER_CASH_INTERVAL_FAST_FRAMES
+            == cash_interval_frames_from_ms(HACKER_CASH_UPDATE_DELAY_FAST_MS)
+        && HACKER_CASH_INTERVAL_FAST_FRAMES == 54
+        && HACKER_CASH_REGULAR == 5
+        && HACKER_CASH_VETERAN == 6
+        && HACKER_CASH_ELITE == 8
+        && HACKER_CASH_HEROIC == 10
+        && (HACKER_XP_PER_CASH_UPDATE - 1.0).abs() < 0.01
+        && cash_amount_for_level(VeterancyLevel::Rookie) == 5
+        && cash_amount_for_level(VeterancyLevel::Heroic) == 10
+        && cash_interval_frames(false) == 60
+        && cash_interval_frames(true) == 54
+        && HACKER_CASH_PING_AUDIO == "HackerCashPing"
+        && HACKER_UNPACK_TIME_MS == 7_300
+        && HACKER_PACK_TIME_MS == 5_133
+        && (HACKER_PACK_UNPACK_VARIATION - 0.5).abs() < 0.01
+}
+
+/// Wave 69 residual honesty: floating cash text residual peel.
+pub fn honesty_hacker_income_floating_text_residual_ok() -> bool {
+    HostHackerIncomeRegistry::honesty_floating_text_constants_ok()
+        && HACKER_FLOATING_TEXT_ADD_CASH_KEY == "GUI:AddCash"
+        && (HACKER_FLOATING_TEXT_Z_OFFSET - 20.0).abs() < 0.01
+        && HACKER_FLOATING_TEXT_COLOR_RGBA == (0, 255, 0, 255)
+        && (HACKER_IC_FLOATING_TEXT_SCATTER_SCALE - 0.3).abs() < 0.001
+        && {
+            let ft = HostHackerFloatingText::new(
+                ObjectId(1),
+                glam::Vec3::ZERO,
+                5,
+                0,
+                false,
+            );
+            ft.text == "+$5"
+                && ft.text_key == "GUI:AddCash"
+                && (ft.position.y - 20.0).abs() < 0.01
+        }
+        && should_display_hacker_floating_cash(true, false, true, false, false, false, false)
+        && !should_display_hacker_floating_cash(true, false, false, false, false, false, false)
+}
+
+/// Wave 69 residual honesty: hacker body residual peel.
+pub fn honesty_hacker_income_body_residual_ok() -> bool {
+    (HACKER_MAX_HEALTH - 100.0).abs() < 0.01
+        && HACKER_BUILD_COST == 625
+        && (HACKER_BUILD_TIME_SEC - 20.0).abs() < 0.01
+        && HACKER_BUILD_TIME_FRAMES
+            == ((HACKER_BUILD_TIME_SEC * HACKER_LOGIC_FPS).round() as u32)
+        && HACKER_BUILD_TIME_FRAMES == 600
+        && (HACKER_VISION_RANGE - 150.0).abs() < 0.01
+        && (HACKER_SHROUD_CLEARING_RANGE - 300.0).abs() < 0.01
+        && HACKER_TRANSPORT_SLOT_COUNT == 1
+        && is_hacker_template("ChinaInfantryHacker")
+        && !is_hacker_template("ChinaInfantryBlackLotus")
+        && is_internet_center_template("ChinaInternetCenter")
+        && is_legal_hacker_income_source(true, false, false)
+        && !is_legal_hacker_income_source(true, false, true)
+}
+
+/// Combined Wave 69 Hacker income residual honesty pack.
+pub fn honesty_hacker_income_residual_pack_ok() -> bool {
+    honesty_hacker_income_cash_residual_ok()
+        && honesty_hacker_income_floating_text_residual_ok()
+        && honesty_hacker_income_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,5 +632,18 @@ mod tests {
         reg.record_ic_scatter();
         assert!(reg.honesty_floating_text_stealth_gate_ok());
         assert!(reg.honesty_ic_scatter_ok());
+    }
+
+    #[test]
+    fn hacker_income_residual_pack_honesty_wave69() {
+        assert_eq!(cash_interval_frames_from_ms(2000), 60);
+        assert_eq!(cash_interval_frames_from_ms(1800), 54);
+        assert!(honesty_hacker_income_cash_residual_ok());
+        assert!(honesty_hacker_income_floating_text_residual_ok());
+        assert!(honesty_hacker_income_body_residual_ok());
+        assert!(honesty_hacker_income_residual_pack_ok());
+        assert_eq!(HACKER_BUILD_TIME_FRAMES, 600);
+        assert_eq!(HACKER_CASH_REGULAR, 5);
+        assert_eq!(HACKER_FLOATING_TEXT_ADD_CASH_KEY, "GUI:AddCash");
     }
 }

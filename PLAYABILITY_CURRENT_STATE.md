@@ -81,6 +81,83 @@
    - golden_skirmish_gate --frames 8 → PASS playable_claim=true
    - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
 
+## Residual Host Playability — Wave 69: ambush/mob/bomb-truck/gattling residual packs (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **Ambush residual pack** (`host_ambush`):
+   - Special-power residual: SuperweaponRebelAmbush ReloadTime **240000**ms → **7200**f,
+     RequiredScience **SCIENCE_RebelAmbush1**, RadiusCursor **50**, SharedSyncedTimer **Yes**,
+     PublicTimer **No**, ShortcutPower **Yes**, Enum **SPECIAL_AMBUSH**.
+   - OCL spawn residual: SUPERWEAPON_RebelAmbush1 Count **4** (Ambush2 **8** / Ambush3 **16**),
+     FadeTime **3000**ms → **90**f, FadeIn **Yes**, DiesOnBadLand **Yes**,
+     formation MinA **20** / MinB **30** / Max **400**, template GLAInfantryRebel.
+   - Honesty: `honesty_ambush_residual_pack_ok` + special_power / spawn_ocl tests.
+2. **Angry Mob residual pack** (`host_angry_mob`):
+   - Weapon residual: pistol **10**/r**100**/Delay **250**ms → **8**f / Clip **8**/reload **3000**ms,
+     DamageType MOLOTOV_COCKTAIL; aggregate tick **4**/member; ArmTheMob × **1.25**.
+   - Spawn residual: InitialBurst **5**, SpawnNumber **10**, SpawnReplaceDelay **30000**ms → **900**f.
+   - Body residual: MaxHealth **99999**, BuildCost **800**, BuildTime **15**s → **450**f,
+     Vision **150**/Shroud **0**, slots **0**, locomotor **18**.
+   - Upgrade residual: ArmTheMob cost **1000** / **30**s → **900**f.
+   - Honesty: `honesty_angry_mob_residual_pack_ok` + weapon/body/upgrade tests.
+3. **Bomb Truck detonate residual pack** (`host_bomb_truck_detonate`):
+   - Weapon residual: Default Primary **1000**/r**40** + Secondary **100**/r**65**;
+     HE **2000**/r**50** + **200**/r**85**; DamageType EXPLOSION / DeathType EXPLODED.
+   - Poison residual: MediumPoisonField **2** (Anthrax **2.5**) / r**80** / tick **500**ms → **15**f /
+     lifetime **30000**ms → **900**f.
+   - Upgrade residual: HE/Bio object upgrades cost **500** / **5**s → **150**f.
+   - Body residual: MaxHealth **220**, BuildCost **1200**, BuildTime **15**s → **450**f,
+     Vision **150**/Shroud **200**, slots **3**.
+   - Honesty: `honesty_bomb_truck_detonate_residual_pack_ok` + weapon/poison/upgrade/body tests.
+4. **Combat Cycle residual pack** (`host_combat_cycle`):
+   - Weapon residual: Rebel MG **8**/r**150**/100ms→**3**f/clip **6**; RPG **40**/r**175**/min **5**/
+     1000ms→**30**f; Kell sniper **180**/r**225**/750ms→**23**f; SuicideBikeBomb **700**/r**20** +
+     **100**/r**50**.
+   - Body residual: MaxHealth **100**, BuildCost **500**, BuildTime **4**s → **120**f,
+     Vision **180**/Shroud **300**, slots **1**, Speed **120**/Damaged **90**,
+     InitialPayload GLAInfantryRebel.
+   - Honesty: `honesty_combat_cycle_residual_pack_ok` + weapon/body tests.
+5. **Demo Suicide Bomb residual pack** (`host_demo_suicide_bomb`):
+   - DestroyedWeapon residual: Primary **50**/r**60** + Secondary **10**/r**70**, DeathType NORMAL.
+   - PlusFire residual: Primary **500**/r**18** + Secondary **300**/r**50**, AttackRange **5**,
+     DeathType SUICIDED, FireFX PlusFire, FireSound CarBomberDie.
+   - Upgrade residual: Demo_Upgrade_SuicideBomb cost **2000** / **30**s → **900**f,
+     Demo_Command_TertiarySuicide gate.
+   - Honesty: `honesty_demo_suicide_bomb_residual_pack_ok` + destroyed/plus_fire/upgrade tests.
+6. **FireWall residual pack** (`host_firewall`):
+   - Weapon residual: FireWallSegmentWeapon **4**/r**10**, Delay **250**ms → **8**f,
+     DamageType FLAME / DeathType BURNED, AttackRange **15**.
+   - Ability residual: DeletionUpdate **4000**ms → **120**f, DragonTankFireWallWeapon
+     AttackRange **25**/Primary **10**, OCL_FireWallSegment, segment HP **50**,
+     spacing **12**/start offset **20**/max length **120**.
+   - Honesty: `honesty_firewall_residual_pack_ok` + weapon/ability tests.
+7. **Gattling Tank residual pack** (`host_gattling_tank`):
+   - Weapon residual: Ground **15**/r**150** DamageType Gattling; Air **12**/r**350**
+     DamageType SMALL_ARMS; Delay **400**ms → **12**f; FireFX GattlingTankMachineGunFire.
+   - Continuous-fire residual: ContinuousFireOne **2**/Two **6**/Coast **1000**ms → **30**f;
+     ROF **200%**→**6**f / **300%**→**4**f; ChainGuns × **1.25**.
+   - Body residual: MaxHealth **300**, BuildCost **800**, BuildTime **10**s → **300**f,
+     Vision **150**/Shroud **360**, slots **3**, Speed **40**.
+   - Honesty: `honesty_gattling_tank_residual_pack_ok` + weapon/continuous_fire/body tests.
+8. **Hacker income residual pack** (`host_hacker_income`):
+   - Cash residual: Regular/Veteran/Elite/Heroic **5/6/8/10**, field **2000**ms → **60**f,
+     IC fast **1800**ms → **54**f, XpPerCashUpdate **1**, unpack **7300**/pack **5133**.
+   - Floating text residual: GUI:AddCash, Z **20**, green (0,255,0,255), IC scatter **0.3**.
+   - Body residual: MaxHealth **100**, BuildCost **625**, BuildTime **20**s → **600**f,
+     Vision **150**/Shroud **300**, slots **1**.
+   - Honesty: `honesty_hacker_income_residual_pack_ok` + cash/floating_text/body tests.
+9. Tests / gates (not log-only):
+   - `ambush_residual_pack_honesty_wave69` / special_power / spawn_ocl
+   - `angry_mob_residual_pack_honesty_wave69` / weapon / body / upgrade
+   - `bomb_truck_detonate_residual_pack_honesty_wave69` / weapon / poison / upgrade / body
+   - `combat_cycle_residual_pack_honesty_wave69` / weapon / body
+   - `demo_suicide_bomb_residual_pack_honesty_wave69` / destroyed / plus_fire / upgrade
+   - `firewall_residual_pack_honesty_wave69` / weapon / ability
+   - `gattling_tank_residual_pack_honesty_wave69` / weapon / continuous_fire / body
+   - `hacker_income_residual_pack_honesty_wave69` / cash / floating_text / body
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
 ## Residual Host Playability — Wave 68: black-market/booby/listening + graphics residual (2026-07-13)
 
 **Closed (host-testable residual peels):**

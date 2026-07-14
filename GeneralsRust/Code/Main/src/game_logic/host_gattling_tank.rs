@@ -337,6 +337,117 @@ pub fn is_legal_gattling_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
+
+// --- Wave 69 residual honesty peels (retail weapons / body / continuous fire) ---
+
+/// Logic frames per second residual.
+pub const GATTLING_LOGIC_FPS: f32 = 30.0;
+
+/// Convert residual msec → logic frames @ 30 FPS.
+pub fn gattling_ms_to_frames(ms: u32) -> u32 {
+    if ms == 0 {
+        return 0;
+    }
+    ((ms as f32) * GATTLING_LOGIC_FPS / 1000.0).round() as u32
+}
+
+/// Retail ground DelayBetweenShots residual (msec).
+pub const GATTLING_BASE_DELAY_MS: u32 = 400;
+/// Retail ContinuousFireCoast residual (msec).
+pub const GATTLING_COAST_MS: u32 = 1_000;
+/// Retail ground DamageType residual.
+pub const GATTLING_GROUND_DAMAGE_TYPE: &str = "Gattling";
+/// Retail air DamageType residual.
+pub const GATTLING_AIR_DAMAGE_TYPE: &str = "SMALL_ARMS";
+/// Retail FireFX residual.
+pub const GATTLING_FIRE_FX: &str = "WeaponFX_GattlingTankMachineGunFire";
+/// Retail ground ClipSize residual (0 = infinite).
+pub const GATTLING_CLIP_SIZE: u32 = 0;
+
+/// Retail ChinaTankGattling body residual.
+pub const GATTLING_MAX_HEALTH: f32 = 300.0;
+pub const GATTLING_BUILD_COST: u32 = 800;
+pub const GATTLING_BUILD_TIME_SEC: f32 = 10.0;
+pub const GATTLING_BUILD_TIME_FRAMES: u32 = 300;
+pub const GATTLING_VISION_RANGE: f32 = 150.0;
+pub const GATTLING_SHROUD_CLEARING_RANGE: f32 = 360.0;
+pub const GATTLING_TRANSPORT_SLOT_COUNT: u32 = 3;
+pub const GATTLING_LOCOMOTOR_SPEED: f32 = 40.0;
+pub const GATTLING_LOCOMOTOR_SPEED_DAMAGED: f32 = 40.0;
+
+/// Wave 69 residual honesty: ground/air weapon residual peel.
+pub fn honesty_gattling_tank_weapon_residual_ok() -> bool {
+    GATTLING_TANK_GUN == "GattlingTankGun"
+        && GATTLING_TANK_GUN_AIR == "GattlingTankGunAir"
+        && (GATTLING_GROUND_DAMAGE - 15.0).abs() < 0.01
+        && (GATTLING_GROUND_RANGE - 150.0).abs() < 0.01
+        && (GATTLING_AIR_DAMAGE - 12.0).abs() < 0.01
+        && (GATTLING_AIR_RANGE - 350.0).abs() < 0.01
+        && GATTLING_BASE_DELAY_MS == 400
+        && GATTLING_BASE_DELAY_FRAMES == gattling_ms_to_frames(GATTLING_BASE_DELAY_MS)
+        && GATTLING_BASE_DELAY_FRAMES == 12
+        && GATTLING_GROUND_DAMAGE_TYPE == "Gattling"
+        && GATTLING_AIR_DAMAGE_TYPE == "SMALL_ARMS"
+        && GATTLING_FIRE_FX == "WeaponFX_GattlingTankMachineGunFire"
+        && GATTLING_FIRE_AUDIO == "GattlingTankWeapon"
+        && GATTLING_CLIP_SIZE == 0
+        && {
+            let g = gattling_ground_weapon(GattlingFireLevel::Base, false);
+            let a = gattling_air_weapon(GattlingFireLevel::Base, false);
+            (g.damage - 15.0).abs() < 0.01
+                && g.can_target_ground
+                && !g.can_target_air
+                && (a.damage - 12.0).abs() < 0.01
+                && a.can_target_air
+                && !a.can_target_ground
+        }
+}
+
+/// Wave 69 residual honesty: continuous-fire ramp residual peel.
+pub fn honesty_gattling_tank_continuous_fire_residual_ok() -> bool {
+    GATTLING_CONTINUOUS_FIRE_ONE == 2
+        && GATTLING_CONTINUOUS_FIRE_TWO == 6
+        && GATTLING_COAST_MS == 1_000
+        && GATTLING_COAST_FRAMES == gattling_ms_to_frames(GATTLING_COAST_MS)
+        && GATTLING_COAST_FRAMES == 30
+        && (GATTLING_MEAN_ROF_MULT - 2.0).abs() < 0.01
+        && (GATTLING_FAST_ROF_MULT - 3.0).abs() < 0.01
+        && gattling_delay_frames_for_level(GattlingFireLevel::Base) == 12
+        && gattling_delay_frames_for_level(GattlingFireLevel::Mean) == 6
+        && gattling_delay_frames_for_level(GattlingFireLevel::Fast) == 4
+        && (GATTLING_CHAIN_GUN_DAMAGE_MULT - 1.25).abs() < 0.01
+        && UPGRADE_CHINA_CHAIN_GUNS == "Upgrade_ChinaChainGuns"
+        && (gattling_damage_with_chain_guns(15.0, true) - 18.75).abs() < 0.01
+        && preferred_gattling_slot(true) == 1
+        && preferred_gattling_slot(false) == 0
+        && GATTLING_RAPID_FIRE_AUDIO == "GattlingTankVoiceRapid"
+}
+
+/// Wave 69 residual honesty: body residual peel.
+pub fn honesty_gattling_tank_body_residual_ok() -> bool {
+    (GATTLING_MAX_HEALTH - 300.0).abs() < 0.01
+        && GATTLING_BUILD_COST == 800
+        && (GATTLING_BUILD_TIME_SEC - 10.0).abs() < 0.01
+        && GATTLING_BUILD_TIME_FRAMES
+            == ((GATTLING_BUILD_TIME_SEC * GATTLING_LOGIC_FPS).round() as u32)
+        && GATTLING_BUILD_TIME_FRAMES == 300
+        && (GATTLING_VISION_RANGE - 150.0).abs() < 0.01
+        && (GATTLING_SHROUD_CLEARING_RANGE - 360.0).abs() < 0.01
+        && GATTLING_TRANSPORT_SLOT_COUNT == 3
+        && (GATTLING_LOCOMOTOR_SPEED - 40.0).abs() < 0.01
+        && (GATTLING_LOCOMOTOR_SPEED_DAMAGED - 40.0).abs() < 0.01
+        && is_gattling_tank_template("ChinaTankGattling")
+        && !is_gattling_tank_template("ChinaGattlingCannon")
+        && !is_gattling_tank_template("GattlingTankGun")
+}
+
+/// Combined Wave 69 Gattling Tank residual honesty pack.
+pub fn honesty_gattling_tank_residual_pack_ok() -> bool {
+    honesty_gattling_tank_weapon_residual_ok()
+        && honesty_gattling_tank_continuous_fire_residual_ok()
+        && honesty_gattling_tank_body_residual_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,5 +549,18 @@ mod tests {
         let sd = gattling_coast_spin_down(50, 20, GattlingFireLevel::Fast).unwrap();
         assert_eq!(sd.0, GattlingFireLevel::Base);
         assert_eq!(sd.1, 0);
+    }
+
+    #[test]
+    fn gattling_tank_residual_pack_honesty_wave69() {
+        assert_eq!(gattling_ms_to_frames(400), 12);
+        assert_eq!(gattling_ms_to_frames(1000), 30);
+        assert!(honesty_gattling_tank_weapon_residual_ok());
+        assert!(honesty_gattling_tank_continuous_fire_residual_ok());
+        assert!(honesty_gattling_tank_body_residual_ok());
+        assert!(honesty_gattling_tank_residual_pack_ok());
+        assert_eq!(GATTLING_BUILD_TIME_FRAMES, 300);
+        assert_eq!(GATTLING_GROUND_DAMAGE_TYPE, "Gattling");
+        assert_eq!(GATTLING_AIR_DAMAGE_TYPE, "SMALL_ARMS");
     }
 }
