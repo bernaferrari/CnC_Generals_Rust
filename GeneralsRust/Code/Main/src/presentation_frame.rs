@@ -164,6 +164,11 @@ pub enum PresentationEvent {
         attacker: ObjectId,
         target: Option<ObjectId>,
     },
+    /// Move order destination this frame (host_move_log).
+    MoveOrdered {
+        unit: ObjectId,
+        destination: [f32; 3],
+    },
     Victory {
         winner_player: Option<u32>,
     },
@@ -1477,6 +1482,14 @@ impl PresentationFrame {
                 });
             }
         }
+        for ev in crate::game_logic::host_move_log::last_drain_snapshot() {
+            if let Some(destination) = ev.destination {
+                events.push(PresentationEvent::MoveOrdered {
+                    unit: ev.unit,
+                    destination,
+                });
+            }
+        }
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2095,6 +2108,12 @@ impl PresentationFrame {
                         hud.push_info_message(&format!("Attack: #{} -> #{}", attacker.0, t.0));
                     }
                 }
+                PresentationEvent::MoveOrdered { unit, destination } => {
+                    hud.push_info_message(&format!(
+                        "Move: #{} -> ({:.0},{:.0})",
+                        unit.0, destination[0], destination[2]
+                    ));
+                }
                 PresentationEvent::ObjectDestroyed { id, .. } => {
                     hud.push_info_message(&format!("Destroyed: #{}", id.0));
                 }
@@ -2131,6 +2150,7 @@ impl PresentationFrame {
                 PresentationEvent::Victory { .. } => ("Victory", None),
                 PresentationEvent::RadarMessage { .. }
                 | PresentationEvent::OwnerChanged { .. }
+                | PresentationEvent::MoveOrdered { .. }
                 | PresentationEvent::ParticleSystemSpawned { .. } => continue,
             };
             let mut req = AudioEventRequest::new(kind);
@@ -2322,6 +2342,31 @@ mod tests {
         let n = frame.apply_events_to_audio(&mut logic);
         assert!(n >= 1, "expected audio queue from AttackTargeted, n={n}");
         assert!(logic.queued_audio_event_count_for_test() >= 1);
+    }
+
+    #[test]
+    fn move_ordered_freezes_from_last_drain() {
+        crate::game_logic::host_move_log::clear();
+        crate::game_logic::host_move_log::record(
+            crate::game_logic::ObjectId(4),
+            Some([10.0, 0.0, 20.0]),
+        );
+        let _ = crate::game_logic::host_move_log::drain();
+        let logic = crate::game_logic::GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(
+            frame.events.iter().any(|e| {
+                matches!(
+                    e,
+                    PresentationEvent::MoveOrdered {
+                        unit,
+                        destination
+                    } if unit.0 == 4 && *destination == [10.0, 0.0, 20.0]
+                )
+            }),
+            "expected MoveOrdered: {:?}",
+            frame.events
+        );
     }
 
     #[test]
