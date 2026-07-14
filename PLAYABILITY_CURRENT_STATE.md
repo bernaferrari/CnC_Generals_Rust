@@ -1,3 +1,62 @@
+## Residual Host Playability — Wave 73: Spectre/Nuke/SupW residual deepen + presentation decal (2026-07-13)
+
+**Closed (host-testable residual peels):**
+1. **SpectreGunship orbit residual pack deepen** (`special_power_strikes`):
+   - HowitzerFiringRate **300**ms → **9**f (explicit ms residual) + HowitzerFollowLag
+     **400**ms → **12**f.
+   - GunshipOrbitRadius **250** vs AttackAreaRadius **200** (science tiers L1/L2/L3 all
+     share AttackAreaRadius **200**; only OrbitTime **300/450/600**f scales).
+   - TargetingReticleRadius **25**, StrafingIncrement **20**, OrbitInsertionSlope **0.7**,
+     GattlingStrafeFX **SpectreGattlingArmsSmoke**.
+   - AttackAreaDecal **SCCSpecTarg** / TargetingReticleDecal **SCCSpecRet** /
+     Color **R:127 G:177 B:222 A:255** / throb **1500**/ **300**ms.
+   - SuperweaponSpectreGunship Reload **240000**ms → **7200**f; AirF Reload
+     **180000**ms → **5400**f; ViewObject **30000**ms → **900**f / range **250**.
+   - Dual-weapon ROF residual schedule: howitzer base/**9** MEAN/**6** FAST/**4**;
+     gattling base/**3** MEAN/**1** FAST/**1**.
+   - Honesty: `honesty_spectre_orbit_residual_pack_wave73` +
+     `SpectreGunshipScienceTier::attack_area_radius`.
+2. **NuclearMissile radiation residual pack deepen** (`special_power_strikes`):
+   - NukeRadiationFieldWeapon AttackRange **15** / MinimumAttackRange **10**.
+   - KindOf **IMMOBILE CLEANUP_HAZARD INERT NO_COLLIDE**, Armor
+     **HazardousMaterialArmor**, Geometry **CYLINDER** h**1** / IsSmall **No**.
+   - HazardFieldCoreWeapon + DeathFX **FX_RadiationPoolDie**, InitialHealth **150**.
+   - SuperweaponNeutronMissile Reload **360000**ms → **10800**f, RadiusCursor **210**,
+     ViewObject **40000**ms → **1200**f / range **250**, InitiateAtLocationSound
+     **AirRaidSiren**.
+   - Honesty: `honesty_nuke_radiation_residual_pack_wave73` (extends Wave 56 pack).
+3. **SupW variants residual pack** (`special_power_strikes`):
+   - SupW_SuperweaponNeutronMissile Reload **240000**ms → **7200**f / RadiusCursor **210**.
+   - SupW_SuperweaponParticleUplinkCannon Reload **180000**ms → **5400**f.
+   - Nuke_SuperweaponNeutronMissile Reload **300000**ms → **9000**f / RadiusCursor **210**.
+   - Ordering residual: SupW **240s** < Nuke_ **300s** < China standard **360s**;
+     AirF Spectre **180s** < USA Spectre **240s**; SupW Cruise **120s** retained.
+   - Honesty: `honesty_supw_variants_residual_pack_wave73` + combined
+     `honesty_special_power_residual_pack_wave73_ok`.
+4. **Presentation Spectre orbit decal residual** (`presentation_frame`):
+   - Snapshot-owned AttackAreaDecal / TargetingReticleDecal residual
+     (`PresentationSpectreOrbitDecal::RETAIL`) for dual-tick consumers without live
+     SpectreGunshipUpdate re-read.
+   - OpacityMin/Max AttackArea **25%/50%**, Reticle **50%/100%**, Style
+     **SHADOW_ALPHA_DECAL**, OnlyVisibleToOwningPlayer **Yes**.
+   - Honesty: `honesty_spectre_orbit_decal_presentation_ok` +
+     `PresentationFrame::spectre_orbit_decal_presentation_residual_ok`.
+5. Tests / gates (not log-only):
+   - `spectre_orbit_residual_pack_wave73_honesty` /
+     `nuke_radiation_residual_pack_wave73_honesty` /
+     `supw_variants_residual_pack_wave73_honesty` /
+     `spectre_orbit_decal_presentation_residual_wave73`
+   - special_power_strikes lib suite: **102** ok
+   - golden_skirmish_gate --frames 8 → PASS playable_claim=true
+   - shell_smoke_gate → PASS playable_claim=false shell_host_playable_ok=true
+
+**Still residual (fail-closed, not claimed):**
+- Full SpectreGunshipUpdate OCL aircraft / live gattling strafe bone path
+- Full HazardousMaterialArmor cleanup-hazard stack / live radiation object
+- Full SupW ThingFactory Object / general faction select
+- Full SHADOW_ALPHA_DECAL GPU throb submit
+- Network residual replication (network deferred)
+
 ## Residual Host Playability — Wave 72: remaining host residual packs + special_power Daisy/A10 deepen (2026-07-13)
 
 **Closed (host-testable residual peels):**
