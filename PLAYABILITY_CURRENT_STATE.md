@@ -75,6 +75,8 @@
 
 ## Residual Host Playability — Wave 99: production residual deepen / buildable / prerequisite / command-button deepen / control-bar deepen peels (2026-07-14)
 
+- Co-present Wave 98 residual (`host_dock_contain_exit_heal_residual`) in shell gate wiring
+
 **Closed (host-testable residual peels; orthogonal production/buildable/prereq/command/control residual):**
 1. **Production residual deepen** (`host_production_buildable_command_residual`, beyond Wave 83 queue/energy/refund):
    - `ProductionType` residual INVALID **0** / UNIT **1** / UPGRADE **2**.
